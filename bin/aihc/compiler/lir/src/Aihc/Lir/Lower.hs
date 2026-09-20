@@ -1029,13 +1029,14 @@ data FunctionCtx = FunctionCtx
   { ctxEnv :: !LowerEnv,
     ctxMachine :: !Operand,
     ctxFunctionName :: !FunctionName,
+    -- | The function's static reference table, or null when its code reaches
+    -- no traced static object. A running function has no heap object to
+    -- carry its table, so its safepoints pass it to the collector.
+    ctxSrt :: !Operand,
     ctxRoots :: !(Maybe Operand)
   }
 
 type ValueEnv = Map GrinVar Typed
-
-currentSrtSymbol :: Symbol
-currentSrtSymbol = Symbol "aihc_current_srt"
 
 lowerFunction :: LowerEnv -> GrinFunction -> LowerM ()
 lowerFunction env function = do
@@ -1044,16 +1045,12 @@ lowerFunction env function = do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
   beginBlock (Label "entry") []
-  -- Every function publishes its own table, so a collection never sees a
-  -- table left behind by a function that has already transferred away.
-  requireExternData currentSrtSymbol
   let srt = maybe (OperandLiteral LitNull) (OperandLiteral . LitSymbol) (Map.lookup (grinFunctionName function) (envSrtSymbols env))
-  emit [] (Store Ptr srt (byteAddress (OperandLiteral (LitSymbol currentSrtSymbol)) 0) (byteAlignment 8))
   roots <-
     case maximumRoots (grinFunctionBody function) of
       0 -> pure Nothing
       count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) (byteAlignment 8))
-  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxRoots = roots}
+  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
   finishFunction
@@ -1190,6 +1187,10 @@ compileCpsPrimitive ctx env runtimeRep name arguments continuation =
       let symbol = nativeCpsCallSymbol runtimeCall
           callArguments = ctxMachine ctx : operands <> [continuationOperand | nativeCpsCallPassContinuation runtimeCall]
           callParameters = Ptr : parameterTypes <> [Ptr | nativeCpsCallPassContinuation runtimeCall]
+      -- A CPS runtime call may collect, and it does so without the calling
+      -- function's static reference table: the only code that runs after the
+      -- call is the transfer below, which passes heap objects and touches no
+      -- static object of this function. Keep it that way.
       result <- callRuntime symbol callParameters [resultType] callArguments
       case nativeCpsCallTransfer runtimeCall of
         NativeCpsEnterContinuation -> do
@@ -1306,8 +1307,10 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
     storeSlot Ptr root array (toInteger (8 * index))
   -- The compare above is the reservation, so this is the collector rather
-  -- than a second reservation that would repeat it.
-  _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
+  -- than a second reservation that would repeat it. The function's table
+  -- travels as an argument: this is the only place a collection runs on
+  -- behalf of a running compiled function.
+  _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
   relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
     loadSlot (varBase var) Ptr array (toInteger (8 * index))
   terminate (Jump (Target reserved (map typedOperand relocated)))
@@ -2472,7 +2475,9 @@ startMachine = do
   exit <- requireHelper HelperExit
   let entryGlobal = globalSymbol executableEntryName
   machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
-  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull]
+  -- The start-up code reaches no static object of its own, so it passes no
+  -- table.
+  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull, OperandLiteral LitNull]
   final <- allocateContinuation machine finalInfo 1
   top <- allocateContinuation machine topInfo 2
   storeSlot Ptr final top 8

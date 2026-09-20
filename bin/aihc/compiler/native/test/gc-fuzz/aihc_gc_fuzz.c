@@ -17,7 +17,8 @@
                           initial space of S bytes
      srt I O C e...       reference table I names O static objects and C
                           child tables
-     current_srt I|-1     publish table I as the running function's table
+     current_srt I|-1     pass table I as the running function's table to
+                          every later collection
      mvars N              create N empty MVars
      fill K               allocate garbage until K words remain
      reserve W            reserve W words; this can collect
@@ -120,6 +121,9 @@ static Entry *entries;
 static size_t entry_capacity;
 static AihcSrt **srts;
 static size_t srt_count;
+/* The table the script passes to each collection as the running function's
+   table. */
+static const AihcSrt *current_srt;
 static AihcSlot *root_slots;
 static uint64_t root_count;
 static AihcMVar **mvars;
@@ -676,7 +680,7 @@ static void ensure(uint64_t words) {
                        ? root_slots[index]
                        : (AihcSlot)(uintptr_t)mvars[index - root_count];
   }
-  aihc_ensure_heap(machine, words, total, roots);
+  aihc_ensure_heap(machine, words, total, roots, current_srt);
   for (size_t index = 0; index < total; ++index) {
     if (index < root_count) {
       root_slots[index] = roots[index];
@@ -714,7 +718,7 @@ static void command_machine(char **tokens, size_t count) {
   mvars = NULL;
   mvar_count = 0;
   reset_statics();
-  aihc_current_srt = NULL;
+  current_srt = NULL;
   reserved_words = 0;
   machine = aihc_machine_new(global_count);
   /* Replace the default space so each script chooses its own size. */
@@ -977,7 +981,7 @@ static void run_command(char **tokens, size_t count) {
       fail("current_srt expects one argument");
     }
     link_srts();
-    aihc_current_srt = srt_of(parse_signed(tokens[1]));
+    current_srt = srt_of(parse_signed(tokens[1]));
   } else if (strcmp(name, "mvars") == 0) {
     if (count != 2 || mvars != NULL) {
       fail("mvars expects one argument and runs once");

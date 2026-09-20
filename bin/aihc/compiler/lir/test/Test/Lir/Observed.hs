@@ -90,8 +90,8 @@ lowerObservedProgram target gcStress entryName gcProgram = do
       emit [machine] (Call (Symbol "aihc_machine_new") [OperandLiteral (LitInt 0)])
       -- Both continuations capture nothing, so they are one word each: the
       -- driver reserves the two and takes them the way compiled code does.
-      requireExtern (Symbol "aihc_ensure_heap") [Ptr, I64, I64, Ptr] []
-      emit [] (Call (Symbol "aihc_ensure_heap") [OperandVar machine, OperandLiteral (LitInt 2), OperandLiteral (LitInt 0), OperandLiteral LitNull])
+      requireExtern (Symbol "aihc_ensure_heap") [Ptr, I64, I64, Ptr, Ptr] []
+      emit [] (Call (Symbol "aihc_ensure_heap") [OperandVar machine, OperandLiteral (LitInt 2), OperandLiteral (LitInt 0), OperandLiteral LitNull, OperandLiteral LitNull])
       threadDone <- allocateContinuation (OperandVar machine) threadDoneInfo 1
       requireExtern (Symbol "aihc_set_thread_done_continuation") [Ptr, Ptr] []
       emit [] (Call (Symbol "aihc_set_thread_done_continuation") [OperandVar machine, threadDone])

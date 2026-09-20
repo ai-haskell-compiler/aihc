@@ -617,7 +617,7 @@ A node the function stores on the heap contributes no entry. The stored object c
 
 Put a pointer to the table in the info table of every closure and thunk whose entry is that function. Constructor info tables have no table: a constructor has no code.
 
-Compiled functions must publish their own table on entry. After CPS conversion every call is a tail call, so a running function has no heap object of its own to carry its table, and a collection can happen at one of its safepoints or inside a runtime helper it called. A function with no table must publish an empty one rather than leave behind the table of a function that has already transferred control away.
+A compiled function passes its own table, or null when it has none, as an argument to the collector at each of its safepoints. After CPS conversion every call is a tail call, so a running function has no heap object of its own to carry its table, and no global records it either. A collection inside a runtime helper passes no table: the helper is reached by a tail call, or by a call whose only continuation is a transfer to heap objects, so the static references of the function that called it are dead by then. The lowering keeps every CPS runtime call in that shape.
 
 A table record is word-uniform: a mutable walk link, the object count, the child count, then the static object addresses followed by the addresses of the child tables. The link is mutable, so records belong in a writable section even though info tables are read-only.
 

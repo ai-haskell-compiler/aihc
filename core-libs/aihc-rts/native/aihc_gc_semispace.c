@@ -373,7 +373,8 @@ void aihc_heap_account(AihcMachine *machine) {
 }
 
 static void aihc_collect(AihcMachine *machine, size_t required_bytes,
-                         uint64_t root_count, AihcSlot *roots) {
+                         uint64_t root_count, AihcSlot *roots,
+                         const AihcSrt *srt) {
   uint64_t started_ns = aihc_host_monotonic_ns();
   aihc_gc_record_peak(machine);
   /* Everything the mutator took from the space it is about to leave. */
@@ -399,8 +400,9 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   aihc_address_set_clear(&aihc_marked_statics);
   aihc_static_worklist.count = 0;
   aihc_srt_worklist.count = 0;
-  /* The active function publishes its table at entry. */
-  aihc_walk_srt(aihc_current_srt);
+  /* The table of the code that requested the collection, or NULL when that
+     code reaches no static object of its own. */
+  aihc_walk_srt(srt);
   aihc_visit_roots(machine, root_count, roots, aihc_forward_root, &context);
   aihc_trace(&context);
   aihc_clear_srt_stamps();
@@ -453,18 +455,18 @@ static size_t aihc_reservation_bytes(const AihcMachine *machine,
    calls the runtime on the slow path, so repeating the comparison here would
    always take the same branch. */
 void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                     AihcSlot *roots) {
+                     AihcSlot *roots, const AihcSrt *srt) {
   aihc_collect(machine, aihc_reservation_bytes(machine, words), root_count,
-               roots);
+               roots, srt);
 }
 
 /* Reserve for a caller that has not compared anything: the machine start-up
    path, the runtime units, and the C programs of the tests. */
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                    AihcSlot *roots) {
+                    AihcSlot *roots, const AihcSrt *srt) {
   size_t bytes = aihc_reservation_bytes(machine, words);
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
-    aihc_collect(machine, bytes, root_count, roots);
+    aihc_collect(machine, bytes, root_count, roots, srt);
   }
 }
 

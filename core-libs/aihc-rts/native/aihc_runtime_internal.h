@@ -216,9 +216,9 @@ extern const AihcInfo aihc_runtime_object_info;
 
 void aihc_gc_init(AihcMachine *machine);
 void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                     AihcSlot *roots);
+                     AihcSlot *roots, const AihcSrt *srt);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                    AihcSlot *roots);
+                    AihcSlot *roots, const AihcSrt *srt);
 /* Consume reserved memory without collection. Initialize the object before
    any subsequent call that can collect. */
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);

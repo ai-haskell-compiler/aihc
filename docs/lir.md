@@ -548,7 +548,8 @@ The lowering keeps the control model of CPS-GRIN:
   its space and branches on whether the words it wants fit. When they do, the
   branch is the whole reservation and every root stays in its register. When
   they do not, the slow block stores the live roots in a `stack.alloc` array,
-  calls `aihc_ensure_heap`, and reloads the relocated roots. The two paths meet
+  calls `aihc_heap_collect` with the function's static reference table, and
+  reloads the relocated roots. The two paths meet
   at a block whose parameters carry the roots, so the code after a reservation
   names the roots the same way whichever path reached it.
 - A store takes its object from that reservation itself: it loads the heap
