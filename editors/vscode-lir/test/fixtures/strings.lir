@@ -1,0 +1,13 @@
+func @"Data.List\u{0}map"(%"value;name": ptr) {
+"entry block":
+  %text = load i8 [@"semi;colon"] align 1
+  trap "a; b \"quote\" \\ \n \r \t \0 \x41 \u{1f600}"
+const @CHARS = 'K' + ';' + '\n' + '\'' + '\x41'
+data @multiline align 1 = { bytes "first
+; second %value @name
+last" } ; End of data.
+return 0
+global @"first
+second" : ptr
+trap "unfinished
+; still a string
