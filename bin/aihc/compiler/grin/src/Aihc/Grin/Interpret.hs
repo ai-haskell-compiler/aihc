@@ -443,6 +443,7 @@ evalScheduledExpr env expr continue =
       runtimeValue <- materializeValue env value
       forceScheduledValue runtimeValue (continue . (: []))
     GrinCpsEval {} -> rejectCpsExpression
+    GrinIfWhnf {} -> rejectCpsExpression
     GrinCall _ functionName arguments -> do
       argumentValues <- mapM (materializeValue env) arguments
       callScheduledFunction functionName argumentValues continue

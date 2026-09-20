@@ -160,6 +160,7 @@ lintFunctionResult env resultRep expr =
     GrinStoreUnchecked {} -> []
     GrinStoreRec _ body -> lintFunctionResult env resultRep body
     GrinStoreRecUnchecked _ body -> lintFunctionResult env resultRep body
+    GrinIfWhnf _ ready slow -> lintFunctionResult env resultRep ready <> lintFunctionResult env resultRep slow
     GrinCase _ _ alternatives -> concatMap (lintFunctionResult env resultRep . grinAltRhs) alternatives
     _ -> []
 
@@ -193,11 +194,10 @@ lintExpr env bound expr =
     GrinEval _ value ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
         <> lintValue bound value
-    GrinCpsEval _ value continuation updateContinuation ->
+    GrinCpsEval _ value continuation ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
         <> lintValue bound value
         <> lintValue bound continuation
-        <> lintValue bound updateContinuation
     GrinCall resultRep functionName arguments ->
       lintKnownCall env bound resultRep functionName arguments
     GrinPrimitiveCall _ name arguments ->
@@ -221,6 +221,11 @@ lintExpr env bound expr =
     GrinExit status ->
       [GrinLintRepresentationMismatch "exit status" (grinValueRuntimeRep status) IntRep | grinValueRuntimeRep status /= IntRep]
         <> lintValue bound status
+    GrinIfWhnf value ready slow ->
+      [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
+        <> lintValue bound value
+        <> lintExpr env bound ready
+        <> lintExpr env bound slow
     GrinCase scrutinee binder alternatives ->
       lintValue bound scrutinee
         <> concatMap (lintAlt env (Set.insert binder bound)) alternatives
@@ -387,6 +392,7 @@ exprResults expr =
     GrinCpsRaise {} -> []
     GrinHalt {} -> []
     GrinExit {} -> []
+    GrinIfWhnf _ ready slow -> exprResults ready <> exprResults slow
     GrinCase _ _ alternatives ->
       concatMap (exprResults . grinAltRhs) alternatives
     GrinThrow {} -> []

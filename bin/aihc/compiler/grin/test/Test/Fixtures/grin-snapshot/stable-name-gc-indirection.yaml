@@ -20,7 +20,7 @@ program: |
 return: "1"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 256
-  linux-amd64: 256
+  macos-arm64: 232
+  linux-amd64: 232
 status: pass
 reason: Weak referent relocation must follow a live target through an updated heap thunk.

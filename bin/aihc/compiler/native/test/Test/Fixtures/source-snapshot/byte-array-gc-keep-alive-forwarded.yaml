@@ -17,7 +17,7 @@ return: "@0"
 heap: |
   @0 = CResult 8 42
 allocated-bytes:
-  macos-arm64: 416
-  linux-amd64: 416
+  macos-arm64: 352
+  linux-amd64: 352
 status: pass
 reason: Keep-alive frames must forward results with multiple registers and an abstract representation.

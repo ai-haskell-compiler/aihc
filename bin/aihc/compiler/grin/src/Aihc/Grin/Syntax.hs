@@ -306,10 +306,11 @@ data GrinExpr
     -- form. The result remains a heap pointer; evaluation never returns the
     -- fetched node payload directly.
     GrinEval !GrinRep !GrinValue
-  | -- | CPS-only evaluation. The first continuation receives a value already
-    -- in weak-head normal form. The second continuation receives the result
-    -- of an entered thunk and is responsible for updating its blackhole.
-    GrinCpsEval !GrinRep !GrinValue !GrinValue !GrinValue
+  | -- | CPS-only evaluation. The runtime creates an update frame for each thunk it enters.
+    GrinCpsEval !GrinRep !GrinValue !GrinValue
+  | -- | CPS-only WHNF test. Neither the test nor the ready branch requires a heap frame.
+    -- Indirections, thunks, and blackholes select the slow branch.
+    GrinIfWhnf !GrinValue !GrinExpr !GrinExpr
   | -- | A saturated call to a statically known code entry. The result is
     -- the one this call site expects; see 'GrinResultRep' for when it is
     -- forwarded rather than placed.
@@ -434,6 +435,7 @@ exprTagNames expression =
     GrinStoreUnchecked node -> nodeTagNames node
     GrinStoreRec bindings body -> concatMap (nodeTagNames . snd) bindings <> exprTagNames body
     GrinStoreRecUnchecked bindings body -> concatMap (nodeTagNames . snd) bindings <> exprTagNames body
+    GrinIfWhnf _ ready slow -> exprTagNames ready <> exprTagNames slow
     GrinCase _ _ alternatives -> concatMap altTagNames alternatives
     _ -> []
   where
@@ -465,8 +467,8 @@ grinProgramLiterals program =
         GrinStoreRecUnchecked bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
         GrinUpdate pointer value -> valueLiterals pointer <> valueLiterals value
         GrinEval _ value -> valueLiterals value
-        GrinCpsEval _ value continuation updateContinuation ->
-          valueLiterals value <> valueLiterals continuation <> valueLiterals updateContinuation
+        GrinCpsEval _ value continuation ->
+          valueLiterals value <> valueLiterals continuation
         GrinCall _ _ arguments -> concatMap valueLiterals arguments
         GrinPrimitiveCall _ _ arguments -> concatMap valueLiterals arguments
         GrinCpsPrimitiveCall _ _ arguments continuation ->
@@ -480,6 +482,7 @@ grinProgramLiterals program =
         GrinUpdateBlackhole pointer value -> valueLiterals pointer <> valueLiterals value
         GrinHalt values -> concatMap valueLiterals values
         GrinExit status -> valueLiterals status
+        GrinIfWhnf value ready slow -> valueLiterals value <> exprLiterals ready <> exprLiterals slow
         GrinCase scrutinee _ alternatives -> valueLiterals scrutinee <> concatMap altLiterals alternatives
         GrinThrow exception -> valueLiterals exception
         GrinCatch _ action handler state ->
@@ -518,7 +521,7 @@ grinExprGlobalReferences = exprReferences
         GrinStoreRecUnchecked bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
         GrinUpdate pointer value -> valueReferences pointer <> valueReferences value
         GrinEval _ value -> valueReferences value
-        GrinCpsEval _ value continuation updateContinuation -> valuesReferences [value, continuation, updateContinuation]
+        GrinCpsEval _ value continuation -> valuesReferences [value, continuation]
         GrinCall _ _ arguments -> valuesReferences arguments
         GrinPrimitiveCall _ _ arguments -> valuesReferences arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> valuesReferences arguments <> valueReferences continuation
@@ -530,6 +533,7 @@ grinExprGlobalReferences = exprReferences
         GrinUpdateBlackhole pointer value -> valueReferences pointer <> valueReferences value
         GrinHalt values -> valuesReferences values
         GrinExit status -> valueReferences status
+        GrinIfWhnf value ready slow -> valueReferences value <> exprReferences ready <> exprReferences slow
         GrinCase scrutinee _ alternatives -> valueReferences scrutinee <> concatMap (exprReferences . grinAltRhs) alternatives
         GrinThrow exception -> valueReferences exception
         GrinCatch _ action handler state -> valuesReferences (action : handler : state)
@@ -564,6 +568,7 @@ grinExprFunctionNames = exprNames
         GrinStoreUnchecked node -> grinNodeFunctionNames node
         GrinStoreRec bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
         GrinStoreRecUnchecked bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
+        GrinIfWhnf _ ready slow -> exprNames ready <> exprNames slow
         GrinCase _ _ alternatives -> concatMap (exprNames . grinAltRhs) alternatives
         _ -> []
 
