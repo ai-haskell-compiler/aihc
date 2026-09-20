@@ -1,0 +1,65 @@
+---
+extensions: []
+modules:
+- |
+  module Test (opaque, wrap, use) where
+  import GHC.Types (Bool (..))
+
+  opaque :: Bool -> Bool
+  opaque x = opaque x
+
+  wrap :: Bool -> Bool
+  wrap x = opaque (opaque x)
+
+  use :: Bool -> Bool
+  use x = case wrap x of
+    True -> wrap x
+    False -> x
+passes:
+- inline:
+    policy: grow
+    site-limit: 2
+    discount: 0
+    value-growth: 0
+    value-slack: 2
+    rounds: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cFalse :: 2.tBool;
+    2.cLifted :: 2.tLevity;
+    2.cTrue :: 2.tBool
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub val 1.vopaque :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    1.vopaque x
+
+  pub val 1.vwrap :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    1.vopaque (1.vopaque x)
+
+  pub val 1.vuse :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    case 1.vopaque (1.vopaque x) as (_scrut : 2.tBool) return (2.tBool) of {
+        2.cTrue →
+            1.vwrap x;
+        2.cFalse →
+            x
+    }
+status: pass
+reason: |-
+  The scrutinee uses the available growth before its alternatives.
+  The call in the True alternative stays when no growth remains.

@@ -109,10 +109,15 @@ dump of the program.
 | `policyValueGrowth` | How far one top-level value may grow in the pass, as a percentage of its size when the pass began. |
 | `policyValueSlack` | Nodes every value may grow by in the pass, whatever its size, so that a small value can still take one useful copy. |
 
-`shrinkPolicy` sets every limit to zero except the callee limit, which is
-unbounded: a copy that makes the program smaller is welcome whatever its
-size. `growPolicy` is the speed policy; its numbers are in the code, with the
-measurements that chose them.
+`shrinkPolicy` sets the callee limit to 80 and every other limit to zero.
+The callee limit reduces work on large copies that the site rule would reject.
+A removable value bypasses this limit when its copies together replace it.
+`growPolicy` is the speed policy. Its numbers are in the code.
+
+The inliner decides a scrutinee site before it simplifies the case alternatives.
+The alternatives then use the allowance that remains after this decision.
+A rejected site simplifies only the original alternatives.
+This prevents duplicate work in nested cases.
 
 The growth of a site is the size of the simplified copy less the size of the
 call it replaces, less the discounts. The size is `Aihc.Fc.Size.exprSize`,

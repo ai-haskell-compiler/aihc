@@ -310,9 +310,11 @@ inlineScrutinee env name candidate args binder resultType alternatives = do
       pushed <- caseOfCaseRaw env inlined binder resultType alternatives
       case pushed of
         Just pushed' -> decide (pushedGrowth env pushed' + callGrowth) (expandJoins env (pushedJoins pushed') (pushedSmall pushed'))
-        Nothing -> do
+        -- The alternatives use the remaining allowance. Simplify them only
+        -- after this site reserves its growth.
+        Nothing -> decide callGrowth $ do
           alternatives' <- mapM (simplifyAlt env inlined binder) alternatives
-          decide callGrowth (pure (mkCase (spEnv env) inlined binder resultType alternatives'))
+          pure (mkCase (spEnv env) inlined binder resultType alternatives')
 
 -- | The allowance the sites inside a copy took, from the state before
 -- the copy. The site around them takes it off its growth: that growth
