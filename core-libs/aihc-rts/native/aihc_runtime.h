@@ -343,7 +343,6 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
                            uint64_t count, const AihcSlot *arguments,
                            AihcValue **continuation);
 /* Consume at most fourteen reserved heap slots without collection. */
-void aihc_begin_blackhole(AihcMachine *machine, AihcValue *value);
 /* Consume at most four reserved heap slots without collection. */
 const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
                                           AihcValue *value,

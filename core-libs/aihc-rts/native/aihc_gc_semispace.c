@@ -572,7 +572,9 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   }
   AihcValue *value = (AihcValue *)machine->heap_next;
   machine->heap_next += bytes;
+#ifdef DEBUG
   memset(value, 0, bytes);
+#endif
   return value;
 }
 

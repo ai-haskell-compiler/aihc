@@ -1,0 +1,17 @@
+; LIR module fixture.
+include "runtime.lir"
+const @OFFSET = (2 + 3) words
+extern func @host(i64) -> i64 cc c
+extern data @external
+global @heap : ptr
+export data mut @table align 8 = { word @OFFSET, bytes "hello", zero 4, ptr null, code @main }
+export func @main(%arg: i64) -> i64 cc aihc {
+entry:
+  %value = load i64 [@table + @OFFSET words - 8] align 1 word
+  %next = add i64 %arg, 1
+  br %arg, loop(%next), done(0)
+loop(%acc: i64):
+  switch i64 %acc { 0, @OFFSET -> done(%acc) default -> loop(%acc) }
+done(%result: i64):
+  return %result
+}
