@@ -260,9 +260,9 @@ entry:
 
 ### Info tables
 
-`aihc_info.lir` defines the six runtime info accessors. They use the Lir
-calling convention. Byte accessors use unsigned loads and zero extension.
-Pointer and code accessors use word offsets for 32-bit and 64-bit targets.
+`aihc_constants.lir` defines the named field offsets for runtime info tables.
+Runtime helpers read fields with direct loads. Byte fields use zero extension.
+The offsets use the target word size on 32-bit and 64-bit targets.
 
 An info table describes one kind of heap object. The header of a heap object
 is the address of its info table. GC-GRIN emits one info table per object kind
@@ -273,9 +273,8 @@ An info table is five word-wide fields followed by four byte-wide fields. A
 pointer field is `ptr` and a code field is `code`; a count or a kind is an
 `i8`. Word field `k` starts at offset `k` words, byte field `j` at offset
 five words plus `j`, and the table is aligned to the word size, so the same
-text suits every target. A unit reads a field with a word-scaled address
-offset: `[%header + 3 words]` for `backend_entry` and `[%header + 5 words +
-3]` for `object_kind`. A field without a value is `ptr null`, `code null`,
+text suits every target. A unit reads `backend_entry` at `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
+It reads `object_kind` at `[%header + @AIHC_INFO_KIND_OFFSET]`. A field without a value is `ptr null`, `code null`,
 or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
