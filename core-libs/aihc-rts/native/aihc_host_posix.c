@@ -145,6 +145,11 @@ static int aihc_posix_descriptor(const AihcIoHandle *handle) {
   return (int)handle->backend_token;
 }
 
+int64_t aihc_io_handle_descriptor(void *opaque_handle) {
+  const AihcIoHandle *handle = opaque_handle;
+  return aihc_posix_descriptor(handle);
+}
+
 static void *aihc_posix_open(void *opaque_path, int64_t requested_length,
                              int64_t requested_mode) {
   if (requested_length < 0 || (uint64_t)requested_length >= SIZE_MAX ||

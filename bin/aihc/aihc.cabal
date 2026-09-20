@@ -54,6 +54,7 @@ extra-source-files:
   test/Test/Fixtures/install/code-quality/*/*.cabal
   test/Test/Fixtures/install/code-quality/*/fixture.yaml
   test/Test/Fixtures/install/code-quality/*/src/*.hs
+  test/Test/Fixtures/install/code-quality/*/src/*.hsc
   test/Test/Fixtures/install/incremental/Extra.hs
   test/Test/Fixtures/install/incremental/demo.cabal
   test/Test/Fixtures/install/incremental/dep/dep.cabal

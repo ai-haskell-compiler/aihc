@@ -1,0 +1,2 @@
+status: pass
+reason: HsFFI.h must expose the target configuration so unix can include dlfcn.h.

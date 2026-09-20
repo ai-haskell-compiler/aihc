@@ -1,0 +1,28 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.IO.FD qualified as FD
+    import GHC.IO.Device (close)
+    import GHC.IO.IOMode (IOMode (..))
+    import GHC.IO.Runtime (descriptorMode)
+    import System.Posix.Types (Fd (..))
+
+    descriptor :: FD.FD -> Fd
+    descriptor fd = Fd (FD.fdFD fd)
+
+    main :: IO Bool
+    main = do
+      (adopted, _) <- FD.mkFD 1 WriteMode Nothing False False
+      (opened, _) <- FD.openFile "/dev/null" ReadMode False
+      mode <- descriptorMode (fromIntegral (descriptor opened))
+      close opened
+      return (descriptor adopted == 1 && descriptor FD.stdin == 0
+        && descriptor FD.stdout == 1 && descriptor FD.stderr == 2 && mode == 0)
+expression: main
+output: |
+  True
+status: pass
+reason: The fdFD field must contain a CInt descriptor for standard, adopted, and opened files.
+extensions:
+  - ImportQualifiedPost

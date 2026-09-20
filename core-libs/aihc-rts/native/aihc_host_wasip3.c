@@ -64,6 +64,11 @@ void *aihc_io_adopt(int64_t descriptor, int64_t mode) {
   return aihc_io_open_error(AIHC_IO_ERROR_NOT_SUPPORTED);
 }
 
+int64_t aihc_io_handle_descriptor(void *opaque_handle) {
+  (void)opaque_handle;
+  return -1;
+}
+
 static int aihc_wasip3_prepare(AihcIoRequest *request) {
   (void)request;
   return 0;
