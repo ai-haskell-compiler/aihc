@@ -1,0 +1,40 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  constructor Result/3 [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+  primitive newDelayTVar#%1 :: BoxedRep Unlifted/3
+  primitive stmBegin#%2 :: TupleRep []/0
+  primitive stmCommit#%3 :: TupleRep []/0
+  primitive stmAbort#%4 :: TupleRep []/0
+  primitive writeTVar#%5 :: TupleRep []/2
+  primitive readTVar#%6 :: BoxedRep Lifted/1
+
+  $entry -> BoxedRep Lifted =
+    (first%10 :: BoxedRep Lifted) <- store (CNumber (10 :: IntRep))
+    (second%11 :: BoxedRep Lifted) <- store (CNumber (20 :: IntRep))
+    (third%12 :: BoxedRep Lifted) <- store (CNumber (30 :: IntRep))
+    (var%13 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newDelayTVar# (0 :: IntRep) (first%10 :: BoxedRep Lifted) (first%10 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) stmBegin#
+    () <- primitive-call @(TupleRep []) writeTVar# (var%13 :: BoxedRep Unlifted) (second%11 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) stmBegin#
+    () <- primitive-call @(TupleRep []) writeTVar# (var%13 :: BoxedRep Unlifted) (third%12 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) stmCommit#
+    () <- primitive-call @(TupleRep []) stmBegin#
+    (committed%14 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (var%13 :: BoxedRep Unlifted)
+    () <- primitive-call @(TupleRep []) writeTVar# (var%13 :: BoxedRep Unlifted) (second%11 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) stmAbort#
+    (aborted%15 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (var%13 :: BoxedRep Unlifted)
+    () <- primitive-call @(TupleRep []) stmAbort#
+    (original%16 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (var%13 :: BoxedRep Unlifted)
+    store (CResult (committed%14 :: BoxedRep Lifted) (aborted%15 :: BoxedRep Lifted) (original%16 :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CResult @1 @1 @2
+  @1 = CNumber 30
+  @2 = CNumber 10
+allocated-bytes:
+  macos-arm64: 272
+  linux-amd64: 272
+status: pass
+reason: Collections preserve caller roots, nested write logs, and values restored by transaction abort.

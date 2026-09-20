@@ -1,0 +1,17 @@
+program: |
+  primitive stmBegin# :: TupleRep []/0
+
+  stop -> TupleRep [] =
+    () <- primitive-call @(TupleRep []) stmBegin#
+    exit (0 :: IntRep)
+expected: |
+  primitive stmBegin# :: TupleRep []/0
+
+  stop ($cps_return :: BoxedRep Lifted) -> TupleRep [] =
+    () <-
+      ensure-heap (3 :: WordRep)
+    () <-
+      primitive-call @(TupleRep []) stmBegin#
+    exit (0 :: IntRep)
+status: pass
+reason: A reservation remains explicit when no pointer value survives it.

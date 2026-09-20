@@ -1,0 +1,21 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M256", "-RTS"]
+program: |
+  primitive stmBegin#%1 :: TupleRep []/0
+  primitive +#%2 :: IntRep/2
+
+  $loop (counter%10 :: IntRep) -> IntRep =
+    case (counter%10 :: IntRep) as tested%11 :: IntRep of
+      20 ->
+        constant (counter%10 :: IntRep)
+      _ ->
+        () <- primitive-call @(TupleRep []) stmBegin#
+        (next%12 :: IntRep) <- primitive-call @IntRep +# (counter%10 :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next%12 :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+error: heap limit exceeded
+status: pass
+reason: Live nested transactions count against the managed heap limit.

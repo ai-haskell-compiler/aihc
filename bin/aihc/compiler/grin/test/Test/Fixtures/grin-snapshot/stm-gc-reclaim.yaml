@@ -1,0 +1,37 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M256", "-RTS"]
+program: |
+  constructor Number/1 [IntRep]
+  primitive stmBegin#%1 :: TupleRep []/0
+  primitive stmCommit#%2 :: TupleRep []/0
+  primitive stmAbort#%3 :: TupleRep []/0
+  primitive +#%4 :: IntRep/2
+  primitive newDelayTVar#%5 :: BoxedRep Unlifted/3
+  primitive writeTVar#%6 :: TupleRep []/2
+
+  $loop (counter%10 :: IntRep) (var%20 :: BoxedRep Unlifted) (value%21 :: BoxedRep Lifted) -> IntRep =
+    case (counter%10 :: IntRep) as tested%11 :: IntRep of
+      200 ->
+        constant (counter%10 :: IntRep)
+      _ ->
+        () <- primitive-call @(TupleRep []) stmBegin#
+        () <- primitive-call @(TupleRep []) writeTVar# (var%20 :: BoxedRep Unlifted) (value%21 :: BoxedRep Lifted)
+        () <- primitive-call @(TupleRep []) stmBegin#
+        () <- primitive-call @(TupleRep []) writeTVar# (var%20 :: BoxedRep Unlifted) (value%21 :: BoxedRep Lifted)
+        () <- primitive-call @(TupleRep []) stmAbort#
+        () <- primitive-call @(TupleRep []) stmCommit#
+        (next%12 :: IntRep) <- primitive-call @IntRep +# (counter%10 :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next%12 :: IntRep) (var%20 :: BoxedRep Unlifted) (value%21 :: BoxedRep Lifted)
+
+  $entry -> IntRep =
+    (value%30 :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    (var%31 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newDelayTVar# (0 :: IntRep) (value%30 :: BoxedRep Lifted) (value%30 :: BoxedRep Lifted)
+    call @IntRep $loop (0 :: IntRep) (var%31 :: BoxedRep Unlifted) (value%30 :: BoxedRep Lifted)
+return: "200"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 22440
+  linux-amd64: 22440
+status: pass
+reason: Repeated transactions and write logs fit a small heap and contribute to managed allocation statistics.

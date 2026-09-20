@@ -1,0 +1,39 @@
+program: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+  primitive stmBegin# :: TupleRep []/0
+  primitive writeTVar# :: TupleRep []/2
+
+  choose (pair :: BoxedRep Lifted) (var :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    case (pair :: BoxedRep Lifted) as selected :: BoxedRep Lifted of
+      data Pair (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) ->
+        () <- primitive-call @(TupleRep []) stmBegin#
+        () <- primitive-call @(TupleRep []) writeTVar# (var :: BoxedRep Unlifted) (right :: BoxedRep Lifted)
+        constant (left :: BoxedRep Lifted)
+      _ ->
+        () <- primitive-call @(TupleRep []) stmBegin#
+        constant (selected :: BoxedRep Lifted)
+expected: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  primitive stmBegin# :: TupleRep []/0
+
+  primitive writeTVar# :: TupleRep []/2
+
+  choose (pair :: BoxedRep Lifted) (var :: BoxedRep Unlifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_return$gc :: BoxedRep Lifted, pair$gc :: BoxedRep Lifted, var$gc :: BoxedRep Unlifted <-
+      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (pair :: BoxedRep Lifted) (var :: BoxedRep Unlifted)
+    case (pair$gc :: BoxedRep Lifted) as selected :: BoxedRep Lifted of
+      data Pair (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) ->
+        () <-
+          primitive-call @(TupleRep []) stmBegin#
+        $cps_return$gc$gc :: BoxedRep Lifted, left$gc :: BoxedRep Lifted, right$gc :: BoxedRep Lifted, var$gc$gc :: BoxedRep Unlifted <-
+          ensure-heap (4 :: WordRep) ($cps_return$gc :: BoxedRep Lifted) (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) (var$gc :: BoxedRep Unlifted)
+        () <-
+          primitive-call @(TupleRep []) writeTVar# (var$gc$gc :: BoxedRep Unlifted) (right$gc :: BoxedRep Lifted)
+        continue ($cps_return$gc$gc :: BoxedRep Lifted) (left$gc :: BoxedRep Lifted)
+      _ ->
+        () <-
+          primitive-call @(TupleRep []) stmBegin#
+        continue ($cps_return$gc :: BoxedRep Lifted) (selected :: BoxedRep Lifted)
+status: pass
+reason: Reservations protect branch values and call arguments, even when the call consumes their last use.

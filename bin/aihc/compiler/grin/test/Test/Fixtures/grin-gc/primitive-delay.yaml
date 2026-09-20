@@ -1,0 +1,17 @@
+program: |
+  primitive newDelayTVar# :: BoxedRep Unlifted/3
+
+  delay (duration :: IntRep) (initial :: BoxedRep Lifted) (final :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    (var :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newDelayTVar# (duration :: IntRep) (initial :: BoxedRep Lifted) (final :: BoxedRep Lifted)
+    constant (var :: BoxedRep Unlifted)
+expected: |
+  primitive newDelayTVar# :: BoxedRep Unlifted/3
+
+  delay (duration :: IntRep) (initial :: BoxedRep Lifted) (final :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $cps_return$gc :: BoxedRep Lifted, final$gc :: BoxedRep Lifted, initial$gc :: BoxedRep Lifted <-
+      ensure-heap (8 :: WordRep) ($cps_return :: BoxedRep Lifted) (final :: BoxedRep Lifted) (initial :: BoxedRep Lifted)
+    var :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) newDelayTVar# (duration :: IntRep) (initial$gc :: BoxedRep Lifted) (final$gc :: BoxedRep Lifted)
+    continue ($cps_return$gc :: BoxedRep Lifted) (var :: BoxedRep Unlifted)
+status: pass
+reason: One reservation covers the TVar and timer. The reservation protects both initial and final values.

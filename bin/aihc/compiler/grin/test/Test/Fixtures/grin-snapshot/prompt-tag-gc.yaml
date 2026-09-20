@@ -1,0 +1,25 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  constructor Result/3 [BoxedRep Lifted, IntRep, IntRep]
+  primitive newPromptTag#%1 :: BoxedRep Unlifted/0
+  primitive reallyUnsafePtrEquality#%2 :: IntRep/2
+
+  $entry -> BoxedRep Lifted =
+    (value%10 :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    (first%11 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    (second%12 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    (third%13 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    (same%14 :: IntRep) <- primitive-call @IntRep reallyUnsafePtrEquality# (first%11 :: BoxedRep Unlifted) (first%11 :: BoxedRep Unlifted)
+    (different%15 :: IntRep) <- primitive-call @IntRep reallyUnsafePtrEquality# (first%11 :: BoxedRep Unlifted) (second%12 :: BoxedRep Unlifted)
+    store (CResult (value%10 :: BoxedRep Lifted) (same%14 :: IntRep) (different%15 :: IntRep))
+return: "@0"
+heap: |
+  @0 = CResult @1 1 0
+  @1 = CNumber 42
+allocated-bytes:
+  macos-arm64: 72
+  linux-amd64: 72
+status: pass
+reason: Prompt tags use one heap slot each. Collection preserves distinct tag identities and live caller values.

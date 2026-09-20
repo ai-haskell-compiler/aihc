@@ -5,8 +5,13 @@ module Test.Grin.Spec (tests) where
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
 import Aihc.Grin (GrinGlobal (..), GrinLintError (..), GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram)
+import Aihc.Grin.Cps (toCpsGrin)
+import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
+import Aihc.Grin.Lint (lintGcProgram)
 import Aihc.Grin.Parser qualified as GrinParser
 import Aihc.Grin.Simplify (simplifyGrinProgram)
+import Aihc.Grin.Syntax (GrinFunction (..))
+import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
 import Control.Exception (evaluate)
@@ -42,6 +47,7 @@ tests :: IO TestTree
 tests = do
   lintFixtures <- loadLintFixtures
   simplifyFixtures <- loadSimplifyFixtures
+  gcFixtures <- loadGcFixtures
   fixtures <- GrinGolden.loadGrinCases
   evalFixtures <- filter (("grin" `elem`) . EvalFixture.evalCaseEvaluators) <$> EvalFixture.loadEvalCases
   pure
@@ -53,6 +59,7 @@ tests = do
           Lint.tests,
           testGroup "GRIN lint fixtures" lintFixtures,
           testGroup "GRIN simplify fixtures" simplifyFixtures,
+          testGroup "GRIN GC fixtures" gcFixtures,
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
           withResource loadGrinEvalEnvironment (const (pure ())) $ \getEnvironment ->
@@ -136,6 +143,56 @@ checkSimplifyFixture path = do
       if status == ("pass" :: Text) && not (T.null reason)
         then pure (source, expected :: Text)
         else fail "invalid GRIN simplify fixture status"
+
+-- | Check explicit roots and relocated results after the GC stage.
+loadGcFixtures :: IO [TestTree]
+loadGcFixtures = do
+  root <- getEnv "AIHC_TEST_ROOT"
+  let directory = root </> "bin/aihc/compiler/grin/test/Test/Fixtures/grin-gc"
+  paths <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory directory
+  pure [testCase path (checkGcFixture (directory </> path)) | path <- paths]
+
+checkGcFixture :: FilePath -> IO ()
+checkGcFixture path = do
+  decoded <- Y.decodeFileEither path
+  case decoded of
+    Left problem -> assertFailure (Y.prettyPrintParseException problem)
+    Right value ->
+      case parseEither parseFixture value of
+        Left problem -> assertFailure problem
+        Right (source, expected) ->
+          case GrinParser.parseProgram source of
+            Left problem -> assertFailure (GrinParser.renderParseError problem)
+            Right program ->
+              case toCpsGrin (normalizeGrinProgram program) of
+                Left problem -> assertFailure (show problem)
+                Right cps -> do
+                  let gc = lowerGc cps
+                      output = gcGrinProgram gc
+                      names = map grinFunctionName (grinFunctions program)
+                      selected = output {grinFunctions = filter ((`elem` names) . grinFunctionName) (grinFunctions output)}
+                      actual = T.strip (T.pack (renderString (layoutPretty defaultLayoutOptions (prettyProgram (tidyGrinProgram selected)))))
+                  case lintGcProgram gc of
+                    [] -> pure ()
+                    problems -> assertFailure ("the GC program does not lint: " <> show problems)
+                  case GrinParser.parseProgram actual of
+                    Left problem -> assertFailure (GrinParser.renderParseError problem)
+                    Right parsed ->
+                      if parsed == tidyGrinProgram selected
+                        then pure ()
+                        else assertFailure "the GC program does not survive a parser round trip"
+                  if actual == T.strip expected
+                    then pure ()
+                    else assertFailure ("output mismatch\nexpected:\n" <> T.unpack expected <> "\nactual:\n" <> T.unpack actual)
+  where
+    parseFixture = withObject "GRIN GC fixture" $ \object -> do
+      source <- object .: "program"
+      expected <- object .: "expected"
+      status <- object .: "status"
+      reason <- object .: "reason"
+      if status == ("pass" :: Text) && not (T.null reason)
+        then pure (source, expected :: Text)
+        else fail "invalid GRIN GC fixture status"
 
 -- | Lower aihc-prim and aihc-base to GRIN one time.
 loadGrinEvalEnvironment :: IO GrinEvalEnvironment
