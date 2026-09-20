@@ -1,0 +1,40 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Num.Integer (Integer (..))
+    import GHC.Prim (sizeofByteArray#)
+    import GHC.Types (Int (..))
+    import Prelude
+
+    representation :: Integer -> (Int, Int)
+    representation (IS _) = (0, 0)
+    representation (IP bytes) = (1, quot (I# (sizeofByteArray# bytes)) 8)
+    representation (IN bytes) = (-1, quot (I# (sizeofByteArray# bytes)) 8)
+
+    values :: [Integer]
+    values =
+      [ 9223372036854775807 + 1
+      , -9223372036854775808 - 1
+      , 9223372036854775808 - 1
+      , -9223372036854775809 + 1
+      , 340282366920938463463374607431768211455 + 1
+      , 340282366920938463463374607431768211456 - 1
+      , 340282366920938463463374607431768211456 - 340282366920938463463374607431768211456
+      , 18446744073709551616 * 0
+      , -9223372036854775808 * -1
+      , quot (-9223372036854775808) (-1)
+      , quot 340282366920938463463374607431768211456 18446744073709551616
+      ]
+
+    main :: IO ()
+    main = print (map representation values)
+stdout: |
+  [(1,1),(-1,1),(0,0),(0,0),(1,3),(1,2),(0,0),(0,0),(1,1),(1,1),(1,2)]
+output: |
+  ()
+expression: main
+status: pass
+reason: Integer results use canonical signs and magnitude lengths.
