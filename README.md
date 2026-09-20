@@ -16,11 +16,11 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `649/5013` (`12.95%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `1827/10059` (`18.16%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `724/5013` (`14.44%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `2055/10061` (`20.43%`) ●○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
-| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `563/565` (`99.64%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `108/108` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `604/609` (`99.17%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `111/111` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
 
 The `aihc-prim` and `aihc-base` rows count the exports of GHC's `ghc-prim` and `base` that aihc provides with the same name and signature (up to type variable names, `forall` prefixes and kind synonyms; a type without a standalone kind signature matches any kind). Compatibility also runs the other way: a module that exists in `ghc-prim` or `base` may only export names that GHC exports from it too, so code written against aihc keeps compiling with GHC. The `dev-spec` test suite fails on any new divergence; `cabal run aihc-dev -- core-libs-progress --divergences` lists the current ones. Modules that only aihc defines are free to export anything.
 
