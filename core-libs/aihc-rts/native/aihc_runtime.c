@@ -94,8 +94,6 @@ void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots) {
   memset(resume, 0, sizeof(*resume));
 }
 
-const AihcSrt *aihc_current_srt = NULL;
-
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 
 static const AihcResume *aihc_schedule(AihcMachine *machine);
@@ -488,13 +486,14 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
 }
 
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                      AihcSlot *roots) {
-  aihc_gc_ensure(machine, words, root_count, roots);
+                      AihcSlot *roots, const AihcSrt *srt) {
+  aihc_gc_ensure(machine, words, root_count, roots, srt);
 }
 
 void aihc_heap_collect(AihcMachine *machine, uint64_t words,
-                       uint64_t root_count, AihcSlot *roots) {
-  aihc_gc_collect(machine, words, root_count, roots);
+                       uint64_t root_count, AihcSlot *roots,
+                       const AihcSrt *srt) {
+  aihc_gc_collect(machine, words, root_count, roots, srt);
 }
 
 /* Place one object in heap the caller has already reserved. Compiled code
@@ -604,7 +603,10 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
     }
   }
 
-  aihc_ensure_heap(machine, words, 2 + pointer_count, roots);
+  /* The apply helper is entered by a tail call, so the static references of
+     the function that applied the value are dead: the roots above carry
+     everything the application needs. */
+  aihc_ensure_heap(machine, words, 2 + pointer_count, roots, NULL);
   value = (AihcValue *)roots[0];
   *value_pointer = value;
   *continuation_pointer = (AihcValue *)roots[1];
@@ -1424,7 +1426,10 @@ const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
   AihcSlot roots[3] = {(AihcSlot)(uintptr_t)function,
                        (AihcSlot)(uintptr_t)continuation,
                        (AihcSlot)(uintptr_t)prompt};
-  aihc_ensure_heap(machine, 1 + aihc_continuation_info.field_count, 3, roots);
+  /* Compiled code transfers to the resumption straight after this call, so
+     the calling function's static references are dead here. */
+  aihc_ensure_heap(machine, 1 + aihc_continuation_info.field_count, 3, roots,
+                   NULL);
   function = (AihcValue *)(uintptr_t)roots[0];
   continuation = (AihcValue *)(uintptr_t)roots[1];
   prompt = (AihcValue *)(uintptr_t)roots[2];
@@ -1468,7 +1473,8 @@ const AihcResume *aihc_continuation_resume(AihcMachine *machine,
   AihcSlot roots[3] = {(AihcSlot)(uintptr_t)captured,
                        (AihcSlot)(uintptr_t)action,
                        (AihcSlot)(uintptr_t)continuation};
-  aihc_ensure_heap(machine, words, 3, roots);
+  /* As in aihc_control0: the caller transfers away after this call. */
+  aihc_ensure_heap(machine, words, 3, roots, NULL);
   captured = (AihcValue *)(uintptr_t)roots[0];
   action = (AihcValue *)(uintptr_t)roots[1];
   continuation = (AihcValue *)(uintptr_t)roots[2];

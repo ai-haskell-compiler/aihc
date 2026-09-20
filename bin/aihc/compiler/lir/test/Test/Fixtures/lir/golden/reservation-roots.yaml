@@ -9,15 +9,12 @@ program: |
     (second%4 :: BoxedRep Lifted) <- store (CBox (doubled%3 :: IntRep))
     store (CPair (first%2 :: BoxedRep Lifted) (second%4 :: BoxedRep Lifted))
 expected: |
-  extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr)
 
-  extern data @aihc_current_srt
-
   func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %$cps_return_1: ptr) {
   entry:
-    store ptr null, [@aihc_current_srt] align 8
     %roots_2 = stack.alloc 8 align 8
     %heap_3 = load ptr [%machine_0 + 24] align 1 word
     %heap_end_4 = load ptr [%machine_0 + 32] align 1 word
@@ -29,7 +26,7 @@ expected: |
 
   gc_collect_9:
     store ptr %$cps_return_1, [%roots_2] align 8
-    call @aihc_heap_collect(%machine_0, 7, 1, %roots_2)
+    call @aihc_heap_collect(%machine_0, 7, 1, %roots_2, null)
     %$cps_return$gc_12 = load ptr [%roots_2] align 8
     jump gc_reserved_10(%$cps_return$gc_12)
 

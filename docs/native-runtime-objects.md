@@ -217,10 +217,10 @@ This includes thunks, partial applications, and continuation closures.
 The collector follows these tables from active code and live objects.
 It also follows pointer fields in live objects.
 
-Compiled functions publish their table in `aihc_current_srt` at entry.
+A compiled function passes its table to the collector at each of its safepoints.
 After CPS conversion, each call is a tail call.
-The active function has no heap object to carry its table.
-A collection can occur at its safepoints or inside a runtime helper.
+The active function has no heap object to carry its table, and nothing else records it.
+A collection inside a runtime helper passes no table: the helper is reached by a tail call, or by a call whose only continuation is a transfer to heap objects, so the calling function's static references are dead.
 Suspended code uses a continuation closure with a table in its info table.
 
 No section and no table lists the static objects. The collector finds them by

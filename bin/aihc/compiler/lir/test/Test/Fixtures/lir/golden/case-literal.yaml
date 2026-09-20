@@ -10,11 +10,8 @@ program: |
 expected: |
   extern func @aihc_lir_continue_i(ptr, ptr, i64)
 
-  extern data @aihc_current_srt
-
   func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %value_1: i64, %$cps_return_2: ptr) {
   entry:
-    store ptr null, [@aihc_current_srt] align 8
     switch i64 %value_1 {
       0 -> alt_3
       1 -> alt_4

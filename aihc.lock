@@ -1,7 +1,7 @@
 {
   "format": 1,
   "compiler": "ghc-9.12.4",
-  "index-state": "2026-09-18T04:34:18Z",
+  "index-state": "2026-09-19T06:02:44Z",
   "platforms": {
     "osx-aarch64": [
       {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
@@ -10,12 +10,8 @@
       {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
       {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
       {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
-      {"name": "binary", "version": "0.8.9.3", "source": "hackage", "revision": 0},
-      {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
       {"name": "containers", "version": "0.8", "source": "hackage", "revision": 0},
-      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
-      {"name": "system-cxx-std-lib", "version": "1.0", "source": "core"},
-      {"name": "text", "version": "2.1.4", "source": "hackage", "revision": 0}
+      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0}
     ],
     "wasi-wasm32": [
       {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},

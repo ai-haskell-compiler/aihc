@@ -247,24 +247,27 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
   return value->fields;
 }
 
-/* The static reference table of the function the machine is running. Compiled
-   functions store their own table here on entry, so a collection triggered
-   anywhere inside a function - at one of its safepoints or inside a runtime
-   helper it called - still sees the static objects that function's code can
-   reach. Continuations that are merely suspended need no entry here: they are
-   heap objects whose info tables carry their tables. */
-extern const AihcSrt *aihc_current_srt;
-
 /* Reserve heap for the objects that follow. Compiled code then takes each
    object by bumping the heap pointer itself, so the runtime exports no
    allocator. */
 /* Collect for a caller that has already compared the bump pointer against the
    end of the space and found the words do not fit. Compiled code takes this
-   entry point; aihc_ensure_heap is for a caller that has compared nothing. */
+   entry point; aihc_ensure_heap is for a caller that has compared nothing.
+
+   The table is the static reference table of the code that requests the
+   collection, and the collector marks everything it names. A running function
+   has no heap object to carry its table, so the safepoint of a compiled
+   function passes the function's own table. Every other request passes NULL:
+   a runtime helper is reached by a tail call, or by a call whose only
+   continuation is a transfer to heap objects, so the static references of the
+   function that called it are dead by the time it collects. Suspended code
+   needs no entry either: its continuation closure carries the table in its
+   info table. */
 void aihc_heap_collect(AihcMachine *machine, uint64_t words,
-                       uint64_t root_count, AihcSlot *roots);
+                       uint64_t root_count, AihcSlot *roots,
+                       const AihcSrt *srt);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                      AihcSlot *roots);
+                      AihcSlot *roots, const AihcSrt *srt);
 AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);

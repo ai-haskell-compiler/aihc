@@ -10,23 +10,19 @@ program: |
     (value%2 :: IntRep) <- call @IntRep $other
     store (CPair (first%1 :: BoxedRep Lifted) (first%1 :: BoxedRep Lifted))
 expected: |
-  extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
   extern func @aihc_lir_continue_i(ptr, ptr, i64)
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr)
 
-  extern data @aihc_current_srt
-
   func @aihc_f_aihc_entry___sother(%machine_0: ptr, %$cps_return_1: ptr) {
   entry:
-    store ptr null, [@aihc_current_srt] align 8
     tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_1, 7)
   }
 
   func @aihc_f_aihc_entry___sentry(%machine_2: ptr, %$cps_return_3: ptr) {
   entry:
-    store ptr null, [@aihc_current_srt] align 8
     %roots_4 = stack.alloc 8 align 8
     %heap_5 = load ptr [%machine_2 + 24] align 1 word
     %heap_end_6 = load ptr [%machine_2 + 32] align 1 word
@@ -38,7 +34,7 @@ expected: |
 
   gc_collect_11:
     store ptr %$cps_return_3, [%roots_4] align 8
-    call @aihc_heap_collect(%machine_2, 5, 1, %roots_4)
+    call @aihc_heap_collect(%machine_2, 5, 1, %roots_4, null)
     %$cps_return$gc_14 = load ptr [%roots_4] align 8
     jump gc_reserved_12(%$cps_return$gc_14)
 
@@ -59,7 +55,6 @@ expected: |
 
   func @aihc_f_aihc_entry___sentry__ucont(%machine_19: ptr, %$cps_return_20: ptr, %first_21: ptr, %value_22: i64) {
   entry:
-    store ptr null, [@aihc_current_srt] align 8
     %roots_23 = stack.alloc 16 align 8
     %heap_24 = load ptr [%machine_19 + 24] align 1 word
     %heap_end_25 = load ptr [%machine_19 + 32] align 1 word
@@ -72,7 +67,7 @@ expected: |
   gc_collect_30:
     store ptr %$cps_return_20, [%roots_23] align 8
     store ptr %first_21, [%roots_23 + 8] align 8
-    call @aihc_heap_collect(%machine_19, 3, 2, %roots_23)
+    call @aihc_heap_collect(%machine_19, 3, 2, %roots_23, null)
     %$cps_return$gc_34 = load ptr [%roots_23] align 8
     %first$gc_35 = load ptr [%roots_23 + 8] align 8
     jump gc_reserved_31(%$cps_return$gc_34, %first$gc_35)

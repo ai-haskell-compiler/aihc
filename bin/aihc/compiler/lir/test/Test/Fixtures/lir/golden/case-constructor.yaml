@@ -13,11 +13,8 @@ expected: |
 
   extern func @aihc_no_match() cc c
 
-  extern data @aihc_current_srt
-
   func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %value_1: ptr, %$cps_return_2: ptr) {
   entry:
-    store ptr null, [@aihc_current_srt] align 8
     %header_6 = load ptr [%value_1] align 8
     %identity_7 = load ptr [%header_6] align 1 word
     %matches_8 = eq ptr %identity_7, @aihc_c_aihc_entry_Nothing_0
