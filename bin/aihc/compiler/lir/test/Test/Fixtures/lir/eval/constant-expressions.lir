@@ -1,0 +1,29 @@
+; expect: 6, 14, 20, 5, 2, -2, -1, 1
+include "../include/address-offsets.lir"
+const @SUM = 1 + 2 + 3
+const @ZERO = (8 - (3 - 1)) - 6 + ('A' - 65) + --2 - 2
+const @SIGNED_ZERO = 7 / -3 + 2 + 7 % -3 - 1
+const @PRECEDENCE = 2 + 3 * 4
+const @GROUP = (2 + 3) * 4
+const @QUOTIENT = 20 / 2 / 2
+const @REMAINDER = 17 % 5
+const @NEGATIVE_QUOTIENT = -7 / 3
+const @NEGATIVE_REMAINDER = -7 % 3
+const @FORWARD = @LATER + @LATER
+const @LATER = +(20 + 1)
+const @INCLUDED = @TAG_OFFSET - 2 words + 17
+const @WORD_RATIO = (2 + 3) words / (5 words)
+const @LARGE = 18446744073709551616 * 2 - 36893488147419103231
+func @main() -> (i64, i64, i64, i64, i64, i64, i64, i1) {
+entry:
+  %included = sub i64 @INCLUDED, 1
+  %product = mul i64 @WORD_RATIO, @LARGE
+  %zero = add i64 @ZERO, @SIGNED_ZERO
+  %one = add i64 %product, %zero
+  %forward_ok = eq i64 @FORWARD, 42
+  %included_ok = eq i64 %included, 17
+  %one_ok = eq i64 %one, 1
+  %references_ok = and i1 %forward_ok, %included_ok
+  %all_ok = and i1 %references_ok, %one_ok
+  return @SUM, @PRECEDENCE, @GROUP, @QUOTIENT, @REMAINDER, @NEGATIVE_QUOTIENT, @NEGATIVE_REMAINDER, %all_ok
+}

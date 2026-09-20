@@ -1,0 +1,28 @@
+; expect: 42, 17, 99, 23
+; Named offsets retain target word sizes and signed byte terms.
+
+include "../include/object-kinds.lir"
+include "../include/address-offsets.lir"
+
+const @HEADER_OFFSET = 2 words
+const @TAG_BYTE = 1
+const @NEGATIVE_BYTE = -1
+const @ONE_WORD = 1 word
+const @ONE = 1
+
+data @info align 8 = { word 0, word 0, i8 17, i8 42 }
+
+func @main() -> (i64, i64, i64, i64) {
+entry:
+  %tag_byte = load i8 [@info + @TAG_OFFSET] align 1
+  %tag = zext i8 %tag_byte to i64
+  %first_byte = load i8 [@info + @HEADER_OFFSET + 1 + @NEGATIVE_BYTE] align 1
+  %first = zext i8 %first_byte to i64
+  %slots = stack.alloc 32 align 8
+  store i64 99, [%slots + @HEADER_OFFSET - @ONE_WORD] align 1 word
+  %stored = load i64 [%slots + @ONE words] align 1 word
+  store i8 23, [%slots + @TAG_BYTE - @NEGATIVE_BYTE + @OBJECT_NODE] align 1
+  %last_byte = load i8 [%slots + @ONE_WORD - @ONE_WORD + @TAG_BYTE + @TAG_BYTE] align 1
+  %last = zext i8 %last_byte to i64
+  return %tag, %first, %stored, %last
+}

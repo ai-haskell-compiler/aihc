@@ -1,0 +1,18 @@
+; error: @large: constant @TOO_LARGE = 256 does not fit i8
+; error: @main/entry: duplicate switch case 8
+; The default linter uses eight-byte words before it checks constants.
+
+const @TOO_LARGE = 32 words
+const @WORD = 1 word
+
+data @large align 1 = { i8 @TOO_LARGE }
+
+func @main() -> i64 {
+entry:
+  switch i64 0 {
+    @WORD, 8 -> done
+    default -> done
+  }
+done:
+  return 0
+}

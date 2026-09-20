@@ -1,0 +1,13 @@
+; error: @main/entry: unknown symbol @missing
+; error: @main/entry: @data is not a constant
+; error: @main/entry: @main is not a constant
+
+data @data align 8 = { i64 0 }
+
+func @main() -> i64 {
+entry:
+  %value = load i64 [@data + @missing words] align 8
+  store i64 %value, [@data - @data] align 8
+  %other = load i64 [@data + @main words] align 8
+  return %other
+}

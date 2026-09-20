@@ -12,6 +12,7 @@ import Control.Applicative (empty, optional, (<|>))
 import Control.Monad (void)
 import Data.ByteString qualified as BS
 import Data.Char (chr, isAlphaNum, isHexDigit)
+import Data.Either (partitionEithers)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
@@ -218,7 +219,24 @@ constantItem = do
   keyword "const"
   name <- symbolName
   token "="
-  Constant name <$> integer
+  Constant name <$> constantExpression
+
+constantExpression :: Parser ConstantExpr
+constantExpression = additive
+  where
+    additive = chain multiplicative [("+", ConstantAdd), ("-", ConstantSub)]
+    multiplicative = chain unary [("*", ConstantMul), ("/", ConstantQuot), ("%", ConstantRem)]
+    chain term operators = do
+      first <- term
+      rest <- MP.many ((,) <$> MP.choice [op <$ token name | (name, op) <- operators] <*> term)
+      pure (foldl' (\left (op, right) -> ConstantBinary op left right) first rest)
+    unary =
+      token "+" *> unary
+        <|> ConstantNegate <$> (token "-" *> unary)
+        <|> scaled
+    scaled = do
+      value <- ConstantInt <$> (natural <|> lexeme characterLiteral) <|> ConstantRef <$> symbolName <|> MP.between (token "(") (token ")") additive
+      MP.option value (ConstantWords value <$ (keyword "words" <|> keyword "word"))
 
 dataItem :: Linkage -> Parser DataItem
 dataItem linkage = do
@@ -364,17 +382,22 @@ operations =
 address :: Parser Address
 address = MP.between (token "[") (token "]") (addressTerms <$> operand <*> MP.many addressTerm)
 
--- | One signed term of an address offset: bytes, or target words when the
--- keyword follows the number.
-addressTerm :: Parser (Integer, Integer)
+-- | One signed address term, in bytes or target words.
+addressTerm :: Parser (Either (Integer, Integer) AddressConstant)
 addressTerm = do
-  sign <- (1 <$ token "+") <|> (-1 <$ token "-")
-  value <- natural
+  negative <- (False <$ token "+") <|> (True <$ token "-")
+  value <- Left <$> natural <|> Right <$> symbolName
   words' <- MP.option False (True <$ (keyword "words" <|> keyword "word"))
-  pure (if words' then (0, sign * value) else (sign * value, 0))
+  pure $ case value of
+    Left number ->
+      let signed = if negative then negate number else number
+       in Left (if words' then (0, signed) else (signed, 0))
+    Right name -> Right (AddressConstant name negative words')
 
-addressTerms :: Operand -> [(Integer, Integer)] -> Address
-addressTerms base terms = Address base (sum (map fst terms)) (sum (map snd terms))
+addressTerms :: Operand -> [Either (Integer, Integer) AddressConstant] -> Address
+addressTerms base terms =
+  let (numbers, constants) = partitionEithers terms
+   in Address base (sum (map fst numbers)) (sum (map snd numbers)) constants
 
 alignment :: Parser Alignment
 alignment = keyword "align" *> (scaled <$> natural <*> MP.option False (True <$ (keyword "words" <|> keyword "word")))

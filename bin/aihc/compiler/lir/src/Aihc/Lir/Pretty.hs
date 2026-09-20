@@ -57,8 +57,28 @@ prettyItem item =
         <+> prettyType (globalType global)
     ItemData dataItem -> prettyData dataItem
     ItemExternData symbol -> "extern data" <+> prettySymbol symbol
-    ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> pretty (constantValue constant)
+    ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> prettyConstantExpr (constantValue constant)
     ItemInclude path -> "include" <+> prettyQuoted path
+
+prettyConstantExpr :: ConstantExpr -> Doc ann
+prettyConstantExpr = expressionAt 0
+  where
+    expressionAt :: Int -> ConstantExpr -> Doc ann
+    expressionAt context expression =
+      let (precedence, document) = case expression of
+            ConstantInt value -> (50, pretty value)
+            ConstantRef symbol -> (50, prettySymbol symbol)
+            ConstantWords value -> (40, expressionAt 41 value <+> "words")
+            ConstantNegate value -> (30, "-" <> expressionAt 30 value)
+            ConstantBinary op left right ->
+              let (level, operator) = case op of
+                    ConstantAdd -> (10, "+")
+                    ConstantSub -> (10, "-")
+                    ConstantMul -> (20, "*")
+                    ConstantQuot -> (20, "/")
+                    ConstantRem -> (20, "%")
+               in (level, expressionAt level left <+> operator <+> expressionAt (level + 1) right)
+       in if precedence < context then "(" <> document <> ")" else document
 
 prettyLinkage :: Linkage -> Doc ann
 prettyLinkage linkage =
@@ -189,8 +209,13 @@ prettyAlign alignment =
     AlignWords count -> "align" <+> pretty count <+> (if count == 1 then "word" else "words")
 
 prettyAddress :: Address -> Doc ann
-prettyAddress (Address base offset wordOffset) =
-  "[" <> prettyOperand base <> prettyWordAddend wordOffset <> prettyAddend offset <> "]"
+prettyAddress (Address base offset wordOffset constants) =
+  "[" <> prettyOperand base <> prettyWordAddend wordOffset <> prettyAddend offset <> foldMap prettyConstant constants <> "]"
+  where
+    prettyConstant constant =
+      (if addressConstantNegative constant then " -" else " +")
+        <+> prettySymbol (addressConstantName constant)
+        <> (if addressConstantInWords constant then " words" else mempty)
 
 -- | A word-scaled addend keeps the keyword, so an address round-trips.
 prettyWordAddend :: Integer -> Doc ann

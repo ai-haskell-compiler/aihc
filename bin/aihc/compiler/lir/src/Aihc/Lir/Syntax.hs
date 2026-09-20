@@ -22,6 +22,8 @@ module Aihc.Lir.Syntax
     ExternFunction (..),
     Global (..),
     Constant (..),
+    ConstantExpr (..),
+    ConstantOp (..),
     DataItem (..),
     DataField (..),
     Block (..),
@@ -35,6 +37,7 @@ module Aihc.Lir.Syntax
     FloatUnaryOp (..),
     ConvertOp (..),
     Address (..),
+    AddressConstant (..),
     byteAddress,
     addressByteOffset,
     Alignment (..),
@@ -154,13 +157,22 @@ data Global = Global
   }
   deriving (Eq, Show)
 
--- | @const \@name = value@: a named integer. A reference to it stands
--- wherever an integer literal does, and 'Aihc.Lir.Resolve' substitutes the
--- value before a backend sees the module.
+-- | A named integer expression. Resolution uses the target word size.
 data Constant = Constant
   { constantName :: !Symbol,
-    constantValue :: !Integer
+    constantValue :: !ConstantExpr
   }
+  deriving (Eq, Show)
+
+data ConstantExpr
+  = ConstantInt !Integer
+  | ConstantRef !Symbol
+  | ConstantWords !ConstantExpr
+  | ConstantNegate !ConstantExpr
+  | ConstantBinary !ConstantOp !ConstantExpr !ConstantExpr
+  deriving (Eq, Show)
+
+data ConstantOp = ConstantAdd | ConstantSub | ConstantMul | ConstantQuot | ConstantRem
   deriving (Eq, Show)
 
 data DataItem = DataItem
@@ -305,7 +317,17 @@ data ConvertOp
 data Address = Address
   { addressBase :: !Operand,
     addressOffset :: !Integer,
-    addressWordOffset :: !Integer
+    addressWordOffset :: !Integer,
+    addressConstants :: ![AddressConstant]
+  }
+  deriving (Eq, Show)
+
+-- | A named address term. Resolution adds its signed value to the byte
+-- offset or the target word offset before a backend receives the address.
+data AddressConstant = AddressConstant
+  { addressConstantName :: !Symbol,
+    addressConstantNegative :: !Bool,
+    addressConstantInWords :: !Bool
   }
   deriving (Eq, Show)
 
@@ -334,11 +356,13 @@ alignmentInBytes wordBytes alignment =
 
 -- | An address with a byte offset and no word offset.
 byteAddress :: Operand -> Integer -> Address
-byteAddress base offset = Address base offset 0
+byteAddress base offset = Address base offset 0 []
 
 -- | The offset of an address in bytes, given the size of a target word.
 addressByteOffset :: Integer -> Address -> Integer
-addressByteOffset wordBytes address = addressOffset address + addressWordOffset address * wordBytes
+addressByteOffset wordBytes address
+  | null (addressConstants address) = addressOffset address + addressWordOffset address * wordBytes
+  | otherwise = error "Lir address constants reached a backend unresolved"
 
 data Terminator
   = Jump !Target

@@ -12,6 +12,7 @@ module Aihc.Lir.Resolve
     expandIncludes,
     loadModule,
     resolveConstants,
+    evaluateConstants,
     unresolvedConstant,
     resolvedSwitchCaseValue,
   )
@@ -20,8 +21,10 @@ where
 import Aihc.Lir.Parser (LirParseError, parseModule, renderParseError)
 import Aihc.Lir.Pretty (prettySymbol, renderDoc)
 import Aihc.Lir.Syntax
+import Control.Monad.Trans.State.Strict (State, evalState, get, modify')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -86,14 +89,62 @@ expandIncludes reader path = fmap (fmap Module) . expandItems path [] . moduleIt
         ItemInclude _ -> Nothing
     concatEither = fmap concat . sequence
 
+-- | Evaluate each constant once. Reject cycles and invalid arithmetic.
+evaluateConstants :: Integer -> Module -> Map Symbol (Either Text Integer)
+evaluateConstants wordBytes (Module items) = evalState (Map.traverseWithKey (\name _ -> evaluateName Set.empty name) definitions) Map.empty
+  where
+    definitions = Map.fromListWith (\_ first -> first) [(constantName constant, constantValue constant) | ItemConstant constant <- items]
+    otherSymbols = Set.fromList [name | item <- items, Just name <- [otherSymbol item]]
+    otherSymbol item = case item of
+      ItemFunction function -> Just (functionName function)
+      ItemExternFunction external -> Just (externFunctionName external)
+      ItemGlobal global -> Just (globalName global)
+      ItemData dataItem -> Just (dataName dataItem)
+      ItemExternData name -> Just name
+      _ -> Nothing
+    evaluateName :: Set.Set Symbol -> Symbol -> State (Map Symbol (Either Text Integer)) (Either Text Integer)
+    evaluateName active name = do
+      cache <- get
+      case Map.lookup name cache of
+        Just result -> pure result
+        Nothing
+          | Set.member name active -> pure (Left "constant dependency cycle")
+          | otherwise -> do
+              result <- case Map.lookup name definitions of
+                Just expression -> evaluateExpression (Set.insert name active) expression
+                Nothing -> pure (Left (if Set.member name otherSymbols then renderDoc (prettySymbol name) <> " is not a constant" else "unknown symbol " <> renderDoc (prettySymbol name)))
+              modify' (Map.insert name result)
+              pure result
+    evaluateExpression active expression = case expression of
+      ConstantInt value -> pure (Right value)
+      ConstantRef name -> evaluateName active name
+      ConstantWords value -> fmap (fmap (* wordBytes)) (evaluateExpression active value)
+      ConstantNegate value -> fmap (fmap negate) (evaluateExpression active value)
+      ConstantBinary op left right -> do
+        leftResult <- evaluateExpression active left
+        rightResult <- evaluateExpression active right
+        pure $ do
+          leftValue <- leftResult
+          rightValue <- rightResult
+          case op of
+            ConstantAdd -> Right (leftValue + rightValue)
+            ConstantSub -> Right (leftValue - rightValue)
+            ConstantMul -> Right (leftValue * rightValue)
+            ConstantQuot
+              | rightValue == 0 -> Left "division by zero"
+              | otherwise -> Right (leftValue `quot` rightValue)
+            ConstantRem
+              | rightValue == 0 -> Left "remainder by zero"
+              | otherwise -> Right (leftValue `rem` rightValue)
+
 -- | Substitute the value of every constant the module defines for each
 -- reference to it, and drop the definitions. A reference to a symbol that is
 -- not a constant stays as it is; the linter reports one that names nothing.
-resolveConstants :: Module -> Module
-resolveConstants (Module items) = Module [resolveItem item | item <- items, not (isConstant item)]
+resolveConstants :: Integer -> Module -> Module
+resolveConstants wordBytes (Module items) = Module [resolveItem item | item <- items, not (isConstant item)]
   where
     constants :: Map Symbol Integer
-    constants = Map.fromList [(constantName constant, constantValue constant) | ItemConstant constant <- items]
+    constants = Map.mapMaybe (either (const Nothing) Just) (evaluateConstants wordBytes (Module items))
     isConstant item =
       case item of
         ItemConstant _ -> True
@@ -133,7 +184,16 @@ resolveConstants (Module items) = Module [resolveItem item | item <- items, not 
         GlobalSet symbol value -> GlobalSet symbol (operand value)
         Call symbol arguments -> Call symbol (map operand arguments)
         CallIndirect callee arguments signature -> CallIndirect (operand callee) (map operand arguments) signature
-    resolveAddress address = address {addressBase = operand (addressBase address)}
+    resolveAddress address =
+      foldr resolveAddressConstant (address {addressBase = operand (addressBase address), addressConstants = []}) (addressConstants address)
+    resolveAddressConstant constant address =
+      case Map.lookup (addressConstantName constant) constants of
+        Just value ->
+          let signed = if addressConstantNegative constant then negate value else value
+           in if addressConstantInWords constant
+                then address {addressWordOffset = addressWordOffset address + signed}
+                else address {addressOffset = addressOffset address + signed}
+        Nothing -> address {addressConstants = constant : addressConstants address}
     resolveCase switchCase =
       let target = resolveTarget (switchCaseTarget switchCase)
        in case switchCase of

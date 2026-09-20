@@ -46,7 +46,7 @@ module Aihc.Native.Lir
   )
 where
 
-import Aihc.Lir.Lint (LintError, lintModule)
+import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, readCounts)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
@@ -309,7 +309,7 @@ compileNativeStatementsWith lint backend lirModule = concat <$> sequence (compil
 -- rather than the whole module's. A failed chunk is the last one.
 compileNativeChunksWith :: (Ord register) => Bool -> NativeBackend statement register error -> Module -> [Either error [statement]]
 compileNativeChunksWith lint backend lirModule =
-  case if lint then lintModule lirModule else [] of
+  case if lint then lintModuleFor wordBytes lirModule else [] of
     [] -> functionChunks initialState (zip [0 ..] [function | ItemFunction function <- items])
     errors -> [Left (nbLintErrors backend errors)]
   where
@@ -325,7 +325,7 @@ compileNativeChunksWith lint backend lirModule =
             Right (trapStatements, _) -> [Right (trapStatements <> dataStatements <> globalStatements <> nbAfterObject backend)]
     dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
     globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
-    Module items = resolveConstants lirModule
+    Module items = resolveConstants wordBytes lirModule
     initialState = initialObjectState backend
     signatures =
       Map.fromList
@@ -348,11 +348,11 @@ initialObjectState backend =
 compileNativeTo :: (Monad m, Ord register) => Bool -> NativeBackend statement register error -> (statement -> m ()) -> m () -> Module -> m (Either error ())
 {-# INLINEABLE compileNativeTo #-}
 compileNativeTo lint backend output endFunction lirModule =
-  case if lint then lintModule lirModule else [] of
+  case if lint then lintModuleFor wordBytes lirModule else [] of
     errors@(_ : _) -> pure (Left (nbLintErrors backend errors))
     [] -> go (initialObjectState backend) functions
   where
-    Module items = resolveConstants lirModule
+    Module items = resolveConstants wordBytes lirModule
     functions = [item | item@ItemFunction {} <- items]
     signatures = Map.fromList ([(functionName function, functionSignature function) | ItemFunction function <- items] <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items])
     go state remaining = case remaining of

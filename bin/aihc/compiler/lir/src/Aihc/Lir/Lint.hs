@@ -3,6 +3,7 @@
 module Aihc.Lir.Lint
   ( LintError (..),
     lintModule,
+    lintModuleFor,
     Symbols,
     moduleSymbols,
     lintItem,
@@ -11,6 +12,7 @@ module Aihc.Lir.Lint
 where
 
 import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, prettyLabel, prettyLiteral, prettyQuoted, prettySymbol, prettyType, prettyVar, renderDoc, unaryOpName, wideOpName)
+import Aihc.Lir.Resolve (evaluateConstants)
 import Aihc.Lir.Syntax
 import Data.Bits (popCount)
 import Data.IntMap.Strict (IntMap)
@@ -45,38 +47,46 @@ data SymbolInfo
   = SymbolFunction !Signature
   | SymbolGlobal !Type
   | SymbolData
-  | SymbolConstant !Integer
+  | SymbolConstant !(Either Text Integer)
   deriving (Eq, Show)
 
 type Symbols = Map Symbol SymbolInfo
 
 lintModule :: Module -> [LintError]
-lintModule (Module items) =
+lintModule = lintModuleFor 8
+
+-- | Validate constants with the target word size in bytes.
+lintModuleFor :: Integer -> Module -> [LintError]
+lintModuleFor wordBytes (Module items) =
   duplicateErrors <> concatMap (lintItem symbols) items
   where
-    (symbols, duplicateErrors) = moduleSymbols (Module items)
+    (symbols, duplicateErrors) = moduleSymbolsFor wordBytes (Module items)
 
 -- | Collect declarations without retention of function bodies.
 moduleSymbols :: Module -> (Symbols, [LintError])
-moduleSymbols (Module items) = foldl' addSymbol (Map.empty, []) items
+moduleSymbols = moduleSymbolsFor 8
+
+moduleSymbolsFor :: Integer -> Module -> (Symbols, [LintError])
+moduleSymbolsFor wordBytes (Module items) = foldl' addSymbol (Map.empty, []) items
   where
+    constants = evaluateConstants wordBytes (Module items)
     addSymbol (table, errors) item =
-      case itemSymbol item of
+      case itemSymbol constants item of
         Nothing -> (table, errors)
         Just (symbol, info)
           | Map.member symbol table -> (table, errors <> [LintError (Just symbol) Nothing ("duplicate definition of " <> renderSymbol symbol)])
           | otherwise -> (Map.insert symbol info table, errors)
 
 -- | The symbol an item defines or declares. An include names no symbol.
-itemSymbol :: Item -> Maybe (Symbol, SymbolInfo)
-itemSymbol item =
+itemSymbol :: Map Symbol (Either Text Integer) -> Item -> Maybe (Symbol, SymbolInfo)
+itemSymbol constants item =
   case item of
     ItemFunction function -> Just (functionName function, SymbolFunction (functionSignature function))
     ItemExternFunction external -> Just (externFunctionName external, SymbolFunction (externFunctionSignature external))
     ItemGlobal global -> Just (globalName global, SymbolGlobal (globalType global))
     ItemData dataItem -> Just (dataName dataItem, SymbolData)
     ItemExternData symbol -> Just (symbol, SymbolData)
-    ItemConstant constant -> Just (constantName constant, SymbolConstant (constantValue constant))
+    ItemConstant constant -> Just (constantName constant, SymbolConstant (constants Map.! constantName constant))
     ItemInclude _ -> Nothing
 
 lintItem :: Symbols -> Item -> [LintError]
@@ -88,7 +98,10 @@ lintItem symbols item =
     ItemGlobal _ -> []
     ItemData dataItem -> map (LintError (Just (dataName dataItem)) Nothing) (lintData symbols dataItem)
     ItemExternData _ -> []
-    ItemConstant _ -> []
+    ItemConstant constant ->
+      case Map.lookup (constantName constant) symbols of
+        Just (SymbolConstant (Left err)) -> [LintError (Just (constantName constant)) Nothing err]
+        _ -> []
     -- "Aihc.Lir.Resolve" expands includes before a module reaches the linter.
     ItemInclude path -> [LintError Nothing Nothing ("include " <> renderDoc (prettyQuoted path) <> " is not expanded")]
 
@@ -130,7 +143,7 @@ lintData symbols dataItem =
 constantErrors :: Symbols -> Type -> Symbol -> [Text]
 constantErrors symbols ty symbol =
   case Map.lookup symbol symbols of
-    Just (SymbolConstant value) -> constantValueErrors ty symbol value
+    Just (SymbolConstant result) -> either (const []) (constantValueErrors ty symbol) result
     Just _ -> [renderSymbol symbol <> " is not a constant"]
     Nothing -> ["unknown symbol " <> renderSymbol symbol]
 
@@ -349,8 +362,8 @@ lintInstruction env blockIndex position instruction =
         PtrToInt value -> check Ptr value
         PtrFromInt value -> check I64 value
         Select ty condition left right -> check I1 condition <> check ty left <> check ty right
-        Load _ address alignment -> check Ptr (addressBase address) <> alignmentErrors alignment
-        Store ty value address alignment -> check ty value <> check Ptr (addressBase address) <> alignmentErrors alignment
+        Load _ address alignment -> addressErrors address <> alignmentErrors alignment
+        Store ty value address alignment -> check ty value <> addressErrors address <> alignmentErrors alignment
         PtrAdd base offset -> check Ptr base <> check I64 offset
         StackAlloc _ alignment ->
           ["stack.alloc outside the entry block" | blockIndex /= 0] <> alignmentErrors alignment
@@ -362,6 +375,15 @@ lintInstruction env blockIndex position instruction =
         Call symbol arguments -> callErrors env location symbol arguments
         CallIndirect target arguments signature ->
           check Code target <> signatureErrors signature <> argumentErrors env location (renderOperand target) (signatureParameters signature) arguments
+    addressErrors address =
+      check Ptr (addressBase address)
+        <> concatMap checkConstant (addressConstants address)
+      where
+        checkConstant constant =
+          case Map.lookup (addressConstantName constant) (envSymbols env) of
+            Just (SymbolConstant _) -> []
+            Just _ -> [renderSymbol (addressConstantName constant) <> " is not a constant"]
+            Nothing -> ["unknown symbol " <> renderSymbol (addressConstantName constant)]
     globalErrors symbol =
       case Map.lookup symbol (envSymbols env) of
         Just (SymbolGlobal _) -> []
@@ -474,7 +496,8 @@ caseErrors symbols ty cases = snd (foldl' addCase (Set.empty, []) cases)
     addCase :: (Set Integer, [Text]) -> SwitchCase -> (Set Integer, [Text])
     addCase state@(seen, errors) (SwitchCaseConstant symbol target) =
       case Map.lookup symbol symbols of
-        Just (SymbolConstant value) -> addCase state (SwitchCase value target)
+        Just (SymbolConstant (Right value)) -> addCase state (SwitchCase value target)
+        Just (SymbolConstant (Left _)) -> state
         Just _ -> (seen, errors <> [renderSymbol symbol <> " is not a constant"])
         Nothing -> (seen, errors <> ["unknown symbol " <> renderSymbol symbol])
     addCase (seen, errors) (SwitchCase value _)
@@ -518,9 +541,9 @@ literalErrors env expected literal =
       | expected `elem` [Ptr, Code] -> []
       | otherwise -> mismatch
     LitSymbol symbol
-      | Just (SymbolConstant value) <- Map.lookup symbol (envSymbols env) ->
+      | Just (SymbolConstant result) <- Map.lookup symbol (envSymbols env) ->
           if isIntegerType expected || expected == I1
-            then constantValueErrors expected symbol value
+            then either (const []) (constantValueErrors expected symbol) result
             else mismatch
       | expected == Ptr -> dataSymbolErrors (envSymbols env) symbol
       | expected == Code -> functionSymbolErrors (envSymbols env) symbol

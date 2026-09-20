@@ -9,6 +9,7 @@ module Aihc.Lir
     renderModule,
     LintError (..),
     lintModule,
+    lintModuleFor,
     renderLintError,
     LoadError (..),
     renderLoadError,

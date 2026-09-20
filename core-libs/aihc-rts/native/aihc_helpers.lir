@@ -10,12 +10,6 @@ include "aihc_constants.lir"
 const @WORD_BITS = 64
 const @WORD_HIGH_BIT = 63
 
-extern func @aihc_lir_info_kind(ptr) -> i64
-extern func @aihc_lir_info_arity(ptr) -> i64
-extern func @aihc_lir_info_count(ptr) -> i64
-extern func @aihc_lir_info_entry(ptr) -> code
-extern func @aihc_lir_info_next(ptr) -> ptr
-extern func @aihc_lir_info_bitmap(ptr) -> ptr
 extern func @aihc_lir_take_resume(ptr, ptr) cc c
 
 extern func @aihc_apply_slow(ptr, ptr, i64, ptr, ptr) -> ptr cc c
@@ -36,7 +30,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   switch i64 %kind {
     @AIHC_OBJECT_THUNK -> thunk
     @AIHC_OBJECT_INDIRECTION -> indirection
@@ -46,7 +41,7 @@ loop(%current: ptr):
 
 thunk:
   call @aihc_begin_blackhole(%machine, %current)
-  %entry = call @aihc_lir_info_entry(%header)
+  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   tailcall.indirect %entry(%machine, %current, %update) : (ptr, ptr, ptr)
 
 indirection:
@@ -179,7 +174,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, enter
 
@@ -189,7 +185,7 @@ indirection:
   jump loop(%next)
 
 enter:
-  %entry = call @aihc_lir_info_entry(%header)
+  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   tailcall.indirect %entry(%machine, %current, null) : (ptr, ptr, ptr)
 }
 
@@ -200,7 +196,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, enter
 
@@ -210,7 +207,7 @@ indirection:
   jump loop(%next)
 
 enter:
-  %entry = call @aihc_lir_info_entry(%header)
+  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   tailcall.indirect %entry(%machine, %current, null, %value) : (ptr, ptr, ptr, i64)
 }
 
@@ -221,7 +218,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, enter
 
@@ -231,7 +229,7 @@ indirection:
   jump loop(%next)
 
 enter:
-  %entry = call @aihc_lir_info_entry(%header)
+  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   tailcall.indirect %entry(%machine, %current, null, %value) : (ptr, ptr, ptr, ptr)
 }
 
@@ -245,7 +243,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, apply
 
@@ -255,14 +254,15 @@ indirection:
   jump loop(%next)
 
 apply:
-  %arity = call @aihc_lir_info_arity(%header)
+  %arity_byte = load i8 [%header + @AIHC_INFO_ARITY_OFFSET] align 1
+  %arity = zext i8 %arity_byte to i64
   %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
   br %fast, fast, slow
 
 fast:
-  %entry = call @aihc_lir_info_entry(%header)
+  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   tailcall.indirect %entry(%machine, %current, %continuation) : (ptr, ptr, ptr)
 
 slow:
@@ -281,7 +281,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, apply
 
@@ -291,14 +292,15 @@ indirection:
   jump loop(%next)
 
 apply:
-  %arity = call @aihc_lir_info_arity(%header)
+  %arity_byte = load i8 [%header + @AIHC_INFO_ARITY_OFFSET] align 1
+  %arity = zext i8 %arity_byte to i64
   %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
   br %fast, fast, slow
 
 fast:
-  %entry = call @aihc_lir_info_entry(%header)
+  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   tailcall.indirect %entry(%machine, %current, %continuation, %value) : (ptr, ptr, ptr, i64)
 
 slow:
@@ -318,7 +320,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, apply
 
@@ -328,14 +331,15 @@ indirection:
   jump loop(%next)
 
 apply:
-  %arity = call @aihc_lir_info_arity(%header)
+  %arity_byte = load i8 [%header + @AIHC_INFO_ARITY_OFFSET] align 1
+  %arity = zext i8 %arity_byte to i64
   %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
   br %fast, fast, slow
 
 fast:
-  %entry = call @aihc_lir_info_entry(%header)
+  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   tailcall.indirect %entry(%machine, %current, %continuation, %value) : (ptr, ptr, ptr, ptr)
 
 slow:
@@ -356,7 +360,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, check
 
@@ -366,7 +371,7 @@ indirection:
   jump loop(%next)
 
 check:
-  %next_info = call @aihc_lir_info_next(%header)
+  %next_info = load ptr [%header + @AIHC_INFO_NEXT_OFFSET] align 1 word
   %has_next = ne ptr %next_info, null
   br %has_next, count, word
 
@@ -379,11 +384,12 @@ partial_count:
   jump bitmap(%applied)
 
 info_count:
-  %count = call @aihc_lir_info_count(%header)
+  %count_byte = load i8 [%header + @AIHC_INFO_COUNT_OFFSET] align 1
+  %count = zext i8 %count_byte to i64
   jump bitmap(%count)
 
 bitmap(%count_2: i64):
-  %bitmap = call @aihc_lir_info_bitmap(%next_info)
+  %bitmap = load ptr [%next_info + @AIHC_INFO_BITMAP_OFFSET] align 1 word
   %entry = ptr.add %bitmap, %count_2
   %flag = load i8 [%entry] align 1
   %is_pointer = ne i8 %flag, 0
@@ -404,7 +410,8 @@ entry:
 loop(%current: ptr):
   %header_word = load i64 [%current] align 8
   %header = ptr.from_int %header_word
-  %kind = call @aihc_lir_info_kind(%header)
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
   br %indirection, indirection, check
 
@@ -414,7 +421,7 @@ indirection:
   jump loop(%next)
 
 check:
-  %next_info = call @aihc_lir_info_next(%header)
+  %next_info = load ptr [%header + @AIHC_INFO_NEXT_OFFSET] align 1 word
   %has_next = ne ptr %next_info, null
   br %has_next, count, word
 
@@ -427,11 +434,12 @@ partial_count:
   jump bitmap(%applied)
 
 info_count:
-  %count = call @aihc_lir_info_count(%header)
+  %count_byte = load i8 [%header + @AIHC_INFO_COUNT_OFFSET] align 1
+  %count = zext i8 %count_byte to i64
   jump bitmap(%count)
 
 bitmap(%count_2: i64):
-  %bitmap = call @aihc_lir_info_bitmap(%next_info)
+  %bitmap = load ptr [%next_info + @AIHC_INFO_BITMAP_OFFSET] align 1 word
   %entry = ptr.add %bitmap, %count_2
   %flag = load i8 [%entry] align 1
   %is_pointer = ne i8 %flag, 0

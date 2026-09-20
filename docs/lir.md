@@ -187,7 +187,12 @@ traps.
 ### Constants
 
 ```text
-constant ::= "const" symbol "=" integer
+constant ::= "const" symbol "=" expression
+expression ::= product (("+" | "-") product)*
+product ::= unary (("*" | "/" | "%") unary)*
+unary ::= ("+" | "-") unary | scaled
+scaled ::= atom ("word" | "words")?
+atom ::= natural | character | symbol | "(" expression ")"
 include ::= "include" string
 ```
 
@@ -198,6 +203,27 @@ is its symbol, and it stands wherever an integer literal does. An operand
 `@name` names a constant when the module defines one, and a data field
 `i64 @name` or `word @name` stores its value. A switch label can also name a constant: `@TAG -> target`.
 The linter checks duplicate labels after constant resolution.
+A definition can combine byte terms and target-word terms, such as `const @AIHC_INFO_KIND_OFFSET = 5 words + 3`.
+Constant expressions support `+`, `-`, `*`, `/`, `%`, unary signs, and parentheses.
+Multiplication, division, and remainder have precedence over addition and subtraction.
+Binary operators at the same precedence associate from left to right.
+Division truncates toward zero. The remainder has the sign of the dividend.
+Intermediate results use arbitrary-precision integers. The final value must fit its use.
+The `word` or `words` suffix multiplies an atom by the target word size.
+For example, `(2 + 3) words` has the same value as `5 words`.
+A constant can refer to another constant, including a later definition or an included constant.
+The linter rejects reference cycles, invalid references, and zero divisors, even in unused definitions.
+
+Examples:
+
+```text
+const @SUM = 1 + 2 + 3
+const @STRIDE = (2 + 3) words
+const @FIELD = @STRIDE + 3
+```
+
+The target selects the word size before constant validation and resolution.
+The interpreter and the default linter use eight-byte words.
 A constant is not a data
 object: it has no address, a `ptr` field cannot name it, and `ptr.to_int`
 cannot take it.
@@ -234,9 +260,9 @@ entry:
 
 ### Info tables
 
-`aihc_info.lir` defines the six runtime info accessors. They use the Lir
-calling convention. Byte accessors use unsigned loads and zero extension.
-Pointer and code accessors use word offsets for 32-bit and 64-bit targets.
+`aihc_constants.lir` defines the named field offsets for runtime info tables.
+Runtime helpers read fields with direct loads. Byte fields use zero extension.
+The offsets use the target word size on 32-bit and 64-bit targets.
 
 An info table describes one kind of heap object. The header of a heap object
 is the address of its info table. GC-GRIN emits one info table per object kind
@@ -247,9 +273,8 @@ An info table is five word-wide fields followed by four byte-wide fields. A
 pointer field is `ptr` and a code field is `code`; a count or a kind is an
 `i8`. Word field `k` starts at offset `k` words, byte field `j` at offset
 five words plus `j`, and the table is aligned to the word size, so the same
-text suits every target. A unit reads a field with a word-scaled address
-offset: `[%header + 3 words]` for `backend_entry` and `[%header + 5 words +
-3]` for `object_kind`. A field without a value is `ptr null`, `code null`,
+text suits every target. A unit reads `backend_entry` at `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
+It reads `object_kind` at `[%header + @AIHC_INFO_KIND_OFFSET]`. A field without a value is `ptr null`, `code null`,
 or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
@@ -390,7 +415,7 @@ condition never traps.
 ### Memory
 
 ```text
-address ::= "[" value (("+" | "-") integer ("word" | "words")?)* "]"
+address ::= "[" value (("+" | "-") (integer | symbol) ("word" | "words")?)* "]"
 align ::= "align" integer ("word" | "words")?
 ```
 
@@ -401,6 +426,12 @@ and on a 64-bit target. The terms accumulate, so one address may mix both
 units, and `word` and `words` are the same keyword. The `ptr`, `code`, and
 `word` data fields are the fields whose size follows the target word size, so
 they are what a word-scaled offset walks.
+
+A term can name a constant, such as `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
+The shared runtime defines info-table offsets in `aihc_constants.lir`.
+Each field has one offset constant with its word and byte terms.
+For example, the object kind uses `[%header + @AIHC_INFO_KIND_OFFSET]`.
+Constant resolution uses the target word size to calculate each offset in bytes.
 
 An alignment scales the same way. `align 1 word` is the alignment of a
 word-sized field on every target, where a byte count either claims more than
