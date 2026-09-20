@@ -194,8 +194,9 @@ collectModuleExportsWithDeps depExports packageModules
   where
     siblingNames =
       Set.fromList [moduleKey modu | ModuleUnit {moduleUnitAst = modu} <- packageModules]
-    importsSibling ModuleUnit {moduleUnitAst = modu} =
+    importsSibling ModuleUnit {moduleUnitExtensions = extensions, moduleUnitAst = modu} =
       any ((`Set.member` siblingNames) . importDeclModule) (moduleImports modu)
+        || (moduleImportsImplicitPrelude extensions modu && Set.member "Prelude" siblingNames)
 
     emptyLocalScopes =
       moduleExportsFromList
@@ -635,7 +636,6 @@ moduleScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
 moduleScope packageId exports extensions modu =
   ownScope
     `unionScope` imported
-    `unionScope` implicitPrelude
     `unionScope` listConstructorScope
     `unionScope` equalityScope
     `unionScope` builtinScope
@@ -644,11 +644,6 @@ moduleScope packageId exports extensions modu =
     -- A module's own top-level names are also in scope qualified by the
     -- module name, so @M.x@ inside module @M@ names the local @x@.
     ownScope = insertQualifiedModule (moduleKey modu) unqualifiedOwnScope unqualifiedOwnScope
-    preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
-    -- Implicit Prelude: names available unqualified AND as Prelude.xxx
-    implicitPrelude
-      | moduleImportsImplicitPrelude extensions modu = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
-      | otherwise = emptyScope
     -- The list constructor @:@ is an ordinary infix constructor of
     -- @GHC.Types@ that the syntax reaches without an import. The empty
     -- list is built-in syntax and needs no scope entry.
@@ -666,13 +661,15 @@ moduleScope packageId exports extensions modu =
 ownAndImportedScopes :: Package -> ModuleExports -> [Extension] -> Module -> (Scope, Scope)
 ownAndImportedScopes packageId exports extensions modu = (ownScope, imported)
   where
-    imported = importedScope packageId exports modu
-    ownScope = topLevelScope recordFields packageId modu
-    recordFields = scopeRecordFields imported `Map.union` preludeFields
-    preludeFields
+    imported = importedScope packageId exports modu `unionScope` implicitPrelude
+    ownScope = topLevelScope (scopeRecordFields imported) packageId modu
+    preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
+    -- Implicit imports supply both unqualified names and the Prelude qualifier.
+    -- Export lists must see the same imported names as module bodies.
+    implicitPrelude
       | moduleImportsImplicitPrelude extensions modu =
-          scopeRecordFields (lookupImportedModule packageId Nothing "Prelude" exports)
-      | otherwise = Map.empty
+          preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
+      | otherwise = emptyScope
 
 -- | Whether the module gets the implicit Prelude import.
 --

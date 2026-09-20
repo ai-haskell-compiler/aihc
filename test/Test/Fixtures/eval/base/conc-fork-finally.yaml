@@ -1,0 +1,66 @@
+evaluators:
+  - grin
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent
+      ( forkFinally, myThreadId, newEmptyMVar, putMVar, takeMVar, yield )
+    import Control.Exception
+      ( ErrorCall (..), SomeException, displayException, throwIO )
+    import Data.IORef (newIORef, readIORef, writeIORef)
+
+    report :: IO Bool
+    report = do
+      parent <- myThreadId
+      successBox <- newEmptyMVar
+      child <- forkFinally
+        (do
+          thread <- myThreadId
+          pure (thread, 42 :: Int))
+        (\result -> do
+          finalizerThread <- myThreadId
+          putMVar successBox (finalizerThread, result))
+      (finalizerThread, success) <- takeMVar successBox
+      let successOk = case success of
+            Right (actionThread, value) ->
+              child /= parent && actionThread == child
+                && finalizerThread == child && value == 42
+            Left _ -> False
+
+      failureBox <- newEmptyMVar
+      _ <- forkFinally
+        (throwIO (ErrorCallWithLocation "action failed" "") :: IO Int)
+        (putMVar failureBox)
+      failed <- takeMVar failureBox
+      let failureOk = case failed of
+            Left exception -> displayException exception == "action failed"
+            Right _ -> False
+
+      lazyBox <- newEmptyMVar
+      _ <- forkFinally (pure (undefined :: Int))
+        (\result -> putMVar lazyBox (case result of
+          Right _ -> True
+          Left _ -> False))
+      lazyOk <- takeMVar lazyBox
+
+      callbackBox <- newEmptyMVar
+      callbackCaught <- newIORef False
+      _ <- forkFinally (pure ()) (callback callbackBox callbackCaught)
+      takeMVar callbackBox
+      yield
+      caught <- readIORef callbackCaught
+      pure (successOk && failureOk && lazyOk && not caught)
+
+    callback box caught result =
+      case result of
+        Right () -> do
+          putMVar box ()
+          throwIO (ErrorCallWithLocation "callback failed" "")
+        Left (_ :: SomeException) -> writeIORef caught True
+extensions:
+  - ScopedTypeVariables
+expression: report
+output: "True"
+status: pass
+reason: The child callback receives the action result once. It does not force the result or catch its own exceptions.
