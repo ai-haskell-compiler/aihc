@@ -15,7 +15,6 @@ module Aihc.Grin.Cps
     cpsContinuationFunctions,
     cpsFunctionContinuations,
     cpsGrinProgram,
-    cpsUpdateFunction,
     toCpsGrin,
   )
 where
@@ -38,8 +37,7 @@ data CpsGrinProgram = CpsGrinProgram
   { cpsGrinProgram :: !GrinProgram,
     cpsContinuationFunctions :: !(Set FunctionName),
     cpsContinuationFrames :: !(Map FunctionName ContinuationFrameKind),
-    cpsFunctionContinuations :: !(Map FunctionName GrinVar),
-    cpsUpdateFunction :: !FunctionName
+    cpsFunctionContinuations :: !(Map FunctionName GrinVar)
   }
   deriving (Eq, Show, Read)
 
@@ -92,25 +90,22 @@ type CpsM = StateT CpsState (Either CpsGrinError)
 
 toCpsGrin :: GrinProgram -> Either CpsGrinError CpsGrinProgram
 toCpsGrin sourceProgram = do
-  ((functions, updateFunction), finalState) <- runStateT transform initialState
-  let continuationFrames =
-        Map.insert (grinFunctionName updateFunction) ContinuationFrameUpdate (cpsContinuationFramesState finalState)
+  (functions, finalState) <- runStateT (mapM transformFunction sourceFunctions) initialState
+  let continuationFrames = cpsContinuationFramesState finalState
   pure
     CpsGrinProgram
       { cpsGrinProgram =
           program
             { grinFunctions =
                 functions
-                  <> reverse (cpsGeneratedFunctionsRev finalState)
-                  <> [updateFunction],
+                  <> reverse (cpsGeneratedFunctionsRev finalState),
               grinPrimitives =
                 grinPrimitives program
                   <> [(GrinVar "aihcKeepAliveFrame#" (-2000000002) liftedGrinRep, 2) | cpsUsesKeepAlive finalState]
             },
         cpsContinuationFunctions = Map.keysSet continuationFrames,
         cpsContinuationFrames = continuationFrames,
-        cpsFunctionContinuations = cpsComputationContinuations finalState,
-        cpsUpdateFunction = grinFunctionName updateFunction
+        cpsFunctionContinuations = cpsComputationContinuations finalState
       }
   where
     program = normalizeGrinProgram sourceProgram
@@ -124,20 +119,14 @@ toCpsGrin sourceProgram = do
           cpsUsesKeepAlive = False,
           cpsComputationContinuations = Map.empty
         }
-    transform = do
-      updateName <- freshFunctionName "$cps_update"
-      functions <- mapM (transformFunction updateName) sourceFunctions
-      updateFunction <- makeUpdateFunction updateName
-      pure (functions, updateFunction)
 
-transformFunction :: FunctionName -> GrinFunction -> CpsM GrinFunction
-transformFunction updateName function = do
+transformFunction :: GrinFunction -> CpsM GrinFunction
+transformFunction function = do
   continuation <- freshVar "$cps_return" liftedGrinRep
   let parameters = grinFunctionParameters function
       bound = Set.fromList (continuation : parameters)
   body <-
     transformTail
-      updateName
       (grinFunctionName function)
       bound
       (grinFunctionResultRep function)
@@ -154,8 +143,8 @@ transformFunction updateName function = do
         grinFunctionBody = body
       }
 
-transformTail :: FunctionName -> FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> GrinExpr -> CpsM GrinExpr
-transformTail updateName parent bound resultRep continuation expression =
+transformTail :: FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> GrinExpr -> CpsM GrinExpr
+transformTail parent bound resultRep continuation expression =
   case expression of
     GrinConstant values -> pure (GrinContinue continuation values)
     GrinBind resultVars (GrinCase scrutinee binder alternatives) body -> do
@@ -170,7 +159,6 @@ transformTail updateName parent bound resultRep continuation expression =
           let alternativeBound = bound <> Set.fromList (binder : grinAltBinders alternative)
           rhs <-
             transformTail
-              updateName
               parent
               alternativeBound
               resultRep
@@ -178,7 +166,7 @@ transformTail updateName parent bound resultRep continuation expression =
               (GrinBind resultVars (grinAltRhs alternative) afterCase)
           pure alternative {grinAltRhs = rhs}
         shareBody = do
-          joinName <- liftJoinPoint updateName parent resultRep captures resultVars body
+          joinName <- liftJoinPoint parent resultRep captures resultVars body
           pure (GrinCall resultRep joinName (map GrinVarValue (captures <> resultVars)))
         -- What the shared body needs from the scope around the case. The
         -- results of the bind are not in that scope; they are the other
@@ -195,7 +183,6 @@ transformTail updateName parent bound resultRep continuation expression =
       | isDirectExpression valueExpression -> do
           transformedBody <-
             transformTail
-              updateName
               parent
               (bound <> Set.fromList resultVars)
               resultRep
@@ -203,44 +190,44 @@ transformTail updateName parent bound resultRep continuation expression =
               body
           pure (GrinBind resultVars valueExpression transformedBody)
       | otherwise -> do
-          (nextVar, nextNode) <-
+          next <-
             reifyContinuation
-              updateName
               parent
               bound
               resultRep
               continuation
               resultVars
               body
+          let nextVar = reifiedPointer next
           transformedValue <-
             transformTail
-              updateName
               parent
               (Set.insert nextVar bound)
               (ResultRep (varsRuntimeRep resultVars))
               (GrinVarValue nextVar)
               valueExpression
-          pure (GrinBind [nextVar] (GrinStore nextNode) transformedValue)
+          let slow = GrinBind [nextVar] (GrinStore (reifiedNode next)) transformedValue
+          pure $ case valueExpression of
+            GrinEval _ value ->
+              GrinIfWhnf
+                value
+                (GrinCall (ResultRep cpsResultRep) (reifiedEntry next) (reifiedCaptures next <> [value]))
+                slow
+            _ -> slow
     GrinStore node -> continuePlaced (GrinStore node)
     GrinEnsureHeap requiredWords roots -> continuePlaced (GrinEnsureHeap requiredWords roots)
     GrinStoreUnchecked {} -> alreadyTransformed
     GrinStoreRec bindings body -> do
       let recursiveVars = Set.fromList (map fst bindings)
       GrinStoreRec bindings
-        <$> transformTail updateName parent (bound <> recursiveVars) resultRep continuation body
+        <$> transformTail parent (bound <> recursiveVars) resultRep continuation body
     GrinStoreRecUnchecked {} -> alreadyTransformed
     GrinUpdate pointer value ->
       continueDirect (grinValueRuntimeRep value) continuation (GrinUpdate pointer value)
     GrinUpdateBlackhole pointer value ->
       continueDirect (grinValueRuntimeRep value) continuation (GrinUpdateBlackhole pointer value)
-    GrinEval runtimeRep value -> do
-      (updateVar, updateNode) <- makeUpdateContinuation updateName value continuation
-      pure
-        ( GrinBind
-            [updateVar]
-            (GrinStore updateNode)
-            (GrinCpsEval runtimeRep value continuation (GrinVarValue updateVar))
-        )
+    GrinEval runtimeRep value -> pure (GrinCpsEval runtimeRep value continuation)
+    GrinIfWhnf {} -> alreadyTransformed
     GrinCpsEval {} -> alreadyTransformed
     GrinCall _ functionName arguments ->
       pure (GrinCall (ResultRep cpsResultRep) functionName (arguments <> [continuation]))
@@ -250,7 +237,6 @@ transformTail updateName parent bound resultRep continuation expression =
           evaluatedAction <- freshVar "$cps_prompt_action" (grinValueRuntimeRep action)
           delimitedAction <-
             transformTail
-              updateName
               parent
               (Set.insert promptVar bound)
               (ResultRep runtimeRep)
@@ -278,7 +264,6 @@ transformTail updateName parent bound resultRep continuation expression =
             [] -> continuation
       applied <-
         transformTail
-          updateName
           parent
           (bound <> Set.fromList frames)
           runtimeRep
@@ -313,7 +298,6 @@ transformTail updateName parent bound resultRep continuation expression =
           let alternativeBound = bound <> Set.fromList (binder : grinAltBinders alternative)
           rhs <-
             transformTail
-              updateName
               parent
               alternativeBound
               resultRep
@@ -326,7 +310,6 @@ transformTail updateName parent bound resultRep continuation expression =
       evaluatedAction <- freshVar "$cps_catch_action" (grinValueRuntimeRep action)
       protectedAction <-
         transformTail
-          updateName
           parent
           (Set.insert catchVar bound)
           (ResultRep runtimeRep)
@@ -364,16 +347,15 @@ transformTail updateName parent bound resultRep continuation expression =
 --
 -- This is a join point, not a continuation frame: it is called rather than
 -- transferred to, so it needs no closure on the heap. 'reifyContinuation'
--- builds a frame instead, because the expression it sits under transfers
--- to it rather than falling through to it.
-liftJoinPoint :: FunctionName -> FunctionName -> GrinResultRep -> [GrinVar] -> [GrinVar] -> GrinExpr -> CpsM FunctionName
-liftJoinPoint updateName parent resultRep captures resultVars body = do
+-- describes both a frame and a direct entry. Evaluation selects the direct
+-- entry when its argument is already in WHNF.
+liftJoinPoint :: FunctionName -> GrinResultRep -> [GrinVar] -> [GrinVar] -> GrinExpr -> CpsM FunctionName
+liftJoinPoint parent resultRep captures resultVars body = do
   joinName <- freshFunctionName (unFunctionName parent <> "_join")
   joinContinuation <- freshVar "$cps_join" liftedGrinRep
   let parameters = captures <> resultVars <> [joinContinuation]
   transformedBody <-
     transformTail
-      updateName
       parent
       (Set.fromList parameters)
       resultRep
@@ -395,16 +377,16 @@ grinExprSize :: GrinExpr -> Int
 grinExprSize expression =
   case expression of
     GrinBind _ valueExpression body -> 1 + grinExprSize valueExpression + grinExprSize body
+    GrinIfWhnf _ ready slow -> 1 + grinExprSize ready + grinExprSize slow
     GrinCase _ _ alternatives -> 1 + sum [1 + grinExprSize (grinAltRhs alternative) | alternative <- alternatives]
     GrinStoreRec _ body -> 1 + grinExprSize body
     GrinStoreRecUnchecked _ body -> 1 + grinExprSize body
     _ -> 1
 
-reifyContinuation :: FunctionName -> FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> [GrinVar] -> GrinExpr -> CpsM (GrinVar, GrinNode)
-reifyContinuation updateName parent bound resultRep outerContinuation resultVars body = do
+reifyContinuation :: FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> [GrinVar] -> GrinExpr -> CpsM ReifiedContinuation
+reifyContinuation parent bound resultRep outerContinuation resultVars body = do
   transformedBody <-
     transformTail
-      updateName
       parent
       (bound <> Set.fromList resultVars)
       resultRep
@@ -431,7 +413,15 @@ reifyContinuation updateName parent bound resultRep outerContinuation resultVars
           (GrinClosure continuationName [map grinVarRuntimeRep resultVars])
           (map GrinVarValue captures)
   addContinuationFunction ContinuationFrameNormal continuationFunction
-  pure (pointer, continuationNode)
+  pure (ReifiedContinuation pointer continuationName (map GrinVarValue captures) continuationNode)
+
+-- | One body with two entry paths: direct arguments or a heap frame.
+data ReifiedContinuation = ReifiedContinuation
+  { reifiedPointer :: !GrinVar,
+    reifiedEntry :: !FunctionName,
+    reifiedCaptures :: ![GrinValue],
+    reifiedNode :: !GrinNode
+  }
 
 continueDirect :: GrinRep -> GrinValue -> GrinExpr -> CpsM GrinExpr
 continueDirect runtimeRep continuation directExpression = do
@@ -441,14 +431,6 @@ continueDirect runtimeRep continuation directExpression = do
         resultVars
         directExpression
         (GrinContinue continuation (map GrinVarValue resultVars))
-    )
-
-makeUpdateContinuation :: FunctionName -> GrinValue -> GrinValue -> CpsM (GrinVar, GrinNode)
-makeUpdateContinuation updateName blackhole continuation = do
-  pointer <- freshVar "$cps_update" liftedGrinRep
-  pure
-    ( pointer,
-      GrinNode (GrinClosure updateName [[liftedGrinRep]]) [continuation, blackhole]
     )
 
 makeCatchContinuation :: FunctionName -> GrinRep -> GrinValue -> GrinValue -> CpsM (GrinVar, GrinNode)
@@ -503,38 +485,6 @@ makePromptContinuation parent resultRep outerContinuation tag = do
           [outerContinuation, tag]
   addContinuationFunction ContinuationFramePrompt promptFunction
   pure (pointer, promptNode)
-
-makeUpdateFunction :: FunctionName -> CpsM GrinFunction
-makeUpdateFunction updateName = do
-  outerContinuation <- freshVar "$cps_outer" liftedGrinRep
-  blackhole <- freshVar "$cps_blackhole" liftedGrinRep
-  result <- freshVar "$cps_thunk_result" liftedGrinRep
-  updated <- freshVar "$cps_updated" liftedGrinRep
-  nextUpdate <- freshVar "$cps_next_update" liftedGrinRep
-  let nextUpdateNode =
-        GrinNode
-          (GrinClosure updateName [[liftedGrinRep]])
-          [GrinVarValue outerContinuation, GrinVarValue result]
-  pure
-    GrinFunction
-      { grinFunctionName = updateName,
-        grinFunctionParameters = [outerContinuation, blackhole, result],
-        grinFunctionResultRep = liftedResultRep,
-        grinFunctionBody =
-          GrinBind
-            [updated]
-            (GrinUpdateBlackhole (GrinVarValue blackhole) (GrinVarValue result))
-            ( GrinBind
-                [nextUpdate]
-                (GrinStore nextUpdateNode)
-                ( GrinCpsEval
-                    liftedGrinRep
-                    (GrinVarValue result)
-                    (GrinVarValue outerContinuation)
-                    (GrinVarValue nextUpdate)
-                )
-            )
-      }
 
 cpsResultRep :: GrinRep
 cpsResultRep = TupleRep []

@@ -1,5 +1,4 @@
 entry: $entry
-gc-stress: true
 rts-arguments: ["+RTS", "-M256", "-RTS"]
 program: |
   constructor Done/0 []

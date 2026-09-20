@@ -207,6 +207,7 @@ bodyReferences expression =
     GrinBind _ valueExpression body -> bodyReferences valueExpression <> bodyReferences body
     GrinStoreRec bindings body -> foldMap (nodeReferences . snd) bindings <> bodyReferences body
     GrinStoreRecUnchecked bindings body -> foldMap (nodeReferences . snd) bindings <> bodyReferences body
+    GrinIfWhnf _ ready slow -> bodyReferences ready <> bodyReferences slow
     GrinCase _ _ alternatives -> foldMap (bodyReferences . grinAltRhs) alternatives
     GrinConstant {} -> Set.empty
     GrinStore node -> nodeReferences node
