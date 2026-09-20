@@ -1,0 +1,14 @@
+program: |
+  primitive fork# :: BoxedRep Unlifted/1
+
+  fork (action :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) fork# (action :: BoxedRep Lifted)
+expected: |
+  primitive fork# :: BoxedRep Unlifted/1
+
+  fork (action :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $cps_return$gc :: BoxedRep Lifted, action$gc :: BoxedRep Lifted <-
+      ensure-heap (9 :: WordRep) ($cps_return :: BoxedRep Lifted) (action :: BoxedRep Lifted)
+    cps-primitive-call @(BoxedRep Unlifted) fork# (action$gc :: BoxedRep Lifted) -> ($cps_return$gc :: BoxedRep Lifted)
+status: pass
+reason: A fork reservation must protect the action and the caller continuation.

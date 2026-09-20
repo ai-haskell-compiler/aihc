@@ -1,0 +1,18 @@
+entry: $entry
+gc-stress: true
+program: |
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  primitive yield# :: TupleRep []/0
+
+  $loop (self :: BoxedRep Lifted) -> BoxedRep Lifted =
+    () <- primitive-call @(TupleRep []) yield#
+    (tag :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    eval @(BoxedRep Lifted) (self :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    store-rec
+      (self :: BoxedRep Lifted) = (F$loop (self :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (self :: BoxedRep Lifted)
+error: blackholed thunk re-entered
+status: pass
+reason: Collection must relocate the blackhole owner before the owner enters the thunk again.

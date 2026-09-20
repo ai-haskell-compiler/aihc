@@ -581,7 +581,7 @@ replay config script reports = go (zip [0 ..] script) emptyModel 0 <> extra
     collects (CReserve _) = True
     collects CCollect = True
     collects _ = False
-    capacityAfter (CMachine _ _ bytes) _ = bytes
+    capacityAfter (CMachine _ _ bytes) _ = bytes + 72
     capacityAfter _ capacity = capacity
 
 matchesValue :: Value -> RValue -> Bool
@@ -613,8 +613,8 @@ checkReport expected capacityBefore report =
     <> checkValues "blackholes" (map VHeap (mBlackholes expected)) (rBlackholes report)
     <> staticProblems
   where
-    -- The native MVar has nine slots on the 64-bit test targets.
-    liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * length (mMvars expected))
+    -- Each MVar and the initial thread have nine slots on the 64-bit test targets.
+    liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * (1 + length (mMvars expected)))
     occupied = rLive report + rRequired report
     spaceProblems =
       ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]

@@ -362,6 +362,7 @@ const AihcResume *aihc_continuation_resume(AihcMachine *machine,
                                            AihcValue *continuation);
 const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
                              AihcValue *continuation);
+/* The caller reserves nine heap slots. This operation must not collect. */
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
 AihcThread *aihc_my_thread_id(AihcMachine *machine);
 void *aihc_mvar_new(AihcMachine *machine);

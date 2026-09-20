@@ -54,6 +54,10 @@ struct AihcThread {
   AihcTransaction *transaction;
 };
 
+/* Match the fork# reservation in Aihc.Grin.Primitive. */
+_Static_assert(sizeof(AihcThread) <= 9 * sizeof(AihcSlot),
+               "thread exceeds the GRIN reservation");
+
 typedef struct AihcTransactionWrite AihcTransactionWrite;
 
 struct AihcTransactionWrite {

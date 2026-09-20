@@ -1,0 +1,34 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M512", "-RTS"]
+program: |
+  primitive +# :: IntRep/2
+  constructor Done/0 []
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  primitive myThreadId# :: BoxedRep Unlifted/0
+  primitive aihcThreadIdNumber# :: Word64Rep/1
+  global child = (P$child/[[]])
+
+  $child -> BoxedRep Lifted =
+    store (CDone)
+
+  $loop (counter :: IntRep) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        constant (counter :: IntRep)
+      _ ->
+        (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+        () <- primitive-call @(TupleRep []) yield#
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+return: "200"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 25600
+  linux-amd64: 25600
+status: pass
+reason: Completed threads must become reclaimable in a small heap.

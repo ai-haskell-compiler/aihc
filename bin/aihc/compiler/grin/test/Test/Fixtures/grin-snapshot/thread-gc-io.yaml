@@ -1,0 +1,45 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  constructor Done/0 []
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  primitive +# :: IntRep/2
+  primitive newDelayTVar# :: BoxedRep Unlifted/3
+  primitive stmWaitRequest# :: AddrRep/0
+  primitive awaitIO# :: TupleRep []/1
+  primitive stmWaitResult# :: IntRep/1
+  primitive readTVarIO# :: BoxedRep Lifted/1
+  global child = (P$child/[[]])
+
+  $loop (counter :: IntRep) -> BoxedRep Lifted =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        store (CDone)
+      _ ->
+        (tag :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $loop (next :: IntRep)
+
+  $child -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (0 :: IntRep)
+
+  $entry -> BoxedRep Lifted =
+    (initial :: BoxedRep Lifted) <- store (CNumber (0 :: IntRep))
+    (final :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    (variable :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newDelayTVar# (1000000 :: IntRep) (initial :: BoxedRep Lifted) (final :: BoxedRep Lifted)
+    (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
+    () <- primitive-call @(TupleRep []) awaitIO# (request :: AddrRep)
+    (ignored :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: AddrRep)
+    (value :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVarIO# (variable :: BoxedRep Unlifted)
+    constant (value :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CNumber 42
+allocated-bytes:
+  macos-arm64: 1832
+  linux-amd64: 1832
+status: pass
+reason: A pending IO request must retain its thread while another thread forces collections.

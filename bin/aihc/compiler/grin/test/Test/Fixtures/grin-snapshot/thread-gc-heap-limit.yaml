@@ -1,0 +1,29 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M256", "-RTS"]
+program: |
+  primitive +# :: IntRep/2
+  constructor Done/0 []
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  primitive myThreadId# :: BoxedRep Unlifted/0
+  primitive aihcThreadIdNumber# :: Word64Rep/1
+  global child = (P$child/[[]])
+
+  $child -> BoxedRep Lifted =
+    store (CDone)
+
+  $loop (counter :: IntRep) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      4 ->
+        constant (counter :: IntRep)
+      _ ->
+        (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+error: heap limit exceeded
+status: pass
+reason: Runnable threads count against the managed heap limit.
