@@ -175,6 +175,11 @@ Reservations can exceed actual allocation, which statistics measure separately.
 
 These primitives consume reserved heap and must not collect.
 Their callees must preserve this contract.
+
+Managed heap allocation does not clear memory in release builds.
+Each object initializer must write every field before collection can trace the object.
+When the C preprocessor symbol `DEBUG` is defined, `aihc_gc_allocate` clears its allocation for diagnostics.
+Runtime records explicitly initialize null links, empty queues, and inactive state in both builds.
 `aihc_gc_allocate` checks the available space and cannot collect.
 The delay-variable helper initializes its TVar and timer before any further collection.
 
@@ -220,7 +225,13 @@ The thunk branch reserves seventeen slots: three for its update frame and fourte
 The blackhole branch reserves fourteen slots, which also cover a waiter on every target.
 Both branches protect the resolved value and the continuation as roots across collection.
 The thunk branch reloads the info table after collection and stores the resolved thunk in its update frame.
-`aihc_begin_blackhole` and `aihc_block_on_blackhole` consume the reserved space without collection.
+The thunk branch places the update frame and blackhole record with one heap-pointer update.
+It copies the thunk metadata, initializes the record, and links it into the active list directly in Lir.
+It then publishes the embedded info table in the thunk header and transfers to the thunk entry.
+This path calls no C allocation or blackhole helper.
+`aihc_block_on_blackhole` consumes the reserved waiter space without collection.
+Named constants in `aihc_constants.lir` describe the record and machine offsets.
+C assertions check those offsets on both pointer widths.
 The shared update continuation completes the blackhole update, then calls evaluation with the result and parent continuation.
 It allocates no frame itself.
 Blackhole records use the managed heap and have a distinct object kind.

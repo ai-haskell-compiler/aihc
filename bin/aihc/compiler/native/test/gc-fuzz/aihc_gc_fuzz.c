@@ -891,6 +891,9 @@ static void command_new(char **tokens, size_t count) {
   reserved_words -= words;
   AihcValue *object = aihc_gc_allocate(machine, words);
   object->header = (AihcSlot)(uintptr_t)info;
+  for (uint64_t index = 0; index + 1 < words; ++index) {
+    object->fields[index] = 0;
+  }
   if (partial) {
     object->fields[0] = field_count;
   }
@@ -927,6 +930,9 @@ static void command_array(char **tokens, size_t count) {
   AihcValue *object = aihc_gc_allocate(machine, words);
   object->header = (AihcSlot)(uintptr_t)info;
   object->fields[0] = length;
+  for (uint64_t index = 0; index < length; ++index) {
+    object->fields[index + 1] = 0;
+  }
   entry->defined = 1;
   entry->address = object;
   entry->info = info;
@@ -1074,8 +1080,31 @@ static void run_command(char **tokens, size_t count) {
       fail("blackhole record exceeds its reservation");
     }
     reserved_words -= words;
-    aihc_begin_blackhole(machine,
-                         live_entry(parse_unsigned(tokens[1]))->address);
+    /* This driver constructs collector input without entering thunk code.
+       Runtime evaluation constructs the same record directly in Lir. */
+    static const AihcInfo record_info = {
+        .object_kind = AIHC_OBJECT_BLACKHOLE_RECORD,
+    };
+    AihcValue *object = live_entry(parse_unsigned(tokens[1]))->address;
+    const AihcInfo *original_info = aihc_value_info_table(object);
+    if (original_info->object_kind != AIHC_OBJECT_THUNK) {
+      fail("blackhole expects a thunk");
+    }
+    AihcBlackhole *record = (AihcBlackhole *)aihc_gc_allocate(machine, words);
+    *record = (AihcBlackhole){
+        .header = (AihcSlot)(uintptr_t)&record_info,
+        .info = *original_info,
+        .original_info = original_info,
+        .object = object,
+        .owner = machine->current_thread,
+        .next = machine->blackholes,
+    };
+    record->info.object_kind = AIHC_OBJECT_BLACKHOLE;
+    if (record->next != NULL) {
+      record->next->previous = record;
+    }
+    machine->blackholes = record;
+    object->header = (AihcSlot)(uintptr_t)&record->info;
   } else if (strcmp(name, "unblackhole") == 0) {
     if (count != 3) {
       fail("unblackhole expects two arguments");
