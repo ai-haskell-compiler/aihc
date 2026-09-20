@@ -165,6 +165,7 @@ Lir translates the explicit reservation and the call.
 `stmBegin#` reserves three heap slots, and `writeTVar#` reserves four.
 `newDelayTVar#` reserves eight slots for its TVar and optional timer.
 `newPromptTag#` reserves one slot.
+`makeStableName#` reserves four slots.
 `newMVar#` and `fork#` each reserve nine slots.
 `readMVar#`, `takeMVar#`, and `putMVar#` each reserve five slots for one optional waiter.
 CPS call reservations protect the continuation and all pointer arguments.
@@ -277,10 +278,25 @@ CAF gets its target forwarded like any heap field. A nullary constructor has
 no fields, so marking it does nothing.
 
 Every object that compiled code can store in a pointer field carries an info
-table. The byte arrays and stable names that the runtime
-allocates outside the heap therefore also start with a header. Their info
-tables have the kind `AIHC_OBJECT_RUNTIME`.
-The root visitor traces stable-name referents through the machine list.
+table. Byte arrays still use storage outside the managed heap.
+They have a header with the `AIHC_OBJECT_RUNTIME` kind.
+
+Stable names use four managed slots on every target: header, weak referent, hash, and weak lookup link.
+Their info tables have the `AIHC_OBJECT_STABLE_NAME` kind.
+The GRIN GC stage reserves their memory and protects the referent and caller values before `makeStableName#`.
+The Lir runtime unit consumes this reservation without collection.
+
+The machine lookup list does not retain names.
+A name does not retain its referent or the next name in the list.
+After strong tracing, the collector rebuilds the lookup list from live names with live referents.
+It updates moved referents and follows heap indirections to live targets.
+It clears dead referents and removes dead entries from the lookup list.
+This phase does not allocate memory or start further tracing.
+
+A live name keeps its hash even if its referent dies.
+Pointer equality between live names remains valid because collection relocates every strong reference to each name.
+Dead names and referents become reclaimable, and name records count toward allocation statistics and heap limits.
+The lifetime rule follows [System.Mem.StableName](https://downloads.haskell.org/~ghc/latest/docs/libraries/base-4.22.0.0-66f8/System-Mem-StableName.html).
 
 ## IO manager
 

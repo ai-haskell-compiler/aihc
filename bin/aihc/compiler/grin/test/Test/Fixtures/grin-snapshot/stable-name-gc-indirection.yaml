@@ -1,0 +1,26 @@
+entry: $entry
+gc-stress: true
+program: |
+  primitive makeStableName# :: BoxedRep Unlifted/1
+  primitive eqStableName# :: IntRep/2
+  primitive stableNameToInt# :: IntRep/1
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  constructor Box/1 [IntRep]
+
+  $thunk -> BoxedRep Lifted =
+    store (CBox (42 :: IntRep))
+
+  $entry -> IntRep =
+    (thunk :: BoxedRep Lifted) <- store (F$thunk)
+    (name :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) makeStableName# (thunk :: BoxedRep Lifted)
+    (value :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    (tag :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    (again :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) makeStableName# (value :: BoxedRep Lifted)
+    primitive-call @IntRep eqStableName# (name :: BoxedRep Unlifted) (again :: BoxedRep Unlifted)
+return: "1"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 256
+  linux-amd64: 256
+status: pass
+reason: Weak referent relocation must follow a live target through an updated heap thunk.

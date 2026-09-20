@@ -1,0 +1,30 @@
+entry: $entry
+gc-stress: true
+program: |
+  primitive makeStableName# :: BoxedRep Unlifted/1
+  primitive eqStableName# :: IntRep/2
+  primitive stableNameToInt# :: IntRep/1
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  constructor Box/1 [IntRep]
+  global static = (CBox (8 :: IntRep))
+
+  $entry -> TupleRep [IntRep, IntRep, IntRep, IntRep, IntRep] =
+    (value :: BoxedRep Lifted) <- store (CBox (42 :: IntRep))
+    (name :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) makeStableName# (value :: BoxedRep Lifted)
+    (hash :: IntRep) <- primitive-call @IntRep stableNameToInt# (name :: BoxedRep Unlifted)
+    (static :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) makeStableName# global-ref static
+    (tag :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    (again :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) makeStableName# (value :: BoxedRep Lifted)
+    (staticAgain :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) makeStableName# global-ref static
+    (same :: IntRep) <- primitive-call @IntRep eqStableName# (name :: BoxedRep Unlifted) (again :: BoxedRep Unlifted)
+    (staticSame :: IntRep) <- primitive-call @IntRep eqStableName# (static :: BoxedRep Unlifted) (staticAgain :: BoxedRep Unlifted)
+    (different :: IntRep) <- primitive-call @IntRep eqStableName# (name :: BoxedRep Unlifted) (static :: BoxedRep Unlifted)
+    (after :: IntRep) <- primitive-call @IntRep stableNameToInt# (again :: BoxedRep Unlifted)
+    constant (same :: IntRep) (staticSame :: IntRep) (different :: IntRep) (hash :: IntRep) (after :: IntRep)
+return: "(1, 1, 0, 1, 1)"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 88
+  linux-amd64: 88
+status: pass
+reason: Live names must preserve equality and hashes for static and heap referents across collection.

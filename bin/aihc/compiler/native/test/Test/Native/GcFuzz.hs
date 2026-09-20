@@ -173,7 +173,7 @@ data Model = Model
     mNextId :: Id,
     mGlobals :: [Value],
     mRoots :: [Value],
-    -- | Stable-name referents, newest first.
+    -- | Weak referents of names retained by the driver, newest first.
     mStable :: [Value],
     mMvars :: [Maybe Value],
     mThreadFunction :: Value,
@@ -387,7 +387,6 @@ liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
     rootValues =
       mGlobals model
         <> mRoots model
-        <> mStable model
         <> catMaybes (mMvars model)
         <> [mThreadFunction model, mThreadContinuation model]
         <> maybe [] pure (mThreadValue model)
@@ -396,7 +395,7 @@ liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
     initial = concatMap fromValue rootValues <> staticStart
     fromValue value = case resolve model value of
       VHeap identity -> [IHeap identity]
-      VStatic slot | slot < staticRootedCount -> [IStatic slot]
+      VStatic slot -> [IStatic slot]
       _ -> []
     fromSrt = maybe [] (pure . ISrt)
     go [] live _ = live
@@ -418,9 +417,10 @@ liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
                       SThunk -> fromSrt (mStaticThunkSrts model !! slot)
                       SInd target -> fromValue target
                       SStale -> error "a stale static object became live"
-                  | otherwise =
+                  | slot < staticRootedCount =
                       let node = slot - staticThunkCount
                        in concatMap fromValue (mStaticNodes model !! node) <> fromSrt (mStaticNodeSrts model !! node)
+                  | otherwise = []
              in go (children <> rest) live {liveStatics = Set.insert slot (liveStatics live)} seenSrts
       ISrt index
         | Set.member index seenSrts -> go rest live seenSrts
@@ -435,7 +435,7 @@ collectModel config model =
     { mHeap = Map.mapWithKey resolveObject (Map.restrictKeys (mHeap model) (liveHeap live)),
       mGlobals = map r (mGlobals model),
       mRoots = map r (mRoots model),
-      mStable = map r (mStable model),
+      mStable = map weak (mStable model),
       mMvars = map (fmap r) (mMvars model),
       mThreadFunction = r (mThreadFunction model),
       mThreadContinuation = r (mThreadContinuation model),
@@ -445,6 +445,10 @@ collectModel config model =
   where
     live = liveness config model
     r = resolve model
+    weak value = case r value of
+      result@(VHeap identity) | Set.member identity (liveHeap live) -> result
+      result@(VStatic slot) | Set.member slot (liveStatics live) -> result
+      _ -> VNull
     resolveObject _ object = case object of
       Object kind pointers fields srt blackholed -> Object kind pointers (zipWith (\p v -> if p then r v else v) pointers fields) srt blackholed
       Array elements srt -> Array (map r elements) srt
@@ -615,7 +619,7 @@ checkReport expected capacityBefore report =
   where
     -- MVars and threads have nine slots on the 64-bit test targets.
     -- Each active blackhole record has fourteen slots.
-    liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * (1 + length (mMvars expected)) + 14 * length (mBlackholes expected))
+    liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * (1 + length (mMvars expected)) + 14 * length (mBlackholes expected) + 4 * length (mStable expected))
     occupied = rLive report + rRequired report
     spaceProblems =
       ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]
@@ -817,7 +821,8 @@ genEpoch config profile start = do
   collect <- percent (pCollectPercent profile)
   let final = if collect then collectModel config afterOps else afterOps
       blackholeWords = 14 * length [() | CBlackhole _ <- ops]
-  pure (fill <> [CReserve (blockWords + blackholeWords)] <> newCommands <> initial <> rooting <> ops <> [CCollect | collect], final)
+      stableNameWords = 4 * length [() | CStable _ <- ops]
+  pure (fill <> [CReserve (blockWords + blackholeWords + stableNameWords)] <> newCommands <> initial <> rooting <> ops <> [CCollect | collect], final)
   where
     newCommand identity (ShapeObject kind pointers) srt = CNew identity kind pointers srt
     newCommand identity (ShapeArray count) srt = CArray identity count srt

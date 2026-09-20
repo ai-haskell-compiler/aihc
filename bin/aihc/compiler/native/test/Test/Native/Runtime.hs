@@ -21,8 +21,7 @@ tests :: TestTree
 tests =
   testGroup
     "native runtime"
-    [ runtimeProgramTest "stable names survive collections" [] stableNameSource,
-      runtimeProgramTest "Lir runtime units implement mutable references" [] mutVarSource,
+    [ runtimeProgramTest "Lir runtime units implement mutable references" [] mutVarSource,
       runtimeProgramTest "Lir runtime units implement byte arrays" [] byteArraySource,
       runtimeProgramTest
         "Lir runtime units parse the RTS options"
@@ -81,46 +80,6 @@ runtimeProgramTestWith name programArguments extraEnvironment source check =
       (programExit, _programOut, programErr) <- readCreateProcessWithExitCode process ""
       assertEqual ("runtime diagnostics:\n" <> programErr) ExitSuccess programExit
       check directory
-
-stableNameSource :: String
-stableNameSource =
-  unlines
-    [ "#include \"aihc_runtime.h\"",
-      "/* The allocation protocol of compiled code: reserve the words of the",
-      "   object, then bump the heap pointer and write the header. The runtime has",
-      "   no allocator to call, so a program here does what a backend does. */",
-      "static inline AihcValue *place_node(AihcMachine *machine,",
-      "                                    const AihcInfo *info, uint64_t words) {",
-      "  AihcValue *value = (AihcValue *)machine->heap_next;",
-      "  machine->heap_next += 8 * words;",
-      "  value->header = (AihcSlot)(uintptr_t)info;",
-      "  return value;",
-      "}",
-      "static inline AihcValue *make_node(AihcMachine *machine,",
-      "                                   const AihcInfo *info, uint64_t words) {",
-      "  aihc_ensure_heap(machine, words, 0, 0, 0);",
-      "  return place_node(machine, info, words);",
-      "}",
-      "static const AihcInfo leaf_info = {.identity = 1, .field_count = 0, .frame_kind = AIHC_FRAME_NONE, .object_kind = AIHC_OBJECT_NODE};",
-      "int main(void) {",
-      "  AihcMachine *machine = aihc_machine_new(2);",
-      "  AihcValue *first = make_node(machine, &leaf_info, 1);",
-      "  machine->globals[0] = (AihcSlot)first;",
-      "  void *first_name = aihc_stable_name_make(machine, first);",
-      "  void *first_again = aihc_stable_name_make(machine, first);",
-      "  AihcValue *second = make_node(machine, &leaf_info, 1);",
-      "  machine->globals[1] = (AihcSlot)second;",
-      "  void *second_name = aihc_stable_name_make(machine, second);",
-      "  if (first_name != first_again) return 1;",
-      "  if (first_name == second_name) return 3;",
-      "  for (int index = 0; index < 100; ++index) (void)make_node(machine, &leaf_info, 1);",
-      "  first = (AihcValue *)machine->globals[0];",
-      "  second = (AihcValue *)machine->globals[1];",
-      "  if (aihc_stable_name_make(machine, first) != first_name) return 4;",
-      "  if (aihc_stable_name_make(machine, second) != second_name) return 5;",
-      "  return 0;",
-      "}"
-    ]
 
 -- | Mutable references are boxed arrays of one element, and both live in
 -- aihc_mutvar.lir and aihc_array.lir. Compiled code reads and writes the

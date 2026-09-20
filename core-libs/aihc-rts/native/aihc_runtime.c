@@ -198,6 +198,8 @@ uint64_t aihc_object_words(const AihcInfo *info) {
 
 uint64_t aihc_value_words(const AihcValue *value) {
   switch (aihc_value_kind(value)) {
+  case AIHC_OBJECT_STABLE_NAME:
+    return aihc_record_words(sizeof(AihcStableName));
   case AIHC_OBJECT_THREAD:
     return aihc_record_words(sizeof(AihcThread));
   case AIHC_OBJECT_BLACKHOLE_RECORD:
@@ -400,6 +402,9 @@ static void *aihc_visit_pointer(void *pointer, AihcRootVisitor visitor,
 int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context) {
   switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_STABLE_NAME:
+    /* The collector processes the referent and lookup link as weak pointers. */
+    return 1;
   case AIHC_OBJECT_THREAD: {
     AihcThread *thread = (AihcThread *)object;
     thread->next = aihc_visit_pointer(thread->next, visitor, context);
@@ -516,10 +521,6 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
       aihc_visit_pointer(machine->run_queue_tail, visitor, context);
   machine->blackholes =
       aihc_visit_pointer(machine->blackholes, visitor, context);
-  for (AihcStableName *name = machine->stable_names; name != NULL;
-       name = name->next) {
-    aihc_visit_value(&name->value, visitor, context);
-  }
   for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
        request = request->next) {
     aihc_visit_value(&request->continuation, visitor, context);
