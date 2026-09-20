@@ -29,11 +29,11 @@ Lower-case units have the same meaning.
 The default heap size is unlimited.
 
 The semispace collector starts with a small space and grows it on demand.
-After each collection, the target capacity doubles until it holds twice the
-live data. The `-M` limit caps the capacity of one space. The collector stops
-the program when the live data and the pending reservation do not fit in that
-capacity. It does not count the second space, auxiliary runtime allocations, or
-static objects.
+After each collection, the target capacity doubles until it holds twice the live data.
+The `-M` limit caps the shared budget for movable objects and pinned blocks.
+Pinned block charges include their allocation metadata and alignment padding.
+The collector stops when live data and the next reservation exceed this budget.
+It excludes the second space, unused capacity, auxiliary runtime allocations, and static objects.
 
 Static reference tables determine static object liveness for every collection.
 
@@ -50,14 +50,11 @@ writes one JSON object to that file:
 A normal exit is a return from `main` or an `exitWith` call. A runtime failure
 writes no file. An empty value counts as an unset variable.
 
-- `peak_heap_bytes` is the most bytes the current semispace ever held. That is
-  the live data after a collection plus the allocations since it, sampled
-  before each collection and at exit. The value is comparable to the
-  `max_live_bytes` field of the GHC runtime.
-- `allocated_bytes` counts every byte reserved on the managed heap. Compiled
-  code bumps the heap pointer itself within a reservation, so a reservation
-  that a branch does not use in full is still counted. Auxiliary runtime
-  allocations, such as byte arrays, are not counted.
+- `peak_heap_bytes` records the maximum occupied space for movable objects and pinned blocks.
+  The runtime samples this count before collection and at exit.
+- `allocated_bytes` counts actual movable allocations and complete pinned block charges.
+  Unused reservations and collector copies do not increase this count.
+  Auxiliary runtime allocations remain outside this count.
 - `gc_count` is the number of collections.
 - `gc_time_ns` is the monotonic time the collections took, in nanoseconds.
 
@@ -278,8 +275,7 @@ CAF gets its target forwarded like any heap field. A nullary constructor has
 no fields, so marking it does nothing.
 
 Every object that compiled code can store in a pointer field carries an info
-table. Byte arrays still use storage outside the managed heap.
-They have a header with the `AIHC_OBJECT_RUNTIME` kind.
+table. Byte arrays have the `AIHC_OBJECT_BYTE_ARRAY` kind.
 
 Stable names use four managed slots on every target: header, weak referent, hash, and weak lookup link.
 Their info tables have the `AIHC_OBJECT_STABLE_NAME` kind.
@@ -297,6 +293,52 @@ A live name keeps its hash even if its referent dies.
 Pointer equality between live names remains valid because collection relocates every strong reference to each name.
 Dead names and referents become reclaimable, and name records count toward allocation statistics and heap limits.
 The lifetime rule follows [System.Mem.StableName](https://downloads.haskell.org/~ghc/latest/docs/libraries/base-4.22.0.0-66f8/System-Mem-StableName.html).
+
+## Byte arrays and pinned storage
+
+A byte array has six eight-byte descriptor slots followed by its payload.
+The slots contain the header, current size, contents address, pinned flag, alignment, and allocation size.
+An empty array still has one payload byte.
+The allocation size remains unchanged after shrink, so the collector can traverse the complete object.
+
+`newByteArray#` uses the movable heap.
+After relocation, the collector repairs the contents address to point after the descriptor.
+Pinned allocations contain their descriptor and payload in one separate block.
+The payload preserves the requested power-of-two alignment.
+Two metadata slots precede the object and contain the list link and complete charge.
+The metadata address is the allocation base.
+
+The GRIN GC stage calls a size helper before each allocation or resize.
+The helper checks the size and alignment and computes the complete reservation in slots.
+The existing reservation transformation protects the source array and other live pointers.
+The Lir allocation functions consume this reservation without collection.
+Resize copies into a new array and preserves the pinned flag and alignment.
+
+`aihc_gc_allocate_pinned` consumes the same budget as movable allocation.
+It reduces the available space by the complete block charge and updates allocation statistics.
+The machine records physical space capacity separately from the available space limit.
+The pinned allocation list does not retain its objects.
+Strong tracing marks pinned objects through ordinary roots and object fields.
+After weak stable-name processing, the collector releases unmarked pinned blocks.
+Their charges then become available to later reservations.
+
+An `Addr#` does not retain an array.
+A pinned address remains stable only while its array remains live.
+Use `keepAlive#` around an action that uses the address, including the complete asynchronous IO operation.
+A final `touch#` also keeps its operand live through earlier GC reservations on that control path.
+These lifetime requirements follow the [GHC byte-array contract](https://downloads.haskell.org/~ghc/latest/docs/libraries/ghc-internal-9.1401.0-555c/src/GHC.Internal.Prim.html).
+
+GRIN preserves `keepAlive#` as a lifetime scope through simplification.
+CPS conversion gives each pointer owner a three-slot continuation frame.
+GRIN GC reserves these frames and relocates their arguments.
+The collector traces their parent and owner fields.
+Continuation dispatch passes through these frames without a result-layout conversion.
+This supports abstract result representations and results with multiple registers.
+Exception unwinding treats them as ordinary frames.
+
+Foreign operand conversion evaluates other operands before it obtains byte-array payload addresses.
+Thus, a collection during operand evaluation cannot invalidate an extracted movable address.
+The path and argument-buffer helpers retain their owners while raw addresses are in use.
 
 ## IO manager
 
@@ -326,18 +368,17 @@ descriptor in each handle, sets it nonblocking, and uses `poll` when buffer
 reads or writes report that they would block. Windows can instead store `HANDLE` or
 `SOCKET` resources without exposing either representation to generated code.
 
-Reads and writes operate on an offset and length within the payload of a pinned
-`MutableByteArray#`. The proof-of-concept runtime allocates each byte array
-outside the Haskell heap and does not release it. A request retains that stable
-allocation through completion. Callers must not access the submitted slice
-while the request is pending. A future garbage collector can own the same
-descriptor and payload layout without changing `awaitIO#` or the backend
-request model.
+Reads and writes operate on an offset and length within a pinned `MutableByteArray#` payload.
+The collector owns and can reclaim these arrays.
+The caller must retain the array through submission, suspension, completion, and result consumption.
+`keepAlive#` can protect that complete action.
+Pending requests retain their saved continuations, which retain active keep-alive frames.
+The request's raw buffer pointer is not a GC root.
+Callers must not access the submitted slice while the request is pending.
 
-`copyAddrToByteArray#` copies an explicit number of bytes from an `Addr#` into a
-bounds-checked destination slice. It does not scan for a terminating zero. The
-source address must remain valid until the synchronous copy returns; only the
-stable byte-array payload is retained by later asynchronous requests.
+`copyAddrToByteArray#` copies an explicit byte count into a checked destination slice.
+It does not search for a terminating zero.
+The source address must remain valid until the synchronous copy returns.
 
 A non-negative request result is the number of transferred bytes. A non-empty
 read returns zero at end-of-file. Either operation can return fewer bytes than

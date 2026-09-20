@@ -9,10 +9,8 @@
 -- array copies. The primitives named here are the ones that make a new
 -- object, so a reservation must not reach across them.
 --
--- The question is whether the primitive allocates, not where the memory
--- comes from today. A byte array is taken from malloc for now and will be
--- taken from the managed heap later; it is named here either way, so that
--- moving it does not quietly make every reservation around it wrong.
+-- The allocation classification includes both movable and pinned objects.
+-- Both forms consume a prior reservation in the shared heap budget.
 --
 -- 'Aihc.Native' records how each primitive is lowered, but sits above GRIN
 -- and cannot be read from this side, so this list is a second statement of
@@ -52,6 +50,7 @@ primitiveHeapWords name =
       ("newDelayTVar#", 8),
       ("newPromptTag#", 1),
       ("makeStableName#", 4),
+      ("aihcKeepAliveFrame#", 3),
       ("fork#", 9),
       ("newMVar#", 9),
       ("readMVar#", 5),
@@ -92,10 +91,8 @@ arrayPrimitives =
     "resizeSmallMutableArray#"
   ]
 
--- | The byte arrays. Their payload comes from malloc today, so none of
--- these can take reserved heap yet; they are named here because that is
--- where they are headed, and because a reservation merged across them
--- would have to be taken apart again when they move.
+-- | Byte-array allocation and resize use dynamic reservations.
+-- Shrink remains a reservation boundary, but it does not allocate.
 byteArrayPrimitives :: [Text]
 byteArrayPrimitives =
   [ "newByteArray#",
@@ -111,7 +108,8 @@ byteArrayPrimitives =
 referencePrimitives :: [Text]
 referencePrimitives =
   [ "newMutVar#",
-    "makeStableName#"
+    "makeStableName#",
+    "aihcKeepAliveFrame#"
   ]
 
 -- | The transaction log grows as a transaction runs, so every operation

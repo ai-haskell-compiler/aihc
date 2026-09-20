@@ -109,10 +109,7 @@ static const AihcInfo aihc_thread_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_THREAD,
 };
-const AihcInfo aihc_runtime_object_info = {
-    .frame_kind = AIHC_FRAME_NONE,
-    .object_kind = AIHC_OBJECT_RUNTIME,
-};
+
 static const AihcInfo aihc_blackhole_record_info = {
     .object_kind = AIHC_OBJECT_BLACKHOLE_RECORD,
 };
@@ -165,6 +162,35 @@ void *aihc_allocate_zeroed(uint64_t bytes) {
   return pointer;
 }
 
+/* Compute the complete allocation charge before a collection can occur. */
+uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
+                               int64_t alignment) {
+  if (size < 0) {
+    aihc_fail("invalid byte array size");
+  }
+  if (alignment <= 0 ||
+      ((uint64_t)alignment & ((uint64_t)alignment - 1)) != 0) {
+    aihc_fail("invalid byte array alignment");
+  }
+  uint64_t occupied = size == 0 ? 1 : (uint64_t)size;
+  uint64_t slack = pinned && alignment > 8 ? (uint64_t)alignment - 1 : 0;
+  uint64_t overhead =
+      sizeof(AihcByteArray) + (pinned ? sizeof(AihcPinnedBlock) : 0);
+  if (slack > SIZE_MAX - overhead - 7 ||
+      occupied > SIZE_MAX - overhead - 7 - slack) {
+    aihc_fail("byte array allocation is too large");
+  }
+  return (overhead + occupied + slack + 7) / sizeof(AihcSlot);
+}
+
+uint64_t aihc_byte_array_resize_words(void *opaque_array, int64_t size) {
+  AihcByteArray *array = opaque_array;
+  if (array == NULL) {
+    aihc_fail("attempted to resize a null byte array");
+  }
+  return aihc_byte_array_words(size, array->pinned, (int64_t)array->alignment);
+}
+
 void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes) {
   void *pointer = aihc_allocate_zeroed(bytes);
   aihc_record_allocation(machine);
@@ -198,6 +224,8 @@ uint64_t aihc_object_words(const AihcInfo *info) {
 
 uint64_t aihc_value_words(const AihcValue *value) {
   switch (aihc_value_kind(value)) {
+  case AIHC_OBJECT_BYTE_ARRAY:
+    return ((const AihcByteArray *)value)->words;
   case AIHC_OBJECT_STABLE_NAME:
     return aihc_record_words(sizeof(AihcStableName));
   case AIHC_OBJECT_THREAD:
@@ -402,6 +430,13 @@ static void *aihc_visit_pointer(void *pointer, AihcRootVisitor visitor,
 int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context) {
   switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_BYTE_ARRAY: {
+    AihcByteArray *array = (AihcByteArray *)object;
+    if (!array->pinned) {
+      array->contents = (uint8_t *)(array + 1);
+    }
+    return 1;
+  }
   case AIHC_OBJECT_STABLE_NAME:
     /* The collector processes the referent and lookup link as weak pointers. */
     return 1;

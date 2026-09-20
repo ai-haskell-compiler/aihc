@@ -566,7 +566,8 @@ nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
 
 nativeRuntimePrimitiveCalls :: [(Text, NativeRuntimeCall)]
 nativeRuntimePrimitiveCalls =
-  [ machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+  [ machineCall "aihcKeepAliveFrame#" "aihc_keep_alive_frame" [GrinForeignAddr, GrinForeignAddr] GrinForeignAddr,
+    machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "newTVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "readTVar#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
     machineCall "readTVarIO#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
@@ -607,11 +608,13 @@ nativeRuntimePrimitiveCalls =
     -- the lowering reads the contents before the operation runs.
     machineCall "tryTakeMVar#" "aihc_mvar_try_take" [GrinForeignAddr] GrinForeignWord64,
     machineCall "tryPutMVar#" "aihc_mvar_try_put" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
-    call "newPinnedByteArray#" "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr,
-    call "newAlignedPinnedByteArray#" "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    call "aihcByteArrayWords#" "aihc_byte_array_words" [GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "aihcResizeByteArrayWords#" "aihc_byte_array_resize_words" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    machineCall "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
+    machineCall "newPinnedByteArray#" "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr,
+    machineCall "newAlignedPinnedByteArray#" "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     procedure "shrinkMutableByteArray#" "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "resizeMutableByteArray#" "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr,
+    machineCall "resizeMutableByteArray#" "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr,
     procedure "copyAddrToByteArray#" "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchAddIntArray#" "aihc_byte_array_fetch_add_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchSubIntArray#" "aihc_byte_array_fetch_sub_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,

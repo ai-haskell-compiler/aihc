@@ -324,6 +324,8 @@ data GrinExpr
     -- runtime values and may be empty for a zero-width argument such as
     -- @State# RealWorld@.
     GrinApply !GrinResultRep !GrinValue ![GrinValue]
+  | -- | Retain the owners until the state action returns or raises.
+    GrinKeepAlive !GrinResultRep !GrinValue ![GrinValue]
   | -- | CPS-only application. Partial applications and saturated
     -- constructors transfer their result to the continuation; saturated
     -- closures enter their code with the continuation as the hidden final
@@ -470,6 +472,7 @@ grinProgramLiterals program =
         GrinCpsPrimitiveCall _ _ arguments continuation ->
           concatMap valueLiterals arguments <> valueLiterals continuation
         GrinApply _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
+        GrinKeepAlive _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
         GrinCpsApply _ function arguments continuation ->
           valueLiterals function <> concatMap valueLiterals arguments <> valueLiterals continuation
         GrinContinue continuation values -> valueLiterals continuation <> concatMap valueLiterals values
@@ -520,6 +523,7 @@ grinExprGlobalReferences = exprReferences
         GrinPrimitiveCall _ _ arguments -> valuesReferences arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> valuesReferences arguments <> valueReferences continuation
         GrinApply _ function arguments -> valueReferences function <> valuesReferences arguments
+        GrinKeepAlive _ function arguments -> valueReferences function <> valuesReferences arguments
         GrinCpsApply _ function arguments continuation -> valueReferences function <> valuesReferences arguments <> valueReferences continuation
         GrinContinue continuation values -> valueReferences continuation <> valuesReferences values
         GrinCpsRaise exception continuation -> valueReferences exception <> valueReferences continuation

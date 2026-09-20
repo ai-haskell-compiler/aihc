@@ -1,30 +1,18 @@
-; The byte-array runtime, written in Lir. See docs/lir.md.
-;
-; A byte array is an auxiliary object outside the managed heap: it never moves
-; and it holds no managed pointers, so the collector never traces one and this
-; unit owns its whole layout. Every field is one eight-byte slot, so the same
-; offsets hold on a 64-bit and on a 32-bit target:
-;
-;   offset 0    header    = @aihc_runtime_object_info
-;   offset 8    size
-;   offset 16   contents
-;   offset 24   pinned
-;   offset 32   alignment
-;
-; The contents are a separate allocation, so a resize keeps the header and an
-; unpinned array is still free to hold pinned contents. Compiled code reads
-; the size, the contents address, and the pinned flag itself, and the Lir
-; lowering emits the element accesses of the index, read, and write
-; primitives as loads and stores, unchecked as in GHC unless
-; --check-prim-bounds is on; this unit holds the allocation, the bulk
-; operations, and the atomic operations. Bulk moves call the memory
-; helpers of the C runtime rather than looping here, so a copy stays as fast
-; as the platform memcpy. The three accessors after the allocations serve C
-; callers such as the runtime tests.
+; Byte arrays have six descriptor slots followed by an inline payload.
+; Ordinary arrays move. Pinned arrays use separate GC-owned blocks.
+; The caller reserves the complete charge before these functions run.
+include "aihc_constants.lir"
 
-extern data @aihc_runtime_object_info
+extern func @aihc_byte_array_words(i64, i64, i64) -> i64 cc c
+extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
+extern func @aihc_gc_allocate_pinned(ptr, i64) -> ptr cc c
+
+data @aihc_byte_array_info align 8 = {
+  ptr null, ptr null, ptr null, code null, ptr null,
+  i8 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY
+}
+
 extern func @aihc_fail(ptr) cc c
-extern func @aihc_allocate_zeroed(i64) -> ptr cc c
 extern func @aihc_memory_copy(ptr, ptr, i64) cc c
 extern func @aihc_memory_move(ptr, ptr, i64) cc c
 extern func @aihc_memory_set(ptr, i64, i64) cc c
@@ -33,13 +21,7 @@ data @aihc_byte_array_size_message align 1 = {
   bytes "invalid byte array size", zero 1
 }
 
-data @aihc_byte_array_alignment_message align 1 = {
-  bytes "invalid byte array alignment", zero 1
-}
 
-data @aihc_byte_array_too_large_message align 1 = {
-  bytes "byte array allocation is too large", zero 1
-}
 
 data @aihc_byte_array_null_message align 1 = {
   bytes "attempted to inspect a null byte array", zero 1
@@ -130,68 +112,54 @@ entry:
   return %address
 }
 
-; Allocate a byte array of %size bytes whose contents start at a multiple of
-; %alignment. The contents are over-allocated by one less than the alignment
-; and the start is rounded up inside that block.
-func @aihc_byte_array_allocate(%size: i64, %pinned: i64, %alignment: i64) -> ptr {
+func @aihc_byte_array_allocate(%machine: ptr, %size: i64, %pinned: i64, %alignment: i64) -> ptr {
 entry:
-  %checked = call @aihc_byte_array_count(%size)
-  %not_positive = le.s i64 %alignment, 0
-  %slack = sub i64 %alignment, 1
-  %low_bits = and i64 %alignment, %slack
-  %not_power_of_two = ne i64 %low_bits, 0
-  %invalid_alignment = or i1 %not_positive, %not_power_of_two
-  br %invalid_alignment, invalid, allocate
+  %charged = call @aihc_byte_array_words(%size, %pinned, %alignment)
+  %is_pinned = ne i64 %pinned, 0
+  br %is_pinned, pinned, movable
 
-invalid:
-  call @aihc_fail(@aihc_byte_array_alignment_message)
-  trap "invalid byte array alignment"
+pinned:
+  %pinned_words = sub i64 %charged, 2
+  %fixed = call @aihc_gc_allocate_pinned(%machine, %pinned_words)
+  jump initialize(%fixed, %pinned_words)
 
-allocate:
-  ; An empty array still gets one byte, so its contents have an address that
-  ; no other array shares.
-  %empty = eq i64 %checked, 0
-  %occupied = select i64 %empty, 1, %checked
-  %raw_size = add i64 %occupied, %slack
-  %overflowed = lt.u i64 %raw_size, %occupied
-  br %overflowed, too_large, contents
+movable:
+  %moving = call @aihc_gc_allocate(%machine, %charged)
+  jump initialize(%moving, %charged)
 
-too_large:
-  call @aihc_fail(@aihc_byte_array_too_large_message)
-  trap "byte array allocation is too large"
-
-contents:
-  %array = call @aihc_allocate_zeroed(40)
-  %raw = call @aihc_allocate_zeroed(%raw_size)
+initialize(%array: ptr, %words: i64):
+  %raw = ptr.add %array, 48
   %raw_address = ptr.to_int %raw
+  %slack = sub i64 %alignment, 1
   %biased = add i64 %raw_address, %slack
   %mask = xor i64 %slack, -1
   %aligned_address = and i64 %biased, %mask
   %aligned = ptr.from_int %aligned_address
-  %info = ptr.to_int @aihc_runtime_object_info
+  %info = ptr.to_int @aihc_byte_array_info
   store i64 %info, [%array] align 8
-  store i64 %checked, [%array + 8] align 8
+  store i64 %size, [%array + 8] align 8
   store ptr %aligned, [%array + 16] align 8
   store i64 %pinned, [%array + 24] align 8
   store i64 %alignment, [%array + 32] align 8
+  store i64 %words, [%array + 40] align 8
   return %array
 }
 
-export func @aihc_byte_array_new(%size: i64) -> ptr cc c {
+export func @aihc_byte_array_new(%machine: ptr, %size: i64) -> ptr cc c {
 entry:
-  %array = call @aihc_byte_array_allocate(%size, 0, 8)
+  %array = call @aihc_byte_array_allocate(%machine, %size, 0, 8)
   return %array
 }
 
-export func @aihc_byte_array_new_pinned(%size: i64) -> ptr cc c {
+export func @aihc_byte_array_new_pinned(%machine: ptr, %size: i64) -> ptr cc c {
 entry:
-  %array = call @aihc_byte_array_allocate(%size, 1, 8)
+  %array = call @aihc_byte_array_allocate(%machine, %size, 1, 8)
   return %array
 }
 
-export func @aihc_byte_array_new_aligned_pinned(%size: i64, %alignment: i64) -> ptr cc c {
+export func @aihc_byte_array_new_aligned_pinned(%machine: ptr, %size: i64, %alignment: i64) -> ptr cc c {
 entry:
-  %array = call @aihc_byte_array_allocate(%size, 1, %alignment)
+  %array = call @aihc_byte_array_allocate(%machine, %size, 1, %alignment)
   return %array
 }
 
@@ -235,12 +203,12 @@ shrink:
 
 ; Resize an array by copying it. The result keeps the pinning and the
 ; alignment of the original, and the shorter of the two sizes is copied over.
-export func @aihc_byte_array_resize(%array: ptr, %size: i64) -> ptr cc c {
+export func @aihc_byte_array_resize(%machine: ptr, %array: ptr, %size: i64) -> ptr cc c {
 entry:
   %current = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_resize_message)
   %pinned = load i64 [%array + 24] align 8
   %alignment = load i64 [%array + 32] align 8
-  %resized = call @aihc_byte_array_allocate(%size, %pinned, %alignment)
+  %resized = call @aihc_byte_array_allocate(%machine, %size, %pinned, %alignment)
   %new_size = load i64 [%resized + 8] align 8
   %shrinks = lt.u i64 %current, %new_size
   %copied = select i64 %shrinks, %current, %new_size

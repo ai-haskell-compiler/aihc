@@ -27,8 +27,8 @@ return: "@0"
 heap: |
   @0 = CResult 4 42
 allocated-bytes:
-  macos-arm64: 1600768
-  linux-amd64: 1600768
+  macos-arm64: 1600824
+  linux-amd64: 1600824
 gc: true
 status: pass
 reason: GC preserves partial applications with lifted pointers, unlifted pointers, and unused pointer slots.

@@ -1,0 +1,42 @@
+entry: $entry
+gc-stress: true
+program: |
+  primitive newByteArray# :: BoxedRep Unlifted/1
+  primitive newAlignedPinnedByteArray# :: BoxedRep Unlifted/2
+  primitive resizeMutableByteArray# :: BoxedRep Unlifted/2
+  primitive writeWordArray# :: TupleRep []/3
+  primitive readWordArray# :: WordRep/2
+  primitive mutableByteArrayContents# :: AddrRep/1
+  primitive addr2Int# :: IntRep/1
+  primitive remInt# :: IntRep/2
+  primitive isMutableByteArrayPinned# :: IntRep/1
+  primitive eqAddr# :: IntRep/2
+  primitive touch# :: TupleRep []/1
+  primitive shrinkMutableByteArray# :: TupleRep []/2
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+
+  $entry -> TupleRep [WordRep, IntRep, IntRep, IntRep] =
+    (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newByteArray# (8 :: IntRep)
+    () <- primitive-call @(TupleRep []) writeWordArray# (array :: BoxedRep Unlifted) (0 :: IntRep) (42 :: WordRep)
+    (pinned :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newAlignedPinnedByteArray# (8 :: IntRep) (64 :: IntRep)
+    (before :: AddrRep) <- primitive-call @AddrRep mutableByteArrayContents# (pinned :: BoxedRep Unlifted)
+    (grown :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) resizeMutableByteArray# (array :: BoxedRep Unlifted) (32 :: IntRep)
+    () <- primitive-call @(TupleRep []) shrinkMutableByteArray# (grown :: BoxedRep Unlifted) (8 :: IntRep)
+    (empty :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newByteArray# (0 :: IntRep)
+    (value :: WordRep) <- primitive-call @WordRep readWordArray# (grown :: BoxedRep Unlifted) (0 :: IntRep)
+    (after :: AddrRep) <- primitive-call @AddrRep mutableByteArrayContents# (pinned :: BoxedRep Unlifted)
+    (same :: IntRep) <- primitive-call @IntRep eqAddr# (before :: AddrRep) (after :: AddrRep)
+    (large :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) resizeMutableByteArray# (pinned :: BoxedRep Unlifted) (32 :: IntRep)
+    (contents :: AddrRep) <- primitive-call @AddrRep mutableByteArrayContents# (large :: BoxedRep Unlifted)
+    (address :: IntRep) <- primitive-call @IntRep addr2Int# (contents :: AddrRep)
+    (remainder :: IntRep) <- primitive-call @IntRep remInt# (address :: IntRep) (64 :: IntRep)
+    (flag :: IntRep) <- primitive-call @IntRep isMutableByteArrayPinned# (large :: BoxedRep Unlifted)
+    () <- primitive-call @(TupleRep []) touch# (large :: BoxedRep Unlifted)
+    constant (value :: WordRep) (same :: IntRep) (remainder :: IntRep) (flag :: IntRep)
+return: "(42, 1, 0, 1)"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 488
+  linux-amd64: 488
+status: pass
+reason: Collection must preserve array contents, pinned addresses, and alignment across resize operations.

@@ -1,0 +1,15 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M1024", "-RTS"]
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Int#
+  value = runRW# (\state ->
+    case newPinnedByteArray# 512# state of
+      (# next, owner #) -> keepAlive# owner next (\active ->
+        case newPinnedByteArray# 512# active of
+          (# _, array #) -> Result (sizeofMutableByteArray# array)))
+error: heap limit exceeded
+status: pass
+reason: The keep-alive owner must consume heap capacity until the action returns.

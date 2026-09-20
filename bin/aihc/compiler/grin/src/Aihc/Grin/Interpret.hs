@@ -454,6 +454,10 @@ evalScheduledExpr env expr continue =
       functionValue <- materializeValue env function
       argumentValues <- mapM (materializeValue env) arguments
       applyScheduledValue functionValue argumentValues continue
+    GrinKeepAlive _ action owners -> do
+      mapM_ (materializeValue env) owners
+      actionValue <- materializeValue env action
+      forceScheduledValue actionValue (\function -> applyScheduledValue function [] continue)
     GrinCpsApply {} -> rejectCpsExpression
     GrinContinue {} -> rejectCpsExpression
     GrinCpsRaise {} -> rejectCpsExpression

@@ -1,0 +1,12 @@
+entry: $entry
+rts-arguments: ["+RTS", "-M512", "-RTS"]
+program: |
+  primitive newByteArray# :: BoxedRep Unlifted/1
+  primitive sizeofMutableByteArray# :: IntRep/1
+
+  $entry -> IntRep =
+    (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newByteArray# (512 :: IntRep)
+    primitive-call @IntRep sizeofMutableByteArray# (array :: BoxedRep Unlifted)
+error: heap limit exceeded
+status: pass
+reason: The heap limit must include the movable byte-array payload.

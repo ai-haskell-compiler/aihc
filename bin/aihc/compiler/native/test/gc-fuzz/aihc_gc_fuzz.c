@@ -759,6 +759,7 @@ static void command_machine(char **tokens, size_t count) {
   machine->other_space = NULL;
   machine->other_space_bytes = 0;
   machine->semispace_bytes = space_bytes;
+  machine->heap_space_bytes = space_bytes;
   machine->heap_start = checked_calloc(1, space_bytes);
   machine->heap_next = machine->heap_start + sizeof(initial_thread);
   machine->heap_alloc_base = machine->heap_next;

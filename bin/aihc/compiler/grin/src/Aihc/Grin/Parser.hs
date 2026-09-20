@@ -321,6 +321,7 @@ atomicExpr =
       primitiveCallExpr,
       cpsPrimitiveCallExpr,
       applyExpr,
+      keepAliveExpr,
       cpsApplyExpr,
       continueExpr,
       twoValuesExpr "raise-cps" GrinCpsRaise,
@@ -445,6 +446,18 @@ applyExpr = do
   arguments <- grinArgument
   lineEnd
   pure (GrinApply representation function arguments)
+
+keepAliveExpr :: Parser GrinExpr
+keepAliveExpr = do
+  keyword "keep-alive"
+  horizontal1
+  representation <- resultRepArgument
+  horizontal1
+  function <- grinValue
+  horizontal1
+  arguments <- grinArgument
+  lineEnd
+  pure (GrinKeepAlive representation function arguments)
 
 cpsApplyExpr :: Parser GrinExpr
 cpsApplyExpr = do
