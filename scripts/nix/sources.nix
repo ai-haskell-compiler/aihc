@@ -37,6 +37,7 @@
     "stdin"
     "stderr"
     "stdout"
+    "wasm-preopen-paths"
   ];
 
   # The core libraries carry headers of their own: a capi import of

@@ -11,6 +11,7 @@ where
 
 import Data.Bool (Bool (..), (&&))
 import Data.Either (Either (..))
+import Foreign.C.Error.Repr (cErrnoILSEQ, cErrnoINVAL)
 import GHC.Base (List (..), Monad (..), String, ord, ($))
 import GHC.IO (IO (..))
 import GHC.IO.Runtime (IOHandle, awaitIO, openResultError, submitOpen, takeOpenResult, writeMemoryByte)
@@ -19,6 +20,7 @@ import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#)
 import GHC.Ptr (Ptr)
+import GHC.Real (fromIntegral)
 
 -- | Marshal a 'String' to stable UTF-8 bytes. Embedded NUL and surrogate
 -- code points are rejected before the action runs.
@@ -62,7 +64,7 @@ utf8Length = go 0
 utf8Width :: Int -> Either Int Int
 utf8Width codePoint =
   case codePoint == 0 of
-    True -> Left 22
+    True -> Left (fromIntegral cErrnoINVAL)
     False ->
       case codePoint <= 127 of
         True -> Right 1
@@ -71,7 +73,7 @@ utf8Width codePoint =
             True -> Right 2
             False ->
               case codePoint >= 55296 && codePoint <= 57343 of
-                True -> Left 84
+                True -> Left (fromIntegral cErrnoILSEQ)
                 False ->
                   case codePoint <= 65535 of
                     True -> Right 3

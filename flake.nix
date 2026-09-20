@@ -18,8 +18,10 @@
     };
     docs = import ./scripts/nix/docs.nix {};
     mkWasiSysroot = import ./scripts/nix/wasi-sysroot.nix;
+    mkLirExtension = import ./scripts/nix/vscode-lir.nix;
     mkPackages = import ./scripts/nix/packages.nix {
       inherit (docs) mkUserGuide;
+      inherit mkLirExtension;
     };
     mkApps = import ./scripts/nix/apps.nix {
       inherit (core) projectHsPackages;
@@ -28,7 +30,7 @@
     };
     mkChecks = import ./scripts/nix/checks.nix {
       inherit (core) projectHsPackages;
-      inherit sources mkWasiSysroot;
+      inherit sources mkWasiSysroot mkLirExtension;
       inherit (haskell) mkHsPkgsForChecks;
     };
     mkDevShells = import ./scripts/nix/dev-shells.nix {

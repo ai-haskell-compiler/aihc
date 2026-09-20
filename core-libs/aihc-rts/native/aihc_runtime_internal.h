@@ -3,6 +3,7 @@
 
 #include "aihc_runtime.h"
 
+#include <errno.h>
 #include <stddef.h>
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
@@ -21,10 +22,10 @@ typedef enum {
 } AihcIoCapability;
 
 typedef enum {
-  AIHC_IO_ERROR_IO = 5,
-  AIHC_IO_ERROR_BAD_DESCRIPTOR = 9,
-  AIHC_IO_ERROR_INVALID_ARGUMENT = 22,
-  AIHC_IO_ERROR_NOT_SUPPORTED = 38,
+  AIHC_IO_ERROR_IO = EIO,
+  AIHC_IO_ERROR_BAD_DESCRIPTOR = EBADF,
+  AIHC_IO_ERROR_INVALID_ARGUMENT = EINVAL,
+  AIHC_IO_ERROR_NOT_SUPPORTED = ENOSYS,
 } AihcIoError;
 
 typedef enum {
@@ -97,7 +98,7 @@ struct AihcBlackholeWaiter {
   AihcBlackholeWaiter *next;
 };
 
-/* Match the evaluation reservation in Aihc.Grin.Gc and aihc_helpers.lir. */
+/* Match the evaluation reservation in aihc_constants.lir. */
 _Static_assert(sizeof(AihcBlackholeWaiter) <= 4 * sizeof(AihcSlot),
                "blackhole waiter exceeds the GRIN reservation");
 
@@ -114,7 +115,7 @@ struct AihcBlackhole {
   AihcBlackhole *next;
 };
 
-/* Match the evaluation reservation in Aihc.Grin.Gc and aihc_helpers.lir. */
+/* Match the evaluation reservation in aihc_constants.lir. */
 _Static_assert(sizeof(AihcBlackhole) <= 14 * sizeof(AihcSlot),
                "blackhole record exceeds the GRIN reservation");
 
@@ -281,8 +282,8 @@ void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
                      AihcSlot *roots, const AihcSrt *srt);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots, const AihcSrt *srt);
-/* Consume reserved memory without collection. Initialize the object before
-   any subsequent call that can collect. */
+/* Consume reserved memory without collection. The memory is not initialized
+   unless DEBUG is defined. Initialize all fields before a call can collect. */
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);
 /* Raise heap_peak_bytes to what the current space holds now. */
 void aihc_gc_record_peak(AihcMachine *machine);
