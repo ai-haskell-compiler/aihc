@@ -43,7 +43,7 @@ genItem =
       (1, ItemGlobal <$> (Global <$> genSymbol <*> genType)),
       (2, ItemData <$> genData),
       (1, ItemExternData <$> genSymbol),
-      (1, ItemConstant <$> (Constant <$> genSymbol <*> genInteger)),
+      (1, ItemConstant <$> (Constant <$> genSymbol <*> genInteger <*> pure 0)),
       (1, ItemInclude <$> genIncludePath)
     ]
 
@@ -116,7 +116,7 @@ genAlignment = Gen.choice [byteAlignment <$> genPowerOfTwo, wordAlignment <$> ge
     genPowerOfTwo = Gen.element [1, 2, 4, 8, 16]
 
 genAddress :: Gen Address
-genAddress = Address <$> genOperand <*> genInteger <*> genInteger
+genAddress = Address <$> genOperand <*> genInteger <*> genInteger <*> pure []
 
 genData :: Gen DataItem
 genData =

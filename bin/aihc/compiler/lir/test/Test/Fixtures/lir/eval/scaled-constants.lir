@@ -1,0 +1,33 @@
+; expect: 42, 17, 1
+; Scaled constants also work in operands, data fields, and switch labels.
+
+include "../include/address-offsets.lir"
+
+const @HEADER_OFFSET = 2 words
+const @NEGATIVE_WORD = -1 word
+const @WORD = 3 words - 2 words
+const @ZERO = 1 word - 1 word
+
+data @info align 8 = { word 0, word 0, i8 17, i8 42 }
+data @offset align 8 = { i64 @TAG_OFFSET }
+
+func @main() -> (i64, i64, i1) {
+entry:
+  %offset = load i64 [@offset] align 8
+  %tag_ptr = ptr.add @info, %offset
+  %tag_byte = load i8 [%tag_ptr] align 1
+  %tag = zext i8 %tag_byte to i64
+  %first_byte = load i8 [@info + @TAG_OFFSET - 1 + @ZERO] align 1
+  %first = zext i8 %first_byte to i64
+  %zero = add i64 @WORD, @NEGATIVE_WORD
+  %is_zero = eq i64 %zero, @ZERO
+  switch i64 @HEADER_OFFSET {
+    @ZERO -> failed
+    @HEADER_OFFSET -> done
+    default -> failed
+  }
+done:
+  return %tag, %first, %is_zero
+failed:
+  return 0, 0, 0
+}

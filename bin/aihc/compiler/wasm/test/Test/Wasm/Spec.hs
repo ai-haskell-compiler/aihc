@@ -104,7 +104,7 @@ clangSupportsWasm clang = do
 -- @code@ fields on both.
 wordOffsetTest :: IO ()
 wordOffsetTest = do
-  assembly <- compileText (wordScaledModule (Address (OperandLiteral (LitSymbol (Symbol "table"))) 0 2) (byteAlignment 1))
+  assembly <- compileText (wordScaledModule (Address (OperandLiteral (LitSymbol (Symbol "table"))) 0 2 []) (byteAlignment 1))
   assertBool ("two words is offset 8, not 16: " <> T.unpack assembly) ("i32.load\t8" `T.isInfixOf` assembly)
 
 wordScaledModule :: Address -> Alignment -> Module

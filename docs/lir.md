@@ -187,7 +187,8 @@ traps.
 ### Constants
 
 ```text
-constant ::= "const" symbol "=" integer
+constant ::= "const" symbol "=" integer ("word" | "words")?
+             (("+" | "-") integer ("word" | "words")?)*
 include ::= "include" string
 ```
 
@@ -198,6 +199,9 @@ is its symbol, and it stands wherever an integer literal does. An operand
 `@name` names a constant when the module defines one, and a data field
 `i64 @name` or `word @name` stores its value. A switch label can also name a constant: `@TAG -> target`.
 The linter checks duplicate labels after constant resolution.
+A definition can combine byte terms and target-word terms, such as `const @AIHC_INFO_KIND_OFFSET = 5 words + 3`.
+The target selects the word size before constant validation and resolution.
+The interpreter and the default linter use eight-byte words.
 A constant is not a data
 object: it has no address, a `ptr` field cannot name it, and `ptr.to_int`
 cannot take it.
@@ -390,7 +394,7 @@ condition never traps.
 ### Memory
 
 ```text
-address ::= "[" value (("+" | "-") integer ("word" | "words")?)* "]"
+address ::= "[" value (("+" | "-") (integer | symbol) ("word" | "words")?)* "]"
 align ::= "align" integer ("word" | "words")?
 ```
 
@@ -401,6 +405,12 @@ and on a 64-bit target. The terms accumulate, so one address may mix both
 units, and `word` and `words` are the same keyword. The `ptr`, `code`, and
 `word` data fields are the fields whose size follows the target word size, so
 they are what a word-scaled offset walks.
+
+A term can name a constant, such as `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
+The shared runtime defines info-table offsets in `aihc_constants.lir`.
+Each field has one offset constant with its word and byte terms.
+For example, the object kind uses `[%header + @AIHC_INFO_KIND_OFFSET]`.
+Constant resolution uses the target word size to calculate each offset in bytes.
 
 An alignment scales the same way. `align 1 word` is the alignment of a
 word-sized field on every target, where a byte count either claims more than

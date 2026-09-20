@@ -25,7 +25,7 @@ module Aihc.Wasm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
-import Aihc.Lir.Lint (LintError, lintModule)
+import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM_, unless, when)
@@ -51,7 +51,7 @@ data WasmLirError
 -- it uses them.
 compileLirModule :: Module -> Either WasmLirError Text
 compileLirModule lirModule =
-  case lintModule lirModule of
+  case lintModuleFor wordBytes lirModule of
     [] -> do
       let items = userItems <> [ItemFunction helper | usesWideMultiply, helper <- wideHelpers]
           ctx = moduleContext items
@@ -72,7 +72,7 @@ compileLirModule lirModule =
         )
     errors -> Left (WasmLirLintErrors errors)
   where
-    Module userItems = resolveConstants lirModule
+    Module userItems = resolveConstants wordBytes lirModule
     usesWideMultiply =
       or
         [ True

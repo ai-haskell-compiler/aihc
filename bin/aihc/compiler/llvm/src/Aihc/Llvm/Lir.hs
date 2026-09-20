@@ -15,7 +15,7 @@ module Aihc.Llvm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
-import Aihc.Lir.Lint (LintError, lintModule)
+import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM, forM_)
@@ -46,7 +46,7 @@ data LlvmLirError
 -- | Lint the module, then render it.
 compileLirModule :: Module -> Either LlvmLirError Text
 compileLirModule lirModule =
-  case lintModule lirModule of
+  case lintModuleFor wordBytes lirModule of
     [] -> do
       (functions, traps) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) Map.empty
       pure
@@ -66,7 +66,7 @@ compileLirModule lirModule =
         )
     errors -> Left (LlvmLirLintErrors errors)
   where
-    Module items = resolveConstants lirModule
+    Module items = resolveConstants wordBytes lirModule
     ctx =
       Ctx
         { ctxSignatures =

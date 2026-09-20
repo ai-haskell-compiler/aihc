@@ -3,6 +3,7 @@
 module Aihc.Lir.Lint
   ( LintError (..),
     lintModule,
+    lintModuleFor,
     Symbols,
     moduleSymbols,
     lintItem,
@@ -51,32 +52,39 @@ data SymbolInfo
 type Symbols = Map Symbol SymbolInfo
 
 lintModule :: Module -> [LintError]
-lintModule (Module items) =
+lintModule = lintModuleFor 8
+
+-- | Validate constants with the target word size in bytes.
+lintModuleFor :: Integer -> Module -> [LintError]
+lintModuleFor wordBytes (Module items) =
   duplicateErrors <> concatMap (lintItem symbols) items
   where
-    (symbols, duplicateErrors) = moduleSymbols (Module items)
+    (symbols, duplicateErrors) = moduleSymbolsFor wordBytes (Module items)
 
 -- | Collect declarations without retention of function bodies.
 moduleSymbols :: Module -> (Symbols, [LintError])
-moduleSymbols (Module items) = foldl' addSymbol (Map.empty, []) items
+moduleSymbols = moduleSymbolsFor 8
+
+moduleSymbolsFor :: Integer -> Module -> (Symbols, [LintError])
+moduleSymbolsFor wordBytes (Module items) = foldl' addSymbol (Map.empty, []) items
   where
     addSymbol (table, errors) item =
-      case itemSymbol item of
+      case itemSymbol wordBytes item of
         Nothing -> (table, errors)
         Just (symbol, info)
           | Map.member symbol table -> (table, errors <> [LintError (Just symbol) Nothing ("duplicate definition of " <> renderSymbol symbol)])
           | otherwise -> (Map.insert symbol info table, errors)
 
 -- | The symbol an item defines or declares. An include names no symbol.
-itemSymbol :: Item -> Maybe (Symbol, SymbolInfo)
-itemSymbol item =
+itemSymbol :: Integer -> Item -> Maybe (Symbol, SymbolInfo)
+itemSymbol wordBytes item =
   case item of
     ItemFunction function -> Just (functionName function, SymbolFunction (functionSignature function))
     ItemExternFunction external -> Just (externFunctionName external, SymbolFunction (externFunctionSignature external))
     ItemGlobal global -> Just (globalName global, SymbolGlobal (globalType global))
     ItemData dataItem -> Just (dataName dataItem, SymbolData)
     ItemExternData symbol -> Just (symbol, SymbolData)
-    ItemConstant constant -> Just (constantName constant, SymbolConstant (constantValue constant))
+    ItemConstant constant -> Just (constantName constant, SymbolConstant (constantInBytes wordBytes constant))
     ItemInclude _ -> Nothing
 
 lintItem :: Symbols -> Item -> [LintError]
@@ -349,8 +357,8 @@ lintInstruction env blockIndex position instruction =
         PtrToInt value -> check Ptr value
         PtrFromInt value -> check I64 value
         Select ty condition left right -> check I1 condition <> check ty left <> check ty right
-        Load _ address alignment -> check Ptr (addressBase address) <> alignmentErrors alignment
-        Store ty value address alignment -> check ty value <> check Ptr (addressBase address) <> alignmentErrors alignment
+        Load _ address alignment -> addressErrors address <> alignmentErrors alignment
+        Store ty value address alignment -> check ty value <> addressErrors address <> alignmentErrors alignment
         PtrAdd base offset -> check Ptr base <> check I64 offset
         StackAlloc _ alignment ->
           ["stack.alloc outside the entry block" | blockIndex /= 0] <> alignmentErrors alignment
@@ -362,6 +370,15 @@ lintInstruction env blockIndex position instruction =
         Call symbol arguments -> callErrors env location symbol arguments
         CallIndirect target arguments signature ->
           check Code target <> signatureErrors signature <> argumentErrors env location (renderOperand target) (signatureParameters signature) arguments
+    addressErrors address =
+      check Ptr (addressBase address)
+        <> concatMap checkConstant (addressConstants address)
+      where
+        checkConstant constant =
+          case Map.lookup (addressConstantName constant) (envSymbols env) of
+            Just (SymbolConstant _) -> []
+            Just _ -> [renderSymbol (addressConstantName constant) <> " is not a constant"]
+            Nothing -> ["unknown symbol " <> renderSymbol (addressConstantName constant)]
     globalErrors symbol =
       case Map.lookup symbol (envSymbols env) of
         Just (SymbolGlobal _) -> []

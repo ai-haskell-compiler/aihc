@@ -91,7 +91,7 @@ failure = lift . Left . InterpretFailure
 -- | Execute a function of the module with the given arguments.
 runFunction :: Module -> Symbol -> [Value] -> Either InterpretError [Value]
 runFunction lirModule entry arguments = do
-  (program, machine) <- buildProgram (resolveConstants lirModule)
+  (program, machine) <- buildProgram (resolveConstants wordBytes lirModule)
   evalStateT (callFunction program entry arguments) machine
 
 -- Program setup

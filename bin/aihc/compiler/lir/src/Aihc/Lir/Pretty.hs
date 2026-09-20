@@ -57,8 +57,13 @@ prettyItem item =
         <+> prettyType (globalType global)
     ItemData dataItem -> prettyData dataItem
     ItemExternData symbol -> "extern data" <+> prettySymbol symbol
-    ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> pretty (constantValue constant)
+    ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> prettyConstantValue constant
     ItemInclude path -> "include" <+> prettyQuoted path
+
+prettyConstantValue :: Constant -> Doc ann
+prettyConstantValue constant
+  | constantWordValue constant == 0 = pretty (constantValue constant)
+  | otherwise = pretty (constantWordValue constant) <+> "words" <> prettyAddend (constantValue constant)
 
 prettyLinkage :: Linkage -> Doc ann
 prettyLinkage linkage =
@@ -189,8 +194,13 @@ prettyAlign alignment =
     AlignWords count -> "align" <+> pretty count <+> (if count == 1 then "word" else "words")
 
 prettyAddress :: Address -> Doc ann
-prettyAddress (Address base offset wordOffset) =
-  "[" <> prettyOperand base <> prettyWordAddend wordOffset <> prettyAddend offset <> "]"
+prettyAddress (Address base offset wordOffset constants) =
+  "[" <> prettyOperand base <> prettyWordAddend wordOffset <> prettyAddend offset <> foldMap prettyConstant constants <> "]"
+  where
+    prettyConstant constant =
+      (if addressConstantNegative constant then " -" else " +")
+        <+> prettySymbol (addressConstantName constant)
+        <> (if addressConstantInWords constant then " words" else mempty)
 
 -- | A word-scaled addend keeps the keyword, so an address round-trips.
 prettyWordAddend :: Integer -> Doc ann

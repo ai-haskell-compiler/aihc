@@ -5,6 +5,15 @@
 ;
 ; This file holds nothing but constants, so every unit can include it.
 
+; Info-table offsets use target words for pointer fields.
+; Byte fields follow the five pointer fields.
+const @AIHC_INFO_BITMAP_OFFSET = 1 word
+const @AIHC_INFO_NEXT_OFFSET = 2 words
+const @AIHC_INFO_ENTRY_OFFSET = 3 words
+const @AIHC_INFO_COUNT_OFFSET = 5 words
+const @AIHC_INFO_ARITY_OFFSET = 5 words + 1
+const @AIHC_INFO_KIND_OFFSET = 5 words + 3
+
 ; Object kinds, the object_kind field of an info table. AIHC_OBJECT_RUNTIME
 ; is an object the runtime allocates outside the managed heap: a byte array
 ; or a stable name.

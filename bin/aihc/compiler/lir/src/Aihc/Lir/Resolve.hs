@@ -89,11 +89,11 @@ expandIncludes reader path = fmap (fmap Module) . expandItems path [] . moduleIt
 -- | Substitute the value of every constant the module defines for each
 -- reference to it, and drop the definitions. A reference to a symbol that is
 -- not a constant stays as it is; the linter reports one that names nothing.
-resolveConstants :: Module -> Module
-resolveConstants (Module items) = Module [resolveItem item | item <- items, not (isConstant item)]
+resolveConstants :: Integer -> Module -> Module
+resolveConstants wordBytes (Module items) = Module [resolveItem item | item <- items, not (isConstant item)]
   where
     constants :: Map Symbol Integer
-    constants = Map.fromList [(constantName constant, constantValue constant) | ItemConstant constant <- items]
+    constants = Map.fromList [(constantName constant, constantInBytes wordBytes constant) | ItemConstant constant <- items]
     isConstant item =
       case item of
         ItemConstant _ -> True
@@ -133,7 +133,16 @@ resolveConstants (Module items) = Module [resolveItem item | item <- items, not 
         GlobalSet symbol value -> GlobalSet symbol (operand value)
         Call symbol arguments -> Call symbol (map operand arguments)
         CallIndirect callee arguments signature -> CallIndirect (operand callee) (map operand arguments) signature
-    resolveAddress address = address {addressBase = operand (addressBase address)}
+    resolveAddress address =
+      foldr resolveAddressConstant (address {addressBase = operand (addressBase address), addressConstants = []}) (addressConstants address)
+    resolveAddressConstant constant address =
+      case Map.lookup (addressConstantName constant) constants of
+        Just value ->
+          let signed = if addressConstantNegative constant then negate value else value
+           in if addressConstantInWords constant
+                then address {addressWordOffset = addressWordOffset address + signed}
+                else address {addressOffset = addressOffset address + signed}
+        Nothing -> address {addressConstants = constant : addressConstants address}
     resolveCase switchCase =
       let target = resolveTarget (switchCaseTarget switchCase)
        in case switchCase of
