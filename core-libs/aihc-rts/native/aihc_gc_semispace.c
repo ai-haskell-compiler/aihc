@@ -105,6 +105,22 @@ static int aihc_address_set_insert(AihcAddressSet *set, AihcValue *object) {
   return 1;
 }
 
+/* Test membership without allocation or a new mark. */
+static int aihc_address_set_contains(const AihcAddressSet *set,
+                                     AihcValue *object) {
+  if (set->capacity == 0) {
+    return 0;
+  }
+  size_t slot = aihc_static_slot_of((uintptr_t)object, set->capacity);
+  while (set->slots[slot] != NULL) {
+    if (set->slots[slot] == object) {
+      return 1;
+    }
+    slot = (slot + 1) & (set->capacity - 1);
+  }
+  return 0;
+}
+
 static void aihc_address_set_clear(AihcAddressSet *set) {
   if (set->count != 0) {
     memset(set->slots, 0, sizeof(*set->slots) * set->capacity);
@@ -262,8 +278,7 @@ static void aihc_scan_object(AihcForwardingContext *context,
     return;
   }
   if (kind == AIHC_OBJECT_RUNTIME) {
-    /* The root visitor traces stable-name referents through the machine list.
-     */
+    /* Byte arrays have no managed pointer fields. */
     return;
   }
   aihc_walk_srt(info->srt);
@@ -331,6 +346,54 @@ static void aihc_trace(AihcForwardingContext *context) {
       continue;
     }
     return;
+  }
+}
+
+/* Return the relocated address only if strong tracing retained the object.
+   Heap indirections can disappear even when their targets remain live. */
+static AihcValue *aihc_live_value(AihcForwardingContext *context,
+                                  AihcValue *value) {
+  AihcMachine *machine = context->machine;
+  while (value != NULL) {
+    if (!aihc_in_space(context->from_start, context->from_bytes, value)) {
+      return aihc_in_space(machine->heap_start,
+                           aihc_semispace_capacity(machine), value) ||
+                     aihc_address_set_contains(&aihc_marked_statics, value)
+                 ? value
+                 : NULL;
+    }
+    AihcValue *forwarded = (AihcValue *)(uintptr_t)value->header;
+    if (aihc_in_space(machine->heap_start, aihc_semispace_capacity(machine),
+                      forwarded)) {
+      return forwarded;
+    }
+    if (aihc_value_kind(value) != AIHC_OBJECT_INDIRECTION) {
+      return NULL;
+    }
+    value = (AihcValue *)(uintptr_t)value->fields[0];
+  }
+  return NULL;
+}
+
+/* Rebuild the weak lookup list after strong tracing. Do not retain names
+   through this list or retain referents through their names. */
+static void aihc_update_stable_names(AihcForwardingContext *context) {
+  AihcStableName *old = context->machine->stable_names;
+  AihcStableName **tail = &context->machine->stable_names;
+  *tail = NULL;
+  while (old != NULL) {
+    AihcStableName *next = old->next;
+    AihcStableName *live =
+        (AihcStableName *)aihc_live_value(context, (AihcValue *)old);
+    if (live != NULL) {
+      live->value = aihc_live_value(context, old->value);
+      live->next = NULL;
+      if (live->value != NULL) {
+        *tail = live;
+        tail = &live->next;
+      }
+    }
+    old = next;
   }
 }
 
@@ -414,6 +477,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   aihc_walk_srt(srt);
   aihc_visit_roots(machine, root_count, roots, aihc_forward_root, &context);
   aihc_trace(&context);
+  aihc_update_stable_names(&context);
   aihc_clear_srt_stamps();
 
   machine->other_space = from_start;

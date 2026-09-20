@@ -1,0 +1,29 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M384", "-RTS"]
+program: |
+  primitive makeStableName# :: BoxedRep Unlifted/1
+  primitive eqStableName# :: IntRep/2
+  primitive stableNameToInt# :: IntRep/1
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  constructor Nil/0 []
+  constructor Cons/2 [BoxedRep Unlifted, BoxedRep Lifted]
+  primitive +# :: IntRep/2
+  global nil = (CNil)
+
+  $loop (counter :: IntRep) (names :: BoxedRep Lifted) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      8 ->
+        constant (counter :: IntRep)
+      _ ->
+        (value :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+        (name :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) makeStableName# (value :: BoxedRep Unlifted)
+        (more :: BoxedRep Lifted) <- store (CCons (name :: BoxedRep Unlifted) (names :: BoxedRep Lifted))
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep) (more :: BoxedRep Lifted)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep) global-ref nil
+error: heap limit exceeded
+status: pass
+reason: Live stable-name records must count toward the heap limit.

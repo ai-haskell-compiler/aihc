@@ -16,9 +16,8 @@ enum {
   AIHC_OBJECT_BLACKHOLE,
   AIHC_OBJECT_ARRAY,
   AIHC_OBJECT_THREAD,
-  /* Byte arrays and stable names remain outside the managed heap.
-     Each object has a header because compiled code stores it in pointer fields.
-     The root visitor traces stable-name referents through the machine list. */
+  /* Byte arrays remain outside the managed heap.
+     Each array has a header for pointer fields in compiled code. */
   AIHC_OBJECT_RUNTIME,
   AIHC_OBJECT_TRANSACTION,
   AIHC_OBJECT_TRANSACTION_WRITE,
@@ -27,6 +26,7 @@ enum {
   AIHC_OBJECT_MVAR_WAITER,
   AIHC_OBJECT_BLACKHOLE_WAITER,
   AIHC_OBJECT_BLACKHOLE_RECORD,
+  AIHC_OBJECT_STABLE_NAME,
 };
 typedef uint8_t AihcObjectKind;
 
@@ -331,8 +331,8 @@ AihcSlot aihc_array_copy(AihcValue *source, int64_t source_offset,
                          AihcValue *target, int64_t target_offset,
                          int64_t count);
 AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial);
-/* Stable-name handles are auxiliary, non-moving objects. The machine-owned
-   table keeps their referents synchronized with a moving collector. */
+/* Stable names are managed records with weak referents and lookup links.
+   Consume at most four reserved slots without collection. */
 void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value);
 /* State and allocation helpers used by native code. None of these functions
    transfers control to a generated user function. */

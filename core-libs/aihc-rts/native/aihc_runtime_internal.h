@@ -153,6 +153,7 @@ _Static_assert(sizeof(AihcMVarWaiter) <= 5 * sizeof(AihcSlot),
 /* aihc_stable_name.lir allocates and links these, so every field starts one
    eight-byte slot after the last on every target. The static assertions in
    aihc_runtime.c hold the two descriptions together. */
+/* The referent and lookup link are weak. Neither field retains an object. */
 struct AihcStableName {
   AihcSlot header;
   AihcValue *value;

@@ -1,0 +1,16 @@
+program: |
+  primitive makeStableName# :: BoxedRep Unlifted/1
+
+  name (value :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) makeStableName# (value :: BoxedRep Lifted)
+expected: |
+  primitive makeStableName# :: BoxedRep Unlifted/1
+
+  name (value :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $cps_return$gc :: BoxedRep Lifted, value$gc :: BoxedRep Lifted <-
+      ensure-heap (4 :: WordRep) ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) makeStableName# (value$gc :: BoxedRep Lifted)
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
+status: pass
+reason: Stable-name allocation must reserve memory and protect the referent and caller continuation.
