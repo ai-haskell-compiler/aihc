@@ -170,6 +170,10 @@ struct AihcIoHandle {
 };
 
 struct AihcIoRequest {
+  AihcSlot header;
+  AihcMachine *machine;
+  AihcIoRequest *registered_previous;
+  AihcIoRequest *registered_next;
   AihcIoKind kind;
   AihcIoState state;
   AihcIoHandle *handle;
@@ -183,6 +187,10 @@ struct AihcIoRequest {
   int64_t result;
   AihcIoRequest *next;
 };
+
+/* Seventeen slots include the two pinned metadata slots. */
+_Static_assert(sizeof(AihcIoRequest) <= 15 * sizeof(AihcSlot),
+               "IO request exceeds the GRIN reservation");
 
 struct AihcIoBackend {
   int (*prepare)(AihcIoRequest *request);

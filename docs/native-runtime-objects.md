@@ -340,6 +340,26 @@ Foreign operand conversion evaluates other operands before it obtains byte-array
 Thus, a collection during operand evaluation cannot invalidate an extracted movable address.
 The path and argument-buffer helpers retain their owners while raw addresses are in use.
 
+## STM wait requests
+
+`stmWaitRequest#` reserves seventeen slots in GRIN GC.
+The runtime consumes this reservation without collection.
+The bound includes the request and two pinned metadata slots.
+The collector owns request storage and includes its charge in heap limits and statistics.
+
+The request has an `Addr#` result, so the machine registers it as an explicit root.
+The registration starts before the primitive returns.
+It remains active before await, during suspension, and after completion.
+Result consumption removes the registration.
+The next collection can then reclaim the request.
+The caller must consume each completed request exactly once.
+An unconsumed request retains its registration and counts toward the heap limit.
+
+The collector traces the saved thread and continuation through the request header.
+The root list and the pinned allocation list have separate purposes.
+The pinned allocation list does not retain requests.
+Host IO requests still use the old allocation path until the next conversion.
+
 ## IO manager
 
 The runtime ABI separates operation submission, scheduler suspension, and

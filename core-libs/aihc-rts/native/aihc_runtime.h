@@ -28,6 +28,7 @@ enum {
   AIHC_OBJECT_STABLE_NAME,
   AIHC_OBJECT_BYTE_ARRAY,
   AIHC_OBJECT_KEEP_ALIVE,
+  AIHC_OBJECT_IO_REQUEST,
 };
 typedef uint8_t AihcObjectKind;
 
@@ -189,6 +190,8 @@ struct AihcMachine {
   uint64_t heap_space_bytes;
   uint64_t pinned_bytes;
   struct AihcPinnedBlock *pinned_blocks;
+  /* Raw request addresses retain this registration until result consumption. */
+  AihcIoRequest *registered_requests;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
