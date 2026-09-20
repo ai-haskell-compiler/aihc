@@ -128,6 +128,8 @@ static AihcSlot *root_slots;
 static uint64_t root_count;
 static AihcMVar **mvars;
 static size_t mvar_count;
+static AihcStableName **stable_names;
+static size_t stable_count;
 static uint64_t reserved_words;
 static size_t command_index;
 static AihcValue **object_starts;
@@ -594,7 +596,8 @@ static void report_collection(uint64_t required_bytes) {
     }
     if (aihc_value_kind(object) != AIHC_OBJECT_MVAR &&
         aihc_value_kind(object) != AIHC_OBJECT_THREAD &&
-        aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE_RECORD) {
+        aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE_RECORD &&
+        aihc_value_kind(object) != AIHC_OBJECT_STABLE_NAME) {
       print_object(object);
     }
   }
@@ -609,8 +612,12 @@ static void report_collection(uint64_t required_bytes) {
     print_pointer(root_slots[index]);
     printf("\n");
   }
-  for (const AihcStableName *name = machine->stable_names; name != NULL;
-       name = name->next) {
+  for (size_t index = 0; index < stable_count; ++index) {
+    const AihcStableName *name = stable_names[index];
+    if (!is_object_start((const AihcValue *)name) ||
+        aihc_value_kind((const AihcValue *)name) != AIHC_OBJECT_STABLE_NAME) {
+      violation("stable name is not a managed object");
+    }
     printf("stable");
     print_pointer((AihcSlot)(uintptr_t)name->value);
     printf("\n");
@@ -673,27 +680,36 @@ static void report_collection(uint64_t required_bytes) {
    collection when the space changed. */
 static void ensure(uint64_t words) {
   uint8_t *before = machine->heap_start;
-  /* The driver retains its MVars through explicit roots. */
+  /* The driver retains MVars and stable names through explicit roots. */
   if (root_count > SIZE_MAX / sizeof(AihcSlot) ||
-      mvar_count > SIZE_MAX / sizeof(AihcSlot) - root_count) {
+      mvar_count > SIZE_MAX / sizeof(AihcSlot) - root_count ||
+      stable_count > SIZE_MAX / sizeof(AihcSlot) - root_count - mvar_count) {
     fail("too many roots");
   }
   if (mvar_count != 0 && mvars == NULL) {
     fail("MVar roots are missing");
   }
-  size_t total = (size_t)root_count + mvar_count;
+  size_t total = (size_t)root_count + mvar_count + stable_count;
   AihcSlot *roots = checked_calloc(total, sizeof(*roots));
   for (size_t index = 0; index < total; ++index) {
-    roots[index] = index < root_count
-                       ? root_slots[index]
-                       : (AihcSlot)(uintptr_t)mvars[index - root_count];
+    if (index < root_count) {
+      roots[index] = root_slots[index];
+    } else if (index < root_count + mvar_count) {
+      roots[index] = (AihcSlot)(uintptr_t)mvars[index - root_count];
+    } else {
+      roots[index] =
+          (AihcSlot)(uintptr_t)stable_names[index - root_count - mvar_count];
+    }
   }
   aihc_ensure_heap(machine, words, total, roots, current_srt);
   for (size_t index = 0; index < total; ++index) {
     if (index < root_count) {
       root_slots[index] = roots[index];
-    } else {
+    } else if (index < root_count + mvar_count) {
       mvars[index - root_count] = (AihcMVar *)(uintptr_t)roots[index];
+    } else {
+      stable_names[index - root_count - mvar_count] =
+          (AihcStableName *)(uintptr_t)roots[index];
     }
   }
   free(roots);
@@ -723,6 +739,9 @@ static void command_machine(char **tokens, size_t count) {
   srts_linked = 0;
   free(root_slots);
   free(mvars);
+  free(stable_names);
+  stable_names = NULL;
+  stable_count = 0;
   mvars = NULL;
   mvar_count = 0;
   reset_statics();
@@ -1130,7 +1149,30 @@ static void run_command(char **tokens, size_t count) {
     if (count != 2) {
       fail("stable expects one argument");
     }
-    (void)aihc_stable_name_make(machine, parse_object(tokens[1]));
+    if (reserved_words < 4) {
+      fail("stable name exceeds its reservation");
+    }
+    reserved_words -= 4;
+    AihcStableName *stable =
+        aihc_stable_name_make(machine, parse_object(tokens[1]));
+    for (size_t index = 0; index < stable_count; ++index) {
+      if (stable_names[index] == stable) {
+        return;
+      }
+    }
+    if (stable_count >= SIZE_MAX / sizeof(*stable_names) - 1) {
+      fail("too many stable names");
+    }
+    AihcStableName **grown =
+        realloc(stable_names, (stable_count + 1) * sizeof(*grown));
+    if (grown == NULL) {
+      fail("out of memory");
+    }
+    stable_names = grown;
+    memmove(stable_names + 1, stable_names,
+            stable_count * sizeof(*stable_names));
+    stable_names[0] = stable;
+    ++stable_count;
   } else if (strcmp(name, "mvar_put") == 0) {
     if (count != 3) {
       fail("mvar_put expects two arguments");

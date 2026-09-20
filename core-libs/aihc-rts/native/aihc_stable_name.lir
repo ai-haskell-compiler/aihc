@@ -1,24 +1,25 @@
-; The stable-name runtime, written in Lir. See docs/lir.md.
-;
-; A stable name is an auxiliary object outside the managed heap. It never
-; moves, so compiled code may hash it, and the machine holds every one of them
-; in a list that the collector walks to follow the referents. Its fields are
-; one eight-byte slot apart on every target, which is the layout the C runtime
-; asserts for AihcStableName:
-;
-;   offset 0    header  = @aihc_runtime_object_info
-;   offset 8    value   = the object the name stands for
-;   offset 16   hash
-;   offset 24   next
-;
-; The list head and the hash counter live in the machine, whose field offsets
-; follow the target word size, so those two accessors stay in C and this unit
-; holds the rest. A pointer field of a machine-owned record is a C pointer, so
-; it travels through @load ptr@ and @store ptr@ rather than through a slot.
+; A stable name has four slots on every target: header, referent, hash, and link.
+; The caller reserves four slots. This operation must not collect.
+; The collector treats the referent and lookup link as weak pointers.
+; A live name preserves its hash after its referent dies.
 
-extern data @aihc_runtime_object_info
+include "aihc_constants.lir"
+
+extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
+
+data @aihc_stable_name_info align 8 = {
+  ptr null,
+  ptr null,
+  ptr null,
+  code null,
+  ptr null,
+  i8 0,
+  i8 0,
+  i8 @AIHC_FRAME_NONE,
+  i8 @AIHC_OBJECT_STABLE_NAME
+}
+
 extern func @aihc_fail(ptr) cc c
-extern func @aihc_allocate_auxiliary(ptr, i64) -> ptr cc c
 ; The address of the machine's stable-name list head.
 extern func @aihc_stable_names(ptr) -> ptr cc c
 ; The next hash, after which the machine's counter advances.
@@ -28,10 +29,8 @@ data @aihc_stable_name_null_message align 1 = {
   bytes "stable-name primitive received null", zero 1
 }
 
-; The stable name of %value, allocating one when the machine has none. Two
-; calls with the same object give the same name, which is what eqStableName#
-; rests on: compiled code compares two names as pointers and reads the hash
-; from the name itself.
+; Reuse a live name while its referent remains live.
+; Compiled code compares names as pointers and reads the stored hash.
 export func @aihc_stable_name_make(%machine: ptr, %value: ptr) -> ptr cc c {
 entry:
   %missing = eq ptr %value, null
@@ -63,9 +62,9 @@ known:
   return %name
 
 allocate:
-  %fresh = call @aihc_allocate_auxiliary(%machine, 32)
+  %fresh = call @aihc_gc_allocate(%machine, 4)
   %hash = call @aihc_stable_name_take_hash(%machine)
-  %info = ptr.to_int @aihc_runtime_object_info
+  %info = ptr.to_int @aihc_stable_name_info
   store i64 %info, [%fresh] align 8
   store ptr %value, [%fresh + 8] align 8
   store i64 %hash, [%fresh + 16] align 8

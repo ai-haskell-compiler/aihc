@@ -1,0 +1,34 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M384", "-RTS"]
+program: |
+  primitive makeStableName# :: BoxedRep Unlifted/1
+  primitive eqStableName# :: IntRep/2
+  primitive stableNameToInt# :: IntRep/1
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  constructor Big/20 [IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep, IntRep]
+  primitive +# :: IntRep/2
+
+  $name -> BoxedRep Unlifted =
+    (value :: BoxedRep Lifted) <- store (CBig (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep))
+    primitive-call @(BoxedRep Unlifted) makeStableName# (value :: BoxedRep Lifted)
+
+  $loop (counter :: IntRep) (name :: BoxedRep Unlifted) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        primitive-call @IntRep stableNameToInt# (name :: BoxedRep Unlifted)
+      _ ->
+        (garbage :: BoxedRep Lifted) <- store (CBig (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep) (1 :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep) (name :: BoxedRep Unlifted)
+
+  $entry -> IntRep =
+    (name :: BoxedRep Unlifted) <- call @(BoxedRep Unlifted) $name
+    call @IntRep $loop (0 :: IntRep) (name :: BoxedRep Unlifted)
+return: "1"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 33816
+  linux-amd64: 33816
+status: pass
+reason: A live stable name must permit collection of its dead referent and retain its hash.

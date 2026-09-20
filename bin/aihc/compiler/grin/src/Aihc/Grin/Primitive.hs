@@ -51,6 +51,7 @@ primitiveHeapWords name =
       ("writeTVar#", 4),
       ("newDelayTVar#", 8),
       ("newPromptTag#", 1),
+      ("makeStableName#", 4),
       ("fork#", 9),
       ("newMVar#", 9),
       ("readMVar#", 5),
