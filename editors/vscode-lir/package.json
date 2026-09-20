@@ -1,0 +1,41 @@
+{
+  "name": "aihc-lir",
+  "displayName": "AIHC LIR",
+  "description": "Syntax highlighting for the AIHC low-level intermediate language.",
+  "version": "0.1.0",
+  "publisher": "aihc",
+  "license": "Unlicense",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "aihc-lir",
+        "aliases": ["AIHC LIR", "LIR"],
+        "extensions": [".lir"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "aihc-lir",
+        "scopeName": "source.lir",
+        "path": "./syntaxes/lir.tmLanguage.json"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ai-haskell-compiler/aihc.git",
+    "directory": "editors/vscode-lir"
+  },
+  "scripts": {
+    "test": "node test/grammar.mjs"
+  },
+  "devDependencies": {
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

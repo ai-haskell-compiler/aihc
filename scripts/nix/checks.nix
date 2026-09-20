@@ -3,6 +3,7 @@
   sources,
   mkHsPkgsForChecks,
   mkWasiSysroot,
+  mkLirExtension,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
@@ -1029,6 +1030,7 @@
     '';
 in {
   checks = {
+    vscode-lir = mkLirExtension pkgs;
     resolve-tests = resolveTests;
     tc-tests = tcTests;
     testing-tests = testingTests;
