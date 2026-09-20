@@ -24,7 +24,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 408
-  linux-amd64: 408
+  macos-arm64: 520
+  linux-amd64: 520
 status: pass
 reason: A blackhole must retain its blocked threads through collection and wake them after the thunk update.

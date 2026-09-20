@@ -28,7 +28,7 @@ extern func @aihc_no_match() cc c
 
 extern func @aihc_raise(ptr, ptr, ptr) -> ptr cc c
 
-; The caller reserves four slots for an optional blackhole waiter.
+; The caller reserves fourteen slots for a blackhole record or waiter.
 export func @aihc_lir_eval(%machine: ptr, %value: ptr, %continuation: ptr, %update: ptr) {
 entry:
   jump loop(%value)
@@ -466,7 +466,7 @@ extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
 extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
 
-; Reserve three slots for the update frame and four for evaluation.
+; Reserve three slots for the update frame and fourteen for evaluation.
 export func @aihc_lir_cps_update(%machine: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
 entry:
   %roots = stack.alloc 24 align 8
@@ -475,7 +475,7 @@ entry:
   %heap_word = ptr.to_int %heap
   %heap_end_word = ptr.to_int %heap_end
   %heap_room = sub i64 %heap_end_word, %heap_word
-  %heap_fits = ge.u i64 %heap_room, 56
+  %heap_fits = ge.u i64 %heap_room, 136
   br %heap_fits, reserved(%blackhole, %outer, %result), collect
 
 collect:
@@ -486,7 +486,7 @@ collect:
   %result_word = ptr.to_int %result
   store i64 %result_word, [%roots + 16] align 8
   ; This function reaches no static object of its own, so it passes no table.
-  call @aihc_heap_collect(%machine, 7, 3, %roots, null)
+  call @aihc_heap_collect(%machine, 17, 3, %roots, null)
   %blackhole_moved_word = load i64 [%roots] align 8
   %blackhole_moved = ptr.from_int %blackhole_moved_word
   %outer_moved_word = load i64 [%roots + 8] align 8

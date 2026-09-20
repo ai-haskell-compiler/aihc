@@ -79,9 +79,10 @@ The WASI callback completes the request and resumes the continuation.
 The runtime then updates expired delay variables before the transaction starts again.
 Timer variables remain garbage collection roots throughout the wait.
 
-Native heap objects use a one-word tagged header followed by shape-specific
-payload words. The low three header bits are the physical tag. The remaining
-bits point to an aligned, statically emitted info table.
+Native heap objects have an eight-byte header followed by payload slots.
+The header contains an info-table address.
+Most info tables are static.
+A blackholed thunk uses the embedded info table in its managed scheduler record.
 
 ```text
 saturated constructor: [header] [fields...]
@@ -93,10 +94,10 @@ blackhole:             [header] [environment / reserved target...]
 
 Each info table records the object's identity, populated field count, remaining
 logical arity, pointer bitmap, next application-stage table, an optional native
-apply entry, and the static reference table of the object's code. Application changes the header to the statically known next
-table. Consequently every managed object pays only for its tagged header and
-payload; arity, tracing metadata, and apply code consume no per-object shape
-word.
+apply entry, and the static reference table of the object's code.
+Application changes the header to the statically known next table.
+Ordinary objects share this static metadata.
+Each blackhole record also contains a copy of the original thunk info table.
 
 The Lir lowering gives saturated closure stages an apply entry, the
 `backend_entry` of the info table. Apply sites pass the machine, the closure,
@@ -139,7 +140,7 @@ source the collector visits. The driver process stays alive across cases, so
 the test can compile the driver with sanitizers when the C compiler supports
 them.
 
-The cooperative scheduler keeps blackhole records and pending IO requests in auxiliary C allocations. Suspended threads retain
+The cooperative scheduler keeps pending IO requests in auxiliary C allocations. Suspended threads retain
 ordinary action or continuation closures. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
 dispatches with a tail call. All retained closure values and pending-request
@@ -212,13 +213,26 @@ Thunk update and exception paths remove the blackhole from the active list and w
 The waiters then become reclaimable without direct memory release.
 Their memory counts toward managed allocation statistics and the `-M` limit.
 
-The GRIN GC stage reserves four slots before each CPS evaluation.
+The GRIN GC stage reserves fourteen slots before each CPS evaluation.
+This bound covers either one blackhole record or one waiter.
 The reservation protects the value and both continuations.
 Reservation normalization can combine these slots with the three slots for an update frame.
-The shared runtime update continuation also reserves seven slots before its frame allocation and tail call to evaluation.
+The shared runtime update continuation reserves seventeen slots before its frame allocation and tail call to evaluation.
 `aihc_lir_eval` and `aihc_block_on_blackhole` consume this reservation without collection.
 The Lir lowering does not insert these reservations.
-Blackhole records still need separate pinned storage because thunk headers contain their embedded info-table addresses.
+Blackhole records use the managed heap and have a distinct object kind.
+The machine retains the active record list.
+The collector traces each record through its C layout, including both list links and both waiter queue ends.
+It also traces the thunk and its owner thread.
+The original info table remains static.
+
+A blackholed thunk header contains a pointer to the info table inside its record.
+The collector relocates this interior pointer when it scans the thunk.
+This rule applies to both static and heap thunks.
+It preserves the embedded info table, captured fields, and static reference table through collection.
+The record needs no pinned address because its references remain under runtime control.
+Thunk update and exception paths remove the record from the active list.
+The collector reclaims unreachable records and includes their bytes in allocation statistics and heap limits.
 
 `MVar#` uses a managed empty/full cell with separate FIFO queues for
 blocked readers, takers, and putters.

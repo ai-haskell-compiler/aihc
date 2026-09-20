@@ -613,8 +613,9 @@ checkReport expected capacityBefore report =
     <> checkValues "blackholes" (map VHeap (mBlackholes expected)) (rBlackholes report)
     <> staticProblems
   where
-    -- Each MVar and the initial thread have nine slots on the 64-bit test targets.
-    liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * (1 + length (mMvars expected)))
+    -- MVars and threads have nine slots on the 64-bit test targets.
+    -- Each active blackhole record has fourteen slots.
+    liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * (1 + length (mMvars expected)) + 14 * length (mBlackholes expected))
     occupied = rLive report + rRequired report
     spaceProblems =
       ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]
@@ -815,7 +816,8 @@ genEpoch config profile start = do
   (ops, afterOps) <- genOps config profile pool afterInitial opCount
   collect <- percent (pCollectPercent profile)
   let final = if collect then collectModel config afterOps else afterOps
-  pure (fill <> [CReserve blockWords] <> newCommands <> initial <> rooting <> ops <> [CCollect | collect], final)
+      blackholeWords = 14 * length [() | CBlackhole _ <- ops]
+  pure (fill <> [CReserve (blockWords + blackholeWords)] <> newCommands <> initial <> rooting <> ops <> [CCollect | collect], final)
   where
     newCommand identity (ShapeObject kind pointers) srt = CNew identity kind pointers srt
     newCommand identity (ShapeArray count) srt = CArray identity count srt

@@ -23,6 +23,7 @@ const @AIHC_OBJECT_TRANSACTION_TIMER = 11
 const @AIHC_OBJECT_MVAR = 12
 const @AIHC_OBJECT_MVAR_WAITER = 13
 const @AIHC_OBJECT_BLACKHOLE_WAITER = 14
+const @AIHC_OBJECT_BLACKHOLE_RECORD = 15
 
 ; Frame kinds, the frame_kind field of an info table.
 const @AIHC_FRAME_NONE = 0
