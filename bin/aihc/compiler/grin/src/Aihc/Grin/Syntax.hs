@@ -24,6 +24,7 @@ module Aihc.Grin.Syntax
     FunctionName (..),
     GrinVar (..),
     GrinExpr (..),
+    forwardedResultUses,
     GrinValue (..),
     GrinNode (..),
     GrinNodeTag (..),
@@ -115,22 +116,14 @@ data GrinVecElem
 liftedGrinRep :: GrinRep
 liftedGrinRep = BoxedRep Lifted
 
--- | What a function, or a call of one, produces where it returns.
+-- | A concrete result layout or an abstract result that passes through unchanged.
 --
--- A layout belongs to a function that places its result itself: it binds a
--- value, builds a node, or reads a literal, and the code generator needs the
--- width and the register class of every such value. A function whose every
--- exit hands its own continuation to a callee places nothing. Its result has
--- no layout of its own: the caller's continuation knows what it expects, and
--- the callee that finally produces the value knows what it delivers, so the
--- function in between only forwards the continuation. Such a function is
--- 'ResultForwarded', and so is a call of it whose own result is forwarded in
--- turn.
+-- A concrete layout gives the width and register class of each result component.
+-- An abstract result has no local layout. The caller and the callee know the layout at their ends.
+-- Intermediate functions pass their continuation to a callee or use final touches followed by 'GrinForward'.
+-- Neither operation places individual result components.
 --
--- This is a separate type from 'GrinRep' on purpose. A 'GrinRep' is a machine
--- layout, and every consumer of one is entitled to place a value with it. A
--- forwarded result must never reach a binder, a node field, a case
--- scrutinee, or a garbage collection root, and the type keeps it out of them.
+-- 'GrinRep' describes machine values. An abstract result cannot occupy a binder, node field, case scrutinee, or GC root.
 data GrinResultRep
   = ResultRep !GrinRep
   | ResultForwarded
@@ -325,8 +318,10 @@ data GrinExpr
     -- runtime values and may be empty for a zero-width argument such as
     -- @State# RealWorld@.
     GrinApply !GrinResultRep !GrinValue ![GrinValue]
-  | -- | Retain the owners until the state action returns or raises.
-    GrinKeepAlive !GrinResultRep !GrinValue ![GrinValue]
+  | -- | Return the abstract result of an enclosing empty bind without a concrete layout.
+    -- Only final uses through @touch#@ can occur between that bind and this return.
+    -- After CPS conversion, a forwarding continuation retains those uses as ordinary closure fields.
+    GrinForward
   | -- | CPS-only application. Partial applications and saturated
     -- constructors transfer their result to the continuation; saturated
     -- closures enter their code with the continuation as the hidden final
@@ -474,7 +469,7 @@ grinProgramLiterals program =
         GrinCpsPrimitiveCall _ _ arguments continuation ->
           concatMap valueLiterals arguments <> valueLiterals continuation
         GrinApply _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
-        GrinKeepAlive _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
+        GrinForward -> []
         GrinCpsApply _ function arguments continuation ->
           valueLiterals function <> concatMap valueLiterals arguments <> valueLiterals continuation
         GrinContinue continuation values -> valueLiterals continuation <> concatMap valueLiterals values
@@ -526,7 +521,7 @@ grinExprGlobalReferences = exprReferences
         GrinPrimitiveCall _ _ arguments -> valuesReferences arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> valuesReferences arguments <> valueReferences continuation
         GrinApply _ function arguments -> valueReferences function <> valuesReferences arguments
-        GrinKeepAlive _ function arguments -> valueReferences function <> valuesReferences arguments
+        GrinForward -> []
         GrinCpsApply _ function arguments continuation -> valueReferences function <> valuesReferences arguments <> valueReferences continuation
         GrinContinue continuation values -> valueReferences continuation <> valuesReferences values
         GrinCpsRaise exception continuation -> valueReferences exception <> valueReferences continuation
@@ -741,3 +736,12 @@ foreignTypeRuntimeRep foreignType =
     GrinForeignDouble -> DoubleRep
     GrinForeignAddr -> AddrRep
     GrinForeignVoid -> TupleRep []
+
+-- | Final uses that leave an abstract result unchanged. No operation here can allocate or transfer control.
+forwardedResultUses :: GrinExpr -> Maybe [GrinValue]
+forwardedResultUses expr =
+  case expr of
+    GrinForward -> Just []
+    GrinBind [] (GrinPrimitiveCall (TupleRep []) "touch#" [owner]) body ->
+      (owner :) <$> forwardedResultUses body
+    _ -> Nothing

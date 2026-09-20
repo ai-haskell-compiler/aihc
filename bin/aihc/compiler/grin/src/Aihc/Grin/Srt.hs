@@ -219,7 +219,7 @@ bodyReferences expression =
     GrinPrimitiveCall {} -> Set.empty
     GrinCpsPrimitiveCall {} -> Set.empty
     GrinApply {} -> Set.empty
-    GrinKeepAlive {} -> Set.empty
+    GrinForward -> Set.empty
     GrinCpsApply {} -> Set.empty
     GrinContinue {} -> Set.empty
     GrinCpsRaise {} -> Set.empty

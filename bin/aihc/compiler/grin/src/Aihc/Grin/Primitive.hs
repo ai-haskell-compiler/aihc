@@ -54,7 +54,6 @@ primitiveHeapWords name =
       ("newDelayTVar#", 8),
       ("newPromptTag#", 1),
       ("makeStableName#", 4),
-      ("aihcKeepAliveFrame#", 3),
       ("fork#", 9),
       ("newMVar#", 9),
       ("readMVar#", 5),
@@ -112,8 +111,7 @@ byteArrayPrimitives =
 referencePrimitives :: [Text]
 referencePrimitives =
   [ "newMutVar#",
-    "makeStableName#",
-    "aihcKeepAliveFrame#"
+    "makeStableName#"
   ]
 
 -- | The transaction log grows as a transaction runs, so every operation

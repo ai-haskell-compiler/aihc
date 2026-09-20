@@ -203,7 +203,7 @@ relocateExpr bound expression =
     GrinPrimitiveCall {} -> pure expression
     GrinCpsPrimitiveCall {} -> pure expression
     GrinApply {} -> pure expression
-    GrinKeepAlive {} -> pure expression
+    GrinForward -> pure expression
     GrinCpsApply {} -> pure expression
     GrinContinue {} -> pure expression
     GrinCpsRaise {} -> pure expression
@@ -286,7 +286,7 @@ substituteExpr substitutions expression =
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       GrinCpsPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
     GrinApply runtimeRep function arguments -> GrinApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments)
-    GrinKeepAlive runtimeRep function arguments -> GrinKeepAlive runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments)
+    GrinForward -> GrinForward
     GrinCpsApply runtimeRep function arguments continuation ->
       GrinCpsApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
     GrinContinue continuation values -> GrinContinue (substituteValue substitutions continuation) (map (substituteValue substitutions) values)

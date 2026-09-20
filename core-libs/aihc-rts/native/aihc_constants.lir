@@ -13,6 +13,7 @@ const @AIHC_INFO_ENTRY_OFFSET = 3 words
 const @AIHC_INFO_COUNT_OFFSET = 5 words
 const @AIHC_INFO_ARITY_OFFSET = 5 words + 1
 const @AIHC_INFO_KIND_OFFSET = 5 words + 3
+const @AIHC_INFO_FRAME_OFFSET = 5 words + 2
 
 ; Object kinds occupy the object_kind field of an info table.
 ; AIHC_OBJECT_RUNTIME is a reserved legacy kind.
@@ -34,7 +35,6 @@ const @AIHC_OBJECT_BLACKHOLE_WAITER = 14
 const @AIHC_OBJECT_BLACKHOLE_RECORD = 15
 const @AIHC_OBJECT_STABLE_NAME = 16
 const @AIHC_OBJECT_BYTE_ARRAY = 17
-const @AIHC_OBJECT_KEEP_ALIVE = 18
 
 ; Frame kinds, the frame_kind field of an info table.
 const @AIHC_FRAME_NONE = 0
@@ -44,6 +44,7 @@ const @AIHC_FRAME_UPDATE = 3
 const @AIHC_FRAME_RESTORE_MASK = 4
 const @AIHC_FRAME_STOP = 5
 const @AIHC_FRAME_PROMPT = 6
+const @AIHC_FRAME_FORWARD = 7
 
 ; Scheduler resumption kinds, the kind field of AihcResume.
 const @AIHC_RESUME_NONE = 0

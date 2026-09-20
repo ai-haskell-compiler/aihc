@@ -7,11 +7,12 @@ module Aihc.Grin.Lint
   )
 where
 
-import Aihc.Grin.Cps (CpsGrinProgram, cpsFunctionContinuations, cpsGrinProgram)
-import Aihc.Grin.Gc (GcGrinProgram, gcFunctionContinuations, gcGrinProgram)
+import Aihc.Grin.Cps (ContinuationFrameKind (..), CpsGrinProgram, cpsContinuationFrames, cpsFunctionContinuations, cpsGrinProgram)
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcFunctionContinuations, gcGrinProgram)
 import Aihc.Grin.Syntax
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -19,6 +20,7 @@ import Data.Text (Text)
 data GrinLintError
   = GrinLintDuplicateFunction !FunctionName
   | GrinLintDuplicateGlobal !Text
+  | GrinLintInvalidForward
   | GrinLintUnboundVariable !GrinVar
   | GrinLintUnknownFunction !FunctionName
   | GrinLintUnknownPrimitive !Text
@@ -51,35 +53,40 @@ data LintEnv = LintEnv
     lintFunctionResults :: !(Map FunctionName GrinResultRep),
     lintPrimitiveArities :: !(Map Text Int),
     lintConstructorLayouts :: !(Map Text [[GrinRep]]),
-    lintForeignCalls :: !(Map Text GrinForeignCall)
+    lintForeignCalls :: !(Map Text GrinForeignCall),
+    lintForwardedResult :: !Bool
   }
 
 -- | Validate direct GRIN. No function has a hidden continuation parameter.
 lintProgram :: GrinProgram -> [GrinLintError]
-lintProgram = lintProgramWith Map.empty
+lintProgram = lintProgramWith Map.empty Map.empty
 
 -- | Validate CPS-GRIN. The program metadata gives the hidden continuation
 -- parameter of every computation entry.
 lintCpsProgram :: CpsGrinProgram -> [GrinLintError]
-lintCpsProgram cps = lintProgramWith (cpsFunctionContinuations cps) (cpsGrinProgram cps)
+lintCpsProgram cps = lintProgramWith (cpsFunctionContinuations cps) (cpsContinuationFrames cps) (cpsGrinProgram cps)
 
 -- | Validate GC-GRIN. The GC phase keeps the CPS metadata unchanged.
 lintGcProgram :: GcGrinProgram -> [GrinLintError]
-lintGcProgram gc = lintProgramWith (gcFunctionContinuations gc) (gcGrinProgram gc)
+lintGcProgram gc = lintProgramWith (gcFunctionContinuations gc) (gcContinuationFrames gc) (gcGrinProgram gc)
 
 -- | Validate one GRIN program. The first argument gives the hidden
 -- continuation parameter of each computation entry. The CPS transformation
 -- adds that parameter to the entry, but it does not add a field to the thunk
 -- and closure nodes that name the entry. A node therefore supplies one value
 -- less than the entry has parameters.
-lintProgramWith :: Map FunctionName GrinVar -> GrinProgram -> [GrinLintError]
-lintProgramWith continuations program =
+lintProgramWith :: Map FunctionName GrinVar -> Map FunctionName ContinuationFrameKind -> GrinProgram -> [GrinLintError]
+lintProgramWith continuations frames program =
   duplicateFunctionErrors
     <> duplicateGlobalErrors
     <> continuationParameterErrors
     <> concatMap (lintGlobal env) (grinGlobals program)
-    <> concatMap (lintFunction env) (grinFunctions program)
+    <> concatMap lintFunctionFrame (grinFunctions program)
   where
+    lintFunctionFrame function =
+      let isForward = Map.lookup (grinFunctionName function) frames == Just ContinuationFrameForward
+       in [GrinLintInvalidForward | isForward, isNothing (forwardedResultUses (grinFunctionBody function))]
+            <> lintFunction (env {lintForwardedResult = isForward}) function
     functions = grinFunctions program
     globals = grinGlobals program
     functionNames = map grinFunctionName functions
@@ -88,7 +95,8 @@ lintProgramWith continuations program =
     duplicateGlobalErrors = map GrinLintDuplicateGlobal (duplicates globalNames)
     env =
       LintEnv
-        { lintFunctionArities =
+        { lintForwardedResult = False,
+          lintFunctionArities =
             Map.fromList
               [ (grinFunctionName function, length (grinFunctionParameters function))
               | function <- functions
@@ -168,6 +176,13 @@ lintExpr :: LintEnv -> Set GrinVar -> GrinExpr -> [GrinLintError]
 lintExpr env bound expr =
   case expr of
     GrinConstant values -> concatMap (lintValue bound) values
+    GrinBind [] valueExpr body
+      | let results = exprResults valueExpr,
+        not (null results),
+        all (== Forwarded) results,
+        Just _ <- forwardedResultUses body ->
+          lintExpr (env {lintForwardedResult = False}) bound valueExpr
+            <> lintExpr (env {lintForwardedResult = True}) bound body
     GrinBind vars valueExpr body ->
       bindRepresentationErrors vars valueExpr
         <> lintExpr env bound valueExpr
@@ -208,7 +223,7 @@ lintExpr env bound expr =
         <> concatMap (lintValue bound) arguments
         <> lintValue bound continuation
     GrinApply _ function arguments -> lintValue bound function <> concatMap (lintValue bound) arguments
-    GrinKeepAlive _ function arguments -> lintValue bound function <> concatMap (lintValue bound) arguments
+    GrinForward -> [GrinLintInvalidForward | not (lintForwardedResult env)]
     GrinCpsApply _ function arguments continuation ->
       lintValue bound function
         <> concatMap (lintValue bound) arguments
@@ -361,6 +376,7 @@ duplicates = go Set.empty Set.empty
 data ExprResult
   = Placed ![GrinRep]
   | Forwarded
+  deriving (Eq)
 
 -- | Each returning case alternative contributes its own result.
 -- Control transfers do not produce a result at this expression.
@@ -386,7 +402,7 @@ exprResults expr =
     GrinPrimitiveCall runtimeRep _ _ -> [Placed (runtimeRepComponents runtimeRep)]
     GrinCpsPrimitiveCall {} -> []
     GrinApply resultRep _ _ -> maybe [Forwarded] (pure . Placed) (resultRepComponents resultRep)
-    GrinKeepAlive resultRep _ _ -> maybe [Forwarded] (pure . Placed) (resultRepComponents resultRep)
+    GrinForward -> [Forwarded]
     GrinCpsApply {} -> []
     GrinContinue {} -> []
     GrinCpsRaise {} -> []

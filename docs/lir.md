@@ -301,6 +301,12 @@ the field names a shared function of the runtime unit `aihc_enter.lir`,
 which reaches the code through the `identity` field. Every other shape gets
 one generated function per enterable object.
 
+A frame with `AIHC_FRAME_FORWARD` has the ordinary closure object kind.
+Its first field holds its parent, and its pointer bitmap describes all captured values.
+Its `identity` and `backend_entry` fields are null.
+The continuation dispatcher passes the result registers to the parent without a call to this frame.
+This rule supports abstract results without a fixed register layout.
+
 The runtime's `AihcInfo` structure has the layout of this section on every
 target: its counts and kinds are `uint8_t`. On WebAssembly `call.indirect`
 checks the type of the callee, and the lowering states the signature with the

@@ -1,0 +1,23 @@
+program: |
+  primitive touch# :: TupleRep []/1
+  primitive stmBegin# :: TupleRep []/0
+
+  roots (owner :: BoxedRep Unlifted) (dead :: BoxedRep Unlifted) -> TupleRep [] =
+    () <- primitive-call @(TupleRep []) stmBegin#
+    () <- primitive-call @(TupleRep []) touch# (owner :: BoxedRep Unlifted)
+    constant
+expected: |
+  primitive touch# :: TupleRep []/1
+
+  primitive stmBegin# :: TupleRep []/0
+
+  roots (owner :: BoxedRep Unlifted) (dead :: BoxedRep Unlifted) ($cps_return :: BoxedRep Lifted) -> TupleRep [] =
+    $cps_return$gc :: BoxedRep Lifted, owner$gc :: BoxedRep Unlifted <-
+      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (owner :: BoxedRep Unlifted)
+    () <-
+      primitive-call @(TupleRep []) stmBegin#
+    () <-
+      primitive-call @(TupleRep []) touch# (owner$gc :: BoxedRep Unlifted)
+    continue ($cps_return$gc :: BoxedRep Lifted) ()
+status: pass
+reason: The GC stage treats touch# as the final use of its owner.

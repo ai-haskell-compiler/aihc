@@ -66,6 +66,34 @@ The GC pass keeps heap reservations inside these branches.
 It protects the value and captured pointers before the slow branch allocates its frame.
 The runtime protects the value and continuation before it allocates an update frame or blackhole waiter.
 
+## Final uses and abstract results
+
+`touch# owner` is a final use of `owner` for liveness analysis.
+It emits no machine instruction after the GC stage records its roots.
+For a known result layout, `keepAlive#` becomes an ordinary action call, a final touch, and a return of the result.
+The CPS stage captures the owner in an ordinary continuation closure.
+The GC stage reserves that closure and records its pointer fields.
+
+An abstract result has no register layout at this point.
+An empty bind can receive that result only when its body contains final touches followed by `forward`:
+
+```text
+() <- apply @forwarded (action :: BoxedRep Lifted) ()
+() <- primitive-call @(TupleRep []) touch# (owner :: BoxedRep Unlifted)
+forward
+```
+
+`forward` passes the complete result through unchanged.
+The linter rejects a concrete result binder or an operation other than a final touch before this return.
+Such an operation could require roots for result registers whose layout is unknown.
+
+The CPS stage uses an ordinary closure with `ContinuationFrameForward` for this body.
+Its first field holds the parent continuation.
+Its other fields hold the captured values, with the standard pointer bitmap.
+The runtime passes every result register to the parent without an entry call.
+Exception and continuation capture operations use the normal closure fields.
+This frame needs no separate object kind, allocator, or collector case.
+
 ## Boundary and invariants
 
 `toCpsGrin` is the only constructor for `CpsGrinProgram`; its data constructor

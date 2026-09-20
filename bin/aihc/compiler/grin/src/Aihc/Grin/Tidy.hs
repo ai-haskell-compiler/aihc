@@ -85,8 +85,7 @@ tidyExpr expression =
       GrinCpsPrimitiveCall runtimeRep name <$> useValues arguments <*> useValue continuation
     GrinApply runtimeRep function arguments ->
       GrinApply runtimeRep <$> useValue function <*> useValues arguments
-    GrinKeepAlive runtimeRep function arguments ->
-      GrinKeepAlive runtimeRep <$> useValue function <*> useValues arguments
+    GrinForward -> pure GrinForward
     GrinCpsApply runtimeRep function arguments continuation ->
       GrinCpsApply runtimeRep <$> useValue function <*> useValues arguments <*> useValue continuation
     GrinContinue continuation arguments ->

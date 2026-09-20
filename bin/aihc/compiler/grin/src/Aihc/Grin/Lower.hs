@@ -23,7 +23,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -922,7 +922,16 @@ lowerSpecialApplication env resultRep name arguments =
     ("keepAlive#", kept : state : continuation : _) ->
       lowerArgument env kept $ \owners ->
         lowerLazy env "keep_alive_continuation" continuation $ \continuationValue ->
-          lowerArgument env state (const (pure (GrinKeepAlive resultRep continuationValue owners)))
+          lowerArgument env state $ const $ do
+            let pointers = filter (isPointerRuntimeRep . grinValueRuntimeRep) owners
+                touch owner = GrinBind [] (GrinPrimitiveCall (TupleRep []) "touch#" [owner])
+            declarePrimitive (GrinVar "touch#" (-1999999999) (TupleRep []), 1)
+            resultVars <- mapM (freshVar "keep_alive_result") (fromMaybe [] (resultRepComponents resultRep))
+            applied <- lowerRunRW resultRep continuationValue
+            let result = case resultRep of
+                  ResultForwarded -> GrinForward
+                  ResultRep _ -> GrinConstant (map GrinVarValue resultVars)
+            pure (if null pointers then applied else GrinBind resultVars applied (foldr touch result pointers))
     ("seq#", value : state : _) -> do
       placedRep <- placedResult
       lowerLazy env "seq_value" value $ \valueThunk ->

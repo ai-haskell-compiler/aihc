@@ -1479,6 +1479,7 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
     const AihcInfo *info = aihc_value_info_table(continuation);
     const AihcSlot *fields = aihc_value_fields_const(continuation);
     switch (info->frame_kind) {
+    case AIHC_FRAME_FORWARD:
     case AIHC_FRAME_NORMAL:
       if (info->field_count < 1) {
         aihc_fail("normal continuation has no parent");
@@ -1546,6 +1547,7 @@ static AihcValue *aihc_captured_frame_parent(AihcValue *frame, int capturing) {
   }
   const AihcInfo *info = aihc_value_info_table(frame);
   switch (info->frame_kind) {
+  case AIHC_FRAME_FORWARD:
   case AIHC_FRAME_NORMAL:
   case AIHC_FRAME_CATCH:
   case AIHC_FRAME_PROMPT:

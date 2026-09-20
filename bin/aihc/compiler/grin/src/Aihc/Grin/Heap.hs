@@ -92,7 +92,7 @@ isReservationBarrier expression =
     GrinPrimitiveCall _ name _ -> primitiveAllocates name
     GrinCpsPrimitiveCall {} -> True
     GrinApply {} -> True
-    GrinKeepAlive {} -> True
+    GrinForward -> False
     GrinCpsApply {} -> True
     GrinCpsRaise {} -> True
     GrinThrow {} -> True

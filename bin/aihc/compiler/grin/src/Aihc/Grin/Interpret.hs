@@ -407,6 +407,11 @@ evalScheduledExpr :: Env -> GrinExpr -> ScheduledContinuation -> EvalM [RuntimeV
 evalScheduledExpr env expr continue =
   case expr of
     GrinConstant values -> continue =<< mapM (materializeValue env) values
+    GrinBind [] valueExpr body
+      | Just owners <- forwardedResultUses body ->
+          evalScheduledExpr env valueExpr $ \values -> do
+            mapM_ (materializeValue env) owners
+            continue values
     GrinBind vars valueExpr body ->
       evalScheduledExpr env valueExpr $ \values ->
         if length vars == length values
@@ -455,10 +460,7 @@ evalScheduledExpr env expr continue =
       functionValue <- materializeValue env function
       argumentValues <- mapM (materializeValue env) arguments
       applyScheduledValue functionValue argumentValues continue
-    GrinKeepAlive _ action owners -> do
-      mapM_ (materializeValue env) owners
-      actionValue <- materializeValue env action
-      forceScheduledValue actionValue (\function -> applyScheduledValue function [] continue)
+    GrinForward -> rejectCpsExpression
     GrinCpsApply {} -> rejectCpsExpression
     GrinContinue {} -> rejectCpsExpression
     GrinCpsRaise {} -> rejectCpsExpression

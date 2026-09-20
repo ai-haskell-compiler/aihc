@@ -255,6 +255,7 @@ data LowerEnv = LowerEnv
     envFunctionSymbols :: !(Map FunctionName Symbol),
     envFunctionParameters :: !(Map FunctionName [Type]),
     envContinuationFunctions :: !(Set FunctionName),
+    envForwardingFunctions :: !(Set FunctionName),
     envInfoSymbols :: !(Map RuntimeInfoKey Symbol),
     envInfos :: ![RuntimeInfo],
     envStaticReferences :: !StaticReferences,
@@ -359,6 +360,7 @@ lowerEnvironment options gcProgram =
       envFunctionSymbols = functionSymbols,
       envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
+      envForwardingFunctions = forwardingFunctions,
       envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
       envInfos = map snd (constructorEntries <> functionEntries),
       envStaticReferences = staticReferences,
@@ -369,6 +371,7 @@ lowerEnvironment options gcProgram =
     program = gcGrinProgram gcProgram
     continuationFunctions = gcContinuationFunctions gcProgram
     continuationFrames = gcContinuationFrames gcProgram
+    forwardingFunctions = Map.keysSet (Map.filter (== ContinuationFrameForward) continuationFrames)
     functionSymbols = Map.fromList [(grinFunctionName function, functionSymbol (grinFunctionName function)) | function <- grinFunctions program]
     functionParameters = Map.fromList [(grinFunctionName function, map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) | function <- grinFunctions program]
     staticReferences = programStaticReferences program
@@ -435,11 +438,11 @@ lowerEnvironment options gcProgram =
           RuntimeInfo
             { infoSymbol = symbol,
               infoLinkage = Internal,
-              infoIdentity = DataCode (Just target),
+              infoIdentity = DataCode (if name `Set.member` forwardingFunctions then Nothing else Just target),
               infoFields = runtimeInfoKeyFields key,
               infoRemainingArity = runtimeInfoKeyRemainingArity key,
               infoNext = runtimeInfoKeyNext key >>= (`Map.lookup` infoSymbols),
-              infoEnter = runtimeEnter target name key,
+              infoEnter = if name `Set.member` forwardingFunctions then Nothing else runtimeEnter target name key,
               infoFrameKind = Map.lookup name continuationFrames,
               infoObjectKind = runtimeInfoKeyObjectKind key,
               infoSrt = Map.lookup name srtSymbols
@@ -728,7 +731,7 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
 lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
   [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
-    <> map (lowerFunction env) functions
+    <> [lowerFunction env function | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
     <> map (lowerStaticObject env) (programStaticObjects (GrinProgram constructors [] [] globals []))
     <> map lowerInfo (envInfos env)
     <> [lowerStaticReferenceTables env]
@@ -1145,7 +1148,7 @@ compileExpr ctx env expression =
     GrinEval {} -> unsupported "direct-style eval after CPS"
     GrinPrimitiveCall {} -> unsupported "unbound primitive call after CPS"
     GrinApply {} -> unsupported "direct-style apply after CPS"
-    GrinKeepAlive {} -> unsupported "direct-style keep-alive after CPS"
+    GrinForward -> unsupported "forward outside a forwarding continuation"
     GrinThrow {} -> unsupported "throw"
     GrinCatch {} -> unsupported "catch"
     GrinForeignCallExpr {} -> unsupported "unbound foreign call after CPS"
@@ -2530,8 +2533,9 @@ generateHelper env helper =
       header <- loadHeader (OperandVar current)
       kind <- loadInfoByte "kind" header infoObjectKindByte
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
-      isKeepAlive <- emitValue "keep_alive" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectKeepAlive)))
-      follows <- emitValue "follows" I1 (Binary Or I1 (typedOperand isIndirection) (typedOperand isKeepAlive))
+      frame <- loadInfoByte "frame" header infoFrameKindByte
+      isForward <- emitValue "forward" I1 (Compare Eq I64 (typedOperand frame) (OperandLiteral (LitInt (toInteger (continuationFrameKindCode (Just ContinuationFrameForward))))))
+      follows <- emitValue "follows" I1 (Binary Or I1 (typedOperand isIndirection) (typedOperand isForward))
       terminate (Branch (typedOperand follows) (Target (Label "indirection") []) (Target (Label "enter") []))
       beginBlock (Label "indirection") []
       next <- loadSlot "next" Ptr (OperandVar current) 8
@@ -2601,8 +2605,9 @@ infoWordFieldCount = 5
 infoBackendEntryIndex = 3
 
 -- | The byte fields of an info table, as indices from the first byte field.
-infoRemainingArityByte, infoObjectKindByte :: Int
+infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte :: Int
 infoRemainingArityByte = 1
+infoFrameKindByte = 2
 infoObjectKindByte = 3
 
 -- | The largest count a byte field of an info table holds.
@@ -2618,10 +2623,6 @@ runtimeObjectPartialConstructor = 3
 runtimeObjectIndirection, runtimeObjectBlackhole :: Integer
 runtimeObjectIndirection = 4
 runtimeObjectBlackhole = 5
-
--- Keep-alive frames retain their owner and forward every result layout.
-runtimeObjectKeepAlive :: Integer
-runtimeObjectKeepAlive = 18
 
 -- Program queries
 

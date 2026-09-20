@@ -6,7 +6,6 @@
 ; C code transfers scheduler records.
 
 include "aihc_constants.lir"
-extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
 
 const @WORD_BITS = 64
 const @WORD_HIGH_BIT = 63
@@ -223,8 +222,10 @@ loop(%current: ptr):
   %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
   %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  %keep_alive = eq i64 %kind, @AIHC_OBJECT_KEEP_ALIVE
-  %follows = or i1 %indirection, %keep_alive
+  %frame_byte = load i8 [%header + @AIHC_INFO_FRAME_OFFSET] align 1
+  %frame = zext i8 %frame_byte to i64
+  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
+  %follows = or i1 %indirection, %forward
   br %follows, indirection, enter
 
 indirection:
@@ -247,8 +248,10 @@ loop(%current: ptr):
   %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
   %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  %keep_alive = eq i64 %kind, @AIHC_OBJECT_KEEP_ALIVE
-  %follows = or i1 %indirection, %keep_alive
+  %frame_byte = load i8 [%header + @AIHC_INFO_FRAME_OFFSET] align 1
+  %frame = zext i8 %frame_byte to i64
+  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
+  %follows = or i1 %indirection, %forward
   br %follows, indirection, enter
 
 indirection:
@@ -271,8 +274,10 @@ loop(%current: ptr):
   %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
   %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  %keep_alive = eq i64 %kind, @AIHC_OBJECT_KEEP_ALIVE
-  %follows = or i1 %indirection, %keep_alive
+  %frame_byte = load i8 [%header + @AIHC_INFO_FRAME_OFFSET] align 1
+  %frame = zext i8 %frame_byte to i64
+  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
+  %follows = or i1 %indirection, %forward
   br %follows, indirection, enter
 
 indirection:
@@ -415,8 +420,10 @@ loop(%current: ptr):
   %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
   %kind = zext i8 %kind_byte to i64
   %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  %keep_alive = eq i64 %kind, @AIHC_OBJECT_KEEP_ALIVE
-  %follows = or i1 %indirection, %keep_alive
+  %frame_byte = load i8 [%header + @AIHC_INFO_FRAME_OFFSET] align 1
+  %frame = zext i8 %frame_byte to i64
+  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
+  %follows = or i1 %indirection, %forward
   br %follows, indirection, check
 
 indirection:
@@ -553,23 +560,4 @@ export data @aihc_lir_cps_update_applied_info align 8 = {
   i8 0,
   i8 @AIHC_FRAME_UPDATE,
   i8 @AIHC_OBJECT_CLOSURE
-}
-
-; This frame retains an owner and forwards any result layout to its parent.
-data @aihc_keep_alive_bitmap align 1 = { i8 1, i8 1 }
-data @aihc_keep_alive_info align 8 = {
-  ptr null, ptr @aihc_keep_alive_bitmap, ptr null, code null, ptr null,
-  i8 2, i8 0, i8 @AIHC_FRAME_NORMAL, i8 @AIHC_OBJECT_KEEP_ALIVE
-}
-
-export func @aihc_keep_alive_frame(%machine: ptr, %outer: ptr, %owner: ptr) -> ptr cc c {
-entry:
-  %frame = call @aihc_gc_allocate(%machine, 3)
-  %info = ptr.to_int @aihc_keep_alive_info
-  store i64 %info, [%frame] align 8
-  %parent = ptr.to_int %outer
-  store i64 %parent, [%frame + 8] align 8
-  %kept = ptr.to_int %owner
-  store i64 %kept, [%frame + 16] align 8
-  return %frame
 }

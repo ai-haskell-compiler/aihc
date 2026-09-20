@@ -1,0 +1,7 @@
+program: |
+  $entry (action :: BoxedRep Lifted) -> forwarded =
+    (value :: IntRep) <- apply @forwarded (action :: BoxedRep Lifted) ()
+    forward
+error: invalid-forward
+status: pass
+reason: An abstract result cannot use a concrete result binder.

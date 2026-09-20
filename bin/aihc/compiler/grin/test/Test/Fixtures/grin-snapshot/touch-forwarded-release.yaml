@@ -1,0 +1,31 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M1024", "-RTS"]
+program: |
+  primitive touch# :: TupleRep []/1
+  primitive newPinnedByteArray# :: BoxedRep Unlifted/1
+  global action = (P$action/[[]])
+
+  $action -> WordRep =
+    constant (42 :: WordRep)
+
+  $protect (owner :: BoxedRep Unlifted) -> forwarded =
+    () <- apply @forwarded global-ref action ()
+    () <- primitive-call @(TupleRep []) touch# (owner :: BoxedRep Unlifted)
+    forward
+
+  $consume (result :: WordRep) -> WordRep =
+    (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (512 :: IntRep)
+    constant (result :: WordRep)
+
+  $entry -> WordRep =
+    (owner :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (512 :: IntRep)
+    (result :: WordRep) <- call @WordRep $protect (owner :: BoxedRep Unlifted)
+    call @WordRep $consume (result :: WordRep)
+return: "42"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 1192
+  linux-amd64: 1192
+status: pass
+reason: The owner must become collectible after the abstract action returns through its final touch.
