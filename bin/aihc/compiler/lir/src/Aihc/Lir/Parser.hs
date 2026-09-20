@@ -219,22 +219,24 @@ constantItem = do
   keyword "const"
   name <- symbolName
   token "="
-  first <- scaledInteger integer
-  rest <- MP.many constantTerm
-  let terms = first : rest
-  pure (Constant name (sum (map fst terms)) (sum (map snd terms)))
-  where
-    constantTerm = do
-      sign <- (1 <$ token "+") <|> (-1 <$ token "-")
-      (bytes, words') <- scaledInteger natural
-      pure (sign * bytes, sign * words')
+  Constant name <$> constantExpression
 
--- | An integer term can count bytes or target words.
-scaledInteger :: Parser Integer -> Parser (Integer, Integer)
-scaledInteger number = do
-  value <- number
-  words' <- MP.option False (True <$ (keyword "words" <|> keyword "word"))
-  pure (if words' then (0, value) else (value, 0))
+constantExpression :: Parser ConstantExpr
+constantExpression = additive
+  where
+    additive = chain multiplicative [("+", ConstantAdd), ("-", ConstantSub)]
+    multiplicative = chain unary [("*", ConstantMul), ("/", ConstantQuot), ("%", ConstantRem)]
+    chain term operators = do
+      first <- term
+      rest <- MP.many ((,) <$> MP.choice [op <$ token name | (name, op) <- operators] <*> term)
+      pure (foldl' (\left (op, right) -> ConstantBinary op left right) first rest)
+    unary =
+      token "+" *> unary
+        <|> ConstantNegate <$> (token "-" *> unary)
+        <|> scaled
+    scaled = do
+      value <- ConstantInt <$> (natural <|> lexeme characterLiteral) <|> ConstantRef <$> symbolName <|> MP.between (token "(") (token ")") additive
+      MP.option value (ConstantWords value <$ (keyword "words" <|> keyword "word"))
 
 dataItem :: Linkage -> Parser DataItem
 dataItem linkage = do

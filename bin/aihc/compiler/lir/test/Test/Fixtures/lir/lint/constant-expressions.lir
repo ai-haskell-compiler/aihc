@@ -1,0 +1,18 @@
+; error: @ZERO_DIV: division by zero
+; error: @ZERO_REM: remainder by zero
+; error: @UNKNOWN: unknown symbol @MISSING
+; error: @NON_CONSTANT: @data is not a constant
+; error: @SELF: constant dependency cycle
+; error: @CYCLE_A: constant dependency cycle
+; error: @CYCLE_B: constant dependency cycle
+; error: @OVERFLOW: constant @BIG = 256 does not fit i8
+const @ZERO_DIV = 1 / (2 - 2)
+const @ZERO_REM = 1 % (3 - 3)
+const @UNKNOWN = @MISSING + 1
+const @NON_CONSTANT = @data + 1
+const @SELF = @SELF + 1
+const @CYCLE_A = @CYCLE_B
+const @CYCLE_B = @CYCLE_A
+const @BIG = 2 * (127 + 1)
+data @data align 1 = { i8 0 }
+data @OVERFLOW align 1 = { i8 @BIG }

@@ -22,7 +22,8 @@ module Aihc.Lir.Syntax
     ExternFunction (..),
     Global (..),
     Constant (..),
-    constantInBytes,
+    ConstantExpr (..),
+    ConstantOp (..),
     DataItem (..),
     DataField (..),
     Block (..),
@@ -156,18 +157,23 @@ data Global = Global
   }
   deriving (Eq, Show)
 
--- | A named value with byte and target-word terms. Constant resolution
--- uses the target word size before a backend receives the module.
+-- | A named integer expression. Resolution uses the target word size.
 data Constant = Constant
   { constantName :: !Symbol,
-    constantValue :: !Integer,
-    constantWordValue :: !Integer
+    constantValue :: !ConstantExpr
   }
   deriving (Eq, Show)
 
--- | The value of a constant for a target word size in bytes.
-constantInBytes :: Integer -> Constant -> Integer
-constantInBytes wordBytes constant = constantValue constant + constantWordValue constant * wordBytes
+data ConstantExpr
+  = ConstantInt !Integer
+  | ConstantRef !Symbol
+  | ConstantWords !ConstantExpr
+  | ConstantNegate !ConstantExpr
+  | ConstantBinary !ConstantOp !ConstantExpr !ConstantExpr
+  deriving (Eq, Show)
+
+data ConstantOp = ConstantAdd | ConstantSub | ConstantMul | ConstantQuot | ConstantRem
+  deriving (Eq, Show)
 
 data DataItem = DataItem
   { dataName :: !Symbol,

@@ -187,8 +187,12 @@ traps.
 ### Constants
 
 ```text
-constant ::= "const" symbol "=" integer ("word" | "words")?
-             (("+" | "-") integer ("word" | "words")?)*
+constant ::= "const" symbol "=" expression
+expression ::= product (("+" | "-") product)*
+product ::= unary (("*" | "/" | "%") unary)*
+unary ::= ("+" | "-") unary | scaled
+scaled ::= atom ("word" | "words")?
+atom ::= natural | character | symbol | "(" expression ")"
 include ::= "include" string
 ```
 
@@ -200,6 +204,24 @@ is its symbol, and it stands wherever an integer literal does. An operand
 `i64 @name` or `word @name` stores its value. A switch label can also name a constant: `@TAG -> target`.
 The linter checks duplicate labels after constant resolution.
 A definition can combine byte terms and target-word terms, such as `const @AIHC_INFO_KIND_OFFSET = 5 words + 3`.
+Constant expressions support `+`, `-`, `*`, `/`, `%`, unary signs, and parentheses.
+Multiplication, division, and remainder have precedence over addition and subtraction.
+Binary operators at the same precedence associate from left to right.
+Division truncates toward zero. The remainder has the sign of the dividend.
+Intermediate results use arbitrary-precision integers. The final value must fit its use.
+The `word` or `words` suffix multiplies an atom by the target word size.
+For example, `(2 + 3) words` has the same value as `5 words`.
+A constant can refer to another constant, including a later definition or an included constant.
+The linter rejects reference cycles, invalid references, and zero divisors, even in unused definitions.
+
+Examples:
+
+```text
+const @SUM = 1 + 2 + 3
+const @STRIDE = (2 + 3) words
+const @FIELD = @STRIDE + 3
+```
+
 The target selects the word size before constant validation and resolution.
 The interpreter and the default linter use eight-byte words.
 A constant is not a data

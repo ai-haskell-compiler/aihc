@@ -57,13 +57,28 @@ prettyItem item =
         <+> prettyType (globalType global)
     ItemData dataItem -> prettyData dataItem
     ItemExternData symbol -> "extern data" <+> prettySymbol symbol
-    ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> prettyConstantValue constant
+    ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> prettyConstantExpr (constantValue constant)
     ItemInclude path -> "include" <+> prettyQuoted path
 
-prettyConstantValue :: Constant -> Doc ann
-prettyConstantValue constant
-  | constantWordValue constant == 0 = pretty (constantValue constant)
-  | otherwise = pretty (constantWordValue constant) <+> "words" <> prettyAddend (constantValue constant)
+prettyConstantExpr :: ConstantExpr -> Doc ann
+prettyConstantExpr = expressionAt 0
+  where
+    expressionAt :: Int -> ConstantExpr -> Doc ann
+    expressionAt context expression =
+      let (precedence, document) = case expression of
+            ConstantInt value -> (50, pretty value)
+            ConstantRef symbol -> (50, prettySymbol symbol)
+            ConstantWords value -> (40, expressionAt 41 value <+> "words")
+            ConstantNegate value -> (30, "-" <> expressionAt 30 value)
+            ConstantBinary op left right ->
+              let (level, operator) = case op of
+                    ConstantAdd -> (10, "+")
+                    ConstantSub -> (10, "-")
+                    ConstantMul -> (20, "*")
+                    ConstantQuot -> (20, "/")
+                    ConstantRem -> (20, "%")
+               in (level, expressionAt level left <+> operator <+> expressionAt (level + 1) right)
+       in if precedence < context then "(" <> document <> ")" else document
 
 prettyLinkage :: Linkage -> Doc ann
 prettyLinkage linkage =
