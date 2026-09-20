@@ -300,14 +300,16 @@
     fi
     run_root="$run_directory"
     case_index=0
-    for guest_path in "''${preopen_paths[@]}"; do
+    for path_case in "''${preopen_paths[@]}"; do
+      read -r guest_path initial_cwd input_directory <<< "$path_case"
       run_directory="$run_root/$case_index"
       case_index=$((case_index + 1))
       mkdir -p "$run_directory"
       preopen_args=(--dir "$run_directory::$guest_path")
       path_args=()
       if [[ -f "$example_directory/wasm-preopen-paths" ]]; then
-        path_args=("$guest_path")
+        path_args=(--read "''${input_directory:-$guest_path}")
+        printf 'hello corpus\n' > "$run_directory/corpus.txt"
         mkdir -p "$run_directory/parent" "$run_directory/prefix"
         # The longer prefix must end at a path component boundary.
         preopen_args+=(--dir "$run_directory/prefix::$guest_path/corpus")
@@ -318,6 +320,9 @@
           .) ;;
           *) preopen_args=(--dir "$run_directory/parent::." "''${preopen_args[@]}") ;;
         esac
+        if [[ -n "$initial_cwd" && "$initial_cwd" != - ]]; then
+          preopen_args+=(-S "cwd=$initial_cwd")
+        fi
       fi
       if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
         "''${preopen_args[@]}" \

@@ -47,6 +47,7 @@ typedef struct {
   wasi_cli_stderr_result_void_error_code_t stderr_result;
   wasi_filesystem_types_result_void_error_code_t filesystem_result;
   wasi_filesystem_types_method_descriptor_open_at_args_t open_arguments;
+  unsigned char *open_path;
   wasi_filesystem_types_result_own_descriptor_error_code_t open_result;
   wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t directories;
   int has_directories;
@@ -187,6 +188,7 @@ static int32_t aihc_filesystem_error(wasi_filesystem_types_error_code_t error) {
 }
 
 static int64_t aihc_wasi_finish(int64_t result) {
+  free(aihc_wasi_io.open_path);
   if (aihc_wasi_io.has_directories) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
         &aihc_wasi_io.directories);
@@ -532,6 +534,27 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
   if (memchr(path, 0, length) != NULL) {
     return aihc_wasi_finish(aihc_wasi_error(EINVAL));
   }
+  command_string_t cwd = {0};
+  if (path[0] != '/' && wasi_cli_environment_get_initial_cwd(&cwd)) {
+    if (cwd.len != 0) {
+      if (length == SIZE_MAX || cwd.len > SIZE_MAX - length - 1) {
+        command_string_free(&cwd);
+        return aihc_wasi_finish(aihc_wasi_error(ENAMETOOLONG));
+      }
+      size_t absolute_length = cwd.len + 1 + length;
+      aihc_wasi_io.open_path = malloc(absolute_length);
+      if (aihc_wasi_io.open_path == NULL) {
+        command_string_free(&cwd);
+        return aihc_wasi_finish(aihc_wasi_error(ENOMEM));
+      }
+      memcpy(aihc_wasi_io.open_path, cwd.ptr, cwd.len);
+      aihc_wasi_io.open_path[cwd.len] = '/';
+      memcpy(aihc_wasi_io.open_path + cwd.len + 1, path, length);
+      path = aihc_wasi_io.open_path;
+      length = absolute_length;
+    }
+    command_string_free(&cwd);
+  }
   wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t directories;
   wasi_filesystem_preopens_get_directories(&directories);
   /* Remove leading ./ components from relative paths. Leave .. for WASI
@@ -541,6 +564,7 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
     length -= 2;
   }
   size_t directory_index = SIZE_MAX;
+  size_t root_directory_index = SIZE_MAX;
   size_t prefix_length = 0;
   size_t relative_offset = 0;
   for (size_t index = 0; index < directories.len; ++index) {
@@ -561,6 +585,7 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
       offset = 0;
       matched_length = 0;
     } else if (name.len == 1 && name.ptr[0] == '/') {
+      root_directory_index = index;
       if (length == 0 || path[0] != '/') {
         continue;
       }
@@ -577,6 +602,11 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
       prefix_length = matched_length;
       relative_offset = offset;
     }
+  }
+  /* Without an explicit relative preopen, resolve relative paths under /.
+     A configured initial directory has already supplied its prefix. */
+  if (directory_index == SIZE_MAX && length != 0 && path[0] != '/') {
+    directory_index = root_directory_index;
   }
   if (directory_index == SIZE_MAX) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(

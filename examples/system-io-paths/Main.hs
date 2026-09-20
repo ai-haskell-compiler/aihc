@@ -10,9 +10,12 @@ main = do
   arguments <- getArgs
   let directory = case arguments of
         [] -> "."
+        ["--read", argument] -> argument
         argument : _ -> argument
       path = directory ++ "/corpus.txt"
-  writeFile path "hello corpus\n"
+  case arguments of
+    ["--read", _] -> pure ()
+    _ -> writeFile path "hello corpus\n"
   contents <- readFile path
   putStrLn ("read " ++ show (length contents) ++ " bytes")
   checkError (directory ++ "/missing.tsv") isDoesNotExistError
