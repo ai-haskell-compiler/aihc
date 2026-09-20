@@ -36,7 +36,7 @@ const @AIHC_BLACKHOLE_NEXT_OFFSET = @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET + 6 wor
 const @AIHC_BLACKHOLE_BYTES = (@AIHC_BLACKHOLE_NEXT_OFFSET + 1 word + 7) / 8 * 8
 
 ; Object kinds occupy the object_kind field of an info table.
-; AIHC_OBJECT_RUNTIME identifies byte arrays outside the managed heap.
+; AIHC_OBJECT_RUNTIME is a reserved legacy kind.
 const @AIHC_OBJECT_NODE = 0
 const @AIHC_OBJECT_CLOSURE = 1
 const @AIHC_OBJECT_THUNK = 2
@@ -54,6 +54,8 @@ const @AIHC_OBJECT_MVAR_WAITER = 13
 const @AIHC_OBJECT_BLACKHOLE_WAITER = 14
 const @AIHC_OBJECT_BLACKHOLE_RECORD = 15
 const @AIHC_OBJECT_STABLE_NAME = 16
+const @AIHC_OBJECT_BYTE_ARRAY = 17
+const @AIHC_OBJECT_KEEP_ALIVE = 18
 
 ; Frame kinds, the frame_kind field of an info table.
 const @AIHC_FRAME_NONE = 0

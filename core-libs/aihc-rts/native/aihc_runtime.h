@@ -16,8 +16,7 @@ enum {
   AIHC_OBJECT_BLACKHOLE,
   AIHC_OBJECT_ARRAY,
   AIHC_OBJECT_THREAD,
-  /* Byte arrays remain outside the managed heap.
-     Each array has a header for pointer fields in compiled code. */
+  /* Reserved legacy object kind. */
   AIHC_OBJECT_RUNTIME,
   AIHC_OBJECT_TRANSACTION,
   AIHC_OBJECT_TRANSACTION_WRITE,
@@ -27,6 +26,8 @@ enum {
   AIHC_OBJECT_BLACKHOLE_WAITER,
   AIHC_OBJECT_BLACKHOLE_RECORD,
   AIHC_OBJECT_STABLE_NAME,
+  AIHC_OBJECT_BYTE_ARRAY,
+  AIHC_OBJECT_KEEP_ALIVE,
 };
 typedef uint8_t AihcObjectKind;
 
@@ -173,22 +174,21 @@ struct AihcMachine {
   AihcResume selected_resume;
   int64_t exit_status;
   uint64_t other_space_bytes;
-  /* The runtime statistics. heap_allocated_bytes above counts every byte
-     compiled code has taken from the managed heap. Compiled code reserves
-     and bumps the heap pointer itself and reports nothing, so the runtime
-     reads the total off the bump pointer instead of counting reservations:
-     heap_alloc_base is where the mutator started filling the current space,
-     and heap_next minus that base is what it has taken since. The collector
-     adds that span before it flips, and aihc_heap_account adds it again
-     whenever the total is read. heap_peak_bytes is the most the current space
-     ever held: the live data after a collection plus the allocations since,
-     sampled before each collection and when the statistics are reported. The
-     collector counts its runs and their monotonic time. */
+  /* Allocation statistics include movable objects and complete pinned blocks.
+     heap_alloc_base marks the start of uncounted mutator allocation.
+     Collection and statistics queries add the span below heap_next.
+     The pinned allocator adds its charge directly.
+     heap_peak_bytes records maximum occupied space, including pinned blocks.
+     The collector also counts collections and their monotonic duration. */
   uint8_t *heap_alloc_base;
   uint64_t heap_peak_bytes;
   uint64_t gc_count;
   uint64_t gc_time_ns;
   AihcTransactionTimer *transaction_timers;
+  /* The physical space includes the budget consumed by pinned blocks. */
+  uint64_t heap_space_bytes;
+  uint64_t pinned_bytes;
+  struct AihcPinnedBlock *pinned_blocks;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -403,16 +403,20 @@ uint64_t aihc_byte_array_copy_to_addr(void *opaque_array, int64_t offset,
 uint64_t aihc_byte_array_compare(void *opaque_left, int64_t left_offset,
                                  void *opaque_right, int64_t right_offset,
                                  int64_t length);
-/* Proof-of-concept byte arrays use stable auxiliary allocations and are not
-   released. Freeze and thaw are representation-preserving compiler
-   primitives. */
-void *aihc_byte_array_new(int64_t size);
-void *aihc_byte_array_new_pinned(int64_t size);
-void *aihc_byte_array_new_aligned_pinned(int64_t size, int64_t alignment);
+/* Byte arrays consume prior reservations and cannot collect.
+   Size helpers include descriptor, payload, padding, and pinned metadata.
+   Freeze and thaw preserve the representation. */
+uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
+                               int64_t alignment);
+uint64_t aihc_byte_array_resize_words(void *array, int64_t size);
+void *aihc_byte_array_new(AihcMachine *machine, int64_t size);
+void *aihc_byte_array_new_pinned(AihcMachine *machine, int64_t size);
+void *aihc_byte_array_new_aligned_pinned(AihcMachine *machine, int64_t size,
+                                         int64_t alignment);
 uint64_t aihc_byte_array_is_pinned(void *array);
 void *aihc_byte_array_contents(void *array);
 uint64_t aihc_byte_array_shrink(void *array, int64_t size);
-void *aihc_byte_array_resize(void *array, int64_t size);
+void *aihc_byte_array_resize(AihcMachine *machine, void *array, int64_t size);
 uint64_t aihc_byte_array_get_size(void *array);
 uint64_t aihc_byte_array_copy_from_addr(void *source, void *array,
                                         int64_t offset, int64_t length);

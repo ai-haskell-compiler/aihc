@@ -476,15 +476,11 @@ sourceValueTypes env sourceType = do
 adaptForeignOperands :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> [((Fc.Type, GrinValue), GrinRep)] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 adaptForeignOperands env axioms constructors operands continuation = go [] operands
   where
-    go values [] = continuation (reverse values)
+    go values [] = extract [] (reverse values)
     go values (((sourceType, value), expectedRep) : rest)
       | grinValueRuntimeRep value == expectedRep = go (value : values) rest
-      -- A byte array argument passes the address of its payload.
-      | isByteArrayOperand value expectedRep = do
-          declarePrimitive (GrinVar byteArrayContentsPrimitive (-2000000000 + 1) AddrRep, 1)
-          contents <- freshVar "foreign_contents" AddrRep
-          body <- go (GrinVarValue contents : values) rest
-          pure (GrinBind [contents] (GrinPrimitiveCall AddrRep byteArrayContentsPrimitive [value]) body)
+      -- Defer payload addresses until all other operands are ready.
+      | isByteArrayOperand value expectedRep = go (value : values) rest
       -- An unboxed argument that C takes at another width, such as a Char#.
       | isJust (widthAdapter (grinValueRuntimeRep value) expectedRep) =
           adaptForeignWidth (grinValueRuntimeRep value) expectedRep value $ \converted ->
@@ -507,6 +503,14 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
                 )
             )
       | otherwise = throwLower ("GRIN cannot adapt a foreign argument representation: " <> show sourceType)
+    extract addresses [] = continuation (reverse addresses)
+    extract addresses (value : rest)
+      | grinValueRuntimeRep value == BoxedRep Unlifted = do
+          declarePrimitive (GrinVar byteArrayContentsPrimitive (-2000000000 + 1) AddrRep, 1)
+          contents <- freshVar "foreign_contents" AddrRep
+          body <- extract (GrinVarValue contents : addresses) rest
+          pure (GrinBind [contents] (GrinPrimitiveCall AddrRep byteArrayContentsPrimitive [value]) body)
+      | otherwise = extract (value : addresses) rest
 
 adaptForeignResult :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinRep -> GrinRep -> GrinExpr -> LowerM GrinExpr
 adaptForeignResult env axioms constructors sourceType sourceRep foreignRep foreignExpression
@@ -915,12 +919,10 @@ lowerSpecialApplication env resultRep name arguments =
           lowerArgument env state (lowerCatch placedRep actionValue handlerValue)
     ("runRW#", action : _) ->
       lowerLazy env "action" action (lowerRunRW resultRep)
-    -- The collector uses explicit root lists, so the kept-alive value needs
-    -- no code; the continuation runs on the state token the same way
-    -- 'runRW#' runs its action.
-    ("keepAlive#", _kept : state : continuation : _) ->
-      lowerLazy env "keep_alive_continuation" continuation $ \continuationValue ->
-        lowerArgument env state (const (lowerRunRW resultRep continuationValue))
+    ("keepAlive#", kept : state : continuation : _) ->
+      lowerArgument env kept $ \owners ->
+        lowerLazy env "keep_alive_continuation" continuation $ \continuationValue ->
+          lowerArgument env state (const (pure (GrinKeepAlive resultRep continuationValue owners)))
     ("seq#", value : state : _) -> do
       placedRep <- placedResult
       lowerLazy env "seq_value" value $ \valueThunk ->

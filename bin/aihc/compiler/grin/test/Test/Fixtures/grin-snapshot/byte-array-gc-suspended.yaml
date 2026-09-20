@@ -1,0 +1,55 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M2048", "-RTS"]
+program: |
+  constructor Number/1 [IntRep]
+  constructor Done/0 []
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive newPinnedByteArray# :: BoxedRep Unlifted/1
+  primitive writeWordArray# :: TupleRep []/3
+  primitive readWordOffAddr# :: WordRep/2
+  primitive mutableByteArrayContents# :: AddrRep/1
+  primitive setByteArray# :: TupleRep []/4
+  primitive +# :: IntRep/2
+  primitive newDelayTVar# :: BoxedRep Unlifted/3
+  primitive stmWaitRequest# :: AddrRep/0
+  primitive awaitIO# :: TupleRep []/1
+  primitive stmWaitResult# :: IntRep/1
+  global child = (P$child/[[]])
+
+  $loop (counter :: IntRep) -> BoxedRep Lifted =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        store (CDone)
+      _ ->
+        (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (256 :: IntRep)
+        () <- primitive-call @(TupleRep []) setByteArray# (array :: BoxedRep Unlifted) (0 :: IntRep) (256 :: IntRep) (7 :: IntRep)
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $loop (next :: IntRep)
+
+  $child -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (0 :: IntRep)
+
+  $action (address :: AddrRep) -> WordRep =
+    (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
+    () <- primitive-call @(TupleRep []) awaitIO# (request :: AddrRep)
+    (ignored :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: AddrRep)
+    primitive-call @WordRep readWordOffAddr# (address :: AddrRep) (0 :: IntRep)
+
+  $entry -> WordRep =
+    (initial :: BoxedRep Lifted) <- store (CNumber (0 :: IntRep))
+    (final :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    (variable :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newDelayTVar# (1000000 :: IntRep) (initial :: BoxedRep Lifted) (final :: BoxedRep Lifted)
+    (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (256 :: IntRep)
+    () <- primitive-call @(TupleRep []) writeWordArray# (array :: BoxedRep Unlifted) (0 :: IntRep) (42 :: WordRep)
+    (address :: AddrRep) <- primitive-call @AddrRep mutableByteArrayContents# (array :: BoxedRep Unlifted)
+    (action :: BoxedRep Lifted) <- store (P$action/[[]] (address :: AddrRep))
+    (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    keep-alive @WordRep (action :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
+return: "42"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 64600
+  linux-amd64: 64600
+status: pass
+reason: A suspended keep-alive action must retain its pinned owner while another thread forces collections.

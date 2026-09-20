@@ -23,6 +23,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text (Text)
 
 -- | A CPS-GRIN program whose managed allocations have explicit safepoints.
 -- Keeping this phase distinct prevents native backends from accidentally
@@ -63,8 +64,62 @@ lowerGc cps =
     }
   where
     program = cpsGrinProgram cps
-    normalizedProgram = normalizeHeapReservations (insertHeapReservations program)
+    dynamicFunctions = evalState (mapM insertDynamicFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)
+    dynamicProgram = program {grinFunctions = dynamicFunctions, grinPrimitives = grinPrimitives program <> dynamicDeclarations}
+    dynamicDeclarations =
+      [ (GrinVar helper (-2000000001) WordRep, arity)
+      | (names, helper, arity) <- reservationHelpers,
+        any (\(var, _) -> grinVarName var `elem` names) (grinPrimitives program)
+      ]
+    normalizedProgram = normalizeHeapReservations (insertHeapReservations dynamicProgram)
     nextUnique = 1 + maximumProgramVarUnique normalizedProgram
+
+-- | Size helpers validate counts before the reservation. They cannot collect.
+reservationHelpers :: [([Text], Text, Int)]
+reservationHelpers =
+  [ (["newByteArray#", "newPinnedByteArray#", "newAlignedPinnedByteArray#"], "aihcByteArrayWords#", 3),
+    (["resizeMutableByteArray#"], "aihcResizeByteArrayWords#", 2)
+  ]
+
+insertDynamicFunction :: GrinFunction -> State Int GrinFunction
+insertDynamicFunction function = do
+  body <- insertDynamic (grinFunctionBody function)
+  pure function {grinFunctionBody = body}
+
+insertDynamic :: GrinExpr -> State Int GrinExpr
+insertDynamic expression = case expression of
+  GrinBind results call@(GrinPrimitiveCall _ name arguments) body
+    | Just (helper, operands) <- byteArrayReservation name arguments -> do
+        unique <- get
+        put (unique + 1)
+        let wordsVar = GrinVar "$gc_byte_array_words" unique WordRep
+        rest <- insertDynamic body
+        pure
+          ( GrinBind
+              [wordsVar]
+              (GrinPrimitiveCall WordRep helper operands)
+              (GrinBind [] (GrinEnsureHeap (GrinVarValue wordsVar) []) (GrinBind results call rest))
+          )
+  GrinBind results value body -> GrinBind results <$> insertDynamic value <*> insertDynamic body
+  GrinCase value binder alternatives -> GrinCase value binder <$> mapM alter alternatives
+  GrinIfWhnf value ready slow -> GrinIfWhnf value <$> insertDynamic ready <*> insertDynamic slow
+  GrinStoreRec bindings body -> GrinStoreRec bindings <$> insertDynamic body
+  GrinStoreRecUnchecked bindings body -> GrinStoreRecUnchecked bindings <$> insertDynamic body
+  _ -> pure expression
+  where
+    alter alternative = do
+      rhs <- insertDynamic (grinAltRhs alternative)
+      pure alternative {grinAltRhs = rhs}
+
+byteArrayReservation :: Text -> [GrinValue] -> Maybe (Text, [GrinValue])
+byteArrayReservation name arguments = case (name, arguments) of
+  ("newByteArray#", [size]) -> Just ("aihcByteArrayWords#", [size, literal 0, literal 8])
+  ("newPinnedByteArray#", [size]) -> Just ("aihcByteArrayWords#", [size, literal 1, literal 8])
+  ("newAlignedPinnedByteArray#", [size, alignment]) -> Just ("aihcByteArrayWords#", [size, literal 1, alignment])
+  ("resizeMutableByteArray#", [array, size]) -> Just ("aihcResizeByteArrayWords#", [array, size])
+  _ -> Nothing
+  where
+    literal = GrinLitValue . GrinLitInt IntRep
 
 insertHeapReservations :: GrinProgram -> GrinProgram
 insertHeapReservations program =
@@ -148,6 +203,7 @@ relocateExpr bound expression =
     GrinPrimitiveCall {} -> pure expression
     GrinCpsPrimitiveCall {} -> pure expression
     GrinApply {} -> pure expression
+    GrinKeepAlive {} -> pure expression
     GrinCpsApply {} -> pure expression
     GrinContinue {} -> pure expression
     GrinCpsRaise {} -> pure expression
@@ -230,6 +286,7 @@ substituteExpr substitutions expression =
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       GrinCpsPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
     GrinApply runtimeRep function arguments -> GrinApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments)
+    GrinKeepAlive runtimeRep function arguments -> GrinKeepAlive runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments)
     GrinCpsApply runtimeRep function arguments continuation ->
       GrinCpsApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
     GrinContinue continuation values -> GrinContinue (substituteValue substitutions continuation) (map (substituteValue substitutions) values)

@@ -1,0 +1,11 @@
+entry: $entry
+program: |
+  primitive newAlignedPinnedByteArray# :: BoxedRep Unlifted/2
+  primitive sizeofMutableByteArray# :: IntRep/1
+
+  $entry -> IntRep =
+    (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newAlignedPinnedByteArray# (8 :: IntRep) (3 :: IntRep)
+    primitive-call @IntRep sizeofMutableByteArray# (array :: BoxedRep Unlifted)
+error: invalid byte array alignment
+status: pass
+reason: The size helper must reject an invalid count before the reservation.

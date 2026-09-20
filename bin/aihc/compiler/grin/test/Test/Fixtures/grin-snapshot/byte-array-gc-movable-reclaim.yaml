@@ -1,0 +1,27 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M512", "-RTS"]
+program: |
+  primitive newByteArray# :: BoxedRep Unlifted/1
+  primitive sizeofMutableByteArray# :: IntRep/1
+  primitive +# :: IntRep/2
+
+  $loop (counter :: IntRep) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        constant (counter :: IntRep)
+      _ ->
+        (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newByteArray# (24 :: IntRep)
+        (size :: IntRep) <- primitive-call @IntRep sizeofMutableByteArray# (array :: BoxedRep Unlifted)
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+return: "200"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 14400
+  linux-amd64: 14400
+status: pass
+reason: Dead movable byte arrays must be reclaimed and counted in allocation statistics.

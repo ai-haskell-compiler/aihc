@@ -1,0 +1,29 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M8192", "-RTS"]
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Word#
+  burn :: Int# -> State# RealWorld -> State# RealWorld
+  burn n state = case n of
+    0# -> state
+    _ -> case newPinnedByteArray# 256# state of
+      (# next, array #) -> case setByteArray# array 0# 256# 7# next of
+        written -> burn (n -# 1#) written
+  value = runRW# (\state ->
+    case newPinnedByteArray# 256# state of
+      (# next, array #) -> case writeWordArray# array 0# 42## next of
+        written -> case mutableByteArrayContents# array of
+          address -> keepAlive# array written (\active ->
+            case burn 100# active of
+              done -> case readWordOffAddr# address 0# done of
+                (# _, result #) -> Result result))
+return: "@0"
+heap: |
+  @0 = CResult 42
+allocated-bytes:
+  macos-arm64: 32536
+  linux-amd64: 32536
+status: pass
+reason: The keep-alive action must retain the pinned owner across collection.

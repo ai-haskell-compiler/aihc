@@ -208,6 +208,7 @@ lintExpr env bound expr =
         <> concatMap (lintValue bound) arguments
         <> lintValue bound continuation
     GrinApply _ function arguments -> lintValue bound function <> concatMap (lintValue bound) arguments
+    GrinKeepAlive _ function arguments -> lintValue bound function <> concatMap (lintValue bound) arguments
     GrinCpsApply _ function arguments continuation ->
       lintValue bound function
         <> concatMap (lintValue bound) arguments
@@ -385,6 +386,7 @@ exprResults expr =
     GrinPrimitiveCall runtimeRep _ _ -> [Placed (runtimeRepComponents runtimeRep)]
     GrinCpsPrimitiveCall {} -> []
     GrinApply resultRep _ _ -> maybe [Forwarded] (pure . Placed) (resultRepComponents resultRep)
+    GrinKeepAlive resultRep _ _ -> maybe [Forwarded] (pure . Placed) (resultRepComponents resultRep)
     GrinCpsApply {} -> []
     GrinContinue {} -> []
     GrinCpsRaise {} -> []

@@ -3,12 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The collector copies live objects between two spaces. The current space is
-   described by heap_start, heap_next, and heap_limit. The other space and its
-   capacity wait in other_space and other_space_bytes. semispace_bytes is the
-   capacity that the next collection gives the destination space. It doubles
-   until it holds twice the live data, so the program does not collect on every
-   allocation when its live data grows. The -M limit caps that capacity. */
+/* The collector copies movable objects between two spaces.
+   heap_space_bytes records physical capacity. heap_limit excludes the charge
+   for pinned blocks, so ordinary reservations use the shared budget.
+   other_space and other_space_bytes identify the inactive space.
+   semispace_bytes is the target capacity for the next collection.
+   The target doubles until it holds twice the occupied space.
+   The -M limit caps this capacity. */
 
 typedef struct {
   AihcMachine *machine;
@@ -277,10 +278,6 @@ static void aihc_scan_object(AihcForwardingContext *context,
   if (aihc_visit_runtime_object(object, aihc_forward_root, context)) {
     return;
   }
-  if (kind == AIHC_OBJECT_RUNTIME) {
-    /* Byte arrays have no managed pointer fields. */
-    return;
-  }
   aihc_walk_srt(info->srt);
   if (kind == AIHC_OBJECT_INDIRECTION) {
     /* Only a static object reaches this branch: an evaluated CAF keeps its
@@ -305,7 +302,8 @@ static void aihc_scan_object(AihcForwardingContext *context,
       }
     }
   } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
-             kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
+             kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE ||
+             kind == AIHC_OBJECT_KEEP_ALIVE) {
     for (uint64_t index = 0; index < count; ++index) {
       if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
         object->fields[index] =
@@ -402,7 +400,8 @@ static void aihc_update_stable_names(AihcForwardingContext *context) {
    always fits unless the -M limit forbids it. */
 static size_t aihc_destination_bytes(const AihcMachine *machine,
                                      size_t required_bytes) {
-  size_t used = (size_t)(machine->heap_next - machine->heap_start);
+  size_t used = (size_t)(machine->heap_next - machine->heap_start) +
+                (size_t)machine->pinned_bytes;
   if (required_bytes > SIZE_MAX - used) {
     aihc_fail("heap reservation is too large");
   }
@@ -456,7 +455,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   }
   ++machine->gc_count;
   uint8_t *from_start = machine->heap_start;
-  size_t from_bytes = aihc_semispace_capacity(machine);
+  size_t from_bytes = (size_t)machine->heap_space_bytes;
   size_t to_bytes = aihc_destination_bytes(machine, required_bytes);
   if (machine->other_space == NULL || machine->other_space_bytes < to_bytes) {
     free(machine->other_space);
@@ -466,7 +465,8 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   uint8_t *to_start = machine->other_space;
   machine->heap_start = to_start;
   machine->heap_next = to_start;
-  machine->heap_limit = to_start + machine->other_space_bytes;
+  machine->heap_space_bytes = machine->other_space_bytes;
+  machine->heap_limit = to_start + machine->heap_space_bytes;
 
   AihcForwardingContext context = {machine, from_start, from_bytes};
   aihc_address_set_clear(&aihc_marked_statics);
@@ -478,6 +478,23 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   aihc_visit_roots(machine, root_count, roots, aihc_forward_root, &context);
   aihc_trace(&context);
   aihc_update_stable_names(&context);
+  AihcPinnedBlock **link = &machine->pinned_blocks;
+  while (*link != NULL) {
+    AihcPinnedBlock *block = *link;
+    if (aihc_address_set_contains(&aihc_marked_statics,
+                                  (AihcValue *)block->object)) {
+      link = &block->next;
+    } else {
+      *link = block->next;
+      machine->pinned_bytes -= block->bytes;
+      free(block);
+    }
+  }
+  size_t copied = (size_t)(machine->heap_next - machine->heap_start);
+  if (machine->pinned_bytes > machine->heap_space_bytes - copied) {
+    aihc_semispace_exhausted(machine);
+  }
+  machine->heap_limit -= machine->pinned_bytes;
   aihc_clear_srt_stamps();
 
   machine->other_space = from_start;
@@ -485,7 +502,8 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   /* The live data the collector copied in is not something the mutator
      allocated, so the next account starts above it. */
   machine->heap_alloc_base = machine->heap_next;
-  size_t live_bytes = (size_t)(machine->heap_next - machine->heap_start);
+  size_t live_bytes = (size_t)(machine->heap_next - machine->heap_start) +
+                      (size_t)machine->pinned_bytes;
   if (required_bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_semispace_exhausted(machine);
   }
@@ -499,6 +517,7 @@ void aihc_gc_init(AihcMachine *machine) {
       machine->semispace_bytes > machine->heap_max_bytes) {
     machine->semispace_bytes = machine->heap_max_bytes;
   }
+  machine->heap_space_bytes = machine->semispace_bytes;
   machine->heap_start = aihc_semispace_new(machine->semispace_bytes);
   machine->heap_next = machine->heap_start;
   machine->heap_alloc_base = machine->heap_start;
@@ -559,8 +578,35 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   return value;
 }
 
+/* Consume a prior reservation. The allocation list is not a root. */
+AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
+  if (words > (SIZE_MAX - sizeof(AihcPinnedBlock)) / sizeof(AihcSlot)) {
+    aihc_fail("pinned allocation is too large");
+  }
+  size_t bytes = sizeof(AihcPinnedBlock) + words * sizeof(AihcSlot);
+  if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
+    aihc_fail("unchecked pinned allocation exceeded reserved heap");
+  }
+  aihc_heap_account(machine);
+  if (bytes > UINT64_MAX - machine->heap_allocated_bytes) {
+    aihc_fail("allocated byte counter overflow");
+  }
+  AihcPinnedBlock *block = calloc(1, bytes);
+  if (block == NULL) {
+    aihc_fail("out of memory");
+  }
+  block->bytes = bytes;
+  block->next = machine->pinned_blocks;
+  machine->pinned_blocks = block;
+  machine->pinned_bytes += bytes;
+  machine->heap_limit -= bytes;
+  machine->heap_allocated_bytes += bytes;
+  return (AihcValue *)block->object;
+}
+
 void aihc_gc_record_peak(AihcMachine *machine) {
-  uint64_t used = (uint64_t)(machine->heap_next - machine->heap_start);
+  uint64_t used = (uint64_t)(machine->heap_next - machine->heap_start) +
+                  machine->pinned_bytes;
   if (used > machine->heap_peak_bytes) {
     machine->heap_peak_bytes = used;
   }

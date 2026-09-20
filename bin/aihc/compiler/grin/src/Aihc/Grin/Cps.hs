@@ -82,6 +82,7 @@ data CpsState = CpsState
     cpsUsedFunctionNames :: !(Set FunctionName),
     cpsGeneratedFunctionsRev :: ![GrinFunction],
     cpsContinuationFramesState :: !(Map FunctionName ContinuationFrameKind),
+    cpsUsesKeepAlive :: !Bool,
     cpsComputationContinuations :: !(Map FunctionName GrinVar)
   }
 
@@ -97,7 +98,10 @@ toCpsGrin sourceProgram = do
           program
             { grinFunctions =
                 functions
-                  <> reverse (cpsGeneratedFunctionsRev finalState)
+                  <> reverse (cpsGeneratedFunctionsRev finalState),
+              grinPrimitives =
+                grinPrimitives program
+                  <> [(GrinVar "aihcKeepAliveFrame#" (-2000000002) liftedGrinRep, 2) | cpsUsesKeepAlive finalState]
             },
         cpsContinuationFunctions = Map.keysSet continuationFrames,
         cpsContinuationFrames = continuationFrames,
@@ -112,6 +116,7 @@ toCpsGrin sourceProgram = do
           cpsUsedFunctionNames = Set.fromList (map grinFunctionName sourceFunctions),
           cpsGeneratedFunctionsRev = [],
           cpsContinuationFramesState = Map.empty,
+          cpsUsesKeepAlive = False,
           cpsComputationContinuations = Map.empty
         }
 
@@ -248,6 +253,37 @@ transformTail parent bound resultRep continuation expression =
       | otherwise ->
           continueDirect runtimeRep continuation (GrinPrimitiveCall runtimeRep name arguments)
     GrinCpsPrimitiveCall {} -> alreadyTransformed
+    GrinKeepAlive runtimeRep action owners -> do
+      let pointers = filter (isPointerRuntimeRep . grinValueRuntimeRep) owners
+      frames <- mapM (const (freshVar "$cps_keep_alive" liftedGrinRep)) pointers
+      whenKeepAlive pointers
+      evaluatedAction <- freshVar "$cps_keep_alive_action" (grinValueRuntimeRep action)
+      let chain = zip3 frames (continuation : map GrinVarValue frames) pointers
+          inner = case reverse frames of
+            frame : _ -> GrinVarValue frame
+            [] -> continuation
+      applied <-
+        transformTail
+          parent
+          (bound <> Set.fromList frames)
+          runtimeRep
+          inner
+          ( GrinBind
+              [evaluatedAction]
+              (GrinEval (grinValueRuntimeRep action) action)
+              (GrinApply runtimeRep (GrinVarValue evaluatedAction) [])
+          )
+      pure
+        ( foldr
+            ( \(frame, outer, owner) body ->
+                GrinBind
+                  [frame]
+                  (GrinPrimitiveCall liftedGrinRep "aihcKeepAliveFrame#" [outer, owner])
+                  body
+            )
+            applied
+            chain
+        )
     GrinApply runtimeRep function arguments ->
       pure (GrinCpsApply runtimeRep function arguments continuation)
     GrinCpsApply {} -> alreadyTransformed
@@ -518,3 +554,8 @@ varsRuntimeRep vars =
 isControlPrimitive :: T.Text -> Bool
 isControlPrimitive name =
   name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "prompt#", "aihcControl0#", "aihcResume#"]
+
+-- | Record the internal frame allocator only when this unit uses it.
+whenKeepAlive :: [GrinValue] -> CpsM ()
+whenKeepAlive [] = pure ()
+whenKeepAlive _ = modify' (\state -> state {cpsUsesKeepAlive = True})

@@ -1,0 +1,23 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  import GHC.Types (RuntimeRep, TYPE)
+  data Result = Result Int# Word#
+  keep :: forall (r :: RuntimeRep) (a :: TYPE r). MutableByteArray# RealWorld -> State# RealWorld -> (State# RealWorld -> a) -> a
+  keep owner state action = keepAlive# owner state action
+  value = runRW# (\state ->
+    case newPinnedByteArray# 8# state of
+      (# next, owner #) -> case keep owner next (\active ->
+        case newPinnedByteArray# 8# active of
+          (# _, array #) -> (# sizeofMutableByteArray# array, 42## #)) of
+        (# size, value #) -> Result size value)
+return: "@0"
+heap: |
+  @0 = CResult 8 42
+allocated-bytes:
+  macos-arm64: 352
+  linux-amd64: 352
+status: pass
+reason: Keep-alive frames must forward results with multiple registers and an abstract representation.

@@ -1,0 +1,30 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  foreign import ccall unsafe "memcmp" compareBytes :: ByteArray# -> ByteArray# -> Int -> Int32#
+  burn :: Int# -> Int
+  burn n = case n of
+    0# -> I# 8#
+    _ -> runRW# (\state -> case newByteArray# 256# state of
+      (# next, array #) -> case setByteArray# array 0# 256# 7# next of
+        _ -> burn (n -# 1#))
+  value = runRW# (\state ->
+    case newByteArray# 8# state of
+      (# next, left #) -> case setByteArray# left 0# 8# 1# next of
+        filled -> case unsafeFreezeByteArray# left filled of
+          (# frozen, first #) -> case newByteArray# 8# frozen of
+            (# allocated, right #) -> case setByteArray# right 0# 8# 2# allocated of
+              done -> case unsafeFreezeByteArray# right done of
+                (# _, second #) -> case compareBytes first second (burn 20#) of
+                  result -> I# (int32ToInt# result))
+return: "@0"
+heap: |
+  @0 = CI# -1
+allocated-bytes:
+  macos-arm64: 6560
+  linux-amd64: 6560
+status: pass
+reason: Foreign calls must obtain movable payload addresses after all other operands are ready.

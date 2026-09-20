@@ -1,0 +1,37 @@
+program: |
+  primitive newByteArray# :: BoxedRep Unlifted/1
+  primitive resizeMutableByteArray# :: BoxedRep Unlifted/2
+
+  allocate (size :: IntRep) -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) newByteArray# (size :: IntRep)
+
+  resize (array :: BoxedRep Unlifted) (size :: IntRep) -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) resizeMutableByteArray# (array :: BoxedRep Unlifted) (size :: IntRep)
+expected: |
+  primitive newByteArray# :: BoxedRep Unlifted/1
+
+  primitive resizeMutableByteArray# :: BoxedRep Unlifted/2
+
+  primitive aihcByteArrayWords# :: WordRep/3
+
+  primitive aihcResizeByteArrayWords# :: WordRep/2
+
+  allocate (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $gc_byte_array_words :: WordRep <-
+      primitive-call @WordRep aihcByteArrayWords# (size :: IntRep) (0 :: IntRep) (8 :: IntRep)
+    $cps_return$gc :: BoxedRep Lifted <-
+      ensure-heap ($gc_byte_array_words :: WordRep) ($cps_return :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) newByteArray# (size :: IntRep)
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
+
+  resize (array :: BoxedRep Unlifted) (size :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $gc_byte_array_words :: WordRep <-
+      primitive-call @WordRep aihcResizeByteArrayWords# (array :: BoxedRep Unlifted) (size :: IntRep)
+    $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted <-
+      ensure-heap ($gc_byte_array_words :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
+    $cps_result :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) resizeMutableByteArray# (array$gc :: BoxedRep Unlifted) (size :: IntRep)
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
+status: pass
+reason: Dynamic byte-array reservations must protect the original array and caller continuation.

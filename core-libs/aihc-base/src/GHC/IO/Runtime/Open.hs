@@ -12,13 +12,13 @@ where
 import Data.Bool (Bool (..), (&&))
 import Data.Either (Either (..))
 import Foreign.C.Error.Repr (cErrnoILSEQ, cErrnoINVAL)
-import GHC.Base (List (..), Monad (..), String, ord)
+import GHC.Base (List (..), Monad (..), String, ord, ($))
 import GHC.IO (IO (..))
 import GHC.IO.Runtime (IOHandle, awaitIO, openResultError, submitOpen, takeOpenResult, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
-import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Prim (Addr#, MutableByteArray#, RealWorld, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#)
 import GHC.Ptr (Ptr)
 import GHC.Real (fromIntegral)
 
@@ -32,9 +32,13 @@ openUtf8FilePath path mode =
       do
         buffer <- newPathBuffer length
         case buffer of
-          PathBuffer rawBuffer -> do
+          PathBuffer rawBuffer -> withPathBuffer rawBuffer $ do
             writeUtf8 (mutableByteArrayContents# rawBuffer) 0 path
             openIOHandle (mutableByteArrayContents# rawBuffer) length mode
+
+-- | Retain the path during encoding and the complete open request.
+withPathBuffer :: MutableByteArray# RealWorld -> IO a -> IO a
+withPathBuffer buffer (IO action) = IO (\state -> keepAlive# buffer state action)
 
 data PathBuffer = PathBuffer (MutableByteArray# RealWorld)
 

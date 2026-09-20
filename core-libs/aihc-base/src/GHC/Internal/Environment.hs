@@ -19,7 +19,7 @@ import GHC.IO.Exception (IOErrorType (..), ioError)
 import GHC.IO.Runtime (readMemoryByte, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Internal.Utf8 (decodeUtf8, encodeUtf8)
-import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Prim (Addr#, MutableByteArray#, RealWorld, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#)
 import System.IO.Error (mkIOError)
 import Prelude
 
@@ -95,16 +95,24 @@ atLeastOne size =
     False -> size
 
 copyBuffer :: (Addr# -> Int -> IO Int) -> ArgumentBuffer -> Int -> IO Int
-copyBuffer copy (ArgumentBuffer buffer) = copy (mutableByteArrayContents# buffer)
+copyBuffer copy (ArgumentBuffer buffer) size =
+  withArgumentBuffer buffer (copy (mutableByteArrayContents# buffer) size)
 
 replaceArgumentBuffer :: ArgumentBuffer -> Int -> IO Int
-replaceArgumentBuffer (ArgumentBuffer buffer) = replaceArguments (mutableByteArrayContents# buffer)
+replaceArgumentBuffer (ArgumentBuffer buffer) size =
+  withArgumentBuffer buffer (replaceArguments (mutableByteArrayContents# buffer) size)
 
 readArgumentByte :: ArgumentBuffer -> Int -> IO Int
-readArgumentByte (ArgumentBuffer buffer) = readMemoryByte (mutableByteArrayContents# buffer)
+readArgumentByte (ArgumentBuffer buffer) offset =
+  withArgumentBuffer buffer (readMemoryByte (mutableByteArrayContents# buffer) offset)
 
 writeArgumentByte :: ArgumentBuffer -> Int -> Int -> IO Int
-writeArgumentByte (ArgumentBuffer buffer) = writeMemoryByte (mutableByteArrayContents# buffer)
+writeArgumentByte (ArgumentBuffer buffer) offset value =
+  withArgumentBuffer buffer (writeMemoryByte (mutableByteArrayContents# buffer) offset value)
+
+-- | Retain the argument buffer while its raw address is in use.
+withArgumentBuffer :: MutableByteArray# RealWorld -> IO a -> IO a
+withArgumentBuffer buffer (IO action) = IO (\state -> keepAlive# buffer state action)
 
 readBytes :: ArgumentBuffer -> Int -> Int -> IO [Int]
 readBytes buffer offset length =

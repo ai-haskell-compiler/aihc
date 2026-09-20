@@ -1,0 +1,12 @@
+entry: $entry
+rts-arguments: ["+RTS", "-M512", "-RTS"]
+program: |
+  primitive newPinnedByteArray# :: BoxedRep Unlifted/1
+  primitive sizeofMutableByteArray# :: IntRep/1
+
+  $entry -> IntRep =
+    (array :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (512 :: IntRep)
+    primitive-call @IntRep sizeofMutableByteArray# (array :: BoxedRep Unlifted)
+error: heap limit exceeded
+status: pass
+reason: The heap limit must include the pinned byte-array payload.

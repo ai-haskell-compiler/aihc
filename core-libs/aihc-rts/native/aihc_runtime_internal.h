@@ -199,6 +199,39 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
 
 _Noreturn void aihc_fail(const char *message);
 void aihc_record_allocation(AihcMachine *machine);
+/* Six fixed slots precede the inline byte payload. */
+typedef struct {
+  AihcSlot header;
+  uint64_t size;
+  union {
+    uint8_t *contents;
+    AihcSlot contents_slot;
+  };
+  uint64_t pinned;
+  uint64_t alignment;
+  uint64_t words;
+} AihcByteArray;
+
+/* Two metadata slots precede each pinned object on both target word sizes. */
+typedef struct AihcPinnedBlock {
+  union {
+    struct AihcPinnedBlock *next;
+    AihcSlot next_slot;
+  };
+  uint64_t bytes;
+  AihcSlot object[];
+} AihcPinnedBlock;
+
+_Static_assert(sizeof(AihcByteArray) == 48, "byte-array descriptor size");
+_Static_assert(offsetof(AihcByteArray, contents) == 16,
+               "byte-array contents offset");
+_Static_assert(offsetof(AihcByteArray, words) == 40,
+               "byte-array allocation size offset");
+_Static_assert(offsetof(AihcPinnedBlock, object) == 16,
+               "pinned allocation metadata size");
+
+AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words);
+
 void *aihc_allocate_zeroed(uint64_t bytes);
 void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes);
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
@@ -235,7 +268,6 @@ const AihcResume *aihc_complete_io(AihcMachine *machine, int64_t result);
 void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
 /* The header every runtime object outside the managed heap carries. */
-extern const AihcInfo aihc_runtime_object_info;
 
 void aihc_gc_init(AihcMachine *machine);
 void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,

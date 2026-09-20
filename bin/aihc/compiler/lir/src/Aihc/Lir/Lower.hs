@@ -1145,6 +1145,7 @@ compileExpr ctx env expression =
     GrinEval {} -> unsupported "direct-style eval after CPS"
     GrinPrimitiveCall {} -> unsupported "unbound primitive call after CPS"
     GrinApply {} -> unsupported "direct-style apply after CPS"
+    GrinKeepAlive {} -> unsupported "direct-style keep-alive after CPS"
     GrinThrow {} -> unsupported "throw"
     GrinCatch {} -> unsupported "catch"
     GrinForeignCallExpr {} -> unsupported "unbound foreign call after CPS"
@@ -1599,8 +1600,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       helper <- requireHelper HelperCStringLength
       result <- emitValue "length" I64 (Call helper [operand])
       bind [result]
-    -- The collector uses explicit root lists, thus touch# keeps no value
-    -- alive and gives no code.
+    -- GRIN GC used this operand to preserve its lifetime.
+    -- No runtime instruction is necessary.
     ("touch#", [_])
       | null vars -> pure env
     -- A computation is never duplicated, so noDuplicate# has nothing to
@@ -2529,7 +2530,9 @@ generateHelper env helper =
       header <- loadHeader (OperandVar current)
       kind <- loadInfoByte "kind" header infoObjectKindByte
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
-      terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "enter") []))
+      isKeepAlive <- emitValue "keep_alive" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectKeepAlive)))
+      follows <- emitValue "follows" I1 (Binary Or I1 (typedOperand isIndirection) (typedOperand isKeepAlive))
+      terminate (Branch (typedOperand follows) (Target (Label "indirection") []) (Target (Label "enter") []))
       beginBlock (Label "indirection") []
       next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
@@ -2615,6 +2618,10 @@ runtimeObjectPartialConstructor = 3
 runtimeObjectIndirection, runtimeObjectBlackhole :: Integer
 runtimeObjectIndirection = 4
 runtimeObjectBlackhole = 5
+
+-- Keep-alive frames retain their owner and forward every result layout.
+runtimeObjectKeepAlive :: Integer
+runtimeObjectKeepAlive = 18
 
 -- Program queries
 
