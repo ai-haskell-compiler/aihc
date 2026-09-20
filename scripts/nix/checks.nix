@@ -295,48 +295,81 @@
       fi
       exit "$compile_exit"
     fi
-    mkdir -p "$run_directory"
-    if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
-      --dir "$run_directory::." \
-      --argv0 "$example_name" \
-      "$executable" +RTS -M100M -RTS "''${example_args[@]}" \
-      < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
-      actual_exit=0
-    else
-      actual_exit=$?
+    preopen_paths=(.)
+    if [[ -f "$example_directory/wasm-preopen-paths" ]]; then
+      mapfile -t preopen_paths < "$example_directory/wasm-preopen-paths"
     fi
-    if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
-      echo "Timed out running $example_name/wasm32-wasip3-${compilation.name}" >&2
-      exit 1
-    fi
-    if [[ "$expected_exit" == nonzero ]]; then
-      if [[ "$actual_exit" -eq 0 ]]; then
-        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to fail" >&2
+    run_root="$run_directory"
+    case_index=0
+    for path_case in "''${preopen_paths[@]}"; do
+      read -r guest_path initial_cwd input_directory <<< "$path_case"
+      run_directory="$run_root/$case_index"
+      case_index=$((case_index + 1))
+      mkdir -p "$run_directory"
+      preopen_args=(--dir "$run_directory::$guest_path")
+      path_args=()
+      if [[ -f "$example_directory/wasm-preopen-paths" ]]; then
+        path_args=(--read "''${input_directory:-$guest_path}")
+        printf 'hello corpus\n' > "$run_directory/corpus.txt"
+        mkdir -p "$run_directory/parent" "$run_directory/prefix"
+        # The longer prefix must end at a path component boundary.
+        preopen_args+=(--dir "$run_directory/prefix::$guest_path/corpus")
+        # The selected directory must have the longest matching name.
+        case "$guest_path" in
+          /) ;;
+          /*) preopen_args=(--dir "$run_directory/parent::/" "''${preopen_args[@]}") ;;
+          .) ;;
+          *) preopen_args=(--dir "$run_directory/parent::." "''${preopen_args[@]}") ;;
+        esac
+        if [[ -n "$initial_cwd" && "$initial_cwd" != - ]]; then
+          preopen_args+=(-S "cwd=$initial_cwd")
+        fi
+      fi
+      if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
+        "''${preopen_args[@]}" \
+        --argv0 "$example_name" \
+        "$executable" +RTS -M100M -RTS "''${example_args[@]}" "''${path_args[@]}" \
+        < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
+        actual_exit=0
+      else
+        actual_exit=$?
+      fi
+      if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
+        echo "Timed out running $example_name/wasm32-wasip3-${compilation.name}" >&2
         exit 1
       fi
-    elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
-      if [[ "$actual_exit" -ne "$expected_exit" ]]; then
-        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
-        echo "stdout:" >&2
-        cat "$actual_stdout" >&2 || true
-        echo "stderr:" >&2
-        cat "$actual_stderr" >&2 || true
+      if [[ "$expected_exit" == nonzero ]]; then
+        if [[ "$actual_exit" -eq 0 ]]; then
+          echo "Expected $example_name/wasm32-wasip3-${compilation.name} to fail" >&2
+          exit 1
+        fi
+      elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
+        if [[ "$actual_exit" -ne "$expected_exit" ]]; then
+          echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+          echo "stdout:" >&2
+          cat "$actual_stdout" >&2 || true
+          echo "stderr:" >&2
+          cat "$actual_stderr" >&2 || true
+          exit 1
+        fi
+      else
+        echo "Invalid expected exit status for $example_name: $expected_exit" >&2
         exit 1
       fi
-    else
-      echo "Invalid expected exit status for $example_name: $expected_exit" >&2
-      exit 1
-    fi
-    diff --unified \
-      --label "$example_name/stdout-expected" \
-      --label "$example_name/stdout-wasm32-wasip3-${compilation.name}" \
-      "$expected_stdout" "$actual_stdout"
-    if [[ "$expected_exit" != nonzero ]]; then
       diff --unified \
-        --label "$example_name/stderr-expected" \
-        --label "$example_name/stderr-wasm32-wasip3-${compilation.name}" \
-        "$expected_stderr" "$actual_stderr"
-    fi
+        --label "$example_name/stdout-expected" \
+        --label "$example_name/stdout-wasm32-wasip3-${compilation.name}" \
+        "$expected_stdout" "$actual_stdout"
+      if [[ "$expected_exit" != nonzero ]]; then
+        diff --unified \
+          --label "$example_name/stderr-expected" \
+          --label "$example_name/stderr-wasm32-wasip3-${compilation.name}" \
+          "$expected_stderr" "$actual_stderr"
+      fi
+      if [[ -f "$example_directory/wasm-preopen-paths" ]]; then
+        test -f "$run_directory/corpus.txt"
+      fi
+    done
   '';
 
   aihcExe = pkgs.writeShellScript "aihc-with-memory-limit" ''

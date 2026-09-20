@@ -3,6 +3,7 @@
 
 #include "aihc_runtime.h"
 
+#include <errno.h>
 #include <stddef.h>
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
@@ -21,10 +22,10 @@ typedef enum {
 } AihcIoCapability;
 
 typedef enum {
-  AIHC_IO_ERROR_IO = 5,
-  AIHC_IO_ERROR_BAD_DESCRIPTOR = 9,
-  AIHC_IO_ERROR_INVALID_ARGUMENT = 22,
-  AIHC_IO_ERROR_NOT_SUPPORTED = 38,
+  AIHC_IO_ERROR_IO = EIO,
+  AIHC_IO_ERROR_BAD_DESCRIPTOR = EBADF,
+  AIHC_IO_ERROR_INVALID_ARGUMENT = EINVAL,
+  AIHC_IO_ERROR_NOT_SUPPORTED = ENOSYS,
 } AihcIoError;
 
 typedef enum {
