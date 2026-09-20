@@ -28,7 +28,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 656
-  linux-amd64: 656
+  macos-arm64: 584
+  linux-amd64: 584
 status: pass
-reason: The runtime update continuation must reserve waiter memory before it evaluates a blackholed result.
+reason: Evaluation of a thunk result must reserve waiter memory before it blocks on a blackhole.

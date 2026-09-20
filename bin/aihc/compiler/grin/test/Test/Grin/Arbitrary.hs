@@ -75,7 +75,7 @@ genExpr =
       GrinStoreUnchecked <$> genNode,
       GrinUpdate <$> genValue <*> genValue,
       GrinEval <$> genRuntimeRep <*> genValue,
-      GrinCpsEval <$> genRuntimeRep <*> genValue <*> genValue <*> genValue,
+      GrinCpsEval <$> genRuntimeRep <*> genValue <*> genValue,
       GrinCall <$> genResultRep <*> genFunctionName <*> smallList genValue,
       GrinPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue,
       GrinCpsPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue <*> genValue,
@@ -93,6 +93,7 @@ genExpr =
     [ GrinBind <$> smallList genVar <*> genExpr <*> genExpr,
       GrinStoreRec <$> smallList ((,) <$> genVar <*> genNode) <*> genExpr,
       GrinStoreRecUnchecked <$> smallList ((,) <$> genVar <*> genNode) <*> genExpr,
+      GrinIfWhnf <$> genValue <*> genExpr <*> genExpr,
       GrinCase <$> genValue <*> genVar <*> smallList (genAlt genExpr)
     ]
 

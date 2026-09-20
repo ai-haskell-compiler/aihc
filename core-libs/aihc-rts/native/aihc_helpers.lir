@@ -2,7 +2,7 @@
 ; Common argument shapes are [], [ptr], and [i64].
 ; The compiler emits other shapes in the module that needs them.
 ; Heap slots have eight bytes on every target.
-; Lir accessors read info tables with pointer-sized offsets.
+; Direct loads read info tables with pointer-sized offsets.
 ; C code transfers scheduler records.
 
 include "aihc_constants.lir"
@@ -22,9 +22,10 @@ extern func @aihc_no_match() cc c
 
 extern func @aihc_raise(ptr, ptr, ptr) -> ptr cc c
 
-; The caller reserves fourteen slots for a blackhole record or waiter.
-export func @aihc_lir_eval(%machine: ptr, %value: ptr, %continuation: ptr, %update: ptr) {
+; Only thunks and blackholes require a heap reservation.
+export func @aihc_lir_eval(%machine: ptr, %value: ptr, %continuation: ptr) {
 entry:
+  %roots = stack.alloc 16 align 8
   jump loop(%value)
 
 loop(%current: ptr):
@@ -40,9 +41,7 @@ loop(%current: ptr):
   }
 
 thunk:
-  call @aihc_begin_blackhole(%machine, %current)
-  %entry = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
-  tailcall.indirect %entry(%machine, %current, %update) : (ptr, ptr, ptr)
+  jump reserve(@AIHC_EVAL_THUNK_WORDS, 1)
 
 indirection:
   %next_word = load i64 [%current + 8] align 8
@@ -50,7 +49,53 @@ indirection:
   jump loop(%next)
 
 blackhole:
-  %result = call @aihc_block_on_blackhole(%machine, %current, %continuation)
+  jump reserve(@AIHC_EVAL_RECORD_WORDS, 0)
+
+reserve(%required_words: i64, %enter_thunk: i1):
+  %heap = load ptr [%machine + 1 word + 16] align 1 word
+  %heap_end = load ptr [%machine + 2 words + 16] align 1 word
+  %heap_word = ptr.to_int %heap
+  %heap_end_word = ptr.to_int %heap_end
+  %heap_room = sub i64 %heap_end_word, %heap_word
+  %required_bytes = mul i64 %required_words, 8
+  %heap_fits = ge.u i64 %heap_room, %required_bytes
+  br %heap_fits, reserved(%current, %continuation), collect
+
+collect:
+  %current_word = ptr.to_int %current
+  store i64 %current_word, [%roots] align 8
+  %continuation_word = ptr.to_int %continuation
+  store i64 %continuation_word, [%roots + 8] align 8
+  ; The value and continuation carry the required static reference tables.
+  call @aihc_heap_collect(%machine, %required_words, 2, %roots, null)
+  %moved_value_word = load i64 [%roots] align 8
+  %moved_value = ptr.from_int %moved_value_word
+  %moved_continuation_word = load i64 [%roots + 8] align 8
+  %moved_continuation = ptr.from_int %moved_continuation_word
+  jump reserved(%moved_value, %moved_continuation)
+
+reserved(%live_value: ptr, %live_continuation: ptr):
+  br %enter_thunk, enter, block
+
+enter:
+  %update = load ptr [%machine + 1 word + 16] align 1 word
+  %bumped = ptr.add %update, @AIHC_UPDATE_FRAME_BYTES
+  store ptr %bumped, [%machine + 1 word + 16] align 1 word
+  %info_word = ptr.to_int @aihc_lir_cps_update_info
+  store i64 %info_word, [%update] align 8
+  %parent_word = ptr.to_int %live_continuation
+  store i64 %parent_word, [%update + 8] align 8
+  %value_word = ptr.to_int %live_value
+  store i64 %value_word, [%update + 16] align 8
+  ; Collection can relocate the thunk. Read its entry from the live pointer.
+  %live_header_word = load i64 [%live_value] align 8
+  %live_header = ptr.from_int %live_header_word
+  %entry = load code [%live_header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
+  call @aihc_begin_blackhole(%machine, %live_value)
+  tailcall.indirect %entry(%machine, %live_value, %update) : (ptr, ptr, ptr)
+
+block:
+  %result = call @aihc_block_on_blackhole(%machine, %live_value, %live_continuation)
   tailcall @aihc_lir_resume(%machine, %result)
 
 ready:
@@ -453,68 +498,17 @@ word:
   tailcall @aihc_lir_apply_i(%machine, %current, %continuation, %value)
 }
 
-; The update continuation of a thunk under evaluation. Every module used to
-; generate its own copy of this function and its two info tables, because the
-; CPS conversion appends the function to every program whether or not that
-; program evaluates anything. The body is the same in every module, so one
-; copy lives here and a module names these tables instead.
-;
-; The closure holds the outer continuation and the blackhole, and the enter
-; stub applies the thunk's result to it: aihc_lir_enter_2_1 tail-calls this
-; function with the machine, the two stored fields, and the result. The body
-; writes the result into the blackhole, stores the next update frame, and
-; evaluates the result under it, because the result may be another thunk.
-;
-; The machine fields are word-scaled addends so the same text is right on a
-; 32-bit and on a 64-bit target: heap_next is the field after the exit code
-; and heap_limit the one after that. A root slot is eight bytes on every
-; target, so a pointer travels into and out of one as an i64.
-
+; The update frame stores the parent continuation and the entered thunk.
+; Complete the blackhole update before evaluation of the result.
+; Eval creates another update frame only if it enters another thunk.
 extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
 extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
 
-; Reserve three slots for the update frame and fourteen for evaluation.
 export func @aihc_lir_cps_update(%machine: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
 entry:
-  %roots = stack.alloc 24 align 8
-  %heap = load ptr [%machine + 1 word + 16] align 1 word
-  %heap_end = load ptr [%machine + 2 words + 16] align 1 word
-  %heap_word = ptr.to_int %heap
-  %heap_end_word = ptr.to_int %heap_end
-  %heap_room = sub i64 %heap_end_word, %heap_word
-  %heap_fits = ge.u i64 %heap_room, 136
-  br %heap_fits, reserved(%blackhole, %outer, %result), collect
-
-collect:
-  %blackhole_word = ptr.to_int %blackhole
-  store i64 %blackhole_word, [%roots] align 8
-  %outer_word = ptr.to_int %outer
-  store i64 %outer_word, [%roots + 8] align 8
-  %result_word = ptr.to_int %result
-  store i64 %result_word, [%roots + 16] align 8
-  ; This function reaches no static object of its own, so it passes no table.
-  call @aihc_heap_collect(%machine, 17, 3, %roots, null)
-  %blackhole_moved_word = load i64 [%roots] align 8
-  %blackhole_moved = ptr.from_int %blackhole_moved_word
-  %outer_moved_word = load i64 [%roots + 8] align 8
-  %outer_moved = ptr.from_int %outer_moved_word
-  %result_moved_word = load i64 [%roots + 16] align 8
-  %result_moved = ptr.from_int %result_moved_word
-  jump reserved(%blackhole_moved, %outer_moved, %result_moved)
-
-reserved(%live_blackhole: ptr, %live_outer: ptr, %live_result: ptr):
-  call @aihc_update_blackhole(%machine, %live_blackhole, %live_result)
-  %object = load ptr [%machine + 1 word + 16] align 1 word
-  %bumped = ptr.add %object, 24
-  store ptr %bumped, [%machine + 1 word + 16] align 1 word
-  %info_word = ptr.to_int @aihc_lir_cps_update_info
-  store i64 %info_word, [%object] align 8
-  %stored_outer = ptr.to_int %live_outer
-  store i64 %stored_outer, [%object + 8] align 8
-  %stored_result = ptr.to_int %live_result
-  store i64 %stored_result, [%object + 16] align 8
-  tailcall @aihc_lir_eval(%machine, %live_result, %live_outer, %object)
+  call @aihc_update_blackhole(%machine, %blackhole, %result)
+  tailcall @aihc_lir_eval(%machine, %result, %outer)
 }
 
 data @aihc_lir_cps_update_bitmap align 1 = {

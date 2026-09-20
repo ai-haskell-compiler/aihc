@@ -1,0 +1,24 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+
+  $delayed -> BoxedRep Lifted =
+    store (CNumber (42 :: IntRep))
+
+  $force (value :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    (thunk :: BoxedRep Lifted) <- store (F$delayed)
+    (alias :: BoxedRep Lifted) <- store (CNumber (0 :: IntRep))
+    (updated :: BoxedRep Lifted) <- update (alias :: BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $force (alias :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CNumber 42
+allocated-bytes:
+  macos-arm64: 184
+  linux-amd64: 184
+status: pass
+reason: An update frame must contain the resolved thunk after an indirection and collection.

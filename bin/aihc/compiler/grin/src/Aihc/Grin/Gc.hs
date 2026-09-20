@@ -8,7 +8,6 @@ module Aihc.Grin.Gc
     gcContinuationFunctions,
     gcFunctionContinuations,
     gcGrinProgram,
-    gcUpdateFunction,
     lowerGc,
     nodeWords,
   )
@@ -32,8 +31,7 @@ data GcGrinProgram = GcGrinProgram
   { gcGrinProgram :: !GrinProgram,
     gcContinuationFunctions :: !(Set FunctionName),
     gcContinuationFrames :: !(Map FunctionName ContinuationFrameKind),
-    gcFunctionContinuations :: !(Map FunctionName GrinVar),
-    gcUpdateFunction :: !FunctionName
+    gcFunctionContinuations :: !(Map FunctionName GrinVar)
   }
   deriving (Eq, Show, Read)
 
@@ -61,8 +59,7 @@ lowerGc cps =
           },
       gcContinuationFunctions = cpsContinuationFunctions cps,
       gcContinuationFrames = cpsContinuationFrames cps,
-      gcFunctionContinuations = cpsFunctionContinuations cps,
-      gcUpdateFunction = cpsUpdateFunction cps
+      gcFunctionContinuations = cpsFunctionContinuations cps
     }
   where
     program = cpsGrinProgram cps
@@ -91,10 +88,6 @@ insertExprReservations expression =
             []
             (GrinEnsureHeap (staticHeapWords requiredWords) [])
             (GrinBind resultVars call (insertExprReservations body))
-    -- Evaluation allocates one blackhole record or one waiter. Fourteen
-    -- slots cover either path. Protect the value and both continuations.
-    call@GrinCpsEval {} ->
-      GrinBind [] (GrinEnsureHeap (staticHeapWords 14) []) call
     call@(GrinCpsPrimitiveCall _ name _ _)
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind [] (GrinEnsureHeap (staticHeapWords requiredWords) []) call
@@ -112,6 +105,7 @@ insertExprReservations expression =
         (GrinStoreRecUnchecked bindings (insertExprReservations body))
     GrinStoreRecUnchecked bindings body ->
       GrinStoreRecUnchecked bindings (insertExprReservations body)
+    GrinIfWhnf value ready slow -> GrinIfWhnf value (insertExprReservations ready) (insertExprReservations slow)
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder (map insertAlternativeReservations alternatives)
     _ -> expression
@@ -134,6 +128,7 @@ relocateExpr bound expression =
       valueExpression' <- relocateExpr bound valueExpression
       body' <- relocateExpr (bound <> Set.fromList resultVars) body
       pure (GrinBind resultVars valueExpression' body')
+    GrinIfWhnf value ready slow -> GrinIfWhnf value <$> relocateExpr bound ready <*> relocateExpr bound slow
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM (relocateAlternative (Set.insert binder bound)) alternatives
     GrinConstant {} -> pure expression
@@ -228,8 +223,8 @@ substituteExpr substitutions expression =
     GrinUpdate pointer value -> GrinUpdate (substituteValue substitutions pointer) (substituteValue substitutions value)
     GrinUpdateBlackhole pointer value -> GrinUpdateBlackhole (substituteValue substitutions pointer) (substituteValue substitutions value)
     GrinEval runtimeRep value -> GrinEval runtimeRep (substituteValue substitutions value)
-    GrinCpsEval runtimeRep value continuation updateContinuation ->
-      GrinCpsEval runtimeRep (substituteValue substitutions value) (substituteValue substitutions continuation) (substituteValue substitutions updateContinuation)
+    GrinCpsEval runtimeRep value continuation ->
+      GrinCpsEval runtimeRep (substituteValue substitutions value) (substituteValue substitutions continuation)
     GrinCall runtimeRep name arguments -> GrinCall runtimeRep name (map (substituteValue substitutions) arguments)
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
@@ -241,6 +236,7 @@ substituteExpr substitutions expression =
     GrinCpsRaise exception continuation -> GrinCpsRaise (substituteValue substitutions exception) (substituteValue substitutions continuation)
     GrinHalt values -> GrinHalt (map (substituteValue substitutions) values)
     GrinExit status -> GrinExit (substituteValue substitutions status)
+    GrinIfWhnf value ready slow -> GrinIfWhnf (substituteValue substitutions value) (substituteExpr substitutions ready) (substituteExpr substitutions slow)
     GrinCase scrutinee binder alternatives ->
       GrinCase
         (substituteValue substitutions scrutinee)
