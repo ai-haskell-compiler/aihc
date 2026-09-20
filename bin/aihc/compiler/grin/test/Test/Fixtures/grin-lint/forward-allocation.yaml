@@ -1,0 +1,9 @@
+program: |
+  constructor Unit/0 []
+  $entry (action :: BoxedRep Lifted) -> forwarded =
+    () <- apply @forwarded (action :: BoxedRep Lifted) ()
+    (node :: BoxedRep Lifted) <- store (CUnit)
+    forward
+error: invalid-forward
+status: pass
+reason: An abstract result has no root layout, so an allocation cannot occur before its forward.

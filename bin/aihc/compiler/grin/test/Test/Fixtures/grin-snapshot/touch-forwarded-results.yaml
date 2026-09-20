@@ -1,0 +1,42 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [WordRep]
+  primitive touch# :: TupleRep []/1
+  primitive newPinnedByteArray# :: BoxedRep Unlifted/1
+  primitive writeWordArray# :: TupleRep []/3
+  primitive readWordOffAddr# :: WordRep/2
+  primitive mutableByteArrayContents# :: AddrRep/1
+  global empty = (P$empty/[[]])
+
+  $protect (first :: BoxedRep Unlifted) (second :: BoxedRep Unlifted) (action :: BoxedRep Lifted) -> forwarded =
+    () <- apply @forwarded (action :: BoxedRep Lifted) ()
+    () <- primitive-call @(TupleRep []) touch# (first :: BoxedRep Unlifted)
+    () <- primitive-call @(TupleRep []) touch# (second :: BoxedRep Unlifted)
+    forward
+
+  $empty -> TupleRep [] =
+    constant
+
+  $action (address :: AddrRep) -> TupleRep [BoxedRep Lifted, WordRep] =
+    (temporary :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (256 :: IntRep)
+    (value :: WordRep) <- primitive-call @WordRep readWordOffAddr# (address :: AddrRep) (0 :: IntRep)
+    (node :: BoxedRep Lifted) <- store (CNumber (value :: WordRep))
+    constant (node :: BoxedRep Lifted) (value :: WordRep)
+
+  $entry -> TupleRep [BoxedRep Lifted, WordRep] =
+    (first :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (8 :: IntRep)
+    (second :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (8 :: IntRep)
+    () <- primitive-call @(TupleRep []) writeWordArray# (first :: BoxedRep Unlifted) (0 :: IntRep) (42 :: WordRep)
+    () <- call @(TupleRep []) $protect (first :: BoxedRep Unlifted) (second :: BoxedRep Unlifted) global-ref empty
+    (address :: AddrRep) <- primitive-call @AddrRep mutableByteArrayContents# (first :: BoxedRep Unlifted)
+    (action :: BoxedRep Lifted) <- store (P$action/[[]] (address :: AddrRep))
+    call @(TupleRep [BoxedRep Lifted, WordRep]) $protect (first :: BoxedRep Unlifted) (second :: BoxedRep Unlifted) (action :: BoxedRep Lifted)
+return: "(@0, 42)"
+heap: |
+  @0 = CNumber 42
+allocated-bytes:
+  macos-arm64: 592
+  linux-amd64: 592
+status: pass
+reason: One abstract continuation must retain multiple owners and pass zero-width or mixed pointer and scalar results unchanged.

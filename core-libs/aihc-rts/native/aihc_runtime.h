@@ -27,7 +27,6 @@ enum {
   AIHC_OBJECT_BLACKHOLE_RECORD,
   AIHC_OBJECT_STABLE_NAME,
   AIHC_OBJECT_BYTE_ARRAY,
-  AIHC_OBJECT_KEEP_ALIVE,
   AIHC_OBJECT_IO_REQUEST,
 };
 typedef uint8_t AihcObjectKind;
@@ -80,6 +79,7 @@ enum {
   /* The delimiter that prompt# pushes: [parent, tag]. Exception unwinding
      passes through it; control0# captures the frames above it. */
   AIHC_FRAME_PROMPT = 6,
+  AIHC_FRAME_FORWARD = 7,
 };
 typedef uint8_t AihcFrameKind;
 

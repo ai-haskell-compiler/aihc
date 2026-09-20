@@ -302,8 +302,7 @@ static void aihc_scan_object(AihcForwardingContext *context,
       }
     }
   } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
-             kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE ||
-             kind == AIHC_OBJECT_KEEP_ALIVE) {
+             kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
     for (uint64_t index = 0; index < count; ++index) {
       if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
         object->fields[index] =

@@ -1,0 +1,6 @@
+program: |
+  $entry -> forwarded =
+    forward
+error: invalid-forward
+status: pass
+reason: A forward requires an abstract result from an enclosing bind.

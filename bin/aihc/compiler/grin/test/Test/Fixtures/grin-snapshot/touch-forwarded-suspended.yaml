@@ -37,6 +37,11 @@ program: |
     (ignored :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: AddrRep)
     primitive-call @WordRep readWordOffAddr# (address :: AddrRep) (0 :: IntRep)
 
+  $protect (owner :: BoxedRep Unlifted) (action :: BoxedRep Lifted) -> forwarded =
+    () <- apply @forwarded (action :: BoxedRep Lifted) ()
+    () <- primitive-call @(TupleRep []) touch# (owner :: BoxedRep Unlifted)
+    forward
+
   $entry -> WordRep =
     (initial :: BoxedRep Lifted) <- store (CNumber (0 :: IntRep))
     (final :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
@@ -46,13 +51,11 @@ program: |
     (address :: AddrRep) <- primitive-call @AddrRep mutableByteArrayContents# (array :: BoxedRep Unlifted)
     (action :: BoxedRep Lifted) <- store (P$action/[[]] (address :: AddrRep))
     (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
-    (result :: WordRep) <- apply @WordRep (action :: BoxedRep Lifted) ()
-    () <- primitive-call @(TupleRep []) touch# (array :: BoxedRep Unlifted)
-    constant (result :: WordRep)
+    call @WordRep $protect (array :: BoxedRep Unlifted) (action :: BoxedRep Lifted)
 return: "42"
 heap: "[]"
 allocated-bytes:
   macos-arm64: 64744
   linux-amd64: 64744
 status: pass
-reason: A suspended keep-alive action must retain its pinned owner while another thread forces collections.
+reason: A final touch must retain the owner across suspension and forward an abstract result.

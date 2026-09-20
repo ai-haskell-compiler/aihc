@@ -1,0 +1,12 @@
+program: |
+  $entry (action :: BoxedRep Lifted) -> forwarded =
+    () <-
+      case (0 :: IntRep) as choice :: IntRep of
+        0 ->
+          apply @forwarded (action :: BoxedRep Lifted) ()
+        _ ->
+          constant (42 :: IntRep)
+    forward
+error: invalid-forward
+status: pass
+reason: Each result path must be abstract before an empty bind can forward it.

@@ -566,8 +566,7 @@ nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
 
 nativeRuntimePrimitiveCalls :: [(Text, NativeRuntimeCall)]
 nativeRuntimePrimitiveCalls =
-  [ machineCall "aihcKeepAliveFrame#" "aihc_keep_alive_frame" [GrinForeignAddr, GrinForeignAddr] GrinForeignAddr,
-    machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+  [ machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "newTVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "readTVar#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
     machineCall "readTVarIO#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,

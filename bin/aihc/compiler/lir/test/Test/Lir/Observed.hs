@@ -38,7 +38,7 @@ lowerObservedProgram target gcStress entryName gcProgram = do
       observedFunctionLabel
       (\name -> unSymbol (constructorInfoSymbol name 0))
       id
-      program
+      program {grinFunctions = filter hasEntry (grinFunctions program)}
       resultReps
   (_, items) <- runLower options gcProgram $ \env -> do
     lowerUnitItems env
@@ -54,6 +54,8 @@ lowerObservedProgram target gcStress entryName gcProgram = do
   pure (observed, metadata)
   where
     program = gcGrinProgram gcProgram
+    -- Abstract forwarding frames have info tables but no code entries.
+    hasEntry function = Map.lookup (grinFunctionName function) (gcContinuationFrames gcProgram) /= Just ContinuationFrameForward
     options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
     observedFunctionLabel name = pure (unSymbol (functionSymbol name))

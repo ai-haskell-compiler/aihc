@@ -55,7 +55,6 @@ const @AIHC_OBJECT_BLACKHOLE_WAITER = 14
 const @AIHC_OBJECT_BLACKHOLE_RECORD = 15
 const @AIHC_OBJECT_STABLE_NAME = 16
 const @AIHC_OBJECT_BYTE_ARRAY = 17
-const @AIHC_OBJECT_KEEP_ALIVE = 18
 
 ; Frame kinds, the frame_kind field of an info table.
 const @AIHC_FRAME_NONE = 0
@@ -65,6 +64,7 @@ const @AIHC_FRAME_UPDATE = 3
 const @AIHC_FRAME_RESTORE_MASK = 4
 const @AIHC_FRAME_STOP = 5
 const @AIHC_FRAME_PROMPT = 6
+const @AIHC_FRAME_FORWARD = 7
 
 ; Scheduler resumption kinds, the kind field of AihcResume.
 const @AIHC_RESUME_NONE = 0

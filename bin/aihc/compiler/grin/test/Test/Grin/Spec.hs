@@ -91,6 +91,8 @@ checkLintFixture path = do
                 ("none", []) -> pure ()
                 ("result-layout", problems@(_ : _))
                   | all isResultLayout problems -> pure ()
+                ("invalid-forward", problems@(_ : _))
+                  | all isInvalidForward problems -> pure ()
                 (_, problems) -> assertFailure ("expected " <> T.unpack expected <> ", got " <> show problems)
   where
     parseFixture = withObject "GRIN lint fixture" $ \object -> do
@@ -98,11 +100,15 @@ checkLintFixture path = do
       status <- object .: "status"
       expected <- object .: "error"
       reason <- object .: "reason"
-      if status == ("pass" :: Text) && expected `elem` ["none", "result-layout"] && not (T.null reason)
+      if status == ("pass" :: Text) && expected `elem` ["none", "result-layout", "invalid-forward"] && not (T.null reason)
         then pure (source, expected)
         else fail "invalid GRIN lint fixture status or error"
     isResultLayout GrinLintResultLayout {} = True
     isResultLayout _ = False
+    isInvalidForward GrinLintInvalidForward = True
+    isInvalidForward GrinLintResultLayout {} = True
+    isInvalidForward GrinLintForwardedResultPlaced {} = True
+    isInvalidForward _ = False
 
 -- | Simplify each textual GRIN fixture and compare it with the expected
 -- program. The simplifier leaves copy binds behind for the normalizer, so

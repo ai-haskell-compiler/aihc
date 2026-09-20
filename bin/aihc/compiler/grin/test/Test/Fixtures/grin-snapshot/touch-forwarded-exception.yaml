@@ -1,0 +1,36 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  primitive touch# :: TupleRep []/1
+  primitive newPinnedByteArray# :: BoxedRep Unlifted/1
+  global action = (P$action/[[]])
+  global protected = (P$protected/[[]])
+  global handler = (P$handler/[[BoxedRep Lifted]])
+
+  $action -> BoxedRep Lifted =
+    (exception :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    throw (exception :: BoxedRep Lifted)
+
+  $protect (owner :: BoxedRep Unlifted) (action :: BoxedRep Lifted) -> forwarded =
+    () <- apply @forwarded (action :: BoxedRep Lifted) ()
+    () <- primitive-call @(TupleRep []) touch# (owner :: BoxedRep Unlifted)
+    forward
+
+  $protected -> BoxedRep Lifted =
+    (owner :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPinnedByteArray# (8 :: IntRep)
+    call @(BoxedRep Lifted) $protect (owner :: BoxedRep Unlifted) global-ref action
+
+  $handler (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (exception :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    catch @(BoxedRep Lifted) global-ref protected global-ref handler
+return: "@0"
+heap: |
+  @0 = CNumber 42
+allocated-bytes:
+  macos-arm64: 136
+  linux-amd64: 136
+status: pass
+reason: An exception must pass through an abstract continuation to its enclosing handler.
