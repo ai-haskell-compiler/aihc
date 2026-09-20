@@ -6,9 +6,13 @@ program: |
   primitive yield# :: TupleRep []/0
   global child = (P$child/[[]])
   global shared = (F$shared)
+  global wrapper = (F$wrapper)
 
   $child -> BoxedRep Lifted =
-    eval @(BoxedRep Lifted) global-ref shared
+    eval @(BoxedRep Lifted) global-ref wrapper
+
+  $wrapper -> BoxedRep Lifted =
+    constant global-ref shared
 
   $shared -> BoxedRep Lifted =
     () <- primitive-call @(TupleRep []) yield#
@@ -24,7 +28,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 408
-  linux-amd64: 408
+  macos-arm64: 432
+  linux-amd64: 432
 status: pass
-reason: A blackhole must retain its blocked threads through collection and wake them after the thunk update.
+reason: The runtime update continuation must reserve waiter memory before it evaluates a blackholed result.

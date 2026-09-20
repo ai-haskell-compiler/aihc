@@ -113,6 +113,9 @@ const AihcInfo aihc_runtime_object_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_RUNTIME,
 };
+static const AihcInfo aihc_blackhole_waiter_info = {
+    .object_kind = AIHC_OBJECT_BLACKHOLE_WAITER,
+};
 static const AihcInfo aihc_mvar_info = {
     .object_kind = AIHC_OBJECT_MVAR,
 };
@@ -194,6 +197,8 @@ uint64_t aihc_value_words(const AihcValue *value) {
   switch (aihc_value_kind(value)) {
   case AIHC_OBJECT_THREAD:
     return aihc_record_words(sizeof(AihcThread));
+  case AIHC_OBJECT_BLACKHOLE_WAITER:
+    return aihc_record_words(sizeof(AihcBlackholeWaiter));
   case AIHC_OBJECT_MVAR:
     return aihc_record_words(sizeof(AihcMVar));
   case AIHC_OBJECT_MVAR_WAITER:
@@ -404,6 +409,13 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
     }
     return 1;
   }
+  case AIHC_OBJECT_BLACKHOLE_WAITER: {
+    AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)object;
+    waiter->thread = aihc_visit_pointer(waiter->thread, visitor, context);
+    aihc_visit_value(&waiter->continuation, visitor, context);
+    waiter->next = aihc_visit_pointer(waiter->next, visitor, context);
+    return 1;
+  }
   case AIHC_OBJECT_MVAR: {
     AihcMVar *mvar = (AihcMVar *)object;
     if (mvar->full) {
@@ -488,11 +500,10 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
        blackhole = blackhole->next) {
     aihc_visit_value(&blackhole->object, visitor, context);
     blackhole->owner = aihc_visit_pointer(blackhole->owner, visitor, context);
-    for (AihcBlackholeWaiter *waiter = blackhole->waiters_head; waiter != NULL;
-         waiter = waiter->next) {
-      aihc_visit_value(&waiter->continuation, visitor, context);
-      waiter->thread = aihc_visit_pointer(waiter->thread, visitor, context);
-    }
+    blackhole->waiters_head =
+        aihc_visit_pointer(blackhole->waiters_head, visitor, context);
+    blackhole->waiters_tail =
+        aihc_visit_pointer(blackhole->waiters_tail, visitor, context);
   }
   for (AihcStableName *name = machine->stable_names; name != NULL;
        name = name->next) {
@@ -722,8 +733,9 @@ static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
   if (blackhole->owner == machine->current_thread) {
     aihc_fail("blackholed thunk re-entered");
   }
-  AihcBlackholeWaiter *waiter =
-      aihc_allocate_auxiliary(machine, sizeof(*waiter));
+  AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_gc_allocate(
+      machine, aihc_record_words(sizeof(*waiter)));
+  waiter->header = (AihcSlot)(uintptr_t)&aihc_blackhole_waiter_info;
   waiter->thread = machine->current_thread;
   waiter->continuation = continuation;
   if (blackhole->waiters_tail == NULL) {
@@ -1304,7 +1316,6 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
     aihc_suspend_continue(waiter->thread, waiter->continuation, 1,
                           (AihcSlot)value);
     aihc_enqueue_thread(machine, waiter->thread);
-    free(waiter);
     waiter = next;
   }
   free(blackhole);
@@ -1322,7 +1333,6 @@ static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
     AihcBlackholeWaiter *next = waiter->next;
     aihc_suspend_raise(waiter->thread, exception, waiter->continuation);
     aihc_enqueue_thread(machine, waiter->thread);
-    free(waiter);
     waiter = next;
   }
   free(blackhole);

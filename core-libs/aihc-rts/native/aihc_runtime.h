@@ -25,6 +25,7 @@ enum {
   AIHC_OBJECT_TRANSACTION_TIMER,
   AIHC_OBJECT_MVAR,
   AIHC_OBJECT_MVAR_WAITER,
+  AIHC_OBJECT_BLACKHOLE_WAITER,
 };
 typedef uint8_t AihcObjectKind;
 
@@ -338,6 +339,7 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
                            uint64_t count, const AihcSlot *arguments,
                            AihcValue **continuation);
 void aihc_begin_blackhole(AihcMachine *machine, AihcValue *value);
+/* Consume at most four reserved heap slots without collection. */
 const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
                                           AihcValue *value,
                                           AihcValue *continuation);

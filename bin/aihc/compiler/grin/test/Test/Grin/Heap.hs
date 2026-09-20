@@ -32,7 +32,7 @@ tests =
         -- instead, because the call itself can collect.
         assertEqual
           "reservations"
-          [("$entry", [5]), ("$entry_cont", [2]), ("$cps_update", [3])]
+          [("$entry", [5]), ("$entry_cont", [2]), ("$cps_update", [7])]
           reservations,
       testCase "a primitive that cannot allocate keeps one reservation" $ do
         reservations <- entryReservations (betweenStoresProgram "+#" 2 "(2 :: IntRep) (2 :: IntRep)")

@@ -1,0 +1,38 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M1024", "-RTS"]
+program: |
+  constructor Number/1 [IntRep]
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  primitive +# :: IntRep/2
+
+  $child (shared :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (shared :: BoxedRep Lifted)
+
+  $shared -> BoxedRep Lifted =
+    () <- primitive-call @(TupleRep []) yield#
+    store (CNumber (42 :: IntRep))
+
+  $loop (counter :: IntRep) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        constant (counter :: IntRep)
+      _ ->
+        (shared :: BoxedRep Lifted) <- store (F$shared)
+        (child :: BoxedRep Lifted) <- store (P$child/[[]] (shared :: BoxedRep Lifted))
+        (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child :: BoxedRep Lifted)
+        (value :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (shared :: BoxedRep Lifted)
+        () <- primitive-call @(TupleRep []) yield#
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+return: "200"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 64000
+  linux-amd64: 64000
+status: pass
+reason: Completed blackhole waiters must become reclaimable in a small heap.
