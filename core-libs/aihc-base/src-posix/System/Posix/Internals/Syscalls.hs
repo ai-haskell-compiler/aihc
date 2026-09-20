@@ -28,6 +28,9 @@ module System.Posix.Internals.Syscalls
     c_unlink,
     c_utime,
 
+    -- * Process identifier
+    c_getpid,
+
     -- * Descriptor control
     c_fcntl_read,
     c_fcntl_write,
@@ -58,7 +61,7 @@ import Foreign.Ptr (Ptr)
 import GHC.Int (Int)
 import System.Posix.Internals.Repr (sizeofSigsetT)
 import System.Posix.Internals.Types (CFLock, CSigset, CStat, CUtimbuf)
-import System.Posix.Types (CMode (..), COff (..))
+import System.Posix.Types (CMode (..), COff (..), CPid (..))
 import Prelude (IO)
 
 foreign import capi unsafe "unistd.h access"
@@ -93,6 +96,9 @@ foreign import capi unsafe "unistd.h unlink"
 
 foreign import capi unsafe "utime.h utime"
   c_utime :: CString -> Ptr CUtimbuf -> IO CInt
+
+foreign import capi unsafe "unistd.h getpid"
+  c_getpid :: IO CPid
 
 -- | @fcntl@ with no third argument, as @F_GETFL@ and @F_GETFD@ take none.
 foreign import capi unsafe "fcntl.h fcntl"

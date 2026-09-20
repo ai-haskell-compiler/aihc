@@ -1,17 +1,11 @@
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 
--- | The POSIX calls and constants "System.Posix.Internals" offers, as WASI
--- provides them.
+-- | POSIX calls and constants for WASI.
 --
--- WASI is a capability-based interface rather than a POSIX kernel, and its C
--- library leaves out what it cannot express: it has no signals at all, so
--- including its @signal.h@ is itself an error without an emulation flag, and
--- it has no file mode of its own, so @umask@ and @mkfifo@ are absent. Those
--- five calls raise an unsupported-operation error here, which is how GHC
--- handles the same gaps on the platforms that have them. Everything else is
--- the call WASI does provide, reached through its header exactly as on a
--- POSIX platform.
+-- WASI has no signals, process identifier, or process-wide file creation mask.
+-- WASI also has no FIFOs. These six calls report an unsupported operation.
+-- All other calls use the WASI C library through its headers.
 module System.Posix.Internals.Syscalls
   ( -- * File system calls
     c_access,
@@ -25,6 +19,9 @@ module System.Posix.Internals.Syscalls
     c_umask,
     c_unlink,
     c_utime,
+
+    -- * Process identifier
+    c_getpid,
 
     -- * Descriptor control
     c_fcntl_read,
@@ -58,7 +55,7 @@ import GHC.Internal.IO.Types (ioError, unsupportedOperation)
 import System.IO.Error (ioeSetLocation)
 import System.Posix.Internals.Repr (sizeofSigsetT)
 import System.Posix.Internals.Types (CFLock, CSigset, CStat, CUtimbuf)
-import System.Posix.Types (CMode (..), COff (..))
+import System.Posix.Types (CMode (..), COff (..), CPid)
 import Prelude (IO, String)
 
 -- | The error a call WASI does not have raises.
@@ -99,6 +96,10 @@ foreign import capi unsafe "unistd.h unlink"
 
 foreign import capi unsafe "utime.h utime"
   c_utime :: CString -> Ptr CUtimbuf -> IO CInt
+
+-- | WASI has no process identifier.
+c_getpid :: IO CPid
+c_getpid = unsupported "getpid"
 
 -- | @fcntl@ with no third argument, as @F_GETFL@ and @F_GETFD@ take none.
 foreign import capi unsafe "fcntl.h fcntl"

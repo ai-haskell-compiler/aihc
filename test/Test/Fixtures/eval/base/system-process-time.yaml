@@ -1,0 +1,45 @@
+extensions:
+  - CApiFFI
+modules:
+  - |
+    {-# LANGUAGE CApiFFI #-}
+    module Test where
+
+    import Foreign.C.Types (CClock (..))
+    import System.CPUTime (cpuTimePrecision, getCPUTime)
+    import System.Posix.Internals (c_getpid)
+    import System.Posix.Types (CPid (..))
+
+    foreign import capi unsafe "unistd.h getpid"
+      processId :: IO CPid
+
+    foreign import capi unsafe "time.h clock"
+      clockTicks :: IO CClock
+
+    foreign import capi unsafe "time.h value CLOCKS_PER_SEC"
+      ticksPerSecond :: CClock
+
+    result :: IO Bool
+    result = do
+      pid <- c_getpid
+      expectedPid <- processId
+      before <- clockTicks
+      first <- getCPUTime
+      second <- getCPUTime
+      after <- clockTicks
+      let picoseconds = 1000000000000
+          convert ticks = toInteger ticks * picoseconds `quot` toInteger ticksPerSecond
+      return
+        ( pid == expectedPid
+            && pid > 0
+            && cpuTimePrecision > 0
+            && cpuTimePrecision == picoseconds `quot` toInteger ticksPerSecond
+            && first >= 0
+            && first <= second
+            && convert before <= first
+            && second <= convert after
+        )
+expression: result
+output: "True"
+status: pass
+reason: Process identifiers match the host. CPU time uses picoseconds and does not decrease.

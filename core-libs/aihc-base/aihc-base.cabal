@@ -271,6 +271,7 @@ library
     GHC.Internal.Traversable
     GHC.Internal.Utf8
     GHC.Read.Lex
+    System.CPUTime.Clock
     System.Posix.Internals.Repr
     System.Posix.Internals.Syscalls
     System.Posix.Internals.Types
@@ -281,9 +282,9 @@ library
   -- that states those widths has one copy per platform and shadows nothing
   -- else, as do the size of a sigset_t and the errno numbers. The wasm32
   -- directory also carries the ILP32 C widths, and its own copy of the POSIX
-  -- calls: WASI has no signals and no file mode, so five of them cannot be
-  -- called there at all. src-posix holds the copy the two real POSIX
-  -- platforms share.
+  -- calls. WASI has no signals, file mode, process identifier, or CPU clock.
+  -- These operations report an unsupported operation.
+  -- src-posix has the calls that both POSIX platforms share.
   if arch(wasm32)
     hs-source-dirs:
       src-wasm32
