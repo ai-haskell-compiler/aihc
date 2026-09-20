@@ -561,8 +561,9 @@ static void report_collection(uint64_t required_bytes) {
   while (cursor < next) {
     AihcValue *object = (AihcValue *)cursor;
     const void *header = (const void *)(uintptr_t)object->header;
-    if (in_range(header, start, capacity) ||
-        in_range(header, machine->other_space, machine->other_space_bytes)) {
+    if (in_range(header, machine->other_space, machine->other_space_bytes) ||
+        (in_range(header, start, capacity) &&
+         aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE)) {
       violation("forwarding header in the new space");
       break;
     }
@@ -592,7 +593,8 @@ static void report_collection(uint64_t required_bytes) {
       violation("indirection in the new space");
     }
     if (aihc_value_kind(object) != AIHC_OBJECT_MVAR &&
-        aihc_value_kind(object) != AIHC_OBJECT_THREAD) {
+        aihc_value_kind(object) != AIHC_OBJECT_THREAD &&
+        aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE_RECORD) {
       print_object(object);
     }
   }
@@ -639,6 +641,11 @@ static void report_collection(uint64_t required_bytes) {
        blackhole = blackhole->next) {
     if (blackhole->previous != previous_blackhole) {
       violation("blackhole previous link is incorrect");
+    }
+    if (!is_object_start((const AihcValue *)blackhole) ||
+        aihc_value_kind((const AihcValue *)blackhole) !=
+            AIHC_OBJECT_BLACKHOLE_RECORD) {
+      violation("blackhole record is not a managed object");
     }
     if (aihc_value_info_table(blackhole->object) != &blackhole->info) {
       violation("blackhole header does not name its scheduler record");
@@ -1042,6 +1049,12 @@ static void run_command(char **tokens, size_t count) {
     if (count != 2) {
       fail("blackhole expects one argument");
     }
+    uint64_t words =
+        (sizeof(AihcBlackhole) + sizeof(AihcSlot) - 1) / sizeof(AihcSlot);
+    if (words > reserved_words) {
+      fail("blackhole record exceeds its reservation");
+    }
+    reserved_words -= words;
     aihc_begin_blackhole(machine,
                          live_entry(parse_unsigned(tokens[1]))->address);
   } else if (strcmp(name, "unblackhole") == 0) {

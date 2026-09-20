@@ -91,10 +91,10 @@ insertExprReservations expression =
             []
             (GrinEnsureHeap (staticHeapWords requiredWords) [])
             (GrinBind resultVars call (insertExprReservations body))
-    -- Evaluation can suspend with one blackhole waiter. Reserve its four
-    -- slots before the call, with the value and both continuations as roots.
+    -- Evaluation allocates one blackhole record or one waiter. Fourteen
+    -- slots cover either path. Protect the value and both continuations.
     call@GrinCpsEval {} ->
-      GrinBind [] (GrinEnsureHeap (staticHeapWords 4) []) call
+      GrinBind [] (GrinEnsureHeap (staticHeapWords 14) []) call
     call@(GrinCpsPrimitiveCall _ name _ _)
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind [] (GrinEnsureHeap (staticHeapWords requiredWords) []) call

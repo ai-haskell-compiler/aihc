@@ -4,9 +4,9 @@ program: |
 expected: |
   force (value :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
     $cps_return$gc :: BoxedRep Lifted, value$gc :: BoxedRep Lifted <-
-      ensure-heap (7 :: WordRep) ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
+      ensure-heap (17 :: WordRep) ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
     $cps_update :: BoxedRep Lifted <-
       store-unchecked (P$cps_update/1 ($cps_return$gc :: BoxedRep Lifted) (value$gc :: BoxedRep Lifted))
     cps-eval @(BoxedRep Lifted) (value$gc :: BoxedRep Lifted) ($cps_return$gc :: BoxedRep Lifted) ($cps_update :: BoxedRep Lifted)
 status: pass
-reason: Evaluation must reserve waiter memory and protect the value and continuation.
+reason: Evaluation must reserve blackhole record memory and protect the value and continuation.

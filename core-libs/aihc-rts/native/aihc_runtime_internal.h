@@ -102,7 +102,8 @@ _Static_assert(sizeof(AihcBlackholeWaiter) <= 4 * sizeof(AihcSlot),
                "blackhole waiter exceeds the GRIN reservation");
 
 struct AihcBlackhole {
-  /* The object header points to this first member. */
+  AihcSlot header;
+  /* The thunk header points to this embedded info table. */
   AihcInfo info;
   const AihcInfo *original_info;
   AihcValue *object;
@@ -112,6 +113,17 @@ struct AihcBlackhole {
   AihcBlackhole *previous;
   AihcBlackhole *next;
 };
+
+/* Match the evaluation reservation in Aihc.Grin.Gc and aihc_helpers.lir. */
+_Static_assert(sizeof(AihcBlackhole) <= 14 * sizeof(AihcSlot),
+               "blackhole record exceeds the GRIN reservation");
+
+/* The collector relocates this interior pointer before it releases the old
+ * space. */
+static inline AihcBlackhole *aihc_blackhole_from_info(const AihcInfo *info) {
+  return (AihcBlackhole *)((uint8_t *)(uintptr_t)info -
+                           offsetof(AihcBlackhole, info));
+}
 
 struct AihcMVarWaiter {
   AihcSlot header;

@@ -1,0 +1,30 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  global shared = (F$shared)
+
+  $shared -> BoxedRep Lifted =
+    (tag :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    store (CNumber (42 :: IntRep))
+
+  $outer (captured :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (inner :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) global-ref shared
+    store (CPair (captured :: BoxedRep Lifted) (inner :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    (captured :: BoxedRep Lifted) <- store (CNumber (7 :: IntRep))
+    (outer :: BoxedRep Lifted) <- store (F$outer (captured :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (outer :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = CNumber 7
+  @2 = CNumber 42
+allocated-bytes:
+  macos-arm64: 424
+  linux-amd64: 424
+status: pass
+reason: Collection must relocate info-table references in static and heap blackholes while it preserves captured fields.

@@ -1,0 +1,20 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M256", "-RTS"]
+program: |
+  constructor Done/0 []
+  global done = (CDone)
+  global outer = (F$outer)
+  global inner = (F$inner)
+
+  $outer -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref inner
+
+  $inner -> BoxedRep Lifted =
+    constant global-ref done
+
+  $entry -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref outer
+error: heap limit exceeded
+status: pass
+reason: Active blackhole records must count toward the heap limit.
