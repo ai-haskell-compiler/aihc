@@ -1,0 +1,9 @@
+%func = add i64 %i64, @return
+%0 %x.y$1 @9 @f.$2
+func.extra i64.extra return$tag null_value call.indirectly ptr.add.extra
+entry.with$1(%value: i64):
+return -42, 0, +17, 1.5, -1.0e-3, 2e+10, inf, -inf, nan, null
+const @REMAINDER = 7 % 2
+return 0 ; func %value @symbol "string"
+return 1
+func @compact(){entry: return 0}

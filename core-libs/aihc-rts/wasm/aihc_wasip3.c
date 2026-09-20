@@ -2,6 +2,7 @@
 #include "aihc_wasm_internal.h"
 #include "command.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -46,6 +47,7 @@ typedef struct {
   wasi_cli_stderr_result_void_error_code_t stderr_result;
   wasi_filesystem_types_result_void_error_code_t filesystem_result;
   wasi_filesystem_types_method_descriptor_open_at_args_t open_arguments;
+  unsigned char *open_path;
   wasi_filesystem_types_result_own_descriptor_error_code_t open_result;
   wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t directories;
   int has_directories;
@@ -98,24 +100,95 @@ static int64_t aihc_wasi_error(int32_t error) { return -((int64_t)error) - 1; }
 static int32_t aihc_cli_error(wasi_cli_types_error_code_t error) {
   switch (error) {
   case WASI_CLI_TYPES_ERROR_CODE_ILLEGAL_BYTE_SEQUENCE:
-    return 84;
+    return EILSEQ;
   case WASI_CLI_TYPES_ERROR_CODE_PIPE:
-    return 32;
+    return EPIPE;
   default:
-    return 5;
+    return EIO;
   }
 }
 
 static int32_t aihc_filesystem_error(wasi_filesystem_types_error_code_t error) {
-  static const int32_t errors[] = {
-      13, 114, 9,  16, 35, 122, 17, 27,  84, 115, 4, 22, 5, 21, 40, 31, 90, 36,
-      19, 2,   37, 12, 28, 20,  39, 131, 95, 25,  6, 75, 1, 32, 30, 29, 26, 18,
-  };
-  size_t index = (size_t)error.tag;
-  return index < sizeof(errors) / sizeof(errors[0]) ? errors[index] : 5;
+  switch (error.tag) {
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_ACCESS:
+    return EACCES;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_ALREADY:
+    return EALREADY;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_BAD_DESCRIPTOR:
+    return EBADF;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_BUSY:
+    return EBUSY;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_DEADLOCK:
+    return EDEADLK;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_QUOTA:
+    return EDQUOT;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_EXIST:
+    return EEXIST;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_FILE_TOO_LARGE:
+    return EFBIG;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_ILLEGAL_BYTE_SEQUENCE:
+    return EILSEQ;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_IN_PROGRESS:
+    return EINPROGRESS;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_INTERRUPTED:
+    return EINTR;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_INVALID:
+    return EINVAL;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_IO:
+    return EIO;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_IS_DIRECTORY:
+    return EISDIR;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_LOOP:
+    return ELOOP;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_TOO_MANY_LINKS:
+    return EMLINK;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_MESSAGE_SIZE:
+    return EMSGSIZE;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NAME_TOO_LONG:
+    return ENAMETOOLONG;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NO_DEVICE:
+    return ENODEV;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NO_ENTRY:
+    return ENOENT;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NO_LOCK:
+    return ENOLCK;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_INSUFFICIENT_MEMORY:
+    return ENOMEM;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_INSUFFICIENT_SPACE:
+    return ENOSPC;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NOT_DIRECTORY:
+    return ENOTDIR;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NOT_EMPTY:
+    return ENOTEMPTY;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NOT_RECOVERABLE:
+    return ENOTRECOVERABLE;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_UNSUPPORTED:
+    return ENOTSUP;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NO_TTY:
+    return ENOTTY;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NO_SUCH_DEVICE:
+    return ENXIO;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_OVERFLOW:
+    return EOVERFLOW;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_NOT_PERMITTED:
+    return EPERM;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_PIPE:
+    return EPIPE;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_READ_ONLY:
+    return EROFS;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_INVALID_SEEK:
+    return ESPIPE;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_TEXT_FILE_BUSY:
+    return ETXTBSY;
+  case WASI_FILESYSTEM_TYPES_ERROR_CODE_CROSS_DEVICE:
+    return EXDEV;
+  default:
+    return EIO;
+  }
 }
 
 static int64_t aihc_wasi_finish(int64_t result) {
+  free(aihc_wasi_io.open_path);
   if (aihc_wasi_io.has_directories) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
         &aihc_wasi_io.directories);
@@ -153,11 +226,11 @@ static int64_t aihc_wasi_progress_cli_write(void) {
                              AIHC_WASI_PENDING_STREAM_WRITE);
     }
     if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED) {
-      return aihc_wasi_finish(aihc_wasi_error(32));
+      return aihc_wasi_finish(aihc_wasi_error(EPIPE));
     }
     uint32_t transferred = COMMAND_WAITABLE_COUNT(status);
     if (transferred == 0 && aihc_wasi_io.offset != aihc_wasi_io.length) {
-      return aihc_wasi_finish(aihc_wasi_error(5));
+      return aihc_wasi_finish(aihc_wasi_error(EIO));
     }
     aihc_wasi_io.offset += transferred;
     if (aihc_wasi_io.offset == aihc_wasi_io.length) {
@@ -225,7 +298,7 @@ static int64_t aihc_wasi_progress_read(void) {
     if (COMMAND_WAITABLE_STATE(status) == COMMAND_WAITABLE_COMPLETED) {
       aihc_wasi_io.offset = COMMAND_WAITABLE_COUNT(status);
     } else if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_DROPPED) {
-      return aihc_wasi_finish(aihc_wasi_error(5));
+      return aihc_wasi_finish(aihc_wasi_error(EIO));
     }
     if (aihc_wasi_io.kind == AIHC_WASI_IO_STDIN_READ) {
       wasi_cli_stdin_stream_u8_drop_readable(aihc_wasi_io.stream);
@@ -288,11 +361,11 @@ static int64_t aihc_wasi_progress_file_write(void) {
                              AIHC_WASI_PENDING_STREAM_WRITE);
     }
     if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED) {
-      return aihc_wasi_finish(aihc_wasi_error(32));
+      return aihc_wasi_finish(aihc_wasi_error(EPIPE));
     }
     uint32_t transferred = COMMAND_WAITABLE_COUNT(status);
     if (transferred == 0 && aihc_wasi_io.offset != aihc_wasi_io.length) {
-      return aihc_wasi_finish(aihc_wasi_error(5));
+      return aihc_wasi_finish(aihc_wasi_error(EIO));
     }
     aihc_wasi_io.offset += transferred;
     if (aihc_wasi_io.offset == aihc_wasi_io.length) {
@@ -348,7 +421,7 @@ static int64_t aihc_wasi_progress(void) {
   case AIHC_WASI_IO_TIMER:
     return aihc_wasi_io.subtask_returned ? aihc_wasi_finish(1) : INT64_MIN;
   default:
-    return aihc_wasi_error(5);
+    return aihc_wasi_error(EIO);
   }
 }
 
@@ -390,7 +463,7 @@ int64_t aihc_wasip3_start_read(int32_t target, int32_t descriptor,
   AihcWasiIoKind kind =
       target == 0 ? AIHC_WASI_IO_STDIN_READ : AIHC_WASI_IO_FILE_READ;
   if ((target != 0 && target != 3) || !aihc_wasi_start(kind, bytes, length)) {
-    return aihc_wasi_error(9);
+    return aihc_wasi_error(EBADF);
   }
   if (kind == AIHC_WASI_IO_STDIN_READ) {
     wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t input;
@@ -420,10 +493,10 @@ int64_t aihc_wasip3_start_write(int32_t target, int32_t descriptor,
   } else if (target == 3) {
     kind = append ? AIHC_WASI_IO_FILE_APPEND : AIHC_WASI_IO_FILE_WRITE;
   } else {
-    return aihc_wasi_error(9);
+    return aihc_wasi_error(EBADF);
   }
   if (!aihc_wasi_start(kind, (unsigned char *)bytes, length)) {
-    return aihc_wasi_error(9);
+    return aihc_wasi_error(EBADF);
   }
 
   if (target == 1 || target == 2) {
@@ -453,30 +526,101 @@ int64_t aihc_wasip3_start_write(int32_t target, int32_t descriptor,
 int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
                                int32_t mode) {
   if (!aihc_wasi_start(AIHC_WASI_IO_FILE_OPEN, NULL, 0)) {
-    return aihc_wasi_error(9);
+    return aihc_wasi_error(EBADF);
+  }
+  if (length == 0) {
+    return aihc_wasi_finish(aihc_wasi_error(ENOENT));
+  }
+  if (memchr(path, 0, length) != NULL) {
+    return aihc_wasi_finish(aihc_wasi_error(EINVAL));
+  }
+  command_string_t cwd = {0};
+  if (path[0] != '/' && wasi_cli_environment_get_initial_cwd(&cwd)) {
+    if (cwd.len != 0) {
+      if (length == SIZE_MAX || cwd.len > SIZE_MAX - length - 1) {
+        command_string_free(&cwd);
+        return aihc_wasi_finish(aihc_wasi_error(ENAMETOOLONG));
+      }
+      size_t absolute_length = cwd.len + 1 + length;
+      aihc_wasi_io.open_path = malloc(absolute_length);
+      if (aihc_wasi_io.open_path == NULL) {
+        command_string_free(&cwd);
+        return aihc_wasi_finish(aihc_wasi_error(ENOMEM));
+      }
+      memcpy(aihc_wasi_io.open_path, cwd.ptr, cwd.len);
+      aihc_wasi_io.open_path[cwd.len] = '/';
+      memcpy(aihc_wasi_io.open_path + cwd.len + 1, path, length);
+      path = aihc_wasi_io.open_path;
+      length = absolute_length;
+    }
+    command_string_free(&cwd);
   }
   wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t directories;
   wasi_filesystem_preopens_get_directories(&directories);
-  if (directories.len == 0) {
-    wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
-        &directories);
-    return aihc_wasi_finish(aihc_wasi_error(1));
+  /* Remove leading ./ components from relative paths. Leave .. for WASI
+     to check against the selected directory capability. */
+  while (length >= 2 && path[0] == '.' && path[1] == '/') {
+    path += 2;
+    length -= 2;
   }
-
-  size_t directory_index = 0;
-  int found_current_directory = 0;
+  size_t directory_index = SIZE_MAX;
+  size_t root_directory_index = SIZE_MAX;
+  size_t prefix_length = 0;
+  size_t relative_offset = 0;
   for (size_t index = 0; index < directories.len; ++index) {
     command_string_t name = directories.ptr[index].f1;
-    if (name.len == 1 && name.ptr[0] == '.') {
+    while (name.len >= 2 && name.ptr[0] == '.' && name.ptr[1] == '/') {
+      name.ptr += 2;
+      name.len -= 2;
+    }
+    while (name.len > 1 && name.ptr[name.len - 1] == '/') {
+      --name.len;
+    }
+    size_t offset;
+    size_t matched_length = name.len;
+    if (name.len == 0 || (name.len == 1 && name.ptr[0] == '.')) {
+      if (length != 0 && path[0] == '/') {
+        continue;
+      }
+      offset = 0;
+      matched_length = 0;
+    } else if (name.len == 1 && name.ptr[0] == '/') {
+      root_directory_index = index;
+      if (length == 0 || path[0] != '/') {
+        continue;
+      }
+      offset = 1;
+    } else {
+      if (length < name.len || memcmp(path, name.ptr, name.len) != 0 ||
+          (length > name.len && path[name.len] != '/')) {
+        continue;
+      }
+      offset = name.len;
+    }
+    if (directory_index == SIZE_MAX || matched_length > prefix_length) {
       directory_index = index;
-      found_current_directory = 1;
-      break;
+      prefix_length = matched_length;
+      relative_offset = offset;
     }
   }
-  if (!found_current_directory) {
+  /* Without an explicit relative preopen, resolve relative paths under /.
+     A configured initial directory has already supplied its prefix. */
+  if (directory_index == SIZE_MAX && length != 0 && path[0] != '/') {
+    directory_index = root_directory_index;
+  }
+  if (directory_index == SIZE_MAX) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
         &directories);
-    return aihc_wasi_finish(aihc_wasi_error(1));
+    return aihc_wasi_finish(aihc_wasi_error(EPERM));
+  }
+  while (relative_offset < length && path[relative_offset] == '/') {
+    ++relative_offset;
+  }
+  path += relative_offset;
+  length -= relative_offset;
+  if (length == 0) {
+    path = (const unsigned char *)".";
+    length = 1;
   }
   wasi_filesystem_types_open_flags_t open_flags = 0;
   wasi_filesystem_types_descriptor_flags_t descriptor_flags = 0;
@@ -501,7 +645,7 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
   default:
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
         &directories);
-    return aihc_wasi_finish(aihc_wasi_error(22));
+    return aihc_wasi_finish(aihc_wasi_error(EINVAL));
   }
   aihc_wasi_io.directories = directories;
   aihc_wasi_io.has_directories = 1;
