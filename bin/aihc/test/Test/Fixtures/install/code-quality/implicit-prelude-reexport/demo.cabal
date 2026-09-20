@@ -1,0 +1,12 @@
+cabal-version: 3.0
+name: implicit-prelude-reexport
+version: 0.1.0.0
+
+library
+  exposed-modules:
+    Prelude
+    Public
+
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  default-language: Haskell2010

@@ -1,0 +1,33 @@
+extensions: []
+modules:
+  - |
+    module Prelude where
+    data Flag = On
+  - |
+    module Public (module Prelude) where
+  - |
+    {-# LANGUAGE NoImplicitPrelude #-}
+    module Main where
+    import Public
+    value :: Flag
+    value = On
+annotated:
+  - |-
+    {-# LANGUAGE NoImplicitPrelude #-}
+    module Main where
+    import Public
+    value :: Flag
+    │        └─ t Prelude
+    └─ v Main
+    value = On
+    │       └─ v Prelude
+    └─ v Main
+  - |-
+    module Prelude where
+    data Flag = On
+         │      └─ v Prelude
+         └─ t Prelude
+  - |-
+    module Public (module Prelude) where
+status: pass
+reason: An implicit Prelude import supplies names for a module reexport.

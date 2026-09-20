@@ -6,6 +6,7 @@ module GHC.Conc.Sync
   ( ThreadId (..),
     forkIO,
     fromThreadId,
+    killThread,
     myThreadId,
     showThreadId,
     throwTo,
@@ -30,7 +31,7 @@ import Control.Applicative (Alternative (..))
 import Control.Monad (MonadPlus (..), ap, liftM2)
 import GHC.Exception (ErrorCall (..), Exception (..), SomeException)
 import GHC.IO (IO (..), catch, throwIO)
-import GHC.IO.Exception (BlockedIndefinitelyOnSTM (..))
+import GHC.IO.Exception (AsyncException (ThreadKilled), BlockedIndefinitelyOnSTM (..))
 import GHC.Prim
 import GHC.Word (Word64 (..))
 import Prelude
@@ -94,6 +95,10 @@ forkIO (IO action) =
 -- | Asynchronous exceptions are not supported. The stub does not use either argument.
 throwTo :: (Exception e) => ThreadId -> e -> IO ()
 throwTo _ _ = throwIO (ErrorCallWithLocation "throwTo: asynchronous exceptions are not supported" "")
+
+-- | Request thread termination. 'throwTo' reports an unsupported operation in this runtime.
+killThread :: ThreadId -> IO ()
+killThread thread = throwTo thread ThreadKilled
 
 -- | Cooperatively yield to the next runnable green thread.
 yield :: IO ()

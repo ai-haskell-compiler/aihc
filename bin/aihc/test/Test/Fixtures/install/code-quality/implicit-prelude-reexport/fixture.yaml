@@ -1,0 +1,4 @@
+status: pass
+reason: An implicit Prelude import must participate in export closure without an explicit sibling import.
+expect-type-constructors:
+  - [Public, [Marker]]
