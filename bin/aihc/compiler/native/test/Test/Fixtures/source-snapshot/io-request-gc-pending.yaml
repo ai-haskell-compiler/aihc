@@ -46,7 +46,7 @@ return: "@0"
 heap: |
   @0 = CResult 66
 allocated-bytes:
-  macos-arm64: 64920
-  linux-amd64: 64920
+  macos-arm64: 64896
+  linux-amd64: 64896
 status: pass
 reason: A pending read must retain its buffer while another thread forces collections.

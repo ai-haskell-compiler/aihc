@@ -192,6 +192,7 @@ exprAfterIndent indentation =
   MP.choice
     [ bindExpr indentation,
       caseExpr indentation,
+      ifWhnfExpr indentation,
       MP.try (storeRecExpr indentation "store-rec-unchecked" GrinStoreRecUnchecked),
       MP.try (storeRecExpr indentation "store-rec" GrinStoreRec),
       atomicExpr
@@ -214,6 +215,19 @@ binderList =
 
 binderVar :: Parser GrinVar
 binderVar = MP.try varAtom <|> bareVar
+
+ifWhnfExpr :: Int -> Parser GrinExpr
+ifWhnfExpr indentation = do
+  keyword "if-whnf"
+  horizontal1
+  value <- grinValue
+  lineEnd
+  ready <- nestedExpr indentation
+  blankLines
+  exactIndent indentation
+  keyword "else"
+  lineEnd
+  GrinIfWhnf value ready <$> nestedExpr indentation
 
 caseExpr :: Int -> Parser GrinExpr
 caseExpr indentation = do
@@ -393,10 +407,8 @@ cpsEvalExpr = do
   value <- grinValue
   horizontal1
   continuation <- grinValue
-  horizontal1
-  updateContinuation <- grinValue
   lineEnd
-  pure (GrinCpsEval representation value continuation updateContinuation)
+  pure (GrinCpsEval representation value continuation)
 
 namedCallExpr :: Text -> (GrinResultRep -> FunctionName -> [GrinValue] -> GrinExpr) -> Parser GrinExpr
 namedCallExpr expressionName constructor = do

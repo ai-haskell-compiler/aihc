@@ -211,13 +211,15 @@ Thunk update and exception paths remove the blackhole from the active list and w
 The waiters then become reclaimable without direct memory release.
 Their memory counts toward managed allocation statistics and the `-M` limit.
 
-The GRIN GC stage reserves fourteen slots before each CPS evaluation.
-This bound covers either one blackhole record or one waiter.
-The reservation protects the value and both continuations.
-Reservation normalization can combine these slots with the three slots for an update frame.
-The shared runtime update continuation reserves seventeen slots before its frame allocation and tail call to evaluation.
-`aihc_lir_eval` and `aihc_block_on_blackhole` consume this reservation without collection.
-The Lir lowering does not insert these reservations.
+`aihc_lir_eval` follows indirections before it selects a branch.
+A ready value requires no reservation or update frame.
+The thunk branch reserves seventeen slots: three for its update frame and fourteen for a blackhole record.
+The blackhole branch reserves fourteen slots, which also cover a waiter on every target.
+Both branches protect the resolved value and the continuation as roots across collection.
+The thunk branch reloads the info table after collection and stores the resolved thunk in its update frame.
+`aihc_begin_blackhole` and `aihc_block_on_blackhole` consume the reserved space without collection.
+The shared update continuation completes the blackhole update, then calls evaluation with the result and parent continuation.
+It allocates no frame itself.
 Blackhole records use the managed heap and have a distinct object kind.
 The machine retains the active record list.
 The collector traces each record through its C layout, including both list links and both waiter queue ends.

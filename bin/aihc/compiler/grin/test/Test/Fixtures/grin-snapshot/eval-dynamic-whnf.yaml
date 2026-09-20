@@ -1,0 +1,22 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Value/0 []
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $force (value :: BoxedRep Lifted) (capture :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (ready :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)
+    store (CPair (ready :: BoxedRep Lifted) (capture :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    (value :: BoxedRep Lifted) <- store (CValue)
+    call @(BoxedRep Lifted) $force (value :: BoxedRep Lifted) (value :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CPair @1 @1
+  @1 = CValue
+allocated-bytes:
+  macos-arm64: 32
+  linux-amd64: 32
+status: pass
+reason: Evaluation of a dynamic WHNF value allocates no continuation frame and preserves captured pointers across collection.

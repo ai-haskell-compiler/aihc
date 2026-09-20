@@ -37,6 +37,35 @@ deterministic. The administrative binds needed to receive results from
 `GrinStore` and the preceding operation remain GRIN sequencing; they are not
 user continuations and are not recursively closure-converted.
 
+## Evaluation
+
+The runtime creates an update frame only when evaluation enters a thunk.
+`GrinCpsEval` therefore takes a value and one continuation after its representation argument.
+The runtime follows indirections, returns ready values, and suspends on blackholes.
+The update frame stores the parent continuation and the resolved thunk.
+The update continuation completes the blackhole update before it evaluates the result.
+
+For a non-tail `eval`, CPS also emits `GrinIfWhnf` before normal continuation allocation.
+This operation tests the object kind without allocation or suspension.
+It sends thunks, indirections, and blackholes to its slow branch.
+The other object kinds are already in weak-head normal form.
+The generated code has this shape:
+
+```text
+if-whnf value
+  call after_eval parent captures... value
+else
+  continuation <- store after_eval_frame(parent, captures...)
+  cps-eval value continuation
+```
+
+Both branches use the same generated continuation function.
+The ready branch passes captures directly and creates no heap frame.
+The slow branch stores captures in the normal continuation frame.
+The GC pass keeps heap reservations inside these branches.
+It protects the value and captured pointers before the slow branch allocates its frame.
+The runtime protects the value and continuation before it allocates an update frame or blackhole waiter.
+
 ## Boundary and invariants
 
 `toCpsGrin` is the only constructor for `CpsGrinProgram`; its data constructor

@@ -56,7 +56,7 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
-import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction, nodeWords)
+import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, nodeWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Lir.Syntax
@@ -259,10 +259,7 @@ data LowerEnv = LowerEnv
     envInfos :: ![RuntimeInfo],
     envStaticReferences :: !StaticReferences,
     envSrtSymbols :: !(Map FunctionName Symbol),
-    envAddrLiterals :: !(Map BS.ByteString Symbol),
-    -- | The update continuation this program's CPS conversion generated. The
-    -- module does not lower it: see 'sharedUpdateInfo'.
-    envUpdateFunction :: !FunctionName
+    envAddrLiterals :: !(Map BS.ByteString Symbol)
   }
 
 -- | Shared functions that lowered code tail-calls.
@@ -362,12 +359,11 @@ lowerEnvironment options gcProgram =
       envFunctionSymbols = functionSymbols,
       envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
-      envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries] <> sharedUpdateSymbols,
+      envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
       envInfos = map snd (constructorEntries <> functionEntries),
       envStaticReferences = staticReferences,
       envSrtSymbols = srtSymbols,
-      envAddrLiterals = Map.fromList [(bytes, Symbol ("aihc_lir_addr_" <> T.pack (show index))) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)],
-      envUpdateFunction = updateFunctionName
+      envAddrLiterals = Map.fromList [(bytes, Symbol ("aihc_lir_addr_" <> T.pack (show index))) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)]
     }
   where
     program = gcGrinProgram gcProgram
@@ -427,22 +423,13 @@ lowerEnvironment options gcProgram =
         let symbol = constructorStageSymbol name stage,
         key `Set.member` requiredConstructorInfos
       ]
-    updateFunctionName = gcUpdateFunction gcProgram
     infoKeys =
       [ key
       | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
         Just name <- [runtimeInfoFunctionName key],
-        name /= updateFunctionName,
         name `Map.member` functionSymbols
       ]
     infoSymbols = Map.fromList [(key, Symbol ("aihc_lir_info_" <> T.pack (show index))) | (index, key) <- zip [0 :: Int ..] infoKeys]
-    -- The stage that still wants the thunk's result and the stage that has it.
-    sharedUpdateSymbols =
-      Map.fromList
-        [ (key, if runtimeInfoKeyRemainingArity key == 0 then sharedUpdateAppliedInfo else sharedUpdateInfo)
-        | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
-          runtimeInfoFunctionName key == Just updateFunctionName
-        ]
     functionEntries =
       [ ( key,
           RuntimeInfo
@@ -535,7 +522,7 @@ requireHelper helper = do
 
 helperSignature :: Helper -> Signature
 helperSignature helper = case helper of
-  HelperEval -> signature [Ptr, Ptr, Ptr, Ptr] []
+  HelperEval -> signature [Ptr, Ptr, Ptr] []
   HelperResume -> signature [Ptr, Ptr] []
   HelperContinue shape -> signature (Ptr : Ptr : shape) []
   HelperApply shape -> signature (Ptr : Ptr : Ptr : shape) []
@@ -741,8 +728,7 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
 lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
   [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
-    -- The update continuation is shared: see 'sharedUpdateInfo'.
-    <> [lowerFunction env function | function <- functions, grinFunctionName function /= envUpdateFunction env]
+    <> map (lowerFunction env) functions
     <> map (lowerStaticObject env) (programStaticObjects (GrinProgram constructors [] [] globals []))
     <> map lowerInfo (envInfos env)
     <> [lowerStaticReferenceTables env]
@@ -982,11 +968,7 @@ nodeInfoSymbol env node =
     fields = map grinValueRuntimeRep (grinNodeFields node)
     lookupInfo key =
       case Map.lookup key (envInfoSymbols env) of
-        Just symbol
-          | symbol == sharedUpdateInfo || symbol == sharedUpdateAppliedInfo -> do
-              requireExternData symbol
-              pure symbol
-          | otherwise -> pure symbol
+        Just symbol -> pure symbol
         Nothing ->
           case key of
             ConstructorRuntimeInfo name stage -> do
@@ -1071,6 +1053,7 @@ maximumRoots expression =
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
     GrinStoreRec _ body -> maximumRoots body
     GrinStoreRecUnchecked _ body -> maximumRoots body
+    GrinIfWhnf _ ready slow -> max (maximumRoots ready) (maximumRoots slow)
     GrinCase _ _ alternatives -> maximum (0 : map (maximumRoots . grinAltRhs) alternatives)
     GrinEnsureHeap _ roots -> length roots
     _ -> 0
@@ -1090,12 +1073,11 @@ compileExpr ctx env expression =
       forM_ allocated $ \(var, object) ->
         for_ (lookup var bindings) (initializeFields ctx env' object)
       compileExpr ctx env' body
-    GrinCpsEval _ value continuation updateContinuation -> do
+    GrinCpsEval _ value continuation -> do
       valueOperand <- pointerValue ctx env value
       continuationOperand <- pointerValue ctx env continuation
-      updateOperand <- pointerValue ctx env updateContinuation
       eval <- requireHelper HelperEval
-      terminate (TailCall eval [ctxMachine ctx, valueOperand, continuationOperand, updateOperand])
+      terminate (TailCall eval [ctxMachine ctx, valueOperand, continuationOperand])
     GrinCall _ name arguments -> do
       target <- functionTarget (ctxEnv ctx) name
       parameters <- maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionParameters (ctxEnv ctx)))
@@ -1135,6 +1117,24 @@ compileExpr ctx env expression =
           _ <- callRuntime "aihc_set_exit_status" [Ptr, I64] [] [ctxMachine ctx, statusOperand]
           entry <- callRuntime "aihc_halt" [Ptr] [Code] [ctxMachine ctx]
           terminate (TailCallIndirect entry [ctxMachine ctx] (Signature [Ptr] [] AihcConvention))
+    GrinIfWhnf value ready slow -> do
+      object <- pointerValue ctx env value
+      header <- loadSlot "header" Ptr object 0
+      kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+      readyLabel <- freshLabel "eval_ready"
+      slowLabel <- freshLabel "eval_slow"
+      let slowTarget = Target slowLabel []
+      terminate
+        ( Switch
+            I64
+            (typedOperand kind)
+            [SwitchCase kindCode slowTarget | kindCode <- [toInteger runtimeObjectThunk, runtimeObjectIndirection, runtimeObjectBlackhole]]
+            (Just (Target readyLabel []))
+        )
+      beginBlock readyLabel []
+      compileExpr ctx env ready
+      beginBlock slowLabel []
+      compileExpr ctx env slow
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
@@ -2414,31 +2414,14 @@ wasmMachineSymbol = Symbol "aihc_machine"
 finishedSymbol :: Symbol
 finishedSymbol = Symbol "aihc_lir_finished"
 
--- | The update continuation of a thunk under evaluation, and its two info
--- tables, which @aihc_helpers.lir@ defines once for every module. The CPS
--- conversion appends an update function to every program, so a module that
--- evaluates nothing used to carry a copy of it that nothing could reach: the
--- function is internal and the tables that name it are reachable only from
--- the function itself. The body does not depend on the module, so a module
--- names these instead of lowering its own.
--- The tables name @aihc_lir_cps_update@ themselves, so no module refers to
--- the function by symbol.
-sharedUpdateInfo, sharedUpdateAppliedInfo :: Symbol
-sharedUpdateInfo = Symbol "aihc_lir_cps_update_info"
-sharedUpdateAppliedInfo = Symbol "aihc_lir_cps_update_applied_info"
-
 -- | The special continuations of an executable: the top continuation
--- applies the evaluated entry, the final continuation halts, the update
--- continuation is the GC-GRIN update function, and the thread done
+-- applies the evaluated entry, the final continuation halts, and the thread done
 -- continuation returns to the scheduler.
 entryItems :: GcGrinProgram -> LowerM ()
 entryItems _ = do
   requireExternData (globalSymbol executableEntryName)
   continuationInfoItems (ContinuationSpec finalInfo (Symbol "aihc_lir_final_applied_info") finalTarget [] [Ptr] ContinuationFrameStop)
   continuationInfoItems (ContinuationSpec topInfo (Symbol "aihc_lir_top_applied_info") topTarget [Ptr] [Ptr] ContinuationFrameNormal)
-  -- The update continuation and its tables are shared, so the entry names
-  -- them rather than defining a fourth pair of its own.
-  requireExternData sharedUpdateInfo
   continuationInfoItems (ContinuationSpec threadDoneInfo (Symbol "aihc_lir_thread_done_applied_info") threadDoneTarget [] [Ptr] ContinuationFrameStop)
   emitItem (ItemData (DataItem finishedSymbol Internal True 8 [DataInt I64 0]))
   -- The top continuation applies the evaluated entry action to no arguments
@@ -2478,20 +2461,17 @@ startMachine = do
   machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
   -- The start-up code reaches no static object of its own, so it passes no
   -- table.
-  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull, OperandLiteral LitNull]
+  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr, Ptr] [] [machine, OperandLiteral (LitInt 4), OperandLiteral (LitInt 0), OperandLiteral LitNull, OperandLiteral LitNull]
   final <- allocateContinuation machine finalInfo 1
   top <- allocateContinuation machine topInfo 2
   storeSlot Ptr final top 8
-  update <- allocateContinuation machine sharedUpdateInfo 3
-  storeSlot Ptr top update 8
-  storeSlot Ptr (OperandLiteral (LitSymbol entryGlobal)) update 16
   threadDone <- allocateContinuation machine threadDoneInfo 1
   _ <- callRuntime "aihc_set_thread_done_continuation" [Ptr, Ptr] [] [machine, threadDone]
   -- The halt path returns through the exit function to the caller.
   emit [] (Store Code (OperandLiteral (LitSymbol exit)) (byteAddress machine machineExitCodeOffset) (wordAlignment 1))
   emit [] (Store I64 (OperandLiteral (LitInt 0)) (byteAddress (OperandLiteral (LitSymbol finishedSymbol)) 0) (byteAlignment 8))
   eval <- requireHelper HelperEval
-  emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), top, update])
+  emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), top])
   pure machine
 
 -- | One continuation of an entry, in words the caller has already reserved:
@@ -2635,8 +2615,9 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-runtimeObjectIndirection :: Integer
+runtimeObjectIndirection, runtimeObjectBlackhole :: Integer
 runtimeObjectIndirection = 4
+runtimeObjectBlackhole = 5
 
 -- Keep-alive frames retain their owner and forward every result layout.
 runtimeObjectKeepAlive :: Integer
@@ -2655,6 +2636,7 @@ exprNodes expression =
     GrinStoreUnchecked node -> [node]
     GrinStoreRec bindings body -> map snd bindings <> exprNodes body
     GrinStoreRecUnchecked bindings body -> map snd bindings <> exprNodes body
+    GrinIfWhnf _ ready slow -> exprNodes ready <> exprNodes slow
     GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
     _ -> []
 
@@ -2676,6 +2658,7 @@ programSlotReps program =
         GrinBind vars value body -> map grinVarRuntimeRep vars <> exprReps value <> exprReps body
         GrinStoreRec bindings body -> map (grinVarRuntimeRep . fst) bindings <> exprReps body
         GrinStoreRecUnchecked bindings body -> map (grinVarRuntimeRep . fst) bindings <> exprReps body
+        GrinIfWhnf value ready slow -> grinValueRuntimeRep value : (exprReps ready <> exprReps slow)
         GrinCase value binder alternatives -> grinValueRuntimeRep value : grinVarRuntimeRep binder : concatMap (\alternative -> map grinVarRuntimeRep (grinAltBinders alternative) <> exprReps (grinAltRhs alternative)) alternatives
         _ -> []
 

@@ -30,7 +30,7 @@ return: "@0"
 heap: |
   @0 = CResult 42
 allocated-bytes:
-  macos-arm64: 64488
-  linux-amd64: 64488
+  macos-arm64: 64464
+  linux-amd64: 64464
 status: pass
 reason: A request must retain its pinned buffer before await and after completion.

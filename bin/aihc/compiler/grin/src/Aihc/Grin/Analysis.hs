@@ -23,8 +23,8 @@ freeExprVars expression =
     GrinUpdate pointer value -> freeValueVars pointer <> freeValueVars value
     GrinUpdateBlackhole pointer value -> freeValueVars pointer <> freeValueVars value
     GrinEval _ value -> freeValueVars value
-    GrinCpsEval _ value continuation updateContinuation ->
-      freeValueVars value <> freeValueVars continuation <> freeValueVars updateContinuation
+    GrinCpsEval _ value continuation ->
+      freeValueVars value <> freeValueVars continuation
     GrinCall _ _ arguments -> foldMap freeValueVars arguments
     GrinPrimitiveCall _ _ arguments -> foldMap freeValueVars arguments
     GrinCpsPrimitiveCall _ _ arguments continuation ->
@@ -37,6 +37,7 @@ freeExprVars expression =
     GrinCpsRaise exception continuation -> freeValueVars exception <> freeValueVars continuation
     GrinHalt values -> foldMap freeValueVars values
     GrinExit status -> freeValueVars status
+    GrinIfWhnf value ready slow -> freeValueVars value <> freeExprVars ready <> freeExprVars slow
     GrinCase scrutinee binder alternatives ->
       freeValueVars scrutinee <> foldMap (freeAlternativeVars binder) alternatives
     GrinThrow exception -> freeValueVars exception
@@ -94,7 +95,7 @@ maximumProgramVarUnique program =
         GrinUpdate pointer value -> concatMap valueUnique [pointer, value]
         GrinUpdateBlackhole pointer value -> concatMap valueUnique [pointer, value]
         GrinEval _ value -> valueUnique value
-        GrinCpsEval _ value continuation updateContinuation -> concatMap valueUnique [value, continuation, updateContinuation]
+        GrinCpsEval _ value continuation -> concatMap valueUnique [value, continuation]
         GrinCall _ _ arguments -> concatMap valueUnique arguments
         GrinPrimitiveCall _ _ arguments -> concatMap valueUnique arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> concatMap valueUnique (continuation : arguments)
@@ -105,6 +106,7 @@ maximumProgramVarUnique program =
         GrinCpsRaise exception continuation -> concatMap valueUnique [exception, continuation]
         GrinHalt values -> concatMap valueUnique values
         GrinExit status -> valueUnique status
+        GrinIfWhnf value ready slow -> valueUnique value <> exprUniques ready <> exprUniques slow
         GrinCase scrutinee binder alternatives ->
           valueUnique scrutinee
             <> (grinVarUnique binder : concatMap altUniques alternatives)
