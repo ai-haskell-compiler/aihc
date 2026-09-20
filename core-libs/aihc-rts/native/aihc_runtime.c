@@ -1360,13 +1360,6 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
   }
 }
 
-/* A prompt tag has no fields, so every tag is one header word whose address
-   is its identity. The collector copies it like any node. */
-static const AihcInfo aihc_prompt_tag_info = {
-    .frame_kind = AIHC_FRAME_NONE,
-    .object_kind = AIHC_OBJECT_NODE,
-};
-
 /* What control0# hands its function: the topmost captured frame and the
    prompt frame the capture stopped at. The frames between the two are the
    continuation; they stay where they are, and every resume copies them. */
@@ -1377,10 +1370,6 @@ static const AihcInfo aihc_continuation_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_NODE,
 };
-
-AihcValue *aihc_prompt_tag_new(AihcMachine *machine) {
-  return aihc_place_node(machine, &aihc_prompt_tag_info, 1);
-}
 
 /* The parent of a frame in a chain that control0# or a resume walks. Both
    walks stop at a prompt frame, so the frames they cross are the ones an

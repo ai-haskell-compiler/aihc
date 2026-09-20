@@ -15,4 +15,4 @@ allocated-bytes:
   macos-arm64: 24
   linux-amd64: 24
 status: pass
-reason: An existing runtime call that can collect preserves its caller value and continuation.
+reason: The reservation before prompt tag creation preserves the caller value and continuation.

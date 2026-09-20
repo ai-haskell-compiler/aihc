@@ -663,6 +663,9 @@ The units are:
 - `aihc_mutvar.lir` holds `aihc_mutvar_new`. A mutable reference is a boxed
   array of one element, so compiled code reads and writes it as it does an
   array element, and the compare-and-swap is a load, a select, and a store.
+- `aihc_prompt_tag.lir` holds `aihc_prompt_tag_new` and its info table.
+  Each tag has one header slot and no fields. The caller reserves that slot.
+  The function consumes reserved heap without collection.
 - `aihc_stable_name.lir` holds the stable-name table: the lookup, the
   allocation, and the layout of one entry. Two names are equal when they
   are one pointer, and the hash is the third slot of the name, so the

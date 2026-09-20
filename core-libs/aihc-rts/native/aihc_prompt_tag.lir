@@ -1,0 +1,26 @@
+; A prompt tag has one header slot and no fields. Its address is its identity.
+; The caller reserves one heap slot before this operation, which must not collect.
+
+include "aihc_constants.lir"
+
+extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
+
+data @aihc_prompt_tag_info align 8 = {
+  ptr null,   ; identity
+  ptr null,   ; field_is_pointer
+  ptr null,   ; next
+  code null,  ; backend_entry
+  ptr null,   ; srt
+  i8 0,       ; field_count
+  i8 0,       ; remaining_arity
+  i8 @AIHC_FRAME_NONE,
+  i8 @AIHC_OBJECT_NODE
+}
+
+export func @aihc_prompt_tag_new(%machine: ptr) -> ptr cc c {
+entry:
+  %tag = call @aihc_gc_allocate(%machine, 1)
+  %header = ptr.to_int @aihc_prompt_tag_info
+  store i64 %header, [%tag] align 8
+  return %tag
+}

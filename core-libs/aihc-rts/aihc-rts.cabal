@@ -34,6 +34,7 @@ library
     native/aihc_helpers.lir
     native/aihc_info.lir
     native/aihc_mutvar.lir
+    native/aihc_prompt_tag.lir
     native/aihc_runtime_options.lir
     native/aihc_stable_name.lir
 

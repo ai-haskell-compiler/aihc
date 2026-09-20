@@ -348,7 +348,8 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
    resumes by applying the function to that node in the prompt's context.
    Applying the captured continuation copies the recorded frames onto the
    caller's continuation, so a capture can be resumed any number of times. */
-/* The caller reserves one heap slot. This operation must not collect. */
+/* aihc_prompt_tag.lir defines this operation. The caller reserves one heap
+   slot. This operation must not collect. */
 AihcValue *aihc_prompt_tag_new(AihcMachine *machine);
 const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
                                 AihcValue *function, AihcValue *continuation);
