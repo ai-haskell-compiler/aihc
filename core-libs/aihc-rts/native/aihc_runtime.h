@@ -443,11 +443,12 @@ uint64_t aihc_byte_array_copy(void *source, int64_t source_offset,
                               int64_t length);
 uint64_t aihc_byte_array_set(void *array, int64_t offset, int64_t length,
                              uint64_t value);
-void *aihc_io_submit_read(void *handle, void *buffer, int64_t offset,
-                          int64_t length);
-void *aihc_io_submit_write(void *handle, void *buffer, int64_t offset,
-                           int64_t length);
-void *aihc_io_submit_open(void *path, int64_t length, int64_t mode);
+void *aihc_io_submit_read(AihcMachine *machine, void *handle, void *buffer,
+                          int64_t offset, int64_t length);
+void *aihc_io_submit_write(AihcMachine *machine, void *handle, void *buffer,
+                           int64_t offset, int64_t length);
+void *aihc_io_submit_open(AihcMachine *machine, void *path, int64_t length,
+                          int64_t mode);
 int64_t aihc_io_take_result(void *request);
 void *aihc_io_take_open_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,

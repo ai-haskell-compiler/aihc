@@ -1247,6 +1247,32 @@ evalPrimitive "newDelayTVar#" [delayValue, initialValue, finalValue] = do
     let deadline = fromInteger (min (toInteger (maxBound :: Word64)) (toInteger now + delay * 1000))
     lift $ modify' (\machine -> machine {machineTimers = (deadline, reference, finalValue) : machineTimers machine})
   pure [RuntimeMutVar reference]
+evalPrimitive "submitIOOpen#" [pathValue, lengthValue, modeValue] = do
+  pathLength <- expectForeignInt "submitIOOpen#" lengthValue
+  modeNumber <- expectForeignInt "submitIOOpen#" modeValue
+  if pathLength < 0 || pathLength > toInteger (maxBound :: Int)
+    then (: []) <$> completedOpenRequest (Left 22)
+    else do
+      bytes <- readAddressBytes "submitIOOpen#" (fromInteger pathLength) pathValue
+      case TE.decodeUtf8' bytes of
+        Left _ -> (: []) <$> completedOpenRequest (Left 84)
+        Right path ->
+          (: []) . RuntimeIORequest . GrinIORequest
+            <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinOpen path modeNumber)))
+evalPrimitive "submitIORead#" [handleValue, bufferValue, offsetValue, lengthValue] = do
+  handle <- expectIOHandle "submitIORead#" handleValue
+  buffer <- expectAddress "submitIORead#" bufferValue
+  offset <- expectForeignInt "submitIORead#" offsetValue
+  byteCount <- expectForeignInt "submitIORead#" lengthValue
+  (checkedOffset, checkedLength) <- checkedAddressRange "submitIORead#" offset byteCount
+  (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinRead handle buffer checkedOffset checkedLength)))
+evalPrimitive "submitIOWrite#" [handleValue, bufferValue, offsetValue, lengthValue] = do
+  handle <- expectIOHandle "submitIOWrite#" handleValue
+  buffer <- expectAddress "submitIOWrite#" bufferValue
+  offset <- expectForeignInt "submitIOWrite#" offsetValue
+  byteCount <- expectForeignInt "submitIOWrite#" lengthValue
+  (checkedOffset, checkedLength) <- checkedAddressRange "submitIOWrite#" offset byteCount
+  (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinWrite handle buffer checkedOffset checkedLength)))
 evalPrimitive "stmWaitRequest#" [] = do
   timers <- lift (gets machineTimers)
   let state = case timers of
@@ -2225,19 +2251,7 @@ callForeign foreignCall arguments
         else do
           liftEvalIO (pokeArray (castPtr (buffer `plusPtr` fromInteger offset)) [fromInteger byte :: Word8])
           pure [RuntimeLit (GrinLitInt IntRep 0)]
-  | symbol == "aihc_io_submit_open",
-    [pathValue, lengthValue, modeValue] <- arguments = do
-      pathLength <- expectForeignInt symbol lengthValue
-      modeNumber <- expectForeignInt symbol modeValue
-      if pathLength < 0 || pathLength > toInteger (maxBound :: Int)
-        then (: []) <$> completedOpenRequest (Left 22)
-        else do
-          bytes <- readAddressBytes symbol (fromInteger pathLength) pathValue
-          case TE.decodeUtf8' bytes of
-            Left _ -> (: []) <$> completedOpenRequest (Left 84)
-            Right path ->
-              (: []) . RuntimeIORequest . GrinIORequest
-                <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinOpen path modeNumber)))
+
   -- The program's standard descriptors are its own streams, which are the
   -- ones the three calls above hand out and not the interpreter's. Any other
   -- descriptor is one of the interpreter's process, and base turns it into a
@@ -2292,22 +2306,6 @@ callForeign foreignCall arguments
     [errorValue] <- arguments = do
       errorNumber <- expectForeignInt symbol errorValue
       throwInterpret (InterpretRaisedException (T.pack (show errorNumber)))
-  | symbol == "aihc_io_submit_read",
-    [handleValue, bufferValue, offsetValue, lengthValue] <- arguments = do
-      handle <- expectIOHandle symbol handleValue
-      buffer <- expectAddress symbol bufferValue
-      offset <- expectForeignInt symbol offsetValue
-      byteCount <- expectForeignInt symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
-      (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinRead handle buffer checkedOffset checkedLength)))
-  | symbol == "aihc_io_submit_write",
-    [handleValue, bufferValue, offsetValue, lengthValue] <- arguments = do
-      handle <- expectIOHandle symbol handleValue
-      buffer <- expectAddress symbol bufferValue
-      offset <- expectForeignInt symbol offsetValue
-      byteCount <- expectForeignInt symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
-      (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinWrite handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_take_result",
     [request] <- arguments =
       (: []) <$> takeIOResult symbol request

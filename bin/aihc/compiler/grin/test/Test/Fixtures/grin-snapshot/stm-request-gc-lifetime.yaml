@@ -16,7 +16,7 @@ program: |
 return: "0"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 176
-  linux-amd64: 176
+  macos-arm64: 184
+  linux-amd64: 184
 status: pass
 reason: A request must survive collection before await and after completion.

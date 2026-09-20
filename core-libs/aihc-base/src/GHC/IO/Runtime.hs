@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -29,9 +30,9 @@ module GHC.IO.Runtime
 where
 
 import GHC.IO (IO (..))
-import GHC.Int (Int)
+import GHC.Int (Int (..))
 import GHC.Num (Num (..))
-import GHC.Prim (Addr#, awaitIO#)
+import GHC.Prim (Addr#, Int#, RealWorld, State#, awaitIO#)
 import GHC.Ptr (Ptr (..))
 
 data IOHandle
@@ -50,6 +51,12 @@ awaitIO (Ptr request) =
 decodeError :: Int -> Int
 decodeError result = negate result - 1
 
+foreign import prim submitIORead# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+
+foreign import prim submitIOWrite# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+
+foreign import prim submitIOOpen# :: Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+
 data IORequest
 
 foreign import ccall unsafe "aihc_io_stdin"
@@ -61,8 +68,12 @@ foreign import ccall unsafe "aihc_io_stdout"
 foreign import ccall unsafe "aihc_io_stderr"
   stderrHandle :: IO (Ptr IOHandle)
 
-foreign import ccall unsafe "aihc_io_submit_open"
-  submitOpen :: Addr# -> Int -> Int -> IO (Ptr IORequest)
+submitOpen :: Addr# -> Int -> Int -> IO (Ptr IORequest)
+submitOpen path (I# length) (I# mode) =
+  IO
+    ( \state -> case submitIOOpen# path length mode state of
+        (# next, request #) -> (# next, Ptr request #)
+    )
 
 foreign import ccall unsafe "aihc_io_open_result_error"
   openResultError :: Ptr IOHandle -> IO Int
@@ -88,11 +99,19 @@ foreign import ccall unsafe "aihc_memory_write_byte"
 foreign import ccall unsafe "aihc_memory_read_byte"
   readMemoryByte :: Addr# -> Int -> IO Int
 
-foreign import ccall unsafe "aihc_io_submit_read"
-  submitRead :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
+submitRead :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
+submitRead (Ptr handle) buffer (I# offset) (I# length) =
+  IO
+    ( \state -> case submitIORead# handle buffer offset length state of
+        (# next, request #) -> (# next, Ptr request #)
+    )
 
-foreign import ccall unsafe "aihc_io_submit_write"
-  submitWrite :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
+submitWrite :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
+submitWrite (Ptr handle) buffer (I# offset) (I# length) =
+  IO
+    ( \state -> case submitIOWrite# handle buffer offset length state of
+        (# next, request #) -> (# next, Ptr request #)
+    )
 
 foreign import ccall unsafe "aihc_io_take_result"
   takeResult :: Ptr IORequest -> IO Int
