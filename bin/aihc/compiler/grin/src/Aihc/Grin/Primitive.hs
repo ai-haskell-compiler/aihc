@@ -45,7 +45,8 @@ primitiveHeapWords :: Text -> Maybe Int
 primitiveHeapWords name =
   lookup
     name
-    [ ("stmBegin#", 3),
+    [ ("stmWaitRequest#", 17),
+      ("stmBegin#", 3),
       ("writeTVar#", 4),
       ("newDelayTVar#", 8),
       ("newPromptTag#", 1),

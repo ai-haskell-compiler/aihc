@@ -1,0 +1,30 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M512", "-RTS"]
+program: |
+  primitive stmWaitRequest# :: AddrRep/0
+  primitive awaitIO# :: TupleRep []/1
+  primitive stmWaitResult# :: IntRep/1
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  primitive +# :: IntRep/2
+
+  $loop (counter :: IntRep) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        constant (counter :: IntRep)
+      _ ->
+        (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
+        () <- primitive-call @(TupleRep []) awaitIO# (request :: AddrRep)
+        (result :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: AddrRep)
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+return: "200"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 33600
+  linux-amd64: 33600
+status: pass
+reason: Consumed requests must become reclaimable within the heap limit.

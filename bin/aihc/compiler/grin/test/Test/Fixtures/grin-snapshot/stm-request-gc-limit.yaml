@@ -1,0 +1,23 @@
+entry: $entry
+rts-arguments: ["+RTS", "-M512", "-RTS"]
+program: |
+  primitive stmWaitRequest# :: AddrRep/0
+  primitive awaitIO# :: TupleRep []/1
+  primitive stmWaitResult# :: IntRep/1
+  primitive newPromptTag# :: BoxedRep Unlifted/0
+  primitive +# :: IntRep/2
+
+  $loop (counter :: IntRep) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      20 ->
+        constant (counter :: IntRep)
+      _ ->
+        (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+error: heap limit exceeded
+status: pass
+reason: Unconsumed request registrations must count toward the heap limit.
