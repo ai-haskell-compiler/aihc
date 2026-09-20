@@ -591,7 +591,8 @@ static void report_collection(uint64_t required_bytes) {
     if (aihc_value_kind(object) == AIHC_OBJECT_INDIRECTION) {
       violation("indirection in the new space");
     }
-    if (aihc_value_kind(object) != AIHC_OBJECT_MVAR) {
+    if (aihc_value_kind(object) != AIHC_OBJECT_MVAR &&
+        aihc_value_kind(object) != AIHC_OBJECT_THREAD) {
       print_object(object);
     }
   }
@@ -721,12 +722,23 @@ static void command_machine(char **tokens, size_t count) {
   current_srt = NULL;
   reserved_words = 0;
   machine = aihc_machine_new(global_count);
-  /* Replace the default space so each script chooses its own size. */
+  /* Keep the initial thread when the script replaces the default space. */
+  AihcThread initial_thread = *machine->current_thread;
+  if (space_bytes > SIZE_MAX - sizeof(initial_thread)) {
+    fail("initial space is too large");
+  }
+  space_bytes += sizeof(initial_thread);
   free(machine->heap_start);
+  free(machine->other_space);
+  machine->other_space = NULL;
+  machine->other_space_bytes = 0;
   machine->semispace_bytes = space_bytes;
   machine->heap_start = checked_calloc(1, space_bytes);
-  machine->heap_next = machine->heap_start;
+  machine->heap_next = machine->heap_start + sizeof(initial_thread);
+  machine->heap_alloc_base = machine->heap_next;
   machine->heap_limit = machine->heap_start + space_bytes;
+  machine->current_thread = (AihcThread *)machine->heap_start;
+  *machine->current_thread = initial_thread;
   root_count = slot_count;
   root_slots = checked_calloc(slot_count, sizeof(*root_slots));
 }

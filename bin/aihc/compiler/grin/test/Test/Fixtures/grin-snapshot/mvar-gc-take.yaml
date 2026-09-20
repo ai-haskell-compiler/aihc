@@ -40,7 +40,7 @@ heap: |
   @1 = CNumber 42
   @2 = CNumber 99
 allocated-bytes:
-  macos-arm64: 920
-  linux-amd64: 920
+  macos-arm64: 1064
+  linux-amd64: 1064
 status: pass
 reason: Collection preserves two blocked take operations, queue order, values, and continuations.

@@ -252,9 +252,9 @@ static void aihc_scan_object(AihcForwardingContext *context,
   if (aihc_visit_runtime_object(object, aihc_forward_root, context)) {
     return;
   }
-  if (kind == AIHC_OBJECT_RUNTIME || kind == AIHC_OBJECT_THREAD) {
-    /* Runtime objects hold no heap pointers of their own. The scheduler
-       visits the resume record of a thread as a root. */
+  if (kind == AIHC_OBJECT_RUNTIME) {
+    /* The root visitor traces stable-name referents through the machine list.
+     */
     return;
   }
   aihc_walk_srt(info->srt);

@@ -139,7 +139,7 @@ source the collector visits. The driver process stays alive across cases, so
 the test can compile the driver with sanitizers when the C compiler supports
 them.
 
-The cooperative scheduler keeps thread records, blackhole records, blackhole waiters,
+The cooperative scheduler keeps blackhole records, blackhole waiters,
 and pending IO requests in auxiliary C allocations. Suspended threads retain
 ordinary action or continuation closures. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
@@ -165,7 +165,7 @@ Lir translates the explicit reservation and the call.
 `stmBegin#` reserves three heap slots, and `writeTVar#` reserves four.
 `newDelayTVar#` reserves eight slots for its TVar and optional timer.
 `newPromptTag#` reserves one slot.
-`newMVar#` reserves nine slots.
+`newMVar#` and `fork#` each reserve nine slots.
 `readMVar#`, `takeMVar#`, and `putMVar#` each reserve five slots for one optional waiter.
 CPS call reservations protect the continuation and all pointer arguments.
 Each slot has eight bytes on every target.
@@ -184,16 +184,26 @@ This transformation exists only in test code.
 Successful stress fixtures must report at least one collection.
 They can specify heap limits through `rts-arguments`.
 
-Each thread record carries the number that identifies the thread. The machine
-holds a counter, and `aihc_thread_new` gives the next number to each new
-thread. The counter starts at one, thus the main thread has the number one, and
-the runtime does not give a number again. The field is directly after the
-header of the thread record, at offset 8 on every target, because the header
-and the field are both eight bytes. Thus the `aihcThreadIdNumber#` primitive is
-one load, and `GHC.Conc.Sync.fromThreadId` reads the number without a runtime
-call. The address of a thread record is not an identifier: the record is an
-auxiliary allocation, and its address gives no order and is different in each
-run. `myThreadId#` reads the current thread from the machine.
+Thread records use the managed heap, including the initial thread.
+Machine initialization reserves the initial record after GC initialization.
+The record has the `AIHC_OBJECT_THREAD` kind.
+The collector obtains its size and pointer fields from the C structure.
+It traces the resume function, continuation, pointer value, transaction, and run queue link.
+
+The machine retains the current thread and both ends of the run queue.
+MVar waiters, blackhole owners, blackhole waiters, and pending IO requests retain their threads.
+The collector relocates each of these references.
+An unreachable thread becomes reclaimable after it leaves these runtime queues and other live references.
+Thread records count toward managed allocation statistics and the `-M` limit.
+Snapshot fixtures reset managed allocation statistics after initialization, so their totals exclude the initial thread.
+Process statistics include the initial thread.
+
+Each thread record has a unique number.
+The machine assigns number one to the initial thread and increments the number for each new thread.
+Collection preserves this number even when it changes the record address.
+The number remains at offset eight on every target.
+`aihcThreadIdNumber#` reads it with one load.
+`myThreadId#` reads the current thread from the machine.
 
 `MVar#` uses a managed empty/full cell with separate FIFO queues for
 blocked readers, takers, and putters.
@@ -204,8 +214,7 @@ If a putter is blocked, the take installs that putter's value and wakes that put
 
 MVars and waiters have distinct object kinds and C layout visitors.
 A live MVar retains its value and all queue heads and tails.
-Each waiter retains its continuation, put value, queue link, and the references in its thread record.
-Thread records remain auxiliary allocations in this batch.
+Each waiter retains its continuation, put value, queue link, and thread record.
 The machine has no list that retains every MVar.
 The collector can reclaim unreachable MVars, waiters, and their values, including cycles.
 A wake removes the waiter from its queue without direct memory release.
@@ -239,10 +248,10 @@ CAF gets its target forwarded like any heap field. A nullary constructor has
 no fields, so marking it does nothing.
 
 Every object that compiled code can store in a pointer field carries an info
-table. The byte arrays, stable names, and threads that the runtime
+table. The byte arrays and stable names that the runtime
 allocates outside the heap therefore also start with a header. Their info
-tables have the kind `AIHC_OBJECT_RUNTIME` or `AIHC_OBJECT_THREAD`, and the
-collector scans nothing behind them.
+tables have the kind `AIHC_OBJECT_RUNTIME`.
+The root visitor traces stable-name referents through the machine list.
 
 ## IO manager
 

@@ -33,7 +33,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 192
-  linux-amd64: 192
+  macos-arm64: 264
+  linux-amd64: 264
 status: pass
 reason: A collection in another thread preserves the write log and previous value of a suspended transaction.

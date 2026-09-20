@@ -133,6 +133,7 @@ mutVarSource =
       "#include \"aihc_runtime_internal.h\"",
       "int main(void) {",
       "  AihcMachine *machine = aihc_machine_new(0);",
+      "  aihc_ensure_heap(machine, 8, 0, NULL, NULL);",
       "  AihcValue *mutvar = aihc_mutvar_new(machine, 7);",
       "  if (aihc_array_length(mutvar) != 1) return 1;",
       "  if (aihc_array_elements(mutvar)[0] != 7) return 2;",
@@ -498,9 +499,9 @@ runtimeStatisticsTest name requested ending =
           statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
           assertEqual "field names" ["allocated_bytes", "gc_count", "gc_time_ns", "peak_heap_bytes", "schema"] (Map.keys statistics)
           assertEqual "schema" (Just 1) (Map.lookup "schema" statistics)
-          -- One leaf and 1000 cells: 8 + 1000 * 16 bytes.
-          assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)
-          assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16008)
+          -- The initial thread, one leaf, and 1000 cells use 72 + 8 + 1000 * 16 bytes.
+          assertEqual "allocated_bytes" (Just 16080) (Map.lookup "allocated_bytes" statistics)
+          assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16080)
           assertBool "gc_count counts the collections" (Map.lookup "gc_count" statistics >= Just 1)
         else assertBool "no statistics file exists" (not present)
 
@@ -563,7 +564,7 @@ statisticsSource ending =
         "  /* Compiled code allocates without telling the runtime, so the total",
         "     is only exact once the bump pointer has been accounted for. */",
         "  aihc_heap_account(machine);",
-        "  if (machine->heap_allocated_bytes != 16008) return 7;",
+        "  if (machine->heap_allocated_bytes != 16080) return 7;",
         "  if (machine->gc_count == 0) return 8;",
         "  if (machine->heap_peak_bytes == 0) return 9;"
       ]

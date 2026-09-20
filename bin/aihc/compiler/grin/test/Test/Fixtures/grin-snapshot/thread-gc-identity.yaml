@@ -1,0 +1,34 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Result/4 [Word64Rep, Word64Rep, Word64Rep, IntRep]
+  primitive reallyUnsafePtrEquality# :: IntRep/2
+  constructor Done/0 []
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  primitive myThreadId# :: BoxedRep Unlifted/0
+  primitive aihcThreadIdNumber# :: Word64Rep/1
+  global child = (P$child/[[]])
+
+  $child -> BoxedRep Lifted =
+    store (CDone)
+
+  $entry -> BoxedRep Lifted =
+    (main :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) myThreadId#
+    (first :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    (second :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    () <- primitive-call @(TupleRep []) yield#
+    (current :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) myThreadId#
+    (same :: IntRep) <- primitive-call @IntRep reallyUnsafePtrEquality# (main :: BoxedRep Unlifted) (current :: BoxedRep Unlifted)
+    (a :: Word64Rep) <- primitive-call @Word64Rep aihcThreadIdNumber# (main :: BoxedRep Unlifted)
+    (b :: Word64Rep) <- primitive-call @Word64Rep aihcThreadIdNumber# (first :: BoxedRep Unlifted)
+    (c :: Word64Rep) <- primitive-call @Word64Rep aihcThreadIdNumber# (second :: BoxedRep Unlifted)
+    store (CResult (a :: Word64Rep) (b :: Word64Rep) (c :: Word64Rep) (same :: IntRep))
+return: "@0"
+heap: |
+  @0 = CResult 1 2 3 1
+allocated-bytes:
+  macos-arm64: 296
+  linux-amd64: 296
+status: pass
+reason: Collection preserves thread identity, the run queue, and references to completed threads.

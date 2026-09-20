@@ -1,0 +1,30 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  global child = (P$child/[[]])
+  global shared = (F$shared)
+
+  $child -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref shared
+
+  $shared -> BoxedRep Lifted =
+    () <- primitive-call @(TupleRep []) yield#
+    store (CNumber (42 :: IntRep))
+
+  $entry -> BoxedRep Lifted =
+    (first :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    (second :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    (value :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) global-ref shared
+    () <- primitive-call @(TupleRep []) yield#
+    constant (value :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CNumber 42
+allocated-bytes:
+  macos-arm64: 344
+  linux-amd64: 344
+status: pass
+reason: A blackhole must retain its blocked threads through collection and wake them after the thunk update.

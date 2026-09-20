@@ -192,6 +192,8 @@ uint64_t aihc_object_words(const AihcInfo *info) {
 
 uint64_t aihc_value_words(const AihcValue *value) {
   switch (aihc_value_kind(value)) {
+  case AIHC_OBJECT_THREAD:
+    return aihc_record_words(sizeof(AihcThread));
   case AIHC_OBJECT_MVAR:
     return aihc_record_words(sizeof(AihcMVar));
   case AIHC_OBJECT_MVAR_WAITER:
@@ -384,26 +386,24 @@ static void *aihc_visit_pointer(void *pointer, AihcRootVisitor visitor,
   return (void *)(uintptr_t)visitor((AihcSlot)(uintptr_t)pointer, context);
 }
 
-static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
-                              void *context) {
-  if (thread == NULL) {
-    return;
-  }
-  thread->transaction =
-      aihc_visit_pointer(thread->transaction, visitor, context);
-  aihc_visit_value(&thread->resume_function, visitor, context);
-  aihc_visit_value(&thread->resume_continuation, visitor, context);
-  if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
-       thread->resume_kind == AIHC_RESUME_APPLY) &&
-      thread->resume_count == 1) {
-    thread->resume_value = visitor(thread->resume_value, context);
-  }
-}
-
 /* Trace native records through their C layouts on both target word sizes. */
 int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context) {
   switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_THREAD: {
+    AihcThread *thread = (AihcThread *)object;
+    thread->next = aihc_visit_pointer(thread->next, visitor, context);
+    thread->transaction =
+        aihc_visit_pointer(thread->transaction, visitor, context);
+    aihc_visit_value(&thread->resume_function, visitor, context);
+    aihc_visit_value(&thread->resume_continuation, visitor, context);
+    if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
+         thread->resume_kind == AIHC_RESUME_APPLY) &&
+        thread->resume_count == 1) {
+      thread->resume_value = visitor(thread->resume_value, context);
+    }
+    return 1;
+  }
   case AIHC_OBJECT_MVAR: {
     AihcMVar *mvar = (AihcMVar *)object;
     if (mvar->full) {
@@ -423,7 +423,7 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
   case AIHC_OBJECT_MVAR_WAITER: {
     AihcMVarWaiter *waiter = (AihcMVarWaiter *)object;
-    aihc_visit_thread(waiter->thread, visitor, context);
+    waiter->thread = aihc_visit_pointer(waiter->thread, visitor, context);
     aihc_visit_value(&waiter->continuation, visitor, context);
     waiter->value = visitor(waiter->value, context);
     waiter->next = aihc_visit_pointer(waiter->next, visitor, context);
@@ -478,18 +478,20 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
     machine->selected_resume.value =
         visitor(machine->selected_resume.value, context);
   }
-  aihc_visit_thread(machine->current_thread, visitor, context);
-  for (AihcThread *thread = machine->run_queue_head; thread != NULL;
-       thread = thread->next) {
-    aihc_visit_thread(thread, visitor, context);
-  }
+  machine->current_thread =
+      aihc_visit_pointer(machine->current_thread, visitor, context);
+  machine->run_queue_head =
+      aihc_visit_pointer(machine->run_queue_head, visitor, context);
+  machine->run_queue_tail =
+      aihc_visit_pointer(machine->run_queue_tail, visitor, context);
   for (AihcBlackhole *blackhole = machine->blackholes; blackhole != NULL;
        blackhole = blackhole->next) {
     aihc_visit_value(&blackhole->object, visitor, context);
+    blackhole->owner = aihc_visit_pointer(blackhole->owner, visitor, context);
     for (AihcBlackholeWaiter *waiter = blackhole->waiters_head; waiter != NULL;
          waiter = waiter->next) {
       aihc_visit_value(&waiter->continuation, visitor, context);
-      aihc_visit_thread(waiter->thread, visitor, context);
+      waiter->thread = aihc_visit_pointer(waiter->thread, visitor, context);
     }
   }
   for (AihcStableName *name = machine->stable_names; name != NULL;
@@ -499,7 +501,7 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
   for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
        request = request->next) {
     aihc_visit_value(&request->continuation, visitor, context);
-    aihc_visit_thread(request->thread, visitor, context);
+    request->thread = aihc_visit_pointer(request->thread, visitor, context);
   }
 }
 
@@ -651,7 +653,8 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
 }
 
 static AihcThread *aihc_thread_new(AihcMachine *machine) {
-  AihcThread *thread = aihc_allocate_auxiliary(machine, sizeof(*thread));
+  AihcThread *thread = (AihcThread *)aihc_gc_allocate(
+      machine, aihc_record_words(sizeof(*thread)));
   thread->header = (AihcSlot)(uintptr_t)&aihc_thread_info;
   thread->id = ++machine->next_thread_id;
   return thread;
@@ -771,6 +774,7 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
       sizeof(*machine->globals) * (global_count == 0 ? 1 : global_count));
   machine->next_stable_name = 1;
   aihc_gc_init(machine);
+  aihc_gc_ensure(machine, aihc_record_words(sizeof(AihcThread)), 0, NULL, NULL);
   machine->current_thread = aihc_thread_new(machine);
   machine->io_backend = aihc_host_io_backend();
   aihc_process_machine = machine;

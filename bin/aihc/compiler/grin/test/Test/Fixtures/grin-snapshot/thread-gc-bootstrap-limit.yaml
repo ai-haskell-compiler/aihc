@@ -1,0 +1,8 @@
+entry: $entry
+rts-arguments: ["+RTS", "-M64", "-RTS"]
+program: |
+  $entry -> IntRep =
+    constant (0 :: IntRep)
+error: heap limit exceeded
+status: pass
+reason: The initial thread must fit within the managed heap limit.
