@@ -139,7 +139,7 @@ source the collector visits. The driver process stays alive across cases, so
 the test can compile the driver with sanitizers when the C compiler supports
 them.
 
-The cooperative scheduler keeps thread records, blackhole records, wait queues,
+The cooperative scheduler keeps thread records, blackhole records, blackhole waiters,
 and pending IO requests in auxiliary C allocations. Suspended threads retain
 ordinary action or continuation closures. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
@@ -156,15 +156,18 @@ The machine timer list retains timer variables and final values until expiry.
 Commit, abort, and expiry remove references without direct memory release.
 These records count toward managed allocation statistics and the `-M` limit.
 
-The GRIN primitive description gives fixed allocation bounds for ordinary calls.
+The GRIN primitive description gives fixed allocation bounds for ordinary calls and CPS calls.
 The GC stage inserts `ensure-heap` before these calls.
 The reservation protects call arguments and values needed after the call.
 The existing GC transformation gives relocated roots fresh names.
-Lir translates the explicit reservation and the ordinary call.
+Lir translates the explicit reservation and the call.
 
 `stmBegin#` reserves three heap slots, and `writeTVar#` reserves four.
 `newDelayTVar#` reserves eight slots for its TVar and optional timer.
 `newPromptTag#` reserves one slot.
+`newMVar#` reserves nine slots.
+`readMVar#`, `takeMVar#`, and `putMVar#` each reserve five slots for one optional waiter.
+CPS call reservations protect the continuation and all pointer arguments.
 Each slot has eight bytes on every target.
 C size assertions check that runtime records fit these bounds.
 Reservations can exceed actual allocation, which statistics measure separately.
@@ -192,16 +195,21 @@ call. The address of a thread record is not an identifier: the record is an
 auxiliary allocation, and its address gives no order and is different in each
 run. `myThreadId#` reads the current thread from the machine.
 
-`MVar#` uses a runtime-owned empty/full cell with separate FIFO queues for
-blocked readers, takers, and putters. Putting into an empty cell wakes every
-blocked reader with the same value and either hands the value directly to the
-oldest taker or leaves the cell full. Taking from a full cell returns its old
-value and, when a putter is waiting, installs that putter's value before waking
-it. This direct handoff prevents a newly running thread from overtaking an
-already blocked operation. Stored values, queued put values, continuations, and
-their suspended threads are collector roots. The cells themselves are
-auxiliary allocations owned for the machine's lifetime; weak pointers and
-finalization are intentionally outside the initial interface.
+`MVar#` uses a managed empty/full cell with separate FIFO queues for
+blocked readers, takers, and putters.
+A put into an empty cell wakes all blocked readers with the same value.
+It gives the value to the first taker, or leaves the cell full.
+A take from a full cell returns its old value.
+If a putter is blocked, the take installs that putter's value and wakes that putter.
+
+MVars and waiters have distinct object kinds and C layout visitors.
+A live MVar retains its value and all queue heads and tails.
+Each waiter retains its continuation, put value, queue link, and the references in its thread record.
+Thread records remain auxiliary allocations in this batch.
+The machine has no list that retains every MVar.
+The collector can reclaim unreachable MVars, waiters, and their values, including cycles.
+A wake removes the waiter from its queue without direct memory release.
+MVars and waiters count toward managed allocation statistics and the `-M` limit.
 
 ## Static objects
 
@@ -231,7 +239,7 @@ CAF gets its target forwarded like any heap field. A nullary constructor has
 no fields, so marking it does nothing.
 
 Every object that compiled code can store in a pointer field carries an info
-table. The byte arrays, MVars, stable names, and threads that the runtime
+table. The byte arrays, stable names, and threads that the runtime
 allocates outside the heap therefore also start with a header. Their info
 tables have the kind `AIHC_OBJECT_RUNTIME` or `AIHC_OBJECT_THREAD`, and the
 collector scans nothing behind them.

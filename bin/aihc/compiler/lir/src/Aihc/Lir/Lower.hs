@@ -2475,7 +2475,9 @@ startMachine = do
   exit <- requireHelper HelperExit
   let entryGlobal = globalSymbol executableEntryName
   machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
-  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull]
+  -- The start-up code reaches no static object of its own, so it passes no
+  -- table.
+  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull, OperandLiteral LitNull]
   final <- allocateContinuation machine finalInfo 1
   top <- allocateContinuation machine topInfo 2
   storeSlot Ptr final top 8

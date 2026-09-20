@@ -6,8 +6,8 @@
 ; This file holds nothing but constants, so every unit can include it.
 
 ; Object kinds, the object_kind field of an info table. AIHC_OBJECT_RUNTIME
-; is an object the runtime allocates outside the managed heap: a byte array,
-; an MVar, or a stable name.
+; is an object the runtime allocates outside the managed heap: a byte array
+; or a stable name.
 const @AIHC_OBJECT_NODE = 0
 const @AIHC_OBJECT_CLOSURE = 1
 const @AIHC_OBJECT_THUNK = 2
@@ -20,6 +20,8 @@ const @AIHC_OBJECT_RUNTIME = 8
 const @AIHC_OBJECT_TRANSACTION = 9
 const @AIHC_OBJECT_TRANSACTION_WRITE = 10
 const @AIHC_OBJECT_TRANSACTION_TIMER = 11
+const @AIHC_OBJECT_MVAR = 12
+const @AIHC_OBJECT_MVAR_WAITER = 13
 
 ; Frame kinds, the frame_kind field of an info table.
 const @AIHC_FRAME_NONE = 0

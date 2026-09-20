@@ -105,6 +105,7 @@ struct AihcBlackhole {
 };
 
 struct AihcMVarWaiter {
+  AihcSlot header;
   AihcThread *thread;
   AihcValue *continuation;
   AihcSlot value;
@@ -121,8 +122,12 @@ struct AihcMVar {
   AihcMVarWaiter *takers_tail;
   AihcMVarWaiter *putters_head;
   AihcMVarWaiter *putters_tail;
-  AihcMVar *next;
 };
+
+_Static_assert(sizeof(AihcMVar) <= 9 * sizeof(AihcSlot),
+               "MVar exceeds the GRIN reservation");
+_Static_assert(sizeof(AihcMVarWaiter) <= 5 * sizeof(AihcSlot),
+               "MVar waiter exceeds the GRIN reservation");
 
 /* aihc_stable_name.lir allocates and links these, so every field starts one
    eight-byte slot after the last on every target. The static assertions in

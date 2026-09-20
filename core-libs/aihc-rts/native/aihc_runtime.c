@@ -113,6 +113,12 @@ const AihcInfo aihc_runtime_object_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_RUNTIME,
 };
+static const AihcInfo aihc_mvar_info = {
+    .object_kind = AIHC_OBJECT_MVAR,
+};
+static const AihcInfo aihc_mvar_waiter_info = {
+    .object_kind = AIHC_OBJECT_MVAR_WAITER,
+};
 static const AihcInfo aihc_transaction_info = {
     .object_kind = AIHC_OBJECT_TRANSACTION,
 };
@@ -186,6 +192,10 @@ uint64_t aihc_object_words(const AihcInfo *info) {
 
 uint64_t aihc_value_words(const AihcValue *value) {
   switch (aihc_value_kind(value)) {
+  case AIHC_OBJECT_MVAR:
+    return aihc_record_words(sizeof(AihcMVar));
+  case AIHC_OBJECT_MVAR_WAITER:
+    return aihc_record_words(sizeof(AihcMVarWaiter));
   case AIHC_OBJECT_TRANSACTION:
     return aihc_record_words(sizeof(AihcTransaction));
   case AIHC_OBJECT_TRANSACTION_WRITE:
@@ -374,10 +384,51 @@ static void *aihc_visit_pointer(void *pointer, AihcRootVisitor visitor,
   return (void *)(uintptr_t)visitor((AihcSlot)(uintptr_t)pointer, context);
 }
 
+static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
+                              void *context) {
+  if (thread == NULL) {
+    return;
+  }
+  thread->transaction =
+      aihc_visit_pointer(thread->transaction, visitor, context);
+  aihc_visit_value(&thread->resume_function, visitor, context);
+  aihc_visit_value(&thread->resume_continuation, visitor, context);
+  if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
+       thread->resume_kind == AIHC_RESUME_APPLY) &&
+      thread->resume_count == 1) {
+    thread->resume_value = visitor(thread->resume_value, context);
+  }
+}
+
 /* Trace native records through their C layouts on both target word sizes. */
 int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context) {
   switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_MVAR: {
+    AihcMVar *mvar = (AihcMVar *)object;
+    if (mvar->full) {
+      mvar->value = visitor(mvar->value, context);
+    }
+    mvar->readers_head =
+        aihc_visit_pointer(mvar->readers_head, visitor, context);
+    mvar->readers_tail =
+        aihc_visit_pointer(mvar->readers_tail, visitor, context);
+    mvar->takers_head = aihc_visit_pointer(mvar->takers_head, visitor, context);
+    mvar->takers_tail = aihc_visit_pointer(mvar->takers_tail, visitor, context);
+    mvar->putters_head =
+        aihc_visit_pointer(mvar->putters_head, visitor, context);
+    mvar->putters_tail =
+        aihc_visit_pointer(mvar->putters_tail, visitor, context);
+    return 1;
+  }
+  case AIHC_OBJECT_MVAR_WAITER: {
+    AihcMVarWaiter *waiter = (AihcMVarWaiter *)object;
+    aihc_visit_thread(waiter->thread, visitor, context);
+    aihc_visit_value(&waiter->continuation, visitor, context);
+    waiter->value = visitor(waiter->value, context);
+    waiter->next = aihc_visit_pointer(waiter->next, visitor, context);
+    return 1;
+  }
   case AIHC_OBJECT_TRANSACTION: {
     AihcTransaction *transaction = (AihcTransaction *)object;
     transaction->writes =
@@ -402,22 +453,6 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
   default:
     return 0;
-  }
-}
-
-static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
-                              void *context) {
-  if (thread == NULL) {
-    return;
-  }
-  thread->transaction =
-      aihc_visit_pointer(thread->transaction, visitor, context);
-  aihc_visit_value(&thread->resume_function, visitor, context);
-  aihc_visit_value(&thread->resume_continuation, visitor, context);
-  if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
-       thread->resume_kind == AIHC_RESUME_APPLY) &&
-      thread->resume_count == 1) {
-    thread->resume_value = visitor(thread->resume_value, context);
   }
 }
 
@@ -455,23 +490,6 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
          waiter = waiter->next) {
       aihc_visit_value(&waiter->continuation, visitor, context);
       aihc_visit_thread(waiter->thread, visitor, context);
-    }
-  }
-  for (AihcMVar *mvar = machine->mvars; mvar != NULL; mvar = mvar->next) {
-    if (mvar->full) {
-      mvar->value = visitor(mvar->value, context);
-    }
-    AihcMVarWaiter *waiter_lists[] = {mvar->readers_head, mvar->takers_head,
-                                      mvar->putters_head};
-    for (size_t list = 0; list < 3; ++list) {
-      for (AihcMVarWaiter *waiter = waiter_lists[list]; waiter != NULL;
-           waiter = waiter->next) {
-        if (list == 2) {
-          waiter->value = visitor(waiter->value, context);
-        }
-        aihc_visit_value(&waiter->continuation, visitor, context);
-        aihc_visit_thread(waiter->thread, visitor, context);
-      }
     }
   }
   for (AihcStableName *name = machine->stable_names; name != NULL;
@@ -1013,7 +1031,10 @@ static const AihcResume *aihc_resume_current_value(AihcMachine *machine,
 static AihcMVarWaiter *aihc_mvar_waiter_new(AihcMachine *machine,
                                             AihcValue *continuation,
                                             AihcSlot value) {
-  AihcMVarWaiter *waiter = aihc_allocate_auxiliary(machine, sizeof(*waiter));
+  AihcMVarWaiter *waiter = (AihcMVarWaiter *)aihc_gc_allocate(
+      machine, aihc_record_words(sizeof(*waiter)));
+  waiter->header = (AihcSlot)(uintptr_t)&aihc_mvar_waiter_info;
+  waiter->next = NULL;
   waiter->thread = machine->current_thread;
   waiter->continuation = continuation;
   waiter->value = value;
@@ -1049,7 +1070,6 @@ static void aihc_mvar_wake(AihcMachine *machine, AihcMVarWaiter *waiter,
                            uint64_t count, AihcSlot value) {
   aihc_suspend_continue(waiter->thread, waiter->continuation, count, value);
   aihc_enqueue_thread(machine, waiter->thread);
-  free(waiter);
 }
 
 static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
@@ -1061,10 +1081,9 @@ static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
 }
 
 void *aihc_mvar_new(AihcMachine *machine) {
-  AihcMVar *mvar = aihc_allocate_auxiliary(machine, sizeof(*mvar));
-  mvar->header = (AihcSlot)(uintptr_t)&aihc_runtime_object_info;
-  mvar->next = machine->mvars;
-  machine->mvars = mvar;
+  AihcMVar *mvar =
+      (AihcMVar *)aihc_gc_allocate(machine, aihc_record_words(sizeof(*mvar)));
+  mvar->header = (AihcSlot)(uintptr_t)&aihc_mvar_info;
   return mvar;
 }
 

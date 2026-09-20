@@ -577,6 +577,7 @@ replay config script reports = go (zip [0 ..] script) emptyModel 0 <> extra
              in map (\p -> "command " <> show index <> ": " <> p) problems
                   <> go rest (applyCommand command expected) (rCapacity report)
         | otherwise -> ("command " <> show index <> ": collection at a command that cannot collect") : go rest (applyCommand command model) capacity
+    collects (CMvars _) = True
     collects (CReserve _) = True
     collects CCollect = True
     collects _ = False
@@ -612,7 +613,8 @@ checkReport expected capacityBefore report =
     <> checkValues "blackholes" (map VHeap (mBlackholes expected)) (rBlackholes report)
     <> staticProblems
   where
-    liveBytes = 8 * sum (map objectWords (Map.elems (mHeap expected)))
+    -- The native MVar has nine slots on the 64-bit test targets.
+    liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * length (mMvars expected))
     occupied = rLive report + rRequired report
     spaceProblems =
       ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]

@@ -1,0 +1,33 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M512", "-RTS"]
+program: |
+  constructor Number/1 [IntRep]
+  primitive newMVar# :: BoxedRep Unlifted/0
+  primitive putMVar# :: TupleRep []/2
+  primitive readMVar# :: BoxedRep Lifted/1
+  primitive +# :: IntRep/2
+
+  $loop (counter :: IntRep) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      200 ->
+        constant (counter :: IntRep)
+      _ ->
+        (value :: BoxedRep Lifted) <- store (CNumber (counter :: IntRep))
+        (cell :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+        () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
+        (result :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readMVar# (cell :: BoxedRep Unlifted)
+        case (result :: BoxedRep Lifted) as box :: BoxedRep Lifted of
+          data Number (number :: IntRep) ->
+            (next :: IntRep) <- primitive-call @IntRep +# (number :: IntRep) (1 :: IntRep)
+            call @IntRep $loop (next :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+return: "200"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 30400
+  linux-amd64: 30400
+status: pass
+reason: Unreachable MVars and their values must fit a small heap after repeated allocation and collection.
