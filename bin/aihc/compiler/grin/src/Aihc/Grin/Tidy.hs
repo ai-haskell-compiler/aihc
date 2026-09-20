@@ -75,8 +75,8 @@ tidyExpr expression =
     GrinUpdate pointer value -> GrinUpdate <$> useValue pointer <*> useValue value
     GrinUpdateBlackhole pointer value -> GrinUpdateBlackhole <$> useValue pointer <*> useValue value
     GrinEval runtimeRep value -> GrinEval runtimeRep <$> useValue value
-    GrinCpsEval runtimeRep value continuation updateContinuation ->
-      GrinCpsEval runtimeRep <$> useValue value <*> useValue continuation <*> useValue updateContinuation
+    GrinCpsEval runtimeRep value continuation ->
+      GrinCpsEval runtimeRep <$> useValue value <*> useValue continuation
     GrinCall runtimeRep functionName arguments ->
       GrinCall runtimeRep functionName <$> useValues arguments
     GrinPrimitiveCall runtimeRep name arguments ->
@@ -93,6 +93,7 @@ tidyExpr expression =
       GrinCpsRaise <$> useValue exception <*> useValue continuation
     GrinHalt values -> GrinHalt <$> useValues values
     GrinExit status -> GrinExit <$> useValue status
+    GrinIfWhnf value ready slow -> GrinIfWhnf <$> useValue value <*> tidyExpr ready <*> tidyExpr slow
     GrinCase scrutinee binder alternatives -> do
       scrutinee' <- useValue scrutinee
       binder' <- bindVar binder

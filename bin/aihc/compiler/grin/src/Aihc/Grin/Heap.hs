@@ -39,6 +39,11 @@ normalizeExpr expression =
               ( valueWords + bodyWords,
                 GrinBind vars valueExpression' body'
               )
+    -- Keep the slow branch's reservation after the WHNF test.
+    GrinIfWhnf value ready slow ->
+      (0, GrinIfWhnf value (reserveBranch ready) (reserveBranch slow))
+      where
+        reserveBranch branch = uncurry addReservation (normalizeExpr branch)
     GrinCase scrutinee binder alternatives ->
       let normalized = map normalizeAlternative alternatives
           requiredWords = maximum (0 : map fst normalized)

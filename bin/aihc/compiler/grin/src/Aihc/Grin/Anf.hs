@@ -98,6 +98,8 @@ normalizeGrinExpr expression = normalizeInto Map.empty expression (\_ tailExpres
                   (normalizeInto (shadow resultVars valueSubstitution) body continue)
         GrinStoreRec bindings body -> storeRec GrinStoreRec bindings body
         GrinStoreRecUnchecked bindings body -> storeRec GrinStoreRecUnchecked bindings body
+        GrinIfWhnf value ready slow ->
+          continue substitution (GrinIfWhnf (useValue substitution value) (normalizeExpr substitution ready) (normalizeExpr substitution slow))
         GrinCase scrutinee binder alternatives ->
           continue
             substitution
@@ -181,8 +183,8 @@ mapExprValues f expression =
     GrinStoreRecUnchecked bindings body -> GrinStoreRecUnchecked (nodes bindings) body
     GrinUpdate pointer value -> GrinUpdate (f pointer) (f value)
     GrinEval runtimeRep value -> GrinEval runtimeRep (f value)
-    GrinCpsEval runtimeRep value continuation updateContinuation ->
-      GrinCpsEval runtimeRep (f value) (f continuation) (f updateContinuation)
+    GrinCpsEval runtimeRep value continuation ->
+      GrinCpsEval runtimeRep (f value) (f continuation)
     GrinCall runtimeRep functionName arguments -> GrinCall runtimeRep functionName (map f arguments)
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map f arguments)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
@@ -195,6 +197,7 @@ mapExprValues f expression =
     GrinUpdateBlackhole pointer value -> GrinUpdateBlackhole (f pointer) (f value)
     GrinHalt values -> GrinHalt (map f values)
     GrinExit status -> GrinExit (f status)
+    GrinIfWhnf value ready slow -> GrinIfWhnf (f value) ready slow
     GrinCase scrutinee binder alternatives -> GrinCase (f scrutinee) binder alternatives
     GrinThrow exception -> GrinThrow (f exception)
     GrinCatch runtimeRep action handler state ->

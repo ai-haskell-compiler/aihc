@@ -114,11 +114,11 @@ prettyExprWith scopes expr =
       "update-blackhole" <+> prettyValue scopes pointer <+> prettyValue scopes value
     GrinEval runtimeRep value ->
       "eval" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue scopes value
-    GrinCpsEval runtimeRep value continuation updateContinuation ->
+    GrinCpsEval runtimeRep value continuation ->
       "cps-eval"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
-        <+> hsep (map (prettyValue scopes) [value, continuation, updateContinuation])
+        <+> hsep (map (prettyValue scopes) [value, continuation])
     GrinCall resultRep functionName arguments ->
       "call"
         <+> "@"
@@ -159,6 +159,15 @@ prettyExprWith scopes expr =
       "raise-cps" <+> prettyValue scopes exception <+> prettyValue scopes continuation
     GrinHalt values -> "halt" <> prettyValues scopes values
     GrinExit status -> "exit" <+> prettyValue scopes status
+    GrinIfWhnf value ready slow ->
+      "if-whnf"
+        <+> prettyValue scopes value
+        <> hardline
+        <> indent 2 (prettyExprWith scopes ready)
+        <> hardline
+        <> "else"
+        <> hardline
+        <> indent 2 (prettyExprWith scopes slow)
     GrinCase scrutinee binder alternatives ->
       "case"
         <+> prettyValue scopes scrutinee

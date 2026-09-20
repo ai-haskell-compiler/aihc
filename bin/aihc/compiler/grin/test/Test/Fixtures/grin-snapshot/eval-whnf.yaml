@@ -21,7 +21,7 @@ heap: |
   @2 = CValue
   @3 = CBox
 allocated-bytes:
-  macos-arm64: 208
-  linux-amd64: 208
+  macos-arm64: 80
+  linux-amd64: 80
 status: pass
 reason: GrinEval returns the original heap pointer for partial applications and saturated data constructors that are already in WHNF

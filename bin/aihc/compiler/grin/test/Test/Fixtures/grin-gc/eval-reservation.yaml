@@ -3,10 +3,6 @@ program: |
     eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)
 expected: |
   force (value :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
-    $cps_return$gc :: BoxedRep Lifted, value$gc :: BoxedRep Lifted <-
-      ensure-heap (17 :: WordRep) ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
-    $cps_update :: BoxedRep Lifted <-
-      store-unchecked (P$cps_update/1 ($cps_return$gc :: BoxedRep Lifted) (value$gc :: BoxedRep Lifted))
-    cps-eval @(BoxedRep Lifted) (value$gc :: BoxedRep Lifted) ($cps_return$gc :: BoxedRep Lifted) ($cps_update :: BoxedRep Lifted)
+    cps-eval @(BoxedRep Lifted) (value :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted)
 status: pass
-reason: Evaluation must reserve blackhole record memory and protect the value and continuation.
+reason: The runtime reserves space only when evaluation enters a thunk or waits for a blackhole.

@@ -24,7 +24,7 @@ heap: |
   @0 = CPair @1 @1
   @1 = CBox 42
 allocated-bytes:
-  macos-arm64: 488
-  linux-amd64: 488
+  macos-arm64: 416
+  linux-amd64: 416
 status: pass
 reason: A future recursive allocation must retain the static objects that its code can reach before allocation.

@@ -586,17 +586,20 @@ The lowering keeps the control model of CPS-GRIN:
 - A store takes its object from that reservation itself: it loads the heap
   pointer of the machine, advances it by the words of the object, and writes
   the header and the fields. The runtime exports no allocator.
-- The update continuation of a thunk under evaluation is the shared
-  `aihc_lir_cps_update` of `aihc_helpers.lir`, and a module names its two
-  info tables rather than lowering a copy. The CPS conversion appends an
-  update function to every program whether or not the program evaluates
-  anything, and the body does not depend on the module, so a module that
-  lowered its own carried a function nothing in it could reach.
+- `GrinIfWhnf` loads the object kind and branches without allocation or suspension.
+  Thunks, indirections, and blackholes take its slow branch. All other kinds take its ready branch.
+  The ready branch calls the continuation function directly with its captures and result.
+  The slow branch allocates a continuation frame for the same function.
+  Heap reservations stay inside their branches.
+- `aihc_lir_eval` creates an update frame only when it enters a thunk.
+  It reserves space for the frame and blackhole record, with the resolved value and continuation as GC roots.
+  The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
+  Compiler modules contain no update-frame construction or synthetic update function.
 - Evaluation and scheduler resumption use shared runtime functions.
   Application and continuation use shared functions for `[]`, `[ptr]`, and
   `[i64]`. The compiler emits local helpers for all other argument shapes.
   Helper names describe Lir types, rather than source types.
-- The executable entry unit defines the top, final, update, and thread done
+- The executable entry unit defines the top, final, and thread done
   continuations and the exit function. On a POSIX host it defines `main`,
   which starts the machine and returns when the exit function returns. On
   WASI P3 it exports `aihc_lir_program_start` and `aihc_lir_program_resume`

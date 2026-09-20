@@ -24,7 +24,7 @@ heap: |
   @1 = CNumber 7
   @2 = CNumber 42
 allocated-bytes:
-  macos-arm64: 424
-  linux-amd64: 424
+  macos-arm64: 376
+  linux-amd64: 376
 status: pass
 reason: Collection must relocate info-table references in static and heap blackholes while it preserves captured fields.

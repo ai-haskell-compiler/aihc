@@ -48,3 +48,10 @@ const @AIHC_RESUME_NONE = 0
 const @AIHC_RESUME_APPLY = 1
 const @AIHC_RESUME_CONTINUE = 2
 const @AIHC_RESUME_RAISE = 3
+
+; Heap slots have eight bytes on every target.
+; Fourteen slots cover a blackhole record or waiter on every target.
+const @AIHC_EVAL_RECORD_WORDS = 14
+const @AIHC_UPDATE_FRAME_WORDS = 3
+const @AIHC_UPDATE_FRAME_BYTES = @AIHC_UPDATE_FRAME_WORDS * 8
+const @AIHC_EVAL_THUNK_WORDS = @AIHC_EVAL_RECORD_WORDS + @AIHC_UPDATE_FRAME_WORDS
