@@ -49,7 +49,7 @@ program: |
 return: "42"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 64776
-  linux-amd64: 64776
+  macos-arm64: 64784
+  linux-amd64: 64784
 status: pass
 reason: A suspended keep-alive action must retain its pinned owner while another thread forces collections.

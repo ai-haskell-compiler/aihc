@@ -72,9 +72,12 @@ stdioSchedulerProgram =
       grinPrimitives =
         [ (GrinVar "awaitIO#" 30 lifted, 2),
           (GrinVar "newPinnedByteArray#" 31 (BoxedRep Unlifted), 2),
-          (GrinVar "mutableByteArrayContents#" 32 AddrRep, 1)
+          (GrinVar "mutableByteArrayContents#" 32 AddrRep, 1),
+          (GrinVar "submitIORead#" 43 AddrRep, 4),
+          (GrinVar "submitIOWrite#" 44 AddrRep, 4),
+          (GrinVar "touch#" 45 lifted, 2)
         ],
-      grinForeignCalls = [stdinCall, stdoutCall, submitReadCall, submitWriteCall, takeResultCall],
+      grinForeignCalls = [stdinCall, stdoutCall, takeResultCall],
       grinGlobals = [pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =
         [ GrinFunction
@@ -85,14 +88,15 @@ stdioSchedulerProgram =
                 GrinBind [byteArray] (GrinPrimitiveCall (BoxedRep Unlifted) "newPinnedByteArray#" [intValue 64]) $
                   GrinBind [bufferContents] (GrinPrimitiveCall AddrRep "mutableByteArrayContents#" [GrinVarValue byteArray]) $
                     GrinBind [stdinIOHandle] (GrinForeignCallExpr stdinCall []) $
-                      GrinBind [readRequest] (GrinForeignCallExpr submitReadCall [GrinVarValue stdinIOHandle, GrinVarValue bufferContents, int32 0, int32 64]) $
+                      GrinBind [readRequest] (GrinPrimitiveCall AddrRep "submitIORead#" [GrinVarValue stdinIOHandle, GrinVarValue bufferContents, intValue 0, intValue 64]) $
                         GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue readRequest]) $
                           GrinBind [readCount] (GrinForeignCallExpr takeResultCall [GrinVarValue readRequest]) $
                             GrinBind [stdoutIOHandle] (GrinForeignCallExpr stdoutCall []) $
-                              GrinBind [writeRequest] (GrinForeignCallExpr submitWriteCall [GrinVarValue stdoutIOHandle, GrinVarValue bufferContents, int32 0, GrinVarValue readCount]) $
+                              GrinBind [writeRequest] (GrinPrimitiveCall AddrRep "submitIOWrite#" [GrinVarValue stdoutIOHandle, GrinVarValue bufferContents, intValue 0, GrinVarValue readCount]) $
                                 GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue writeRequest]) $
                                   GrinBind [writeResult] (GrinForeignCallExpr takeResultCall [GrinVarValue writeRequest]) $
-                                    GrinConstant [GrinGlobalValue (grinVarName unitValue)]
+                                    GrinBind [] (GrinPrimitiveCall (TupleRep []) "touch#" [GrinVarValue byteArray]) $
+                                      GrinConstant [GrinGlobalValue (grinVarName unitValue)]
             }
         ]
     }
@@ -104,17 +108,14 @@ stdioSchedulerProgram =
     bufferContents = GrinVar "buffer_contents" 35 AddrRep
     stdinIOHandle = GrinVar "stdin_handle" 36 AddrRep
     readRequest = GrinVar "read_request" 37 AddrRep
-    readCount = GrinVar "read_count" 38 Int32Rep
+    readCount = GrinVar "read_count" 38 IntRep
     stdoutIOHandle = GrinVar "stdout_handle" 39 AddrRep
     writeRequest = GrinVar "write_request" 40 AddrRep
-    writeResult = GrinVar "write_result" 41 Int32Rep
+    writeResult = GrinVar "write_result" 41 IntRep
     unitValue = GrinVar "()" 42 lifted
     stdinCall = runtimeIoCall "aihc_io_stdin" [] GrinForeignAddr
     stdoutCall = runtimeIoCall "aihc_io_stdout" [] GrinForeignAddr
-    submitReadCall = runtimeIoCall "aihc_io_submit_read" [GrinForeignAddr, GrinForeignAddr, GrinForeignInt32, GrinForeignInt32] GrinForeignAddr
-    submitWriteCall = runtimeIoCall "aihc_io_submit_write" [GrinForeignAddr, GrinForeignAddr, GrinForeignInt32, GrinForeignInt32] GrinForeignAddr
-    takeResultCall = runtimeIoCall "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt32
-    int32 = GrinLitValue . GrinLitInt Int32Rep
+    takeResultCall = runtimeIoCall "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt
     intValue = GrinLitValue . GrinLitInt IntRep
     runtimeIoCall symbol arguments result =
       GrinForeignCall

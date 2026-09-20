@@ -437,6 +437,7 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   switch (aihc_value_kind(object)) {
   case AIHC_OBJECT_IO_REQUEST: {
     AihcIoRequest *request = (AihcIoRequest *)object;
+    aihc_visit_value(&request->buffer_owner, visitor, context);
     aihc_visit_value(&request->continuation, visitor, context);
     request->thread = aihc_visit_pointer(request->thread, visitor, context);
     return 1;
@@ -570,11 +571,6 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
   for (AihcIoRequest *request = machine->registered_requests; request != NULL;
        request = request->registered_next) {
     (void)visitor((AihcSlot)(uintptr_t)request, context);
-  }
-  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
-       request = request->next) {
-    aihc_visit_value(&request->continuation, visitor, context);
-    request->thread = aihc_visit_pointer(request->thread, visitor, context);
   }
 }
 
@@ -974,7 +970,7 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
   }
 }
 
-/* The caller reserves seventeen slots. This operation cannot collect. */
+/* The caller reserves eighteen slots. This operation cannot collect. */
 static AihcIoRequest *aihc_io_request_new(AihcMachine *machine) {
   AihcIoRequest *request = (AihcIoRequest *)aihc_gc_allocate_pinned(
       machine, aihc_record_words(sizeof(*request)));
@@ -1002,10 +998,44 @@ static void aihc_io_request_release(AihcIoRequest *request) {
   request->registered_next = NULL;
 }
 
-static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
-                                     uint8_t *buffer, int64_t offset,
-                                     int64_t length) {
-  AihcIoRequest *request = aihc_allocate_zeroed(sizeof(*request));
+/* Retain a pinned owner when the address names its payload.
+   External buffers remain the caller's responsibility. */
+static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
+                                  size_t offset, size_t length) {
+  AihcMachine *machine = request->machine;
+  uintptr_t address = (uintptr_t)buffer;
+  uintptr_t heap_start = (uintptr_t)machine->heap_start;
+  if (address >= heap_start &&
+      address - heap_start < machine->heap_space_bytes) {
+    return 0;
+  }
+  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
+       block = block->next) {
+    AihcValue *object = (AihcValue *)block->object;
+    if (aihc_value_kind(object) != AIHC_OBJECT_BYTE_ARRAY) {
+      continue;
+    }
+    AihcByteArray *array = (AihcByteArray *)object;
+    uintptr_t start = (uintptr_t)array->contents;
+    if (address >= start && address - start <= array->size) {
+      uint64_t available = array->size - (address - start);
+      if (offset > available || length > available - offset) {
+        return 0;
+      }
+      request->buffer_owner = object;
+      break;
+    }
+  }
+  request->buffer = buffer;
+  request->offset = offset;
+  request->length = length;
+  return 1;
+}
+
+static AihcIoRequest *aihc_io_submit(AihcMachine *machine, AihcIoKind kind,
+                                     AihcIoHandle *handle, uint8_t *buffer,
+                                     int64_t offset, int64_t length) {
+  AihcIoRequest *request = aihc_io_request_new(machine);
   request->kind = kind;
   request->state = AIHC_IO_SUBMITTED;
   request->handle = handle;
@@ -1028,16 +1058,19 @@ static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
     request->result = aihc_io_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
     return request;
   }
-  request->buffer = buffer;
-  request->offset = (size_t)offset;
-  request->length = (size_t)length;
+  if (!aihc_io_request_buffer(request, buffer, (size_t)offset,
+                              (size_t)length)) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+  }
   return request;
 }
 
-static AihcIoRequest *aihc_io_submit_open_request(uint8_t *path,
+static AihcIoRequest *aihc_io_submit_open_request(AihcMachine *machine,
+                                                  uint8_t *path,
                                                   int64_t requested_length,
                                                   int64_t requested_mode) {
-  AihcIoRequest *request = aihc_allocate_zeroed(sizeof(*request));
+  AihcIoRequest *request = aihc_io_request_new(machine);
   request->kind = AIHC_IO_OPEN;
   request->state = AIHC_IO_SUBMITTED;
   if (requested_length < 0 || (uint64_t)requested_length > SIZE_MAX ||
@@ -1048,8 +1081,11 @@ static AihcIoRequest *aihc_io_submit_open_request(uint8_t *path,
         (int64_t)(uintptr_t)aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
     return request;
   }
-  request->buffer = path;
-  request->length = (size_t)requested_length;
+  if (!aihc_io_request_buffer(request, path, 0, (size_t)requested_length)) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result =
+        (int64_t)(uintptr_t)aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+  }
   request->mode = requested_mode;
   return request;
 }
@@ -1091,20 +1127,22 @@ int64_t aihc_errno_set(int64_t value) {
   return (int64_t)previous;
 }
 
-void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,
-                          int64_t offset, int64_t length) {
-  return aihc_io_submit(AIHC_IO_READ, opaque_handle, opaque_buffer, offset,
-                        length);
+void *aihc_io_submit_read(AihcMachine *machine, void *opaque_handle,
+                          void *opaque_buffer, int64_t offset, int64_t length) {
+  return aihc_io_submit(machine, AIHC_IO_READ, opaque_handle, opaque_buffer,
+                        offset, length);
 }
 
-void *aihc_io_submit_write(void *opaque_handle, void *opaque_buffer,
-                           int64_t offset, int64_t length) {
-  return aihc_io_submit(AIHC_IO_WRITE, opaque_handle, opaque_buffer, offset,
-                        length);
+void *aihc_io_submit_write(AihcMachine *machine, void *opaque_handle,
+                           void *opaque_buffer, int64_t offset,
+                           int64_t length) {
+  return aihc_io_submit(machine, AIHC_IO_WRITE, opaque_handle, opaque_buffer,
+                        offset, length);
 }
 
-void *aihc_io_submit_open(void *opaque_path, int64_t length, int64_t mode) {
-  return aihc_io_submit_open_request(opaque_path, length, mode);
+void *aihc_io_submit_open(AihcMachine *machine, void *opaque_path,
+                          int64_t length, int64_t mode) {
+  return aihc_io_submit_open_request(machine, opaque_path, length, mode);
 }
 
 int64_t aihc_io_take_result(void *opaque_request) {
@@ -1114,11 +1152,8 @@ int64_t aihc_io_take_result(void *opaque_request) {
   }
   int64_t result = request->result;
   request->state = AIHC_IO_CONSUMED;
-  if (request->machine != NULL) {
-    aihc_io_request_release(request);
-  } else {
-    free(request);
-  }
+  aihc_io_request_release(request);
+  request->buffer_owner = NULL;
   return result;
 }
 

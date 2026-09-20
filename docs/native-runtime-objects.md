@@ -340,9 +340,9 @@ Foreign operand conversion evaluates other operands before it obtains byte-array
 Thus, a collection during operand evaluation cannot invalidate an extracted movable address.
 The path and argument-buffer helpers retain their owners while raw addresses are in use.
 
-## STM wait requests
+## Request allocation and roots
 
-`stmWaitRequest#` reserves seventeen slots in GRIN GC.
+`stmWaitRequest#`, `submitIORead#`, `submitIOWrite#`, and `submitIOOpen#` reserve eighteen slots in GRIN GC.
 The runtime consumes this reservation without collection.
 The bound includes the request and two pinned metadata slots.
 The collector owns request storage and includes its charge in heap limits and statistics.
@@ -355,31 +355,28 @@ The next collection can then reclaim the request.
 The caller must consume each completed request exactly once.
 An unconsumed request retains its registration and counts toward the heap limit.
 
-The collector traces the saved thread and continuation through the request header.
+The collector traces the saved thread, continuation, and pinned buffer owner through the request header.
 The root list and the pinned allocation list have separate purposes.
 The pinned allocation list does not retain requests.
-Host IO requests still use the old allocation path until the next conversion.
 
 ## IO manager
 
 The runtime ABI separates operation submission, scheduler suspension, and
 result consumption:
 
-1. An ordinary foreign call allocates an opaque request in the `submitted`
-   state without blocking.
+1. A submission primitive consumes reserved memory for an opaque request in the `submitted` state.
 2. `awaitIO#` asks the configured backend to make progress. Immediate
    completions continue directly; otherwise the request becomes `pending` and
    retains the current green thread and continuation.
 3. Backend polling changes a ready request to `completed` and enqueues its
    thread. A final ordinary foreign call takes the result, changes the request
-   to `consumed`, and releases it.
+   to `consumed`, and removes its root registration.
 
 Backend workers or readiness mechanisms produce only native completion data;
 Haskell continuations are always reconstructed and enqueued on the scheduler
 thread. This prevents moving-heap pointers from escaping to an asynchronous
-backend. Pending requests are collector roots only for their saved continuation
-and thread resume record. The opaque request pointer itself has `Addr#`
-representation and is not traced as a Haskell heap pointer.
+backend. Each unconsumed request has an explicit root registration.
+The raw request address has `Addr#` representation and does not provide a Haskell heap root.
 
 IO operations target opaque runtime-owned handles rather than OS descriptor
 numbers. Standard input and output are the first preopened handles, while each
@@ -390,10 +387,15 @@ reads or writes report that they would block. Windows can instead store `HANDLE`
 
 Reads and writes operate on an offset and length within a pinned `MutableByteArray#` payload.
 The collector owns and can reclaim these arrays.
-The caller must retain the array through submission, suspension, completion, and result consumption.
-`keepAlive#` can protect that complete action.
-Pending requests retain their saved continuations, which retain active keep-alive frames.
-The request's raw buffer pointer is not a GC root.
+The caller must retain the array through the submission reservation.
+A final `touch#` after submission can establish this lifetime.
+Submission finds the pinned owner from the payload address and checks the requested slice against its bounds.
+The request then retains that owner until result consumption.
+Interior payload addresses also retain their owner.
+A request rejects a buffer address in the movable heap.
+External buffers remain the caller's responsibility.
+Use `keepAlive#` around the complete action when a separate Haskell owner controls external storage.
+Handle allocation remains outside the collector until the handle conversion.
 Callers must not access the submitted slice while the request is pending.
 
 `copyAddrToByteArray#` copies an explicit byte count into a checked destination slice.

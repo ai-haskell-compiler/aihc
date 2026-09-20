@@ -24,7 +24,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 33600
-  linux-amd64: 33600
+  macos-arm64: 35200
+  linux-amd64: 35200
 status: pass
 reason: Consumed requests must become reclaimable within the heap limit.
