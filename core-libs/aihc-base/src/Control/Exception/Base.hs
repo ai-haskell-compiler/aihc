@@ -26,6 +26,7 @@ module Control.Exception.Base
     handleJust,
     throw,
     throwIO,
+    throwTo,
     try,
     tryJust,
     onException,
@@ -44,6 +45,7 @@ module Control.Exception.Base
   )
 where
 
+import GHC.Conc.Sync (throwTo)
 import GHC.Exception (ArithException (..), ErrorCall (..), Exception (..), SomeException (..), throw, pattern ErrorCall)
 import GHC.IO (MaskingState (..), bracket, catch, evaluate, finally, getMaskingState, interruptible, mask, mask_, onException, throwIO, uninterruptibleMask, uninterruptibleMask_)
 import GHC.IO.Exception

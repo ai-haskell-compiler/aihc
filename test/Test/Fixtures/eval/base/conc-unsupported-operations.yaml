@@ -1,0 +1,39 @@
+evaluators:
+  - grin
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (forkOS, myThreadId, throwTo)
+    import Control.Exception (ErrorCall, catch, displayException)
+    import qualified Control.Exception.Base as Base
+    import qualified GHC.Conc as Conc
+    import qualified GHC.Conc.Sync as Sync
+
+    failure :: IO a -> IO String
+    failure action = catch (action >> pure "unexpected success") report
+      where
+        report :: ErrorCall -> IO String
+        report = pure . displayException
+
+    report :: IO Bool
+    report = do
+      thread <- myThreadId
+      bound <- failure (forkOS (pure ()))
+      lazyBound <- failure (forkOS undefined)
+      asynchronous <- failure (throwTo thread (userError "unused exception"))
+      lazyAsynchronous <- failure (throwTo undefined (undefined :: ErrorCall))
+      base <- failure (Base.throwTo thread (userError "unused exception"))
+      conc <- failure (Conc.throwTo thread (userError "unused exception"))
+      sync <- failure (Sync.throwTo thread (userError "unused exception"))
+      let boundMessage = "forkOS: bound threads are not supported"
+          asynchronousMessage = "throwTo: asynchronous exceptions are not supported"
+      pure
+        ( [bound, lazyBound] == replicate 2 boundMessage
+          && [asynchronous, lazyAsynchronous, base, conc, sync] == replicate 5 asynchronousMessage
+        )
+expression: report
+output: |
+  True
+status: pass
+reason: The stubs report unsupported operations without evaluation of their arguments.
