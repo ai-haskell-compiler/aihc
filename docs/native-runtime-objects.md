@@ -139,8 +139,7 @@ source the collector visits. The driver process stays alive across cases, so
 the test can compile the driver with sanitizers when the C compiler supports
 them.
 
-The cooperative scheduler keeps blackhole records, blackhole waiters,
-and pending IO requests in auxiliary C allocations. Suspended threads retain
+The cooperative scheduler keeps blackhole records and pending IO requests in auxiliary C allocations. Suspended threads retain
 ordinary action or continuation closures. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
 dispatches with a tail call. All retained closure values and pending-request
@@ -204,6 +203,22 @@ Collection preserves this number even when it changes the record address.
 The number remains at offset eight on every target.
 `aihcThreadIdNumber#` reads it with one load.
 `myThreadId#` reads the current thread from the machine.
+
+Blackhole waiters use the managed heap.
+Each waiter has a header, thread, continuation, and queue link.
+The collector traces these fields through the C layout.
+Each active blackhole retains both ends of its waiter queue.
+Thunk update and exception paths remove the blackhole from the active list and wake its waiters.
+The waiters then become reclaimable without direct memory release.
+Their memory counts toward managed allocation statistics and the `-M` limit.
+
+The GRIN GC stage reserves four slots before each CPS evaluation.
+The reservation protects the value and both continuations.
+Reservation normalization can combine these slots with the three slots for an update frame.
+The shared runtime update continuation also reserves seven slots before its frame allocation and tail call to evaluation.
+`aihc_lir_eval` and `aihc_block_on_blackhole` consume this reservation without collection.
+The Lir lowering does not insert these reservations.
+Blackhole records still need separate pinned storage because thunk headers contain their embedded info-table addresses.
 
 `MVar#` uses a managed empty/full cell with separate FIFO queues for
 blocked readers, takers, and putters.

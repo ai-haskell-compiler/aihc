@@ -91,10 +91,15 @@ _Static_assert(sizeof(AihcTransactionTimer) <= 5 * sizeof(AihcSlot),
                "timer exceeds the GRIN reservation");
 
 struct AihcBlackholeWaiter {
+  AihcSlot header;
   AihcThread *thread;
   AihcValue *continuation;
   AihcBlackholeWaiter *next;
 };
+
+/* Match the evaluation reservation in Aihc.Grin.Gc and aihc_helpers.lir. */
+_Static_assert(sizeof(AihcBlackholeWaiter) <= 4 * sizeof(AihcSlot),
+               "blackhole waiter exceeds the GRIN reservation");
 
 struct AihcBlackhole {
   /* The object header points to this first member. */
