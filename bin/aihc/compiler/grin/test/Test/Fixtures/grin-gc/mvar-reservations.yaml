@@ -1,0 +1,47 @@
+program: |
+  primitive newMVar# :: BoxedRep Unlifted/0
+  primitive readMVar# :: BoxedRep Lifted/1
+  primitive takeMVar# :: BoxedRep Lifted/1
+  primitive putMVar# :: TupleRep []/2
+
+  new -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) newMVar#
+
+  read (cell :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    primitive-call @(BoxedRep Lifted) readMVar# (cell :: BoxedRep Unlifted)
+
+  take (cell :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    primitive-call @(BoxedRep Lifted) takeMVar# (cell :: BoxedRep Unlifted)
+
+  put (cell :: BoxedRep Unlifted) (value :: BoxedRep Lifted) -> TupleRep [] =
+    primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
+expected: |
+  primitive newMVar# :: BoxedRep Unlifted/0
+
+  primitive readMVar# :: BoxedRep Lifted/1
+
+  primitive takeMVar# :: BoxedRep Lifted/1
+
+  primitive putMVar# :: TupleRep []/2
+
+  new ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $cps_return$gc :: BoxedRep Lifted <-
+      ensure-heap (9 :: WordRep) ($cps_return :: BoxedRep Lifted)
+    cps-primitive-call @(BoxedRep Unlifted) newMVar# -> ($cps_return$gc :: BoxedRep Lifted)
+
+  read (cell :: BoxedRep Unlifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_return$gc :: BoxedRep Lifted, cell$gc :: BoxedRep Unlifted <-
+      ensure-heap (5 :: WordRep) ($cps_return :: BoxedRep Lifted) (cell :: BoxedRep Unlifted)
+    cps-primitive-call @(BoxedRep Lifted) readMVar# (cell$gc :: BoxedRep Unlifted) -> ($cps_return$gc :: BoxedRep Lifted)
+
+  take (cell :: BoxedRep Unlifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_return$gc :: BoxedRep Lifted, cell$gc :: BoxedRep Unlifted <-
+      ensure-heap (5 :: WordRep) ($cps_return :: BoxedRep Lifted) (cell :: BoxedRep Unlifted)
+    cps-primitive-call @(BoxedRep Lifted) takeMVar# (cell$gc :: BoxedRep Unlifted) -> ($cps_return$gc :: BoxedRep Lifted)
+
+  put (cell :: BoxedRep Unlifted) (value :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> TupleRep [] =
+    $cps_return$gc :: BoxedRep Lifted, cell$gc :: BoxedRep Unlifted, value$gc :: BoxedRep Lifted <-
+      ensure-heap (5 :: WordRep) ($cps_return :: BoxedRep Lifted) (cell :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
+    cps-primitive-call @(TupleRep []) putMVar# (cell$gc :: BoxedRep Unlifted) (value$gc :: BoxedRep Lifted) -> ($cps_return$gc :: BoxedRep Lifted)
+status: pass
+reason: MVar reservations must protect the CPS continuation, the cell, and the put value.

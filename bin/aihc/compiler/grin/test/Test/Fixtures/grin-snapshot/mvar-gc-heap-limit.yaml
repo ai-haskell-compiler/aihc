@@ -1,0 +1,27 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M256", "-RTS"]
+program: |
+  constructor End/0 []
+  constructor Link/1 [BoxedRep Unlifted]
+  primitive newMVar# :: BoxedRep Unlifted/0
+  primitive putMVar# :: TupleRep []/2
+  primitive +# :: IntRep/2
+
+  $loop (counter :: IntRep) (previous :: BoxedRep Lifted) -> IntRep =
+    case (counter :: IntRep) as tested :: IntRep of
+      4 ->
+        constant (counter :: IntRep)
+      _ ->
+        (cell :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+        () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (previous :: BoxedRep Lifted)
+        (link :: BoxedRep Lifted) <- store (CLink (cell :: BoxedRep Unlifted))
+        (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next :: IntRep) (link :: BoxedRep Lifted)
+
+  $entry -> IntRep =
+    (end :: BoxedRep Lifted) <- store (CEnd)
+    call @IntRep $loop (0 :: IntRep) (end :: BoxedRep Lifted)
+error: heap limit exceeded
+status: pass
+reason: Live MVars and their values count against the managed heap limit.

@@ -16,14 +16,15 @@ enum {
   AIHC_OBJECT_BLACKHOLE,
   AIHC_OBJECT_ARRAY,
   AIHC_OBJECT_THREAD,
-  /* An object the runtime allocates outside the managed heap: a byte array,
-     an MVar, or a stable name. Compiled code stores its address in pointer
-     fields, so it carries a header like every other object, but it never
-     moves and holds no heap pointers the collector has to update. */
+  /* Byte arrays and stable names remain outside the managed heap.
+     Each object has a header because compiled code stores it in pointer fields.
+     The root visitor traces stable-name referents through the machine list. */
   AIHC_OBJECT_RUNTIME,
   AIHC_OBJECT_TRANSACTION,
   AIHC_OBJECT_TRANSACTION_WRITE,
   AIHC_OBJECT_TRANSACTION_TIMER,
+  AIHC_OBJECT_MVAR,
+  AIHC_OBJECT_MVAR_WAITER,
 };
 typedef uint8_t AihcObjectKind;
 
@@ -157,7 +158,6 @@ struct AihcMachine {
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
-  AihcMVar *mvars;
   AihcStableName *stable_names;
   uint64_t next_stable_name;
   /* The number of the next new thread. The counter starts at one, it gives the
