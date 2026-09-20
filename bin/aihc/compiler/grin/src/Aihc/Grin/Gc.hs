@@ -91,6 +91,9 @@ insertExprReservations expression =
             []
             (GrinEnsureHeap (staticHeapWords requiredWords) [])
             (GrinBind resultVars call (insertExprReservations body))
+    call@(GrinCpsPrimitiveCall _ name _ _)
+      | Just requiredWords <- primitiveHeapWords name ->
+          GrinBind [] (GrinEnsureHeap (staticHeapWords requiredWords) []) call
     GrinBind resultVars valueExpression body ->
       GrinBind resultVars (insertExprReservations valueExpression) (insertExprReservations body)
     GrinStore node ->

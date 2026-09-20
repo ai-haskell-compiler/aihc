@@ -1,0 +1,46 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+  constructor Done/0 []
+  primitive newMVar# :: BoxedRep Unlifted/0
+  primitive readMVar# :: BoxedRep Lifted/1
+  primitive takeMVar# :: BoxedRep Lifted/1
+  primitive putMVar# :: TupleRep []/2
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+
+  $child (cell :: BoxedRep Unlifted) (output :: BoxedRep Unlifted) (number :: IntRep) -> BoxedRep Lifted =
+    (value :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (cell :: BoxedRep Unlifted)
+    () <- primitive-call @(TupleRep []) putMVar# (output :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
+    store (CDone)
+
+  $entry -> BoxedRep Lifted =
+    (initial :: BoxedRep Lifted) <- store (CNumber (1 :: IntRep))
+    (cell :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (out1 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (out2 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (child1 :: BoxedRep Lifted) <- store (P$child/[[]] (cell :: BoxedRep Unlifted) (out1 :: BoxedRep Unlifted) (42 :: IntRep))
+    (thread1 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child1 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) yield#
+    (child2 :: BoxedRep Lifted) <- store (P$child/[[]] (cell :: BoxedRep Unlifted) (out2 :: BoxedRep Unlifted) (99 :: IntRep))
+    (thread2 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child2 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) yield#
+    (firstValue :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (firstValue :: BoxedRep Lifted)
+    (secondValue :: BoxedRep Lifted) <- store (CNumber (99 :: IntRep))
+    () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (secondValue :: BoxedRep Lifted)
+    (result1 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (out1 :: BoxedRep Unlifted)
+    (result2 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (out2 :: BoxedRep Unlifted)
+    store (CPair (result1 :: BoxedRep Lifted) (result2 :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = CNumber 42
+  @2 = CNumber 99
+allocated-bytes:
+  macos-arm64: 920
+  linux-amd64: 920
+status: pass
+reason: Collection preserves two blocked take operations, queue order, values, and continuations.

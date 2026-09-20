@@ -587,7 +587,9 @@ static void report_collection(uint64_t required_bytes) {
     if (aihc_value_kind(object) == AIHC_OBJECT_INDIRECTION) {
       violation("indirection in the new space");
     }
-    print_object(object);
+    if (aihc_value_kind(object) != AIHC_OBJECT_MVAR) {
+      print_object(object);
+    }
   }
 
   for (uint64_t index = 0; index < machine->global_count; ++index) {
@@ -659,7 +661,30 @@ static void report_collection(uint64_t required_bytes) {
    collection when the space changed. */
 static void ensure(uint64_t words) {
   uint8_t *before = machine->heap_start;
-  aihc_ensure_heap(machine, words, root_count, root_slots);
+  /* The driver retains its MVars through explicit roots. */
+  if (root_count > SIZE_MAX / sizeof(AihcSlot) ||
+      mvar_count > SIZE_MAX / sizeof(AihcSlot) - root_count) {
+    fail("too many roots");
+  }
+  if (mvar_count != 0 && mvars == NULL) {
+    fail("MVar roots are missing");
+  }
+  size_t total = (size_t)root_count + mvar_count;
+  AihcSlot *roots = checked_calloc(total, sizeof(*roots));
+  for (size_t index = 0; index < total; ++index) {
+    roots[index] = index < root_count
+                       ? root_slots[index]
+                       : (AihcSlot)(uintptr_t)mvars[index - root_count];
+  }
+  aihc_ensure_heap(machine, words, total, roots);
+  for (size_t index = 0; index < total; ++index) {
+    if (index < root_count) {
+      root_slots[index] = roots[index];
+    } else {
+      mvars[index - root_count] = (AihcMVar *)(uintptr_t)roots[index];
+    }
+  }
+  free(roots);
   if (machine->heap_start != before) {
     report_collection(words * sizeof(AihcSlot));
   }
@@ -957,7 +982,14 @@ static void run_command(char **tokens, size_t count) {
     if (count != 2 || mvars != NULL) {
       fail("mvars expects one argument and runs once");
     }
-    mvar_count = (size_t)parse_unsigned(tokens[1]);
+    uint64_t count_to_allocate = parse_unsigned(tokens[1]);
+    if (count_to_allocate > SIZE_MAX / sizeof(AihcMVar)) {
+      fail("too many MVars");
+    }
+    uint64_t words =
+        (sizeof(AihcMVar) + sizeof(AihcSlot) - 1) / sizeof(AihcSlot);
+    ensure(count_to_allocate * words);
+    mvar_count = count_to_allocate;
     mvars = checked_calloc(mvar_count, sizeof(*mvars));
     for (size_t index = 0; index < mvar_count; ++index) {
       mvars[index] = aihc_mvar_new(machine);

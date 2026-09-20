@@ -39,13 +39,23 @@ import Data.Text (Text)
 primitiveAllocates :: Text -> Bool
 primitiveAllocates name = name `Set.member` allocatingPrimitives
 
--- | Maximum heap slots consumed by each fixed-size ordinary primitive.
+-- | Maximum heap slots consumed by each fixed-size primitive.
 -- Heap slots have eight bytes on every target. C size assertions check
 -- the record bounds in aihc_runtime_internal.h.
 -- The caller reserves these slots. The primitive must not collect.
 primitiveHeapWords :: Text -> Maybe Int
 primitiveHeapWords name =
-  lookup name [("stmBegin#", 3), ("writeTVar#", 4), ("newDelayTVar#", 8), ("newPromptTag#", 1)]
+  lookup
+    name
+    [ ("stmBegin#", 3),
+      ("writeTVar#", 4),
+      ("newDelayTVar#", 8),
+      ("newPromptTag#", 1),
+      ("newMVar#", 9),
+      ("readMVar#", 5),
+      ("takeMVar#", 5),
+      ("putMVar#", 5)
+    ]
 
 -- | The primitives whose lowering allocates.
 allocatingPrimitives :: Set Text
