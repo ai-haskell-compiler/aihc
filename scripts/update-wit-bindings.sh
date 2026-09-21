@@ -41,7 +41,7 @@ trap 'rm -rf "$generated"' EXIT
 
 wit-bindgen c --world command --no-object-file --out-dir "$generated" "$world"
 
-# Use GC buffers for canonical ABI allocations and their explicit roots.
+# Keep canonical ABI buffers in the explicit host scope until the call ends.
 python3 - "$generated/command.c" <<'PY'
 import pathlib
 import sys
@@ -55,17 +55,16 @@ allocator = """  (void) old_size;
   return ret;"""
 replacement = """  if (new_size == 0) return (void*) align;
   if (align > _Alignof(max_align_t)) aihc_fail("unsupported canonical ABI alignment");
-  void *ret = aihc_gc_buffer_new(new_size);
+  void *ret = aihc_wasi_allocate(new_size);
   if (old_size != 0) {
     memcpy(ret, ptr, old_size < new_size ? old_size : new_size);
-    aihc_gc_buffer_release(ptr);
   }
   return ret;"""
 if source.count(allocator) != 1:
     sys.exit("The canonical ABI allocator changed. Update its GC adapter.")
 source = source.replace('#include "command.h"', '#include "command.h"\n#include "aihc_runtime_internal.h"')
 source = source.replace(allocator, replacement)
-source = source.replace("    free(", "    aihc_gc_buffer_release(")
+source = source.replace("    free(", "    (void)(")
 path.write_text(source)
 PY
 

@@ -23,14 +23,13 @@ source: |
         address -> case submitIOWrite# stdoutIOHandle# address 0# 0# next of
           (# submitted, request #) -> case touch# array submitted of
             retained -> case awaitIO# request retained of
-              done -> case takeIOResult# request of
-                result -> loop (n -# 1# +# result) done
+              done -> loop (n -# 1#) done
   value = runRW# (loop 200#)
 return: "@0"
 heap: |
   @0 = CResult 200
 allocated-bytes:
-  macos-arm64: 96152
-  linux-amd64: 96152
+  macos-arm64: 94552
+  linux-amd64: 94552
 status: pass
-reason: Consumed host requests and their buffers must become reclaimable within the heap limit.
+reason: Completed, unconsumed requests and their buffers must become reclaimable within the heap limit.

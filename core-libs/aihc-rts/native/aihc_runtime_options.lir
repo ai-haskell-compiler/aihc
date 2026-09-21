@@ -26,9 +26,10 @@
 ; know.
 
 extern func @aihc_fail(ptr) cc c
-extern func @aihc_gc_buffer_new(i64) -> ptr cc c
+extern func @aihc_host_byte_array(ptr, ptr, i64) -> ptr cc c
+extern func @aihc_byte_array_contents(ptr) -> ptr cc c
+extern func @aihc_byte_array_get_size(ptr) -> i64 cc c
 extern func @aihc_memory_copy(ptr, ptr, i64) cc c
-extern func @aihc_gc_buffer_release(ptr) cc c
 
 ; The kept arguments, and the number of bytes they occupy.
 global @aihc_program_argument_buffer: ptr
@@ -81,7 +82,13 @@ entry:
 export func @aihc_rts_stats_path() -> ptr cc c {
 entry:
   %value = global.get @aihc_rts_option_stats_path
-  return %value
+  %absent = eq ptr %value, null
+  br %absent, none, contents
+none:
+  return null
+contents:
+  %path = call @aihc_byte_array_contents(%value)
+  return %path
 }
 
 ; One when the zero-terminated string at %text equals the one at %expected.
@@ -280,21 +287,17 @@ accepted:
   return 1
 }
 
-; Make %environment the program environment and release the previous one.
+; Make %environment the program environment and let the collector reclaim the previous one.
 func @aihc_rts_environment_install(%environment: ptr, %length: i64) {
 entry:
-  %previous = global.get @aihc_program_environment_buffer
-  call @aihc_gc_buffer_release(%previous)
   global.set @aihc_program_environment_buffer, %environment
   global.set @aihc_program_environment_bytes, %length
   return
 }
 
-; Make %arguments the program arguments and release the previous ones.
+; Make %arguments the program arguments and let the collector reclaim the previous ones.
 func @aihc_rts_install(%arguments: ptr, %length: i64) {
 entry:
-  %previous = global.get @aihc_program_argument_buffer
-  call @aihc_gc_buffer_release(%previous)
   global.set @aihc_program_argument_buffer, %arguments
   global.set @aihc_program_argument_bytes, %length
   return
@@ -302,7 +305,7 @@ entry:
 
 ; Parse the RTS options out of the buffer and keep the rest. The result is
 ; zero, or minus one when the buffer is malformed and nothing changed.
-export func @aihc_runtime_arguments_initialize(%buffer: ptr, %length: i64) -> i64 cc c {
+export func @aihc_parse_runtime_arguments(%machine: ptr, %scope: ptr, %buffer: ptr, %length: i64) -> i64 cc c {
 entry:
   %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
   %malformed = eq i64 %valid, 0
@@ -317,7 +320,8 @@ reset:
   ; An empty argument list still owns one byte, so the buffer is never null.
   %empty = eq i64 %length, 0
   %capacity = select i64 %empty, 1, %length
-  %arguments = call @aihc_gc_buffer_new(%capacity)
+  %arguments_owner = call @aihc_host_byte_array(%machine, %scope, %capacity)
+  %arguments = call @aihc_byte_array_contents(%arguments_owner)
   jump argument(0, 0, 0, 0, 0)
 
 ; %input is the offset of the next argument, %output the number of bytes kept
@@ -374,15 +378,13 @@ keep:
   jump argument(%next_input, %next_output, %next_index, %in_options, %stopped)
 
 install:
-  call @aihc_rts_install(%arguments, %output)
+  call @aihc_rts_install(%arguments_owner, %output)
   return 0
 }
 
-; Make %path the statistics file and release the previous one.
+; Make %path the statistics file and let the collector reclaim the previous one.
 func @aihc_rts_set_stats_path(%path: ptr) {
 entry:
-  %previous = global.get @aihc_rts_option_stats_path
-  call @aihc_gc_buffer_release(%previous)
   global.set @aihc_rts_option_stats_path, %path
   return
 }
@@ -392,7 +394,7 @@ entry:
 ; ends with the terminator of its last string. The result is zero, or minus
 ; one when the buffer is malformed and nothing changed. A variable with an
 ; empty value counts as absent.
-export func @aihc_runtime_environment_initialize(%buffer: ptr, %length: i64) -> i64 cc c {
+export func @aihc_parse_runtime_environment(%machine: ptr, %scope: ptr, %buffer: ptr, %length: i64) -> i64 cc c {
 entry:
   %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
   %malformed = eq i64 %valid, 0
@@ -410,9 +412,10 @@ keep_empty:
   jump parse
 
 keep_copy:
-  %copy = call @aihc_gc_buffer_new(%length)
+  %copy_owner = call @aihc_host_byte_array(%machine, %scope, %length)
+  %copy = call @aihc_byte_array_contents(%copy_owner)
   call @aihc_memory_copy(%copy, %buffer, %length)
-  call @aihc_rts_environment_install(%copy, %length)
+  call @aihc_rts_environment_install(%copy_owner, %length)
   jump parse
 
 parse:
@@ -450,9 +453,10 @@ value:
 copy:
   %value_address = ptr.add %buffer, %value_start
   %size = add i64 %value_length, 1
-  %path = call @aihc_gc_buffer_new(%size)
+  %path_owner = call @aihc_host_byte_array(%machine, %scope, %size)
+  %path = call @aihc_byte_array_contents(%path_owner)
   call @aihc_memory_copy(%path, %value_address, %size)
-  call @aihc_rts_set_stats_path(%path)
+  call @aihc_rts_set_stats_path(%path_owner)
   jump variable(%next_input)
 
 done:
@@ -489,7 +493,8 @@ measure:
   br %copies, transfer, done
 
 transfer:
-  %environment = global.get @aihc_program_environment_buffer
+  %environment_owner = global.get @aihc_program_environment_buffer
+  %environment = call @aihc_byte_array_contents(%environment_owner)
   call @aihc_memory_copy(%buffer, %environment, %required)
   jump done
 
@@ -526,7 +531,8 @@ measure:
   br %copies, transfer, done
 
 transfer:
-  %arguments = global.get @aihc_program_argument_buffer
+  %arguments_owner = global.get @aihc_program_argument_buffer
+  %arguments = call @aihc_byte_array_contents(%arguments_owner)
   call @aihc_memory_copy(%buffer, %arguments, %required)
   jump done
 
@@ -534,28 +540,65 @@ done:
   return %required
 }
 
-; Replace the arguments with a copy of %buffer. The result is zero, or minus
-; one when the buffer is malformed and nothing changed.
-export func @aihc_program_arguments_replace(%buffer: ptr, %length: i64) -> i64 cc c {
+; Install an immutable byte array. This operation cannot allocate or collect.
+export func @aihc_program_arguments_replace(%array: ptr, %length: i64) -> i64 cc c {
 entry:
-  %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
-  %malformed = eq i64 %valid, 0
-  br %malformed, rejected, replace
-
-rejected:
-  return -1
-
-replace:
   %empty = eq i64 %length, 0
-  br %empty, clear, duplicate
-
+  br %empty, clear, check
 clear:
   call @aihc_rts_install(null, 0)
   return 0
-
-duplicate:
-  %arguments = call @aihc_gc_buffer_new(%length)
-  call @aihc_memory_copy(%arguments, %buffer, %length)
-  call @aihc_rts_install(%arguments, %length)
+check:
+  %absent = eq ptr %array, null
+  br %absent, rejected, bounds
+bounds:
+  %size = call @aihc_byte_array_get_size(%array)
+  %outside = gt.u i64 %length, %size
+  br %outside, rejected, validate
+validate:
+  %buffer = call @aihc_byte_array_contents(%array)
+  %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
+  %malformed = eq i64 %valid, 0
+  br %malformed, rejected, install
+rejected:
+  return -1
+install:
+  call @aihc_rts_install(%array, %length)
   return 0
+}
+
+; The collector updates these process roots after each relocation.
+export func @aihc_rts_root(%index: i64) -> ptr cc c {
+entry:
+  switch i64 %index {
+    0 -> arguments
+    1 -> environment
+    default -> statistics
+  }
+arguments:
+  %arguments = global.get @aihc_program_argument_buffer
+  return %arguments
+environment:
+  %environment = global.get @aihc_program_environment_buffer
+  return %environment
+statistics:
+  %statistics = global.get @aihc_rts_option_stats_path
+  return %statistics
+}
+export func @aihc_rts_set_root(%index: i64, %value: ptr) cc c {
+entry:
+  switch i64 %index {
+    0 -> arguments
+    1 -> environment
+    default -> statistics
+  }
+arguments:
+  global.set @aihc_program_argument_buffer, %value
+  return
+environment:
+  global.set @aihc_program_environment_buffer, %value
+  return
+statistics:
+  global.set @aihc_rts_option_stats_path, %value
+  return
 }

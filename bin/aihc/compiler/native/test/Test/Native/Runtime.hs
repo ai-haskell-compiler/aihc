@@ -132,17 +132,20 @@ runtimeOptionsSource =
       "  if (aihc_program_arguments_copy(buffer, sizeof(buffer)) != size) return 5;",
       "  if (memcmp(buffer, argv[0], name_length) != 0) return 6;",
       "  if (memcmp(buffer + name_length, kept, sizeof(kept)) != 0) return 7;",
-      "  if (aihc_program_arguments_replace(replaced, sizeof(replaced) - 1) != -1) return 8;",
+      "  aihc_ensure_heap(machine, aihc_byte_array_words(sizeof(replaced), 0, 1), 0, NULL, NULL);",
+      "  void *replacement = aihc_byte_array_new(machine, sizeof(replaced));",
+      "  memcpy(aihc_byte_array_contents(replacement), replaced, sizeof(replaced));",
+      "  if (aihc_program_arguments_replace(replacement, sizeof(replaced) - 1) != -1) return 8;",
       "  if (aihc_program_arguments_size() != size) return 9;",
-      "  if (aihc_program_arguments_replace(replaced, sizeof(replaced)) != 0) return 10;",
+      "  if (aihc_program_arguments_replace(replacement, sizeof(replaced)) != 0) return 10;",
       "  if (aihc_program_arguments_size() != (int64_t)sizeof(replaced)) return 11;",
       "  if (aihc_program_arguments_copy(buffer, sizeof(buffer)) != (int64_t)sizeof(replaced)) return 12;",
       "  if (memcmp(buffer, replaced, sizeof(replaced)) != 0) return 13;",
       "  if (aihc_program_arguments_replace(NULL, 0) != 0) return 14;",
       "  if (aihc_program_arguments_size() != 0) return 15;",
       "  if (aihc_runtime_arguments_initialize(replaced, sizeof(replaced) - 1) != -1) return 16;",
-      "  if (aihc_runtime_arguments_initialize(replaced, sizeof(replaced)) != 0) return 17;",
-      "  if (aihc_program_arguments_size() != (int64_t)sizeof(replaced)) return 18;",
+      "  if (aihc_runtime_arguments_initialize(replaced, sizeof(replaced)) != -1) return 17;",
+      "  if (aihc_program_arguments_size() != 0) return 18;",
       "  return 0;",
       "}"
     ]
@@ -460,9 +463,9 @@ runtimeStatisticsTest name requested ending =
           statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
           assertEqual "field names" ["allocated_bytes", "gc_count", "gc_time_ns", "peak_heap_bytes", "schema"] (Map.keys statistics)
           assertEqual "schema" (Just 1) (Map.lookup "schema" statistics)
-          -- The initial thread, one leaf, and 1000 cells use 72 + 8 + 1000 * 16 bytes.
-          assertEqual "allocated_bytes" (Just 16080) (Map.lookup "allocated_bytes" statistics)
-          assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16080)
+          -- After the counter reset, one leaf and 1000 cells use 8 + 1000 * 16 bytes.
+          assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)
+          assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16008)
           assertBool "gc_count counts the collections" (Map.lookup "gc_count" statistics >= Just 1)
         else assertBool "no statistics file exists" (not present)
 
@@ -516,6 +519,7 @@ statisticsSource ending =
         "  aihc_program_environment_initialize();",
         "  if (!path_is(getenv(\"AIHC_RTS_STATS\"))) return 6;",
         "  AihcMachine *machine = aihc_machine_new(1);",
+        "  aihc_reset_heap_allocated_bytes(machine);",
         "  machine->globals[0] = (AihcSlot)make_node(machine, &leaf_info, 1);",
         "  for (int index = 0; index < 1000; ++index) {",
         "    AihcValue *cell = make_node(machine, &cell_info, 2);",
@@ -525,7 +529,7 @@ statisticsSource ending =
         "  /* Compiled code allocates without telling the runtime, so the total",
         "     is only exact once the bump pointer has been accounted for. */",
         "  aihc_heap_account(machine);",
-        "  if (machine->heap_allocated_bytes != 16080) return 7;",
+        "  if (machine->heap_allocated_bytes != 16008) return 7;",
         "  if (machine->gc_count == 0) return 8;",
         "  if (machine->heap_peak_bytes == 0) return 9;"
       ]

@@ -1,22 +1,22 @@
 entry: $entry
 gc-stress: true
 program: |
-  primitive stmWaitRequest# :: AddrRep/0
+  primitive stmWaitRequest# :: BoxedRep Unlifted/0
   primitive awaitIO# :: TupleRep []/1
   primitive stmWaitResult# :: IntRep/1
   primitive newPromptTag# :: BoxedRep Unlifted/0
   primitive +# :: IntRep/2
 
   $entry -> IntRep =
-    (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
+    (request :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) stmWaitRequest#
     (before :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
-    () <- primitive-call @(TupleRep []) awaitIO# (request :: AddrRep)
+    () <- primitive-call @(TupleRep []) awaitIO# (request :: BoxedRep Unlifted)
     (after :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
-    primitive-call @IntRep stmWaitResult# (request :: AddrRep)
+    primitive-call @IntRep stmWaitResult# (request :: BoxedRep Unlifted)
 return: "0"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 184
-  linux-amd64: 184
+  macos-arm64: 168
+  linux-amd64: 168
 status: pass
 reason: A request must survive collection before await and after completion.

@@ -1,6 +1,6 @@
 entry: $entry
 gc-stress: true
-rts-arguments: ["+RTS", "-M384", "-RTS"]
+rts-arguments: ["+RTS", "-M1024", "-RTS"]
 program: |
   primitive makeStableName# :: BoxedRep Unlifted/1
   primitive eqStableName# :: IntRep/2

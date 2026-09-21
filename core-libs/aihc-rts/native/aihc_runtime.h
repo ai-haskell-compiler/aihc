@@ -28,6 +28,7 @@ enum {
   AIHC_OBJECT_STABLE_NAME,
   AIHC_OBJECT_BYTE_ARRAY,
   AIHC_OBJECT_IO_REQUEST,
+  AIHC_OBJECT_IO_HANDLE,
 };
 typedef uint8_t AihcObjectKind;
 
@@ -190,8 +191,9 @@ struct AihcMachine {
   uint64_t heap_space_bytes;
   uint64_t pinned_bytes;
   struct AihcPinnedBlock *pinned_blocks;
-  /* Raw request addresses retain this registration until result consumption. */
-  AihcIoRequest *registered_requests;
+  AihcValue *global_array;
+  struct AihcRootFrame *root_frames;
+  uint8_t program_started;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -273,6 +275,7 @@ void aihc_heap_collect(AihcMachine *machine, uint64_t words,
                        const AihcSrt *srt);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots, const AihcSrt *srt);
+AihcMachine *aihc_machine_initialize(void);
 AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);
@@ -305,7 +308,8 @@ int64_t aihc_program_environment_size(void);
 int64_t aihc_program_environment_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_size(void);
 int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
-int64_t aihc_program_arguments_replace(const void *buffer, int64_t length);
+/* Install an immutable managed byte array without allocation. */
+int64_t aihc_program_arguments_replace(const void *array, int64_t length);
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
 /* Boxed arrays are contiguous managed objects. GrinEnsureHeap reserves their
    length-dependent storage before this initializer advances the heap.
@@ -392,7 +396,7 @@ void *aihc_io_stderr(void);
 int64_t aihc_io_descriptor_mode(int64_t descriptor);
 /* An IO handle over a descriptor the program already has, or an open error.
    The host that has no descriptors to adopt reports one. */
-void *aihc_io_adopt(int64_t descriptor, int64_t mode);
+void *aihc_io_adopt(AihcMachine *machine, int64_t descriptor, int64_t mode);
 int64_t aihc_io_handle_descriptor(void *handle);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);

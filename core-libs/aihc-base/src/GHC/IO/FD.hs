@@ -61,7 +61,7 @@ import System.Posix.Types (CDev, CIno)
 data FD = FD
   { fdFD :: !CInt,
     fdIsNonBlocking :: !Int,
-    fdHandle :: !(Ptr IOHandle)
+    fdHandle :: !IOHandle
   }
 
 instance Show FD where
@@ -168,21 +168,21 @@ writeAll location fd buffer offset count =
         True -> ioError (errnoToIOError location eIO Nothing Nothing)
         False -> writeAll location fd buffer (offset + written) (count - written)
 
-readIntoPtr :: Ptr IOHandle -> Ptr a -> Int -> Int -> IO Int
+readIntoPtr :: IOHandle -> Ptr a -> Int -> Int -> IO Int
 readIntoPtr handle (Ptr address) = readIntoAddress handle address
 
-writeFromPtr :: Ptr IOHandle -> Ptr a -> Int -> Int -> IO Int
+writeFromPtr :: IOHandle -> Ptr a -> Int -> Int -> IO Int
 writeFromPtr handle (Ptr address) = writeFromAddress handle address
 
-readIntoAddress :: Ptr IOHandle -> Addr# -> Int -> Int -> IO Int
+readIntoAddress :: IOHandle -> Addr# -> Int -> Int -> IO Int
 readIntoAddress handle address offset length =
   awaitRequest (submitRead handle address offset length)
 
-writeFromAddress :: Ptr IOHandle -> Addr# -> Int -> Int -> IO Int
+writeFromAddress :: IOHandle -> Addr# -> Int -> Int -> IO Int
 writeFromAddress handle address offset length =
   awaitRequest (submitWrite handle address offset length)
 
-awaitRequest :: IO (Ptr IORequest) -> IO Int
+awaitRequest :: IO IORequest -> IO Int
 awaitRequest submission = do
   request <- submission
   awaitIO request

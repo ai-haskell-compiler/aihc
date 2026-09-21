@@ -4,13 +4,14 @@ rts-arguments: ["+RTS", "-M4096", "-RTS"]
 source: |
   module Test where
   import GHC.Prim
+  import Aihc.Prim.IO
   data Result = Result Int#
-  foreign import prim submitIOWrite# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
-  foreign import prim submitIORead# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+  foreign import prim submitIOWrite# :: IOHandle# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
+  foreign import prim submitIORead# :: IOHandle# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
   foreign import ccall unsafe "pipe" makePipe :: MutableByteArray# RealWorld -> Int32#
-  foreign import ccall unsafe "aihc_io_adopt" adopt :: Int# -> Int# -> Addr#
-  foreign import ccall unsafe "aihc_io_close" closeHandle :: Addr# -> Int#
-  foreign import ccall unsafe "aihc_io_take_result" takeResult :: Addr# -> Int#
+  foreign import prim adoptIOHandle# :: Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IOHandle# #)
+  foreign import prim closeIOHandle# :: IOHandle# -> Int#
+  foreign import prim takeIOResult# :: IORequest# -> Int#
   burn :: Int# -> State# RealWorld -> State# RealWorld
   burn n state = case n of
     0# -> state
@@ -19,19 +20,19 @@ source: |
         written -> burn (n -# 1#) written
   child :: Int32# -> State# RealWorld -> (# State# RealWorld, Result #)
   child descriptor state = case burn 100# state of
-    done -> case adopt (int32ToInt# descriptor) 1# of
-      handle -> case submitIOWrite# handle "A"# 0# 1# done of
+    done -> case adoptIOHandle# (int32ToInt# descriptor) 1# done of
+      (# adopted, handle #) -> case submitIOWrite# handle "A"# 0# 1# adopted of
         (# submitted, request #) -> case awaitIO# request submitted of
-          completed -> case takeResult request of
-            written -> case closeHandle handle of
+          completed -> case takeIOResult# request of
+            written -> case closeIOHandle# handle of
               closed -> (# completed, Result (written +# closed) #)
   value = runRW# (\state ->
     case newPinnedByteArray# 8# state of
       (# next, descriptors #) -> case makePipe descriptors of
         created -> case readInt32OffAddr# (mutableByteArrayContents# descriptors) 0# next of
           (# first, reader #) -> case readInt32OffAddr# (mutableByteArrayContents# descriptors) 1# first of
-            (# second, writer #) -> case adopt (int32ToInt# reader) 0# of
-              handle -> case newPinnedByteArray# 8# second of
+            (# second, writer #) -> case adoptIOHandle# (int32ToInt# reader) 0# second of
+              (# adopted, handle #) -> case newPinnedByteArray# 8# adopted of
                 (# allocated, array #) -> case mutableByteArrayContents# array of
                   address -> case submitIORead# handle address 0# 1# allocated of
                     (# submitted, request #) -> case touch# array submitted of
@@ -39,14 +40,14 @@ source: |
                         (# forked, thread #) -> case awaitIO# request forked of
                           completed -> case burn 100# completed of
                             after -> case readWord8OffAddr# address 0# after of
-                              (# read, byte #) -> case takeResult request of
-                                count -> case closeHandle handle of
+                              (# read, byte #) -> case takeIOResult# request of
+                                count -> case closeIOHandle# handle of
                                   closed -> Result (word2Int# (word8ToWord# byte) +# count +# closed +# int32ToInt# created))
 return: "@0"
 heap: |
   @0 = CResult 66
 allocated-bytes:
-  macos-arm64: 64896
-  linux-amd64: 64896
+  macos-arm64: 65104
+  linux-amd64: 65104
 status: pass
 reason: A pending read must retain its buffer while another thread forces collections.

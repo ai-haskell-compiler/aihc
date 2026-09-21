@@ -163,6 +163,8 @@ struct AihcStableName {
 };
 
 struct AihcIoHandle {
+  AihcSlot header;
+  int64_t error;
   uintptr_t backend_token;
   uint64_t position;
   uint32_t capabilities;
@@ -173,8 +175,6 @@ struct AihcIoHandle {
 struct AihcIoRequest {
   AihcSlot header;
   AihcMachine *machine;
-  AihcIoRequest *registered_previous;
-  AihcIoRequest *registered_next;
   AihcIoKind kind;
   AihcIoState state;
   AihcIoHandle *handle;
@@ -190,8 +190,8 @@ struct AihcIoRequest {
   AihcIoRequest *next;
 };
 
-/* Eighteen slots include the two pinned metadata slots. */
-_Static_assert(sizeof(AihcIoRequest) <= 16 * sizeof(AihcSlot),
+/* Sixteen slots include the two pinned metadata slots. */
+_Static_assert(sizeof(AihcIoRequest) <= 14 * sizeof(AihcSlot),
                "IO request exceeds the GRIN reservation");
 
 struct AihcIoBackend {
@@ -241,13 +241,30 @@ _Static_assert(offsetof(AihcPinnedBlock, object) == 16,
 
 AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words);
 
-/* Host buffers are pinned byte arrays in a separate GC heap.
-   Allocation can collect that heap, but cannot move program objects.
-   Each buffer remains a root until its owner releases it.
-   The collector reclaims released buffers at the next collection.
-   Buffer contents must not contain roots for the host heap. */
-void *aihc_gc_buffer_new(uint64_t bytes);
-void aihc_gc_buffer_release(void *pointer);
+/* A host scope publishes all live C references before a host call can collect.
+   Pinned ABI buffers remain roots until the scope ends. */
+typedef struct AihcHostBuffer AihcHostBuffer;
+typedef struct AihcRootFrame {
+  struct AihcRootFrame *next;
+  AihcSlot *roots;
+  uint64_t count;
+  AihcHostBuffer *buffers;
+} AihcRootFrame;
+void aihc_roots_enter(AihcMachine *machine, AihcRootFrame *frame,
+                      uint64_t count, AihcSlot *roots);
+void aihc_roots_leave(AihcMachine *machine, AihcRootFrame *frame);
+void aihc_visit_host_roots(AihcMachine *machine, AihcRootVisitor visitor,
+                           void *context);
+void *aihc_host_byte_array(AihcMachine *machine, AihcRootFrame *frame,
+                           uint64_t bytes);
+extern const AihcInfo aihc_io_handle_info;
+AihcIoHandle *aihc_io_handle_new(AihcMachine *machine);
+/* Five slots hold each handle. Open requests reserve these slots in advance. */
+_Static_assert(sizeof(AihcIoHandle) <= 5 * sizeof(AihcSlot),
+               "IO handle exceeds the GRIN reservation");
+void *aihc_rts_root(uint64_t index);
+void aihc_rts_set_root(uint64_t index, void *value);
+void *aihc_wasi_allocate(uint64_t bytes);
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
 void aihc_memory_move(void *destination, const void *source, uint64_t length);
 void aihc_memory_set(void *destination, uint64_t byte, uint64_t length);
@@ -274,7 +291,6 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
 const AihcInfo *aihc_applied_constructor_info(const AihcInfo *info,
                                               uint64_t applied);
 int64_t aihc_io_error(int error);
-void *aihc_io_open_error(int error);
 void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
                             int64_t result);
 const AihcResume *aihc_complete_io(AihcMachine *machine, int64_t result);

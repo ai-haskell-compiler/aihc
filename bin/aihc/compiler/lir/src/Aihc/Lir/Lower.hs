@@ -2372,6 +2372,7 @@ lowerExecutableMain gcProgram = do
   argc <- fresh "argc"
   argv <- fresh "argv"
   beginBlock (Label "entry") []
+  _ <- callRuntime "aihc_machine_initialize" [] [Ptr] []
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
   _ <- startMachine

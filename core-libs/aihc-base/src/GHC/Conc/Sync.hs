@@ -27,6 +27,7 @@ module GHC.Conc.Sync
   )
 where
 
+import Aihc.Prim.IO (stmWait#)
 import Control.Applicative (Alternative (..))
 import Control.Monad (MonadPlus (..), ap, liftM2)
 import GHC.Exception (ErrorCall (..), Exception (..), SomeException)

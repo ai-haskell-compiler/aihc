@@ -401,6 +401,7 @@ primitiveModulePaths =
   [ "GHC/CString.hs",
     "GHC/Classes.hs",
     "GHC/Prim.hs",
+    "Aihc/Prim/IO.hs",
     "GHC/Prim/Base.hs",
     "GHC/Prim/Enum.hs",
     "GHC/Prim/IO.hs",

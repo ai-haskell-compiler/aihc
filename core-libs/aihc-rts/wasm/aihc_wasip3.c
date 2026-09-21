@@ -31,6 +31,7 @@ typedef enum {
 } AihcWasiPending;
 
 typedef struct {
+  AihcRootFrame roots;
   AihcWasiIoKind kind;
   unsigned char *bytes;
   size_t length;
@@ -56,8 +57,22 @@ typedef struct {
 } AihcWasiIo;
 
 static AihcWasiIo aihc_wasi_io;
+static AihcRootFrame *aihc_wasi_roots;
+
+/* The canonical ABI can request storage only inside an explicit host scope. */
+void *aihc_wasi_allocate(uint64_t bytes) {
+  if (aihc_wasi_roots == NULL) {
+    aihc_fail("canonical ABI allocation requires a host scope");
+  }
+  return aihc_byte_array_contents(
+      aihc_host_byte_array(aihc_machine, aihc_wasi_roots, bytes));
+}
 
 static void aihc_wasi_initialize_arguments(void) {
+  aihc_machine = aihc_machine_initialize();
+  AihcRootFrame frame;
+  aihc_roots_enter(aihc_machine, &frame, 0, NULL);
+  aihc_wasi_roots = &frame;
   command_list_string_t arguments = {0};
   wasi_cli_environment_get_arguments(&arguments);
   size_t length = 0;
@@ -71,7 +86,7 @@ static void aihc_wasi_initialize_arguments(void) {
   }
   uint8_t *buffer = NULL;
   if (length != 0) {
-    buffer = aihc_gc_buffer_new(length);
+    buffer = aihc_wasi_allocate(length);
     size_t offset = 0;
     for (size_t index = 0; index < arguments.len; ++index) {
       command_string_t argument = arguments.ptr[index];
@@ -83,12 +98,12 @@ static void aihc_wasi_initialize_arguments(void) {
     }
   }
   if (aihc_runtime_arguments_initialize(buffer, (int64_t)length) != 0) {
-    aihc_gc_buffer_release(buffer);
     command_list_string_free(&arguments);
     abort();
   }
-  aihc_gc_buffer_release(buffer);
   command_list_string_free(&arguments);
+  aihc_roots_leave(aihc_machine, &frame);
+  aihc_wasi_roots = NULL;
 }
 
 static int64_t aihc_wasi_error(int32_t error) { return -((int64_t)error) - 1; }
@@ -184,12 +199,13 @@ static int32_t aihc_filesystem_error(wasi_filesystem_types_error_code_t error) {
 }
 
 static int64_t aihc_wasi_finish(int64_t result) {
-  aihc_gc_buffer_release(aihc_wasi_io.open_path);
   if (aihc_wasi_io.has_directories) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
         &aihc_wasi_io.directories);
   }
   command_waitable_set_drop(aihc_wasi_io.wait_set);
+  aihc_roots_leave(aihc_machine, &aihc_wasi_io.roots);
+  aihc_wasi_roots = NULL;
   aihc_wasi_io = (AihcWasiIo){0};
   return result;
 }
@@ -426,6 +442,8 @@ static int aihc_wasi_start(AihcWasiIoKind kind, unsigned char *bytes,
   if (aihc_wasi_io.kind != AIHC_WASI_IO_NONE) {
     return 0;
   }
+  aihc_roots_enter(aihc_machine, &aihc_wasi_io.roots, 0, NULL);
+  aihc_wasi_roots = &aihc_wasi_io.roots;
   aihc_wasi_io.kind = kind;
   aihc_wasi_io.bytes = bytes;
   aihc_wasi_io.length = length;
@@ -538,7 +556,7 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
         return aihc_wasi_finish(aihc_wasi_error(ENAMETOOLONG));
       }
       size_t absolute_length = cwd.len + 1 + length;
-      aihc_wasi_io.open_path = aihc_gc_buffer_new(absolute_length);
+      aihc_wasi_io.open_path = aihc_wasi_allocate(absolute_length);
       memcpy(aihc_wasi_io.open_path, cwd.ptr, cwd.len);
       aihc_wasi_io.open_path[cwd.len] = '/';
       memcpy(aihc_wasi_io.open_path + cwd.len + 1, path, length);

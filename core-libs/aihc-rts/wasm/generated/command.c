@@ -72,10 +72,9 @@ __attribute__((__weak__, __export_name__("cabi_realloc")))
 void *cabi_realloc(void *ptr, size_t old_size, size_t align, size_t new_size) {
   if (new_size == 0) return (void*) align;
   if (align > _Alignof(max_align_t)) aihc_fail("unsupported canonical ABI alignment");
-  void *ret = aihc_gc_buffer_new(new_size);
+  void *ret = aihc_wasi_allocate(new_size);
   if (old_size != 0) {
     memcpy(ret, ptr, old_size < new_size ? old_size : new_size);
-    aihc_gc_buffer_release(ptr);
   }
   return ret;
 }
@@ -94,7 +93,7 @@ void command_list_tuple2_string_string_free(command_list_tuple2_string_string_t 
     for (size_t i = 0; i < list_len; i++) {
       command_tuple2_string_string_free(&list_ptr[i]);
     }
-    aihc_gc_buffer_release(list_ptr);
+    (void)(list_ptr);
   }
 }
 
@@ -105,7 +104,7 @@ void command_list_string_free(command_list_string_t *ptr) {
     for (size_t i = 0; i < list_len; i++) {
       command_string_free(&list_ptr[i]);
     }
-    aihc_gc_buffer_release(list_ptr);
+    (void)(list_ptr);
   }
 }
 
@@ -457,7 +456,7 @@ void wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(wasi_filesy
     for (size_t i = 0; i < list_len; i++) {
       wasi_filesystem_preopens_tuple2_own_descriptor_string_free(&list_ptr[i]);
     }
-    aihc_gc_buffer_release(list_ptr);
+    (void)(list_ptr);
   }
 }
 
@@ -509,7 +508,7 @@ void command_string_dup_n(command_string_t *ret, const char*s, size_t len) {
 
 void command_string_free(command_string_t *ret) {
   if (ret->len > 0) {
-    aihc_gc_buffer_release(ret->ptr);
+    (void)(ret->ptr);
   }
   ret->ptr = NULL;
   ret->len = 0;

@@ -1,37 +1,29 @@
 entry: $entry
 gc-stress: true
+rts-arguments: ["+RTS", "-M4096", "-RTS"]
 source: |
   module Test where
   import GHC.Prim
-  data Result = Result Int# Int# Int#
-  foreign import ccall unsafe "aihc_program_arguments_replace" replace :: Addr# -> Int# -> Int#
+  data Result = Result Int#
+  foreign import prim setProgramArguments# :: ByteArray# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
   foreign import ccall unsafe "aihc_program_arguments_copy" copy :: Addr# -> Int# -> Int#
-  foreign import ccall unsafe "aihc_runtime_environment_initialize" environment :: Addr# -> Int# -> Int#
-  foreign import ccall unsafe "aihc_program_environment_copy" copyEnvironment :: Addr# -> Int# -> Int#
-  loop :: Addr# -> Int# -> Int#
-  loop address n = case n of
-    0# -> copy address 8#
-    _ -> case replace address 8# of
-      result -> loop address (n -# 1# +# result)
-  value = runRW# (\state ->
-    case newPinnedByteArray# 8# state of
+  loop :: Int# -> State# RealWorld -> Result
+  loop n state = case n of
+    0# -> case newPinnedByteArray# 8# state of
+      (# next, array #) -> case copy (mutableByteArrayContents# array) 8# of
+        size -> case readWordArray# array 0# next of
+          (# done, value #) -> Result (word2Int# value +# size)
+    _ -> case newByteArray# 8# state of
       (# allocated, array #) -> case writeWordArray# array 0# 4341057## allocated of
-        written -> case mutableByteArrayContents# array of
-          address -> case environment address 8# of
-            initialized -> case loop address (500# +# initialized) of
-              size -> case readWordArray# array 0# written of
-                (# read, argument #) -> case replace address 0# of
-                  cleared -> case copy address cleared of
-                    empty -> case setByteArray# array 0# 8# 0# read of
-                      zeroed -> case copyEnvironment address 8# of
-                        copied -> case readWordArray# array 0# zeroed of
-                          (# done, env #) -> case touch# array done of
-                            _ -> Result (size +# empty) (word2Int# argument) (word2Int# env +# copied))
+        written -> case unsafeFreezeByteArray# array written of
+          (# frozen, immutable #) -> case setProgramArguments# immutable 8# frozen of
+            (# installed, result #) -> loop (n -# 1# +# result) installed
+  value = runRW# (loop 500#)
 return: "@0"
 heap: |
-  @0 = CResult 8 4341057 4341065
+  @0 = CResult 4341065
 allocated-bytes:
-  macos-arm64: 272
-  linux-amd64: 272
+  macos-arm64: 28224
+  linux-amd64: 28224
 status: pass
-reason: Argument replacement must preserve the environment and support empty buffers across GC collections.
+reason: Argument replacement must retain movable arrays and reclaim previous arrays within the heap limit.

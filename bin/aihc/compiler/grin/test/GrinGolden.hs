@@ -182,7 +182,7 @@ findPrimitiveSourceRoot = do
             else findUp parent
 
 primitiveModulePaths :: [FilePath]
-primitiveModulePaths = ["GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs", "GHC/CString.hs"]
+primitiveModulePaths = ["GHC/Types.hs", "GHC/Prim.hs", "Aihc/Prim/IO.hs", "GHC/Tuple.hs", "GHC/CString.hs"]
 
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport sources = do
