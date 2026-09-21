@@ -71,11 +71,7 @@ static void aihc_wasi_initialize_arguments(void) {
   }
   uint8_t *buffer = NULL;
   if (length != 0) {
-    buffer = malloc(length);
-    if (buffer == NULL) {
-      command_list_string_free(&arguments);
-      abort();
-    }
+    buffer = aihc_gc_buffer_new(length);
     size_t offset = 0;
     for (size_t index = 0; index < arguments.len; ++index) {
       command_string_t argument = arguments.ptr[index];
@@ -87,11 +83,11 @@ static void aihc_wasi_initialize_arguments(void) {
     }
   }
   if (aihc_runtime_arguments_initialize(buffer, (int64_t)length) != 0) {
-    free(buffer);
+    aihc_gc_buffer_release(buffer);
     command_list_string_free(&arguments);
     abort();
   }
-  free(buffer);
+  aihc_gc_buffer_release(buffer);
   command_list_string_free(&arguments);
 }
 
@@ -188,7 +184,7 @@ static int32_t aihc_filesystem_error(wasi_filesystem_types_error_code_t error) {
 }
 
 static int64_t aihc_wasi_finish(int64_t result) {
-  free(aihc_wasi_io.open_path);
+  aihc_gc_buffer_release(aihc_wasi_io.open_path);
   if (aihc_wasi_io.has_directories) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
         &aihc_wasi_io.directories);
@@ -542,11 +538,7 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
         return aihc_wasi_finish(aihc_wasi_error(ENAMETOOLONG));
       }
       size_t absolute_length = cwd.len + 1 + length;
-      aihc_wasi_io.open_path = malloc(absolute_length);
-      if (aihc_wasi_io.open_path == NULL) {
-        command_string_free(&cwd);
-        return aihc_wasi_finish(aihc_wasi_error(ENOMEM));
-      }
+      aihc_wasi_io.open_path = aihc_gc_buffer_new(absolute_length);
       memcpy(aihc_wasi_io.open_path, cwd.ptr, cwd.len);
       aihc_wasi_io.open_path[cwd.len] = '/';
       memcpy(aihc_wasi_io.open_path + cwd.len + 1, path, length);

@@ -134,7 +134,7 @@ void *aihc_io_adopt(int64_t descriptor, int64_t mode) {
   if (fcntl((int)descriptor, F_GETFD) == -1) {
     return aihc_io_open_error(errno);
   }
-  AihcIoHandle *handle = aihc_allocate_zeroed(sizeof(*handle));
+  AihcIoHandle *handle = aihc_gc_buffer_new(sizeof(*handle));
   handle->backend_token = (uintptr_t)descriptor;
   handle->capabilities = capabilities;
   handle->append = mode == 2;
@@ -160,7 +160,7 @@ static void *aihc_posix_open(void *opaque_path, int64_t requested_length,
   if (length != 0 && memchr(opaque_path, 0, length) != NULL) {
     return aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
-  char *path = aihc_allocate_zeroed(length + 1);
+  char *path = aihc_gc_buffer_new(length + 1);
   if (length != 0) {
     memcpy(path, opaque_path, length);
   }
@@ -185,7 +185,7 @@ static void *aihc_posix_open(void *opaque_path, int64_t requested_length,
     capabilities = AIHC_IO_READABLE | AIHC_IO_WRITABLE;
     break;
   default:
-    free(path);
+    aihc_gc_buffer_release(path);
     return aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
 
@@ -194,11 +194,11 @@ static void *aihc_posix_open(void *opaque_path, int64_t requested_length,
     descriptor = open(path, flags | O_NONBLOCK, 0666);
   } while (descriptor == -1 && errno == EINTR);
   int open_error = errno;
-  free(path);
+  aihc_gc_buffer_release(path);
   if (descriptor == -1) {
     return aihc_io_open_error(open_error);
   }
-  AihcIoHandle *handle = aihc_allocate_zeroed(sizeof(*handle));
+  AihcIoHandle *handle = aihc_gc_buffer_new(sizeof(*handle));
   handle->backend_token = (uintptr_t)descriptor;
   handle->capabilities = capabilities;
   return handle;
@@ -320,10 +320,12 @@ static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
       ++count;
     }
   }
-  /* One slot per request is never fewer than the descriptors need, and the
-     request count is not zero here, so the array is always allocated. */
-  struct pollfd *descriptors = aihc_allocate_auxiliary(
-      machine, sizeof(*descriptors) * (size_t)machine->io_request_count);
+  /* Timer requests need no descriptor slot. */
+  if (count > SIZE_MAX / sizeof(struct pollfd)) {
+    aihc_fail("poll buffer is too large");
+  }
+  struct pollfd *descriptors = aihc_gc_buffer_new(sizeof(*descriptors) * count);
+  aihc_record_allocation(machine);
   size_t index = 0;
   for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
        request = request->next) {
@@ -339,7 +341,7 @@ static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
                    aihc_posix_poll_timeout(may_block, has_timer, earliest));
   if (ready == -1) {
     int error = errno;
-    free(descriptors);
+    aihc_gc_buffer_release(descriptors);
     if (error != EINTR) {
       aihc_complete_all_io_with_error(machine, error);
     }
@@ -374,7 +376,7 @@ static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
     }
   }
   machine->io_requests_tail = tail;
-  free(descriptors);
+  aihc_gc_buffer_release(descriptors);
   return AIHC_IO_POLL_PROGRESS;
 }
 

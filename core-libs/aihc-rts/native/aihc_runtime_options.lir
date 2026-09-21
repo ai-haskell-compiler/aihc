@@ -26,9 +26,9 @@
 ; know.
 
 extern func @aihc_fail(ptr) cc c
-extern func @aihc_allocate_zeroed(i64) -> ptr cc c
+extern func @aihc_gc_buffer_new(i64) -> ptr cc c
 extern func @aihc_memory_copy(ptr, ptr, i64) cc c
-extern func @aihc_memory_free(ptr) cc c
+extern func @aihc_gc_buffer_release(ptr) cc c
 
 ; The kept arguments, and the number of bytes they occupy.
 global @aihc_program_argument_buffer: ptr
@@ -284,7 +284,7 @@ accepted:
 func @aihc_rts_environment_install(%environment: ptr, %length: i64) {
 entry:
   %previous = global.get @aihc_program_environment_buffer
-  call @aihc_memory_free(%previous)
+  call @aihc_gc_buffer_release(%previous)
   global.set @aihc_program_environment_buffer, %environment
   global.set @aihc_program_environment_bytes, %length
   return
@@ -294,7 +294,7 @@ entry:
 func @aihc_rts_install(%arguments: ptr, %length: i64) {
 entry:
   %previous = global.get @aihc_program_argument_buffer
-  call @aihc_memory_free(%previous)
+  call @aihc_gc_buffer_release(%previous)
   global.set @aihc_program_argument_buffer, %arguments
   global.set @aihc_program_argument_bytes, %length
   return
@@ -317,7 +317,7 @@ reset:
   ; An empty argument list still owns one byte, so the buffer is never null.
   %empty = eq i64 %length, 0
   %capacity = select i64 %empty, 1, %length
-  %arguments = call @aihc_allocate_zeroed(%capacity)
+  %arguments = call @aihc_gc_buffer_new(%capacity)
   jump argument(0, 0, 0, 0, 0)
 
 ; %input is the offset of the next argument, %output the number of bytes kept
@@ -382,7 +382,7 @@ install:
 func @aihc_rts_set_stats_path(%path: ptr) {
 entry:
   %previous = global.get @aihc_rts_option_stats_path
-  call @aihc_memory_free(%previous)
+  call @aihc_gc_buffer_release(%previous)
   global.set @aihc_rts_option_stats_path, %path
   return
 }
@@ -410,7 +410,7 @@ keep_empty:
   jump parse
 
 keep_copy:
-  %copy = call @aihc_allocate_zeroed(%length)
+  %copy = call @aihc_gc_buffer_new(%length)
   call @aihc_memory_copy(%copy, %buffer, %length)
   call @aihc_rts_environment_install(%copy, %length)
   jump parse
@@ -450,7 +450,7 @@ value:
 copy:
   %value_address = ptr.add %buffer, %value_start
   %size = add i64 %value_length, 1
-  %path = call @aihc_allocate_zeroed(%size)
+  %path = call @aihc_gc_buffer_new(%size)
   call @aihc_memory_copy(%path, %value_address, %size)
   call @aihc_rts_set_stats_path(%path)
   jump variable(%next_input)
@@ -554,7 +554,7 @@ clear:
   return 0
 
 duplicate:
-  %arguments = call @aihc_allocate_zeroed(%length)
+  %arguments = call @aihc_gc_buffer_new(%length)
   call @aihc_memory_copy(%arguments, %buffer, %length)
   call @aihc_rts_install(%arguments, %length)
   return 0

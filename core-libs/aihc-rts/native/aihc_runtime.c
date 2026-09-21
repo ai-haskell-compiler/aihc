@@ -3,7 +3,6 @@
 
 #include <errno.h>
 #include <stddef.h>
-#include <stdlib.h>
 #include <string.h>
 
 _Static_assert(offsetof(AihcBlackhole, info) == sizeof(AihcSlot),
@@ -169,20 +168,6 @@ void aihc_record_allocation(AihcMachine *machine) {
   ++machine->allocation_count;
 }
 
-/* The byte count is a uint64_t rather than a size_t so that the runtime units
-   written in Lir can call this with an i64 on a 32-bit target as well. A
-   request the address space cannot hold fails here rather than wrapping. */
-void *aihc_allocate_zeroed(uint64_t bytes) {
-  if (bytes > (uint64_t)SIZE_MAX) {
-    aihc_fail("allocation is too large");
-  }
-  void *pointer = calloc(1, (size_t)bytes);
-  if (pointer == NULL) {
-    aihc_fail("out of memory");
-  }
-  return pointer;
-}
-
 /* Compute the complete allocation charge before a collection can occur. */
 uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
                                int64_t alignment) {
@@ -210,12 +195,6 @@ uint64_t aihc_byte_array_resize_words(void *opaque_array, int64_t size) {
     aihc_fail("attempted to resize a null byte array");
   }
   return aihc_byte_array_words(size, array->pinned, (int64_t)array->alignment);
-}
-
-void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes) {
-  void *pointer = aihc_allocate_zeroed(bytes);
-  aihc_record_allocation(machine);
-  return pointer;
 }
 
 static AihcSlot aihc_make_header(const AihcInfo *info) {
@@ -329,8 +308,6 @@ void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
   memset(destination, (int)(byte & 0xff), (size_t)length);
 }
 
-void aihc_memory_free(void *pointer) { free(pointer); }
-
 /* The RTS option parser, the environment parser, and the argument store
    live in core-libs/aihc-rts/native/aihc_runtime_options.lir. This flattens a
    list of C strings for them: the width of a C pointer is the one thing a
@@ -353,7 +330,7 @@ static void aihc_strings_initialize(size_t count, char *const strings[],
     }
     length += string_length + 1;
   }
-  uint8_t *buffer = aihc_allocate_zeroed(length == 0 ? 1 : length);
+  uint8_t *buffer = aihc_gc_buffer_new(length);
   size_t offset = 0;
   for (size_t index = 0; index < count; ++index) {
     size_t string_length = strlen(strings[index]);
@@ -361,10 +338,10 @@ static void aihc_strings_initialize(size_t count, char *const strings[],
     offset += string_length + 1;
   }
   if (initialize(buffer, (int64_t)length) != 0) {
-    free(buffer);
+    aihc_gc_buffer_release(buffer);
     aihc_fail(invalid_message);
   }
-  free(buffer);
+  aihc_gc_buffer_release(buffer);
 }
 
 void aihc_program_arguments_initialize(int argc, char *const argv[]) {
@@ -846,14 +823,16 @@ int64_t aihc_get_exit_status(const AihcMachine *machine) {
 }
 
 AihcMachine *aihc_machine_new(uint64_t global_count) {
-  AihcMachine *machine = aihc_allocate_zeroed(sizeof(*machine));
-  machine->allocation_count = 1;
+  AihcMachine *machine = aihc_gc_buffer_new(sizeof(*machine));
+  machine->allocation_count = 2;
   machine->heap_max_bytes = aihc_rts_heap_max_bytes();
   machine->heap_limit_enabled = aihc_rts_heap_limit_enabled() != 0;
+  if (global_count > SIZE_MAX / sizeof(*machine->globals)) {
+    aihc_fail("global table is too large");
+  }
   machine->global_count = global_count;
-  machine->globals = aihc_allocate_auxiliary(
-      machine,
-      sizeof(*machine->globals) * (global_count == 0 ? 1 : global_count));
+  machine->globals =
+      aihc_gc_buffer_new(sizeof(*machine->globals) * global_count);
   machine->next_stable_name = 1;
   aihc_gc_init(machine);
   aihc_gc_ensure(machine, aihc_record_words(sizeof(AihcThread)), 0, NULL, NULL);

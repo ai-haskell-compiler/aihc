@@ -133,7 +133,7 @@ static int64_t aihc_wasip3_finish_request(AihcIoRequest *request,
       return (int64_t)(uintptr_t)aihc_io_open_error(
           AIHC_IO_ERROR_INVALID_ARGUMENT);
     }
-    AihcIoHandle *handle = aihc_allocate_zeroed(sizeof(*handle));
+    AihcIoHandle *handle = aihc_gc_buffer_new(sizeof(*handle));
     handle->backend_token = (uintptr_t)result;
     handle->capabilities = capabilities;
     handle->append = request->mode == 2;

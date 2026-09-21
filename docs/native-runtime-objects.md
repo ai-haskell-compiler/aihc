@@ -37,6 +37,27 @@ It excludes the second space, unused capacity, auxiliary runtime allocations, an
 
 Static reference tables determine static object liveness for every collection.
 
+## Host buffers
+
+The runtime allocates host buffers as pinned byte arrays through the GC.
+These buffers hold machine records, global tables, arguments, environment data, IO handles, paths, and POSIX poll descriptors.
+The host heap uses separate static machine state with the same collector as the program heap.
+Thus, a host allocation cannot move program objects outside a program safepoint.
+Host allocation also works before the runtime parses the RTS options.
+The existing program heap limit and program allocation statistics exclude the host heap.
+
+`aihc_gc_buffer_new` creates a zero-filled buffer and registers it as a root.
+The payload address remains fixed until the owner calls `aihc_gc_buffer_release`.
+Release removes the root.
+The next host collection reclaims the buffer.
+The collector does not trace buffer contents.
+The program collector still visits program roots in machine records and global tables.
+
+Temporary paths, poll buffers, and argument copies release their roots after use.
+Machine records, global tables, and IO handles retain their roots for the process lifetime.
+Raw IO handle addresses can remain in program values after close, so close must preserve the handle record.
+The collector alone allocates heap storage and its own metadata through the C allocator.
+
 ## Runtime statistics
 
 Set the environment variable `AIHC_RTS_STATS` to a file path to get the

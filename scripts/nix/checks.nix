@@ -449,11 +449,13 @@
   # rewrites them.
   witBindings =
     pkgs.runCommand "aihc-wit-bindings" {
-      nativeBuildInputs = [pkgs.diffutils pkgs.wit-bindgen];
+      nativeBuildInputs = [pkgs.diffutils pkgs.wit-bindgen pkgs.python3];
     } ''
-      wit-bindgen c --world command --no-object-file --out-dir "$TMPDIR/generated" \
-        ${sources.aihcSrc pkgs}/bin/aihc/compiler/wasm/runtime/wit
-      diff --unified --recursive ${sources.rtsSrc pkgs}/wasm/generated "$TMPDIR/generated"
+      mkdir -p scripts bin/aihc/compiler/wasm/runtime core-libs/aihc-rts
+      cp ${../update-wit-bindings.sh} scripts/update-wit-bindings.sh
+      ln -s ${sources.aihcSrc pkgs}/bin/aihc/compiler/wasm/runtime/wit bin/aihc/compiler/wasm/runtime/wit
+      ln -s ${sources.rtsSrc pkgs}/wasm core-libs/aihc-rts/wasm
+      bash scripts/update-wit-bindings.sh --check
       touch "$out"
     '';
 

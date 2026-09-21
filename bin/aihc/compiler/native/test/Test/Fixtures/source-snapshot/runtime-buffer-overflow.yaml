@@ -1,0 +1,10 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Addr#
+  foreign import ccall unsafe "aihc_gc_buffer_new" newBuffer :: Word# -> Addr#
+  value = Result (newBuffer 18446744073709551615##)
+error: host buffer is too large
+status: pass
+reason: Host buffer size checks must reject overflow before allocation.
