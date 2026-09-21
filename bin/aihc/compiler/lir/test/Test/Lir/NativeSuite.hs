@@ -17,7 +17,7 @@ import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
-import Aihc.Native (NativeTarget (..), executableEntryName)
+import Aihc.Native (NativeTarget (..), executableEntryName, renderNativeTarget)
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources, withFixtureRuntimeUnits)
@@ -317,7 +317,8 @@ snapshotTest backend getExports directory name = testCase name $ do
       (Map.lookup (externFunctionName external) exports)
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
-  case Map.lookup (backendAllocationKey backend) (snapshotFixtureCodegenErrors fixture) of
+  -- Compiler limits belong to the backend, not to its host allocation layout.
+  case Map.lookup (T.pack (renderNativeTarget (backendTarget backend))) (snapshotFixtureCodegenErrors fixture) of
     Just expected -> case backendCompile backend lirModule of
       Left actual -> assertEqual "backend error" expected actual
       Right _ -> assertFailure "backend accepted a fixture with an expected error"
