@@ -1,0 +1,16 @@
+cabal-version: 3.0
+name: demo
+version: 0.1.0.0
+
+library
+  exposed-modules: Demo
+  other-modules: Generated
+  hs-source-dirs: src
+  build-depends: header-provider
+  c-sources: cbits/check.c
+  default-language: Haskell2010
+  default-extensions:
+    CApiFFI
+    CPP
+    MagicHash
+    NoImplicitPrelude

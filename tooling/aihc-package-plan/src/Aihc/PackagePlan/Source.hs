@@ -78,11 +78,9 @@ data ModuleDeps = ModuleDeps
     -- that runs CPP, its @cpp-options@ and the names of its dependencies as
     -- well. A module that does not run CPP depends on the extensions alone.
     moduleDepsConfig :: !Text,
-    -- | Every @#include "header.h"@ that resolved to a file of the package,
-    -- keyed by its path relative to the package root and valued by a digest
-    -- of its raw bytes. A @#include \<header.h\>@ names a header of the
-    -- environment, not of the package, and is not tracked. Empty for a
-    -- module that does not run CPP.
+    -- | Each resolved package header, with its relative path and content digest.
+    -- This includes dependency headers and both CPP include forms.
+    -- Compiler headers belong to the environment identity.
     moduleDepsIncludes :: !(Map FilePath Text),
     -- | The versions the module's @MIN_VERSION_*@ macros report, restricted
     -- to the packages it depends on. Empty for a module that does not run
@@ -205,28 +203,11 @@ preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
         Cpp.NeedInclude req k -> do
           resolved <- resolveInclude headerDir packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
           case resolved of
-            -- A header the package ships is an input of this module: record
-            -- it so that editing the header rebuilds every module that reads
-            -- it. A system header and a synthesized compiler header are not:
-            -- they belong to the environment, which the package identity
-            -- covers.
-            IncludeFromFile file content
-              | IncludeLocalHeader <- includeForm req ->
-                  drive (M.insert (normalise (makeRelative packageRoot file)) (digestChunks [content]) includes) (k (Just content))
-            IncludeFromFile _ content -> drive includes (k (Just content))
+            -- A package can include a dependency header with either CPP form.
+            IncludeFromFile file content ->
+              drive (M.insert (normalise (makeRelative packageRoot file)) (digestChunks [content]) includes) (k (Just content))
             IncludeFromCompiler content -> drive includes (k (Just content))
             IncludeMissing -> drive includes (k Nothing)
-
--- | Whether an include was written as @#include "header.h"@, which names a
--- header of the package, or as @#include <header.h>@, which names one of the
--- environment.
-data IncludeForm = IncludeLocalHeader | IncludeSystemHeader
-
-includeForm :: Cpp.IncludeRequest -> IncludeForm
-includeForm req =
-  case Cpp.includeKind req of
-    Cpp.IncludeLocal -> IncludeLocalHeader
-    Cpp.IncludeSystem -> IncludeSystemHeader
 
 -- | Where the content of an @#include@ came from.
 data ResolvedInclude

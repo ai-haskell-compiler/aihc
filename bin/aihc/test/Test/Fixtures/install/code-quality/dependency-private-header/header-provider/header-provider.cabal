@@ -1,0 +1,10 @@
+cabal-version: 3.0
+name: header-provider
+version: 0.1.0.0
+
+library
+  exposed-modules: Provider
+  hs-source-dirs: src
+  include-dirs: include
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude

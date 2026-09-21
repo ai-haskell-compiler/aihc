@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+mkdir -p include
+cat > include/ProviderConfig.h <<'HEADER'
+#define PROVIDER_CONFIGURED 23
+HEADER
+cat > header-provider.buildinfo <<'BUILDINFO'
+install-includes: ProviderConfig.h
+BUILDINFO

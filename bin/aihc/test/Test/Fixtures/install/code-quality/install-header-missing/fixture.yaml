@@ -1,0 +1,3 @@
+status: pass
+reason: A declared public header must exist before package publication.
+expect-error: "Install header is absent: Absent.h"

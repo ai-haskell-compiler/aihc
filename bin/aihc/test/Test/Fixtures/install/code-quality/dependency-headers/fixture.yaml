@@ -1,0 +1,8 @@
+status: pass
+reason: Installed dependency headers reach CPP, hsc2hs, C, and capi after store publication and reuse.
+input: consumer
+immutable: true
+no-code: false
+check-reinstall: true
+expect-type-constructors:
+  - [Demo, [Token]]

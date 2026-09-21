@@ -39,6 +39,7 @@ import Aihc.Cli.Install
     compileModules,
     compilePackageCFiles,
     defaultBuildRoot,
+    dependencyIncludeDirs,
     installPlanPackages,
     installTargetRoot,
     planRequestFor,
@@ -178,8 +179,10 @@ buildPackage options = do
     let outputRoot = buildRoot </> "exe" </> name
         dependencyNames = map (packageManifestName . installedManifest) selected
     entryFile <- writeEntryModule outputRoot dependencyNames
+    headerDirs <- dependencyIncludeDirs installed
     let sourceFiles = executableInfoFiles executable <> [entryFile]
-        cCompileInfo = executableInfoCCompileInfo executable
+        ownCInfo = executableInfoCCompileInfo executable
+        cCompileInfo = ownCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs ownCInfo <> headerDirs)}
         compileRequest =
           ModuleCompileRequest
             { compileOutputRoot = outputRoot,
