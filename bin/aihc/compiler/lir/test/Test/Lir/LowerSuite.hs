@@ -12,13 +12,11 @@
 -- The neighbouring @lower@ directory is the wasm data-layout suite, which
 -- takes the same GRIN through to wasm and asserts the shape of a global
 -- rather than the Lir text.
--- Because the lowering takes a 'LowerTarget' rather than an architecture,
--- and every 64-bit POSIX target shares one, a fixture selects a target by
--- word size and host and not by architecture. See @docs/lir.md@.
+-- A fixture selects the word size, host, and C argument layout through 'LowerTarget'.
 module Test.Lir.LowerSuite (tests) where
 
 import Aihc.Grin (lowerGc, parseProgram, renderParseError, toCpsGrin)
-import Aihc.Lir.Lower (LowerTarget, lowerModule, posixTarget64, wasip3Target)
+import Aihc.Lir.Lower (LowerTarget, appleArm64Target, lowerModule, posixTarget64, wasip3Target)
 import Aihc.Lir.Pretty (renderModule)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (Parser, Value, parseEither, withObject)
@@ -72,6 +70,7 @@ parseFixture =
     target <-
       case targetName :: Text of
         "posix64" -> pure posixTarget64
+        "apple-arm64" -> pure appleArm64Target
         "wasip3" -> pure wasip3Target
         _ -> fail ("Unknown Lir lowering target: " <> T.unpack targetName)
     LowerFixture

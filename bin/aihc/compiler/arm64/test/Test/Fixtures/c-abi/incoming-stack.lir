@@ -1,0 +1,65 @@
+; expect: 1
+; C supplies the arguments for an exported LIR function.
+
+extern func @check_incoming() -> i64 cc c
+
+export func @receive_mixed(%a0: i64, %a1: f64, %a2: i64, %a3: f64, %a4: i64, %a5: f64, %a6: i64, %a7: f64, %a8: i64, %a9: f64, %a10: i64, %a11: f64, %a12: i64, %a13: f64, %a14: i64, %a15: f64, %a16: i8, %a17: f32, %a18: i16, %a19: f64, %a20: i32, %a21: f32, %a22: ptr, %a23: i64) -> i64 cc c {
+entry:
+  %scratch = stack.alloc 4112 align 16
+  %ok0 = eq i64 %a0, 1
+  %ok1 = eq f64 %a1, 1.25
+  %all1 = and i1 %ok0, %ok1
+  %ok2 = eq i64 %a2, 2
+  %all2 = and i1 %all1, %ok2
+  %ok3 = eq f64 %a3, 2.25
+  %all3 = and i1 %all2, %ok3
+  %ok4 = eq i64 %a4, 3
+  %all4 = and i1 %all3, %ok4
+  %ok5 = eq f64 %a5, 3.25
+  %all5 = and i1 %all4, %ok5
+  %ok6 = eq i64 %a6, 4
+  %all6 = and i1 %all5, %ok6
+  %ok7 = eq f64 %a7, 4.25
+  %all7 = and i1 %all6, %ok7
+  %ok8 = eq i64 %a8, 5
+  %all8 = and i1 %all7, %ok8
+  %ok9 = eq f64 %a9, 5.25
+  %all9 = and i1 %all8, %ok9
+  %ok10 = eq i64 %a10, 6
+  %all10 = and i1 %all9, %ok10
+  %ok11 = eq f64 %a11, 6.25
+  %all11 = and i1 %all10, %ok11
+  %ok12 = eq i64 %a12, 7
+  %all12 = and i1 %all11, %ok12
+  %ok13 = eq f64 %a13, 7.25
+  %all13 = and i1 %all12, %ok13
+  %ok14 = eq i64 %a14, 8
+  %all14 = and i1 %all13, %ok14
+  %ok15 = eq f64 %a15, 8.25
+  %all15 = and i1 %all14, %ok15
+  %ok16 = eq i8 %a16, 255
+  %all16 = and i1 %all15, %ok16
+  %ok17 = eq f32 %a17, 9.5
+  %all17 = and i1 %all16, %ok17
+  %ok18 = eq i16 %a18, 65530
+  %all18 = and i1 %all17, %ok18
+  %ok19 = eq f64 %a19, 10.25
+  %all19 = and i1 %all18, %ok19
+  %ok20 = eq i32 %a20, 4294967290
+  %all20 = and i1 %all19, %ok20
+  %ok21 = eq f32 %a21, 11.5
+  %all21 = and i1 %all20, %ok21
+  %pointed = load i64 [%a22] align 8
+  %ok22 = eq i64 %pointed, 99
+  %all22 = and i1 %all21, %ok22
+  %ok23 = eq i64 %a23, 24
+  %all23 = and i1 %all22, %ok23
+  %result = zext i1 %all23 to i64
+  return %result
+}
+
+func @main() -> i64 {
+entry:
+  %result = call @check_incoming()
+  return %result
+}

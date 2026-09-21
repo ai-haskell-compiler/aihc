@@ -564,13 +564,15 @@ parameters in order. A GRIN value with a pointer representation or an address
 representation becomes `ptr`. Every other GRIN value becomes `i64`, and a
 float travels as its bit pattern like in the native runtime ABI.
 
-The lowering takes a `LowerTarget`: the word size and the host kind. Heap
+The lowering takes a `LowerTarget`: the word size, host kind, and C stack argument layout. Heap
 objects have 8-byte slots on every target, so a pointer that lives in a slot
 travels through `i64` on a 32-bit target and the high bytes of the slot are
 zero. The word size decides the layout of the info tables, the static
 reference tables, and the resume records of the scheduler. The targets are
-`posixTarget64` for Apple ARM64, Linux AMD64, and LLVM, and `wasip3Target`
-for WebAssembly.
+`posixTarget64` for Linux AMD64 and LLVM, `appleArm64Target` for Apple ARM64,
+and `wasip3Target` for WebAssembly. Apple ARM64 preserves the original size
+of narrow C stack arguments. Narrow C register arguments retain their
+extension to 32 bits.
 
 The lowering keeps the control model of CPS-GRIN:
 
@@ -640,11 +642,10 @@ status: pass
 reason: <what the fixture pins>
 ```
 
-A fixture selects a target by word size and host, not by architecture: the
-lowering takes a `LowerTarget`, and Apple ARM64, Linux AMD64 and LLVM all
-share `posix64`, so only `wasip3` produces different Lir. There is no accept
-flag. A mismatch prints the expectation and the actual module, and the actual
-module is what the `expected` block should hold.
+A fixture selects `posix64`, `apple-arm64`, or `wasip3` as its target.
+The target specifies word size, host kind, and C stack argument layout.
+There is no accept flag. A mismatch prints the expected module and the actual
+module. The `expected` block must contain the correct module.
 
 The neighbouring `lower` directory is the wasm data-layout suite, which takes
 a GRIN program all the way to wasm and asserts the shape of a global rather

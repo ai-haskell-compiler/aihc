@@ -1,0 +1,15 @@
+; expect: 42.5, 42.5
+; Integer and float register limits have independent counters.
+
+extern func @check_mixed(i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i8, f32, i16, f64, i32, f32, ptr, i64) -> f64 cc c
+
+data @cell align 8 = { i64 99 }
+data @target align 8 = { code @check_mixed }
+
+func @main() -> (f64, f64) {
+entry:
+  %first = call @check_mixed(1, 1.25, 2, 2.25, 3, 3.25, 4, 4.25, 5, 5.25, 6, 6.25, 7, 7.25, 8, 8.25, 255, 9.5, 65530, 10.25, 4294967290, 11.5, @cell, 24)
+  %target = load code [@target] align 8
+  %second = call.indirect %target(1, 1.25, 2, 2.25, 3, 3.25, 4, 4.25, 5, 5.25, 6, 6.25, 7, 7.25, 8, 8.25, 255, 9.5, 65530, 10.25, 4294967290, 11.5, @cell, 24) : (i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i64, f64, i8, f32, i16, f64, i32, f32, ptr, i64) -> f64 cc c
+  return %first, %second
+}

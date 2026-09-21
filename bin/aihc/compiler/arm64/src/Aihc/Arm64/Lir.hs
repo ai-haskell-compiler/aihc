@@ -19,6 +19,9 @@
 -- them all, so an aihc function that makes no call and spills nothing needs
 -- no frame at all. A C function preserves @x19@ to @x28@ and saves the ones
 -- it touches, and it saves all of them when it calls into aihc code.
+-- C calls use eight integer registers and eight float registers. Extra
+-- scalar arguments use naturally aligned stack slots. The caller removes
+-- the 16-byte aligned argument area after the call.
 --
 -- Narrow integers are canonical: an @iN@ value is zero-extended to 64 bits
 -- wherever it lives. A float is its IEEE bit pattern.
@@ -39,16 +42,18 @@ import Aihc.Arm64.Assemble
 import Aihc.Grin.Gc (GcGrinProgram)
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError)
+import Aihc.Lir.Lower (appleArm64Target)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
 import Aihc.Native.Emit qualified as Emit
-import Aihc.Native.Lir
+import Aihc.Native.Lir hiding (cArgumentMoves)
 import Aihc.Native.Lir qualified as Native
 import Aihc.Native.MachO (writeArm64MachO)
-import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
@@ -84,6 +89,7 @@ objectBackend :: Emit.ObjectBackend Arm64Statement Arm64Register Arm64LirError
 objectBackend =
   Emit.ObjectBackend
     { Emit.obNative = arm64Backend,
+      Emit.obLowerTarget = appleArm64Target,
       Emit.obStatement = applyStatement,
       Emit.obImage = writeArm64MachO,
       Emit.obError = Arm64LirObjectError . T.pack . show
@@ -103,17 +109,11 @@ arm64AsCode statement =
     Arm64Code instruction -> Just (instructionEffect instruction)
     _ -> Nothing
 
-unsupportedText :: Text -> M value
-unsupportedText = Native.unsupported arm64Backend
-
 operandIn' :: Ctx Arm64Register -> Int -> Type -> Arm64Register -> Operand -> ([Arm64Statement], Arm64Register)
 operandIn' = Native.operandIn arm64Backend
 
 parallelMove' :: [(Location Arm64Register, MoveSource Arm64Register)] -> [Arm64Statement]
 parallelMove' = Native.parallelMove arm64Backend
-
-cArgumentMoves' :: Ctx Arm64Register -> [Type] -> [Operand] -> M [Arm64Statement]
-cArgumentMoves' = Native.cArgumentMoves arm64Backend
 
 overflowBytes' :: Int -> Int
 overflowBytes' = Native.overflowBytes arm64Backend
@@ -158,6 +158,8 @@ arm64Backend =
       -- trampoline takes the 128 MB reach of an unconditional branch.
       nbTrapTrampoline = Just (\local stub -> [Arm64Label local, arm64Instruction (ArmB (SymbolName stub))]),
       nbPrologueFrame = prologueFrame,
+      nbCParameterMoves = Just cParameterMoves,
+      nbTailCallFrame = cTailCallFrame,
       nbLeaveFrame = leaveFrame,
       nbSaveReg = storeSlot,
       nbZeroWord = arm64Instruction . ArmStr XZR . Arm64Offset SP . fromIntegral,
@@ -756,45 +758,145 @@ arm64StackAddr dst offset
   | offset < 4096 = [arm64Instruction (ArmAdd dst SP (Arm64ImmediateValue (fromIntegral offset)))]
   | otherwise = [immediate scratchExtra offset, arm64Instruction (ArmAdd dst SP (Arm64RegisterValue scratchExtra))]
 
+data CArgumentLocation
+  = CGeneral Arm64Register
+  | CFloat Int
+  | CStack Int
+
+-- | Apple packs scalar stack arguments at their natural size and alignment.
+-- Integer and float arguments use independent register counters.
+cArgumentLayout :: [Type] -> ([(Int, Type, CArgumentLocation)], Int)
+cArgumentLayout = go 0 0 0 0
+  where
+    go _ _ _ offset [] = ([], roundUp 16 offset)
+    go index general floating offset (ty : rest)
+      | isFloatType ty && floating < 8 =
+          next (CFloat floating) general (floating + 1) offset
+      | not (isFloatType ty) && general < length argumentRegisters =
+          next (CGeneral (argumentRegisters !! general)) (general + 1) floating offset
+      | otherwise =
+          let start = roundUp (typeBytes ty) offset
+           in next (CStack start) general floating (start + typeBytes ty)
+      where
+        next location general' floating' offset' =
+          let (locations, bytes) = go (index + 1) general' floating' offset' rest
+           in ((index, ty, location) : locations, bytes)
+    roundUp alignment bytes = ((bytes + alignment - 1) `div` alignment) * alignment
+
+-- | Access one scalar stack argument, including offsets outside the instruction range.
+cStackMemory :: (Type -> Arm64Register -> Arm64Register -> Int64 -> Arm64Statement) -> Type -> Arm64Register -> Int -> [Arm64Statement]
+cStackMemory operation ty register offset
+  | fitsScaled (toInteger offset) ty = [operation ty register SP (fromIntegral offset)]
+  | otherwise = arm64StackAddr scratchRight offset <> [operation ty register scratchRight 0]
+
+cArgumentMoves :: Ctx Arm64Register -> Int -> Int -> [Type] -> [Operand] -> [Arm64Statement]
+cArgumentMoves ctx displacement stackBase parameterTypes arguments =
+  concat
+    [ loads <> cStackMemory storeMemory ty register (stackBase + offset)
+    | (index, ty, CStack offset) <- locations,
+      let (loads, register) = operandIn' ctx displacement ty scratchLeft (arguments !! index)
+    ]
+    <> concat
+      [ loads <> [arm64Instruction (ArmFmovToFloat (ty == F64) slot register)]
+      | (index, ty, CFloat slot) <- locations,
+        let (loads, register) = operandIn' ctx displacement ty scratchLeft (arguments !! index)
+      ]
+    <> parallelMove'
+      [ (LocRegister register, Native.displaceSource displacement (source ty (arguments !! index)))
+      | (index, ty, CGeneral register) <- locations
+      ]
+  where
+    (locations, _) = cArgumentLayout (take (length arguments) (parameterTypes <> repeat I64))
+    source ty operand = case operand of
+      OperandVar var -> SourceLocation (home ctx var)
+      OperandLiteral literal -> SourceLiteral ty literal
+
+cParameterMoves :: Ctx Arm64Register -> [Arm64Statement]
+cParameterMoves ctx =
+  concat [canonicalizeRegister ty register | (_, ty, CGeneral register) <- locations]
+    <> parallelMove'
+      [ (home ctx (names !! index), SourceLocation (LocRegister register))
+      | (index, _, CGeneral register) <- locations
+      ]
+    <> concat
+      [ [arm64Instruction (ArmFmovFromFloat (ty == F64) scratchLeft slot)]
+          <> canonicalizeRegister ty scratchLeft
+          <> save index
+      | (index, ty, CFloat slot) <- locations
+      ]
+    <> concat
+      [ cStackMemory loadMemory ty scratchLeft (frameBytes' (ctxLayout ctx) + offset)
+          <> canonicalizeRegister ty scratchLeft
+          <> save index
+      | (index, ty, CStack offset) <- locations
+      ]
+  where
+    parameters = functionParameters (ctxFunction ctx)
+    names = map fst parameters
+    (locations, _) = cArgumentLayout (map snd parameters)
+    save index = parallelMove' [(home ctx (names !! index), SourceLocation (LocRegister scratchLeft))]
+
+-- | Reuse the caller argument area only when it is large enough.
+cTailNeedsCall :: Function -> [Type] -> Bool
+cTailNeedsCall function parameterTypes =
+  snd (cArgumentLayout parameterTypes) > available
+  where
+    available = case functionConvention function of
+      CConvention -> snd (cArgumentLayout (map snd (functionParameters function)))
+      AihcConvention -> 0
+
+cTailCallFrame :: Map Symbol Signature -> Function -> Bool
+cTailCallFrame signatures function = any needsFrame (functionBlocks function)
+  where
+    needsFrame block = case blockTerminator block of
+      TailCall symbol _ -> maybe False cFrame (Map.lookup symbol signatures)
+      TailCallIndirect _ _ signature -> cFrame signature
+      _ -> False
+    cFrame signature = signatureConvention signature == CConvention && cTailNeedsCall function (signatureParameters signature)
+
 arm64Call :: Ctx Arm64Register -> Either Symbol Signature -> [Operand] -> [Var] -> M [Arm64Statement]
-arm64Call ctx callee arguments results = do
+arm64Call ctx callee arguments results =
   let (convention, resultTypes, parameterTypes) = Native.calleeSignature ctx callee
-      outgoing = case convention of
-        CConvention -> 0
-        AihcConvention -> overflowBytes' (length arguments)
-      types = parameterTypes <> repeat I64
       branch = case callee of
         Left symbol -> [arm64Instruction (ArmBl (lirSymbol symbol))]
         Right _ -> [arm64Instruction (ArmBlr scratchTarget)]
+   in pure (arm64CallWith ctx convention resultTypes parameterTypes branch arguments results)
+
+arm64CallWith :: Ctx Arm64Register -> CallingConvention -> [Type] -> [Type] -> [Arm64Statement] -> [Operand] -> [Var] -> [Arm64Statement]
+arm64CallWith ctx convention resultTypes parameterTypes branch arguments results =
+  let outgoing = case convention of
+        CConvention -> snd (cArgumentLayout (take (length arguments) (parameterTypes <> repeat I64)))
+        AihcConvention -> overflowBytes' (length arguments)
+      types = parameterTypes <> repeat I64
       resultMoves =
-        concat [floatResult convention ty register <> canonicalResult convention ty register | (ty, register) <- zip resultTypes argumentRegisters]
+        concat [floatResult ty register <> canonicalResult ty register | (ty, register) <- zip resultTypes argumentRegisters]
           <> parallelMove' [(home ctx var, SourceLocation (LocRegister register)) | (var, register) <- zip results argumentRegisters]
-  argumentMoves <-
-    case convention of
-      AihcConvention ->
-        pure
-          ( concat
-              [ loads <> [storeSlot register (8 * position)]
-              | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip types arguments)),
-                let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
+      argumentMoves = case convention of
+        AihcConvention ->
+          concat
+            [ loads <> [storeSlot register (8 * position)]
+            | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip types arguments)),
+              let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
+            ]
+            <> parallelMove'
+              [ (LocRegister register, Native.displaceSource outgoing (operandSource ctx ty argument))
+              | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
               ]
-              <> parallelMove'
-                [ (LocRegister register, Native.displaceSource outgoing (operandSource ctx ty argument))
-                | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
-                ]
-          )
-      CConvention -> cArgumentMoves' ctx parameterTypes arguments
-  pure (adjustStack ArmSub outgoing <> argumentMoves <> branch <> resultMoves)
+        CConvention -> cArgumentMoves ctx outgoing 0 parameterTypes arguments
+      cleanup = case convention of
+        CConvention -> adjustStack ArmAdd outgoing
+        AihcConvention -> []
+   in adjustStack ArmSub outgoing <> argumentMoves <> branch <> cleanup <> resultMoves
   where
     operandSource ctx' ty operand =
       case operand of
         OperandVar var -> SourceLocation (home ctx' var)
         OperandLiteral literal -> SourceLiteral ty literal
-    floatResult convention ty register =
+    floatResult ty register =
       case convention of
         CConvention | isFloatType ty -> [arm64Instruction (ArmFmovFromFloat (ty == F64) register 0)]
         _ -> []
-    canonicalResult convention ty register =
+    canonicalResult ty register =
       case convention of
         CConvention -> canonicalizeRegister ty register
         AihcConvention -> []
@@ -811,9 +913,6 @@ arm64TailCall ctx callee convention parameterTypes arguments =
   case convention of
     AihcConvention -> aihcTailCall
     CConvention -> do
-      when (ctxIncomingOverflow ctx /= 0) $
-        unsupportedText "C tail call from a function with an overflow parameter block"
-      argumentMoves <- cArgumentMoves' ctx parameterTypes arguments
       targetLoad <- case callee of
         Left _ -> pure []
         Right operand -> do
@@ -823,7 +922,25 @@ arm64TailCall ctx callee convention parameterTypes arguments =
       let branch = case callee of
             Left label -> arm64Instruction (ArmB (SymbolName label))
             Right _ -> arm64Instruction (ArmBr scratchTarget)
-      pure (targetLoad <> argumentMoves <> leaveFrame ctx 0 <> [branch])
+          call = case callee of
+            Left label -> arm64Instruction (ArmBl label)
+            Right _ -> arm64Instruction (ArmBlr scratchTarget)
+          function = ctxFunction ctx
+          resultTypes = functionResults function
+      pure $
+        if cTailNeedsCall function parameterTypes
+          then
+            targetLoad
+              <> arm64CallWith ctx CConvention resultTypes parameterTypes [call] arguments []
+              <> nbCReturnFloat arm64Backend (functionConvention function) resultTypes
+              <> leaveFrame ctx 0
+              <> adjustStack ArmAdd (ctxIncomingOverflow ctx)
+              <> [arm64Instruction ArmRet]
+          else
+            targetLoad
+              <> cArgumentMoves ctx 0 (frameBytes' layout) parameterTypes arguments
+              <> leaveFrame ctx 0
+              <> [branch]
   where
     layout = ctxLayout ctx
     aihcTailCall = do

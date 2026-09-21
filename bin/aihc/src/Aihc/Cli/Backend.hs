@@ -19,7 +19,7 @@ where
 import Aihc.Amd64.Lir qualified as Amd64
 import Aihc.Arm64.Lir qualified as Arm64
 import Aihc.Grin.Gc (GcGrinProgram)
-import Aihc.Lir.Lower (LowerTarget, posixTarget64, wasip3Target)
+import Aihc.Lir.Lower (LowerTarget, appleArm64Target, posixTarget64, wasip3Target)
 import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Syntax (Item (..), Module (..))
@@ -43,6 +43,7 @@ data BackendOutput
 lowerTargetFor :: NativeTarget -> LowerTarget
 lowerTargetFor target =
   case target of
+    AppleArm64 -> appleArm64Target
     Wasm32Wasip3 -> wasip3Target
     _ -> posixTarget64
 

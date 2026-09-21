@@ -37,10 +37,10 @@ import Data.Word (Word64)
 import Data.Yaml qualified as Y
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GrinGolden qualified
-import System.Directory (createDirectory, getTemporaryDirectory, listDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (createDirectory, doesFileExist, getTemporaryDirectory, listDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.FilePath (replaceExtension, takeDirectory, takeExtension, (</>))
 import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
 import Test.Lir.Observed (lowerObservedProgram)
@@ -70,12 +70,18 @@ tests backend = do
   let directory = root </> "bin" </> "aihc" </> "compiler" </> "lir" </> "test" </> "Test" </> "Fixtures" </> "lir" </> "eval"
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
+  let cAbiDirectory = root </> "bin/aihc/compiler/arm64/test/Test/Fixtures/c-abi"
+  cAbiNames <-
+    if backendTarget backend == AppleArm64
+      then sort . filter ((== ".lir") . takeExtension) <$> listDirectory cAbiDirectory
+      else pure []
   sourceSnapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory (root </> "bin/aihc/compiler/native/test/Test/Fixtures/source-snapshot")
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
   pure
     ( testGroup
         (backendName backend)
         [ testGroup "Lir evaluation fixtures" (map (fixtureTest backend directory) names),
+          testGroup "C ABI fixtures" (map (fixtureTest backend cAbiDirectory) cAbiNames),
           -- The exports are read from the aihc-rts sources when a snapshot
           -- test first runs, not while the tree is built: the tree is built
           -- where those sources may be absent, such as a check that only
@@ -152,7 +158,9 @@ fixtureTest backend directory name = testCase name $ do
             (BL.length bytes <= maximumBytes)
         BackendSource _ -> assertFailure "ARM64 output is not an object"
   when (backendRuns backend && name `notElem` uncheckedTraps) $ do
-    (exit, out, err) <- runFixture backend output
+    let companion = directory </> replaceExtension name "c"
+    hasCompanion <- doesFileExist companion
+    (exit, out, err) <- runFixture backend output [companion | hasCompanion]
     case (headerValues "expect" source, headerValues "expect-trap" source) of
       ([expected], []) -> do
         assertEqual ("exit status, stderr: " <> err) ExitSuccess exit
@@ -230,8 +238,8 @@ driverSource =
       "}"
     ]
 
-runFixture :: NativeBackend -> BackendOutput -> IO (ExitCode, String, String)
-runFixture backend output =
+runFixture :: NativeBackend -> BackendOutput -> [FilePath] -> IO (ExitCode, String, String)
+runFixture backend output companions =
   withTempDirectory "aihc-lir-fixture" $ \directory -> do
     unit <- writeUnit backend directory "fixture" output
     let driverPath = directory </> "driver.c"
@@ -240,7 +248,7 @@ runFixture backend output =
     (clangExit, _, clangErr) <-
       -- glibc keeps libm apart from libc, so a fixture that calls one of its
       -- functions needs -lm. The other two links here already carry it.
-      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", driverPath, unit, "-lm", "-o", executable]) ""
+      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", driverPath, unit] <> companions <> ["-lm", "-o", executable]) ""
     assertEqual ("clang failed to link the fixture:\n" <> clangErr) ExitSuccess clangExit
     readProcessWithExitCode executable [] ""
 

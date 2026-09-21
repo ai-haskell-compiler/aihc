@@ -1,0 +1,38 @@
+; expect: 1, 1, 42.5, 1
+; Tail calls restore the caller stack and preserve C float results.
+
+extern func @check_tail(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 cc c
+extern func @check_tail_float(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> f64 cc c
+extern func @check_small(i64) -> i64 cc c
+
+data @target align 8 = { code @check_tail }
+
+func @direct(%value: i64) -> i64 cc c {
+entry:
+  tailcall @check_tail(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, %value)
+}
+
+func @indirect(%target: code) -> i64 cc c {
+entry:
+  tailcall.indirect %target(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 cc c
+}
+
+func @floating() -> f64 cc c {
+entry:
+  tailcall @check_tail_float(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+}
+
+func @incoming(%a0: i64, %a1: i64, %a2: i64, %a3: i64, %a4: i64, %a5: i64, %a6: i64, %a7: i64, %a8: i64, %a9: i64, %a10: i64, %a11: i64, %a12: i64) -> i64 cc c {
+entry:
+  tailcall @check_small(%a12)
+}
+
+func @main() -> (i64, i64, f64, i64) {
+entry:
+  %first = call @direct(13)
+  %target = load code [@target] align 8
+  %second = call @indirect(%target)
+  %third = call @floating()
+  %fourth = call @incoming(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+  return %first, %second, %third, %fourth
+}

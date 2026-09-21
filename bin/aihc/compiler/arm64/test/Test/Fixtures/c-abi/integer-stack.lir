@@ -1,0 +1,17 @@
+; expect: 1, 1, 99
+; Direct and indirect C calls preserve live values and stack arguments.
+
+extern func @check_integers(i64, i64, i64, i64, i64, i64, i64, i64, i8, i16, i32, ptr, i64) -> i64 cc c
+
+data @target align 8 = { code @check_integers }
+
+func @main() -> (i64, i64, i64) {
+entry:
+  %memory = stack.alloc 8 align 8
+  store i64 99, [%memory] align 8
+  %first = call @check_integers(1, 2, 3, 4, 5, 6, 7, 8, 255, 65530, 4294967290, %memory, 13)
+  %target = load code [@target] align 8
+  %second = call.indirect %target(1, 2, 3, 4, 5, 6, 7, 8, 255, 65530, 4294967290, %memory, 13) : (i64, i64, i64, i64, i64, i64, i64, i64, i8, i16, i32, ptr, i64) -> i64 cc c
+  %preserved = load i64 [%memory] align 8
+  return %first, %second, %preserved
+}
