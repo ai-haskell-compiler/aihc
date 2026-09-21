@@ -18,6 +18,7 @@ module GHC.IO.Handle.Internals
     wantSeekableHandle,
     mkHandle,
     mkFileHandle,
+    mkFileHandleNoFinalizer,
     mkDuplexHandle,
     openTextEncoding,
     closeTextCodecs,
@@ -357,6 +358,17 @@ mkFileHandle ::
   IO Handle
 mkFileHandle device path mode codec newlines =
   mkHandle device path (ioModeToHandleType mode) True codec newlines Nothing Nothing
+
+-- | Create a handle without a finalizer. The caller must close the handle.
+mkFileHandleNoFinalizer ::
+  (RawIO dev, IODevice dev, BufferedIO dev, Typeable dev) =>
+  dev ->
+  FilePath ->
+  IOMode ->
+  Maybe TextEncoding ->
+  NewlineMode ->
+  IO Handle
+mkFileHandleNoFinalizer = mkFileHandle
 
 mkDuplexHandle ::
   (RawIO dev, IODevice dev, BufferedIO dev, Typeable dev) =>

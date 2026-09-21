@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 
 -- | The IO exception types. The IO error type lives in
@@ -25,6 +26,7 @@ module GHC.IO.Exception
     ioError,
     userError,
     unsupportedOperation,
+    ExitCode (..),
   )
 where
 
@@ -42,9 +44,19 @@ import GHC.Internal.IO.Types
     unsupportedOperation,
     userError,
   )
+import GHC.Internal.Read (Read)
 import GHC.Show (Show (..), showString)
 
 type IOError = IOException
+
+-- | The process exit status shared with "System.Exit".
+data ExitCode
+  = ExitSuccess
+  | ExitFailure Int
+  deriving stock (Eq, Ord, Read, Show)
+
+instance Exception ExitCode where
+  displayException = show
 
 data BlockedIndefinitelyOnMVar = BlockedIndefinitelyOnMVar
 

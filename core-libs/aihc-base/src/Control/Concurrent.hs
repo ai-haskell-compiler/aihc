@@ -1,28 +1,23 @@
 module Control.Concurrent
-  ( MVar,
+  ( module Control.Concurrent.MVar,
     ThreadId,
     forkFinally,
     forkIO,
     forkOS,
     killThread,
     myThreadId,
-    newEmptyMVar,
-    newMVar,
-    putMVar,
-    readMVar,
-    takeMVar,
     threadDelay,
     throwTo,
     yield,
   )
 where
 
+import Control.Concurrent.MVar
 import Control.Exception.Base (SomeException, mask, try)
 import GHC.Conc.IO (threadDelay)
 import GHC.Conc.Sync (ThreadId, forkIO, killThread, myThreadId, throwTo, yield)
 import GHC.Exception (ErrorCall (..))
 import GHC.IO (throwIO)
-import GHC.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import Prelude (Either, IO, ($), (>>=))
 
 -- | Run the action in a child thread. Give its result to the callback.

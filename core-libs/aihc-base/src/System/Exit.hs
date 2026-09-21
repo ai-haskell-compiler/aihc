@@ -7,77 +7,10 @@ module System.Exit
   )
 where
 
-import Control.Exception (Exception (..), throwIO)
-import GHC.IO.Exception (ioError, userError)
-import GHC.Read ()
+import Control.Exception (throwIO)
+import GHC.IO.Exception (ExitCode (..), ioError, userError)
 import System.IO (hPutStr, stderr)
 import Prelude
-
-data ExitCode
-  = ExitSuccess
-  | ExitFailure Int
-
-instance Eq ExitCode where
-  ExitSuccess == ExitSuccess = True
-  ExitFailure left == ExitFailure right = left == right
-  _ == _ = False
-  left /= right = not (left == right)
-
-instance Ord ExitCode where
-  compare ExitSuccess ExitSuccess = EQ
-  compare ExitSuccess (ExitFailure _) = LT
-  compare (ExitFailure _) ExitSuccess = GT
-  compare (ExitFailure left) (ExitFailure right) = compare left right
-  left < right = compare left right == LT
-  left <= right = compare left right /= GT
-  left > right = compare left right == GT
-  left >= right = compare left right /= LT
-  max left right =
-    case compare left right of
-      GT -> left
-      _ -> right
-  min left right =
-    case compare left right of
-      GT -> right
-      _ -> left
-
-instance Show ExitCode where
-  showsPrec _ ExitSuccess = showString "ExitSuccess"
-  showsPrec precedence (ExitFailure status) =
-    showParen
-      (precedence > 10)
-      (showString "ExitFailure " . showsPrec 11 status)
-
-instance Read ExitCode where
-  readsPrec precedence input =
-    readExitSuccess input
-      ++ readParen (precedence > 10) readExitFailure input
-
-readExitSuccess :: ReadS ExitCode
-readExitSuccess input =
-  case lex input of
-    (token, rest) : _ ->
-      case token == "ExitSuccess" of
-        True -> [(ExitSuccess, rest)]
-        False -> []
-    _ -> []
-
-readExitFailure :: ReadS ExitCode
-readExitFailure input =
-  case lex input of
-    (token, rest) : _ ->
-      case token == "ExitFailure" of
-        True -> readExitFailureStatus (reads rest)
-        False -> []
-    _ -> []
-
-readExitFailureStatus :: [(Int, String)] -> [(ExitCode, String)]
-readExitFailureStatus [] = []
-readExitFailureStatus ((status, rest) : results) =
-  (ExitFailure status, rest) : readExitFailureStatus results
-
-instance Exception ExitCode where
-  displayException = show
 
 exitWith :: ExitCode -> IO a
 exitWith ExitSuccess = throwIO ExitSuccess

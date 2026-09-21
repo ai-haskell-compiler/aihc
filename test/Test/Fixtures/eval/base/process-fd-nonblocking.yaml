@@ -1,0 +1,46 @@
+extensions:
+  - CApiFFI
+  - ImportQualifiedPost
+modules:
+  - |
+    {-# LANGUAGE CApiFFI #-}
+    module Test where
+
+    import Control.Exception (IOException, try)
+    import Data.Bits ((.&.), complement)
+    import Foreign.C.Types (CInt (..))
+    import GHC.IO.Device (close)
+    import GHC.IO.FD qualified as FD
+    import System.IO (IOMode (..))
+    import System.Posix.Internals (c_fcntl_read, o_NONBLOCK)
+
+    foreign import capi unsafe "fcntl.h value F_GETFL"
+      getFlags :: CInt
+
+    result :: IO Bool
+    result = do
+      (fd, _) <- FD.openFile "/dev/null" AppendMode False
+      initial <- c_fcntl_read (FD.fdFD fd) getFlags
+      blocking <- FD.setNonBlockingMode fd False
+      cleared <- c_fcntl_read (FD.fdFD fd) getFlags
+      nonblocking <- FD.setNonBlockingMode blocking True
+      set <- c_fcntl_read (FD.fdFD fd) getFlags
+      repeated <- FD.setNonBlockingMode nonblocking True
+      close repeated
+      invalid <- try (FD.setNonBlockingMode repeated False) :: IO (Either IOException FD.FD)
+      let badDescriptor = case invalid of
+            Left _ -> True
+            Right _ -> False
+      return (FD.fdFD blocking == FD.fdFD fd
+        && FD.fdIsNonBlocking blocking == 0
+        && FD.fdIsNonBlocking nonblocking == 1
+        && FD.fdIsNonBlocking repeated == 1
+        && cleared .&. o_NONBLOCK == 0
+        && set .&. o_NONBLOCK == o_NONBLOCK
+        && cleared .&. complement o_NONBLOCK == initial .&. complement o_NONBLOCK
+        && set .&. complement o_NONBLOCK == initial .&. complement o_NONBLOCK
+        && badDescriptor)
+expression: result
+output: "True"
+status: pass
+reason: The descriptor mode must change OS flags, preserve other flags, and reject a closed descriptor.

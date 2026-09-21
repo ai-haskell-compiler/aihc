@@ -1,0 +1,30 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (modifyMVar, modifyMVar_, newMVar, tryTakeMVar, withMVar)
+    import Control.Exception (allowInterrupt, try)
+    import GHC.IO.Exception (ExitCode (..))
+    import System.Exit qualified as Exit
+
+    result :: IO Bool
+    result = do
+      cell <- newMVar (3 :: Int)
+      first <- withMVar cell return
+      old <- modifyMVar cell (\value -> return (value + 1, value))
+      modifyMVar_ cell (\value -> return (value + 2))
+      final <- tryTakeMVar cell
+      empty <- tryTakeMVar cell
+      allowInterrupt
+      exited <- try (Exit.exitWith (ExitFailure 7)) :: IO (Either ExitCode ())
+      return (first == 3 && old == 3 && final == Just 6 && empty == Nothing
+        && exited == Left (Exit.ExitFailure 7)
+        && (read "ExitFailure 7" :: ExitCode) == Exit.ExitFailure 7
+        && (read "(ExitSuccess)" :: ExitCode) == Exit.ExitSuccess
+        && ExitSuccess < Exit.ExitFailure 1)
+expression: result
+output: "True"
+status: pass
+reason: The process package needs shared exit codes, MVar exports, and allowInterrupt.
+extensions:
+  - ImportQualifiedPost

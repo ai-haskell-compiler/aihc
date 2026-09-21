@@ -17,13 +17,17 @@ module GHC.MVar
 where
 
 import GHC.IO (IO (..))
-import GHC.Prim (Int#, MVar#, RealWorld, isEmptyMVar#, mkWeak#, newMVar#, putMVar#, readMVar#, takeMVar#, tryPutMVar#, tryReadMVar#, tryTakeMVar#)
+import GHC.Internal.Classes (Eq (..))
+import GHC.Prim (Int#, MVar#, RealWorld, isEmptyMVar#, mkWeak#, newMVar#, putMVar#, readMVar#, sameMVar#, takeMVar#, tryPutMVar#, tryReadMVar#, tryTakeMVar#)
 import GHC.Prim.Base (Maybe (..))
 import GHC.Types (Bool (..), isTrue#)
 
 -- | A synchronized mutable location that is either empty or contains one
 -- value.
 data MVar a = MVar (MVar# RealWorld a)
+
+instance Eq (MVar a) where
+  MVar left == MVar right = isTrue# (sameMVar# left right)
 
 -- | Create an empty 'MVar'.
 newEmptyMVar :: IO (MVar a)
