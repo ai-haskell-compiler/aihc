@@ -27,6 +27,12 @@ annotated:
     │ └─ v 0
     └─ v Main
     {-# RULES "x/x" forall a. x (x a) = x a #-}
+                           │  │  │ │    │ └─ v 0
+                           │  │  │ │    └─ v Main
+                           │  │  │ └─ v 0
+                           │  │  └─ v Main
+                           │  └─ v Main
+                           └─ v 0
     {-# SPECIALISE x :: () -> () #-}
     {-# ANN x "hint" #-}
     class C a where
@@ -47,4 +53,4 @@ annotated:
       └─ v Main
       {-# SPECIALIZE instance C () #-}
 status: pass
-reason: RULES, SPECIALISE, ANN, and MINIMAL pragmas are accepted without resolver diagnostics
+reason: SPECIALISE, ANN, and MINIMAL pragmas are accepted without resolver diagnostics; RULES pragmas are resolved

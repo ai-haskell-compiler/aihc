@@ -172,6 +172,25 @@ instance HasAnnotations Decl where
       DeclTypeFamilyInst familyInst -> DeclTypeFamilyInst <$> traverseAnnotations f familyInst
       DeclDataFamilyInst familyInst -> DeclDataFamilyInst <$> traverseAnnotations f familyInst
       DeclPragma pragma -> pure (DeclPragma pragma)
+      DeclRules rules -> DeclRules <$> traverseAnnotations f rules
+
+instance HasAnnotations RuleDecl where
+  traverseAnnotations f rule =
+    ( \anns typeBinders binders lhs rhs ->
+        rule {ruleAnns = anns, ruleTypeBinders = typeBinders, ruleBinders = binders, ruleLhs = lhs, ruleRhs = rhs}
+    )
+      <$> traverseAnnotations f (ruleAnns rule)
+      <*> traverseAnnotations f (ruleTypeBinders rule)
+      <*> traverseAnnotations f (ruleBinders rule)
+      <*> traverseAnnotations f (ruleLhs rule)
+      <*> traverseAnnotations f (ruleRhs rule)
+
+instance HasAnnotations RuleBinder where
+  traverseAnnotations f binder =
+    (\anns name ty -> binder {ruleBinderAnns = anns, ruleBinderName = name, ruleBinderType = ty})
+      <$> traverseAnnotations f (ruleBinderAnns binder)
+      <*> traverseAnnotations f (ruleBinderName binder)
+      <*> traverseAnnotations f (ruleBinderType binder)
 
 instance HasAnnotations ValueDecl where
   traverseAnnotations f value =
