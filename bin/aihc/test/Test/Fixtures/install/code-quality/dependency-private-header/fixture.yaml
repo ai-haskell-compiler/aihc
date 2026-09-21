@@ -1,0 +1,4 @@
+status: pass
+reason: A dependency does not export headers that it does not declare in install-includes.
+input: consumer
+expect-error: "missing include: Private.h"

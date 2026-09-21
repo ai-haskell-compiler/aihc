@@ -20,6 +20,7 @@ module Aihc.Cli.Install
     moduleOutputPaths,
     buildEnvironmentIdentity,
     defaultBuildRoot,
+    dependencyIncludeDirs,
     install,
     installWith,
     installPlanPackages,
@@ -225,10 +226,10 @@ import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, isRelative, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
+import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcessWithExitCode, readProcess)
 
@@ -809,11 +810,16 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
   let storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId unitIdentity)
-  (configuredFiles, cCompileInfo) <- configurePackage config root storePath packageNameText inputs
+  (configuredFiles, configuredCInfo) <- configurePackage config root storePath packageNameText inputs
+  headerDirs <- dependencyIncludeDirs dependencies
+  headerHash <- includeDirectoriesHash headerDirs
   let dependencyVersions =
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
-  files <- preprocessPackage config dependencyVersions root storePath (inputConfigureScript inputs) cCompileInfo configuredFiles
+      cCompileInfo = configuredCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs configuredCInfo <> headerDirs)}
+      sourceFiles = map (appendIncludeDirs headerDirs) configuredFiles
+  installPackageHeaders root storePath configuredCInfo
+  files <- preprocessPackage config dependencyVersions root storePath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
   compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
@@ -830,7 +836,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
     -- The archive follows its objects and the C sources. Both are known
     -- without reading the objects: a unit that wrote an object says so, and
     -- the C sources are hashed for the archive stamp.
-    archiveInputs <- archiveInputsHash config root dependencies inputs
+    archiveInputs <- archiveInputsHash config root dependencies inputs headerHash
     let stampPath = storePath </> "lib" </> "archive.hash"
     previous <- readStampText stampPath
     archiveExists <- doesFileExist archive
@@ -912,14 +918,16 @@ compileFlagNames config =
 
 compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
 compileModules config request = do
+  headerDirs <- dependencyIncludeDirs (compileDependencies request)
+  let options = compileCapiStubOptions request
   compiled <-
     compileModulesWithDependencies
       config
-      (compileCapiStubOptions request)
+      options {capiStubIncludeDirs = nub (capiStubIncludeDirs options <> headerDirs)}
       (compileOutputRoot request)
       (compilePackageRoot request)
       (compilePackage request)
-      (compileSourceFiles request)
+      (map (appendIncludeDirs headerDirs) (compileSourceFiles request))
       (compileDependencies request)
   let names = map sourceName (compiledSources compiled)
   objects <- moduleObjectPaths (not (compileLto config)) (compileOutputRoot request) (compileTarget config) names
@@ -1153,8 +1161,8 @@ packageUnitIdentity inputs =
    in (packageNameText <> "-" <> packageVersionText, packageNameText, packageVersionText)
 
 -- | What the package archive depends on besides the module objects.
-archiveInputsHash :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> PackageInputs -> IO String
-archiveInputsHash config root dependencies inputs = do
+archiveInputsHash :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> PackageInputs -> String -> IO String
+archiveInputsHash config root dependencies inputs headerHash = do
   let cInputs = inputCCompileInfo inputs
   sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileCxxSources cInputs <> HackageCabal.cCompileLirSources cInputs)
   cSysrootArguments <-
@@ -1171,6 +1179,7 @@ archiveInputsHash config root dependencies inputs = do
                 : T.pack sourceHash
                 : T.pack (show cSysrootArguments)
                 : T.pack configureHash
+                : T.pack headerHash
                 : sortOn id (map installedIdentity dependencies)
             )
         )
@@ -2585,6 +2594,55 @@ capiStubOptions files info =
       capiStubCcOptions = HackageCabal.cCompileCcOptions info
     }
 
+-- | Public headers stay inside the package when its temporary directory moves.
+packageHeaderDirectory :: FilePath -> FilePath
+packageHeaderDirectory root = root </> "include"
+
+-- | Search package headers before dependency headers.
+appendIncludeDirs :: [FilePath] -> HackageCabal.FileInfo -> HackageCabal.FileInfo
+appendIncludeDirs directories file =
+  file {HackageCabal.fileInfoIncludeDirs = nub (HackageCabal.fileInfoIncludeDirs file <> directories)}
+
+-- | Use only headers that each dependency installed for this target.
+dependencyIncludeDirs :: [InstalledPackage] -> IO [FilePath]
+dependencyIncludeDirs dependencies =
+  filterM doesDirectoryExist (map (packageHeaderDirectory . installStorePath . installedResult) dependencies)
+
+-- | Header changes in local dependencies invalidate C and hsc2hs outputs.
+includeDirectoriesHash :: [FilePath] -> IO String
+includeDirectoriesHash directories = do
+  files <- concat <$> mapM directoryFiles directories
+  sourceFilesHash "" files
+  where
+    directoryFiles directory = do
+      names <- listDirectory directory
+      concat
+        <$> forM
+          names
+          ( \name -> do
+              let path = directory </> name
+              isDirectory <- doesDirectoryExist path
+              if isDirectory then directoryFiles path else pure [path]
+          )
+
+-- | Copy declared public headers. Generated include directories take precedence.
+installPackageHeaders :: FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO ()
+installPackageHeaders root storePath info = do
+  headers <- forM (HackageCabal.cCompileInstallIncludes info) $ \header -> do
+    unless (isRelative header && ".." `notElem` splitDirectories header) $
+      ioError (userError ("Install header path is invalid: " <> header))
+    candidates <- filterM doesFileExist [directory </> header | directory <- HackageCabal.cCompileIncludeDirs info <> [root]]
+    case candidates of
+      [] -> ioError (userError ("Install header is absent: " <> header))
+      source : _ -> (header,) <$> BS.readFile source
+  let output = packageHeaderDirectory storePath
+  exists <- doesDirectoryExist output
+  when exists (removeDirectoryRecursive output)
+  forM_ headers $ \(header, bytes) -> do
+    let path = output </> header
+    createDirectoryIfMissing True (takeDirectory path)
+    BS.writeFile path bytes
+
 -- | What the capi wrappers of a unit add to its recorded backend outputs.
 capiStubPaths :: NativeTarget -> [CapiStubOutput] -> [FilePath]
 capiStubPaths target outputs =
@@ -2795,8 +2853,8 @@ targetCCompiler target level = do
 -- resolves the file's @#if@ lines with a C compiler, which knows nothing of
 -- the macros aihc's own CPP pass prepends to a Haskell source. The header is
 -- per file because @cpp-options@ and @build-depends@ are per component.
-preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
-preprocessPackage config versions root storePath configureScript cInfo = mapM preprocessFile
+preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> String -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
+preprocessPackage config versions root storePath configureScript headerHash cInfo = mapM preprocessFile
   where
     verbose = compileVerbose config
 
@@ -2823,6 +2881,7 @@ preprocessPackage config versions root storePath configureScript cInfo = mapM pr
                     BS8.pack toolIdentity,
                     BS8.pack (show (executable, arguments)),
                     BS8.pack configureHash,
+                    BS8.pack headerHash,
                     BS8.pack environmentIdentity
                   ]
           previous <- readStampText stampPath
@@ -3249,4 +3308,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-33"
+packageArtifactFormatVersion = "aihc-artifacts-34"
