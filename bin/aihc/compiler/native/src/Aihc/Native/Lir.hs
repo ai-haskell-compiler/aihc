@@ -61,7 +61,7 @@ import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
@@ -124,6 +124,10 @@ data NativeBackend statement register error = NativeBackend
     -- conditional branch reaches the whole object gives 'Nothing'.
     nbTrapTrampoline :: !(Maybe (Name -> Text -> [statement])),
     nbPrologueFrame :: Bool -> Int -> [statement],
+    -- | A backend can supply the complete C parameter layout, including stack parameters.
+    nbCParameterMoves :: Maybe (Ctx register -> [statement]),
+    -- | Some C tail calls require a call and return with a saved return address.
+    nbTailCallFrame :: Map Symbol Signature -> Function -> Bool,
     nbLeaveFrame :: Ctx register -> Int -> [statement],
     nbSaveReg :: register -> Int -> statement,
     nbZeroWord :: Int -> statement,
@@ -510,7 +514,7 @@ prepareFunction backend signatures index function = do
               CConvention -> 0,
             ctxReads = readCounts function
           }
-  when (functionConvention function == CConvention) $ do
+  when (functionConvention function == CConvention && isNothing (nbCParameterMoves backend)) $ do
     let (integers, floats) = classify (map snd (functionParameters function))
     when (length integers > length (nbArgumentRegisters backend)) $
       unsupported backend ("function " <> unSymbol (functionName function) <> " has more than " <> nbCIntegerLimitWord backend <> " integer C parameters")
@@ -589,7 +593,7 @@ functionLayout backend signatures function = do
         layoutSaved = saved,
         layoutAllocs = allocs,
         layoutSize = size,
-        layoutFramed = size > 0 || not (null calls)
+        layoutFramed = size > 0 || not (null calls) || nbTailCallFrame backend signatures function
       }
 
 isCall :: Operation -> Bool
@@ -627,6 +631,7 @@ functionPrologue backend ctx = do
               [ (home ctx var, SourceLocation (parameterLocation index))
               | (index, (var, _)) <- zip [0 ..] parameters
               ]
+          CConvention | Just parameterMoves <- nbCParameterMoves backend -> parameterMoves ctx
           CConvention ->
             let (integers, floats) = classify (map snd parameters)
                 names = map fst parameters

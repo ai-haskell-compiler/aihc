@@ -41,6 +41,7 @@ import Aihc.Amd64.Assemble
 import Aihc.Grin.Gc (GcGrinProgram)
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError)
+import Aihc.Lir.Lower (posixTarget64)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
 import Aihc.Native.Elf (writeAmd64Elf)
@@ -91,6 +92,7 @@ objectBackend :: Emit.ObjectBackend Amd64Statement Amd64Register Amd64LirError
 objectBackend =
   Emit.ObjectBackend
     { Emit.obNative = amd64Backend,
+      Emit.obLowerTarget = posixTarget64,
       Emit.obStatement = applyStatement,
       Emit.obImage = writeAmd64Elf,
       Emit.obError = Amd64LirObjectError . T.pack . show
@@ -166,6 +168,8 @@ amd64Backend =
       -- stub from anywhere in the object.
       nbTrapTrampoline = Nothing,
       nbPrologueFrame = prologueFrame,
+      nbCParameterMoves = Nothing,
+      nbTailCallFrame = \_ _ -> False,
       nbLeaveFrame = leaveFrame,
       nbSaveReg = storeSlot,
       nbZeroWord = \offset -> amd64Instruction (AmdStore (slotMemory offset) (Amd64StoreImmediate 0)),

@@ -1,12 +1,13 @@
 language: lir
-error: integer C parameters
+error: stack.alloc alignment above 16
 source: |
   func @first() -> i64 {
   entry:
     return 42
   }
 
-  func @later(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64) -> i64 cc c {
+  func @later() -> i64 {
   entry:
-    return %i
+    %buffer = stack.alloc 64 align 32
+    return 0
   }

@@ -6,7 +6,7 @@ import Aihc.Arm64.Assemble
 import Aihc.Arm64.Lir (compileLirObject, compileLirStatements, elideSlotReloads)
 import Aihc.Arm64.Text (renderArm64Statements)
 import Aihc.Cli.Backend (BackendOutput (..))
-import Aihc.Lir.Lower (posixTarget64)
+import Aihc.Lir.Lower (appleArm64Target)
 import Aihc.Native (NativeTarget (AppleArm64))
 import System.Info (arch, os)
 import Test.Lir.AsmSuite (AsmBackend (..))
@@ -24,7 +24,7 @@ tests = do
       NativeBackend
         { backendName = "aihc-arm64",
           backendTarget = AppleArm64,
-          backendLowerTarget = posixTarget64,
+          backendLowerTarget = appleArm64Target,
           backendClangArguments = ["--target=arm64-apple-darwin"],
           backendRuns = arch == "aarch64" && os == "darwin",
           backendAllocationKey = "macos-arm64",

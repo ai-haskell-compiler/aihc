@@ -30,6 +30,7 @@ import System.IO (IOMode (WriteMode), withFile)
 -- | The instruction encoder and object format are specific to each target.
 data ObjectBackend statement register error = ObjectBackend
   { obNative :: !(NativeBackend statement register error),
+    obLowerTarget :: !Lower.LowerTarget,
     obStatement :: !(forall s. Object s -> statement -> ST s (Either ObjectError ())),
     obImage :: !(Image -> Either ObjectError BL.ByteString),
     obError :: !(ObjectError -> error)
@@ -73,7 +74,7 @@ writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
             case item of
               ItemFunction _ -> seal object
               _ -> pure ()
-      Lower.lowerModuleTo Lower.posixTarget64 checkBounds output gcProgram >>= checked
+      Lower.lowerModuleTo (obLowerTarget backend) checkBounds output gcProgram >>= checked
       current <- readIORef state
       finishNativeTo native (writeStatement backend object) current >>= checked
       mapM_ (writeStatement backend object) (nbAfterObject native)
@@ -88,7 +89,7 @@ writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
       let retain _ item =
             let value = declaration item
              in value `seq` modifyIORef' items (value :)
-      Lower.lowerModuleTo Lower.posixTarget64 checkBounds retain gcProgram >>= checked
+      Lower.lowerModuleTo (obLowerTarget backend) checkBounds retain gcProgram >>= checked
       (symbols, errors) <- Lint.moduleSymbols . Module . reverse <$> readIORef items
       checkLint errors
       pure symbols

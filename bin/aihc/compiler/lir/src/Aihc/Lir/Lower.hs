@@ -20,6 +20,7 @@ module Aihc.Lir.Lower
     HostKind (..),
     UnitKind (..),
     posixTarget64,
+    appleArm64Target,
     wasip3Target,
     lowerEntry,
     lowerModule,
@@ -117,17 +118,22 @@ data HostKind
 -- info tables, the static reference tables, and the resume records.
 data LowerTarget = LowerTarget
   { lowerWordSize :: !Int,
-    lowerHost :: !HostKind
+    lowerHost :: !HostKind,
+    -- | Apple ARM64 packs narrow C stack arguments without integer promotion.
+    lowerPackedCStack :: !Bool
   }
   deriving (Eq, Show)
 
--- | A 64-bit POSIX target: Apple ARM64, Linux AMD64, and LLVM.
+-- | A 64-bit POSIX target with promoted narrow C arguments.
 posixTarget64 :: LowerTarget
-posixTarget64 = LowerTarget {lowerWordSize = 8, lowerHost = PosixHost}
+posixTarget64 = LowerTarget {lowerWordSize = 8, lowerHost = PosixHost, lowerPackedCStack = False}
+
+appleArm64Target :: LowerTarget
+appleArm64Target = posixTarget64 {lowerPackedCStack = True}
 
 -- | The 32-bit WASI P3 target.
 wasip3Target :: LowerTarget
-wasip3Target = LowerTarget {lowerWordSize = 4, lowerHost = Wasip3Host}
+wasip3Target = LowerTarget {lowerWordSize = 4, lowerHost = Wasip3Host, lowerPackedCStack = False}
 
 data LowerOptions = LowerOptions
   { lowerUnitKind :: !UnitKind,
@@ -697,6 +703,8 @@ coerce ty (Typed operand actual)
       case (actual, ty) of
         (Ptr, I64) -> result (PtrToInt operand)
         (I64, Ptr) -> result (PtrFromInt operand)
+        (I64, I8) -> result (Convert Trunc I64 operand I8)
+        (I64, I16) -> result (Convert Trunc I64 operand I16)
         (I64, I32) -> result (Convert Trunc I64 operand I32)
         (I32, I64) -> result (Convert SExt I32 operand I64)
         (Ptr, I32) -> do
@@ -1423,8 +1431,9 @@ compileRuntimeCall ctx env runtimeCall arguments = do
 
 compileCCall :: FunctionCtx -> ValueEnv -> Bool -> GrinForeignCall -> [GrinValue] -> LowerM [Typed]
 compileCCall ctx env passMachine foreignCall arguments = do
+  target <- targetM
   let signature = grinForeignCallSignature foreignCall
-      (parameters, results) = runtimeCallSignature passMachine signature
+      (parameters, results) = runtimeCallSignatureFor target passMachine signature
   when (length arguments /= length (grinForeignArgumentTypes signature)) $ failWith (LowerUnsupportedExpression "foreign call arity mismatch")
   values <- mapM (materialize ctx env) arguments
   operands <- zipWithM coerce (drop (fromEnum passMachine) parameters) values
@@ -1435,11 +1444,29 @@ compileCCall ctx env passMachine foreignCall arguments = do
 
 -- | The Lir signature of a C runtime or foreign function.
 runtimeCallSignature :: Bool -> GrinForeignSignature -> ([Type], [Type])
-runtimeCallSignature passMachine signature =
-  ([Ptr | passMachine] <> map foreignType (grinForeignArgumentTypes signature), maybeToList (foreignResultType (grinForeignResultType signature)))
+runtimeCallSignature = runtimeCallSignatureFor posixTarget64
 
--- | The C ABI passes integers narrower than 32 bits extended to 32 bits, and
--- GRIN keeps them extended to 64 bits, so their low 32 bits are the C value.
+runtimeCallSignatureFor :: LowerTarget -> Bool -> GrinForeignSignature -> ([Type], [Type])
+runtimeCallSignatureFor target passMachine signature =
+  ([Ptr | passMachine] <> argumentTypes (fromEnum passMachine) (grinForeignArgumentTypes signature), maybeToList (foreignResultType (grinForeignResultType signature)))
+  where
+    argumentTypes _ [] = []
+    argumentTypes integers (ty : rest) =
+      let ordinary = foreignType ty
+          next = integers + if isFloatType ordinary then 0 else 1
+          actual
+            | lowerPackedCStack target && integers >= 8 = case ty of
+                GrinForeignInt8 -> I8
+                GrinForeignWord8 -> I8
+                GrinForeignInt16 -> I16
+                GrinForeignWord16 -> I16
+                _ -> ordinary
+            | otherwise = ordinary
+       in actual : argumentTypes next rest
+
+-- | Narrow C register arguments use extension to 32 bits. GRIN stores them
+-- with extension to 64 bits, so their low 32 bits hold the C value.
+-- Apple ARM64 stack arguments retain their original width instead.
 foreignType :: GrinForeignType -> Type
 foreignType ty =
   case ty of

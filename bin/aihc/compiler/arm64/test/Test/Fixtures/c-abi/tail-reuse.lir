@@ -1,0 +1,24 @@
+; expect: 1
+; C tail calls can reuse a caller stack area of sufficient size.
+
+extern func @check_reverse(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 cc c
+extern func @check_reuse() -> i64 cc c
+
+data @target align 8 = { code @check_reverse }
+
+export func @forward_tail(%a0: i64, %a1: i64, %a2: i64, %a3: i64, %a4: i64, %a5: i64, %a6: i64, %a7: i64, %a8: i64, %a9: i64, %a10: i64, %a11: i64, %a12: i64) -> i64 cc c {
+entry:
+  tailcall @check_reverse(%a12, %a11, %a10, %a9, %a8, %a7, %a6, %a5, %a4, %a3, %a2, %a1, %a0)
+}
+
+export func @forward_indirect(%a0: i64, %a1: i64, %a2: i64, %a3: i64, %a4: i64, %a5: i64, %a6: i64, %a7: i64, %a8: i64, %a9: i64, %a10: i64, %a11: i64, %a12: i64) -> i64 cc c {
+entry:
+  %target = load code [@target] align 8
+  tailcall.indirect %target(%a12, %a11, %a10, %a9, %a8, %a7, %a6, %a5, %a4, %a3, %a2, %a1, %a0) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 cc c
+}
+
+func @main() -> i64 {
+entry:
+  %result = call @check_reuse()
+  return %result
+}
