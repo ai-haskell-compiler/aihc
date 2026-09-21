@@ -88,6 +88,8 @@ import Aihc.Parser.Syntax
     RecordField (..),
     Rhs (..),
     RoleAnnotation (..),
+    RuleBinder (..),
+    RuleDecl (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
     TyVarBinder (..),
@@ -399,6 +401,8 @@ resolveDeclCore termDefinition decl =
     DeclPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure decl
       | otherwise -> DeclAnn <$> unhandledSyntax ResolutionNamespaceTerm decl <*> pure decl
+    DeclRules rules ->
+      DeclRules <$> mapM resolveRuleDecl rules
     DeclPatSyn patSyn -> do
       sp <- currentSpan
       (patSyn', unboundArgs) <- resolvePatSynDecl termDefinition patSyn
@@ -421,6 +425,81 @@ resolveDeclCore termDefinition decl =
       DeclTypeFamilyInst <$> resolveTypeFamilyInst familyInst
     DeclDataFamilyInst dataFamilyInst ->
       DeclDataFamilyInst <$> resolveDataFamilyInst dataFamilyInst
+
+-- | Resolve one rewrite rule of a @RULES@ pragma.
+--
+-- The type variables of a leading @forall@ scope over the types of the
+-- pattern variables and over both sides, and the pattern variables scope
+-- over both sides: inside a @RULES@ pragma, ScopedTypeVariables is always
+-- on. A type variable that no @forall@ binds is left for the type checker
+-- to bind, as in a signature. The left-hand side must be a top-level
+-- variable applied to arguments; anything else is an error on the rule.
+resolveRuleDecl :: RuleDecl -> ResolveM RuleDecl
+resolveRuleDecl rule =
+  withEffectiveSpan (sourceSpanFromAnns (ruleAnns rule)) $
+    withResetLocalSupply $ do
+      (typeScope, typeBinders') <- bindTyVarBinders (ruleTypeBinders rule)
+      extendScope typeScope $ do
+        (binderScope, binders') <- bindRuleBinders (ruleBinders rule)
+        extendScope binderScope $ do
+          lhs' <- resolveExpr (ruleLhs rule)
+          rhs' <- resolveExpr (ruleRhs rule)
+          anns' <-
+            if ruleLhsHeadIsTopLevel lhs'
+              then pure (ruleAnns rule)
+              else do
+                sp <- currentSpan
+                errorAnn <-
+                  resolution
+                    sp
+                    (IdentifierNamed (ruleName rule))
+                    ResolutionNamespaceTerm
+                    (ResolvedError "the left-hand side of a rule must be a top-level variable applied to arguments")
+                pure (errorAnn : ruleAnns rule)
+          pure
+            rule
+              { ruleAnns = anns',
+                ruleTypeBinders = typeBinders',
+                ruleBinders = binders',
+                ruleLhs = lhs',
+                ruleRhs = rhs'
+              }
+
+-- | Bind the pattern variables of a rule, each with a fresh local name.
+-- The type of a binder is resolved in the scope of the rule's type
+-- variables, which the caller has put in scope.
+bindRuleBinders :: [RuleBinder] -> ResolveM (Scope, [RuleBinder])
+bindRuleBinders =
+  foldM step (emptyScope, [])
+  where
+    step (bound, acc) binder =
+      withEffectiveSpan (sourceSpanFromAnns (ruleBinderAnns binder)) $ do
+        ty' <- traverse resolveType (ruleBinderType binder)
+        sp <- currentSpan
+        let name = ruleBinderName binder
+            key = renderUnqualifiedName name
+        resolvedName <- freshLocal name
+        name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm resolvedName name
+        pure (insertTerm key resolvedName bound, acc <> [binder {ruleBinderName = name', ruleBinderType = ty'}])
+
+-- | Whether the head of a resolved rule left-hand side is a top-level
+-- variable: the function of an application chain, or the operator of an
+-- infix expression.
+ruleLhsHeadIsTopLevel :: Expr -> Bool
+ruleLhsHeadIsTopLevel expr =
+  case expr of
+    EAnn _ inner -> ruleLhsHeadIsTopLevel inner
+    EParen inner -> ruleLhsHeadIsTopLevel inner
+    EApp fun _ -> ruleLhsHeadIsTopLevel fun
+    ETypeApp fun _ -> ruleLhsHeadIsTopLevel fun
+    EInfix _ op _ -> isTopLevelValue op
+    EVar name -> isTopLevelValue name
+    _ -> False
+  where
+    isTopLevelValue name =
+      case [resolutionTarget ann | Just ann <- map fromAnnotation (nameAnns name)] of
+        ResolvedTopLevel {} : _ -> nameType name == NameVarId || nameType name == NameVarSym
+        _ -> False
 
 -- | Pragmas that only give optimisation or documentation hints.
 -- The resolver accepts them and does not resolve their contents.

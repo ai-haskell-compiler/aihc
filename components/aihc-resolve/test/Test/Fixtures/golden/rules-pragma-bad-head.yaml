@@ -1,0 +1,57 @@
+---
+extensions: []
+modules:
+- |
+  module Main where
+  data Bool = False | True
+  data T = MkT Bool
+  f :: Bool -> Bool
+  f x = x
+  {-# RULES
+  "wrong-var" forall g. g True = True
+  "wrong-con" forall x. MkT x = MkT x
+  "right" forall x. f (f x) = f x
+    #-}
+annotated:
+- |-
+  module Main where
+  data Bool = False | True
+       │      │       └─ v Main
+       │      └─ v Main
+       └─ t Main
+  data T = MkT Bool
+       │   │   └─ t Main
+       │   └─ v Main
+       └─ t Main
+  f :: Bool -> Bool
+  │    │       └─ t Main
+  │    └─ t Main
+  └─ v Main
+  f x = x
+  │ │   └─ v 0
+  │ └─ v 0
+  └─ v Main
+  {-# RULES
+  "wrong-var" forall g. g True = True
+  │                  │  │ │      └─ v Main
+  │                  │  │ └─ v Main
+  │                  │  └─ v 0
+  │                  └─ v 0
+  └─ v Error the left-hand side of a rule must be a top-level variable applied to arguments
+  "wrong-con" forall x. MkT x = MkT x
+  │                  │  │   │   │   └─ v 0
+  │                  │  │   │   └─ v Main
+  │                  │  │   └─ v 0
+  │                  │  └─ v Main
+  │                  └─ v 0
+  └─ v Error the left-hand side of a rule must be a top-level variable applied to arguments
+  "right" forall x. f (f x) = f x
+                 │  │  │ │    │ └─ v 0
+                 │  │  │ │    └─ v Main
+                 │  │  │ └─ v 0
+                 │  │  └─ v Main
+                 │  └─ v Main
+                 └─ v 0
+    #-}
+status: pass
+reason: ''
