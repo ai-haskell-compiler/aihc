@@ -1,0 +1,48 @@
+extensions:
+- GADTs
+- FlexibleInstances
+- UndecidableInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Box a = Box a
+  class Missing a
+  class Build a where
+    build :: a
+  instance (a ~ Flag, Missing a) => Build (Box a) where
+    build = Box On
+  discard :: Box a -> Flag
+  discard _ = On
+  result :: Flag
+  result = discard build
+status: pass
+reason: A failed instance context must not retain a type substitution.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  class Missing a
+  └─ class methods:
+  class Build a where
+  └─ class methods: build ∷ ∀ a. (Build a) ⇒ a
+    build :: a
+  instance (a ~ Flag, Missing a) => Build (Box a) where
+  └─ $fBuildBoxa ∷ ∀ a. (a ~ Flag, Missing a) ⇒ Build (Box a)
+    build = Box On
+    │       └─ type: Flag → Box Flag; type-args: Flag
+    └─ build ∷ Box a
+  discard :: Box a -> Flag
+  discard _ = On
+  │       └─ type: Box a
+  └─ type: ∀ a. Box a → Flag
+  result :: Flag
+  result = discard build
+                   └─ error: unsolved constraint Build Box t0
+

@@ -1,0 +1,22 @@
+extensions:
+- GADTs
+- FlexibleInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Box a = Box a
+  class Ready a where
+    ready :: a
+  instance Ready Flag where
+    ready = On
+  class Build a where
+    build :: a
+  instance (Ready a, a ~ Flag) => Build (Box a) where
+    build = Box ready
+  discard :: Box a -> Flag
+  discard _ = On
+  result :: Flag
+  result = discard build
+status: pass
+reason: An instance equality solves a class constraint that precedes it in the context.

@@ -27,9 +27,10 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, withErrorTracking, withGivenPredicates)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, normalizeFamilyPred, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
@@ -37,7 +38,9 @@ import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, foldM_, (<=<))
-import Data.List (elemIndex)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get, put)
+import Data.List (elemIndex, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
@@ -228,6 +231,7 @@ solveNormalizedDict visited givens ct
 
     tryInstances _ _ _ [] = pure (DictStuck ct)
     tryInstances visited' className args (instanceInfo : rest) = do
+      saved <- lift get
       matched <- case matchTypes (iiHead instanceInfo) args of
         Nothing -> pure Nothing
         Just substitution -> matchInstanceKinds (iiTyVars instanceInfo) substitution
@@ -236,20 +240,35 @@ solveNormalizedDict visited givens ct
         Just subst -> do
           let context = map (applySubstPred subst) (iiContext instanceInfo)
               typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
-          contextEvidence <- mapM (solveSubPred visited') context
-          case sequence contextEvidence of
-            Just evidence -> do
+          (contextEvidence, failed) <- withErrorTracking (solveContext visited' context)
+          case contextEvidence of
+            Just evidence | not failed -> do
               bindEvidence (ctEvVar ct) (EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence)
               pure DictSolved
-            Nothing -> tryInstances visited' className args rest
+            _ -> do
+              -- A failed candidate must not change another candidate's types or evidence.
+              lift (put saved)
+              tryInstances visited' className args rest
+
+    -- Solve equalities first, but retain the dictionary field order.
+    solveContext visited' predicates = do
+      results <- mapM solveOne (sortOn (isDictionary . snd) (zip [0 :: Int ..] predicates))
+      pure (traverse snd (sortOn fst results))
+      where
+        solveOne (index, predicate) = do
+          evidence <- solveSubPred visited' predicate
+          pure (index, evidence)
+        isDictionary EqPred {} = False
+        isDictionary _ = True
 
     solveSubPred visited' pred' = do
       ev <- freshEvVar
       case pred' of
-        EqPred left right
-          | pred' `elem` givens -> pure (Just (EvGiven pred'))
-          | left == right -> pure (Just (EvCoercion (Refl left)))
-          | otherwise -> pure Nothing
+        EqPred {} -> do
+          result <- withGivenPredicates givens (solveEquality (ct {ctPred = pred', ctEvVar = ev}))
+          case result of
+            EqSolved -> lookupEvidence ev
+            _ -> pure Nothing
         _ -> do
           result <- solveDictWithGivensVisited visited' givens (ct {ctPred = pred', ctEvVar = ev})
           case result of
