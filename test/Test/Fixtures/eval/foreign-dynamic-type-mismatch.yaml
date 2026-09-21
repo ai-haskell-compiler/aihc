@@ -1,0 +1,16 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim
+    data Int = I# Int#
+    data Double = D# Double#
+    data FunPtr a = FunPtr Addr#
+    data IO a
+    foreign import ccall "dynamic" bad :: FunPtr (Int -> Int) -> Int -> Double
+output: ""
+expression: I# 0#
+error: 'typecheck error: Test: a dynamic import must have type FunPtr f -> f'
+status: fail
+reason: The function pointer type must match the callback type.

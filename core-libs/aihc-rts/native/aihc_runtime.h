@@ -145,6 +145,16 @@ struct AihcValue {
   AihcSlot fields[];
 };
 
+typedef struct AihcForeignFrame {
+  struct AihcForeignFrame *previous;
+  AihcSlot *roots;
+  uint64_t count;
+  const AihcSrt *srt;
+  uint64_t allow_callbacks;
+} AihcForeignFrame;
+
+typedef struct AihcCallbackFrame AihcCallbackFrame;
+
 struct AihcMachine {
   AihcSlot *globals;
   uint64_t global_count;
@@ -192,10 +202,29 @@ struct AihcMachine {
   struct AihcPinnedBlock *pinned_blocks;
   /* Raw request addresses retain this registration until result consumption. */
   AihcIoRequest *registered_requests;
+  AihcForeignFrame *foreign_frames;
+  AihcCallbackFrame *callback_frames;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
+
+/* Foreign frames protect suspended Haskell values across C callbacks. */
+AihcForeignFrame *aihc_foreign_enter(AihcMachine *machine, AihcSlot *roots,
+                                     uint64_t count, const AihcSrt *srt,
+                                     uint64_t allow_callbacks);
+void aihc_foreign_leave(AihcMachine *machine, AihcForeignFrame *frame);
+AihcBackendEntry aihc_callback_create(AihcMachine *machine, AihcValue *closure,
+                                      const AihcBackendEntry *entries,
+                                      uint64_t count);
+void aihc_free_haskell_fun_ptr(AihcBackendEntry entry);
+AihcCallbackFrame *aihc_callback_enter(AihcBackendEntry entry,
+                                       const AihcInfo *stop_info);
+AihcMachine *aihc_callback_machine(AihcCallbackFrame *frame);
+AihcValue *aihc_callback_closure(AihcCallbackFrame *frame);
+AihcValue *aihc_callback_continuation(AihcCallbackFrame *frame);
+void aihc_callback_return(AihcMachine *machine, uint64_t result);
+uint64_t aihc_callback_leave(AihcCallbackFrame *frame);
 
 /* Transfer a scheduler record to fixed-width Lir slots. */
 void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots);

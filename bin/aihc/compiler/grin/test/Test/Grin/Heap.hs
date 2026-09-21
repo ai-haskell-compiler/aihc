@@ -41,9 +41,9 @@ tests =
         assertEqual "reservations" [4] reservations,
       testCase "a primitive that allocates ends a reservation" $ do
         reservations <- entryReservations (betweenStoresProgram "newMutVar#" 1 "(0 :: IntRep)")
-        -- A new mutable reference takes from the heap the first store
-        -- reserved, so the second store has to reserve again.
-        assertEqual "reservations" [2, 2] reservations
+        -- The first reservation has two slots for the node and three for
+        -- the mutable reference. The second store needs a separate reservation.
+        assertEqual "reservations" [5, 2] reservations
     ]
 
 -- | The words of every reservation of the entry function, in the order the

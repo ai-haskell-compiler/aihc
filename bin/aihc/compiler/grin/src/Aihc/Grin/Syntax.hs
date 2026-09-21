@@ -678,6 +678,10 @@ data GrinForeignCall = GrinForeignCall
 data GrinForeignTarget
   = GrinForeignFunction
   | GrinForeignAddress
+  | GrinForeignDynamic
+  | GrinForeignUnsafeFunction
+  | GrinForeignUnsafeDynamic
+  | GrinForeignWrapper !GrinForeignSignature
   deriving (Eq, Show, Read)
 
 data GrinForeignSignature = GrinForeignSignature
@@ -707,6 +711,7 @@ data GrinForeignType
   | GrinForeignFloat
   | GrinForeignDouble
   | GrinForeignAddr
+  | GrinForeignClosure
   | -- | The result of a C procedure. It binds no GRIN value.
     GrinForeignVoid
   deriving (Eq, Show, Read, Enum, Bounded)
@@ -735,6 +740,7 @@ foreignTypeRuntimeRep foreignType =
     GrinForeignFloat -> FloatRep
     GrinForeignDouble -> DoubleRep
     GrinForeignAddr -> AddrRep
+    GrinForeignClosure -> liftedGrinRep
     GrinForeignVoid -> TupleRep []
 
 -- | Final uses that leave an abstract result unchanged. No operation here can allocate or transfer control.

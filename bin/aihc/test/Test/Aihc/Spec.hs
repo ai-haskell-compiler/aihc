@@ -571,7 +571,7 @@ test_buildModuleSourceDirectories getStore =
     assertEqual "RTS executable stderr" "" rtsStderr
     (plainStatus, plainStdout, plainStderr) <-
       readProcessWithExitCode output ["-M1G", "second"] ""
-    assertEqual "plain option executable exit status" ExitSuccess plainStatus
+    assertEqual ("plain option executable exit status: " <> plainStderr) ExitSuccess plainStatus
     assertEqual "plain option remains a program argument" "-M1G\nsecond\n" plainStdout
     assertEqual "plain option executable stderr" "" plainStderr
     (limitStatus, limitStdout, limitStderr) <-

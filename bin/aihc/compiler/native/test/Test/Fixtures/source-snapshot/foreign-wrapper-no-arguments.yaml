@@ -1,0 +1,25 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  foreign import ccall "wrapper" wrap :: IO Int -> IO (FunPtr (IO Int))
+  foreign import ccall "dynamic" invoke :: FunPtr (IO Int) -> IO Int
+  answer = IO (\s -> (# s, I# 42# #))
+  value = runRW# (\s -> case wrap answer of
+    IO make -> case make s of
+      (# s1, callback #) -> case invoke callback of
+        IO action -> case action s1 of
+          (# s2, I# result #) -> case free callback of
+            IO release -> case release s2 of
+              (# _, _ #) -> I# result)
+return: "@0"
+heap: |
+  @0 = CI# 42
+status: pass
+reason: A callback can have no C arguments.

@@ -805,7 +805,10 @@ convertForeignSafetyMark safety =
 foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
 foreignImportPlanDependencies ty plan = do
   typeDependencies <- foreignTypeNewtypeDependencies ty
-  marshalDependencies <- concat <$> mapM foreignMarshalDependencies (tcForeignArguments plan <> [tcForeignResult plan])
+  let pointerMarshals = case tcForeignTarget plan of
+        TcForeignWrapper pointer -> [pointer]
+        _ -> []
+  marshalDependencies <- concat <$> mapM foreignMarshalDependencies (pointerMarshals <> tcForeignArguments plan <> [tcForeignResult plan])
   pure (List.nub (typeDependencies <> marshalDependencies))
 
 foreignTypeNewtypeDependencies :: TcType -> ValueM [ForeignImportDependency]
@@ -876,6 +879,8 @@ convertForeignTarget target =
   case target of
     TcForeignCall -> CCallFunction
     TcForeignAddress -> CCallAddress
+    TcForeignDynamic -> CCallDynamic
+    TcForeignWrapper _ -> CCallWrapper
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =

@@ -293,10 +293,72 @@ lowerForeignCallBody env call axioms constructors argumentTypes valueGroups resu
       unless (Fc.nameText name `elem` compilerPrimitives) $
         declarePrimitive (GrinVar (Fc.nameText name) (-2000000000 + arity) resultRep, arity)
       lowerPrimitiveBody resultRep (Fc.nameText name) valueGroups
+    Fc.CCall specification
+      | Fc.CCallWrapper <- Fc.ccallTarget specification ->
+          lowerForeignWrapper env call specification axioms constructors argumentTypes valueGroups resultType
     Fc.CCall specification -> do
       let foreignCall = lowerForeignCall name specification
       declareForeignCall foreignCall
       lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups resultType
+
+-- | Reverse the checked foreign adapters for a callback.
+lowerForeignWrapper :: LowerEnv -> Fc.ForeignCall -> Fc.CCallSpec -> [Fc.AxiomDecl] -> [Fc.Name] -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM GrinExpr
+lowerForeignWrapper env call specification axioms constructors argumentTypes valueGroups resultType = do
+  callbackType <- case argumentTypes of
+    first : _ -> pure first
+    _ -> throwLower "a wrapper needs a callback"
+  (sourceArguments, sourceResult) <- splitOperationalFunctionType env axioms callbackType
+  let descriptor = lowerForeignCall (Fc.foreignCallName call) specification
+      callbackSignature = grinForeignCallSignature descriptor
+      rawReps = grinForeignOperandReps callbackSignature
+      resultRep = foreignTypeRuntimeRep (grinForeignResultType callbackSignature)
+      wrapper = descriptor {grinForeignCallSignature = GrinForeignSignature [GrinForeignClosure] GrinForeignAddr GrinForeignRealWorld}
+  declareForeignCall wrapper
+  adapter <- freshFunction "foreign_callback"
+  captured <- freshVar "callback" liftedGrinRep
+  raw <- mapM (freshVar "callback_argument") rawReps
+  resultTypes <- sourceValueTypes env sourceResult
+  (resultSource, resultSourceRep) <- case resultTypes of
+    [one] -> pure one
+    _ -> throwLower "a callback must produce one source value"
+  sourceGroups <- mapM (freshVarsForType env . ("callback_box",)) sourceArguments
+  let sourceValues' = map (map GrinVarValue) sourceGroups
+  result <- freshVar "callback_result" resultSourceRep
+  finish <-
+    if resultRep == TupleRep []
+      then do
+        forced <- freshVar "callback_unit" resultSourceRep
+        pure (GrinBind [forced] (GrinEval resultSourceRep (GrinVarValue result)) (GrinConstant []))
+      else adaptForeignOperands env axioms constructors [((resultSource, GrinVarValue result), resultRep)] (pure . GrinConstant)
+  body <- applyCallback (GrinVarValue captured) sourceValues' result resultSourceRep finish
+  boxedBody <- boxArguments (zip sourceArguments sourceGroups) raw body
+  emitFunction (GrinFunction adapter (captured : raw) (ResultRep resultRep) boxedBody)
+  closure <- freshVar "callback_adapter" liftedGrinRep
+  callback <- case concat valueGroups of
+    [one] -> pure one
+    _ -> throwLower "a wrapper needs one runtime callback value"
+  outputTypes <- sourceValueTypes env resultType
+  output <- case outputTypes of
+    [(source, representation)] -> adaptForeignResult env axioms constructors source representation AddrRep (GrinForeignCallExpr wrapper [GrinVarValue closure])
+    _ -> throwLower "a wrapper must produce a function pointer"
+  pure (GrinBind [closure] (GrinStore (GrinNode (GrinClosure adapter [rawReps]) [callback])) output)
+  where
+    boxArguments [] [] body = pure body
+    boxArguments ((_, []) : rest) raw body = boxArguments rest raw body
+    boxArguments ((source, [boxed]) : rest) (raw : remaining) body = do
+      inner <- boxArguments rest remaining body
+      expression <- adaptForeignResult env axioms constructors source (grinVarRuntimeRep boxed) (grinVarRuntimeRep raw) (GrinConstant [GrinVarValue raw])
+      pure (GrinBind [boxed] expression inner)
+    boxArguments _ _ _ = throwLower "callback argument layouts do not match the C ABI"
+    applyCallback function [] result representation finish = pure (GrinBind [result] (GrinEval representation function) finish)
+    applyCallback function [arguments] result representation finish = do
+      evaluated <- freshVar "callback_function" liftedGrinRep
+      pure (GrinBind [evaluated] (GrinEval liftedGrinRep function) (GrinBind [result] (GrinApply (ResultRep representation) (GrinVarValue evaluated) arguments) finish))
+    applyCallback function (arguments : rest) result representation finish = do
+      evaluated <- freshVar "callback_function" liftedGrinRep
+      applied <- freshVar "callback_partial" liftedGrinRep
+      inner <- applyCallback (GrinVarValue applied) rest result representation finish
+      pure (GrinBind [evaluated] (GrinEval liftedGrinRep function) (GrinBind [applied] (GrinApply liftedResultRep (GrinVarValue evaluated) arguments) inner))
 
 -- | The function of a foreign import that takes every argument of the
 -- import. The module has one such function for each import that it applies
@@ -1600,23 +1662,23 @@ lowerForeignCall name specification =
   GrinForeignCall
     { grinForeignCallName = stableGlobalName name,
       grinForeignCallSymbol = Fc.ccallSymbol specification,
-      grinForeignCallTarget = lowerForeignTarget (Fc.ccallTarget specification),
-      grinForeignCallSignature =
-        GrinForeignSignature
-          { grinForeignArgumentTypes = map lowerForeignType (Fc.ccallArgumentTypes specification),
-            grinForeignResultType = lowerForeignType (Fc.ccallResultType specification),
-            grinForeignEffect =
-              case Fc.ccallEffect specification of
-                Fc.ForeignPure -> GrinForeignPure
-                Fc.ForeignRealWorld -> GrinForeignRealWorld
-          }
+      grinForeignCallTarget = case Fc.ccallTarget specification of
+        Fc.CCallWrapper -> GrinForeignWrapper signature
+        Fc.CCallFunction -> if unsafe then GrinForeignUnsafeFunction else GrinForeignFunction
+        Fc.CCallDynamic -> if unsafe then GrinForeignUnsafeDynamic else GrinForeignDynamic
+        Fc.CCallAddress -> GrinForeignAddress,
+      grinForeignCallSignature = signature
     }
-
-lowerForeignTarget :: Fc.CCallTarget -> GrinForeignTarget
-lowerForeignTarget target =
-  case target of
-    Fc.CCallFunction -> GrinForeignFunction
-    Fc.CCallAddress -> GrinForeignAddress
+  where
+    unsafe = Fc.ccallSafety specification == Fc.ForeignUnsafe
+    signature =
+      GrinForeignSignature
+        { grinForeignArgumentTypes = map lowerForeignType (Fc.ccallArgumentTypes specification),
+          grinForeignResultType = lowerForeignType (Fc.ccallResultType specification),
+          grinForeignEffect = case Fc.ccallEffect specification of
+            Fc.ForeignPure -> GrinForeignPure
+            Fc.ForeignRealWorld -> GrinForeignRealWorld
+        }
 
 lowerForeignType :: Fc.CAbiType -> GrinForeignType
 lowerForeignType foreignType =

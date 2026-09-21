@@ -556,11 +556,157 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
 }
 
+typedef struct AihcCallbackSlot {
+  AihcBackendEntry entry;
+  AihcMachine *machine;
+  AihcValue *closure;
+  struct AihcCallbackSlot *next;
+} AihcCallbackSlot;
+
+struct AihcCallbackFrame {
+  AihcCallbackFrame *previous;
+  AihcMachine *machine;
+  AihcValue *closure;
+  AihcValue *continuation;
+  uint64_t result;
+  int complete;
+};
+
+static AihcCallbackSlot *aihc_callback_slots;
+
+AihcForeignFrame *aihc_foreign_enter(AihcMachine *machine, AihcSlot *roots,
+                                     uint64_t count, const AihcSrt *srt,
+                                     uint64_t allow_callbacks) {
+  AihcForeignFrame *frame = aihc_allocate_zeroed(sizeof(*frame));
+  *frame = (AihcForeignFrame){machine->foreign_frames, roots, count, srt,
+                              allow_callbacks};
+  machine->foreign_frames = frame;
+  return frame;
+}
+
+void aihc_foreign_leave(AihcMachine *machine, AihcForeignFrame *frame) {
+  if (machine->foreign_frames != frame) {
+    aihc_fail("foreign frames are out of order");
+  }
+  machine->foreign_frames = frame->previous;
+  free(frame);
+}
+
+AihcBackendEntry aihc_callback_create(AihcMachine *machine, AihcValue *closure,
+                                      const AihcBackendEntry *entries,
+                                      uint64_t count) {
+  for (uint64_t index = 0; index < count; ++index) {
+    AihcCallbackSlot *slot = aihc_callback_slots;
+    while (slot != NULL && slot->entry != entries[index]) {
+      slot = slot->next;
+    }
+    if (slot == NULL) {
+      slot = aihc_allocate_zeroed(sizeof(*slot));
+      slot->entry = entries[index];
+      slot->next = aihc_callback_slots;
+      aihc_callback_slots = slot;
+    }
+    if (slot->closure == NULL) {
+      slot->machine = machine;
+      slot->closure = closure;
+      return slot->entry;
+    }
+  }
+  aihc_fail("foreign callback pool is exhausted");
+}
+
+void aihc_free_haskell_fun_ptr(AihcBackendEntry entry) {
+  if (entry == NULL) {
+    return;
+  }
+  for (AihcCallbackSlot *slot = aihc_callback_slots; slot != NULL;
+       slot = slot->next) {
+    if (slot->entry == entry && slot->closure != NULL) {
+      slot->closure = NULL;
+      slot->machine = NULL;
+      return;
+    }
+  }
+  aihc_fail("invalid foreign callback release");
+}
+
+AihcCallbackFrame *aihc_callback_enter(AihcBackendEntry entry,
+                                       const AihcInfo *stop_info) {
+  AihcCallbackSlot *slot = aihc_callback_slots;
+  while (slot != NULL && slot->entry != entry) {
+    slot = slot->next;
+  }
+  if (slot == NULL || slot->closure == NULL) {
+    aihc_fail("invalid foreign callback");
+  }
+  AihcMachine *machine = slot->machine;
+  if (machine->foreign_frames != NULL &&
+      !machine->foreign_frames->allow_callbacks) {
+    aihc_fail("an unsafe foreign call cannot enter a Haskell callback");
+  }
+  AihcCallbackFrame *frame = aihc_allocate_zeroed(sizeof(*frame));
+  frame->previous = machine->callback_frames;
+  frame->machine = machine;
+  frame->closure = slot->closure;
+  machine->callback_frames = frame;
+  aihc_ensure_heap(machine, 1, 0, NULL, NULL);
+  frame->continuation = aihc_gc_allocate(machine, 1);
+  frame->continuation->header = (AihcSlot)(uintptr_t)stop_info;
+  return frame;
+}
+
+AihcMachine *aihc_callback_machine(AihcCallbackFrame *frame) {
+  return frame->machine;
+}
+
+AihcValue *aihc_callback_closure(AihcCallbackFrame *frame) {
+  return frame->closure;
+}
+
+AihcValue *aihc_callback_continuation(AihcCallbackFrame *frame) {
+  return frame->continuation;
+}
+
+void aihc_callback_return(AihcMachine *machine, uint64_t result) {
+  if (machine->callback_frames == NULL) {
+    aihc_fail("callback return has no callback frame");
+  }
+  machine->callback_frames->result = result;
+  machine->callback_frames->complete = 1;
+}
+
+uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
+  if (!frame->complete || frame->machine->callback_frames != frame) {
+    aihc_fail("a foreign callback did not complete synchronously");
+  }
+  uint64_t result = frame->result;
+  frame->machine->callback_frames = frame->previous;
+  free(frame);
+  return result;
+}
+
 /* Static objects are not visited here. They never move, so a collector marks
    and scans the ones it finds reachable instead of treating all of them as
    roots. */
 void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context) {
+  for (AihcCallbackSlot *slot = aihc_callback_slots; slot != NULL;
+       slot = slot->next) {
+    if (slot->machine == machine) {
+      aihc_visit_value(&slot->closure, visitor, context);
+    }
+  }
+  for (AihcCallbackFrame *frame = machine->callback_frames; frame != NULL;
+       frame = frame->previous) {
+    aihc_visit_value(&frame->closure, visitor, context);
+    aihc_visit_value(&frame->continuation, visitor, context);
+  }
+  for (AihcForeignFrame *frame = machine->foreign_frames; frame != NULL;
+       frame = frame->previous) {
+    for (uint64_t index = 0; index < frame->count; ++index) {
+      frame->roots[index] = visitor(frame->roots[index], context);
+    }
+  }
   for (uint64_t index = 0; index < machine->global_count; ++index) {
     machine->globals[index] = visitor(machine->globals[index], context);
   }
@@ -966,6 +1112,9 @@ void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
 }
 
 static const AihcResume *aihc_schedule(AihcMachine *machine) {
+  if (machine->callback_frames != NULL) {
+    aihc_fail("a foreign callback cannot suspend");
+  }
   for (;;) {
     (void)machine->io_backend->poll(machine, 0);
     if (machine->run_queue_head != NULL) {

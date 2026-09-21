@@ -1,0 +1,18 @@
+cabal-version: 3.0
+name: foreign-callback-interfaces
+version: 0.1.0.0
+
+library
+  exposed-modules: Public
+  other-modules:
+    Callback
+    Reexport
+
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  default-language: Haskell2010
+  default-extensions:
+    ForeignFunctionInterface
+    MagicHash
+    NoImplicitPrelude
+    UnboxedTuples

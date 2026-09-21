@@ -271,6 +271,8 @@ data CCallSpec = CCallSpec
 data CCallTarget
   = CCallFunction
   | CCallAddress
+  | CCallDynamic
+  | CCallWrapper
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 
