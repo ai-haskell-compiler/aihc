@@ -1,0 +1,67 @@
+modules:
+  - |
+    module Test where
+
+    import Data.List (isSuffixOf)
+    import System.IO
+    import System.IO.Error
+    import System.Posix.Internals (c_unlink, withFilePath)
+
+    check :: Bool -> (FilePath -> String -> IO (FilePath, Handle)) -> IO ()
+    check binary create = do
+      (first, handle) <- create "/tmp" "aihc-temp-test.txt"
+      (second, other) <- create "/tmp" "aihc-temp-test.txt"
+      print (first /= second && ".txt" `isSuffixOf` first)
+      readable <- hIsReadable handle
+      writable <- hIsWritable handle
+      print (readable && writable)
+      encoding <- hGetEncoding handle
+      print (case encoding of Nothing -> binary; Just _ -> not binary)
+      hPutStr handle "first\n"
+      hClose handle
+      hPutStr other "second\n"
+      hClose other
+      contents <- readFile' first
+      print (contents == "first\n")
+      _ <- withFilePath first c_unlink
+      _ <- withFilePath second c_unlink
+      return ()
+
+    main :: IO ()
+    main = do
+      check False openTempFile
+      check True openBinaryTempFile
+      check False openTempFileWithDefaultPermissions
+      check True openBinaryTempFileWithDefaultPermissions
+      result <- tryIOError (openBinaryTempFile "/dev/null/absent" "test")
+      case result of
+        Left err -> print (ioeGetLocation err == "openBinaryTempFile")
+        Right _ -> print False
+      invalid <- tryIOError (openBinaryTempFile "/tmp" "sub/file")
+      case invalid of
+        Left _ -> print True
+        Right _ -> print False
+stdout: |
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+  True
+output: |
+  ()
+expression: main
+status: pass
+reason: Temporary files have distinct names and read-write handles. Errors reach the caller.
