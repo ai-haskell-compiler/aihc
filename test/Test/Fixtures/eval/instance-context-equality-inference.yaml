@@ -1,0 +1,33 @@
+extensions:
+- GADTs
+- FlexibleInstances
+modules:
+- |
+  module Exceptions where
+  data Failure = Failure
+  data Result e a = Error e | Success a
+  class Exception e where
+    recover :: e -> a -> a
+  instance Exception Failure where
+    recover _ x = x
+  class Throw m where
+    encode :: a -> m a
+  instance (e ~ Failure) => Throw (Result e) where
+    encode = Success
+  rightOrError :: Exception e => Result e a -> a
+  rightOrError (Error e) = recover e (rightOrError (Error e))
+  rightOrError (Success a) = a
+- |
+  module Test where
+  import Exceptions
+  data Flag = Off | On
+  compose f g x = f (g x)
+  result :: Flag
+  result = compose rightOrError encode On
+expression: result
+output: |
+  On
+evaluators:
+- grin
+status: pass
+reason: An imported instance equality determines the error type and supplies dictionary evidence.

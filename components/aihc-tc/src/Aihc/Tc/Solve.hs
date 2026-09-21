@@ -68,14 +68,11 @@ addWork ct = case ctPred ct of
 solveLoop :: WorkList -> InertSet -> TcM SolveResult
 solveLoop wl inerts = case popWork wl of
   Nothing -> do
-    -- A functional dependency can solve a meta variable of a dictionary
-    -- that no instance or given matched on its own. Improvement only
-    -- solves meta variables, so a pass that solves none ends the loop.
-    givens <- getGivenPredicates
-    improved <- improveFunDeps givens (inertDicts inerts)
-    if improved
-      then solveLoop (foldr addDict emptyWorkList (inertDicts inerts)) inerts {inertDicts = []}
-      else drained inerts
+    -- An instance context can solve a meta variable in an earlier dictionary.
+    (changed, unchanged) <- partitionProgress (inertDicts inerts)
+    if null changed
+      then improveDictionaries inerts
+      else solveLoop (foldr addDict emptyWorkList changed) inerts {inertDicts = unchanged}
   Just (Left ct, wl') ->
     -- Process a flat constraint.
     processConstraint ct wl' inerts
@@ -85,6 +82,17 @@ solveLoop wl inerts = case popWork wl of
     -- in the inert set for the enclosing solve.
     deferred <- solveImplication impl
     solveLoop wl' (foldr addInertDict inerts deferred)
+
+improveDictionaries :: InertSet -> TcM SolveResult
+improveDictionaries inerts = do
+  -- A functional dependency can solve a meta variable of a dictionary
+  -- that no instance or given matched on its own. Improvement only
+  -- solves meta variables, so a pass that solves none ends the loop.
+  givens <- getGivenPredicates
+  improved <- improveFunDeps givens (inertDicts inerts)
+  if improved
+    then solveLoop (foldr addDict emptyWorkList (inertDicts inerts)) inerts {inertDicts = []}
+    else drained inerts
 
 -- | No work is left. An equality that waits on a type family application
 -- gets another attempt when a solved meta variable changed it. Failing
@@ -105,8 +113,7 @@ drained inerts
             else pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
         else solveLoop (foldr addEq emptyWorkList progressed) inerts {inertEqs = stuck}
 
--- | Split the stuck equalities into those that a solved meta variable
--- changed since they got stuck, and those that are unchanged.
+-- | Separate constraints that changed after a meta variable received a solution.
 partitionProgress :: [Ct] -> TcM ([Ct], [Ct])
 partitionProgress stuckCts = do
   results <- mapM progress stuckCts

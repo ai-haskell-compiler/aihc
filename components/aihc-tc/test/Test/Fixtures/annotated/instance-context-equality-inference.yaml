@@ -1,0 +1,34 @@
+extensions:
+- GADTs
+- FlexibleInstances
+modules:
+- |
+  module Exceptions where
+  import GHC.Types (Char)
+  type String = [Char]
+  data Failure = Failure
+  data Result e a = Error e | Success a
+  class Exception e where
+    display :: e -> String
+  instance Exception Failure where
+    display _ = "failure"
+  class Throw m where
+    encode :: String -> m String
+  instance (e ~ Failure) => Throw (Result e) where
+    encode = Success
+  rightOrError :: Exception e => Result e a -> a
+  rightOrError (Error e) = rightOrError (Error e)
+  rightOrError (Success a) = a
+- |
+  module Test where
+  import Exceptions
+  compose f g x = f (g x)
+  result :: String -> String
+  result = compose rightOrError encode
+  explicit :: String -> String
+  explicit x = rightOrError (encode x)
+  inferred x = rightOrError (encode x)
+  given :: (e ~ Failure) => Result e String
+  given = encode "ok"
+status: pass
+reason: An imported instance equality determines the unknown error type.

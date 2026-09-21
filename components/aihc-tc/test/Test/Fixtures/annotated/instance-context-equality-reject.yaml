@@ -1,0 +1,70 @@
+extensions:
+- GADTs
+- FlexibleInstances
+- UndecidableInstances
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Other = Other
+  data Box a = Box a
+  class Build a where
+    build :: a
+  instance (a ~ Flag) => Build (Box a) where
+    build = Box On
+  concrete :: Box Other
+  concrete = build
+  rigid :: Box a
+  rigid = build
+  class Loop a where
+    loop :: a
+  instance (a ~ [a]) => Loop (Box a) where
+    loop = loop
+  discard :: Box a -> Flag
+  discard _ = On
+  occurs :: Flag
+  occurs = discard loop
+status: pass
+reason: Instance equalities must reject incompatible types, rigid variables, and infinite types.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Other = Other
+       │       └─ type: Other
+       └─ type: Type
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  class Build a where
+  └─ class methods: build ∷ ∀ a. (Build a) ⇒ a
+    build :: a
+  instance (a ~ Flag) => Build (Box a) where
+  └─ $fBuildBoxa ∷ ∀ a. (a ~ Flag) ⇒ Build (Box a)
+    build = Box On
+    │       └─ type: Flag → Box Flag; type-args: Flag
+    └─ build ∷ Box a
+  concrete :: Box Other
+  concrete = build
+             └─ error: unsolved constraint Build Box Other
+  rigid :: Box a
+  rigid = build
+          └─ error: unsolved constraint Build Box a
+  class Loop a where
+  └─ class methods: loop ∷ ∀ a. (Loop a) ⇒ a
+    loop :: a
+  instance (a ~ [a]) => Loop (Box a) where
+  └─ $fLoopBoxa ∷ ∀ a. (a ~ [a]) ⇒ Loop (Box a)
+    loop = loop
+    │      └─ type: Box a; type-args: Box a; evidence: $fLoopBoxa @a (given a ~ [a])
+    └─ loop ∷ Box a
+  discard :: Box a -> Flag
+  discard _ = On
+  │       └─ type: Box a
+  └─ type: ∀ a. Box a → Flag
+  occurs :: Flag
+  occurs = discard loop
+                   └─ error: unsolved constraint Loop Box t0
