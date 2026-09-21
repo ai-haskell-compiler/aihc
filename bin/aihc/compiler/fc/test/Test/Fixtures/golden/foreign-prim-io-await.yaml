@@ -7,40 +7,46 @@ modules:
 - |
   module Test where
 
-  import GHC.Prim (Addr#, RealWorld, State#)
+  import GHC.Prim (RealWorld, State#)
+  import Aihc.Prim.IO (IORequest#)
 
   foreign import prim awaitIO# ::
-    Addr# -> State# RealWorld -> State# RealWorld
+    IORequest# -> State# RealWorld -> State# RealWorld
 
   await request state = awaitIO# request state
 expected: |-
   scope 1 = "" Test
-  scope 2 = "aihc-prim" GHC.Prim
-  scope 3 = "aihc-prim" GHC.Types
+  scope 2 = "aihc-prim" Aihc.Prim.IO
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    2.tAddr# :: 3.tTYPE 3.cAddrRep;
-    3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    2.tRealWorld :: 3.sType;
-    3.tRuntimeRep :: 3.sType;
-    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.t[] :: ∀(a : 3.sType). 3.sType;
-    3.cAddrRep :: 3.tRuntimeRep;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    2.tIORequest# :: 4.sUnliftedType;
+    4.tLevity :: 4.sType;
+    4.sLiftedRep :: 4.tRuntimeRep;
+    3.tRealWorld :: 4.sType;
+    4.tRuntimeRep :: 4.sType;
+    3.tState# :: ∀(s : 4.sType). 4.tTYPE (4.cTupleRep (4.c[] 4.tRuntimeRep));
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
+    4.sType :: 4.sType;
+    4.sUnliftedRep :: 4.tRuntimeRep;
+    4.sUnliftedType :: 4.sType;
+    4.t[] :: ∀(a : 4.sType). 4.sType;
+    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.cLifted :: 4.tLevity;
+    4.cTupleRep :: 4.t[] 4.tRuntimeRep 4.→ 4.tRuntimeRep;
+    4.cUnlifted :: 4.tLevity;
+    4.c[] :: ∀(a : 4.sType). 4.t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
+    4.sType = 4.tTYPE 4.sLiftedRep;
+    4.sUnliftedRep = 4.cBoxedRep 4.cUnlifted;
+    4.sUnliftedType = 4.tTYPE 4.sUnliftedRep
 
-  pub val 1.vawait :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c[] 3.tRuntimeRep)) (2.tState# 2.tRealWorld) (2.tState# 2.tRealWorld))
-   = λ(x : 2.tAddr#).
-    λ(y : 2.tState# 2.tRealWorld).
-      foreign {prim 1.vawaitIO# :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c[] 3.tRuntimeRep)) (2.tState# 2.tRealWorld) (2.tState# 2.tRealWorld))} x y
+  pub val 1.vawait :: FUN @4.sUnliftedRep @4.sLiftedRep 2.tIORequest# (FUN @(4.cTupleRep (4.c[] 4.tRuntimeRep)) @(4.cTupleRep (4.c[] 4.tRuntimeRep)) (3.tState# 3.tRealWorld) (3.tState# 3.tRealWorld))
+   = λ(x : 2.tIORequest#).
+    λ(y : 3.tState# 3.tRealWorld).
+      foreign {prim 1.vawaitIO# :: FUN @4.sUnliftedRep @4.sLiftedRep 2.tIORequest# (FUN @(4.cTupleRep (4.c[] 4.tRuntimeRep)) @(4.cTupleRep (4.c[] 4.tRuntimeRep)) (3.tState# 3.tRealWorld) (3.tState# 3.tRealWorld))} x y
 status: pass
 reason: A primitive occurrence uses the identity of its foreign import declaration.

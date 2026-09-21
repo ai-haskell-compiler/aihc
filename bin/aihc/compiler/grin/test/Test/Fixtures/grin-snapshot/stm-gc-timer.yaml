@@ -5,7 +5,7 @@ program: |
   primitive newDelayTVar#%1 :: BoxedRep Unlifted/3
   primitive stmBegin#%2 :: TupleRep []/0
   primitive stmCommit#%3 :: TupleRep []/0
-  primitive stmWaitRequest#%4 :: AddrRep/0
+  primitive stmWaitRequest#%4 :: BoxedRep Unlifted/0
   primitive awaitIO#%5 :: TupleRep []/1
   primitive stmWaitResult#%6 :: IntRep/1
   primitive readTVarIO#%7 :: BoxedRep Lifted/1
@@ -18,16 +18,16 @@ program: |
     () <- primitive-call @(TupleRep []) stmBegin#
     () <- primitive-call @(TupleRep []) stmCommit#
     () <- primitive-call @(TupleRep []) stmCommit#
-    (request%13 :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
-    () <- primitive-call @(TupleRep []) awaitIO# (request%13 :: AddrRep)
-    (ignored%14 :: IntRep) <- primitive-call @IntRep stmWaitResult# (request%13 :: AddrRep)
+    (request%13 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) stmWaitRequest#
+    () <- primitive-call @(TupleRep []) awaitIO# (request%13 :: BoxedRep Unlifted)
+    (ignored%14 :: IntRep) <- primitive-call @IntRep stmWaitResult# (request%13 :: BoxedRep Unlifted)
     (result%15 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVarIO# (var%12 :: BoxedRep Unlifted)
     constant (result%15 :: BoxedRep Lifted)
 return: "@0"
 heap: |
   @0 = CNumber 20
 allocated-bytes:
-  macos-arm64: 320
-  linux-amd64: 320
+  macos-arm64: 304
+  linux-amd64: 304
 status: pass
 reason: A timer retains its final value across collections and expires after an IO wait.

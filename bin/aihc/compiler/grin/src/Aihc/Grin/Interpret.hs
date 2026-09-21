@@ -971,6 +971,16 @@ isLiftedRuntimeValue value =
     RuntimeStateToken -> False
 
 evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
+evalPrimitive name arguments
+  | Just (symbol, operands, result) <- lookup name runtimeIoPrimitives =
+      executeForeignCall
+        ( GrinForeignCall
+            name
+            symbol
+            GrinForeignFunction
+            (GrinForeignSignature operands result GrinForeignRealWorld)
+        )
+        arguments
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
 evalPrimitive "-#" [left, right] = evalIntPrimitive "-#" (-) left right
 evalPrimitive "*#" [left, right] = evalIntPrimitive "*#" (*) left right
@@ -2214,6 +2224,19 @@ executeForeignCall foreignCall arguments
     signature = grinForeignCallSignature foreignCall
     actualArity = length arguments
     expectedArity = length (grinForeignOperandReps signature)
+
+runtimeIoPrimitives :: [(Text, (Text, [GrinForeignType], GrinForeignType))]
+runtimeIoPrimitives =
+  [ ("stdinIOHandle#", ("aihc_io_stdin", [], GrinForeignAddr)),
+    ("stdoutIOHandle#", ("aihc_io_stdout", [], GrinForeignAddr)),
+    ("stderrIOHandle#", ("aihc_io_stderr", [], GrinForeignAddr)),
+    ("adoptIOHandle#", ("aihc_io_adopt", [GrinForeignInt, GrinForeignInt], GrinForeignAddr)),
+    ("closeIOHandle#", ("aihc_io_close", [GrinForeignAddr], GrinForeignInt)),
+    ("ioHandleDescriptor#", ("aihc_io_handle_descriptor", [GrinForeignAddr], GrinForeignInt)),
+    ("ioOpenResultError#", ("aihc_io_open_result_error", [GrinForeignAddr], GrinForeignInt)),
+    ("takeIOResult#", ("aihc_io_take_result", [GrinForeignAddr], GrinForeignInt)),
+    ("takeIOOpenResult#", ("aihc_io_take_open_result", [GrinForeignAddr], GrinForeignAddr))
+  ]
 
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM [RuntimeValue]
 callForeign foreignCall arguments

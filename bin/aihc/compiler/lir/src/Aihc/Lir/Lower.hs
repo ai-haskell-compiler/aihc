@@ -1028,6 +1028,7 @@ data FunctionCtx = FunctionCtx
     -- carry its table, so its safepoints pass it to the collector.
     ctxSrt :: !Operand,
     ctxCodeSlot :: !(Maybe Operand),
+    ctxForeignFrame :: !(Maybe Operand),
     ctxRoots :: !(Maybe Operand)
   }
 
@@ -1045,8 +1046,9 @@ lowerFunction env function = do
     case maximumRoots (grinFunctionBody function) of
       0 -> pure Nothing
       count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) (byteAlignment 8))
-  codeSlot <- if hasDynamicCall (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
-  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot}
+  foreignFrame <- if hasForeignCall needsForeignFrame (grinFunctionBody function) then Just . typedOperand <$> emitValue "foreign_frame" Ptr (StackAlloc 40 (byteAlignment 8)) else pure Nothing
+  codeSlot <- if hasForeignCall (`elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic]) (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
+  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
   finishFunction
@@ -1073,13 +1075,19 @@ maximumRoots expression =
     GrinEnsureHeap _ roots -> length roots
     _ -> 0
 
-hasDynamicCall :: GrinExpr -> Bool
-hasDynamicCall expression = case expression of
-  GrinForeignCallExpr call _ -> grinForeignCallTarget call `elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic]
-  GrinBind _ value body -> hasDynamicCall value || hasDynamicCall body
-  GrinStoreRecUnchecked _ body -> hasDynamicCall body
-  GrinIfWhnf _ ready slow -> hasDynamicCall ready || hasDynamicCall slow
-  GrinCase _ _ alternatives -> any (hasDynamicCall . grinAltRhs) alternatives
+needsForeignFrame :: GrinForeignTarget -> Bool
+needsForeignFrame target = case target of
+  GrinForeignAddress -> False
+  GrinForeignWrapper _ -> False
+  _ -> True
+
+hasForeignCall :: (GrinForeignTarget -> Bool) -> GrinExpr -> Bool
+hasForeignCall predicate expression = case expression of
+  GrinForeignCallExpr call _ -> predicate (grinForeignCallTarget call)
+  GrinBind _ value body -> hasForeignCall predicate value || hasForeignCall predicate body
+  GrinStoreRecUnchecked _ body -> hasForeignCall predicate body
+  GrinIfWhnf _ ready slow -> hasForeignCall predicate ready || hasForeignCall predicate slow
+  GrinCase _ _ alternatives -> any (hasForeignCall predicate . grinAltRhs) alternatives
   _ -> False
 
 compileExpr :: FunctionCtx -> ValueEnv -> GrinExpr -> LowerM ()
@@ -1466,12 +1474,13 @@ protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
       (_, Just array) -> pure array
       _ -> failWith (LowerUnsupportedExpression "foreign call has no root array")
     mapM_ (\(index, (_, value)) -> storeSlot Ptr (typedOperand value) array (8 * index)) (zip [0 ..] roots)
-    frame <-
+    frame <- maybe (failWith (LowerUnsupportedExpression "foreign call has no stack frame")) pure (ctxForeignFrame ctx)
+    _ <-
       callRuntime
         "aihc_foreign_enter"
-        [Ptr, Ptr, I64, Ptr, I64]
-        [Ptr]
-        [ctxMachine ctx, array, OperandLiteral (LitInt (toInteger (length roots))), ctxSrt ctx, OperandLiteral (LitInt (if allowed then 1 else 0))]
+        [Ptr, Ptr, Ptr, I64, Ptr, I64]
+        []
+        [ctxMachine ctx, frame, array, OperandLiteral (LitInt (toInteger (length roots))), ctxSrt ctx, OperandLiteral (LitInt (if allowed then 1 else 0))]
     results <- compileForeignCall ctx env call arguments
     _ <- callRuntime "aihc_foreign_leave" [Ptr, Ptr] [] [ctxMachine ctx, frame]
     relocated <- mapM (\(index, (var, _)) -> (var,) <$> loadSlot "foreign_root" Ptr array (8 * index)) (zip [0 ..] roots)
@@ -1501,7 +1510,7 @@ lowerCallbackPool call signature = do
       rawTypes = map repType (grinForeignOperandReps signature)
       (parameters, results) = runtimeCallSignatureFor target False signature
       entries = [Symbol (pool <> "_" <> T.pack (show index)) | index <- [0 .. callbackPoolSize - 1]]
-  emitItem (ItemData (DataItem (Symbol pool) Internal False (toInteger (lowerWordSize target)) (map (DataCode . Just) entries)))
+  emitItem (ItemData (DataItem (Symbol pool) Internal True (toInteger (lowerWordSize target)) (concatMap (\entry -> [DataCode (Just entry), DataNull, DataNull, DataNull]) entries)))
   continuationInfoItems (ContinuationSpec info (Symbol (pool <> "_applied_info")) stop [] resultTypes ContinuationFrameStop)
   do
     machine <- fresh "machine"
@@ -1517,7 +1526,8 @@ lowerCallbackPool call signature = do
   forM_ entries $ \entry -> do
     arguments <- mapM (\ty -> (,ty) <$> fresh "argument") parameters
     beginBlock (Label "entry") []
-    frame <- callRuntime "aihc_callback_enter" [Code, Ptr] [Ptr] [OperandLiteral (LitSymbol entry), OperandLiteral (LitSymbol info)]
+    frame <- typedOperand <$> emitValue "callback_frame" Ptr (StackAlloc 48 (byteAlignment 8))
+    _ <- callRuntime "aihc_callback_enter" [Ptr, Code, Ptr] [] [frame, OperandLiteral (LitSymbol entry), OperandLiteral (LitSymbol info)]
     machine <- callRuntime "aihc_callback_machine" [Ptr] [Ptr] [frame]
     closure <- callRuntime "aihc_callback_closure" [Ptr] [Ptr] [frame]
     continuation <- callRuntime "aihc_callback_continuation" [Ptr] [Ptr] [frame]
@@ -2527,6 +2537,7 @@ lowerExecutableMain gcProgram = do
   argc <- fresh "argc"
   argv <- fresh "argv"
   beginBlock (Label "entry") []
+  _ <- callRuntime "aihc_machine_initialize" [] [Ptr] []
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
   _ <- startMachine

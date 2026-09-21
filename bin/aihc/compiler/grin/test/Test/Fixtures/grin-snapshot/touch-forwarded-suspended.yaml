@@ -13,7 +13,7 @@ program: |
   primitive setByteArray# :: TupleRep []/4
   primitive +# :: IntRep/2
   primitive newDelayTVar# :: BoxedRep Unlifted/3
-  primitive stmWaitRequest# :: AddrRep/0
+  primitive stmWaitRequest# :: BoxedRep Unlifted/0
   primitive awaitIO# :: TupleRep []/1
   primitive stmWaitResult# :: IntRep/1
   global child = (P$child/[[]])
@@ -32,9 +32,9 @@ program: |
     call @(BoxedRep Lifted) $loop (0 :: IntRep)
 
   $action (address :: AddrRep) -> WordRep =
-    (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
-    () <- primitive-call @(TupleRep []) awaitIO# (request :: AddrRep)
-    (ignored :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: AddrRep)
+    (request :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) stmWaitRequest#
+    () <- primitive-call @(TupleRep []) awaitIO# (request :: BoxedRep Unlifted)
+    (ignored :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: BoxedRep Unlifted)
     primitive-call @WordRep readWordOffAddr# (address :: AddrRep) (0 :: IntRep)
 
   $protect (owner :: BoxedRep Unlifted) (action :: BoxedRep Lifted) -> forwarded =
@@ -55,7 +55,7 @@ program: |
 return: "42"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 64744
-  linux-amd64: 64744
+  macos-arm64: 64728
+  linux-amd64: 64728
 status: pass
 reason: A final touch must retain the owner across suspension and forward an abstract result.

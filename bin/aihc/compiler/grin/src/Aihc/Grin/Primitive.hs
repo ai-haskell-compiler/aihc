@@ -45,10 +45,11 @@ primitiveHeapWords :: Text -> Maybe Int
 primitiveHeapWords name =
   lookup
     name
-    [ ("stmWaitRequest#", 18),
-      ("submitIORead#", 18),
-      ("submitIOWrite#", 18),
-      ("submitIOOpen#", 18),
+    [ ("stmWaitRequest#", 16),
+      ("submitIORead#", 16),
+      ("submitIOWrite#", 16),
+      ("submitIOOpen#", 21),
+      ("adoptIOHandle#", 5),
       ("stmBegin#", 3),
       ("writeTVar#", 4),
       ("newDelayTVar#", 8),
@@ -144,6 +145,7 @@ concurrencyPrimitives =
     "myThreadId#",
     "yield#",
     "awaitIO#",
+    "adoptIOHandle#",
     "submitIORead#",
     "submitIOWrite#",
     "submitIOOpen#",

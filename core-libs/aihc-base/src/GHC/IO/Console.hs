@@ -24,7 +24,6 @@ import GHC.Prim
     (<#),
     (==#),
   )
-import GHC.Ptr (Ptr)
 
 writeOutputByte :: MutableByteArray# RealWorld -> Int# -> Int# -> IO ()
 writeOutputByte buffer offset value = do
@@ -45,14 +44,14 @@ writeStdout buffer count =
       handle <- stdoutHandle
       writeStdoutLoop handle (mutableByteArrayContents# buffer) 0# count
 
-writeStdoutLoop :: Ptr IOHandle -> Addr# -> Int# -> Int# -> IO ()
+writeStdoutLoop :: IOHandle -> Addr# -> Int# -> Int# -> IO ()
 writeStdoutLoop handle buffer offset remaining = do
   request <- submitWrite handle buffer (I# offset) (I# remaining)
   awaitIO request
   transferred <- takeResult request
   finishWriteResult handle buffer offset remaining transferred
 
-finishWriteResult :: Ptr IOHandle -> Addr# -> Int# -> Int# -> Int -> IO ()
+finishWriteResult :: IOHandle -> Addr# -> Int# -> Int# -> Int -> IO ()
 finishWriteResult handle buffer offset remaining (I# transferred) =
   case (<#) transferred 0# of
     1# -> raiseConsoleIOError ((-#) ((-#) 0# transferred) 1#)

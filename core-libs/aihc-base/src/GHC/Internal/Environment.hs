@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -19,7 +20,7 @@ import GHC.IO.Exception (IOErrorType (..), ioError)
 import GHC.IO.Runtime (readMemoryByte, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Internal.Utf8 (decodeUtf8, encodeUtf8)
-import GHC.Prim (Addr#, MutableByteArray#, RealWorld, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Prim (Addr#, ByteArray#, Int#, MutableByteArray#, RealWorld, State#, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#, unsafeFreezeByteArray#)
 import System.IO.Error (mkIOError)
 import Prelude
 
@@ -31,8 +32,7 @@ foreign import ccall unsafe "aihc_program_arguments_size"
 foreign import ccall unsafe "aihc_program_arguments_copy"
   copyArguments :: Addr# -> Int -> IO Int
 
-foreign import ccall unsafe "aihc_program_arguments_replace"
-  replaceArguments :: Addr# -> Int -> IO Int
+foreign import prim setProgramArguments# :: ByteArray# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
 foreign import ccall unsafe "aihc_program_environment_size"
   environmentSize :: IO Int
@@ -99,8 +99,12 @@ copyBuffer copy (ArgumentBuffer buffer) size =
   withArgumentBuffer buffer (copy (mutableByteArrayContents# buffer) size)
 
 replaceArgumentBuffer :: ArgumentBuffer -> Int -> IO Int
-replaceArgumentBuffer (ArgumentBuffer buffer) size =
-  withArgumentBuffer buffer (replaceArguments (mutableByteArrayContents# buffer) size)
+replaceArgumentBuffer (ArgumentBuffer buffer) (I# size) =
+  IO
+    ( \state -> case unsafeFreezeByteArray# buffer state of
+        (# frozen, array #) -> case setProgramArguments# array size frozen of
+          (# next, result #) -> (# next, I# result #)
+    )
 
 readArgumentByte :: ArgumentBuffer -> Int -> IO Int
 readArgumentByte (ArgumentBuffer buffer) offset =

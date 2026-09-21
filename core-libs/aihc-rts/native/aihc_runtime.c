@@ -3,7 +3,6 @@
 
 #include <errno.h>
 #include <stddef.h>
-#include <stdlib.h>
 #include <string.h>
 
 _Static_assert(offsetof(AihcBlackhole, info) == sizeof(AihcSlot),
@@ -169,20 +168,6 @@ void aihc_record_allocation(AihcMachine *machine) {
   ++machine->allocation_count;
 }
 
-/* The byte count is a uint64_t rather than a size_t so that the runtime units
-   written in Lir can call this with an i64 on a 32-bit target as well. A
-   request the address space cannot hold fails here rather than wrapping. */
-void *aihc_allocate_zeroed(uint64_t bytes) {
-  if (bytes > (uint64_t)SIZE_MAX) {
-    aihc_fail("allocation is too large");
-  }
-  void *pointer = calloc(1, (size_t)bytes);
-  if (pointer == NULL) {
-    aihc_fail("out of memory");
-  }
-  return pointer;
-}
-
 /* Compute the complete allocation charge before a collection can occur. */
 uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
                                int64_t alignment) {
@@ -212,12 +197,6 @@ uint64_t aihc_byte_array_resize_words(void *opaque_array, int64_t size) {
   return aihc_byte_array_words(size, array->pinned, (int64_t)array->alignment);
 }
 
-void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes) {
-  void *pointer = aihc_allocate_zeroed(bytes);
-  aihc_record_allocation(machine);
-  return pointer;
-}
-
 static AihcSlot aihc_make_header(const AihcInfo *info) {
   if (info == NULL) {
     aihc_fail("info table is null");
@@ -245,6 +224,8 @@ uint64_t aihc_object_words(const AihcInfo *info) {
 
 uint64_t aihc_value_words(const AihcValue *value) {
   switch (aihc_value_kind(value)) {
+  case AIHC_OBJECT_IO_HANDLE:
+    return aihc_record_words(sizeof(AihcIoHandle));
   case AIHC_OBJECT_IO_REQUEST:
     return aihc_record_words(sizeof(AihcIoRequest));
   case AIHC_OBJECT_BYTE_ARRAY:
@@ -329,12 +310,39 @@ void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
   memset(destination, (int)(byte & 0xff), (size_t)length);
 }
 
-void aihc_memory_free(void *pointer) { free(pointer); }
-
 /* The RTS option parser, the environment parser, and the argument store
    live in core-libs/aihc-rts/native/aihc_runtime_options.lir. This flattens a
    list of C strings for them: the width of a C pointer is the one thing a
    Lir unit does not know. */
+extern int64_t aihc_parse_runtime_arguments(AihcMachine *, AihcRootFrame *,
+                                            const void *, int64_t);
+extern int64_t aihc_parse_runtime_environment(AihcMachine *, AihcRootFrame *,
+                                              const void *, int64_t);
+
+static int64_t aihc_runtime_import(const void *buffer, int64_t length,
+                                   int64_t (*parse)(AihcMachine *,
+                                                    AihcRootFrame *,
+                                                    const void *, int64_t)) {
+  AihcMachine *machine = aihc_machine_initialize();
+  if (machine->program_started) {
+    return -1;
+  }
+  AihcRootFrame frame;
+  aihc_roots_enter(machine, &frame, 0, NULL);
+  int64_t result = parse(machine, &frame, buffer, length);
+  aihc_roots_leave(machine, &frame);
+  return result;
+}
+
+int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length) {
+  return aihc_runtime_import(buffer, length, aihc_parse_runtime_arguments);
+}
+
+int64_t aihc_runtime_environment_initialize(const void *buffer,
+                                            int64_t length) {
+  return aihc_runtime_import(buffer, length, aihc_parse_runtime_environment);
+}
+
 static void aihc_strings_initialize(size_t count, char *const strings[],
                                     int64_t (*initialize)(const void *,
                                                           int64_t),
@@ -353,7 +361,14 @@ static void aihc_strings_initialize(size_t count, char *const strings[],
     }
     length += string_length + 1;
   }
-  uint8_t *buffer = aihc_allocate_zeroed(length == 0 ? 1 : length);
+  AihcMachine *machine = aihc_machine_initialize();
+  if (machine->program_started) {
+    aihc_fail("runtime imports require startup");
+  }
+  AihcRootFrame frame;
+  aihc_roots_enter(machine, &frame, 0, NULL);
+  uint8_t *buffer =
+      aihc_byte_array_contents(aihc_host_byte_array(machine, &frame, length));
   size_t offset = 0;
   for (size_t index = 0; index < count; ++index) {
     size_t string_length = strlen(strings[index]);
@@ -361,10 +376,10 @@ static void aihc_strings_initialize(size_t count, char *const strings[],
     offset += string_length + 1;
   }
   if (initialize(buffer, (int64_t)length) != 0) {
-    free(buffer);
+    aihc_roots_leave(machine, &frame);
     aihc_fail(invalid_message);
   }
-  free(buffer);
+  aihc_roots_leave(machine, &frame);
 }
 
 void aihc_program_arguments_initialize(int argc, char *const argv[]) {
@@ -453,8 +468,12 @@ static void *aihc_visit_pointer(void *pointer, AihcRootVisitor visitor,
 int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context) {
   switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_IO_HANDLE:
+    return 1;
   case AIHC_OBJECT_IO_REQUEST: {
     AihcIoRequest *request = (AihcIoRequest *)object;
+    request->handle = aihc_visit_pointer(request->handle, visitor, context);
+    request->next = aihc_visit_pointer(request->next, visitor, context);
     aihc_visit_value(&request->buffer_owner, visitor, context);
     aihc_visit_value(&request->continuation, visitor, context);
     request->thread = aihc_visit_pointer(request->thread, visitor, context);
@@ -556,12 +575,15 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
 }
 
-typedef struct AihcCallbackSlot {
+struct AihcCallbackSlot {
   AihcBackendEntry entry;
   AihcMachine *machine;
   AihcValue *closure;
   struct AihcCallbackSlot *next;
-} AihcCallbackSlot;
+};
+
+_Static_assert(sizeof(AihcCallbackSlot) == 4 * sizeof(void *),
+               "callback slot must have four pointer fields");
 
 struct AihcCallbackFrame {
   AihcCallbackFrame *previous;
@@ -572,16 +594,17 @@ struct AihcCallbackFrame {
   int complete;
 };
 
+_Static_assert(sizeof(AihcCallbackFrame) <= 48,
+               "callback frame exceeds its LIR stack space");
+
 static AihcCallbackSlot *aihc_callback_slots;
 
-AihcForeignFrame *aihc_foreign_enter(AihcMachine *machine, AihcSlot *roots,
-                                     uint64_t count, const AihcSrt *srt,
-                                     uint64_t allow_callbacks) {
-  AihcForeignFrame *frame = aihc_allocate_zeroed(sizeof(*frame));
+void aihc_foreign_enter(AihcMachine *machine, AihcForeignFrame *frame,
+                        AihcSlot *roots, uint64_t count, const AihcSrt *srt,
+                        uint64_t allow_callbacks) {
   *frame = (AihcForeignFrame){machine->foreign_frames, roots, count, srt,
                               allow_callbacks};
   machine->foreign_frames = frame;
-  return frame;
 }
 
 void aihc_foreign_leave(AihcMachine *machine, AihcForeignFrame *frame) {
@@ -589,20 +612,17 @@ void aihc_foreign_leave(AihcMachine *machine, AihcForeignFrame *frame) {
     aihc_fail("foreign frames are out of order");
   }
   machine->foreign_frames = frame->previous;
-  free(frame);
 }
 
 AihcBackendEntry aihc_callback_create(AihcMachine *machine, AihcValue *closure,
-                                      const AihcBackendEntry *entries,
-                                      uint64_t count) {
+                                      AihcCallbackSlot *slots, uint64_t count) {
   for (uint64_t index = 0; index < count; ++index) {
-    AihcCallbackSlot *slot = aihc_callback_slots;
-    while (slot != NULL && slot->entry != entries[index]) {
-      slot = slot->next;
+    AihcCallbackSlot *slot = &slots[index];
+    AihcCallbackSlot *registered = aihc_callback_slots;
+    while (registered != NULL && registered != slot) {
+      registered = registered->next;
     }
-    if (slot == NULL) {
-      slot = aihc_allocate_zeroed(sizeof(*slot));
-      slot->entry = entries[index];
+    if (registered == NULL) {
       slot->next = aihc_callback_slots;
       aihc_callback_slots = slot;
     }
@@ -630,8 +650,8 @@ void aihc_free_haskell_fun_ptr(AihcBackendEntry entry) {
   aihc_fail("invalid foreign callback release");
 }
 
-AihcCallbackFrame *aihc_callback_enter(AihcBackendEntry entry,
-                                       const AihcInfo *stop_info) {
+void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
+                         const AihcInfo *stop_info) {
   AihcCallbackSlot *slot = aihc_callback_slots;
   while (slot != NULL && slot->entry != entry) {
     slot = slot->next;
@@ -644,7 +664,7 @@ AihcCallbackFrame *aihc_callback_enter(AihcBackendEntry entry,
       !machine->foreign_frames->allow_callbacks) {
     aihc_fail("an unsafe foreign call cannot enter a Haskell callback");
   }
-  AihcCallbackFrame *frame = aihc_allocate_zeroed(sizeof(*frame));
+  *frame = (AihcCallbackFrame){0};
   frame->previous = machine->callback_frames;
   frame->machine = machine;
   frame->closure = slot->closure;
@@ -652,7 +672,6 @@ AihcCallbackFrame *aihc_callback_enter(AihcBackendEntry entry,
   aihc_ensure_heap(machine, 1, 0, NULL, NULL);
   frame->continuation = aihc_gc_allocate(machine, 1);
   frame->continuation->header = (AihcSlot)(uintptr_t)stop_info;
-  return frame;
 }
 
 AihcMachine *aihc_callback_machine(AihcCallbackFrame *frame) {
@@ -681,7 +700,6 @@ uint64_t aihc_callback_leave(AihcCallbackFrame *frame) {
   }
   uint64_t result = frame->result;
   frame->machine->callback_frames = frame->previous;
-  free(frame);
   return result;
 }
 
@@ -707,6 +725,7 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
       frame->roots[index] = visitor(frame->roots[index], context);
     }
   }
+  aihc_visit_value(&machine->global_array, visitor, context);
   for (uint64_t index = 0; index < machine->global_count; ++index) {
     machine->globals[index] = visitor(machine->globals[index], context);
   }
@@ -732,9 +751,14 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
       aihc_visit_pointer(machine->run_queue_tail, visitor, context);
   machine->blackholes =
       aihc_visit_pointer(machine->blackholes, visitor, context);
-  for (AihcIoRequest *request = machine->registered_requests; request != NULL;
-       request = request->registered_next) {
-    (void)visitor((AihcSlot)(uintptr_t)request, context);
+  machine->io_requests_head =
+      aihc_visit_pointer(machine->io_requests_head, visitor, context);
+  machine->io_requests_tail =
+      aihc_visit_pointer(machine->io_requests_tail, visitor, context);
+  aihc_visit_host_roots(machine, visitor, context);
+  for (uint64_t index = 0; index < 3; ++index) {
+    aihc_rts_set_root(
+        index, aihc_visit_pointer(aihc_rts_root(index), visitor, context));
   }
 }
 
@@ -991,21 +1015,78 @@ int64_t aihc_get_exit_status(const AihcMachine *machine) {
   return machine->exit_status;
 }
 
+static AihcMachine aihc_machine;
+
+AihcMachine *aihc_machine_initialize(void) {
+  if (aihc_machine.heap_start == NULL) {
+    aihc_machine = (AihcMachine){0};
+    aihc_gc_init(&aihc_machine);
+    aihc_machine.next_stable_name = 1;
+    aihc_machine.io_backend = aihc_host_io_backend();
+    aihc_process_machine = &aihc_machine;
+  }
+  return &aihc_machine;
+}
+
+/* Host imports need fixed addresses. Retained process data can move after
+ * import. */
+static void aihc_finish_imports(AihcMachine *machine) {
+  for (uint64_t index = 0; index < 3; ++index) {
+    AihcValue *source = aihc_rts_root(index);
+    if (source == NULL) {
+      continue;
+    }
+    int64_t bytes;
+    if (index == 0) {
+      bytes = aihc_program_arguments_size();
+    } else if (index == 1) {
+      bytes = aihc_program_environment_size();
+    } else {
+      bytes = (int64_t)aihc_byte_array_get_size(source);
+    }
+    if (bytes == 0) {
+      aihc_rts_set_root(index, NULL);
+      continue;
+    }
+    aihc_ensure_heap(machine, aihc_byte_array_words(bytes, 0, 1), 0, NULL,
+                     NULL);
+    source = aihc_rts_root(index);
+    void *array = aihc_byte_array_new(machine, bytes);
+    memcpy(aihc_byte_array_contents(array), aihc_byte_array_contents(source),
+           (size_t)bytes);
+    aihc_rts_set_root(index, array);
+  }
+}
+
 AihcMachine *aihc_machine_new(uint64_t global_count) {
-  AihcMachine *machine = aihc_allocate_zeroed(sizeof(*machine));
-  machine->allocation_count = 1;
+  AihcMachine *machine = aihc_machine_initialize();
+  if (machine->program_started) {
+    aihc_fail("program machine already started");
+  }
+  if (machine->root_frames != NULL) {
+    aihc_fail("program start requires completed host scopes");
+  }
+  aihc_finish_imports(machine);
+  /* Startup scopes have ended. Collect temporary imports before the limit
+   * applies. */
+  aihc_gc_collect(machine, 0, 0, NULL, NULL);
   machine->heap_max_bytes = aihc_rts_heap_max_bytes();
   machine->heap_limit_enabled = aihc_rts_heap_limit_enabled() != 0;
+  aihc_gc_collect(machine, 0, 0, NULL, NULL);
+  if (global_count > INT64_MAX / sizeof(*machine->globals)) {
+    aihc_fail("global table is too large");
+  }
+  if (global_count != 0) {
+    int64_t bytes = (int64_t)(global_count * sizeof(*machine->globals));
+    aihc_ensure_heap(machine, aihc_byte_array_words(bytes, 1, 1), 0, NULL,
+                     NULL);
+    machine->global_array = aihc_byte_array_new_pinned(machine, bytes);
+    machine->globals = aihc_byte_array_contents(machine->global_array);
+  }
   machine->global_count = global_count;
-  machine->globals = aihc_allocate_auxiliary(
-      machine,
-      sizeof(*machine->globals) * (global_count == 0 ? 1 : global_count));
-  machine->next_stable_name = 1;
-  aihc_gc_init(machine);
   aihc_gc_ensure(machine, aihc_record_words(sizeof(AihcThread)), 0, NULL, NULL);
   machine->current_thread = aihc_thread_new(machine);
-  machine->io_backend = aihc_host_io_backend();
-  aihc_process_machine = machine;
+  machine->program_started = 1;
   return machine;
 }
 
@@ -1130,32 +1211,23 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
   }
 }
 
-/* The caller reserves eighteen slots. This operation cannot collect. */
+/* The caller reserves sixteen slots. This operation cannot collect. */
 static AihcIoRequest *aihc_io_request_new(AihcMachine *machine) {
   AihcIoRequest *request = (AihcIoRequest *)aihc_gc_allocate_pinned(
       machine, aihc_record_words(sizeof(*request)));
   request->header = (AihcSlot)(uintptr_t)&aihc_io_request_info;
   request->machine = machine;
-  request->registered_next = machine->registered_requests;
-  if (request->registered_next != NULL) {
-    request->registered_next->registered_previous = request;
-  }
-  machine->registered_requests = request;
   return request;
 }
 
-static void aihc_io_request_release(AihcIoRequest *request) {
-  if (request->registered_previous != NULL) {
-    request->registered_previous->registered_next = request->registered_next;
-  } else {
-    request->machine->registered_requests = request->registered_next;
-  }
-  if (request->registered_next != NULL) {
-    request->registered_next->registered_previous =
-        request->registered_previous;
-  }
-  request->registered_previous = NULL;
-  request->registered_next = NULL;
+const AihcInfo aihc_io_handle_info = {.object_kind = AIHC_OBJECT_IO_HANDLE};
+
+AihcIoHandle *aihc_io_handle_new(AihcMachine *machine) {
+  AihcIoHandle *handle = (AihcIoHandle *)aihc_gc_allocate(
+      machine, aihc_record_words(sizeof(AihcIoHandle)));
+  *handle = (AihcIoHandle){.header = (AihcSlot)(uintptr_t)&aihc_io_handle_info,
+                           .closed = 1};
+  return handle;
 }
 
 /* Retain a pinned owner when the address names its payload.
@@ -1232,31 +1304,25 @@ static AihcIoRequest *aihc_io_submit_open_request(AihcMachine *machine,
                                                   int64_t requested_mode) {
   AihcIoRequest *request = aihc_io_request_new(machine);
   request->kind = AIHC_IO_OPEN;
+  request->handle = aihc_io_handle_new(machine);
   request->state = AIHC_IO_SUBMITTED;
   if (requested_length < 0 || (uint64_t)requested_length > SIZE_MAX ||
       (path == NULL && requested_length != 0) || requested_mode < 0 ||
       requested_mode > 3) {
     request->state = AIHC_IO_COMPLETED;
-    request->result =
-        (int64_t)(uintptr_t)aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+    request->result = aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
     return request;
   }
   if (!aihc_io_request_buffer(request, path, 0, (size_t)requested_length)) {
     request->state = AIHC_IO_COMPLETED;
-    request->result =
-        (int64_t)(uintptr_t)aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+    request->result = aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
   request->mode = requested_mode;
   return request;
 }
 
-void *aihc_io_open_error(int error) {
-  return (void *)((((uintptr_t)error) << 1) | (uintptr_t)1);
-}
-
 int64_t aihc_io_open_result_error(void *result) {
-  uintptr_t encoded = (uintptr_t)result;
-  return (encoded & (uintptr_t)1) == 0 ? 0 : (int64_t)(encoded >> 1);
+  return ((AihcIoHandle *)result)->error;
 }
 
 int64_t aihc_memory_write_byte(void *opaque_buffer, int64_t offset,
@@ -1312,13 +1378,15 @@ int64_t aihc_io_take_result(void *opaque_request) {
   }
   int64_t result = request->result;
   request->state = AIHC_IO_CONSUMED;
-  aihc_io_request_release(request);
   request->buffer_owner = NULL;
   return result;
 }
 
 void *aihc_io_take_open_result(void *opaque_request) {
-  return (void *)(uintptr_t)aihc_io_take_result(opaque_request);
+  AihcIoRequest *request = opaque_request;
+  int64_t result = aihc_io_take_result(request);
+  request->handle->error = result < 0 ? -result - 1 : 0;
+  return request->handle;
 }
 
 static const AihcResume *aihc_resume_current(AihcMachine *machine,
@@ -1517,20 +1585,28 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
     aihc_fail("attempted to await an IO request more than once");
   }
 
+  AihcSlot roots[] = {(AihcSlot)(uintptr_t)request,
+                      (AihcSlot)(uintptr_t)continuation};
+  AihcRootFrame frame;
+  aihc_roots_enter(machine, &frame, 2, roots);
   int error = machine->io_backend->prepare(request);
   if (error != 0) {
     request->state = AIHC_IO_COMPLETED;
     request->result = aihc_io_error(error);
-    return aihc_resume_current(machine, continuation);
+    aihc_roots_leave(machine, &frame);
+    return aihc_resume_current(machine, (AihcValue *)(uintptr_t)roots[1]);
   }
 
   int64_t result = 0;
   if (machine->io_backend->try_request(request, &result)) {
     request->state = AIHC_IO_COMPLETED;
     request->result = machine->io_backend->finish_request(request, result);
-    return aihc_resume_current(machine, continuation);
+    aihc_roots_leave(machine, &frame);
+    return aihc_resume_current(machine, (AihcValue *)(uintptr_t)roots[1]);
   }
 
+  continuation = (AihcValue *)(uintptr_t)roots[1];
+  aihc_roots_leave(machine, &frame);
   request->state = AIHC_IO_PENDING;
   request->thread = machine->current_thread;
   request->continuation = continuation;

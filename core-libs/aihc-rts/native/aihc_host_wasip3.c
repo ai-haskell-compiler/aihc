@@ -15,12 +15,12 @@ extern void aihc_wasip3_close(int32_t descriptor);
 extern uint64_t aihc_wasip3_monotonic_ns(void);
 extern int64_t aihc_wasip3_start_timer(uint64_t deadline);
 
-static AihcIoHandle aihc_standard_input = {(uintptr_t)0, 0, AIHC_IO_READABLE, 0,
-                                           0};
-static AihcIoHandle aihc_standard_output = {(uintptr_t)1, 0, AIHC_IO_WRITABLE,
-                                            0, 0};
-static AihcIoHandle aihc_standard_error = {(uintptr_t)2, 0, AIHC_IO_WRITABLE, 0,
-                                           0};
+static AihcIoHandle aihc_standard_input = {.backend_token = 0,
+                                           .capabilities = AIHC_IO_READABLE};
+static AihcIoHandle aihc_standard_output = {.backend_token = 1,
+                                            .capabilities = AIHC_IO_WRITABLE};
+static AihcIoHandle aihc_standard_error = {.backend_token = 2,
+                                           .capabilities = AIHC_IO_WRITABLE};
 
 _Noreturn void aihc_host_fail(const char *message) {
   (void)message;
@@ -58,10 +58,12 @@ int64_t aihc_io_descriptor_mode(int64_t descriptor) {
   return aihc_io_error(AIHC_IO_ERROR_NOT_SUPPORTED);
 }
 
-void *aihc_io_adopt(int64_t descriptor, int64_t mode) {
+void *aihc_io_adopt(AihcMachine *machine, int64_t descriptor, int64_t mode) {
+  AihcIoHandle *handle = aihc_io_handle_new(machine);
   (void)descriptor;
   (void)mode;
-  return aihc_io_open_error(AIHC_IO_ERROR_NOT_SUPPORTED);
+  handle->error = AIHC_IO_ERROR_NOT_SUPPORTED;
+  return handle;
 }
 
 int64_t aihc_io_handle_descriptor(void *opaque_handle) {
@@ -115,7 +117,7 @@ static int64_t aihc_wasip3_finish_request(AihcIoRequest *request,
                                           int64_t result) {
   if (request->kind == AIHC_IO_OPEN) {
     if (result < 0) {
-      return (int64_t)(uintptr_t)aihc_io_open_error((int)(-result - 1));
+      return result;
     }
     uint32_t capabilities;
     switch (request->mode) {
@@ -130,14 +132,14 @@ static int64_t aihc_wasip3_finish_request(AihcIoRequest *request,
       capabilities = AIHC_IO_READABLE | AIHC_IO_WRITABLE;
       break;
     default:
-      return (int64_t)(uintptr_t)aihc_io_open_error(
-          AIHC_IO_ERROR_INVALID_ARGUMENT);
+      return aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
     }
-    AihcIoHandle *handle = aihc_allocate_zeroed(sizeof(*handle));
+    AihcIoHandle *handle = request->handle;
     handle->backend_token = (uintptr_t)result;
     handle->capabilities = capabilities;
+    handle->closed = 0;
     handle->append = request->mode == 2;
-    return (int64_t)(uintptr_t)handle;
+    return 0;
   }
   if (request->kind == AIHC_IO_TIMER) {
     return result;
@@ -163,6 +165,10 @@ static const AihcIoBackend aihc_wasip3_io_backend = {
 };
 
 const AihcIoBackend *aihc_host_io_backend(void) {
+  /* The wasm32 linker cannot extend a pointer relocation into a 64-bit slot. */
+  aihc_standard_input.header = (AihcSlot)(uintptr_t)&aihc_io_handle_info;
+  aihc_standard_output.header = (AihcSlot)(uintptr_t)&aihc_io_handle_info;
+  aihc_standard_error.header = (AihcSlot)(uintptr_t)&aihc_io_handle_info;
   return &aihc_wasip3_io_backend;
 }
 

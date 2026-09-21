@@ -1,0 +1,31 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M4096", "-RTS"]
+source: |
+  module Test where
+  import GHC.Prim
+  import Aihc.Prim.IO
+  data Result = Result Int#
+  foreign import ccall unsafe "dup" duplicate :: Int32# -> Int32#
+  foreign import prim adoptIOHandle# :: Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IOHandle# #)
+  foreign import prim closeIOHandle# :: IOHandle# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  foreign import prim ioHandleDescriptor# :: IOHandle# -> Int#
+  loop :: Int# -> State# RealWorld -> Result
+  loop n state = case n of
+    0# -> Result 200#
+    _ -> case duplicate (intToInt32# 1#) of
+      descriptor -> case adoptIOHandle# (int32ToInt# descriptor) 1# state of
+        (# adopted, handle #) -> case newByteArray# 256# adopted of
+          (# allocated, array #) -> case setByteArray# array 0# 256# 0# allocated of
+            filled -> case ioHandleDescriptor# handle of
+              actual -> case closeIOHandle# handle filled of
+                (# closed, result #) -> loop (n -# 1# +# result +# actual -# int32ToInt# descriptor) closed
+  value = runRW# (loop 200#)
+return: "@0"
+heap: |
+  @0 = CResult 200
+allocated-bytes:
+  macos-arm64: 68952
+  linux-amd64: 68952
+status: pass
+reason: Handles must survive collection and become reclaimable after their last reference disappears.

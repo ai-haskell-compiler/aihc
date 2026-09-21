@@ -4,10 +4,11 @@ rts-arguments: ["+RTS", "-M2048", "-RTS"]
 source: |
   module Test where
   import GHC.Prim
-  foreign import prim submitIOWrite# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+  import Aihc.Prim.IO
+  foreign import prim submitIOWrite# :: IOHandle# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
   data Result = Result Int#
-  foreign import ccall unsafe "aihc_io_stdout" stdout :: Addr#
-  foreign import ccall unsafe "aihc_io_take_result" takeResult :: Addr# -> Int#
+  foreign import prim stdoutIOHandle# :: IOHandle#
+  foreign import prim takeIOResult# :: IORequest# -> Int#
   burn :: Int# -> State# RealWorld -> State# RealWorld
   burn n state = case n of
     0# -> state
@@ -19,17 +20,17 @@ source: |
     0# -> Result 200#
     _ -> case newPinnedByteArray# 256# state of
       (# next, array #) -> case mutableByteArrayContents# array of
-        address -> case submitIOWrite# stdout address 0# 0# next of
+        address -> case submitIOWrite# stdoutIOHandle# address 0# 0# next of
           (# submitted, request #) -> case touch# array submitted of
             retained -> case awaitIO# request retained of
-              done -> case takeResult request of
+              done -> case takeIOResult# request of
                 result -> loop (n -# 1# +# result) done
   value = runRW# (loop 200#)
 return: "@0"
 heap: |
   @0 = CResult 200
 allocated-bytes:
-  macos-arm64: 99352
-  linux-amd64: 99352
+  macos-arm64: 96152
+  linux-amd64: 96152
 status: pass
 reason: Consumed host requests and their buffers must become reclaimable within the heap limit.

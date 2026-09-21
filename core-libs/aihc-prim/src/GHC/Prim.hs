@@ -21,7 +21,6 @@ module GHC.Prim
     andWord32#,
     Addr#,
     Array#,
-    awaitIO#,
     ByteArray#,
     byteArrayContents#,
     catch#,
@@ -156,7 +155,6 @@ module GHC.Prim
     stmCommit#,
     stmAbort#,
     stmActive#,
-    stmWait#,
     myThreadId#,
     newDelayTVar#,
     newAlignedPinnedByteArray#,
@@ -1370,10 +1368,6 @@ foreign import prim
     State# RealWorld ->
     (# State# RealWorld, ThreadId# #)
 
--- | Suspend the current green thread until an opaque runtime IO request has
--- completed. Submission primitives reserve request memory before each call.
-foreign import prim awaitIO# :: Addr# -> State# RealWorld -> State# RealWorld
-
 foreign import prim
   catch# ::
     (State# RealWorld -> (# State# RealWorld, a #)) ->
@@ -1500,15 +1494,5 @@ finalizeWeak# weak state = case readMutVar# weak state of
     finalState -> case content of
       WeakLive _ finalizer -> (# finalState, 1#, unsafeCoerce# finalizer #)
       _ -> (# finalState, 0#, (# ,unsafeCoerce# WeakUnit #) #)
-
--- The request preserves the continuation while the host waits for a timer.
-stmWait# :: State# RealWorld -> (# State# RealWorld, Int# #)
-stmWait# state = case stmWaitRequest# state of
-  (# next, request #) -> case awaitIO# request next of
-    ready -> stmWaitResult# request ready
-
-foreign import prim stmWaitRequest# :: State# RealWorld -> (# State# RealWorld, Addr# #)
-
-foreign import prim stmWaitResult# :: Addr# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
 foreign import prim newDelayTVar# :: Int# -> a -> a -> State# RealWorld -> (# State# RealWorld, TVar# RealWorld a #)

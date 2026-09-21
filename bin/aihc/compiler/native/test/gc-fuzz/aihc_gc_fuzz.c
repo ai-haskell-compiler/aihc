@@ -729,8 +729,17 @@ static void command_machine(char **tokens, size_t count) {
     fail("initial space must be a positive number of words");
   }
   if (machine != NULL) {
+    free(machine->globals);
     free(machine->heap_start);
     free(machine->other_space);
+    for (uint64_t index = 0; index < 3; ++index) {
+      aihc_rts_set_root(index, NULL);
+    }
+    while (machine->pinned_blocks != NULL) {
+      AihcPinnedBlock *block = machine->pinned_blocks;
+      machine->pinned_blocks = block->next;
+      free(block);
+    }
     machine->heap_start = NULL;
     machine->other_space = NULL;
   }
@@ -747,7 +756,13 @@ static void command_machine(char **tokens, size_t count) {
   reset_statics();
   current_srt = NULL;
   reserved_words = 0;
-  machine = aihc_machine_new(global_count);
+  /* The model supplies external roots and excludes process startup objects. */
+  for (uint64_t index = 0; index < 3; ++index) {
+    aihc_rts_set_root(index, NULL);
+  }
+  machine = aihc_machine_new(0);
+  machine->global_count = global_count;
+  machine->globals = checked_calloc(global_count, sizeof(AihcSlot));
   /* Keep the initial thread when the script replaces the default space. */
   AihcThread initial_thread = *machine->current_thread;
   if (space_bytes > SIZE_MAX - sizeof(initial_thread)) {
@@ -763,7 +778,8 @@ static void command_machine(char **tokens, size_t count) {
   machine->heap_start = checked_calloc(1, space_bytes);
   machine->heap_next = machine->heap_start + sizeof(initial_thread);
   machine->heap_alloc_base = machine->heap_next;
-  machine->heap_limit = machine->heap_start + space_bytes;
+  machine->heap_limit =
+      machine->heap_start + space_bytes - machine->pinned_bytes;
   machine->current_thread = (AihcThread *)machine->heap_start;
   *machine->current_thread = initial_thread;
   root_count = slot_count;

@@ -63,6 +63,7 @@ in rec {
   tcSrc =
     mkRootSubsetSrc [
       "components/aihc-tc/"
+      "core-libs/aihc-prim/src/Aihc/Prim/IO.hs"
       "core-libs/aihc-prim/src/GHC/Classes.hs"
       "core-libs/aihc-prim/src/GHC/Prim.hs"
       "core-libs/aihc-prim/src/GHC/Prim/Base.hs"
@@ -172,6 +173,7 @@ in rec {
       # The compiler compiles the type checker wiring of the core libraries
       # in place; it is deliberately not a library component of aihc-tc.
       "components/aihc-tc/prim-wiring/"
+      "core-libs/aihc-prim/src/Aihc/Prim/IO.hs"
       "core-libs/aihc-prim/src/GHC/Classes.hs"
       "core-libs/aihc-prim/src/GHC/Prim.hs"
       "core-libs/aihc-prim/src/GHC/Tuple.hs"

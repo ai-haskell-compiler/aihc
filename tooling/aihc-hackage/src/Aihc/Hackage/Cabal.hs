@@ -105,6 +105,7 @@ import Distribution.PackageDescription
     flagDefault,
     flagName,
     includeDirs,
+    installIncludes,
     libBuildInfo,
     mkFlagName,
     modulePath,
@@ -194,6 +195,8 @@ data CCompileInfo = CCompileInfo
     -- target and their objects join the C objects of the package.
     cCompileLirSources :: [FilePath],
     cCompileIncludeDirs :: [FilePath],
+    -- | Public headers, relative to the include directories.
+    cCompileInstallIncludes :: [FilePath],
     cCompileCcOptions :: [String],
     cCompileCxxOptions :: [String]
   }
@@ -257,6 +260,7 @@ cCompileInfoFromBuild packageRoot build =
       cCompileCxxSources = extractCxxSources packageRoot build,
       cCompileLirSources = extractLirSources packageRoot build,
       cCompileIncludeDirs = extractIncludeDirs packageRoot build,
+      cCompileInstallIncludes = map getSymbolicPath (installIncludes build),
       cCompileCcOptions = ccOptions build,
       cCompileCxxOptions = cxxOptions build
     }
@@ -268,6 +272,7 @@ mergeCCompileInfo items =
       cCompileCxxSources = nub (concatMap cCompileCxxSources items),
       cCompileLirSources = nub (concatMap cCompileLirSources items),
       cCompileIncludeDirs = nub (concatMap cCompileIncludeDirs items),
+      cCompileInstallIncludes = nub (concatMap cCompileInstallIncludes items),
       cCompileCcOptions = concatMap cCompileCcOptions items,
       cCompileCxxOptions = concatMap cCompileCxxOptions items
     }
@@ -299,13 +304,10 @@ collectLibraryAutogenIncludesIn context gpd =
     evalCond = conditionEvaluatorIn context gpd
     libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
 
--- | Overlay the build info a configure script wrote to @<package>.buildinfo@
--- onto the library inputs, the way Cabal merges that file into the library
--- after configure runs. The fields with a consumer here are the include
--- directories, the C sources, and the C and CPP options; a relative path in
--- the file is taken from the directory configure ran in, which is where the
--- script writes its outputs. Fields without a consumer, such as
--- @extra-libraries@, are dropped.
+-- | Apply the library build information from @<package>.buildinfo@.
+-- Read public headers, include directories, C sources, and C and CPP options.
+-- Resolve relative paths from the configure output directory.
+-- Ignore fields without a consumer, such as @extra-libraries@.
 applyHookedBuildInfo :: FilePath -> HookedBuildInfo -> [FileInfo] -> CCompileInfo -> ([FileInfo], CCompileInfo)
 applyHookedBuildInfo buildRoot (hooked, _) files cInfo =
   case hooked of

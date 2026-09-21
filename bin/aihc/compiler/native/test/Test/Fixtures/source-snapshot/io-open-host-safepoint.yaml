@@ -1,0 +1,30 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  import Aihc.Prim.IO
+  data Result = Result Int#
+  foreign import prim submitIOOpen# :: Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
+  foreign import prim takeIOOpenResult# :: IORequest# -> IOHandle#
+  foreign import prim ioOpenResultError# :: IOHandle# -> Int#
+  foreign import prim closeIOHandle# :: IOHandle# -> Int#
+  value = runRW# (\state ->
+    case newByteArray# 8# state of
+      (# allocated, array #) -> case writeWordArray# array 0# 42## allocated of
+        written -> case submitIOOpen# "/././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././././dev/null"# 809# 0# written of
+          (# submitted, request #) -> case awaitIO# request submitted of
+            ready -> case takeIOOpenResult# request of
+              handle -> case ioOpenResultError# handle of
+                error -> case closeIOHandle# handle of
+                  closed -> case readWordArray# array 0# ready of
+                    (# done, value #) -> Result (word2Int# value +# error +# closed))
+return: "@0"
+heap: |
+  @0 = CResult 42
+allocated-bytes:
+  macos-arm64: 1296
+  # Linux host buffer alignment adds eight bytes to the path allocation.
+  linux-amd64: 1304
+status: pass
+reason: A host allocation must retain the open result handle and relocate the saved continuation and its array.

@@ -340,9 +340,8 @@ test_apiDivergenceSkipsEmptyOracleModules =
 knownCoreLibApiDivergences :: [T.Text]
 knownCoreLibApiDivergences =
   -- GHC exports these from GHC.Magic, GHC.Exts or GHC.Internal.Exts
-  -- instead, or (awaitIO#, stm*, compareInt#, divInt#) does not have them.
-  [ "GHC.Prim.awaitIO#",
-    "GHC.Prim.compareInt#",
+  -- instead, or (stm*, compareInt#, divInt#) does not have them.
+  [ "GHC.Prim.compareInt#",
     "GHC.Prim.cstringLength#",
     "GHC.Prim.divInt#",
     "GHC.Prim.newDelayTVar#",
@@ -359,7 +358,6 @@ knownCoreLibApiDivergences =
     "GHC.Prim.stmActive#",
     "GHC.Prim.stmBegin#",
     "GHC.Prim.stmCommit#",
-    "GHC.Prim.stmWait#",
     "GHC.Prim.unsafeCoerce#"
   ]
 

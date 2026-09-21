@@ -1,0 +1,29 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M4096", "-RTS"]
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Int#
+  foreign import prim setProgramArguments# :: ByteArray# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  foreign import ccall unsafe "aihc_program_arguments_copy" copy :: Addr# -> Int# -> Int#
+  loop :: Int# -> State# RealWorld -> Result
+  loop n state = case n of
+    0# -> case newPinnedByteArray# 8# state of
+      (# next, array #) -> case copy (mutableByteArrayContents# array) 8# of
+        size -> case readWordArray# array 0# next of
+          (# done, value #) -> Result (word2Int# value +# size)
+    _ -> case newByteArray# 8# state of
+      (# allocated, array #) -> case writeWordArray# array 0# 4341057## allocated of
+        written -> case unsafeFreezeByteArray# array written of
+          (# frozen, immutable #) -> case setProgramArguments# immutable 8# frozen of
+            (# installed, result #) -> loop (n -# 1# +# result) installed
+  value = runRW# (loop 500#)
+return: "@0"
+heap: |
+  @0 = CResult 4341065
+allocated-bytes:
+  macos-arm64: 28224
+  linux-amd64: 28224
+status: pass
+reason: Argument replacement must retain movable arrays and reclaim previous arrays within the heap limit.

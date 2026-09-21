@@ -19,12 +19,11 @@ import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#)
-import GHC.Ptr (Ptr)
 import GHC.Real (fromIntegral)
 
 -- | Marshal a 'String' to stable UTF-8 bytes. Embedded NUL and surrogate
 -- code points are rejected before the action runs.
-openUtf8FilePath :: String -> Int -> IO (Either Int (Ptr IOHandle))
+openUtf8FilePath :: String -> Int -> IO (Either Int IOHandle)
 openUtf8FilePath path mode =
   case utf8Length path of
     Left pathError -> return (Left pathError)
@@ -139,7 +138,7 @@ divide64 value = go value 0
 
 -- | Open a file through the runtime. The result is the error number of a
 -- failed open.
-openIOHandle :: Addr# -> Int -> Int -> IO (Either Int (Ptr IOHandle))
+openIOHandle :: Addr# -> Int -> Int -> IO (Either Int IOHandle)
 openIOHandle path length mode = do
   request <- submitOpen path length mode
   awaitIO request
