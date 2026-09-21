@@ -22,6 +22,7 @@ where
 
 import Data.Bool (Bool (..), not, (&&), (||))
 import Data.Maybe (Maybe (..), maybe)
+import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Storable (Storable (..))
 import GHC.Base (Monad (..), String, ord, ($), (++), (.))
 import GHC.Char (chr)
@@ -332,21 +333,12 @@ bufReadNBNonEmpty Handle__ {haByteBuffer} buffer@Buffer {bufRaw, bufR, bufL} poi
 -- | Copy @count@ bytes from the raw buffer at @offset@ to the pointer.
 copyFromRawBuffer :: Ptr Word8 -> RawBuffer Word8 -> Int -> Int -> IO ()
 copyFromRawBuffer pointer raw offset count =
-  withRawBuffer raw $ \source -> copyBytesLoop pointer source offset 0 count
-
-copyBytesLoop :: Ptr Word8 -> Ptr Word8 -> Int -> Int -> Int -> IO ()
-copyBytesLoop target source sourceOffset targetOffset count =
-  case count <= 0 of
-    True -> return ()
-    False -> do
-      value <- peekByteOff source sourceOffset :: IO Word8
-      pokeByteOff target targetOffset value
-      copyBytesLoop target source (sourceOffset + 1) (targetOffset + 1) (count - 1)
+  withRawBuffer raw $ \source -> copyBytes pointer (source `plusPtr` offset) count
 
 -- | Copy @count@ bytes from the pointer into the raw buffer at @offset@.
 copyToRawBuffer :: RawBuffer Word8 -> Int -> Ptr Word8 -> Int -> IO ()
 copyToRawBuffer raw offset pointer count =
-  withRawBuffer raw $ \target -> copyBytesLoop target pointer 0 offset count
+  withRawBuffer raw $ \target -> copyBytes (target `plusPtr` offset) pointer count
 
 -- ---------------------------------------------------------------------
 -- Block output
