@@ -48,6 +48,7 @@ heap: |
   @0 = CResult 66
 allocated-bytes:
   macos-arm64: 65104
-  linux-amd64: 65104
+  # Linux host buffer alignment adds eight bytes to each of two poll allocations.
+  linux-amd64: 65120
 status: pass
 reason: A pending read must retain its buffer while another thread forces collections.
