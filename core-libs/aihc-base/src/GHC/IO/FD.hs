@@ -1,3 +1,4 @@
+{-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE MagicHash #-}
 
 {- HLINT ignore "Use camelCase" -}
@@ -7,6 +8,7 @@
 module GHC.IO.FD
   ( FD (FD, fdFD, fdIsNonBlocking),
     mkFD,
+    setNonBlockingMode,
     stdin,
     stdout,
     stderr,
@@ -20,9 +22,10 @@ where
 import Data.Bool (Bool (..))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
-import Foreign.C.Error (Errno (..), eIO, errnoToIOError)
-import Foreign.C.Types (CInt)
+import Foreign.C.Error (Errno (..), eIO, errnoToIOError, throwErrnoIfMinus1Retry, throwErrnoIfMinus1Retry_)
+import Foreign.C.Types (CInt (..))
 import GHC.Base (Monad (..), String)
+import GHC.Bits (complement, (.&.), (.|.))
 import GHC.IO (FilePath, IO (..))
 import GHC.IO.Buffer (newByteBuffer)
 import GHC.IO.BufferedIO (readBuf, readBufNonBlocking, writeBuf, writeBufNonBlocking)
@@ -56,8 +59,8 @@ import GHC.Show (Show (..), showString)
 import GHC.Word (Word8)
 import System.Posix.Types (CDev, CIno)
 
--- | A runtime IO resource. The runtime has no non-blocking mode, so the
--- flag is always zero.
+-- | A runtime IO resource. The flag records an explicit non-blocking mode request.
+-- The runtime can also set the OS flag before an IO request.
 data FD = FD
   { fdFD :: !CInt,
     fdIsNonBlocking :: !Int,
@@ -113,6 +116,36 @@ mkFD descriptor mode _stat _isSocket _isNonBlocking = do
   case errno == 0 of
     True -> return (FD descriptor 0 rawHandle, Stream)
     False -> ioError (errnoToIOError "GHC.IO.FD.mkFD" (Errno (fromIntegral errno)) Nothing Nothing)
+
+-- | Change the descriptor flags before transfer to a child process.
+-- The runtime treats every resource as a stream. Its IO requests can set
+-- non-blocking mode again, independently of this explicit request.
+setNonBlockingMode :: FD -> Bool -> IO FD
+setNonBlockingMode fd enabled = do
+  flags <- throwErrnoIfMinus1Retry location (c_fcntl_read (fdFD fd) f_GETFL)
+  let updated = case enabled of
+        True -> flags .|. o_NONBLOCK
+        False -> flags .&. complement o_NONBLOCK
+      mode = case enabled of
+        True -> 1
+        False -> 0
+  throwErrnoIfMinus1Retry_ location (c_fcntl_write (fdFD fd) f_SETFL updated)
+  return fd {fdIsNonBlocking = mode}
+  where
+    location = "GHC.IO.FD.setNonBlockingMode"
+
+foreign import capi unsafe "fcntl.h value F_GETFL" f_GETFL :: CInt
+
+foreign import capi unsafe "fcntl.h value F_SETFL" f_SETFL :: CInt
+
+foreign import capi unsafe "fcntl.h value O_NONBLOCK" o_NONBLOCK :: CInt
+
+-- | These declarations keep the descriptor layer independent of 'Prelude'.
+foreign import capi unsafe "fcntl.h fcntl"
+  c_fcntl_read :: CInt -> CInt -> IO CInt
+
+foreign import capi unsafe "fcntl.h fcntl"
+  c_fcntl_write :: CInt -> CInt -> CInt -> IO CInt
 
 -- | Release descriptor ownership without a close. The runtime has no file locks.
 release :: FD -> IO ()

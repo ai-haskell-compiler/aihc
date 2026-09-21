@@ -4,10 +4,12 @@ module Control.Exception
     someExceptionContext,
     catchNoPropagate,
     rethrowIO,
+    allowInterrupt,
   )
 where
 
 import Control.Exception.Base
+import GHC.Base (Applicative (..))
 import GHC.IO (catchException)
 import GHC.Internal.Exception.Type (ExceptionWithContext (..), someExceptionContext)
 import GHC.Prim.IO (IO)
@@ -19,3 +21,7 @@ rethrowIO = throwIO
 -- | Supply the context without an annotation for the active handler.
 catchNoPropagate :: (Exception e) => IO a -> (ExceptionWithContext e -> IO a) -> IO a
 catchNoPropagate = catchException
+
+-- | The runtime has no asynchronous exceptions to deliver.
+allowInterrupt :: IO ()
+allowInterrupt = interruptible (pure ())

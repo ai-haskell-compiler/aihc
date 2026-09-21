@@ -1,0 +1,24 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.IO.FD qualified as FD
+    import GHC.IO.Handle.Internals (mkFileHandleNoFinalizer)
+    import GHC.IO.Handle.Types (noNewlineTranslation)
+    import System.IO (IOMode (..), hClose, hIsClosed, hIsEOF, hIsReadable)
+
+    result :: IO Bool
+    result = do
+      (fd, _) <- FD.openFile "/dev/null" ReadMode False
+      handle <- mkFileHandleNoFinalizer fd "process descriptor" ReadMode Nothing noNewlineTranslation
+      readable <- hIsReadable handle
+      eof <- hIsEOF handle
+      hClose handle
+      closed <- hIsClosed handle
+      return (readable && eof && closed)
+expression: result
+output: "True"
+status: pass
+reason: The handle constructor without a finalizer must support input and an explicit close.
+extensions:
+  - ImportQualifiedPost

@@ -1,0 +1,25 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (newEmptyMVar)
+    import GHC.IO.Handle.Types (Handle (..))
+
+    result :: IO Bool
+    result = do
+      first <- newEmptyMVar
+      second <- newEmptyMVar
+      let file = FileHandle "first" first
+          alias = FileHandle "alias" first
+          distinct = FileHandle "first" second
+          duplex = DuplexHandle "duplex" first second
+          duplexAlias = DuplexHandle "alias" first first
+          duplexDistinct = DuplexHandle "duplex" second first
+      return (first == first && first /= second
+        && file == alias && file /= distinct
+        && duplex == duplexAlias && duplex /= duplexDistinct
+        && file /= duplex && duplex /= file)
+expression: result
+output: "True"
+status: pass
+reason: Handle equality uses MVar identity without access to the handle contents or path.

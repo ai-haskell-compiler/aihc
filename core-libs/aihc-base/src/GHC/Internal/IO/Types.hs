@@ -178,6 +178,11 @@ data Handle
   = FileHandle FilePath !(MVar Handle__)
   | DuplexHandle FilePath !(MVar Handle__) !(MVar Handle__)
 
+instance Eq Handle where
+  FileHandle _ left == FileHandle _ right = left == right
+  DuplexHandle _ left _ == DuplexHandle _ right _ = left == right
+  _ == _ = False
+
 -- | The state of one handle side. The device is existential, so the
 -- handle layer only uses it through the device classes.
 data Handle__
