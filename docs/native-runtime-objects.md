@@ -33,9 +33,47 @@ After each collection, the target capacity doubles until it holds twice the live
 The `-M` limit caps the shared budget for movable objects and pinned blocks.
 Pinned block charges include their allocation metadata and alignment padding.
 The collector stops when live data and the next reservation exceed this budget.
-It excludes the second space, unused capacity, auxiliary runtime allocations, and static objects.
+It excludes the second space, unused capacity, collector metadata, and static objects.
 
 Static reference tables determine static object liveness for every collection.
+
+## Initialization and host scopes
+
+One static machine controls one program heap.
+The host initializes this heap before it imports arguments or environment data.
+Startup uses explicit root scopes for temporary buffers.
+After these scopes end, the runtime copies retained data into movable arrays.
+These arrays contain only the retained bytes.
+The collector then removes temporary imports.
+The machine then applies the parsed heap limit and starts the main thread.
+After this transition, the runtime rejects further startup imports.
+Retained arguments and environment data count toward this limit.
+A limit below the retained startup data causes failure before user code starts.
+
+The machine holds the global table in a managed pinned byte array.
+The collector traces each global table slot.
+Argument replacement installs an immutable `ByteArray#` as a process root.
+It does not allocate or copy the array.
+The collector updates this root when the array moves and reclaims previous arrays when they become unreachable.
+
+Normal runtime primitives consume reservations from GRIN safepoints.
+They cannot collect inside their C calls.
+The scheduler and startup can also establish explicit host safepoints with `AihcRootFrame`.
+Each frame publishes all live managed C references before a host call can collect.
+The collector updates these reference slots after relocation.
+The runtime must reload relocated references from their slots.
+
+`aihc_host_byte_array` requires an active root scope and uses the same heap and statistics as program allocation.
+Its pinned buffers hold raw data for host interfaces that need fixed addresses.
+Paths and POSIX poll arrays use call scopes.
+WASI canonical ABI buffers use a scope that remains active until the asynchronous operation ends.
+Generated buffer destructors defer memory reclamation until that scope ends.
+Resource destructors still close their host resources.
+The next collection can reclaim buffers after their scope ends.
+No allocation occurs before GC initialization or outside a reservation or explicit host safepoint.
+
+The collector alone obtains backing storage and metadata from the C allocator.
+The runtime has no second heap or general auxiliary allocator.
 
 ## Runtime statistics
 
@@ -54,7 +92,7 @@ writes no file. An empty value counts as an unset variable.
   The runtime samples this count before collection and at exit.
 - `allocated_bytes` counts actual movable allocations and complete pinned block charges.
   Unused reservations and collector copies do not increase this count.
-  Auxiliary runtime allocations remain outside this count.
+  Host buffers use the same count and heap budget.
 - `gc_count` is the number of collections.
 - `gc_time_ns` is the monotonic time the collections took, in nanoseconds.
 
@@ -137,7 +175,7 @@ source the collector visits. The driver process stays alive across cases, so
 the test can compile the driver with sanitizers when the C compiler supports
 them.
 
-The cooperative scheduler keeps pending IO requests in auxiliary C allocations. Suspended threads retain
+The cooperative scheduler keeps pending IO requests in managed pinned objects. Suspended threads retain
 ordinary action or continuation closures. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
 dispatches with a tail call. All retained closure values and pending-request
@@ -355,22 +393,25 @@ The path and argument-buffer helpers retain their owners while raw addresses are
 
 ## Request allocation and roots
 
-`stmWaitRequest#`, `submitIORead#`, `submitIOWrite#`, and `submitIOOpen#` reserve eighteen slots in GRIN GC.
-The runtime consumes this reservation without collection.
-The bound includes the request and two pinned metadata slots.
-The collector owns request storage and includes its charge in heap limits and statistics.
+`stmWaitRequest#`, `submitIORead#`, and `submitIOWrite#` reserve sixteen slots in GRIN GC.
+`submitIOOpen#` reserves twenty-one slots, which include five slots for its result handle.
+`adoptIOHandle#` reserves five slots for a handle.
+The runtime consumes these reservations without collection.
+The request bound includes two pinned metadata slots.
+Requests remain pinned because host calls retain C request addresses across host safepoints.
+Handles can move and use `IOHandle#` references.
+The GC reclaims handle storage.
+Programs must still close open host resources.
+Standard handles are static objects with the same header.
+Open errors reside in the result handle, so a result never uses an integer as a traced pointer.
 
-The request has an `Addr#` result, so the machine registers it as an explicit root.
-The registration starts before the primitive returns.
-It remains active before await, during suspension, and after completion.
-Result consumption removes the registration.
-The next collection can then reclaim the request.
-The caller must consume each completed request exactly once.
-An unconsumed request retains its registration and counts toward the heap limit.
-
-The collector traces the saved thread, continuation, and pinned buffer owner through the request header.
-The root list and the pinned allocation list have separate purposes.
-The pinned allocation list does not retain requests.
+`IORequest#` references retain requests before await and after completion.
+Only pending operations have scheduler roots.
+A request traces its handle, buffer owner, thread, continuation, and next pending request.
+Completion removes the scheduler root.
+An unreachable completed request can then be reclaimed, even when its result was not consumed.
+Result consumption checks the completed state and prevents a second consumption.
+The pinned allocation list does not retain objects.
 
 ## IO manager
 
@@ -382,14 +423,12 @@ result consumption:
    completions continue directly; otherwise the request becomes `pending` and
    retains the current green thread and continuation.
 3. Backend polling changes a ready request to `completed` and enqueues its
-   thread. A final ordinary foreign call takes the result, changes the request
-   to `consumed`, and removes its root registration.
+   thread. A primitive takes the result and changes the request to `consumed`.
 
 Backend workers or readiness mechanisms produce only native completion data;
 Haskell continuations are always reconstructed and enqueued on the scheduler
 thread. This prevents moving-heap pointers from escaping to an asynchronous
-backend. Each unconsumed request has an explicit root registration.
-The raw request address has `Addr#` representation and does not provide a Haskell heap root.
+backend. Managed `IORequest#` references supply Haskell heap roots.
 
 IO operations target opaque runtime-owned handles rather than OS descriptor
 numbers. Standard input and output are the first preopened handles, while each
@@ -408,7 +447,7 @@ Interior payload addresses also retain their owner.
 A request rejects a buffer address in the movable heap.
 External buffers remain the caller's responsibility.
 Use `keepAlive#` around the complete action when a separate Haskell owner controls external storage.
-Handle allocation remains outside the collector until the handle conversion.
+Handles use the same collector and heap budget.
 Callers must not access the submitted slice while the request is pending.
 
 `copyAddrToByteArray#` copies an explicit byte count into a checked destination slice.

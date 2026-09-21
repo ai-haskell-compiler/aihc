@@ -29,17 +29,17 @@ module GHC.IO.Runtime
   )
 where
 
+import Aihc.Prim.IO (IOHandle#, IORequest#, awaitIO#)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
 import GHC.Num (Num (..))
-import GHC.Prim (Addr#, Int#, RealWorld, State#, awaitIO#)
-import GHC.Ptr (Ptr (..))
+import GHC.Prim (Addr#, Int#, RealWorld, State#)
 
-data IOHandle
+data IOHandle = IOHandle IOHandle#
 
 -- | Suspend the current green thread until an opaque runtime request is ready.
-awaitIO :: Ptr request -> IO ()
-awaitIO (Ptr request) =
+awaitIO :: IORequest -> IO ()
+awaitIO (IORequest request) =
   IO
     ( \state ->
         case awaitIO# request state of
@@ -51,47 +51,89 @@ awaitIO (Ptr request) =
 decodeError :: Int -> Int
 decodeError result = negate result - 1
 
-foreign import prim submitIORead# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+foreign import prim submitIORead# :: IOHandle# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
 
-foreign import prim submitIOWrite# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+foreign import prim submitIOWrite# :: IOHandle# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
 
-foreign import prim submitIOOpen# :: Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+foreign import prim submitIOOpen# :: Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
 
-data IORequest
+data IORequest = IORequest IORequest#
 
-foreign import ccall unsafe "aihc_io_stdin"
-  stdinHandle :: IO (Ptr IOHandle)
+foreign import prim stdinIOHandle# :: State# RealWorld -> (# State# RealWorld, IOHandle# #)
 
-foreign import ccall unsafe "aihc_io_stdout"
-  stdoutHandle :: IO (Ptr IOHandle)
+stdinHandle :: IO IOHandle
+stdinHandle =
+  IO
+    ( \state -> case stdinIOHandle# state of
+        (# next, handle #) -> (# next, IOHandle handle #)
+    )
 
-foreign import ccall unsafe "aihc_io_stderr"
-  stderrHandle :: IO (Ptr IOHandle)
+foreign import prim stdoutIOHandle# :: State# RealWorld -> (# State# RealWorld, IOHandle# #)
 
-submitOpen :: Addr# -> Int -> Int -> IO (Ptr IORequest)
+stdoutHandle :: IO IOHandle
+stdoutHandle =
+  IO
+    ( \state -> case stdoutIOHandle# state of
+        (# next, handle #) -> (# next, IOHandle handle #)
+    )
+
+foreign import prim stderrIOHandle# :: State# RealWorld -> (# State# RealWorld, IOHandle# #)
+
+stderrHandle :: IO IOHandle
+stderrHandle =
+  IO
+    ( \state -> case stderrIOHandle# state of
+        (# next, handle #) -> (# next, IOHandle handle #)
+    )
+
+submitOpen :: Addr# -> Int -> Int -> IO IORequest
 submitOpen path (I# length) (I# mode) =
   IO
     ( \state -> case submitIOOpen# path length mode state of
-        (# next, request #) -> (# next, Ptr request #)
+        (# next, request #) -> (# next, IORequest request #)
     )
 
-foreign import ccall unsafe "aihc_io_open_result_error"
-  openResultError :: Ptr IOHandle -> IO Int
+foreign import prim ioOpenResultError# :: IOHandle# -> State# RealWorld -> (# State# RealWorld, Int# #)
+
+openResultError :: IOHandle -> IO Int
+openResultError (IOHandle value) =
+  IO
+    ( \state -> case ioOpenResultError# value state of
+        (# next, result #) -> (# next, I# result #)
+    )
 
 -- | The open mode of a descriptor the program already has, or a negative
 -- error. Adopting a descriptor needs no request: neither call blocks.
 foreign import ccall unsafe "aihc_io_descriptor_mode"
   descriptorMode :: Int -> IO Int
 
-foreign import ccall unsafe "aihc_io_adopt"
-  adoptIOHandle :: Int -> Int -> IO (Ptr IOHandle)
+foreign import prim adoptIOHandle# :: Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IOHandle# #)
+
+adoptIOHandle :: Int -> Int -> IO IOHandle
+adoptIOHandle (I# descriptor) (I# mode) =
+  IO
+    ( \state -> case adoptIOHandle# descriptor mode state of
+        (# next, handle #) -> (# next, IOHandle handle #)
+    )
 
 -- | The POSIX descriptor, or -1 when the host has no numeric descriptors.
-foreign import ccall unsafe "aihc_io_handle_descriptor"
-  ioHandleDescriptor :: Ptr IOHandle -> IO Int
+foreign import prim ioHandleDescriptor# :: IOHandle# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
-foreign import ccall unsafe "aihc_io_close"
-  closeIOHandle :: Ptr IOHandle -> IO Int
+ioHandleDescriptor :: IOHandle -> IO Int
+ioHandleDescriptor (IOHandle value) =
+  IO
+    ( \state -> case ioHandleDescriptor# value state of
+        (# next, result #) -> (# next, I# result #)
+    )
+
+foreign import prim closeIOHandle# :: IOHandle# -> State# RealWorld -> (# State# RealWorld, Int# #)
+
+closeIOHandle :: IOHandle -> IO Int
+closeIOHandle (IOHandle value) =
+  IO
+    ( \state -> case closeIOHandle# value state of
+        (# next, result #) -> (# next, I# result #)
+    )
 
 foreign import ccall unsafe "aihc_memory_write_byte"
   writeMemoryByte :: Addr# -> Int -> Int -> IO Int
@@ -99,25 +141,37 @@ foreign import ccall unsafe "aihc_memory_write_byte"
 foreign import ccall unsafe "aihc_memory_read_byte"
   readMemoryByte :: Addr# -> Int -> IO Int
 
-submitRead :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
-submitRead (Ptr handle) buffer (I# offset) (I# length) =
+submitRead :: IOHandle -> Addr# -> Int -> Int -> IO IORequest
+submitRead (IOHandle handle) buffer (I# offset) (I# length) =
   IO
     ( \state -> case submitIORead# handle buffer offset length state of
-        (# next, request #) -> (# next, Ptr request #)
+        (# next, request #) -> (# next, IORequest request #)
     )
 
-submitWrite :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
-submitWrite (Ptr handle) buffer (I# offset) (I# length) =
+submitWrite :: IOHandle -> Addr# -> Int -> Int -> IO IORequest
+submitWrite (IOHandle handle) buffer (I# offset) (I# length) =
   IO
     ( \state -> case submitIOWrite# handle buffer offset length state of
-        (# next, request #) -> (# next, Ptr request #)
+        (# next, request #) -> (# next, IORequest request #)
     )
 
-foreign import ccall unsafe "aihc_io_take_result"
-  takeResult :: Ptr IORequest -> IO Int
+foreign import prim takeIOResult# :: IORequest# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
-foreign import ccall unsafe "aihc_io_take_open_result"
-  takeOpenResult :: Ptr IORequest -> IO (Ptr IOHandle)
+takeResult :: IORequest -> IO Int
+takeResult (IORequest value) =
+  IO
+    ( \state -> case takeIOResult# value state of
+        (# next, result #) -> (# next, I# result #)
+    )
+
+foreign import prim takeIOOpenResult# :: IORequest# -> State# RealWorld -> (# State# RealWorld, IOHandle# #)
+
+takeOpenResult :: IORequest -> IO IOHandle
+takeOpenResult (IORequest request) =
+  IO
+    ( \state -> case takeIOOpenResult# request state of
+        (# next, handle #) -> (# next, IOHandle handle #)
+    )
 
 foreign import ccall unsafe "aihc_io_raise_error"
   raiseIOErrorRaw :: Int -> IO Int

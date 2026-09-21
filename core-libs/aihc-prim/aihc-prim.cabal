@@ -8,6 +8,7 @@ extra-source-files: LICENSE.unicode
 
 library
   exposed-modules:
+    Aihc.Prim.IO
     GHC.CString
     GHC.Classes
     GHC.Debug

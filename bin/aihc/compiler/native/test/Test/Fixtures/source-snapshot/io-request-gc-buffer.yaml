@@ -4,10 +4,11 @@ rts-arguments: ["+RTS", "-M8192", "-RTS"]
 source: |
   module Test where
   import GHC.Prim
-  foreign import prim submitIOWrite# :: Addr# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+  import Aihc.Prim.IO
+  foreign import prim submitIOWrite# :: IOHandle# -> Addr# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, IORequest# #)
   data Result = Result Int#
-  foreign import ccall unsafe "aihc_io_stdout" stdout :: Addr#
-  foreign import ccall unsafe "aihc_io_take_result" takeResult :: Addr# -> Int#
+  foreign import prim stdoutIOHandle# :: IOHandle#
+  foreign import prim takeIOResult# :: IORequest# -> Int#
   burn :: Int# -> State# RealWorld -> State# RealWorld
   burn n state = case n of
     0# -> state
@@ -18,19 +19,19 @@ source: |
     case newPinnedByteArray# 8# state of
       (# next, array #) -> case writeWordArray# array 0# 42## next of
         written -> case mutableByteArrayContents# array of
-          address -> case submitIOWrite# stdout address 0# 0# written of
+          address -> case submitIOWrite# stdoutIOHandle# address 0# 0# written of
             (# submitted, request #) -> case touch# array submitted of
               retained -> case burn 100# retained of
                 before -> case awaitIO# request before of
                   completed -> case burn 100# completed of
                     after -> case readWordOffAddr# address 0# after of
-                      (# read, number #) -> case takeResult request of
+                      (# read, number #) -> case takeIOResult# request of
                         result -> Result (word2Int# number +# result))
 return: "@0"
 heap: |
   @0 = CResult 42
 allocated-bytes:
-  macos-arm64: 64464
-  linux-amd64: 64464
+  macos-arm64: 64448
+  linux-amd64: 64448
 status: pass
 reason: A request must retain its pinned buffer before await and after completion.

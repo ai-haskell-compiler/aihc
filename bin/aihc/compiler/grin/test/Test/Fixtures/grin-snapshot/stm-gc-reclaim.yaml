@@ -1,6 +1,6 @@
 entry: $entry
 gc-stress: true
-rts-arguments: ["+RTS", "-M256", "-RTS"]
+rts-arguments: ["+RTS", "-M1024", "-RTS"]
 program: |
   constructor Number/1 [IntRep]
   primitive stmBegin#%1 :: TupleRep []/0

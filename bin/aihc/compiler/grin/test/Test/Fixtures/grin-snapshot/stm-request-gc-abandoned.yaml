@@ -1,7 +1,7 @@
 entry: $entry
-rts-arguments: ["+RTS", "-M512", "-RTS"]
+rts-arguments: ["+RTS", "-M2048", "-RTS"]
 program: |
-  primitive stmWaitRequest# :: AddrRep/0
+  primitive stmWaitRequest# :: BoxedRep Unlifted/0
   primitive awaitIO# :: TupleRep []/1
   primitive stmWaitResult# :: IntRep/1
   primitive newPromptTag# :: BoxedRep Unlifted/0
@@ -12,12 +12,16 @@ program: |
       20 ->
         constant (counter :: IntRep)
       _ ->
-        (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
+        (request :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) stmWaitRequest#
         (next :: IntRep) <- primitive-call @IntRep +# (counter :: IntRep) (1 :: IntRep)
         call @IntRep $loop (next :: IntRep)
 
   $entry -> IntRep =
     call @IntRep $loop (0 :: IntRep)
-error: heap limit exceeded
+return: "20"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 2560
+  linux-amd64: 2560
 status: pass
-reason: Unconsumed request registrations must count toward the heap limit.
+reason: Unreachable requests must become reclaimable without await or result consumption.

@@ -49,6 +49,20 @@ typedef struct {
   size_t capacity;
 } AihcSrtWorklist;
 
+struct AihcHostBuffer {
+  AihcByteArray array;
+  AihcHostBuffer *next;
+  _Alignas(max_align_t) uint8_t contents[];
+};
+
+_Static_assert(offsetof(AihcPinnedBlock, object) % _Alignof(AihcHostBuffer) ==
+                   0,
+               "pinned metadata must preserve host buffer alignment");
+
+static const AihcInfo aihc_buffer_info = {
+    .object_kind = AIHC_OBJECT_BYTE_ARRAY,
+};
+
 static AihcAddressSet aihc_marked_statics;
 static AihcStaticWorklist aihc_static_worklist;
 static AihcSrtWorklist aihc_srt_worklist;
@@ -72,7 +86,10 @@ static void aihc_address_set_grow(AihcAddressSet *set) {
   if (capacity > SIZE_MAX / sizeof(*set->slots) / 2) {
     aihc_fail("static object set is too large");
   }
-  AihcValue **slots = aihc_allocate_zeroed(sizeof(*slots) * capacity);
+  AihcValue **slots = calloc(capacity, sizeof(*slots));
+  if (slots == NULL) {
+    aihc_fail("out of memory");
+  }
   for (size_t index = 0; index < set->capacity; ++index) {
     AihcValue *object = set->slots[index];
     if (object == NULL) {
@@ -465,6 +482,11 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   machine->heap_start = to_start;
   machine->heap_next = to_start;
   machine->heap_space_bytes = machine->other_space_bytes;
+  /* Startup can apply a limit below the capacity of an existing space. */
+  if (machine->heap_limit_enabled &&
+      machine->heap_space_bytes > machine->heap_max_bytes) {
+    machine->heap_space_bytes = machine->heap_max_bytes;
+  }
   machine->heap_limit = to_start + machine->heap_space_bytes;
 
   AihcForwardingContext context = {machine, from_start, from_bytes};
@@ -475,6 +497,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
      code reaches no static object of its own. */
   aihc_walk_srt(srt);
   aihc_visit_roots(machine, root_count, roots, aihc_forward_root, &context);
+
   aihc_trace(&context);
   aihc_update_stable_names(&context);
   AihcPinnedBlock **link = &machine->pinned_blocks;
@@ -579,10 +602,11 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
 
 /* Consume a prior reservation. The allocation list is not a root. */
 AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
-  if (words > (SIZE_MAX - sizeof(AihcPinnedBlock)) / sizeof(AihcSlot)) {
+  size_t bytes = sizeof(AihcPinnedBlock) + words * sizeof(AihcSlot);
+  if (words > (SIZE_MAX - sizeof(AihcPinnedBlock)) / sizeof(AihcSlot) ||
+      bytes < sizeof(AihcPinnedBlock)) {
     aihc_fail("pinned allocation is too large");
   }
-  size_t bytes = sizeof(AihcPinnedBlock) + words * sizeof(AihcSlot);
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_fail("unchecked pinned allocation exceeded reserved heap");
   }
@@ -601,6 +625,69 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
   machine->heap_limit -= bytes;
   machine->heap_allocated_bytes += bytes;
   return (AihcValue *)block->object;
+}
+
+void aihc_roots_enter(AihcMachine *machine, AihcRootFrame *frame,
+                      uint64_t count, AihcSlot *roots) {
+  *frame = (AihcRootFrame){
+      .next = machine->root_frames, .roots = roots, .count = count};
+  machine->root_frames = frame;
+}
+
+void aihc_roots_leave(AihcMachine *machine, AihcRootFrame *frame) {
+  AihcRootFrame **link = &machine->root_frames;
+  while (*link != frame) {
+    if (*link == NULL) {
+      aihc_fail("host scope is not active");
+    }
+    link = &(*link)->next;
+  }
+  *link = frame->next;
+}
+
+void aihc_visit_host_roots(AihcMachine *machine, AihcRootVisitor visitor,
+                           void *context) {
+  for (AihcRootFrame *frame = machine->root_frames; frame;
+       frame = frame->next) {
+    for (uint64_t index = 0; index < frame->count; ++index) {
+      frame->roots[index] = visitor(frame->roots[index], context);
+    }
+    for (AihcHostBuffer *buffer = frame->buffers; buffer;
+         buffer = buffer->next) {
+      (void)visitor((AihcSlot)(uintptr_t)buffer, context);
+    }
+  }
+}
+
+void *aihc_host_byte_array(AihcMachine *machine, AihcRootFrame *frame,
+                           uint64_t bytes) {
+  AihcRootFrame *active = machine->root_frames;
+  while (active != NULL && active != frame) {
+    active = active->next;
+  }
+  if (active == NULL) {
+    aihc_fail("host allocation requires an active root scope");
+  }
+  size_t overhead = sizeof(AihcHostBuffer) + sizeof(AihcPinnedBlock);
+  if (bytes > SIZE_MAX - overhead - sizeof(AihcSlot)) {
+    aihc_fail("host buffer is too large");
+  }
+  uint64_t occupied = bytes == 0 ? 1 : bytes;
+  uint64_t words = (sizeof(AihcHostBuffer) + occupied + sizeof(AihcSlot) - 1) /
+                   sizeof(AihcSlot);
+  aihc_gc_ensure(machine, words + sizeof(AihcPinnedBlock) / sizeof(AihcSlot), 0,
+                 NULL, NULL);
+  AihcHostBuffer *buffer =
+      (AihcHostBuffer *)aihc_gc_allocate_pinned(machine, words);
+  buffer->array.header = (AihcSlot)(uintptr_t)&aihc_buffer_info;
+  buffer->array.size = bytes;
+  buffer->array.contents = buffer->contents;
+  buffer->array.pinned = 1;
+  buffer->array.alignment = _Alignof(max_align_t);
+  buffer->array.words = words;
+  buffer->next = frame->buffers;
+  frame->buffers = buffer;
+  return buffer;
 }
 
 void aihc_gc_record_peak(AihcMachine *machine) {

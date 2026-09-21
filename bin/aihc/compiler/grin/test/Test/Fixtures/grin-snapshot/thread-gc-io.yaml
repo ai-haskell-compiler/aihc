@@ -7,7 +7,7 @@ program: |
   primitive newPromptTag# :: BoxedRep Unlifted/0
   primitive +# :: IntRep/2
   primitive newDelayTVar# :: BoxedRep Unlifted/3
-  primitive stmWaitRequest# :: AddrRep/0
+  primitive stmWaitRequest# :: BoxedRep Unlifted/0
   primitive awaitIO# :: TupleRep []/1
   primitive stmWaitResult# :: IntRep/1
   primitive readTVarIO# :: BoxedRep Lifted/1
@@ -30,16 +30,16 @@ program: |
     (final :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
     (variable :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newDelayTVar# (1000000 :: IntRep) (initial :: BoxedRep Lifted) (final :: BoxedRep Lifted)
     (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
-    (request :: AddrRep) <- primitive-call @AddrRep stmWaitRequest#
-    () <- primitive-call @(TupleRep []) awaitIO# (request :: AddrRep)
-    (ignored :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: AddrRep)
+    (request :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) stmWaitRequest#
+    () <- primitive-call @(TupleRep []) awaitIO# (request :: BoxedRep Unlifted)
+    (ignored :: IntRep) <- primitive-call @IntRep stmWaitResult# (request :: BoxedRep Unlifted)
     (value :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVarIO# (variable :: BoxedRep Unlifted)
     constant (value :: BoxedRep Lifted)
 return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 1976
-  linux-amd64: 1976
+  macos-arm64: 1960
+  linux-amd64: 1960
 status: pass
 reason: A pending IO request must retain its thread while another thread forces collections.
