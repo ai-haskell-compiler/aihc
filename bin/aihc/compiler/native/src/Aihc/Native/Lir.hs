@@ -46,9 +46,10 @@ module Aihc.Native.Lir
   )
 where
 
+import Aihc.Lir.Inline (prepareModule)
 import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, readCounts)
-import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
+import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
 import Aihc.Native.Object (Name (..), SectionRole (..))
@@ -329,7 +330,7 @@ compileNativeChunksWith lint backend lirModule =
             Right (trapStatements, _) -> [Right (trapStatements <> dataStatements <> globalStatements <> nbAfterObject backend)]
     dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
     globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
-    Module items = resolveConstants wordBytes lirModule
+    Module items = prepareModule wordBytes lirModule
     initialState = initialObjectState backend
     signatures =
       Map.fromList
@@ -356,7 +357,7 @@ compileNativeTo lint backend output endFunction lirModule =
     errors@(_ : _) -> pure (Left (nbLintErrors backend errors))
     [] -> go (initialObjectState backend) functions
   where
-    Module items = resolveConstants wordBytes lirModule
+    Module items = prepareModule wordBytes lirModule
     functions = [item | item@ItemFunction {} <- items]
     signatures = Map.fromList ([(functionName function, functionSignature function) | ItemFunction function <- items] <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items])
     go state remaining = case remaining of

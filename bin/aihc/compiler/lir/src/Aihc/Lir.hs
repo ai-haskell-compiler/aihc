@@ -16,6 +16,8 @@ module Aihc.Lir
     expandIncludes,
     loadModule,
     resolveConstants,
+    inlineModule,
+    prepareModule,
     Value (..),
     InterpretError (..),
     runFunction,
@@ -25,6 +27,7 @@ module Aihc.Lir
   )
 where
 
+import Aihc.Lir.Inline
 import Aihc.Lir.Interpret
 import Aihc.Lir.Lint
 import Aihc.Lir.Parser

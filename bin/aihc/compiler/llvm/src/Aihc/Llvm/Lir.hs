@@ -15,8 +15,9 @@ module Aihc.Llvm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
+import Aihc.Lir.Inline (prepareModule)
 import Aihc.Lir.Lint (LintError, lintModuleFor)
-import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
+import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM, forM_)
 import Control.Monad.Trans.Class (lift)
@@ -66,7 +67,7 @@ compileLirModule lirModule =
         )
     errors -> Left (LlvmLirLintErrors errors)
   where
-    Module items = resolveConstants wordBytes lirModule
+    Module items = prepareModule wordBytes lirModule
     ctx =
       Ctx
         { ctxSignatures =

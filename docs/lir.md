@@ -122,7 +122,7 @@ Every symbol is defined or declared at most once in a module.
 ### Functions
 
 ```text
-function ::= "export"? "func" symbol "(" parameters ")" results? cc? "{" block+ "}"
+function ::= ("export" | "inline")? "func" symbol "(" parameters ")" results? cc? "{" block+ "}"
 parameters ::= (value ":" type ("," value ":" type)*)?
 results ::= "->" type | "->" "(" type ("," type)* ")"
 cc ::= "cc" ("aihc" | "c")
@@ -142,6 +142,46 @@ extern-function ::= "extern" "func" symbol "(" (type ("," type)*)? ")" results? 
 ```
 
 An extern function is defined in another module or in the host.
+
+#### Inline functions
+
+A function with `inline` in place of `export` has no symbol of its own.
+`Aihc.Lir.Inline` splices its body into every call of it and then drops the
+definition, so no backend sees one and no object holds code for one. Use it for
+the operations a hand-written module repeats -- reading a header, reaching a
+field of an info table -- which a call would otherwise obscure or cost.
+
+The splice follows the control-flow graph, so the body may have any number of
+blocks and any number of returns. A call in the middle of a block cuts the
+block in two: the first half jumps into a renamed copy of the body, the entry
+block of the copy takes the parameters of the function as block parameters, and
+every `return` of the copy jumps to the second half, which takes the results of
+the call as block parameters. A `tailcall` of an inline function needs no cut:
+it jumps into the copy, whose returns stay returns.
+
+An inline function has no address, so it is named only by `call @f(args)` and
+`tailcall @f(args)`. The linter rejects every other mention of it: a `code`
+literal, a `code` data field, and the callee of a `call.indirect`. It also
+rejects the three shapes the splice cannot serve:
+
+- recursion, direct or mutual, because the splice would not terminate;
+- a `tailcall` or `tailcall.indirect` inside the body, because at a call site
+  that is not itself a tail call it would return past the call site;
+- the `c` calling convention, which describes an ABI that an inline function
+  never reaches.
+
+An inline function may call other inline functions, and a `stack.alloc` in its
+body allocates in the frame of each caller it is spliced into.
+
+```text
+inline func @info_table(%object: ptr) -> ptr {
+entry:
+  %header_word = load i64 [%object] align 8
+  %info_word = and i64 %header_word, @AIHC_HEADER_INFO_MASK
+  %header = ptr.from_int %info_word
+  return %header
+}
+```
 
 ### Globals
 

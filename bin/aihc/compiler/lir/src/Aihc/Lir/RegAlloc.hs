@@ -407,49 +407,6 @@ pushHintValue :: IntBuffer s -> (Int -> Int) -> Int -> Int -> ST s ()
 pushHintValue buffer carrier position value =
   when (carrier position >= 0) (pushInt buffer value >> pushInt buffer (carrier position))
 
--- | Run an action on every operand one operation reads, in order and with
--- repeats.
-{-# INLINE forOperationOperands #-}
-forOperationOperands :: (Applicative f) => (Operand -> f ()) -> Operation -> f ()
-forOperationOperands act operation =
-  case operation of
-    Binary _ _ left right -> act left *> act right
-    Unary _ _ value -> act value
-    Wide _ _ left right -> act left *> act right
-    Compare _ _ left right -> act left *> act right
-    FloatBinary _ _ left right -> act left *> act right
-    FloatUnary _ _ value -> act value
-    Convert _ _ value _ -> act value
-    PtrToInt value -> act value
-    PtrFromInt value -> act value
-    Select _ condition left right -> act condition *> act left *> act right
-    Load _ address _ -> act (addressBase address)
-    Store _ value address _ -> act value *> act (addressBase address)
-    PtrAdd base offset -> act base *> act offset
-    StackAlloc _ _ -> pure ()
-    GlobalGet _ -> pure ()
-    GlobalSet _ value -> act value
-    Call _ arguments -> traverse_ act arguments
-    CallIndirect callee arguments _ -> act callee *> traverse_ act arguments
-
--- | Run an action on every operand one terminator reads, in order and with
--- repeats.
-{-# INLINE forTerminatorOperands #-}
-forTerminatorOperands :: (Applicative f) => (Operand -> f ()) -> Terminator -> f ()
-forTerminatorOperands act terminator =
-  case terminator of
-    Jump jump -> traverse_ act (targetArguments jump)
-    Branch condition whenTrue whenFalse ->
-      act condition *> traverse_ act (targetArguments whenTrue) *> traverse_ act (targetArguments whenFalse)
-    Switch _ scrutinee cases fallback ->
-      act scrutinee
-        *> traverse_ (traverse_ act . targetArguments . switchCaseTarget) cases
-        *> traverse_ (traverse_ act . targetArguments) fallback
-    Return values -> traverse_ act values
-    TailCall _ arguments -> traverse_ act arguments
-    TailCallIndirect callee arguments _ -> act callee *> traverse_ act arguments
-    Trap _ -> pure ()
-
 -- Intervals
 
 -- | The lowest and the highest position at which each value is live.

@@ -25,8 +25,9 @@ module Aihc.Wasm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
+import Aihc.Lir.Inline (prepareModule)
 import Aihc.Lir.Lint (LintError, lintModuleFor)
-import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
+import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM_, unless, when)
 import Control.Monad.Trans.Class (lift)
@@ -72,7 +73,7 @@ compileLirModule lirModule =
         )
     errors -> Left (WasmLirLintErrors errors)
   where
-    Module userItems = resolveConstants wordBytes lirModule
+    Module userItems = prepareModule wordBytes lirModule
     usesWideMultiply =
       or
         [ True
@@ -112,12 +113,14 @@ moduleContext items =
         ItemConstant _ -> Nothing
         ItemInclude _ -> Nothing
 
--- | An internal symbol is local to its object.
+-- | An internal symbol is local to its object. An inline function is
+-- spliced and dropped before a backend runs, so none reaches here.
 linkedName :: Linkage -> Symbol -> Text
 linkedName linkage symbol =
   case linkage of
     Export -> unSymbol symbol
     Internal -> ".L" <> unSymbol symbol
+    Inline -> error ("Lir inline function " <> T.unpack (unSymbol symbol) <> " reached the wasm backend")
 
 symbolText :: Ctx -> Symbol -> Text
 symbolText ctx symbol = fromMaybe (unSymbol symbol) (Map.lookup symbol (ctxSymbols ctx))

@@ -1,0 +1,87 @@
+; expect: 30, 7, 12, 55, 8
+; Inline functions are spliced into every call and define no symbol.
+; The cases are, in order: a straight-line body, a body with two results,
+; a body with control flow of its own, one inline function calling another,
+; and a tail call whose callee is inline.
+
+inline func @double(%value: i64) -> i64 {
+entry:
+  %doubled = mul i64 %value, 2
+  return %doubled
+}
+
+inline func @split(%value: i64) -> (i64, i64) {
+entry:
+  %half = div.s i64 %value, 2
+  %rest = rem.s i64 %value, 2
+  return %half, %rest
+}
+
+; A body with more than one block, and with more than one return.
+inline func @clamp(%value: i64, %limit: i64) -> i64 {
+entry:
+  %over = gt.s i64 %value, %limit
+  br %over, high, low
+
+high:
+  return %limit
+
+low:
+  %negative = lt.s i64 %value, 0
+  br %negative, zero, keep
+
+zero:
+  return 0
+
+keep:
+  return %value
+}
+
+; One inline function calling another: the splice of this body is itself
+; spliced before it reaches a call of @quadruple.
+inline func @quadruple(%value: i64) -> i64 {
+entry:
+  %once = call @double(%value)
+  %twice = call @double(%once)
+  return %twice
+}
+
+inline func @sum_to(%bound: i64) -> i64 {
+entry:
+  jump loop(0, 1)
+
+loop(%total: i64, %next: i64):
+  %done = gt.s i64 %next, %bound
+  br %done, finish(%total), step(%total, %next)
+
+step(%running: i64, %current: i64):
+  %added = add i64 %running, %current
+  %following = add i64 %current, 1
+  jump loop(%added, %following)
+
+finish(%result: i64):
+  return %result
+}
+
+func @tail_to_inline(%value: i64) -> i64 {
+entry:
+  tailcall @quadruple(%value)
+}
+
+func @main() -> (i64, i64, i64, i64, i64) {
+entry:
+  ; Two calls of the same inline function in one block.
+  %ten = call @double(5)
+  %twenty = call @double(%ten)
+  %thirty = add i64 %ten, %twenty
+  %half, %rest = call @split(15)
+  %kept = call @clamp(12, 100)
+  %total = call @sum_to(10)
+  %quad = call @tail_to_inline(2)
+  ; %half and %rest are read after the splices that follow them, which is
+  ; what makes them outlive the block the splice put them in: the results of
+  ; a call are in scope wherever the block that receives them dominates.
+  ; %half is 7 and %rest is 1; only %half is reported.
+  %unused = add i64 %rest, 0
+  return %thirty, %half, %kept, %total, %quad
+}

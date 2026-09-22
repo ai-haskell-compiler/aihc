@@ -1,0 +1,52 @@
+; error: @host: inline function @address has no address
+; error: @table: inline function @address has no address
+; error: @foreign: an inline function cannot use the c calling convention
+; error: @escapes/entry: an inline function cannot tail-call
+; error: @ping: inline function @ping calls itself
+; error: @pong: inline function @pong calls itself
+; error: @self: inline function @self calls itself
+; An inline function is spliced into its calls and then dropped, so it can
+; have no address, no recursion, and no tail call of its own.
+
+inline func @self(%value: i64) -> i64 {
+entry:
+  %next = call @self(%value)
+  return %next
+}
+
+inline func @ping(%value: i64) -> i64 {
+entry:
+  %next = call @pong(%value)
+  return %next
+}
+
+inline func @pong(%value: i64) -> i64 {
+entry:
+  %next = call @ping(%value)
+  return %next
+}
+
+inline func @address() -> i64 {
+entry:
+  return 0
+}
+
+func @host() -> i64 {
+entry:
+  %pointer = call.indirect @address() : () -> i64
+  return %pointer
+}
+
+data @table align 8 = { code @address }
+
+inline func @foreign(%value: i64) -> i64 cc c {
+entry:
+  return %value
+}
+
+extern func @elsewhere(i64) -> i64
+
+inline func @escapes(%value: i64) -> i64 {
+entry:
+  tailcall @elsewhere(%value)
+}
