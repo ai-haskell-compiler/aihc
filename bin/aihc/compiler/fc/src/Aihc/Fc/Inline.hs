@@ -211,10 +211,15 @@ initialInliner config env decls supply =
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
     arities = Map.map functionArity bodies
+    -- A value a rule names stays, whether or not a body still calls it:
+    -- the rule may put it in place later.
     roots =
-      case inlineRoots config of
-        Nothing -> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
-        Just names -> Set.fromList names
+      Set.filter (`Map.member` declarations) ruleReferences
+        <> case inlineRoots config of
+          Nothing -> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
+          Just names -> Set.fromList names
+    ruleReferences =
+      Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
 
 -- | The size a value of the given size may grow to under a policy.
 valueLimit :: InlinePolicy -> Int -> Int

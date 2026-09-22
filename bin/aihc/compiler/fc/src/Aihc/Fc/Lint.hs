@@ -105,6 +105,15 @@ lintDeclHeaders env decl =
     DeclSynonym declaration -> lintSynonymDecl env declaration
     DeclAxiom declaration -> lintAxiomDecl env declaration
     DeclVal declaration -> eitherToList (lintType env (valType declaration))
+    DeclRule declaration ->
+      case ruleEnv env declaration of
+        Left err -> [err]
+        Right env' -> eitherToList (lintType env' (ruleType declaration))
+
+-- | The environment of a rule's sides: the rule's binders over the program.
+ruleEnv :: TypeEnv -> RuleDecl -> Either LintError TypeEnv
+ruleEnv env declaration =
+  foldM bindLocal env (ruleTypeBinders declaration <> ruleBinders declaration)
 
 lintForeignImportDependency :: TypeEnv -> ForeignImportDependency -> [LintError]
 lintForeignImportDependency env dependency =
@@ -119,6 +128,13 @@ lintDeclBodies env decl =
       map
         (addDeclarationContext (valName declaration))
         (eitherToList (checkExpr env "val body" (valType declaration) (valBody declaration)))
+    DeclRule declaration ->
+      case ruleEnv env declaration of
+        Left _ -> []
+        Right env' ->
+          let context side = T.unpack (ruleName declaration) <> ": rule " <> side
+           in eitherToList (checkExpr env' (context "left-hand side") (ruleType declaration) (ruleLhs declaration))
+                <> eitherToList (checkExpr env' (context "right-hand side") (ruleType declaration) (ruleRhs declaration))
     _ -> []
 
 addDeclarationContext :: Name -> LintError -> LintError

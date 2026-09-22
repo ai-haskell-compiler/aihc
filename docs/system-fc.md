@@ -149,6 +149,7 @@ Use `@(a : k)` before field binders to bind existential types in constructor alt
 Permit an empty alternative set when the case has an explicit result type.
 Use `let` and `rec` for local groups.
 Use `val` for top-level values.
+Use `rule "name" [phase] Λ(a : k). λ(x : t). lhs = rhs :: type` for a rewrite rule; its binders are the pattern variables, dictionaries first among the value binders.
 Use `type T { cons }` for data types.
 Use `axiom` for axioms.
 Use `e ▷ γ` for cast.

@@ -106,6 +106,7 @@ demoteToEntry root program =
         Fc.DeclVal declaration
           | Fc.valName declaration == root -> decl
           | otherwise -> Fc.DeclVal declaration {Fc.valVis = Fc.Private}
+        Fc.DeclRule {} -> decl
 
 -- | The global that the entry archive calls: the root of the program.
 entryName :: Fc.Name

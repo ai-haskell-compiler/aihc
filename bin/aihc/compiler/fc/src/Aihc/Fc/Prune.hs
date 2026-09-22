@@ -48,6 +48,8 @@ pruneProgram roots program =
         DeclSynonym declaration -> [decl | reaches (synName declaration)]
         DeclAxiom declaration -> [decl | reaches (axiomName declaration)]
         DeclVal declaration -> [decl | reaches (valName declaration)]
+        -- A rule stays while the head of its left-hand side does.
+        DeclRule declaration -> [decl | Just headName <- [ruleHead declaration], reaches headName]
     reaches name = Set.member name reachable
     close :: Set Name -> [Name] -> Set Name
     close visited pending =
@@ -83,6 +85,9 @@ pruneProgram roots program =
           ]
         DeclAxiom declaration -> [(axiomName declaration, axiomReferences declaration)]
         DeclVal declaration -> [(valName declaration, declReferences decl)]
+        -- What a rule refers to is reached through its head, so that a
+        -- kept rule keeps its right-hand side alive.
+        DeclRule declaration -> [(headName, declReferences decl) | Just headName <- [ruleHead declaration]]
     -- The equations of each type family, under the name of the family.
     familyEquations :: Map Name (Set Name)
     familyEquations =
@@ -96,3 +101,15 @@ pruneProgram roots program =
 
 binderReferences :: Binder -> Set Name
 binderReferences = typeReferences . binderType
+
+-- | The top-level value at the head of a rule's left-hand side.
+ruleHead :: RuleDecl -> Maybe Name
+ruleHead declaration = go (ruleLhs declaration)
+  where
+    go expr =
+      case expr of
+        ExVar name | OriginTop {} <- nameOrigin name -> Just name
+        ExApp function _ -> go function
+        ExTyApp function _ -> go function
+        ExCast inner _ -> go inner
+        _ -> Nothing

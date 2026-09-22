@@ -192,7 +192,8 @@ genDecl =
     [ DeclType <$> genTypeDecl,
       DeclSynonym <$> genSynonymDecl,
       DeclAxiom <$> genAxiomDecl,
-      DeclVal <$> genValDecl
+      DeclVal <$> genValDecl,
+      DeclRule <$> genRuleDecl
     ]
 
 genTypeDecl :: Gen TypeDecl
@@ -242,6 +243,19 @@ genValDecl =
     <*> (valueNameTop . ("f" <>) <$> genSuffix)
     <*> genType
     <*> Gen.choice [ExVar <$> genLocalValueName, genForeignCallExpr]
+
+genRuleDecl :: Gen RuleDecl
+genRuleDecl =
+  RuleDecl . ("rule" <>)
+    <$> genSuffix
+    <*> Gen.choice [pure AlwaysActive, ActiveAfter <$> genPhase, ActiveBefore <$> genPhase, pure NeverActive]
+    <*> Gen.list (Range.linear 0 2) genTypeBinder
+    <*> Gen.list (Range.linear 0 2) (Binder <$> genLocalValueName <*> genType)
+    <*> genType
+    <*> (ExVar <$> genLocalValueName)
+    <*> (ExVar <$> genLocalValueName)
+  where
+    genPhase = Gen.int (Range.linear 0 3)
 
 genForeignCallExpr :: Gen Expr
 genForeignCallExpr =
