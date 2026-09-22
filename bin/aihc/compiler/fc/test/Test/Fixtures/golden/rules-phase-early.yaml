@@ -1,0 +1,81 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  f :: Nat -> Nat
+  f x = x
+  g :: Nat -> Nat
+  g x = x
+  early :: Nat -> Nat
+  early x = x
+  late :: Nat -> Nat
+  late x = x
+  {-# RULES
+  "f/early" [~1] forall x. f x = early x
+  "g/late" [0] forall x. g x = late x
+    #-}
+  useF :: Nat -> Nat
+  useF x = f x
+  useG :: Nat -> Nat
+  useG x = g x
+passes:
+- simplify: 2
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tNat :: 2.sType {
+      pub 1.cZ :: 1.tNat;
+      pub 1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  pub val 1.vf :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    x
+
+  pub val 1.vg :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    x
+
+  pub val 1.vearly :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    x
+
+  pub val 1.vlate :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    x
+
+  pub val 1.vuseF :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.vearly x
+
+  pub val 1.vuseG :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.vg x
+
+  rule "f/early" [~1] λ(x : 1.tNat).
+    1.vf x
+   = 1.vearly x
+   :: 1.tNat
+
+  rule "g/late" [0] λ(x : 1.tNat).
+    1.vg x
+   = 1.vlate x
+   :: 1.tNat
+status: pass
+reason: In phase 2 the rule active before phase 1 fires and the rule active from phase 0 stays quiet.

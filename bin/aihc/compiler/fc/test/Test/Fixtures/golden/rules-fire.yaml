@@ -1,0 +1,132 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  data List a = Nil | Cons a (List a)
+  class C a where
+    op :: a -> a
+  instance C Nat where
+    op = S
+  map :: (a -> b) -> List a -> List b
+  map f xs = case xs of
+    Nil -> Nil
+    Cons y ys -> Cons (f y) (map f ys)
+  identity :: a -> a
+  identity x = x
+  compose :: (b -> c) -> (a -> b) -> a -> c
+  compose f g x = f (g x)
+  {-# RULES
+  "map/id" forall xs. map identity xs = xs
+  "op/op" forall x. op (op x) = op x
+  "compose/id" forall f. compose f identity = f
+    #-}
+  useMap :: List Nat -> List Nat
+  useMap xs = map identity xs
+  useOp :: Nat -> Nat
+  useOp x = op (op x)
+  useCompose :: (Nat -> Nat) -> Nat -> Nat
+  useCompose k z = compose k identity z
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tNat :: 2.sType {
+      pub 1.cZ :: 1.tNat;
+      pub 1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  pub type 1.tList (a : 2.sType) :: 2.sType {
+      pub 1.cNil :: ∀(a : 2.sType). 1.tList a;
+      pub 1.cCons :: ∀(a : 2.sType). a 2.→ 1.tList a 2.→ 1.tList a
+  }
+
+  pub type 1.t$Dict$C (a : 2.sType) :: 2.sType {
+      pub 1.c$Dict$C :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$C a
+  }
+
+  pub val 1.vop :: ∀(a : 2.sType). 1.t$Dict$C a 2.→ a 2.→ a
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$C a).
+      case $d0 as ($dict : 1.t$Dict$C a) return (a 2.→ a) of {
+          1.c$Dict$C ($method0 : a 2.→ a) →
+              $method0
+      }
+
+  pub val 1.v$fCNat :: 1.t$Dict$C 1.tNat
+   = 1.c$Dict$C @1.tNat 1.v$fCNat$cop
+
+  val 1.v$fCNat$cop :: 1.tNat 2.→ 1.tNat
+   = 1.cS
+
+  pub val 1.vmap :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b) 2.→ 1.tList a 2.→ 1.tList b
+   = Λ(a : 2.sType).
+    Λ(b : 2.sType).
+      λ(x : a 2.→ b).
+        λ(y : 1.tList a).
+          case y as (_scrut : 1.tList a) return (1.tList b) of {
+              1.cNil →
+                  1.cNil @b;
+              1.cCons (y{1} : a) (ys : 1.tList a) →
+                  1.cCons @b (x y{1}) (1.vmap @a @b x ys)
+          }
+
+  pub val 1.videntity :: ∀(a : 2.sType). a 2.→ a
+   = Λ(a : 2.sType).
+    λ(x : a).
+      x
+
+  pub val 1.vcompose :: ∀(b : 2.sType) (c : 2.sType) (a : 2.sType). (b 2.→ c) 2.→ (a 2.→ b) 2.→ a 2.→ c
+   = Λ(b : 2.sType).
+    Λ(c : 2.sType).
+      Λ(a : 2.sType).
+        λ(x : b 2.→ c).
+          λ(y : a 2.→ b).
+            λ(z : a).
+              x (y z)
+
+  pub val 1.vuseMap :: 1.tList 1.tNat 2.→ 1.tList 1.tNat
+   = λ(x : 1.tList 1.tNat).
+    x
+
+  pub val 1.vuseOp :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.vop @1.tNat 1.v$fCNat x
+
+  pub val 1.vuseCompose :: (1.tNat 2.→ 1.tNat) 2.→ 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat 2.→ 1.tNat).
+    λ(y : 1.tNat).
+      x y
+
+  rule "map/id" Λ(a : 2.sType). λ(xs : 1.tList a).
+    1.vmap @a @a (1.videntity @a) xs
+   = xs
+   :: 1.tList a
+
+  rule "op/op" Λ(a : 2.sType). λ($rd0 : 1.t$Dict$C a). λ(x : a).
+    1.vop @a $rd0 (1.vop @a $rd0 x)
+   = 1.vop @a $rd0 x
+   :: a
+
+  rule "compose/id" Λ(a : 2.sType). Λ(b : 2.sType). λ(f : a 2.→ b).
+    1.vcompose @a @b @a f (1.videntity @a)
+   = f
+   :: a 2.→ b
+status: pass
+reason: Rules fire in the simplifier, including at a known dictionary and with surplus arguments.
