@@ -750,6 +750,7 @@ lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
     <> [lowerFunction env function | function <- functions, grinFunctionName function `Set.notMember` envForwardingFunctions env]
     <> map (lowerStaticObject env) (programStaticObjects (GrinProgram constructors [] [] globals []))
     <> map lowerInfo (envInfos env)
+    <> [lowerCallbackPool call signature | call <- grinForeignCalls program, GrinForeignWrapper signature <- [grinForeignCallTarget call]]
     <> [lowerStaticReferenceTables env]
     <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
 
@@ -1034,6 +1035,8 @@ data FunctionCtx = FunctionCtx
     -- no traced static object. A running function has no heap object to
     -- carry its table, so its safepoints pass it to the collector.
     ctxSrt :: !Operand,
+    ctxCodeSlot :: !(Maybe Operand),
+    ctxForeignFrame :: !(Maybe Operand),
     ctxRoots :: !(Maybe Operand)
   }
 
@@ -1051,7 +1054,9 @@ lowerFunction env function = do
     case maximumRoots (grinFunctionBody function) of
       0 -> pure Nothing
       count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) (byteAlignment 8))
-  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots}
+  foreignFrame <- if hasForeignCall needsForeignFrame (grinFunctionBody function) then Just . typedOperand <$> emitValue "foreign_frame" Ptr (StackAlloc 40 (byteAlignment 8)) else pure Nothing
+  codeSlot <- if hasForeignCall (`elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic]) (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
+  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
   finishFunction
@@ -1069,6 +1074,7 @@ maximumRoots :: GrinExpr -> Int
 maximumRoots expression =
   case expression of
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
+    GrinBind _ GrinForeignCallExpr {} body -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
     GrinStoreRec _ body -> maximumRoots body
     GrinStoreRecUnchecked _ body -> maximumRoots body
@@ -1077,11 +1083,29 @@ maximumRoots expression =
     GrinEnsureHeap _ roots -> length roots
     _ -> 0
 
+needsForeignFrame :: GrinForeignTarget -> Bool
+needsForeignFrame target = case target of
+  GrinForeignAddress -> False
+  GrinForeignWrapper _ -> False
+  _ -> True
+
+hasForeignCall :: (GrinForeignTarget -> Bool) -> GrinExpr -> Bool
+hasForeignCall predicate expression = case expression of
+  GrinForeignCallExpr call _ -> predicate (grinForeignCallTarget call)
+  GrinBind _ value body -> hasForeignCall predicate value || hasForeignCall predicate body
+  GrinStoreRecUnchecked _ body -> hasForeignCall predicate body
+  GrinIfWhnf _ ready slow -> hasForeignCall predicate ready || hasForeignCall predicate slow
+  GrinCase _ _ alternatives -> any (hasForeignCall predicate . grinAltRhs) alternatives
+  _ -> False
+
 compileExpr :: FunctionCtx -> ValueEnv -> GrinExpr -> LowerM ()
 compileExpr ctx env expression =
   case expression of
     GrinBind vars value body -> do
-      env' <- compileBinding ctx env vars value
+      let liveEnv = case value of
+            GrinForeignCallExpr {} -> Map.restrictKeys env (freeExprVars expression)
+            _ -> env
+      env' <- compileBinding ctx liveEnv vars value
       compileExpr ctx env' body
     GrinStoreRec {} -> unsupported "store-rec without a heap reservation"
     GrinStoreRecUnchecked bindings body -> do
@@ -1269,8 +1293,9 @@ compileBinding ctx env vars expression =
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
     GrinPrimitiveCall runtimeRep name arguments -> compilePrimitive ctx env vars runtimeRep name arguments
-    GrinForeignCallExpr foreignCall arguments ->
-      compileForeignCall ctx env foreignCall arguments >>= bindResults
+    GrinForeignCallExpr foreignCall arguments -> do
+      (results, relocated) <- protectedForeignCall ctx env foreignCall arguments
+      bindVars relocated vars results
     _ -> failWith (LowerUnsupportedExpression "non-direct expression remained in a CPS bind")
   where
     update symbol passMachine pointer value = do
@@ -1429,6 +1454,98 @@ compileForeignCall ctx env foreignCall arguments =
           pure [Typed (OperandLiteral (LitSymbol symbol)) Ptr]
       | otherwise -> failWith (LowerUnsupportedExpression "address foreign import with arguments")
     GrinForeignFunction -> compileCCall ctx env False foreignCall arguments
+    GrinForeignUnsafeFunction -> compileCCall ctx env False foreignCall arguments
+    GrinForeignDynamic -> compileCCall ctx env False foreignCall arguments
+    GrinForeignUnsafeDynamic -> compileCCall ctx env False foreignCall arguments
+    GrinForeignWrapper _ -> case arguments of
+      [closure] -> do
+        operand <- pointerValue ctx env closure
+        result <-
+          callRuntime
+            "aihc_callback_create"
+            [Ptr, Ptr, Ptr, I64]
+            [Ptr]
+            [ctxMachine ctx, operand, OperandLiteral (LitSymbol (callbackPoolSymbol foreignCall)), OperandLiteral (LitInt callbackPoolSize)]
+        pure [Typed result Ptr]
+      _ -> failWith (LowerUnsupportedExpression "callback creation requires one closure")
+
+-- | Spill live heap pointers while C can call Haskell and collect.
+protectedForeignCall :: FunctionCtx -> ValueEnv -> GrinForeignCall -> [GrinValue] -> LowerM ([Typed], ValueEnv)
+protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
+  GrinForeignAddress -> (,env) <$> compileForeignCall ctx env call arguments
+  GrinForeignWrapper _ -> (,env) <$> compileForeignCall ctx env call arguments
+  target -> do
+    let roots = [(var, value) | (var, value) <- Map.toAscList env, isPointerRuntimeRep (grinVarRuntimeRep var)]
+        allowed = target `notElem` [GrinForeignUnsafeFunction, GrinForeignUnsafeDynamic]
+    array <- case (roots, ctxRoots ctx) of
+      ([], _) -> pure (OperandLiteral LitNull)
+      (_, Just array) -> pure array
+      _ -> failWith (LowerUnsupportedExpression "foreign call has no root array")
+    mapM_ (\(index, (_, value)) -> storeSlot Ptr (typedOperand value) array (8 * index)) (zip [0 ..] roots)
+    frame <- maybe (failWith (LowerUnsupportedExpression "foreign call has no stack frame")) pure (ctxForeignFrame ctx)
+    _ <-
+      callRuntime
+        "aihc_foreign_enter"
+        [Ptr, Ptr, Ptr, I64, Ptr, I64]
+        []
+        [ctxMachine ctx, frame, array, OperandLiteral (LitInt (toInteger (length roots))), ctxSrt ctx, OperandLiteral (LitInt (if allowed then 1 else 0))]
+    results <- compileForeignCall ctx env call arguments
+    _ <- callRuntime "aihc_foreign_leave" [Ptr, Ptr] [] [ctxMachine ctx, frame]
+    relocated <- mapM (\(index, (var, _)) -> (var,) <$> loadSlot "foreign_root" Ptr array (8 * index)) (zip [0 ..] roots)
+    pure (results, Map.fromList relocated `Map.union` env)
+
+-- | Code and data pointers have the same ABI width, but distinct Lir types.
+addressAsCode :: FunctionCtx -> Operand -> LowerM Operand
+addressAsCode ctx pointer = do
+  slot <- maybe (failWith (LowerUnsupportedExpression "dynamic call has no code slot")) pure (ctxCodeSlot ctx)
+  emit [] (Store Ptr pointer (byteAddress slot 0) (wordAlignment 1))
+  typedOperand <$> emitValue "function_code" Code (Load Code (byteAddress slot 0) (wordAlignment 1))
+
+callbackPoolSize :: Integer
+callbackPoolSize = 64
+
+callbackPoolSymbol :: GrinForeignCall -> Symbol
+callbackPoolSymbol call = Symbol ("aihc_callbacks_" <> renderLinkedFunctionSymbol (grinForeignCallName call))
+
+-- | Each entry has a distinct address and a slot with a protected closure.
+lowerCallbackPool :: GrinForeignCall -> GrinForeignSignature -> LowerM ()
+lowerCallbackPool call signature = do
+  target <- targetM
+  let Symbol pool = callbackPoolSymbol call
+      stop = Symbol (pool <> "_stop")
+      info = Symbol (pool <> "_info")
+      resultTypes = map repType (grinForeignCallResultReps signature)
+      rawTypes = map repType (grinForeignOperandReps signature)
+      (parameters, results) = runtimeCallSignatureFor target False signature
+      entries = [Symbol (pool <> "_" <> T.pack (show index)) | index <- [0 .. callbackPoolSize - 1]]
+  emitItem (ItemData (DataItem (Symbol pool) Internal True (toInteger (lowerWordSize target)) (concatMap (\entry -> [DataCode (Just entry), DataNull, DataNull, DataNull]) entries)))
+  continuationInfoItems (ContinuationSpec info (Symbol (pool <> "_applied_info")) stop [] resultTypes ContinuationFrameStop)
+  do
+    machine <- fresh "machine"
+    values <- mapM (\ty -> (,ty) <$> fresh "result") resultTypes
+    beginBlock (Label "entry") []
+    result <- case values of
+      [(value, ty)] -> coerce I64 (Typed (OperandVar value) ty)
+      [] -> pure (OperandLiteral (LitInt 0))
+      _ -> failWith (LowerUnsupportedExpression "a callback has too many results")
+    _ <- callRuntime "aihc_callback_return" [Ptr, I64] [] [OperandVar machine, result]
+    terminate (Return [])
+    finishFunction stop Internal ((machine, Ptr) : values) [] AihcConvention
+  forM_ entries $ \entry -> do
+    arguments <- mapM (\ty -> (,ty) <$> fresh "argument") parameters
+    beginBlock (Label "entry") []
+    frame <- typedOperand <$> emitValue "callback_frame" Ptr (StackAlloc 48 (byteAlignment 8))
+    _ <- callRuntime "aihc_callback_enter" [Ptr, Code, Ptr] [] [frame, OperandLiteral (LitSymbol entry), OperandLiteral (LitSymbol info)]
+    machine <- callRuntime "aihc_callback_machine" [Ptr] [Ptr] [frame]
+    closure <- callRuntime "aihc_callback_closure" [Ptr] [Ptr] [frame]
+    continuation <- callRuntime "aihc_callback_continuation" [Ptr] [Ptr] [frame]
+    converted <- zipWithM (\foreignTy (value, ty) -> extendForeignResult foreignTy (Typed (OperandVar value) ty)) (grinForeignArgumentTypes signature) arguments
+    apply <- requireHelper (HelperApply rawTypes)
+    emit [] (Call apply (machine : closure : continuation : map typedOperand converted))
+    result <- callRuntime "aihc_callback_leave" [Ptr] [I64] [frame]
+    returned <- mapM (\ty -> coerce ty (Typed result I64)) results
+    terminate (Return returned)
+    finishFunction entry Internal arguments results CConvention
 
 compileRuntimeCall :: FunctionCtx -> ValueEnv -> NativeRuntimeCall -> [GrinValue] -> LowerM Typed
 compileRuntimeCall ctx env runtimeCall arguments = do
@@ -1441,11 +1558,27 @@ compileCCall :: FunctionCtx -> ValueEnv -> Bool -> GrinForeignCall -> [GrinValue
 compileCCall ctx env passMachine foreignCall arguments = do
   target <- targetM
   let signature = grinForeignCallSignature foreignCall
-      (parameters, results) = runtimeCallSignatureFor target passMachine signature
+      dynamic = grinForeignCallTarget foreignCall `elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic]
+      (parameters, results) =
+        if dynamic
+          then
+            let (parameters', results') = runtimeCallSignatureFor target False signature {grinForeignArgumentTypes = drop 1 (grinForeignArgumentTypes signature)}
+             in (Ptr : parameters', results')
+          else runtimeCallSignatureFor target passMachine signature
   when (length arguments /= length (grinForeignArgumentTypes signature)) $ failWith (LowerUnsupportedExpression "foreign call arity mismatch")
   values <- mapM (materialize ctx env) arguments
   operands <- zipWithM coerce (drop (fromEnum passMachine) parameters) values
-  resultOperand <- callRuntime (grinForeignCallSymbol foreignCall) parameters results ([ctxMachine ctx | passMachine] <> operands)
+  resultOperand <-
+    if grinForeignCallTarget foreignCall `elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic]
+      then case operands of
+        pointer : rest -> do
+          code <- addressAsCode ctx pointer
+          case results of
+            [] -> emit [] (CallIndirect code rest (Signature (drop 1 parameters) results CConvention)) >> pure (OperandLiteral (LitInt 0))
+            [resultType] -> typedOperand <$> emitValue "dynamic_result" resultType (CallIndirect code rest (Signature (drop 1 parameters) results CConvention))
+            _ -> failWith (LowerUnsupportedExpression "a dynamic call has too many results")
+        _ -> failWith (LowerUnsupportedExpression "a dynamic call requires a function pointer")
+      else callRuntime (grinForeignCallSymbol foreignCall) parameters results ([ctxMachine ctx | passMachine] <> operands)
   case results of
     [result] -> (: []) <$> extendForeignResult (grinForeignResultType signature) (Typed resultOperand result)
     _ -> pure []
@@ -1491,6 +1624,7 @@ foreignType ty =
     GrinForeignFloat -> F32
     GrinForeignDouble -> F64
     GrinForeignAddr -> Ptr
+    GrinForeignClosure -> Ptr
     GrinForeignVoid -> I32
 
 foreignResultType :: GrinForeignType -> Maybe Type
@@ -1504,6 +1638,10 @@ foreignResultType ty =
 extendForeignResult :: GrinForeignType -> Typed -> LowerM Typed
 extendForeignResult foreignTy (Typed operand actual) =
   case (foreignTy, actual) of
+    (GrinForeignInt8, I8) -> emitValue "foreign_result" I64 (Convert SExt I8 operand I64)
+    (GrinForeignInt16, I16) -> emitValue "foreign_result" I64 (Convert SExt I16 operand I64)
+    (GrinForeignWord8, I8) -> emitValue "foreign_result" I64 (Convert ZExt I8 operand I64)
+    (GrinForeignWord16, I16) -> emitValue "foreign_result" I64 (Convert ZExt I16 operand I64)
     (GrinForeignInt8, I32) -> extend SExt I8
     (GrinForeignInt16, I32) -> extend SExt I16
     (GrinForeignInt32, I32) -> emitValue "foreign_result" I64 (Convert SExt I32 operand I64)

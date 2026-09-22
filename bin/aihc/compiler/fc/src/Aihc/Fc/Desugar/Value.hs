@@ -350,7 +350,67 @@ desugarModuleValues checked = do
   tops <- mapM allocateTopValue groups
   values <- mapM desugarTopValue tops
   patternValues <- concat <$> mapM desugarTopPatternGroup patternGroups
-  pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues))
+  rules <- concat <$> mapM desugarRulesDecl (Syn.moduleDecls checked)
+  pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues) <> rules)
+
+-- | The rules of a @RULES@ pragma. Any other declaration gives none.
+desugarRulesDecl :: Syn.Decl -> ValueM [Decl]
+desugarRulesDecl declaration =
+  case Syn.peelDeclAnn declaration of
+    Syn.DeclRules rules -> concat <$> mapM desugarRule rules
+    _ -> pure []
+
+-- | One rewrite rule. The type checker annotated the rule with the type
+-- of the function from its pattern variables to its sides, closed over its
+-- type variables and residual constraints; the rule abstracts over those
+-- type variables, the dictionaries of those constraints, and the pattern
+-- variables, in that order. A rule the checker rejected has no annotation
+-- and gives nothing: its error was reported.
+desugarRule :: Syn.RuleDecl -> ValueM [Decl]
+desugarRule rule =
+  case listToMaybe (mapMaybe Syn.fromAnnotation (Syn.ruleAnns rule)) of
+    Nothing -> pure []
+    Just annotation -> do
+      let (typeVariables, afterForAlls) = peelForAlls (tcAnnType annotation)
+          (predicates, bodyType) = peelConstraints afterForAlls
+          (binderTypes, resultType) = peelFunctions (length (Syn.ruleBinders rule)) bodyType
+      typeBinders <- convertTypeBinders typeVariables
+      withTypeVariables typeVariables $ do
+        dictionaries <- zipWithM (freshDictionaryBinder "$rd") [0 :: Int ..] predicates
+        binders <- zipWithM ruleBinder (Syn.ruleBinders rule) binderTypes
+        ty <- convertCheckedType resultType
+        let side expression =
+              withDictionaryScope (zipWith Dictionary predicates dictionaries) $
+                withLocals [(key, (binder, binderType)) | (key, binder, binderType) <- binders] (desugarExpr expression)
+        lhs <- side (Syn.ruleLhs rule)
+        rhs <- side (Syn.ruleRhs rule)
+        pure
+          [ DeclRule
+              RuleDecl
+                { ruleName = Syn.ruleName rule,
+                  ruleActivation = convertRuleActivation (Syn.ruleActivation rule),
+                  ruleTypeBinders = typeBinders,
+                  ruleBinders = dictionaries <> [binder | (_, binder, _) <- binders],
+                  ruleType = ty,
+                  ruleLhs = lhs,
+                  ruleRhs = rhs
+                }
+          ]
+  where
+    ruleBinder binder binderType =
+      case binderTermKey (Syn.ruleBinderName binder) of
+        Nothing -> failValue ("rule binder without a resolved name: " <> T.unpack (Syn.unqualifiedNameText (Syn.ruleBinderName binder)))
+        Just key -> do
+          fcBinder <- freshBinder (Syn.unqualifiedNameText (Syn.ruleBinderName binder)) binderType
+          pure (key, fcBinder, binderType)
+
+convertRuleActivation :: Maybe Syn.RuleActivation -> RuleActivation
+convertRuleActivation activation =
+  case activation of
+    Nothing -> AlwaysActive
+    Just (Syn.RuleActiveAfter phase) -> ActiveAfter phase
+    Just (Syn.RuleActiveBefore phase) -> ActiveBefore phase
+    Just Syn.RuleNeverActive -> NeverActive
 
 -- | Whether one top-level term of the module is visible to other modules.
 --
@@ -805,7 +865,10 @@ convertForeignSafetyMark safety =
 foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
 foreignImportPlanDependencies ty plan = do
   typeDependencies <- foreignTypeNewtypeDependencies ty
-  marshalDependencies <- concat <$> mapM foreignMarshalDependencies (tcForeignArguments plan <> [tcForeignResult plan])
+  let pointerMarshals = case tcForeignTarget plan of
+        TcForeignWrapper pointer -> [pointer]
+        _ -> []
+  marshalDependencies <- concat <$> mapM foreignMarshalDependencies (pointerMarshals <> tcForeignArguments plan <> [tcForeignResult plan])
   pure (List.nub (typeDependencies <> marshalDependencies))
 
 foreignTypeNewtypeDependencies :: TcType -> ValueM [ForeignImportDependency]
@@ -876,6 +939,8 @@ convertForeignTarget target =
   case target of
     TcForeignCall -> CCallFunction
     TcForeignAddress -> CCallAddress
+    TcForeignDynamic -> CCallDynamic
+    TcForeignWrapper _ -> CCallWrapper
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =

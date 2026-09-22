@@ -22,6 +22,8 @@ module Aihc.Fc.Syntax
     SynonymDecl (..),
     AxiomDecl (..),
     ValDecl (..),
+    RuleDecl (..),
+    RuleActivation (..),
     ForeignCall (..),
     ForeignImportDependency (..),
     CallingConvention (..),
@@ -181,6 +183,35 @@ data Decl
   | DeclSynonym SynonymDecl
   | DeclAxiom AxiomDecl
   | DeclVal ValDecl
+  | DeclRule RuleDecl
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
+-- | A rewrite rule. The type binders and the value binders, which include
+-- the dictionaries of the rule's constraints, are the pattern variables of
+-- the left-hand side, and the two sides share the rule type. A rule
+-- declares no name: it is kept while the head of its left-hand side is.
+data RuleDecl = RuleDecl
+  { ruleName :: Text,
+    ruleActivation :: RuleActivation,
+    ruleTypeBinders :: [Binder],
+    ruleBinders :: [Binder],
+    ruleType :: Type,
+    ruleLhs :: Expr,
+    ruleRhs :: Expr
+  }
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
+-- | The phases in which a rule fires, as the source pragma gives them.
+data RuleActivation
+  = AlwaysActive
+  | -- | @[n]@: phase @n@ and later phases.
+    ActiveAfter Int
+  | -- | @[~n]@: the phases before phase @n@.
+    ActiveBefore Int
+  | -- | @[~]@: never.
+    NeverActive
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 
@@ -271,6 +302,8 @@ data CCallSpec = CCallSpec
 data CCallTarget
   = CCallFunction
   | CCallAddress
+  | CCallDynamic
+  | CCallWrapper
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 

@@ -20,6 +20,8 @@ normalizeDecl env decl =
   case decl of
     DeclVal declaration ->
       DeclVal declaration {valBody = normalizeExpr env (valBody declaration)}
+    DeclRule declaration ->
+      DeclRule declaration {ruleLhs = normalizeExpr env (ruleLhs declaration), ruleRhs = normalizeExpr env (ruleRhs declaration)}
     _ -> decl
 
 normalizeExpr :: TypeEnv -> Expr -> Expr

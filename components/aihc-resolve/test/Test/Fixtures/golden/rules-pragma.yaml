@@ -1,0 +1,78 @@
+---
+extensions: []
+modules:
+- |
+  module Main where
+  map :: (a -> b) -> [a] -> [b]
+  map f xs = xs
+  build :: (forall b. (a -> b -> b) -> b -> b) -> [a]
+  build g = g (:) []
+  foldr :: (a -> b -> b) -> b -> [a] -> b
+  foldr k z xs = z
+  {-# RULES
+  "map/map" [2] forall f g xs. map f (map g xs) = map g (map f xs)
+  "fold/build" forall k z (g :: forall b. (a -> b -> b) -> b -> b) . foldr k z (build g) = g k z
+  "map/id" forall a. forall (xs :: [a]). map (\x -> x) xs = xs
+    #-}
+annotated:
+- |-
+  module Main where
+  map :: (a -> b) -> [a] -> [b]
+  └─ v Main          │      └─ t Builtin []
+                     └─ t Builtin []
+  map f xs = xs
+  │   │ │    └─ v 1
+  │   │ └─ v 1
+  │   └─ v 0
+  └─ v Main
+  build :: (forall b. (a -> b -> b) -> b -> b) -> [a]
+  └─ v Main                 │    └─ t 0│    │     └─ t Builtin []
+                            └─ t 0     │    └─ t 0
+                                       └─ t 0
+  build g = g (:) []
+  │     │   │  │  └─ v Builtin []
+  │     │   │  └─ v aihc-prim:GHC.Types
+  │     │   └─ v 2
+  │     └─ v 2
+  └─ v Main
+  foldr :: (a -> b -> b) -> b -> [a] -> b
+  └─ v Main                      └─ t Builtin []
+  foldr k z xs = z
+  │     │ │ │    └─ v 4
+  │     │ │ └─ v 5
+  │     │ └─ v 4
+  │     └─ v 3
+  └─ v Main
+  {-# RULES
+  "map/map" [2] forall f g xs. map f (map g xs) = map g (map f xs)
+                       │ │ │   │   │  │   │ └─ v 2│   │  │   │ └─ v 2
+                       │ │ │   │   │  │   └─ v 1  │   │  │   └─ v 0
+                       │ │ │   │   │  └─ v Main   │   │  └─ v Main
+                       │ │ │   │   └─ v 0         │   └─ v 1
+                       │ │ │   └─ v Main          └─ v Main
+                       │ │ └─ v 2
+                       │ └─ v 1
+                       └─ v 0
+  "fold/build" forall k z (g :: forall b. (a -> b -> b) -> b -> b) . foldr k z (build g) = g k z
+                      │ │  └─ v 2               │    └─ t 0│    │    │     │ │  │     │    │ │ └─ v 1
+                      │ └─ v 1                  └─ t 0     │    │    │     │ │  │     │    │ └─ v 0
+                      └─ v 0                               │    │    │     │ │  │     │    └─ v 2
+                                                           │    │    │     │ │  │     └─ v 2
+                                                           │    │    │     │ │  └─ v Main
+                                                           │    │    │     │ └─ v 1
+                                                           │    │    │     └─ v 0
+                                                           │    │    └─ v Main
+                                                           │    └─ t 0
+                                                           └─ t 0
+  "map/id" forall a. forall (xs :: [a]). map (\x -> x) xs = xs
+                             └─ v 1││    │     │    │  │    └─ v 1
+                                   ││    │     │    │  └─ v 1
+                                   ││    │     │    └─ v 2
+                                   ││    │     └─ v 2
+                                   ││    └─ v Main
+                                   │└─ t 0
+                                   └─ t Builtin []
+    #-}
+
+status: pass
+reason: ''

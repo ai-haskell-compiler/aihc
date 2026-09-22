@@ -25,6 +25,7 @@ RUN apt-get update \
       build-essential \
       ca-certificates \
       curl \
+      git \
       libffi-dev \
       libgmp-dev \
       libncurses-dev \

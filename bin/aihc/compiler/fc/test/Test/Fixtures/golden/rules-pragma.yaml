@@ -1,0 +1,92 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  data List a = Nil | Cons a (List a)
+  class C a where
+    op :: a -> a
+  map :: (a -> b) -> List a -> List b
+  map f xs = case xs of
+    Nil -> Nil
+    Cons y ys -> Cons (f y) (map f ys)
+  identity :: a -> a
+  identity x = x
+  {-# RULES
+  "map/map" [2] forall f g xs. map f (map g xs) = map g (map f xs)
+  "map/id" forall a. forall (xs :: List a). map identity xs = xs
+  "op/op" [~1] forall x. op (op x) = op x
+    #-}
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tNat :: 2.sType {
+      pub 1.cZ :: 1.tNat;
+      pub 1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  pub type 1.tList (a : 2.sType) :: 2.sType {
+      pub 1.cNil :: ∀(a : 2.sType). 1.tList a;
+      pub 1.cCons :: ∀(a : 2.sType). a 2.→ 1.tList a 2.→ 1.tList a
+  }
+
+  pub type 1.t$Dict$C (a : 2.sType) :: 2.sType {
+      pub 1.c$Dict$C :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$C a
+  }
+
+  pub val 1.vop :: ∀(a : 2.sType). 1.t$Dict$C a 2.→ a 2.→ a
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$C a).
+      case $d0 as ($dict : 1.t$Dict$C a) return (a 2.→ a) of {
+          1.c$Dict$C ($method0 : a 2.→ a) →
+              $method0
+      }
+
+  pub val 1.vmap :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b) 2.→ 1.tList a 2.→ 1.tList b
+   = Λ(a : 2.sType).
+    Λ(b : 2.sType).
+      λ(x : a 2.→ b).
+        λ(y : 1.tList a).
+          case y as (_scrut : 1.tList a) return (1.tList b) of {
+              1.cNil →
+                  1.cNil @b;
+              1.cCons (y{1} : a) (ys : 1.tList a) →
+                  1.cCons @b (x y{1}) (1.vmap @a @b x ys)
+          }
+
+  pub val 1.videntity :: ∀(a : 2.sType). a 2.→ a
+   = Λ(a : 2.sType).
+    λ(x : a).
+      x
+
+  rule "map/map" [2] Λ(a : 2.sType). λ(f : a 2.→ a). λ(g : a 2.→ a). λ(xs : 1.tList a).
+    1.vmap @a @a f (1.vmap @a @a g xs)
+   = 1.vmap @a @a g (1.vmap @a @a f xs)
+   :: 1.tList a
+
+  rule "map/id" Λ(a : 2.sType). λ(xs : 1.tList a).
+    1.vmap @a @a (1.videntity @a) xs
+   = xs
+   :: 1.tList a
+
+  rule "op/op" [~1] Λ(a : 2.sType). λ($rd0 : 1.t$Dict$C a). λ(x : a).
+    1.vop @a $rd0 (1.vop @a $rd0 x)
+   = 1.vop @a $rd0 x
+   :: a
+status: pass
+reason: Desugars the rules of a RULES pragma into System FC rule declarations.

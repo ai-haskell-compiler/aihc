@@ -82,6 +82,7 @@ data InterpretError
     InterpretCaptureAcrossThunk !Int
   | -- | The control stack did not hold the entry a return expected.
     InterpretControlStack !Text
+  | InterpretForeignCallbackUnsupported
   | InterpretCpsExpression !GrinExpr
   | InterpretProcessExit !Integer
   | InterpretRaisedException !Text
@@ -2240,6 +2241,10 @@ runtimeIoPrimitives =
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM [RuntimeValue]
 callForeign foreignCall arguments
   -- An address import names static data; its value is the symbol address.
+  | GrinForeignWrapper _ <- grinForeignCallTarget foreignCall =
+      throwInterpret InterpretForeignCallbackUnsupported
+  | grinForeignCallTarget foreignCall `elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic] =
+      throwInterpret InterpretForeignCallbackUnsupported
   | GrinForeignAddress <- grinForeignCallTarget foreignCall =
       (: []) . RuntimeAddress . castFunPtrToPtr <$> lookupForeignFunction foreignCall
   | symbol == "aihc_io_stdin",
@@ -2368,6 +2373,7 @@ callForeign foreignCall arguments
             <$> liftEvalIO (callFFI functionPointer retCDouble marshalledArguments)
         GrinForeignAddr ->
           (: []) . RuntimeAddress <$> liftEvalIO (callFFI functionPointer (retPtr retVoid) marshalledArguments)
+        GrinForeignClosure -> throwInterpret InterpretForeignCallbackUnsupported
         GrinForeignVoid -> do
           liftEvalIO (callFFI functionPointer retVoid marshalledArguments)
           pure []
@@ -2653,6 +2659,7 @@ marshalForeignArgument symbol foreignType argument =
           pure (argPtr pointer)
         RuntimeAddress pointer -> pure (argPtr pointer)
         other -> throwInterpret (InterpretForeignTypeError symbol other)
+    GrinForeignClosure -> throwInterpret (InterpretForeignTypeError symbol argument)
     GrinForeignVoid -> throwInterpret (InterpretForeignTypeError symbol argument)
   where
     integerArgument make = make <$> expectForeignLiteral symbol (foreignTypeRuntimeRep foreignType) argument

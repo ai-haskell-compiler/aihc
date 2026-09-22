@@ -125,6 +125,7 @@ declaration =
   MP.choice
     [ MP.try typeOrSynonym,
       MP.try axiomDeclaration,
+      ruleDeclaration,
       valDeclaration
     ]
 
@@ -236,7 +237,7 @@ callingConvention =
           }
 
 callTarget :: Parser CCallTarget
-callTarget = MP.option CCallFunction (keyword "address" $> CCallAddress)
+callTarget = MP.option CCallFunction (MP.choice [keyword "address" $> CCallAddress, keyword "dynamic" $> CCallDynamic, keyword "wrapper" $> CCallWrapper])
 
 foreignSafety :: Parser ForeignSafety
 foreignSafety =
@@ -282,6 +283,31 @@ valDeclaration = do
   ty <- fcType
   _ <- symbol "="
   DeclVal . ValDecl vis name ty <$> expression
+
+-- | @rule "name" [2] Λ(a : k). λ(x : t). lhs = rhs :: type@.
+ruleDeclaration :: Parser Decl
+ruleDeclaration = do
+  _ <- keyword "rule"
+  name <- stringLiteral
+  activation <- MP.option AlwaysActive ruleActivationParser
+  typeBinders <- MP.many (MP.try (symbol "Λ" *> openTermBinder SortTypeVariable <* symbol "."))
+  binders <- MP.many (MP.try (symbol "λ" *> openTermBinder SortValue <* symbol "."))
+  lhs <- expression
+  _ <- symbol "="
+  rhs <- expression
+  _ <- symbol "::"
+  ty <- fcType
+  pure (DeclRule (RuleDecl name activation typeBinders binders ty lhs rhs))
+
+ruleActivationParser :: Parser RuleActivation
+ruleActivationParser =
+  MP.between (symbol "[") (symbol "]") $
+    MP.choice
+      [ symbol "~" *> (ActiveBefore <$> phaseNumber <|> pure NeverActive),
+        ActiveAfter <$> phaseNumber
+      ]
+  where
+    phaseNumber = lexeme (read <$> MP.some MPC.digitChar)
 
 optionalPub :: Parser Vis
 optionalPub = MP.option Private (keyword "pub" $> Pub)

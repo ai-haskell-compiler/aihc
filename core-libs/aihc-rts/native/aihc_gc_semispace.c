@@ -487,6 +487,10 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   /* The table of the code that requested the collection, or NULL when that
      code reaches no static object of its own. */
   aihc_walk_srt(srt);
+  for (AihcForeignFrame *frame = machine->foreign_frames; frame != NULL;
+       frame = frame->previous) {
+    aihc_walk_srt(frame->srt);
+  }
   aihc_visit_roots(machine, root_count, roots, aihc_forward_root, &context);
 
   aihc_trace(&context);

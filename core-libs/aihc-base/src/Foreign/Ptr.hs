@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MagicHash #-}
 
@@ -24,7 +25,6 @@ module Foreign.Ptr
   )
 where
 
-import GHC.Base (Monad (..))
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.IO (IO)
 import GHC.Int (Int (..))
@@ -47,8 +47,7 @@ import GHC.Ptr
 import GHC.Real (Integral (..), Real (..))
 import GHC.Word (Word (..))
 
-freeHaskellFunPtr :: FunPtr a -> IO ()
-freeHaskellFunPtr _ = return ()
+foreign import ccall unsafe "aihc_free_haskell_fun_ptr" freeHaskellFunPtr :: FunPtr a -> IO ()
 
 newtype IntPtr = IntPtr Int
   deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral)

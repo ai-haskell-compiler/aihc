@@ -1,0 +1,24 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall "wrapper" wrap :: (Int -> Int) -> IO (FunPtr (Int -> Int))
+  foreign import ccall "dynamic" invoke :: FunPtr (Int -> Int) -> Int -> Int
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  add (I# x) (I# y) = I# (x +# y)
+  value = runRW# (\s -> case wrap (add (I# 20#)) of
+    IO make -> case make s of
+      (# s1, f #) -> case invoke f (I# 22#) of
+        I# answer -> case free f of
+          IO release -> case release s1 of
+            (# _, _ #) -> I# answer)
+return: "@0"
+heap: |
+  @0 = CI# 42
+status: pass
+reason: A callback retains its captured value across collection and releases its slot.

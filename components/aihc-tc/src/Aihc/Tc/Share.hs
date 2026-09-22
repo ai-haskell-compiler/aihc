@@ -9,7 +9,7 @@ module Aihc.Tc.Share
   )
 where
 
-import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
+import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignTarget (..))
 import Aihc.Tc.Env
 import Aihc.Tc.Interface
 import Aihc.Tc.Types
@@ -235,7 +235,10 @@ shareForeignImportInfo info =
     TcForeignCCallImport safety plan -> do
       arguments <- mapM shareMarshal (tcForeignArguments plan)
       result <- shareMarshal (tcForeignResult plan)
-      pure (TcForeignCCallImport safety plan {tcForeignArguments = arguments, tcForeignResult = result})
+      target <- case tcForeignTarget plan of
+        TcForeignWrapper pointer -> TcForeignWrapper <$> shareMarshal pointer
+        other -> pure other
+      pure (TcForeignCCallImport safety plan {tcForeignArguments = arguments, tcForeignResult = result, tcForeignTarget = target})
   where
     shareMarshal marshal = do
       sourceType <- shareType (tcForeignSourceType marshal)

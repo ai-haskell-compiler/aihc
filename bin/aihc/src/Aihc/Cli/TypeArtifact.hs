@@ -223,7 +223,7 @@ putForeignPlan table plan =
     <> putForeignMarshal table (tcForeignResult plan)
     <> putForeignEffect (tcForeignEffect plan)
     <> cborText (tcForeignSymbol plan)
-    <> putForeignTarget (tcForeignTarget plan)
+    <> putForeignTarget table (tcForeignTarget plan)
     <> encodeList putForeignCApi (maybeToList (tcForeignCApi plan))
 
 getForeignPlan :: PartTable -> Get.Get TcForeignImportAnnotation
@@ -233,7 +233,7 @@ getForeignPlan table = do
   tcForeignResult <- getForeignMarshal table
   tcForeignEffect <- getForeignEffect
   tcForeignSymbol <- getText
-  tcForeignTarget <- getForeignTarget
+  tcForeignTarget <- getForeignTarget table
   tcForeignCApi <- listToMaybe <$!> getList getForeignCApi
   pure TcForeignImportAnnotation {tcForeignArguments, tcForeignResult, tcForeignEffect, tcForeignSymbol, tcForeignTarget, tcForeignCApi}
 
@@ -297,20 +297,28 @@ getForeignEffect = do
     1 -> pure TcForeignRealWorld
     _ -> fail "unsupported foreign effect"
 
-putForeignTarget :: TcForeignTarget -> Builder.Builder
-putForeignTarget target =
-  cborWord $
-    case target of
-      TcForeignCall -> 0
-      TcForeignAddress -> 1
+putForeignTarget :: PartIndex -> TcForeignTarget -> Builder.Builder
+putForeignTarget table target = case target of
+  TcForeignCall -> cborWord 0
+  TcForeignAddress -> cborWord 1
+  TcForeignDynamic -> cborWord 2
+  TcForeignWrapper pointer -> cborArray 2 <> cborWord 3 <> putForeignMarshal table pointer
 
-getForeignTarget :: Get.Get TcForeignTarget
-getForeignTarget = do
-  tag <- getWord
-  case tag of
-    0 -> pure TcForeignCall
-    1 -> pure TcForeignAddress
-    _ -> fail "unsupported foreign target"
+getForeignTarget :: PartTable -> Get.Get TcForeignTarget
+getForeignTarget table = do
+  initial <- Get.lookAhead Get.getWord8
+  if initial == 0x82
+    then do
+      expectArray 2
+      tag <- getWord
+      if tag == 3 then TcForeignWrapper <$> getForeignMarshal table else fail "unsupported foreign target"
+    else do
+      tag <- getWord
+      case tag of
+        0 -> pure TcForeignCall
+        1 -> pure TcForeignAddress
+        2 -> pure TcForeignDynamic
+        _ -> fail "unsupported foreign target"
 
 putForeignAbiType :: TcForeignAbiType -> Builder.Builder
 putForeignAbiType abiType =

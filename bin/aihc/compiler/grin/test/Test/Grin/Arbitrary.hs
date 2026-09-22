@@ -145,7 +145,11 @@ genForeignCall =
     <*> (GrinForeignSignature <$> smallList genForeignType <*> genForeignType <*> genForeignEffect)
 
 genForeignTarget :: Gen GrinForeignTarget
-genForeignTarget = Gen.element [GrinForeignFunction, GrinForeignAddress]
+genForeignTarget =
+  Gen.choice
+    [ Gen.element [GrinForeignFunction, GrinForeignAddress, GrinForeignDynamic, GrinForeignUnsafeFunction, GrinForeignUnsafeDynamic],
+      GrinForeignWrapper <$> (GrinForeignSignature <$> smallList genForeignType <*> genForeignType <*> genForeignEffect)
+    ]
 
 genForeignEffect :: Gen GrinForeignEffect
 genForeignEffect = Gen.element [GrinForeignPure, GrinForeignRealWorld]
