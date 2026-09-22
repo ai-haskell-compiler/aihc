@@ -279,10 +279,24 @@ valDeclaration = do
   vis <- optionalPub
   _ <- keyword "val"
   name <- topName SortValue
+  spec <- inlineSpec
   _ <- symbol "::"
   ty <- fcType
   _ <- symbol "="
-  DeclVal . ValDecl vis name ty <$> expression
+  body <- expression
+  pure (DeclVal (ValDecl vis name ty body spec))
+
+-- | @inline [2]@, @inlinable@, @noinline [~1]@, or nothing.
+inlineSpec :: Parser InlineSpec
+inlineSpec =
+  MP.option InlineDefault $
+    MP.choice
+      [ keyword "inlinable" *> (InlineWhenUseful <$> activation),
+        keyword "inline" *> (InlineAlways <$> activation),
+        keyword "noinline" *> (InlineNever <$> MP.option NeverActive ruleActivationParser)
+      ]
+  where
+    activation = MP.option AlwaysActive ruleActivationParser
 
 -- | @rule "name" [2] Λ(a : k). λ(x : t). lhs = rhs :: type@.
 ruleDeclaration :: Parser Decl

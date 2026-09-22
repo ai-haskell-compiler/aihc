@@ -22,7 +22,7 @@ expected: |-
     2.sLiftedRep = 2.cBoxedRep 2.cLifted;
     2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub val 1.vid :: ∀(a : 2.sType). a 2.→ a
+  pub val 1.vid inline :: ∀(a : 2.sType). a 2.→ a
    = Λ(a : 2.sType).
     λ(x : a).
       x

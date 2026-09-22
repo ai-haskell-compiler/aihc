@@ -193,6 +193,7 @@ prettyValDecl scopes declaration =
   prettyVis (valVis declaration)
     <> "val "
     <> prettyTopName scopes (valName declaration)
+    <> prettyInlineSpec (valInline declaration)
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (valType declaration)
     <> hardline
@@ -215,6 +216,17 @@ prettyRuleDecl scopes declaration =
     <> hardline
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (ruleType declaration)
+
+-- | The inline pragma of a value: @inline [2]@, @noinline@, @inlinable@.
+prettyInlineSpec :: InlineSpec -> Doc ann
+prettyInlineSpec spec =
+  case spec of
+    InlineDefault -> mempty
+    InlineAlways activation -> " inline" <> prettyActivation activation
+    InlineWhenUseful activation -> " inlinable" <> prettyActivation activation
+    -- A plain @noinline@ allows no phase, so its activation goes unsaid.
+    InlineNever NeverActive -> " noinline"
+    InlineNever activation -> " noinline" <> prettyActivation activation
 
 prettyActivation :: RuleActivation -> Doc ann
 prettyActivation activation =
@@ -597,6 +609,9 @@ reservedWords =
   [ "pub",
     "val",
     "rule",
+    "inline",
+    "inlinable",
+    "noinline",
     "type",
     "axiom",
     "foreign",
