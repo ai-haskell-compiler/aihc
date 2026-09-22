@@ -611,7 +611,7 @@ foreignCallDefinition = do
   horizontal1
   _ <- MPC.char '='
   horizontal1
-  target <- MP.option GrinForeignFunction (GrinForeignAddress <$ (keyword "address" <* horizontal1))
+  target <- MP.option GrinForeignFunction (MP.choice [GrinForeignUnsafeDynamic <$ (keyword "unsafe-dynamic" <* horizontal1), GrinForeignUnsafeFunction <$ (keyword "unsafe" <* horizontal1), GrinForeignAddress <$ (keyword "address" <* horizontal1), GrinForeignDynamic <$ (keyword "dynamic" <* horizontal1), GrinForeignWrapper <$> (keyword "wrapper" *> horizontal1 *> foreignSignature <* horizontal1)])
   symbolName <- stringText
   horizontal1
   _ <- MPC.string "::"
@@ -661,6 +661,7 @@ foreignType =
       GrinForeignFloat <$ keyword "float",
       GrinForeignDouble <$ keyword "double",
       GrinForeignAddr <$ keyword "addr",
+      GrinForeignClosure <$ keyword "closure",
       GrinForeignVoid <$ keyword "void"
     ]
 

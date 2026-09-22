@@ -34,6 +34,7 @@ where
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Rules (RuleTable, ruleActiveIn, ruleTable)
 import Aihc.Fc.Simplify
 import Aihc.Fc.Size (exprSize, programSize)
 import Aihc.Fc.Syntax
@@ -114,7 +115,9 @@ data InlineConfig = InlineConfig
     -- value. A root that the program does not declare has no effect.
     inlineRoots :: !(Maybe [Name]),
     -- | The largest number of walks over the program.
-    inlineRounds :: !Int
+    inlineRounds :: !Int,
+    -- | The phase the pass runs in, which decides the rules that fire.
+    inlinePhase :: !Int
   }
   deriving (Eq, Show)
 
@@ -123,7 +126,8 @@ data InlineReport = InlineReport
   { reportSizeBefore :: !Int,
     reportSizeAfter :: !Int,
     reportInlinedSites :: !Int,
-    reportDroppedValues :: !Int
+    reportDroppedValues :: !Int,
+    reportRulesFired :: !Int
   }
   deriving (Eq, Show)
 
@@ -131,7 +135,7 @@ data InlineReport = InlineReport
 inlineProgram :: InlineConfig -> Program -> (Program, InlineReport)
 inlineProgram config program =
   case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, InlineReport size0 size0 0 0)
+    Nothing -> (program, InlineReport size0 size0 0 0 0)
     Just primPackage ->
       let env = typeEnvFromProgram primPackage program
           supply0 = maxLocalUnique program + 1
@@ -149,7 +153,8 @@ inlineProgram config program =
               { reportSizeBefore = size0,
                 reportSizeAfter = programSize result,
                 reportInlinedSites = inSites final,
-                reportDroppedValues = length lifted - length decls
+                reportDroppedValues = length lifted - length decls,
+                reportRulesFired = inRulesFired final
               }
        in (result, report)
   where
@@ -187,7 +192,12 @@ data Inliner = Inliner
     -- as the method a known dictionary selects, can still make a site
     -- for the next round.
     inChanged :: !Bool,
-    inRoots :: !(Set Name)
+    inRoots :: !(Set Name),
+    -- | The rules that fire in this pass, by head.
+    inRules :: !RuleTable,
+    -- | What the source said about inlining each value.
+    inSpecs :: !(Map Name InlineSpec),
+    inRulesFired :: !Int
   }
 
 initialInliner :: InlineConfig -> TypeEnv -> [Decl] -> Int -> Inliner
@@ -205,16 +215,46 @@ initialInliner config env decls supply =
       inSupply = supply,
       inSites = 0,
       inChanged = False,
-      inRoots = roots
+      inRoots = roots,
+      inRules = ruleTable (inlinePhase config) decls,
+      inSpecs = Map.map valInline declarations,
+      inRulesFired = 0
     }
   where
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
     arities = Map.map functionArity bodies
+    -- A value a rule names stays, whether or not a body still calls it:
+    -- the rule may put it in place later.
     roots =
-      case inlineRoots config of
-        Nothing -> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
-        Just names -> Set.fromList names
+      Set.filter (`Map.member` declarations) ruleReferences
+        <> case inlineRoots config of
+          Nothing -> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
+          Just names -> Set.fromList names
+    ruleReferences =
+      Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
+
+-- | Whether a value's pragma lets a phase copy it. Without a pragma the
+-- policy decides. @INLINE@ and @INLINABLE@ allow the phases their
+-- activation names and forbid the rest; @NOINLINE@ forbids until its
+-- activation, and a plain one forbids every phase.
+inliningAllowed :: Int -> InlineSpec -> Bool
+inliningAllowed phase spec =
+  case spec of
+    InlineDefault -> True
+    InlineAlways activation -> ruleActiveIn phase activation
+    InlineWhenUseful activation -> ruleActiveIn phase activation
+    InlineNever activation -> ruleActiveIn phase activation
+
+-- | Whether a value's pragma asks for it to be a candidate whatever its
+-- size: @INLINE@ in its active phases. The site policy still decides each
+-- copy, so the shrinking pass keeps its promise not to grow the program;
+-- GHC copies such a value at every saturated call instead.
+inliningRequested :: Int -> InlineSpec -> Bool
+inliningRequested phase spec =
+  case spec of
+    InlineAlways activation -> ruleActiveIn phase activation
+    _ -> False
 
 -- | The size a value of the given size may grow to under a policy.
 valueLimit :: InlinePolicy -> Int -> Int
@@ -277,17 +317,23 @@ simplifyValue config known recursive st name
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
+                    let spec = Map.findWithDefault InlineDefault callee (inSpecs st),
+                    inliningAllowed (inlinePhase config) spec,
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
                     isInlinable calleeBody,
                     let size = exprSize (inEnv st) calleeBody
                         every = unconditional callee size,
                     -- A callee over the limit is never copied, unless every
-                    -- copy together replaces it.
-                    every || size <= policyCalleeLimit policy
+                    -- copy together replaces it or its pragma asks for it.
+                    every || inliningRequested (inlinePhase config) spec || size <= policyCalleeLimit policy
                   ]
               -- A body that references no candidate and scrutinises nothing
               -- known is left alone.
-              skip = Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
+              skip =
+                Map.null candidates
+                  && Map.null known
+                  && not (hasLiteralPrimitiveCall body)
+                  && not (any (`Map.member` inRules st) (Set.toList (exprValueNames body)))
            in if skip
                 then st
                 else
@@ -301,14 +347,15 @@ simplifyValue config known recursive st name
                             spLocals = Map.empty,
                             spCse = Map.empty,
                             spSiteLimit = policySiteLimit policy,
-                            spDiscount = policyFunctionArgumentDiscount policy
+                            spDiscount = policyFunctionArgumentDiscount policy,
+                            spRules = inRules st
                           }
                       -- What this value may still grow by: its limit less
                       -- its size now. A value that shrank in an earlier
                       -- round may grow back to the limit.
                       allowance = max 0 (Map.findWithDefault 0 name (inLimits st) - oldSize)
                       (body', simplState) =
-                        runState (simplifyExpr simpl body) (SimplState (inSupply st) allowance 0)
+                        runState (simplifyExpr simpl body) (initialSimplState (inSupply st) allowance)
                       oldUses = countTopUses body
                       newUses = countTopUses body'
                       counts' = Map.unionWith (+) (Map.unionWith (+) (inCounts st) newUses) (Map.map negate oldUses)
@@ -321,6 +368,7 @@ simplifyValue config known recursive st name
                             inCalls = calls',
                             inSupply = ssSupply simplState,
                             inSites = inSites st + ssInlined simplState,
+                            inRulesFired = inRulesFired st + ssRulesFired simplState,
                             inChanged = inChanged st || body' /= body
                           }
                         (Map.keys oldUses)

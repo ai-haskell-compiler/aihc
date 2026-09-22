@@ -30,5 +30,6 @@ markdown_extensions:
 
 nav:
   - User Guide: index.md
+  - Foreign callbacks: callbacks.md
   - Info tables: info-tables.md
   - API documentation: https://ai-haskell-compiler.github.io/aihc/api/

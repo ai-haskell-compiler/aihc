@@ -1,0 +1,54 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  primitive newMVar# :: BoxedRep Unlifted/0
+  primitive putMVar# :: TupleRep []/2
+  primitive takeMVar# :: BoxedRep Lifted/1
+  primitive +# :: IntRep/2
+  global shared = (F$shared)
+  global action = (P$action/[[]])
+  global handler = (P$handler/[[BoxedRep Lifted]])
+
+  $shared -> BoxedRep Lifted =
+    () <- primitive-call @(TupleRep []) yield#
+    (exception :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    throw (exception :: BoxedRep Lifted)
+
+  $action -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref shared
+
+  $handler (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (exception :: BoxedRep Lifted)
+
+  $child (cell :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    (value :: BoxedRep Lifted) <- catch @(BoxedRep Lifted) global-ref action global-ref handler
+    () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
+    constant (value :: BoxedRep Lifted)
+
+  $entry -> IntRep =
+    (cell :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (child :: BoxedRep Lifted) <- store (P$child/[[]] (cell :: BoxedRep Unlifted))
+    (first :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child :: BoxedRep Lifted)
+    (second :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child :: BoxedRep Lifted)
+    (own :: BoxedRep Lifted) <- catch @(BoxedRep Lifted) global-ref action global-ref handler
+    (again :: BoxedRep Lifted) <- catch @(BoxedRep Lifted) global-ref action global-ref handler
+    (one :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (cell :: BoxedRep Unlifted)
+    (two :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (cell :: BoxedRep Unlifted)
+    case (own :: BoxedRep Lifted) as ownValue :: BoxedRep Lifted of
+      data Number (a :: IntRep) ->
+        case (one :: BoxedRep Lifted) as firstValue :: BoxedRep Lifted of
+          data Number (b :: IntRep) ->
+            case (two :: BoxedRep Lifted) as secondValue :: BoxedRep Lifted of
+              data Number (c :: IntRep) ->
+                (sum :: IntRep) <- primitive-call @IntRep +# (a :: IntRep) (b :: IntRep)
+                primitive-call @IntRep +# (sum :: IntRep) (c :: IntRep)
+return: "126"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 832
+  linux-amd64: 832
+status: pass
+reason: A thunk can be evaluated again after exception restoration and notification of multiple waiters.

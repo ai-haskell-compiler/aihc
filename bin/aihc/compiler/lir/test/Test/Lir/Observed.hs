@@ -4,6 +4,7 @@
 -- records its raw result through the heap snapshot runtime.
 module Test.Lir.Observed
   ( lowerObservedProgram,
+    forceCollection,
   )
 where
 

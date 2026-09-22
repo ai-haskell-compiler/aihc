@@ -39,11 +39,20 @@ tests =
         -- The addition is one instruction and takes nothing from the heap,
         -- so both nodes stay under the reservation that reaches it.
         assertEqual "reservations" [4] reservations,
+      testCase "stores before an eval share the reservation of its frame" $ do
+        reservations <- allReservations beforeEvalProgram
+        -- The WHNF test cannot collect, so the two-word box and the
+        -- three-word continuation frame of the slow branch reserve once above
+        -- the test. The continuation reserves its own pair after the eval.
+        assertEqual
+          "reservations"
+          [("$entry", [5]), ("$entry_cont", [3])]
+          reservations,
       testCase "a primitive that allocates ends a reservation" $ do
         reservations <- entryReservations (betweenStoresProgram "newMutVar#" 1 "(0 :: IntRep)")
-        -- A new mutable reference takes from the heap the first store
-        -- reserved, so the second store has to reserve again.
-        assertEqual "reservations" [2, 2] reservations
+        -- The first reservation has two slots for the node and three for
+        -- the mutable reference. The second store needs a separate reservation.
+        assertEqual "reservations" [5, 2] reservations
     ]
 
 -- | The words of every reservation of the entry function, in the order the
@@ -78,6 +87,7 @@ reservationWords expression =
     GrinStoreRec _ body -> reservationWords body
     GrinStoreRecUnchecked _ body -> reservationWords body
     GrinCase _ _ alternatives -> concatMap (reservationWords . grinAltRhs) alternatives
+    GrinIfWhnf _ ready slow -> reservationWords ready <> reservationWords slow
     GrinEnsureHeap (GrinLitValue (GrinLitInt _ requiredWords)) _ -> [requiredWords]
     _ -> []
 
@@ -125,6 +135,21 @@ betweenStoresProgram primitive arity arguments =
       "  (first%1 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))",
       "  (made%2 :: IntRep) <- primitive-call @IntRep " <> primitive <> " " <> arguments,
       "  store (CLink (first%1 :: BoxedRep Lifted))"
+    ]
+
+-- | A store, a non-tail eval, and a store of the result. The eval splits
+-- into a WHNF test with a direct call and a slow branch that allocates a
+-- continuation frame; the first store and that frame share one reservation.
+beforeEvalProgram :: Text
+beforeEvalProgram =
+  T.unlines
+    [ "constructor Box/1 [IntRep]",
+      "constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]",
+      "",
+      "$entry (value :: BoxedRep Lifted) -> BoxedRep Lifted =",
+      "  (box%1 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))",
+      "  (ready%2 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)",
+      "  store (CPair (box%1 :: BoxedRep Lifted) (ready%2 :: BoxedRep Lifted))"
     ]
 
 -- | A call between the two stores can collect, so it separates them into two

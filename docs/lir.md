@@ -600,7 +600,9 @@ The lowering keeps the control model of CPS-GRIN:
   The slow branch allocates a continuation frame for the same function.
   Heap reservations stay inside their branches.
 - `aihc_lir_eval` creates an update frame only when it enters a thunk.
-  It reserves space for the frame and blackhole record, with the resolved value and continuation as GC roots.
+  It reserves three slots for the frame, with the resolved value and continuation as GC roots.
+  It marks the thunk with a low header bit and preserves the original info table and payload.
+  Info-table loads mask both header tag bits.
   The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
   Compiler modules contain no update-frame construction or synthetic update function.
 - Evaluation and scheduler resumption use shared runtime functions.

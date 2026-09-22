@@ -12,6 +12,7 @@ import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (lowerEntry, lowerModule, wasip3Target)
 import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
+import Aihc.Parser.Syntax (Extension (MagicHash, UnboxedTuples))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
@@ -28,6 +29,7 @@ import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Data.Yaml qualified as Y
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import GrinGolden qualified
 import System.Directory (createDirectory, findExecutable, getTemporaryDirectory, listDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -35,7 +37,8 @@ import System.FilePath (takeExtension, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcess, readProcessWithExitCode)
 import Test.Lir.NativeSuite (uncheckedTraps)
-import Test.Lir.Observed (lowerObservedProgram)
+import Test.Lir.NativeSuite qualified as Source
+import Test.Lir.Observed (forceCollection, lowerObservedProgram)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
@@ -55,11 +58,14 @@ tests = do
       lowerDirectory = root </> "bin" </> "aihc" </> "compiler" </> "lir" </> "test" </> "Test" </> "Fixtures" </> "lir" </> "lower"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
+  let callbackDirectory = root </> "bin/aihc/compiler/native/test/Test/Fixtures/source-snapshot"
+  callbacks <- sort . filter (\name -> "foreign-wrapper" `T.isPrefixOf` T.pack name && takeExtension name == ".yaml") <$> listDirectory callbackDirectory
   lowerFixtures <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory lowerDirectory
   pure
     ( testGroup
         "aihc-wasm"
-        [ testGroup "Lir evaluation fixtures" (map (fixtureTest tools directory) names),
+        [ testGroup "callback source fixtures" (map (callbackSourceTest tools callbackDirectory) callbacks),
+          testGroup "Lir evaluation fixtures" (map (fixtureTest tools directory) names),
           testGroup "GRIN heap snapshots lowered for wasm32" (map (snapshotTest snapshotDirectory) snapshots),
           testGroup "static data fixtures lowered for wasm32" (map (snapshotTest lowerDirectory) lowerFixtures),
           testCase "a word-scaled address offset counts four bytes" wordOffsetTest,
@@ -319,6 +325,27 @@ snapshotTest directory name = testCase name $ do
 
 -- Programs
 
+-- | Compile each callback source fixture through the complete WASM pipeline.
+callbackSourceTest :: Maybe WasmTools -> FilePath -> FilePath -> TestTree
+callbackSourceTest tools directory name = testCase name $ do
+  fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
+  source <- maybe (assertFailure "a callback fixture requires source") pure (Source.snapshotFixtureSource fixture)
+  let driver =
+        T.unlines
+          [ "data CallbackOutput = CallbackOutput Int32#",
+            "foreign import ccall unsafe \"putchar\" putCharacter :: Int32# -> IO CallbackOutput",
+            "foreign import ccall unsafe \"aihc_test_output_complete\" checkOutput :: IO Unit",
+            "main = IO (\\s -> case value of I# n -> case putCharacter (intToInt32# n) of IO output -> case output s of (# next, _ #) -> case checkOutput of IO check -> check next)"
+          ]
+  programs <- either assertFailure pure (GrinGolden.buildFcPrograms [MagicHash, UnboxedTuples] [source <> "\n" <> driver])
+  fc <- case programs of
+    [one] -> pure one
+    _ -> assertFailure "a callback fixture requires one module"
+  program <- either assertFailure pure (Grin.lowerProgram fc)
+  let mainName = grinScopedName "" "Test" "main"
+      linked = program {grinGlobals = [global {grinGlobalName = if grinGlobalName global == mainName then "main" else grinGlobalName global} | global <- grinGlobals program]}
+  programTestWith tools "*" (isJust (Source.snapshotFixtureError fixture)) True (fromMaybe "" (Source.snapshotFixtureCSource fixture)) linked
+
 -- | The test programs print through the C @putchar@, which the WASI P3
 -- world does not provide: its standard output is an asynchronous stream.
 -- This stub checks the characters against the expected output and traps on
@@ -335,7 +362,8 @@ putcharStub expected =
       "  }",
       "  ++position;",
       "  return character;",
-      "}"
+      "}",
+      "void aihc_test_output_complete(void) { if (position != sizeof expected - 1) __builtin_trap(); }"
     ]
 
 -- | Lower a program as a library module, compile it with the entry unit
@@ -344,7 +372,10 @@ putcharStub expected =
 -- would build it, and the component type of the world is embedded the way
 -- the link of an executable embeds it.
 programTest :: Maybe WasmTools -> String -> GrinProgram -> IO ()
-programTest tools expected program = do
+programTest tools expected = programTestWith tools expected False False ""
+
+programTestWith :: Maybe WasmTools -> String -> Bool -> Bool -> Text -> GrinProgram -> IO ()
+programTestWith tools expected shouldFail stress cSource program = do
   let linkedProgram =
         program
           { grinGlobals =
@@ -358,7 +389,7 @@ programTest tools expected program = do
   entryLir <- either (assertFailure . show) pure (lowerEntry wasip3Target)
   assertEqual "module Lir lint" [] (map renderLintError (lintModule moduleLir))
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))
-  moduleAssembly <- compileText moduleLir
+  moduleAssembly <- compileText (if stress then forceCollection moduleLir else moduleLir)
   entryAssembly <- compileText entryLir
   assertBool "the entry exports the P3 start" ("aihc_lir_program_start" `T.isInfixOf` entryAssembly)
   case tools of
@@ -378,7 +409,7 @@ programTest tools expected program = do
         compileEntryObject Wasm32Wasip3 directory entry
         world <- wasip3WorldPath
         TIO.writeFile assemblyPath moduleAssembly
-        writeFile stubPath (putcharStub expected)
+        writeFile stubPath (putcharStub expected <> T.unpack cSource)
         (_, backendArguments) <- backendCompiler Wasm32Wasip3
         runTool (toolsClang available) (backendArguments <> ["-c", assemblyPath, "-o", programObject])
         runTool (toolsClang available) (toolsClangArguments available <> ["-O1", "-std=c11", "-nostdlib", "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-c", stubPath, "-o", stubObject])
@@ -387,7 +418,9 @@ programTest tools expected program = do
         runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
         runTool "wasm-tools" ["component", "new", typedModule, "-o", component]
         (exit, out, err) <- readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", "-S", "cli", component] ""
-        assertEqual ("program stderr: " <> err) ExitSuccess exit
+        if shouldFail
+          then assertBool ("expected a callback failure: " <> err) (exit /= ExitSuccess)
+          else assertEqual ("program stderr: " <> err) ExitSuccess exit
         assertEqual "program stdout" "" out
     _ -> pure ()
 

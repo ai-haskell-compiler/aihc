@@ -1,0 +1,114 @@
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  data List a = Nil | Cons a (List a)
+  class C a where
+    op :: a -> a
+  map :: (a -> b) -> List a -> List b
+  map f xs = case xs of
+    Nil -> Nil
+    Cons y ys -> Cons (f y) (map f ys)
+  build :: (forall b. (a -> b -> b) -> b -> b) -> List a
+  build g = g Cons Nil
+  foldr :: (a -> b -> b) -> b -> List a -> b
+  foldr k z xs = case xs of
+    Nil -> z
+    Cons y ys -> k y (foldr k z ys)
+  identity :: a -> a
+  identity x = x
+  {-# RULES
+  "map/map" [2] forall f g xs. map f (map g xs) = map g (map f xs)
+  "fold/build" forall k z (g :: forall b. (a -> b -> b) -> b -> b) . foldr k z (build g) = g k z
+  "map/id" forall a. forall (xs :: List a). map identity xs = xs
+  "op/op" forall x. op (op x) = op x
+  "op/nat" forall (x :: Nat). op (op x) = x
+  "wrong" forall (x :: Nat). identity x = Nil
+    #-}
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data List a = Nil | Cons a (List a)
+       │        │     └─ type: ∀ a. a → List a → List a
+       │        └─ type: ∀ a. List a
+       └─ type: Type → Type
+  class C a where
+  └─ class methods: op ∷ ∀ a. (C a) ⇒ a → a
+    op :: a -> a
+  map :: (a -> b) -> List a -> List b
+  map f xs = case xs of
+  │   │ │    └─ type: List b
+  │   │ └─ type: List a
+  │   └─ type: a → b
+  └─ type: ∀ a b. (a → b) → List a → List b
+    Nil -> Nil
+    │      └─ type: List b; type-args: b
+    └─ type: List a
+    Cons y ys -> Cons (f y) (map f ys)
+    │    │ │     │           └─ type: (a → b) → List a → List b; type-args: a, b
+    │    │ │     └─ type: b → List b → List b; type-args: b
+    │    │ └─ type: List a
+    │    └─ type: a
+    └─ type: List a
+  build :: (forall b. (a -> b -> b) -> b -> b) -> List a
+  build g = g Cons Nil
+  │     │   │ │    └─ type: List a; type-args: a
+  │     │   │ └─ type: a → List a → List a; type-args: a
+  │     │   └─ type: (a → List a → List a) → List a → List a; type-args: List a
+  │     └─ type: ∀ b. (a → b → b) → b → b
+  └─ type: ∀ a. (∀ b. (a → b → b) → b → b) → List a
+  foldr :: (a -> b -> b) -> b -> List a -> b
+  foldr k z xs = case xs of
+  │     │ │ │    └─ type: b
+  │     │ │ └─ type: List a
+  │     │ └─ type: b
+  │     └─ type: a → b → b
+  └─ type: ∀ a b. (a → b → b) → b → List a → b
+    Nil -> z
+    └─ type: List a
+    Cons y ys -> k y (foldr k z ys)
+    │    │ │          └─ type: (a → b → b) → b → List a → b; type-args: a, b
+    │    │ └─ type: List a
+    │    └─ type: a
+    └─ type: List a
+  identity :: a -> a
+  identity x = x
+  │        └─ type: a
+  └─ type: ∀ a. a → a
+  {-# RULES
+  "map/map" [2] forall f g xs. map f (map g xs) = map g (map f xs)
+  │                    │ │ │   │      │           │      └─ type: (a → a) → List a → List a; type-args: a, a
+  │                    │ │ │   │      │           └─ type: (a → a) → List a → List a; type-args: a, a
+  │                    │ │ │   │      └─ type: (a → a) → List a → List a; type-args: a, a
+  │                    │ │ │   └─ type: (a → a) → List a → List a; type-args: a, a
+  │                    │ │ └─ type: List a
+  │                    │ └─ type: a → a
+  │                    └─ type: a → a
+  └─ type: ∀ a. (a → a) → (a → a) → List a → List a
+  "fold/build" forall k z (g :: forall b. (a -> b -> b) -> b -> b) . foldr k z (build g) = g k z
+  │                   │ │ └─ type: ∀ b. (a → b → b) → b → b          │          │││          └─ type: (a → b → b) → b → b; type-args: b
+  │                   │ └─ type: b                                   │          └─ type: ∀ b. (a → b → b) → b → b
+  │                   └─ type: a → b → b                             │          └─ type: (a → b → b) → b → b; type-args: b
+  └─ type: ∀ a b. (a → b → b) → b → (∀ b. (a → b → b) → b → b) → b   │          └─ type: (∀ b. (a → b → b) → b → b) → List a; type-args: a
+                                                                     └─ type: (a → b → b) → b → List a → b; type-args: a, b
+  "map/id" forall a. forall (xs :: List a). map identity xs = xs
+  │                         └─ type: List a │   └─ type: a → a; type-args: a
+  └─ type: ∀ a. List a → List a             └─ type: (a → a) → List a → List a; type-args: a, a
+  "op/op" forall x. op (op x) = op x
+  │              │  │   │       └─ type: a → a; type-args: a; evidence: given C a
+  │              │  │   └─ type: a → a; type-args: a; evidence: given C a
+  │              │  └─ type: a → a; type-args: a; evidence: given C a
+  │              └─ type: a
+  └─ type: ∀ a. (C a) ⇒ a → a
+  "op/nat" forall (x :: Nat). op (op x) = x
+                                  └─ error: unsolved constraint C Nat
+  "wrong" forall (x :: Nat). identity x = Nil
+  └─ error: expression has type List t0, but expected Nat
+    #-}
+
+status: pass

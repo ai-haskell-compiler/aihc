@@ -200,9 +200,7 @@ runBuildModule options = do
             compilePackage = Package "exe" (PackageId "exe"),
             compileSourceFiles = sourceFiles,
             compileDependencies = installed,
-            -- An executable built from loose sources has no Cabal file, so
-            -- its capi wrappers see only the headers the compiler finds by
-            -- itself.
+            -- The compiler adds the dependency headers to these options.
             compileCapiStubOptions = noCapiStubOptions
           }
   compiled <- compileModules compileConfig compileRequest

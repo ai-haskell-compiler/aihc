@@ -29,7 +29,7 @@ return: "@0"
 heap: |
   @0 = CResult 200
 allocated-bytes:
-  macos-arm64: 94552
-  linux-amd64: 94552
+  macos-arm64: 94440
+  linux-amd64: 94440
 status: pass
 reason: Completed, unconsumed requests and their buffers must become reclaimable within the heap limit.

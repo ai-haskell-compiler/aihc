@@ -56,17 +56,22 @@ after each pass under `--lint`.
 | Pass | What it does |
 | ---- | ------------ |
 | `PassEtaExpand` | Arity analysis, then eta expansion of every top-level value to the arity it finds. `Aihc.Fc.Arity`. |
-| `PassInline policy rounds` | The inliner under a policy, for at most that many rounds. `Aihc.Fc.Inline`. |
-| `PassSimplify` | One walk over every body with the local rewrites and no copy of any callee. `Aihc.Fc.Simplify`. |
+| `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
+| `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
+
+A phase is a number that counts down as GHC's phases do: the shrinking
+inliner runs in phase 2, the growing inliner in phase 1, and the final
+simplifying walk in phase 0. Nothing else reads the phase: it decides which
+rewrite rules fire (see below).
 
 The plans are:
 
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, inline `shrinkPolicy`, inline `growPolicy`, eta expand, simplify |
+| `-O1` | eta expand, inline `shrinkPolicy` [2], inline `growPolicy` [1], eta expand, simplify [0] |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, inline `shrinkPolicy`, eta expand, simplify |
+| `-Os` | eta expand, inline `shrinkPolicy` [2], eta expand, simplify [0] |
 
 `-Os` is a prefix of `-O2`: the growing phase of `-O2` starts from the
 program that `-Os` would have produced. Eta expansion runs before the
@@ -148,6 +153,88 @@ the pass reports, not by bisecting a limit.
 - A ratio backstop over the whole program. It would only ever fire when a
   local rule is wrong, and then it would hide the wrong rule.
 
+## Rewrite rules
+
+A `{-# RULES #-}` pragma reaches System FC as a `DeclRule`: the rule's type
+binders, the dictionaries of its constraints, and its pattern variables, the
+shared type of its sides, and the two sides as expressions (`docs/system-fc.md`).
+The simplifier fires rules, in `Aihc.Fc.Simplify.fireRule`, and the matcher
+is `Aihc.Fc.Rules`.
+
+- A rule is tried at an application whose head names the head of its
+  left-hand side, after the arguments are simplified and before the head is
+  inlined, so that a rule written for a function sees its calls. Because the
+  inliner simplifies every copy it makes, rules fire on inlined code too.
+- Matching is first-order and syntactic, modulo the names of binders both
+  sides bind in the same place. Type binders of the rule match the type
+  arguments; a ground type of the pattern is compared up to synonyms. No
+  beta reduction or eta expansion is attempted. An application may give the
+  head more arguments than the left-hand side names; the surplus applies to
+  the result.
+- A pattern variable never takes an expression that names a variable the
+  application binds inside the part being matched, as in GHC, because that
+  variable would escape into the right-hand side.
+- The right-hand side is copied with fresh binders, instantiated, and
+  simplified again in place. Each walk over one body fires at most
+  `ruleFuel` rules, so a looping pair of rules stays finite.
+- A rule fires only in the phases its activation names: `[n]` from phase
+  `n` down to 0, `[~n]` before phase `n`, `[~]` never. `Aihc.Fc.Rules.ruleTable`
+  selects the rules of a pass.
+- A value a rule names is a root of the inliner: it is never dropped while
+  the rule may still put it in place.
+- Every pass report counts the rules it fired; `--verbose` prints it.
+- A template that is an eta-expansion of a binder, `Λb. g @b` or `λx. g x`,
+  is matched eta-reduced: the desugarer expands a binder passed at a
+  polymorphic or a function type, and the source meant the binder alone.
+
+### List fusion in the core libraries
+
+`GHC.Base`, `Prelude` and `GHC.Enum` carry GHC's foldr/build scheme: a
+producer (`map`, `filter`, `++`, an `Int` range) turns into its `build` form
+in phase 2 by a `[~1]` rule, `foldr` over a `build` fuses there, and from
+phase 1 a `[1]` rule turns what did not fuse back into the plain function.
+Two things differ from GHC:
+
+- Each producer also has a `[1]` rule from its `build` form straight back to
+  the plain call (`"map/build"`, `"filter/build"`, `"++/augment"`,
+  `"enumIntFromTo/build"`), so the round trip does not depend on `build`
+  being inlined, which a size-bound pass or the `-Os` plan may not do.
+- `foldr` takes all three arguments in its head, so that a consumer written
+  as a partial application, `sum = foldr (+) 0`, has the arity of its type
+  and is copied at its calls. The arity pass reads arity from the body, and
+  GHC's `foldr k z = go` gives it arity 2.
+
+Rules are matched in the program the pass is given. At the per-module scope
+that is the module's own rules; at the whole-program scope it is every rule
+of every module, which is what makes rules from a library fire in a program
+that uses it. Per-module firing of imported rules waits on the same import
+facts as "-O1 in import order" below.
+
+### Inline pragmas
+
+A top-level value and an instance method carry their `INLINE`, `INLINABLE`
+or `NOINLINE` pragma into System FC as the `valInline` of the `ValDecl`
+(`inline [2]`, `inlinable`, `noinline [~1]` in the text form). The inliner
+reads it per phase, with the activation read as a rule's is:
+
+| Pragma | In the phases the activation names | In the other phases |
+| ------ | ---------------------------------- | ------------------- |
+| `INLINE` | a candidate whatever its size; the site policy decides each copy | never copied |
+| `INLINABLE` | the usual policy | never copied |
+| `NOINLINE` | the usual policy | never copied |
+| none | the usual policy | the usual policy |
+
+A plain `NOINLINE` names no phase, so the value is never copied (the text form
+leaves its `[~]` unsaid); a plain `INLINE` names every phase. GHC copies an
+`INLINE` value at every saturated call whatever the growth; here the site
+policy still decides, so that `shrinkPolicy` keeps its invariant below, and
+an `INLINE` value that the policy rejects stays a call. The `text` package
+marks large functions `INLINE`, and honouring them GHC's way made its
+example two and a half times larger at `-O2`. This is what lets a rule beat the inliner to a
+call: `NOINLINE [1] f` keeps `f` a call through phase 2, where a rule on
+`f` fires, and lets the growing inliner copy it afterwards. `CONLIKE` is
+read and ignored. A recursive value is never copied whatever its pragma.
+
 ## Invariants
 
 These are the properties the structure is meant to keep. Each is checkable,
@@ -161,7 +248,8 @@ and a change that breaks one needs a reason in its pull request.
   imports.
 - Every pass has golden fixtures under
   `compiler/fc/test/Test/Fixtures/golden`, run through `passes:` in the
-  fixture, in the order a plan would run them.
+  fixture, in the order a plan would run them. A `simplify` entry may carry a
+  phase (`simplify: 2`), and an `inline` object a `phase` knob.
 
 ## Not done
 

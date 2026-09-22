@@ -62,8 +62,8 @@ else
 Both branches use the same generated continuation function.
 The ready branch passes captures directly and creates no heap frame.
 The slow branch stores captures in the normal continuation frame.
-The GC pass keeps heap reservations inside these branches.
-It protects the value and captured pointers before the slow branch allocates its frame.
+The GC pass hoists one heap reservation above the test, sized for the larger branch.
+The test itself cannot allocate or collect, so the reservation protects the value and captured pointers before the slow branch allocates its frame.
 The runtime protects the value and continuation before it allocates an update frame or blackhole waiter.
 
 ## Final uses and abstract results

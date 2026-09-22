@@ -107,6 +107,7 @@ module Aihc.Tc.Monad
     withComponentTyCons,
     withPolyKindOrigins,
     withScopedTyVars,
+    withImpliedScopedTyVars,
     getScopedTyVars,
     withGivenPredicates,
     getGivenPredicates,
@@ -1052,6 +1053,12 @@ withScopedTyVars scoped action = do
   if enabled && not (Map.null scoped)
     then local (\env -> env {tcEnvScopedTyVars = scoped `Map.union` tcEnvScopedTyVars env}) action
     else action
+
+-- | Bring type variables into scope whether or not ScopedTypeVariables is
+-- on. A @RULES@ pragma turns the extension on for its rules.
+withImpliedScopedTyVars :: Map Text (TyVarId, TcType) -> TcM a -> TcM a
+withImpliedScopedTyVars scoped =
+  local (\env -> env {tcEnvScopedTypeVariables = True, tcEnvScopedTyVars = scoped `Map.union` tcEnvScopedTyVars env})
 
 -- | Extend evidence scope for nested declarations.
 withGivenPredicates :: [Pred] -> TcM a -> TcM a

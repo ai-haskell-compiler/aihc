@@ -39,11 +39,13 @@ normalizeExpr expression =
               ( valueWords + bodyWords,
                 GrinBind vars valueExpression' body'
               )
-    -- Keep the slow branch's reservation after the WHNF test.
+    -- The WHNF test neither allocates nor collects, so one reservation above
+    -- it covers whichever branch runs. The ready branch pays for the slow
+    -- branch's frame until reservations can hand unused words back.
     GrinIfWhnf value ready slow ->
-      (0, GrinIfWhnf value (reserveBranch ready) (reserveBranch slow))
-      where
-        reserveBranch branch = uncurry addReservation (normalizeExpr branch)
+      let (readyWords, ready') = normalizeExpr ready
+          (slowWords, slow') = normalizeExpr slow
+       in (max readyWords slowWords, GrinIfWhnf value ready' slow')
     GrinCase scrutinee binder alternatives ->
       let normalized = map normalizeAlternative alternatives
           requiredWords = maximum (0 : map fst normalized)

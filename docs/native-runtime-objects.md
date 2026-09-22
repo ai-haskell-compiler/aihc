@@ -115,9 +115,10 @@ The runtime then updates expired delay variables before the transaction starts a
 Timer variables remain garbage collection roots throughout the wait.
 
 Native heap objects have an eight-byte header followed by payload slots.
-The header contains an info-table address.
-Most info tables are static.
-A blackholed thunk uses the embedded info table in its managed scheduler record.
+The header contains an info-table address and two low tag bits.
+Info tables have at least four-byte alignment on every target.
+Bit zero marks a thunk under evaluation. Bit one marks a thunk with blocked waiters.
+Header readers mask both bits before they read the info table.
 
 ```text
 saturated constructor: [header] [fields...]
@@ -132,7 +133,7 @@ logical arity, pointer bitmap, next application-stage table, an optional native
 apply entry, and the static reference table of the object's code.
 Application changes the header to the statically known next table.
 Ordinary objects share this static metadata.
-Each blackhole record also contains a copy of the original thunk info table.
+A thunk under evaluation retains its original info table and payload.
 
 The Lir lowering gives saturated closure stages an apply entry, the
 `backend_entry` of the info table. Apply sites pass the machine, the closure,
@@ -232,7 +233,7 @@ The collector obtains its size and pointer fields from the C structure.
 It traces the resume function, continuation, pointer value, transaction, and run queue link.
 
 The machine retains the current thread and both ends of the run queue.
-MVar waiters, blackhole owners, blackhole waiters, and pending IO requests retain their threads.
+MVar waiters, blackhole waiters, and pending IO requests retain their threads.
 The collector relocates each of these references.
 An unreachable thread becomes reclaimable after it leaves these runtime queues and other live references.
 Thread records count toward managed allocation statistics and the `-M` limit.
@@ -249,39 +250,43 @@ The number remains at offset eight on every target.
 Blackhole waiters use the managed heap.
 Each waiter has a header, thread, continuation, and queue link.
 The collector traces these fields through the C layout.
-Each active blackhole retains both ends of its waiter queue.
-Thunk update and exception paths remove the blackhole from the active list and wake its waiters.
-The waiters then become reclaimable without direct memory release.
-Their memory counts toward managed allocation statistics and the `-M` limit.
+A machine-local hash table maps each contended thunk to both ends of its waiter queue.
+The first contention allocates the table with C allocation.
+The table grows as necessary and retains its capacity for reuse.
+These arrays are runtime metadata, outside managed allocation statistics and the `-M` limit.
+Waiter records count toward both statistics and the limit.
+Ordinary thunk evaluation allocates no table entry or blackhole record.
 
 `aihc_lir_eval` follows indirections before it selects a branch.
 A ready value requires no reservation or update frame.
-The thunk branch reserves seventeen slots: three for its update frame and fourteen for a blackhole record.
-The blackhole branch reserves fourteen slots, which also cover a waiter on every target.
+The thunk branch reserves three slots for its update continuation.
+The blackhole branch reserves four slots, which cover a waiter on every target.
 Both branches protect the resolved value and the continuation as roots across collection.
-The thunk branch reloads the info table after collection and stores the resolved thunk in its update frame.
-The thunk branch places the update frame and blackhole record with one heap-pointer update.
-It copies the thunk metadata, initializes the record, and links it into the active list directly in Lir.
-It then publishes the embedded info table in the thunk header and transfers to the thunk entry.
-This path calls no C allocation or blackhole helper.
-`aihc_block_on_blackhole` consumes the reserved waiter space without collection.
-Named constants in `aihc_constants.lir` describe the record and machine offsets.
-C assertions check those offsets on both pointer widths.
-The shared update continuation completes the blackhole update, then calls evaluation with the result and parent continuation.
-It allocates no frame itself.
-Blackhole records use the managed heap and have a distinct object kind.
-The machine retains the active record list.
-The collector traces each record through its C layout, including both list links and both waiter queue ends.
-It also traces the thunk and its owner thread.
-The original info table remains static.
+The thunk branch stores the parent continuation and resolved thunk in the update frame.
+It sets the evaluation bit and transfers to the thunk entry.
+The original info table and payload remain intact, including across suspension.
+No owner record is necessary.
 
-A blackholed thunk header contains a pointer to the info table inside its record.
-The collector relocates this interior pointer when it scans the thunk.
+`aihc_block_on_blackhole` walks the current continuation chain to detect self-re-entry.
+An update frame for the same thunk proves self-re-entry.
+Otherwise, it inserts a waiter into the hash table and sets the waiter bit.
+The runtime consumes the reserved waiter space without collection.
+The scheduler suspends that thread until an update or exception wakes it.
+
+The shared update continuation saves the tag bits and updates the thunk to an indirection.
+If the waiter bit was set, it removes the table entry and wakes its waiters.
+An uncontended update performs no table lookup.
+The continuation then evaluates the result with the parent continuation.
+Exception unwinding clears both bits and raises the exception in each waiter.
+The restored thunk can be evaluated again.
+No collection or scheduler switch occurs between a header change and removal of its waiter entry.
+
+The collector masks the header tags and traces the original thunk layout and static reference table.
+An update continuation retains its thunk while evaluation is in progress.
+The waiter table also retains contended thunks and their waiter queues.
+Collection relocates the table keys and queue ends, then rebuilds the hash table in a reusable spare array.
 This rule applies to both static and heap thunks.
-It preserves the embedded info table, captured fields, and static reference table through collection.
-The record needs no pinned address because its references remain under runtime control.
-Thunk update and exception paths remove the record from the active list.
-The collector reclaims unreachable records and includes their bytes in allocation statistics and heap limits.
+The scheduler does not scan the table to find completed thunks.
 
 `MVar#` uses a managed empty/full cell with separate FIFO queues for
 blocked readers, takers, and putters.

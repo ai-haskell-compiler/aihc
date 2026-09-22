@@ -419,14 +419,25 @@ test_resolveArtifactRoundTrip = do
 -- | Each package fixture specifies its expected error or stored constructors.
 data InstallFixture = InstallFixture
   { installFixtureError :: Maybe String,
-    installFixtureTyCons :: [(String, [String])]
+    installFixtureTyCons :: [(String, [String])],
+    installFixtureInput :: FilePath,
+    installFixtureImmutable :: Bool,
+    installFixtureNoCode :: Bool,
+    installFixtureReinstall :: Bool
   }
 
 instance FromJSON InstallFixture where
   parseJSON = withObject "install fixture" $ \obj -> do
     status <- obj .: "status"
     if status == ("pass" :: String)
-      then InstallFixture <$> obj .:? "expect-error" <*> obj .:? "expect-type-constructors" .!= []
+      then
+        InstallFixture
+          <$> obj .:? "expect-error"
+          <*> obj .:? "expect-type-constructors" .!= []
+          <*> obj .:? "input" .!= "."
+          <*> obj .:? "immutable" .!= False
+          <*> obj .:? "no-code" .!= True
+          <*> obj .:? "check-reinstall" .!= False
       else fail "install fixtures require pass status"
 
 testInstallFixtures :: IO SeedStore -> Assertion
@@ -439,7 +450,17 @@ testInstallFixtures getStore = do
     assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
     withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
       store <- sandboxStore sandbox "store"
-      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget defaultPlanOptions))
+      let input = if installFixtureInput fixture == "." then directory else directory </> installFixtureInput fixture
+          options =
+            (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget defaultPlanOptions)
+              { installImmutable = installFixtureImmutable fixture,
+                installNoCode = installFixtureNoCode fixture
+              }
+      outcome <- try $ do
+        first <- install options
+        if installFixtureReinstall fixture
+          then install options {installReinstall = True}
+          else pure first
       case outcome :: Either IOException InstallResult of
         Left err -> do
           assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))

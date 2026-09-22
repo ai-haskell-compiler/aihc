@@ -15,4 +15,4 @@ program: |
     eval @(BoxedRep Lifted) (self :: BoxedRep Lifted)
 error: blackholed thunk re-entered
 status: pass
-reason: Collection must relocate the blackhole owner before the owner enters the thunk again.
+reason: Collection must preserve the update continuation that detects self-re-entry.

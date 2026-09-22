@@ -24,6 +24,7 @@ enum {
   AIHC_OBJECT_MVAR,
   AIHC_OBJECT_MVAR_WAITER,
   AIHC_OBJECT_BLACKHOLE_WAITER,
+  /* Reserved legacy object kind. */
   AIHC_OBJECT_BLACKHOLE_RECORD,
   AIHC_OBJECT_STABLE_NAME,
   AIHC_OBJECT_BYTE_ARRAY,
@@ -39,7 +40,7 @@ typedef struct AihcTransactionTimer AihcTransactionTimer;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
-typedef struct AihcBlackhole AihcBlackhole;
+typedef struct AihcBlackholeTable AihcBlackholeTable;
 typedef struct AihcIoHandle AihcIoHandle;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
@@ -146,6 +147,20 @@ struct AihcValue {
   AihcSlot fields[];
 };
 
+typedef struct AihcForeignFrame {
+  struct AihcForeignFrame *previous;
+  AihcSlot *roots;
+  uint64_t count;
+  const AihcSrt *srt;
+  uint64_t allow_callbacks;
+} AihcForeignFrame;
+
+typedef struct AihcCallbackFrame AihcCallbackFrame;
+typedef struct AihcCallbackSlot AihcCallbackSlot;
+
+_Static_assert(sizeof(AihcForeignFrame) <= 40,
+               "foreign frame exceeds its LIR stack space");
+
 struct AihcMachine {
   AihcSlot *globals;
   uint64_t global_count;
@@ -162,7 +177,7 @@ struct AihcMachine {
   AihcThread *current_thread;
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
-  AihcBlackhole *blackholes;
+  AihcBlackholeTable *blackholes;
   AihcStableName *stable_names;
   uint64_t next_stable_name;
   /* The number of the next new thread. The counter starts at one, it gives the
@@ -194,20 +209,46 @@ struct AihcMachine {
   AihcValue *global_array;
   struct AihcRootFrame *root_frames;
   uint8_t program_started;
+  AihcForeignFrame *foreign_frames;
+  AihcCallbackFrame *callback_frames;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
 
+/* Foreign frames protect suspended Haskell values across C callbacks. */
+void aihc_foreign_enter(AihcMachine *machine, AihcForeignFrame *frame,
+                        AihcSlot *roots, uint64_t count, const AihcSrt *srt,
+                        uint64_t allow_callbacks);
+void aihc_foreign_leave(AihcMachine *machine, AihcForeignFrame *frame);
+AihcBackendEntry aihc_callback_create(AihcMachine *machine, AihcValue *closure,
+                                      AihcCallbackSlot *slots, uint64_t count);
+void aihc_free_haskell_fun_ptr(AihcBackendEntry entry);
+void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
+                         const AihcInfo *stop_info);
+AihcMachine *aihc_callback_machine(AihcCallbackFrame *frame);
+AihcValue *aihc_callback_closure(AihcCallbackFrame *frame);
+AihcValue *aihc_callback_continuation(AihcCallbackFrame *frame);
+void aihc_callback_return(AihcMachine *machine, uint64_t result);
+uint64_t aihc_callback_leave(AihcCallbackFrame *frame);
+
 /* Transfer a scheduler record to fixed-width Lir slots. */
 void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots);
 
+/* Info tables have at least four-byte alignment on every target.
+   These bits belong to the thunk header, not to references to the thunk. */
+#define AIHC_HEADER_EVALUATING UINT64_C(1)
+#define AIHC_HEADER_WAITERS UINT64_C(2)
+#define AIHC_HEADER_TAG_MASK UINT64_C(3)
+
 static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
-  return (const AihcInfo *)(uintptr_t)value->header;
+  return (const AihcInfo *)(uintptr_t)(value->header & ~AIHC_HEADER_TAG_MASK);
 }
 
 static inline AihcObjectKind aihc_value_kind(const AihcValue *value) {
-  return aihc_value_info_table(value)->object_kind;
+  return (value->header & AIHC_HEADER_EVALUATING) != 0
+             ? AIHC_OBJECT_BLACKHOLE
+             : aihc_value_info_table(value)->object_kind;
 }
 
 static inline uintptr_t aihc_value_info(const AihcValue *value) {

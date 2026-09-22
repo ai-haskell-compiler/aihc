@@ -47,7 +47,7 @@ program: |
 return: "126"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 832
-  linux-amd64: 832
+  macos-arm64: 720
+  linux-amd64: 720
 status: pass
 reason: An exception must wake both blackhole waiters with their relocated continuations and exception value.

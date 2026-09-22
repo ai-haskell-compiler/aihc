@@ -27,6 +27,7 @@ module Aihc.Fc.Simplify
     -- * The simplifier
     Simpl (..),
     SimplState (..),
+    initialSimplState,
     SimplM,
     Candidate (..),
     simplifyExpr,
@@ -48,6 +49,7 @@ where
 import Aihc.Fc.Fold (foldForeignCall)
 import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
 import Aihc.Fc.Size (exprSize, isLiftedBinder, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
@@ -71,7 +73,8 @@ import Data.Text (Text)
 -- | What the standalone simplifying pass did.
 data SimplifyReport = SimplifyReport
   { simplifySizeBefore :: !Int,
-    simplifySizeAfter :: !Int
+    simplifySizeAfter :: !Int,
+    simplifyRulesFired :: !Int
   }
   deriving (Eq, Show)
 
@@ -82,10 +85,10 @@ data SimplifyReport = SimplifyReport
 -- This is the pass that runs after the eta expansion that follows the
 -- inliner, which wraps a value in a lambda that applies the old body to
 -- the new parameter, under the casts of a newtype it unfolded.
-simplifyProgram :: Program -> (Program, SimplifyReport)
-simplifyProgram program =
+simplifyProgram :: Int -> Program -> (Program, SimplifyReport)
+simplifyProgram phase program =
   case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, SimplifyReport size0 size0)
+    Nothing -> (program, SimplifyReport size0 size0 0)
     Just primPackage ->
       let env = typeEnvFromProgram primPackage program
           bodies = Map.fromList [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]
@@ -99,15 +102,16 @@ simplifyProgram program =
                 spLocals = Map.empty,
                 spCse = Map.empty,
                 spSiteLimit = 0,
-                spDiscount = 0
+                spDiscount = 0,
+                spRules = ruleTable phase (programDecls program)
               }
           simplifyDecl decl =
             case decl of
               DeclVal declaration -> (\body -> DeclVal declaration {valBody = body}) <$> simplifyExpr simpl (valBody declaration)
               _ -> pure decl
-          (decls, _) = runState (mapM simplifyDecl (programDecls program)) (SimplState (maxLocalUnique program + 1) 0 0)
+          (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
           result = tidyProgram (pruneImports program {programDecls = decls})
-       in (result, SimplifyReport size0 (programSize result))
+       in (result, SimplifyReport size0 (programSize result) (ssRulesFired final))
   where
     size0 = programSize program
 
@@ -191,15 +195,37 @@ data Simpl = Simpl
     spSiteLimit :: !Int,
     -- | The discount one function argument of a call site takes off the
     -- growth of inlining it.
-    spDiscount :: !Int
+    spDiscount :: !Int,
+    -- | The rewrite rules that may fire, by the head of their left-hand
+    -- side.
+    spRules :: !RuleTable
   }
 
 data SimplState = SimplState
   { ssSupply :: !Int,
     -- | The growth the remaining sites may still cause.
     ssAllowance :: !Int,
-    ssInlined :: !Int
+    ssInlined :: !Int,
+    ssRulesFired :: !Int,
+    -- | How many more rules may fire in this walk. Rules are not checked
+    -- for termination, so a bound keeps a looping pair of rules finite.
+    ssRuleFuel :: !Int
   }
+
+-- | The state of one walk, with the unique supply and the growth allowance.
+initialSimplState :: Int -> Int -> SimplState
+initialSimplState supply allowance =
+  SimplState
+    { ssSupply = supply,
+      ssAllowance = allowance,
+      ssInlined = 0,
+      ssRulesFired = 0,
+      ssRuleFuel = ruleFuel
+    }
+
+-- | How many rules may fire in one walk over one body.
+ruleFuel :: Int
+ruleFuel = 1000
 
 type SimplM = State SimplState
 
@@ -499,7 +525,9 @@ simplifyApp env headExpr args = do
     ExVar {} -> pure headExpr
     _ -> simplifyExpr env headExpr
   args' <- mapM (either (pure . Left) (fmap Right . simplifyExpr env)) args
+  fired <- fireRule env headExpr' args'
   case headExpr' of
+    _ | Just rewritten <- fired -> simplifyExpr env rewritten
     ExVar name
       | Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args' -> do
@@ -537,6 +565,26 @@ simplifyApp env headExpr args = do
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp env (altRhs alternative) args') alternatives
           pure (ExCase scrutinee binder resultType' alternatives')
     _ -> pure (rebuildSpine headExpr' args')
+
+-- | Fire the first active rule that matches an application, if any. The
+-- right-hand side is copied with fresh binders, instantiated by the
+-- match, and applied to the arguments the left-hand side did not name.
+-- Rules are tried before the head is inlined, as in GHC, so that a rule
+-- written for a function sees its calls.
+fireRule :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
+fireRule env headExpr args =
+  case headExpr of
+    ExVar name
+      | Just rules <- Map.lookup name (spRules env) -> do
+          fuel <- gets ssRuleFuel
+          case [(rule, match) | fuel > 0, rule <- rules, Just match <- [matchRule (spEnv env) rule args]] of
+            (rule, match) : _ -> do
+              rhs <- freshenExpr (ruleRhs rule)
+              modify' (\st -> st {ssRulesFired = ssRulesFired st + 1, ssRuleFuel = ssRuleFuel st - 1})
+              let instantiated = substExpr (matchValues match) (substTypeExpr (matchTypes match) rhs)
+              pure (Just (rebuildSpine instantiated (matchSurplus match)))
+            [] -> pure Nothing
+    _ -> pure Nothing
 
 -- | The discount a call site takes off the growth of inlining, one for
 -- each value argument that names a function and that the callee applies.
@@ -1631,6 +1679,12 @@ declBinderNames :: Decl -> Set Name
 declBinderNames decl =
   case decl of
     DeclVal declaration -> exprBinderNames (valBody declaration) <> typeBinderNames (valType declaration)
+    DeclRule declaration ->
+      Set.fromList (map binderName (ruleTypeBinders declaration <> ruleBinders declaration))
+        <> foldMap (typeBinderNames . binderType) (ruleTypeBinders declaration <> ruleBinders declaration)
+        <> typeBinderNames (ruleType declaration)
+        <> exprBinderNames (ruleLhs declaration)
+        <> exprBinderNames (ruleRhs declaration)
     DeclType declaration -> Set.fromList (map binderName (typeBinders declaration)) <> foldMap (typeBinderNames . conType) (typeCons declaration)
     DeclSynonym declaration -> Set.fromList (map binderName (synBinders declaration)) <> typeBinderNames (synBody declaration)
     DeclAxiom declaration -> Set.fromList (map binderName (axiomBinders declaration))

@@ -331,6 +331,10 @@ prettyForeignTarget target =
   case target of
     GrinForeignFunction -> mempty
     GrinForeignAddress -> "address "
+    GrinForeignDynamic -> "dynamic "
+    GrinForeignUnsafeFunction -> "unsafe "
+    GrinForeignUnsafeDynamic -> "unsafe-dynamic "
+    GrinForeignWrapper signature -> "wrapper " <> prettyForeignSignature signature <> " "
 
 prettyForeignSignature :: GrinForeignSignature -> Doc ann
 prettyForeignSignature signature =
@@ -358,6 +362,7 @@ prettyForeignType foreignType =
     GrinForeignFloat -> "float"
     GrinForeignDouble -> "double"
     GrinForeignAddr -> "addr"
+    GrinForeignClosure -> "closure"
     GrinForeignVoid -> "void"
 
 prettyFunctionName :: FunctionName -> Doc ann

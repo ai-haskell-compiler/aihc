@@ -139,6 +139,7 @@ identityProgram =
           DeclVal
             ValDecl
               { valVis = Private,
+                valInline = InlineDefault,
                 valName = valueNameTop "id",
                 valType =
                   TyForAll
@@ -192,7 +193,8 @@ genDecl =
     [ DeclType <$> genTypeDecl,
       DeclSynonym <$> genSynonymDecl,
       DeclAxiom <$> genAxiomDecl,
-      DeclVal <$> genValDecl
+      DeclVal <$> genValDecl,
+      DeclRule <$> genRuleDecl
     ]
 
 genTypeDecl :: Gen TypeDecl
@@ -242,6 +244,34 @@ genValDecl =
     <*> (valueNameTop . ("f" <>) <$> genSuffix)
     <*> genType
     <*> Gen.choice [ExVar <$> genLocalValueName, genForeignCallExpr]
+    <*> genInlineSpec
+
+genInlineSpec :: Gen InlineSpec
+genInlineSpec =
+  Gen.choice
+    [ pure InlineDefault,
+      InlineAlways <$> genActivation,
+      InlineWhenUseful <$> genActivation,
+      -- A NOINLINE that allows every phase is what no pragma says, and the
+      -- text form leaves the activation of a plain noinline unsaid.
+      InlineNever <$> Gen.filter (/= AlwaysActive) genActivation
+    ]
+
+genActivation :: Gen RuleActivation
+genActivation = Gen.choice [pure AlwaysActive, ActiveAfter <$> phase, ActiveBefore <$> phase, pure NeverActive]
+  where
+    phase = Gen.int (Range.linear 0 3)
+
+genRuleDecl :: Gen RuleDecl
+genRuleDecl =
+  RuleDecl . ("rule" <>)
+    <$> genSuffix
+    <*> genActivation
+    <*> Gen.list (Range.linear 0 2) genTypeBinder
+    <*> Gen.list (Range.linear 0 2) (Binder <$> genLocalValueName <*> genType)
+    <*> genType
+    <*> (ExVar <$> genLocalValueName)
+    <*> (ExVar <$> genLocalValueName)
 
 genForeignCallExpr :: Gen Expr
 genForeignCallExpr =
@@ -282,7 +312,7 @@ genCCallSpec =
     <*> genForeignEffect
 
 genCCallTarget :: Gen CCallTarget
-genCCallTarget = Gen.element [CCallFunction, CCallAddress]
+genCCallTarget = Gen.element [CCallFunction, CCallAddress, CCallDynamic, CCallWrapper]
 
 genForeignSymbol :: Gen Text
 genForeignSymbol =
@@ -381,6 +411,7 @@ genTidyProgram = do
           [ DeclVal
               ValDecl
                 { valVis = Pub,
+                  valInline = InlineDefault,
                   valName = valueNameTop "shadow",
                   valType = TyForAll (Binder typeVar kind) functionType,
                   valBody =

@@ -1,0 +1,27 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  foreign import ccall "wrapper" wrap :: (Int -> IO Unit) -> IO (FunPtr (Int -> IO Unit))
+  foreign import ccall "dynamic" invoke :: FunPtr (Int -> IO Unit) -> Int -> IO Unit
+  write ref n = IO (\s -> case writeMutVar# ref n s of next -> (# next, Unit #))
+  value = runRW# (\s -> case newMutVar# (I# 0#) s of
+    (# s1, ref #) -> case wrap (write ref) of
+      IO make -> case make s1 of
+        (# s2, callback #) -> case invoke callback (I# 42#) of
+          IO action -> case action s2 of
+            (# s3, _ #) -> case free callback of
+              IO release -> case release s3 of
+                (# s4, _ #) -> case readMutVar# ref s4 of
+                  (# _, answer #) -> answer)
+return: "@0"
+heap: |
+  @0 = CI# 42
+status: pass
+reason: A void callback preserves a captured mutable reference across collection.

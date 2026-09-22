@@ -1,0 +1,58 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  k :: (Nat -> Nat) -> Nat
+  k h = h Z
+  {-# RULES
+  "k/const" forall x. k (\y -> x) = x
+    #-}
+  captured :: Nat
+  captured = k (\w -> w)
+  constant :: Nat -> Nat
+  constant c = k (\w -> c)
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tNat :: 2.sType {
+      pub 1.cZ :: 1.tNat;
+      pub 1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  pub val 1.vk :: (1.tNat 2.→ 1.tNat) 2.→ 1.tNat
+   = λ(x : 1.tNat 2.→ 1.tNat).
+    x 1.cZ
+
+  pub val 1.vcaptured :: 1.tNat
+   = 1.vk (λ(w : 1.tNat).
+    w)
+
+  pub val 1.vconstant :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    x
+
+  rule "k/const" λ(x : 1.tNat).
+    1.vk (λ(y : 1.tNat).
+      x)
+   = x
+   :: 1.tNat
+status: pass
+reason: A rule binder never takes an expression that names a variable the application binds inside the matched part.

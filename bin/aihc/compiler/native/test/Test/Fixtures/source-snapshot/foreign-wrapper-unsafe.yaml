@@ -1,0 +1,20 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall "wrapper" wrap :: (Int -> Int) -> IO (FunPtr (Int -> Int))
+  foreign import ccall "dynamic" invoke :: FunPtr (Int -> Int) -> Int -> Int
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  foreign import ccall unsafe "dynamic" unsafeInvoke :: FunPtr (Int -> Int) -> Int -> Int
+  identity x = x
+  value = runRW# (\s -> case wrap identity of
+    IO make -> case make s of
+      (# _, callback #) -> unsafeInvoke callback (I# 42#))
+error: 'an unsafe foreign call cannot enter a Haskell callback'
+status: pass
+reason: An unsafe foreign call cannot enter a Haskell callback.

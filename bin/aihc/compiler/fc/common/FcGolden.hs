@@ -45,6 +45,7 @@ import Aihc.Tc
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)
 import Data.Aeson ((.!=), (.:), (.:?))
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
@@ -213,13 +214,17 @@ parsePass :: Y.Value -> Y.Parser Pass
 parsePass value =
   case value of
     Y.String "eta" -> pure PassEtaExpand
-    Y.String "simplify" -> pure PassSimplify
+    Y.String "simplify" -> pure (PassSimplify 0)
+    Y.Object obj | Just simplify <- KeyMap.lookup "simplify" obj -> do
+      phase <- Y.parseJSON simplify
+      pure (PassSimplify phase)
     Y.Object obj -> do
       inline <- obj .: "inline"
       case inline of
-        Y.String name -> (`PassInline` defaultRounds) <$> namedPolicy name
+        Y.String name -> (\policy -> PassInline policy defaultRounds (defaultPhase policy)) <$> namedPolicy name
         Y.Object knobs -> do
           base <- knobs .: "policy" >>= namedPolicy
+          phase <- knobs .:? "phase" .!= defaultPhase base
           calleeLimit <- knobs .:? "callee-limit" .!= policyCalleeLimit base
           siteLimit <- knobs .:? "site-limit" .!= policySiteLimit base
           discount <- knobs .:? "discount" .!= policyFunctionArgumentDiscount base
@@ -236,11 +241,15 @@ parsePass value =
                     policyValueSlack = valueSlack
                   }
                 rounds
+                phase
             )
         _ -> fail "inline must be shrink, grow, or an object with a policy"
     _ -> fail "a pass must be eta, simplify, or an object with inline"
   where
     defaultRounds = 4
+    -- The phases of the optimization plans: the shrinking inliner is
+    -- phase 2 and the growing one phase 1.
+    defaultPhase policy = if policyName policy == policyName shrinkPolicy then 2 else 1
     namedPolicy :: Text -> Y.Parser InlinePolicy
     namedPolicy name =
       case name of

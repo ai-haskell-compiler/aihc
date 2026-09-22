@@ -1,5 +1,4 @@
 entry: $entry
-rts-arguments: ["+RTS", "-M256", "-RTS"]
 program: |
   constructor Done/0 []
   global done = (CDone)
@@ -14,6 +13,11 @@ program: |
 
   $entry -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) global-ref outer
-error: heap limit exceeded
+return: "@0"
+heap: |
+  @0 = CDone
+allocated-bytes:
+  macos-arm64: 48
+  linux-amd64: 48
 status: pass
-reason: Active blackhole records must count toward the heap limit.
+reason: Two uncontended thunk evaluations need only their update continuations.

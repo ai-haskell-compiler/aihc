@@ -105,7 +105,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
-import Data.Char (isAsciiUpper)
+import Data.Char (isAsciiUpper, isDigit)
 import Data.Foldable (foldrM)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
@@ -348,9 +348,70 @@ desugarModuleValues checked = do
   patSyns <- concat <$> mapM desugarPatSynDecl (Syn.moduleDecls checked)
   (groups, patternGroups) <- groupValues (Syn.moduleDecls checked)
   tops <- mapM allocateTopValue groups
-  values <- mapM desugarTopValue tops
+  let specs = inlinePragmaSpecs (Syn.moduleDecls checked)
+  values <- mapM (desugarTopValue specs) tops
   patternValues <- concat <$> mapM desugarTopPatternGroup patternGroups
-  pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues))
+  rules <- concat <$> mapM desugarRulesDecl (Syn.moduleDecls checked)
+  pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues) <> rules)
+
+-- | The rules of a @RULES@ pragma. Any other declaration gives none.
+desugarRulesDecl :: Syn.Decl -> ValueM [Decl]
+desugarRulesDecl declaration =
+  case Syn.peelDeclAnn declaration of
+    Syn.DeclRules rules -> concat <$> mapM desugarRule rules
+    _ -> pure []
+
+-- | One rewrite rule. The type checker annotated the rule with the type
+-- of the function from its pattern variables to its sides, closed over its
+-- type variables and residual constraints; the rule abstracts over those
+-- type variables, the dictionaries of those constraints, and the pattern
+-- variables, in that order. A rule the checker rejected has no annotation
+-- and gives nothing: its error was reported.
+desugarRule :: Syn.RuleDecl -> ValueM [Decl]
+desugarRule rule =
+  case listToMaybe (mapMaybe Syn.fromAnnotation (Syn.ruleAnns rule)) of
+    Nothing -> pure []
+    Just annotation -> do
+      let (typeVariables, afterForAlls) = peelForAlls (tcAnnType annotation)
+          (predicates, bodyType) = peelConstraints afterForAlls
+          (binderTypes, resultType) = peelFunctions (length (Syn.ruleBinders rule)) bodyType
+      typeBinders <- convertTypeBinders typeVariables
+      withTypeVariables typeVariables $ do
+        dictionaries <- zipWithM (freshDictionaryBinder "$rd") [0 :: Int ..] predicates
+        binders <- zipWithM ruleBinder (Syn.ruleBinders rule) binderTypes
+        ty <- convertCheckedType resultType
+        let side expression =
+              withDictionaryScope (zipWith Dictionary predicates dictionaries) $
+                withLocals [(key, (binder, binderType)) | (key, binder, binderType) <- binders] (desugarExpr expression)
+        lhs <- side (Syn.ruleLhs rule)
+        rhs <- side (Syn.ruleRhs rule)
+        pure
+          [ DeclRule
+              RuleDecl
+                { ruleName = Syn.ruleName rule,
+                  ruleActivation = convertRuleActivation (Syn.ruleActivation rule),
+                  ruleTypeBinders = typeBinders,
+                  ruleBinders = dictionaries <> [binder | (_, binder, _) <- binders],
+                  ruleType = ty,
+                  ruleLhs = lhs,
+                  ruleRhs = rhs
+                }
+          ]
+  where
+    ruleBinder binder binderType =
+      case binderTermKey (Syn.ruleBinderName binder) of
+        Nothing -> failValue ("rule binder without a resolved name: " <> T.unpack (Syn.unqualifiedNameText (Syn.ruleBinderName binder)))
+        Just key -> do
+          fcBinder <- freshBinder (Syn.unqualifiedNameText (Syn.ruleBinderName binder)) binderType
+          pure (key, fcBinder, binderType)
+
+convertRuleActivation :: Maybe Syn.RuleActivation -> RuleActivation
+convertRuleActivation activation =
+  case activation of
+    Nothing -> AlwaysActive
+    Just (Syn.RuleActiveAfter phase) -> ActiveAfter phase
+    Just (Syn.RuleActiveBefore phase) -> ActiveBefore phase
+    Just Syn.RuleNeverActive -> NeverActive
 
 -- | Whether one top-level term of the module is visible to other modules.
 --
@@ -402,7 +463,7 @@ desugarPatSynHelper moduleOrigin prefix info matches = do
   -- No export list mentions a @$m@ or @$b@ name, so the helper follows the
   -- synonym that it belongs to.
   vis <- termVisibility (psiName info)
-  pure (DeclVal (ValDecl vis (topName moduleOrigin (patSynHelperName prefix info)) ty body))
+  pure (DeclVal (ValDecl vis (topName moduleOrigin (patSynHelperName prefix info)) ty body InlineDefault))
 
 -- | The field selector of a record pattern synonym as an ordinary
 -- top-level function. The type checker checks its equation against the
@@ -414,7 +475,7 @@ desugarPatSynSelector moduleOrigin (label, match) = do
   body <- desugarMatches selectorType [match]
   ty <- convertCheckedType selectorType
   vis <- termVisibility label
-  pure (DeclVal (ValDecl vis (topName moduleOrigin label) ty body))
+  pure (DeclVal (ValDecl vis (topName moduleOrigin label) ty body InlineDefault))
 
 patSynHelperName :: Text -> PatSynInfo -> Text
 patSynHelperName prefix info = prefix <> psiName info
@@ -638,6 +699,7 @@ desugarRecordSelector constructors label = do
       ( DeclVal
           ValDecl
             { valVis = vis,
+              valInline = InlineDefault,
               valName = topName moduleOrigin label,
               valType = selectorType',
               valBody = foldr ExTyLam (foldr ExLam selection (dictionaries <> [argument])) typeBinders
@@ -805,7 +867,10 @@ convertForeignSafetyMark safety =
 foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
 foreignImportPlanDependencies ty plan = do
   typeDependencies <- foreignTypeNewtypeDependencies ty
-  marshalDependencies <- concat <$> mapM foreignMarshalDependencies (tcForeignArguments plan <> [tcForeignResult plan])
+  let pointerMarshals = case tcForeignTarget plan of
+        TcForeignWrapper pointer -> [pointer]
+        _ -> []
+  marshalDependencies <- concat <$> mapM foreignMarshalDependencies (pointerMarshals <> tcForeignArguments plan <> [tcForeignResult plan])
   pure (List.nub (typeDependencies <> marshalDependencies))
 
 foreignTypeNewtypeDependencies :: TcType -> ValueM [ForeignImportDependency]
@@ -876,6 +941,8 @@ convertForeignTarget target =
   case target of
     TcForeignCall -> CCallFunction
     TcForeignAddress -> CCallAddress
+    TcForeignDynamic -> CCallDynamic
+    TcForeignWrapper _ -> CCallWrapper
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =
@@ -973,6 +1040,7 @@ desugarDefaultWorker annotation matches = do
             -- the worker by name, and no export list mentions @$dm@ names,
             -- so a default worker is always public.
             valVis = Pub,
+            valInline = InlineDefault,
             valName = topName moduleOrigin (defaultMethodName methodName),
             valType = convertedType,
             valBody = body
@@ -1018,6 +1086,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
       ( DeclVal
           ValDecl
             { valVis = vis,
+              valInline = InlineDefault,
               valName = topName moduleOrigin (tcClassMethodName method),
               valType = methodType',
               valBody = foldr ExTyLam (foldr ExLam selection dictionaries) typeBinders
@@ -1080,7 +1149,7 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
             mapM
               (\method -> (tcCoercedMethodName method,) <$> desugarCoercedMethod annotation body method)
               (tcCoercedMethods body)
-        (methodFields, workers) <- mapAndUnzipM (uncurry (hoistInstanceMethod annotation contextDictionaries)) methodBodies
+        (methodFields, workers) <- mapAndUnzipM (uncurry (hoistInstanceMethod annotation contextDictionaries (instanceInlineSpecs (Syn.instanceDeclItems instanceDecl)))) methodBodies
         headTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
         let constructor = foldl ExTyApp (ExVar (classDictConName (tcInstanceClassTyCon annotation))) headTypes
         pure (foldl ExApp constructor (superClasses <> methodFields), workers)
@@ -1097,6 +1166,7 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
           { -- Instances are global: any module that solves the constraint
             -- names the dictionary, whatever the export list says.
             valVis = Pub,
+            valInline = InlineDefault,
             valName = topName moduleOrigin (tcInstanceDictName annotation),
             valType = dictionaryType,
             valBody = body
@@ -1112,8 +1182,8 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
 -- call passes them straight back.
 --
 -- Only this module names a worker, so it stays private.
-hoistInstanceMethod :: TcInstanceAnnotation -> [Dictionary] -> Text -> Expr -> ValueM (Expr, Decl)
-hoistInstanceMethod annotation contextDictionaries methodName methodBody = do
+hoistInstanceMethod :: TcInstanceAnnotation -> [Dictionary] -> Map Text InlineSpec -> Text -> Expr -> ValueM (Expr, Decl)
+hoistInstanceMethod annotation contextDictionaries specs methodName methodBody = do
   method <- requiredClassMethod annotation methodName
   workerType <- convertCheckedType (instanceWorkerType (tcInstanceDictType annotation) (instanceMethodFieldType annotation method))
   typeBinders <- convertTypeBinders (tcInstanceTyVars annotation)
@@ -1124,6 +1194,7 @@ hoistInstanceMethod annotation contextDictionaries methodName methodBody = do
       worker =
         ValDecl
           { valVis = Private,
+            valInline = Map.findWithDefault InlineDefault methodName specs,
             valName = workerName,
             valType = workerType,
             valBody = foldr ExTyLam (foldr ExLam methodBody dictionaryBinders) typeBinders
@@ -1466,8 +1537,70 @@ groupType group =
     FunctionGroup _ _ _ ty -> ty
     PatternGroup _ _ _ ty -> ty
 
-desugarTopValue :: TopValue -> ValueM ValDecl
-desugarTopValue top = do
+-- | The inline pragmas among declarations, by the name each mentions. A
+-- pragma the source spells in a way the compiler does not read gives
+-- nothing: it is a hint.
+inlinePragmaSpecs :: [Syn.Decl] -> Map Text InlineSpec
+inlinePragmaSpecs decls = Map.fromList (mapMaybe declSpec decls)
+  where
+    declSpec decl =
+      case Syn.peelDeclAnn decl of
+        Syn.DeclPragma pragma -> inlinePragmaSpec pragma
+        _ -> Nothing
+
+-- | The inline pragmas among the items of an instance, by method name.
+instanceInlineSpecs :: [Syn.InstanceDeclItem] -> Map Text InlineSpec
+instanceInlineSpecs items = Map.fromList (mapMaybe itemSpec items)
+  where
+    itemSpec item =
+      case item of
+        Syn.InstanceItemAnn _ inner -> itemSpec inner
+        Syn.InstanceItemPragma pragma -> inlinePragmaSpec pragma
+        _ -> Nothing
+
+-- | The name and the inline spec of an @INLINE@, @INLINABLE@ or
+-- @NOINLINE@ pragma: @INLINE [1] f@, @NOINLINE CONLIKE (<>)@.
+inlinePragmaSpec :: Syn.Pragma -> Maybe (Text, InlineSpec)
+inlinePragmaSpec pragma =
+  case Syn.pragmaType pragma of
+    Syn.PragmaInline kind body -> do
+      let (activations, names) = List.partition (T.isPrefixOf "[") (filter (/= "CONLIKE") (T.words body))
+      name <- case names of
+        [single] -> Just (T.dropAround (`elem` ("()" :: String)) single)
+        _ -> Nothing
+      -- The activation says when inlining is allowed. Without one, INLINE
+      -- and INLINABLE allow every phase and NOINLINE allows none.
+      explicit <- case activations of
+        [] -> Just Nothing
+        [single] -> Just <$> pragmaActivation single
+        _ -> Nothing
+      let activation fallback = fromMaybe fallback explicit
+      spec <- case T.toUpper kind of
+        "INLINE" -> Just (InlineAlways (activation AlwaysActive))
+        "INLINABLE" -> Just (InlineWhenUseful (activation AlwaysActive))
+        "INLINEABLE" -> Just (InlineWhenUseful (activation AlwaysActive))
+        "NOINLINE" -> Just (InlineNever (activation NeverActive))
+        "NOINLINABLE" -> Just (InlineNever (activation NeverActive))
+        "NOINLINEABLE" -> Just (InlineNever (activation NeverActive))
+        _ -> Nothing
+      pure (name, spec)
+    _ -> Nothing
+
+-- | @[2]@, @[~2]@ or @[~]@.
+pragmaActivation :: Text -> Maybe RuleActivation
+pragmaActivation text = do
+  inner <- T.stripPrefix "[" text >>= T.stripSuffix "]"
+  case T.stripPrefix "~" inner of
+    Just "" -> Just NeverActive
+    Just phase -> ActiveBefore <$> readPhase phase
+    Nothing -> ActiveAfter <$> readPhase inner
+  where
+    readPhase phase
+      | not (T.null phase) && T.all isDigit phase = Just (read (T.unpack phase))
+      | otherwise = Nothing
+
+desugarTopValue :: Map Text InlineSpec -> TopValue -> ValueM ValDecl
+desugarTopValue specs top = do
   body <-
     case topGroup top of
       FunctionGroup _ _ matches _ -> desugarMatches (topType top) matches
@@ -1477,6 +1610,7 @@ desugarTopValue top = do
   pure
     ValDecl
       { valVis = vis,
+        valInline = Map.findWithDefault InlineDefault (groupName (topGroup top)) specs,
         valName = topCoreName top,
         valType = ty,
         valBody = body
@@ -1512,6 +1646,7 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
         { -- The right-hand side of a pattern binding has a made-up name that
           -- no export list can mention; only its own selectors read it.
           valVis = Private,
+          valInline = InlineDefault,
           valName = rhsName,
           valType = convertedRhsType,
           valBody = rhsBody
@@ -1528,6 +1663,7 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
       pure
         ValDecl
           { valVis = vis,
+            valInline = InlineDefault,
             valName = topName moduleOrigin name,
             valType = convertedType,
             valBody = ExLet (Bind rhsBinder (ExVar rhsName)) body
@@ -1553,12 +1689,14 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
       pure
         [ ValDecl
             { valVis = Private,
+              valInline = InlineDefault,
               valName = selectName,
               valType = selectType,
               valBody = foldr ExTyLam (ExLam argumentBinder selectBody) selectBinders
             },
           ValDecl
             { valVis = vis,
+              valInline = InlineDefault,
               valName = topName moduleOrigin name,
               valType = convertedType,
               valBody = foldr ExTyLam (ExApp (instantiate (ExVar selectName)) (instantiate (ExVar rhsName))) typeBinders

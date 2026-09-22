@@ -58,6 +58,20 @@ extra-source-files:
   test/Test/Fixtures/install/code-quality/*/fixture.yaml
   test/Test/Fixtures/install/code-quality/*/src/*.hs
   test/Test/Fixtures/install/code-quality/*/src/*.hsc
+  test/Test/Fixtures/install/code-quality/dependency-headers/consumer/cbits/check.c
+  test/Test/Fixtures/install/code-quality/dependency-headers/consumer/demo.cabal
+  test/Test/Fixtures/install/code-quality/dependency-headers/consumer/src/Demo.hs
+  test/Test/Fixtures/install/code-quality/dependency-headers/consumer/src/Generated.hsc
+  test/Test/Fixtures/install/code-quality/dependency-headers/header-provider/configure
+  test/Test/Fixtures/install/code-quality/dependency-headers/header-provider/header-provider.cabal
+  test/Test/Fixtures/install/code-quality/dependency-headers/header-provider/include/Provider.h
+  test/Test/Fixtures/install/code-quality/dependency-headers/header-provider/include/ProviderConfig.h
+  test/Test/Fixtures/install/code-quality/dependency-headers/header-provider/src/Provider.hs
+  test/Test/Fixtures/install/code-quality/dependency-private-header/consumer/demo.cabal
+  test/Test/Fixtures/install/code-quality/dependency-private-header/consumer/src/Demo.hs
+  test/Test/Fixtures/install/code-quality/dependency-private-header/header-provider/header-provider.cabal
+  test/Test/Fixtures/install/code-quality/dependency-private-header/header-provider/include/Private.h
+  test/Test/Fixtures/install/code-quality/dependency-private-header/header-provider/src/Provider.hs
   test/Test/Fixtures/install/incremental/Extra.hs
   test/Test/Fixtures/install/incremental/demo.cabal
   test/Test/Fixtures/install/incremental/dep/dep.cabal
@@ -136,6 +150,7 @@ library
     Aihc.Fc.Pass
     Aihc.Fc.Pretty
     Aihc.Fc.Prune
+    Aihc.Fc.Rules
     Aihc.Fc.Share
     Aihc.Fc.Simplify
     Aihc.Fc.Size

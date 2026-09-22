@@ -101,6 +101,7 @@ prettyDecl scopes decl =
     DeclSynonym declaration -> prettySynonymDecl scopes declaration
     DeclAxiom declaration -> prettyAxiomDecl scopes declaration
     DeclVal declaration -> prettyValDecl scopes declaration
+    DeclRule declaration -> prettyRuleDecl scopes declaration
 
 prettyVis :: Vis -> Doc ann
 prettyVis Pub = "pub "
@@ -192,11 +193,48 @@ prettyValDecl scopes declaration =
   prettyVis (valVis declaration)
     <> "val "
     <> prettyTopName scopes (valName declaration)
+    <> prettyInlineSpec (valInline declaration)
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (valType declaration)
     <> hardline
     <> " = "
     <> prettyExprWith scopes (valBody declaration)
+
+-- | A rule: @rule "name" [2] Λ(a : k). λ(x : t). lhs = rhs :: type@.
+prettyRuleDecl :: ScopeIndex -> RuleDecl -> Doc ann
+prettyRuleDecl scopes declaration =
+  "rule "
+    <> pretty (show (T.unpack (ruleName declaration)))
+    <> prettyActivation (ruleActivation declaration)
+    <> foldMap (\binder -> " Λ" <> prettyPiBinder scopes binder <> ".") (ruleTypeBinders declaration)
+    <> foldMap (\binder -> " λ" <> prettyPiBinder scopes binder <> ".") (ruleBinders declaration)
+    <> hardline
+    <> indent 2 (prettyExprWith scopes (ruleLhs declaration))
+    <> hardline
+    <> " = "
+    <> prettyExprWith scopes (ruleRhs declaration)
+    <> hardline
+    <> " :: "
+    <> prettyTypeWith scopes PrecForAll (ruleType declaration)
+
+-- | The inline pragma of a value: @inline [2]@, @noinline@, @inlinable@.
+prettyInlineSpec :: InlineSpec -> Doc ann
+prettyInlineSpec spec =
+  case spec of
+    InlineDefault -> mempty
+    InlineAlways activation -> " inline" <> prettyActivation activation
+    InlineWhenUseful activation -> " inlinable" <> prettyActivation activation
+    -- A plain @noinline@ allows no phase, so its activation goes unsaid.
+    InlineNever NeverActive -> " noinline"
+    InlineNever activation -> " noinline" <> prettyActivation activation
+
+prettyActivation :: RuleActivation -> Doc ann
+prettyActivation activation =
+  case activation of
+    AlwaysActive -> mempty
+    ActiveAfter phase -> " [" <> pretty phase <> "]"
+    ActiveBefore phase -> " [~" <> pretty phase <> "]"
+    NeverActive -> " [~]"
 
 -- | The head of a foreign call: @foreign {prim 1.vf :: type}@.
 prettyForeignCall :: ScopeIndex -> ForeignCall -> Doc ann
@@ -244,6 +282,8 @@ prettyCCallTarget target =
   case target of
     CCallFunction -> mempty
     CCallAddress -> "address "
+    CCallDynamic -> "dynamic "
+    CCallWrapper -> "wrapper "
 
 prettyCAbiType :: CAbiType -> Doc ann
 prettyCAbiType abiType =
@@ -570,6 +610,10 @@ reservedWords :: [Text]
 reservedWords =
   [ "pub",
     "val",
+    "rule",
+    "inline",
+    "inlinable",
+    "noinline",
     "type",
     "axiom",
     "foreign",

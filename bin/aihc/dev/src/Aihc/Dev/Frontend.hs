@@ -264,7 +264,7 @@ runPackage config jobs headerDirectory dependencies root = do
     -- scratch directory, so nothing is reused from a previous run.
     (files, preprocessTime) <- timed $ do
       (configured, cInfo) <- configurePackage config root scratch name inputs
-      preprocessPackage config versions root scratch (inputConfigureScript inputs) cInfo configured
+      preprocessPackage config versions root scratch (inputConfigureScript inputs) "" cInfo configured
     let preprocessed = length (filter (isJust . HackageCabal.fileInfoPreprocessor) (inputSources inputs))
     reportPhase "preprocess" preprocessTime (show preprocessed <> " " <> plural preprocessed "file")
     let loader = excerptSourceLoader headerDirectory root versions files

@@ -1,0 +1,2 @@
+status: pass
+reason: Imported callback plans preserve types and adapters through interface files.

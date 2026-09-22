@@ -102,29 +102,20 @@ struct AihcBlackholeWaiter {
 _Static_assert(sizeof(AihcBlackholeWaiter) <= 4 * sizeof(AihcSlot),
                "blackhole waiter exceeds the GRIN reservation");
 
-struct AihcBlackhole {
-  AihcSlot header;
-  /* The thunk header points to this embedded info table. */
-  AihcInfo info;
-  const AihcInfo *original_info;
+/* Only contended thunks have table entries. The collector relocates keys
+   and waiter lists, then rebuilds the hash positions in the spare array. */
+typedef struct {
   AihcValue *object;
-  AihcThread *owner;
-  AihcBlackholeWaiter *waiters_head;
-  AihcBlackholeWaiter *waiters_tail;
-  AihcBlackhole *previous;
-  AihcBlackhole *next;
+  AihcBlackholeWaiter *head;
+  AihcBlackholeWaiter *tail;
+} AihcBlackholeEntry;
+
+struct AihcBlackholeTable {
+  size_t capacity;
+  size_t count;
+  AihcBlackholeEntry *entries;
+  AihcBlackholeEntry *spare;
 };
-
-/* Match the evaluation reservation in aihc_constants.lir. */
-_Static_assert(sizeof(AihcBlackhole) <= 14 * sizeof(AihcSlot),
-               "blackhole record exceeds the GRIN reservation");
-
-/* The collector relocates this interior pointer before it releases the old
- * space. */
-static inline AihcBlackhole *aihc_blackhole_from_info(const AihcInfo *info) {
-  return (AihcBlackhole *)((uint8_t *)(uintptr_t)info -
-                           offsetof(AihcBlackhole, info));
-}
 
 struct AihcMVarWaiter {
   AihcSlot header;

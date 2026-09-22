@@ -1064,6 +1064,11 @@ declOrigins decl =
       nameOriginPair (valName valDecl)
         <> typeOrigins (valType valDecl)
         <> exprOrigins (valBody valDecl)
+    DeclRule ruleDecl ->
+      concatMap binderOrigins (ruleTypeBinders ruleDecl <> ruleBinders ruleDecl)
+        <> typeOrigins (ruleType ruleDecl)
+        <> exprOrigins (ruleLhs ruleDecl)
+        <> exprOrigins (ruleRhs ruleDecl)
 
 foreignImportDependencyOrigins :: ForeignImportDependency -> [(PackageId, Text)]
 foreignImportDependencyOrigins dependency =

@@ -1,0 +1,217 @@
+---
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test (total, plain, twice) where
+  data Nat = Z | S Nat
+  data List a = Nil | Cons a (List a)
+  build :: (forall b. (a -> b -> b) -> b -> b) -> List a
+  build g = g Cons Nil
+  {-# INLINE [1] build #-}
+  foldr :: (a -> b -> b) -> b -> List a -> b
+  foldr k z xs = go xs
+    where
+      go Nil = z
+      go (Cons y ys) = k y (go ys)
+  {-# INLINE [1] foldr #-}
+  {-# RULES
+  "fold/build" forall k z (g :: forall b. (a -> b -> b) -> b -> b). foldr k z (build g) = g k z
+    #-}
+  map :: (a -> b) -> List a -> List b
+  map _ Nil = Nil
+  map f (Cons x xs) = Cons (f x) (map f xs)
+  mapFB :: (elt -> lst -> lst) -> (a -> elt) -> a -> lst -> lst
+  mapFB c f = \x ys -> c (f x) ys
+  {-# INLINE [1] mapFB #-}
+  {-# RULES
+  "map" [~1] forall f xs. map f xs = build (\c n -> foldr (mapFB c f) n xs)
+  "mapList" [1] forall f. foldr (mapFB Cons f) Nil = map f
+  "map/build" [1] forall f xs. build (\c n -> foldr (mapFB c f) n xs) = map f xs
+  "mapFB" forall c f g. mapFB (mapFB c f) g = mapFB c (\x -> f (g x))
+    #-}
+  plus :: Nat -> Nat -> Nat
+  plus Z n = n
+  plus (S m) n = S (plus m n)
+  sumList :: List Nat -> Nat
+  sumList = foldr plus Z
+  total :: List Nat -> Nat
+  total xs = sumList (map S (map S xs))
+  plain :: List Nat -> List Nat
+  plain xs = map S xs
+  twice :: List Nat -> List Nat
+  twice xs = map S (map S xs)
+passes:
+- eta
+- inline: shrink
+- inline: grow
+- eta
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tNat :: 2.sType {
+      1.cZ :: 1.tNat;
+      1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  type 1.tList (a : 2.sType) :: 2.sType {
+      1.cNil :: ∀(a : 2.sType). 1.tList a;
+      1.cCons :: ∀(a : 2.sType). a 2.→ 1.tList a 2.→ 1.tList a
+  }
+
+  val 1.vbuild inline [1] :: ∀(a : 2.sType). (∀(b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b) 2.→ 1.tList a
+   = Λ(a : 2.sType).
+    λ(x : ∀(b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b).
+      x @(1.tList a) (1.cCons @a) (1.cNil @a)
+
+  val 1.vfoldr inline [1] :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ 1.tList a 2.→ b
+   = Λ(a : 2.sType).
+    Λ(b : 2.sType).
+      λ(x : a 2.→ b 2.→ b).
+        λ(y : b).
+          λ(z : 1.tList a).
+            rec {
+                go : 1.tList a 2.→ b =
+                    λ(x{1} : 1.tList a).
+                      case x{1} as (_scrut : 1.tList a) return (b) of {
+                          1.cNil →
+                              y;
+                          1.cCons (y{1} : a) (ys : 1.tList a) →
+                              x y{1} (go ys)
+                      }
+            } in
+                go z
+
+  val 1.vmap :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b) 2.→ 1.tList a 2.→ 1.tList b
+   = Λ(a : 2.sType).
+    Λ(b : 2.sType).
+      λ(x : a 2.→ b).
+        λ(y : 1.tList a).
+          case y as (_scrut : 1.tList a) return (1.tList b) of {
+              1.cNil →
+                  1.cNil @b;
+              1.cCons (x{1} : a) (xs : 1.tList a) →
+                  1.cCons @b (x x{1}) (rec {
+                      go : 1.tList a 2.→ 1.tList b =
+                          λ(x{2} : 1.tList a).
+                            case x{2} as (_scrut{1} : 1.tList a) return (1.tList b) of {
+                                1.cNil →
+                                    1.cNil @b;
+                                1.cCons (y{1} : a) (ys : 1.tList a) →
+                                    1.cCons @b (x y{1}) (go ys)
+                            }
+                  } in
+                      go xs)
+          }
+
+  val 1.vmapFB inline [1] :: ∀(elt : 2.sType) (lst : 2.sType) (a : 2.sType). (elt 2.→ lst 2.→ lst) 2.→ (a 2.→ elt) 2.→ a 2.→ lst 2.→ lst
+   = Λ(elt : 2.sType).
+    Λ(lst : 2.sType).
+      Λ(a : 2.sType).
+        λ(x : elt 2.→ lst 2.→ lst).
+          λ(y : a 2.→ elt).
+            λ(x{1} : a).
+              λ(ys : lst).
+                x (y x{1}) ys
+
+  val 1.vplus :: 1.tNat 2.→ 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    λ(y : 1.tNat).
+      case x as (_scrut : 1.tNat) return (1.tNat) of {
+          1.cZ →
+              y;
+          1.cS (m : 1.tNat) →
+              1.cS (1.vplus m y)
+      }
+
+  pub val 1.vtotal :: 1.tList 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tList 1.tNat).
+    rec {
+        go : 1.tList 1.tNat 2.→ 1.tNat =
+            λ(x{1} : 1.tList 1.tNat).
+              case x{1} as (_scrut : 1.tList 1.tNat) return (1.tNat) of {
+                  1.cNil →
+                      1.cZ;
+                  1.cCons (y : 1.tNat) (ys : 1.tList 1.tNat) →
+                      1.vplus (1.cS (1.cS y)) (go ys)
+              }
+    } in
+        go x
+
+  pub val 1.vplain :: 1.tList 1.tNat 2.→ 1.tList 1.tNat
+   = λ(x : 1.tList 1.tNat).
+    rec {
+        go : 1.tList 1.tNat 2.→ 1.tList 1.tNat =
+            λ(x{1} : 1.tList 1.tNat).
+              case x{1} as (_scrut : 1.tList 1.tNat) return (1.tList 1.tNat) of {
+                  1.cNil →
+                      1.cNil @1.tNat;
+                  1.cCons (y : 1.tNat) (ys : 1.tList 1.tNat) →
+                      1.cCons @1.tNat (1.cS y) (go ys)
+              }
+    } in
+        go x
+
+  pub val 1.vtwice :: 1.tList 1.tNat 2.→ 1.tList 1.tNat
+   = λ(x : 1.tList 1.tNat).
+    rec {
+        go : 1.tList 1.tNat 2.→ 1.tList 1.tNat =
+            λ(x{1} : 1.tList 1.tNat).
+              case x{1} as (_scrut : 1.tList 1.tNat) return (1.tList 1.tNat) of {
+                  1.cNil →
+                      1.cNil @1.tNat;
+                  1.cCons (y : 1.tNat) (ys : 1.tList 1.tNat) →
+                      1.cCons @1.tNat (1.cS (1.cS y)) (go ys)
+              }
+    } in
+        go x
+
+  rule "fold/build" Λ(a : 2.sType). Λ(b : 2.sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : 2.sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
+    1.vfoldr @a @b k z (1.vbuild @a (Λ(b{1} : 2.sType).
+      g @b{1}))
+   = g @b k z
+   :: b
+
+  rule "map" [~1] Λ(a : 2.sType). Λ(b : 2.sType). λ(f : a 2.→ b). λ(xs : 1.tList a).
+    1.vmap @a @b f xs
+   = 1.vbuild @b (Λ(b{1} : 2.sType).
+    λ(c : b 2.→ b{1} 2.→ b{1}).
+      λ(n : b{1}).
+        1.vfoldr @a @b{1} (1.vmapFB @b @b{1} @a c f) n xs)
+   :: 1.tList b
+
+  rule "mapList" [1] Λ(a : 2.sType). Λ(b : 2.sType). λ(f : a 2.→ b).
+    1.vfoldr @a @(1.tList b) (1.vmapFB @b @(1.tList b) @a (1.cCons @b) f) (1.cNil @b)
+   = 1.vmap @a @b f
+   :: 1.tList a 2.→ 1.tList b
+
+  rule "map/build" [1] Λ(a : 2.sType). Λ(b : 2.sType). λ(f : a 2.→ b). λ(xs : 1.tList a).
+    1.vbuild @b (Λ(b{1} : 2.sType).
+      λ(c : b 2.→ b{1} 2.→ b{1}).
+        λ(n : b{1}).
+          1.vfoldr @a @b{1} (1.vmapFB @b @b{1} @a c f) n xs)
+   = 1.vmap @a @b f xs
+   :: 1.tList b
+
+  rule "mapFB" Λ(a : 2.sType). Λ(b : 2.sType). Λ(c : 2.sType). Λ(d : 2.sType). λ(c{1} : a 2.→ b 2.→ b). λ(f : c 2.→ a). λ(g : d 2.→ c).
+    1.vmapFB @c @b @d (1.vmapFB @a @b @c c{1} f) g
+   = 1.vmapFB @a @b @d c{1} (λ(x : d).
+    f (g x))
+   :: d 2.→ b 2.→ b
+status: pass
+reason: The fusion rules of GHC.Base in miniature. A map under a foldr fuses into one loop, a map that nothing consumes turns back into a map, and two maps collapse into one.

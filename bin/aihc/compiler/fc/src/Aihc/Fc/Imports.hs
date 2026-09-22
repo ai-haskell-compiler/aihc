@@ -177,6 +177,11 @@ declReferences decl =
         <> typeReferences (synBody declaration)
     DeclAxiom declaration -> axiomReferences declaration
     DeclVal declaration -> typeReferences (valType declaration) <> exprReferences (valBody declaration)
+    DeclRule declaration ->
+      foldMap binderReferences (ruleTypeBinders declaration <> ruleBinders declaration)
+        <> typeReferences (ruleType declaration)
+        <> exprReferences (ruleLhs declaration)
+        <> exprReferences (ruleRhs declaration)
 
 foreignImportDependencyReferences :: ForeignImportDependency -> References
 foreignImportDependencyReferences dependency =

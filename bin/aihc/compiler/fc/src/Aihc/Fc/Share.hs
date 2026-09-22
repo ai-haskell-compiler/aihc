@@ -113,6 +113,16 @@ shareDecl decl =
                 <$> shareName (valName value)
                 <*> shareType (valType value)
                 <*> shareExpr (valBody value)
+                <*> pure (valInline value)
+            )
+    DeclRule rule ->
+      DeclRule
+        <$> ( RuleDecl (ruleName rule) (ruleActivation rule)
+                <$> mapM shareBinder (ruleTypeBinders rule)
+                <*> mapM shareBinder (ruleBinders rule)
+                <*> shareType (ruleType rule)
+                <*> shareExpr (ruleLhs rule)
+                <*> shareExpr (ruleRhs rule)
             )
 
 shareConDecl :: ConDecl -> Share ConDecl

@@ -80,6 +80,17 @@ tidyDecl decl =
           { valType = tidyType emptyTidyEnv (valType declaration),
             valBody = tidyExpr emptyTidyEnv (valBody declaration)
           }
+    DeclRule declaration ->
+      let (typeBinders, typeEnv) = tidyBinders emptyTidyEnv (ruleTypeBinders declaration)
+          (binders, env) = tidyBinders typeEnv (ruleBinders declaration)
+       in DeclRule
+            declaration
+              { ruleTypeBinders = typeBinders,
+                ruleBinders = binders,
+                ruleType = tidyType env (ruleType declaration),
+                ruleLhs = tidyExpr env (ruleLhs declaration),
+                ruleRhs = tidyExpr env (ruleRhs declaration)
+              }
 
 tidyConDecl :: ConDecl -> ConDecl
 tidyConDecl declaration =

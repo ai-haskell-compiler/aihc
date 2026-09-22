@@ -22,6 +22,9 @@ module Aihc.Fc.Syntax
     SynonymDecl (..),
     AxiomDecl (..),
     ValDecl (..),
+    InlineSpec (..),
+    RuleDecl (..),
+    RuleActivation (..),
     ForeignCall (..),
     ForeignImportDependency (..),
     CallingConvention (..),
@@ -181,6 +184,35 @@ data Decl
   | DeclSynonym SynonymDecl
   | DeclAxiom AxiomDecl
   | DeclVal ValDecl
+  | DeclRule RuleDecl
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
+-- | A rewrite rule. The type binders and the value binders, which include
+-- the dictionaries of the rule's constraints, are the pattern variables of
+-- the left-hand side, and the two sides share the rule type. A rule
+-- declares no name: it is kept while the head of its left-hand side is.
+data RuleDecl = RuleDecl
+  { ruleName :: Text,
+    ruleActivation :: RuleActivation,
+    ruleTypeBinders :: [Binder],
+    ruleBinders :: [Binder],
+    ruleType :: Type,
+    ruleLhs :: Expr,
+    ruleRhs :: Expr
+  }
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
+-- | The phases in which a rule fires, as the source pragma gives them.
+data RuleActivation
+  = AlwaysActive
+  | -- | @[n]@: phase @n@ and later phases.
+    ActiveAfter Int
+  | -- | @[~n]@: the phases before phase @n@.
+    ActiveBefore Int
+  | -- | @[~]@: never.
+    NeverActive
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 
@@ -238,8 +270,26 @@ data ValDecl = ValDecl
   { valVis :: Vis,
     valName :: Name,
     valType :: Type,
-    valBody :: Expr
+    valBody :: Expr,
+    -- | What the source said about inlining the value.
+    valInline :: InlineSpec
   }
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
+-- | The @INLINE@, @INLINABLE@ or @NOINLINE@ pragma of a value, with the
+-- phases in which inlining is allowed. Without a pragma the inliner
+-- decides by its policy.
+data InlineSpec
+  = InlineDefault
+  | -- | @INLINE@: copy the value at every saturated call in the phases the
+    -- activation names, whatever the size, and never before them.
+    InlineAlways RuleActivation
+  | -- | @INLINABLE@: the usual policy, in the phases the activation names.
+    InlineWhenUseful RuleActivation
+  | -- | @NOINLINE@: no copy until the phases the activation names; a plain
+    -- @NOINLINE@ names none.
+    InlineNever RuleActivation
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 
@@ -271,6 +321,8 @@ data CCallSpec = CCallSpec
 data CCallTarget
   = CCallFunction
   | CCallAddress
+  | CCallDynamic
+  | CCallWrapper
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 

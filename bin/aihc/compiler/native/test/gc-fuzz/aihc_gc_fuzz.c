@@ -130,6 +130,9 @@ static AihcMVar **mvars;
 static size_t mvar_count;
 static AihcStableName **stable_names;
 static size_t stable_count;
+/* These explicit roots model the thunk references in update continuations. */
+static AihcValue **blackholes;
+static size_t blackhole_count;
 static uint64_t reserved_words;
 static size_t command_index;
 static AihcValue **object_starts;
@@ -464,19 +467,15 @@ static void print_object(AihcValue *object) {
       identity == 0 || identity >= entry_capacity ? NULL : &entries[identity];
   if (entry == NULL || !entry->defined) {
     violation("object with an unknown identity survived");
-    printf("obj %" PRIuPTR " %s 0\n", identity, kind_name(info->object_kind));
+    printf("obj %" PRIuPTR " %s 0\n", identity,
+           kind_name(aihc_value_kind(object)));
     return;
   }
   if (entry->address != NULL) {
     violation("two objects share one identity");
   }
   entry->address = object;
-  if (info->object_kind == AIHC_OBJECT_BLACKHOLE) {
-    if (info->field_count != entry->info->field_count ||
-        info->field_is_pointer != entry->info->field_is_pointer) {
-      violation("blackhole info table does not match its thunk");
-    }
-  } else if (info != entry->info) {
+  if (info != entry->info) {
     violation("object header does not name its own info table");
   }
   if (info->object_kind == AIHC_OBJECT_ARRAY) {
@@ -491,7 +490,7 @@ static void print_object(AihcValue *object) {
   }
   const AihcSlot *fields = entry_fields(entry);
   printf("obj %" PRIuPTR " %s %" PRIuPTR, identity,
-         kind_name(info->object_kind), (uintptr_t)info->field_count);
+         kind_name(aihc_value_kind(object)), (uintptr_t)info->field_count);
   for (uint64_t index = 0; index < info->field_count; ++index) {
     if (entry->pointers[index]) {
       print_pointer(fields[index]);
@@ -643,23 +642,12 @@ static void report_collection(uint64_t required_bytes) {
     print_pointer(thread->resume_value);
     printf("\n");
   }
-  const AihcBlackhole *previous_blackhole = NULL;
-  for (const AihcBlackhole *blackhole = machine->blackholes; blackhole != NULL;
-       blackhole = blackhole->next) {
-    if (blackhole->previous != previous_blackhole) {
-      violation("blackhole previous link is incorrect");
+  for (size_t index = 0; index < blackhole_count; ++index) {
+    if (aihc_value_kind(blackholes[index]) != AIHC_OBJECT_BLACKHOLE) {
+      violation("active thunk has no evaluation tag");
     }
-    if (!is_object_start((const AihcValue *)blackhole) ||
-        aihc_value_kind((const AihcValue *)blackhole) !=
-            AIHC_OBJECT_BLACKHOLE_RECORD) {
-      violation("blackhole record is not a managed object");
-    }
-    if (aihc_value_info_table(blackhole->object) != &blackhole->info) {
-      violation("blackhole header does not name its scheduler record");
-    }
-    previous_blackhole = blackhole;
     printf("blackhole");
-    print_pointer((AihcSlot)(uintptr_t)blackhole->object);
+    print_pointer((AihcSlot)(uintptr_t)blackholes[index]);
     printf("\n");
   }
   for (uint64_t slot = 0; slot < STATIC_THUNKS; ++slot) {
@@ -683,22 +671,28 @@ static void ensure(uint64_t words) {
   /* The driver retains MVars and stable names through explicit roots. */
   if (root_count > SIZE_MAX / sizeof(AihcSlot) ||
       mvar_count > SIZE_MAX / sizeof(AihcSlot) - root_count ||
-      stable_count > SIZE_MAX / sizeof(AihcSlot) - root_count - mvar_count) {
+      stable_count > SIZE_MAX / sizeof(AihcSlot) - root_count - mvar_count ||
+      blackhole_count > SIZE_MAX / sizeof(AihcSlot) - root_count - mvar_count -
+                            stable_count) {
     fail("too many roots");
   }
   if (mvar_count != 0 && mvars == NULL) {
     fail("MVar roots are missing");
   }
-  size_t total = (size_t)root_count + mvar_count + stable_count;
+  size_t total =
+      (size_t)root_count + mvar_count + stable_count + blackhole_count;
   AihcSlot *roots = checked_calloc(total, sizeof(*roots));
   for (size_t index = 0; index < total; ++index) {
     if (index < root_count) {
       roots[index] = root_slots[index];
     } else if (index < root_count + mvar_count) {
       roots[index] = (AihcSlot)(uintptr_t)mvars[index - root_count];
-    } else {
+    } else if (index < root_count + mvar_count + stable_count) {
       roots[index] =
           (AihcSlot)(uintptr_t)stable_names[index - root_count - mvar_count];
+    } else {
+      roots[index] = (AihcSlot)(uintptr_t)
+          blackholes[index - root_count - mvar_count - stable_count];
     }
   }
   aihc_ensure_heap(machine, words, total, roots, current_srt);
@@ -707,9 +701,12 @@ static void ensure(uint64_t words) {
       root_slots[index] = roots[index];
     } else if (index < root_count + mvar_count) {
       mvars[index - root_count] = (AihcMVar *)(uintptr_t)roots[index];
-    } else {
+    } else if (index < root_count + mvar_count + stable_count) {
       stable_names[index - root_count - mvar_count] =
           (AihcStableName *)(uintptr_t)roots[index];
+    } else {
+      blackholes[index - root_count - mvar_count - stable_count] =
+          (AihcValue *)(uintptr_t)roots[index];
     }
   }
   free(roots);
@@ -749,6 +746,9 @@ static void command_machine(char **tokens, size_t count) {
   free(root_slots);
   free(mvars);
   free(stable_names);
+  free(blackholes);
+  blackholes = NULL;
+  blackhole_count = 0;
   stable_names = NULL;
   stable_count = 0;
   mvars = NULL;
@@ -1091,43 +1091,34 @@ static void run_command(char **tokens, size_t count) {
     if (count != 2) {
       fail("blackhole expects one argument");
     }
-    uint64_t words =
-        (sizeof(AihcBlackhole) + sizeof(AihcSlot) - 1) / sizeof(AihcSlot);
-    if (words > reserved_words) {
-      fail("blackhole record exceeds its reservation");
-    }
-    reserved_words -= words;
-    /* This driver constructs collector input without entering thunk code.
-       Runtime evaluation constructs the same record directly in Lir. */
-    static const AihcInfo record_info = {
-        .object_kind = AIHC_OBJECT_BLACKHOLE_RECORD,
-    };
     AihcValue *object = live_entry(parse_unsigned(tokens[1]))->address;
-    const AihcInfo *original_info = aihc_value_info_table(object);
-    if (original_info->object_kind != AIHC_OBJECT_THUNK) {
+    if (aihc_value_kind(object) != AIHC_OBJECT_THUNK) {
       fail("blackhole expects a thunk");
     }
-    AihcBlackhole *record = (AihcBlackhole *)aihc_gc_allocate(machine, words);
-    *record = (AihcBlackhole){
-        .header = (AihcSlot)(uintptr_t)&record_info,
-        .info = *original_info,
-        .original_info = original_info,
-        .object = object,
-        .owner = machine->current_thread,
-        .next = machine->blackholes,
-    };
-    record->info.object_kind = AIHC_OBJECT_BLACKHOLE;
-    if (record->next != NULL) {
-      record->next->previous = record;
+    AihcValue **grown =
+        realloc(blackholes, (blackhole_count + 1) * sizeof(*blackholes));
+    if (grown == NULL) {
+      fail("out of memory");
     }
-    machine->blackholes = record;
-    object->header = (AihcSlot)(uintptr_t)&record->info;
+    blackholes = grown;
+    memmove(blackholes + 1, blackholes, blackhole_count * sizeof(*blackholes));
+    blackholes[0] = object;
+    ++blackhole_count;
+    object->header |= AIHC_HEADER_EVALUATING;
   } else if (strcmp(name, "unblackhole") == 0) {
     if (count != 3) {
       fail("unblackhole expects two arguments");
     }
     AihcValue *target = parse_object(tokens[2]);
     Entry *entry = live_entry(parse_unsigned(tokens[1]));
+    for (size_t index = 0; index < blackhole_count; ++index) {
+      if (blackholes[index] == entry->address) {
+        --blackhole_count;
+        memmove(blackholes + index, blackholes + index + 1,
+                (blackhole_count - index) * sizeof(*blackholes));
+        break;
+      }
+    }
     aihc_update_blackhole(machine, entry->address, target);
   } else if (strcmp(name, "supdate") == 0) {
     if (count != 3) {

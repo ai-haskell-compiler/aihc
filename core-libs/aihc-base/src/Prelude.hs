@@ -159,6 +159,7 @@ import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, map, ($), (++), (.))
+import GHC.Base qualified
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
@@ -227,6 +228,19 @@ filter predicate (value : values) =
   if predicate value
     then value : filter predicate values
     else filter predicate values
+
+-- | The step of a 'filter' written as a 'GHC.Base.foldr'.
+filterFB :: (a -> b -> b) -> (a -> Bool) -> a -> b -> b
+filterFB c p x r = if p x then c x r else r
+{-# INLINE [1] filterFB #-}
+
+-- The same scheme as the rules for 'map' in "GHC.Base".
+{-# RULES
+"filter" [~1] forall p xs. filter p xs = GHC.Base.build (\c n -> GHC.Base.foldr (filterFB c p) n xs)
+"filterList" [1] forall p. GHC.Base.foldr (filterFB (:) p) [] = filter p
+"filter/build" [1] forall p xs. GHC.Base.build (\c n -> GHC.Base.foldr (filterFB c p) n xs) = filter p xs
+"filterFB" forall c p q. filterFB (filterFB c p) q = filterFB c (\x -> q x && p x)
+  #-}
 
 head :: [a] -> a
 head [] = error "Prelude.head: empty list"
