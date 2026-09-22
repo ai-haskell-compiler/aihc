@@ -1,0 +1,25 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  data Double = D# Double#
+  foreign import ccall "wrapper" wrap :: (Double -> Double -> Double) -> IO (FunPtr (Double -> Double -> Double))
+  foreign import ccall "dynamic" invoke :: FunPtr (Double -> Double -> Double) -> Double -> Double -> Double
+  add (D# a) (D# b) = D# (a +## b)
+  value = runRW# (\s -> case wrap add of
+    IO make -> case make s of
+      (# s1, callback #) -> case invoke callback (D# (int2Double# 45# /## int2Double# 2#)) (D# (int2Double# 39# /## int2Double# 2#)) of
+        D# answer -> case free callback of
+          IO release -> case release s1 of
+            (# _, _ #) -> I# (double2Int# answer))
+return: "@0"
+heap: |
+  @0 = CI# 42
+status: pass
+reason: A callback preserves floating point arguments and results.

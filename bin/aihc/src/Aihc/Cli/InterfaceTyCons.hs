@@ -17,7 +17,7 @@ module Aihc.Cli.InterfaceTyCons
 where
 
 import Aihc.Tc
-import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
+import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignTarget (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
@@ -165,7 +165,9 @@ foreignImportInfoTyCons :: Collect TcForeignImportInfo
 foreignImportInfoTyCons info = case info of
   TcForeignPrimImport -> id
   TcForeignCCallImport _ plan ->
-    each marshalTyCons (tcForeignArguments plan <> [tcForeignResult plan])
+    each marshalTyCons (tcForeignArguments plan <> [tcForeignResult plan]) . case tcForeignTarget plan of
+      TcForeignWrapper pointer -> marshalTyCons pointer
+      _ -> id
   where
     marshalTyCons marshal =
       typeTyConsInto (tcForeignSourceType marshal) . typeTyConsInto (tcForeignPrimitiveType marshal)

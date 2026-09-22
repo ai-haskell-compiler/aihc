@@ -1464,9 +1464,15 @@ annotateForeignDeclTc foreignDecl = do
     callConv | callConv == CCall || callConv == CApi -> do
       let declaredName = unqualifiedNameText (foreignName foreignDecl)
           capi = callConv == CApi
-      entity <- checkForeignEntity sourceSpan capi declaredName (foreignEntity foreignDecl)
-      plan <- checkForeignImportType sourceSpan (foreignEntityTarget entity) (foreignEntityName entity) ty
-      checkedPlan <- checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
+      checkedPlan <- case foreignEntity foreignDecl of
+        ForeignEntityWrapper | not capi -> checkForeignWrapper sourceSpan declaredName ty
+        ForeignEntityDynamic | not capi -> do
+          checkForeignDynamic sourceSpan ty
+          checkForeignImportType sourceSpan TcForeignDynamic declaredName ty
+        _ -> do
+          entity <- checkForeignEntity sourceSpan capi declaredName (foreignEntity foreignDecl)
+          plan <- checkForeignImportType sourceSpan (foreignEntityTarget entity) (foreignEntityName entity) ty
+          checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
@@ -1634,6 +1640,8 @@ valueEntity = ForeignEntity TcForeignCall Nothing True
 checkForeignTarget :: Maybe SourceSpan -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
 checkForeignTarget sourceSpan plan =
   case tcForeignTarget plan of
+    TcForeignDynamic -> pure plan
+    TcForeignWrapper _ -> pure plan
     TcForeignAddress -> do
       unless (null (tcForeignArguments plan)) $
         emitError sourceSpan (OtherError "an address foreign import must not take arguments")
@@ -1672,6 +1680,38 @@ checkForeignImportType sourceSpan target symbol ty = do
         tcForeignTarget = target,
         tcForeignCApi = Nothing
       }
+
+-- | A wrapper preserves the callback ABI and the function pointer representation.
+checkForeignWrapper :: Maybe SourceSpan -> Text -> TcType -> TcM TcForeignImportAnnotation
+checkForeignWrapper sourceSpan symbol ty =
+  case splitFunctionType ty of
+    ([callback], TcTyCon (TyCon "IO" 1) [pointer@(TcTyCon (TyCon "FunPtr" 1) [pointed])]) -> do
+      unless (equivalentTypeSchemes (typeSchemeFromType callback) (typeSchemeFromType pointed)) $
+        emitError sourceSpan (OtherError "a wrapper result must point to its callback type")
+      let (callbackArguments, callbackResult) = splitFunctionType callback
+      when (null callbackArguments && not (isIO callbackResult)) $
+        emitError sourceSpan (OtherError "a callback must be a function or an IO action")
+      pointerMarshal <- checkForeignValueType sourceSpan pointer
+      plan <- checkForeignImportType sourceSpan TcForeignCall symbol callback
+      when (any (isByteArray . tcForeignSourceType) (tcForeignResult plan : tcForeignArguments plan)) $
+        emitError sourceSpan (OtherError "a callback cannot use a byte array value")
+      pure plan {tcForeignTarget = TcForeignWrapper pointerMarshal}
+    _ -> do
+      emitError sourceSpan (OtherError "a wrapper import must have type f -> IO (FunPtr f)")
+      checkForeignImportType sourceSpan TcForeignCall symbol ty
+  where
+    isIO (TcTyCon (TyCon "IO" 1) [_]) = True
+    isIO _ = False
+    isByteArray (TcTyCon constructor _) = tyConName constructor `elem` ["ByteArray#", "MutableByteArray#"]
+    isByteArray _ = False
+
+checkForeignDynamic :: Maybe SourceSpan -> TcType -> TcM ()
+checkForeignDynamic sourceSpan ty =
+  case ty of
+    TcForAllTy _ body -> checkForeignDynamic sourceSpan body
+    TcFunTy (TcTyCon (TyCon "FunPtr" 1) [pointed]) function
+      | equivalentTypeSchemes (typeSchemeFromType pointed) (typeSchemeFromType function) -> pure ()
+    _ -> emitError sourceSpan (OtherError "a dynamic import must have type FunPtr f -> f")
 
 splitFunctionType :: TcType -> ([TcType], TcType)
 splitFunctionType ty =

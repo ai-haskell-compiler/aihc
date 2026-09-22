@@ -296,7 +296,7 @@ genCCallSpec =
     <*> genForeignEffect
 
 genCCallTarget :: Gen CCallTarget
-genCCallTarget = Gen.element [CCallFunction, CCallAddress]
+genCCallTarget = Gen.element [CCallFunction, CCallAddress, CCallDynamic, CCallWrapper]
 
 genForeignSymbol :: Gen Text
 genForeignSymbol =

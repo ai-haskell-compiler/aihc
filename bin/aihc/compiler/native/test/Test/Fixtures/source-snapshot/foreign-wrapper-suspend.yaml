@@ -1,0 +1,24 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall "wrapper" wrap :: (Int -> Int) -> IO (FunPtr (Int -> Int))
+  foreign import ccall "dynamic" invoke :: FunPtr (Int -> Int) -> Int -> Int
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  foreign import ccall "wrapper" wrapIO :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))
+  foreign import ccall "dynamic" invokeIO :: FunPtr (Int -> IO Int) -> Int -> IO Int
+  wait x = IO (\s -> case newMVar# s of
+    (# s1, box #) -> takeMVar# box s1)
+  value = runRW# (\s -> case wrapIO wait of
+    IO make -> case make s of
+      (# s1, callback #) -> case invokeIO callback (I# 42#) of
+        IO action -> case action s1 of
+          (# _, answer #) -> answer)
+error: 'a foreign callback cannot suspend'
+status: pass
+reason: A callback that cannot complete synchronously reports a runtime error.

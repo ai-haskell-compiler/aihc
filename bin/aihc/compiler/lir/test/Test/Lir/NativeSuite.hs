@@ -6,6 +6,7 @@
 -- source file that Clang compiles.
 module Test.Lir.NativeSuite
   ( NativeBackend (..),
+    SnapshotFixture (..),
     tests,
     uncheckedTraps,
   )
@@ -16,7 +17,7 @@ import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
-import Aihc.Native (NativeTarget (..), executableEntryName)
+import Aihc.Native (NativeTarget (..), executableEntryName, renderNativeTarget)
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources, withFixtureRuntimeUnits)
@@ -258,6 +259,8 @@ data SnapshotFixture = SnapshotFixture
   { snapshotFixtureEntry :: !Text,
     snapshotFixtureProgram :: !(Maybe Text),
     snapshotFixtureSource :: !(Maybe Text),
+    snapshotFixtureCSource :: !(Maybe Text),
+    snapshotFixtureCodegenErrors :: !(Map.Map Text String),
     snapshotFixtureReturn :: !(Maybe Text),
     snapshotFixtureHeap :: !(Maybe Text),
     snapshotFixtureError :: !(Maybe Text),
@@ -275,6 +278,8 @@ instance FromJSON SnapshotFixture where
         <$> object .: "entry"
         <*> object .:? "program"
         <*> object .:? "source"
+        <*> object .:? "c-source"
+        <*> object .:? "codegen-errors" .!= Map.empty
         <*> object .:? "return"
         <*> object .:? "heap"
         <*> object .:? "error"
@@ -312,20 +317,28 @@ snapshotTest backend getExports directory name = testCase name $ do
       (Map.lookup (externFunctionName external) exports)
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
-  output <- compileUnit backend lirModule
-  when (backendRuns backend) $ do
-    native <- runObservedUnit backend fixture output metadata
-    case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture, native) of
-      (Just returnValue, Just heapValue, Nothing, Right snapshot) -> do
-        allocatedBytes <- maybe (assertFailure ("fixture has no " <> T.unpack (backendAllocationKey backend) <> " allocated byte count")) pure (snapshotFixtureAllocatedBytes fixture >>= Map.lookup (backendAllocationKey backend))
-        let heap = T.stripEnd heapValue
-            expected
-              | heap == "[]" = "return: " <> returnValue <> "\nheap: []"
-              | otherwise = "return: " <> returnValue <> "\nheap:\n" <> T.unlines (map ("  " <>) (T.lines heap))
-        assertEqual "native snapshot" (T.stripEnd expected <> "\nallocated bytes: " <> T.pack (show allocatedBytes)) (T.stripEnd snapshot)
-      (Nothing, Nothing, Just err, Left message) -> assertEqual "native error" (T.strip err) message
-      (_, _, _, Left message) -> assertFailure ("native snapshot failed: " <> T.unpack message)
-      (_, _, _, Right snapshot) -> assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
+  -- Compiler limits belong to the backend, not to its host allocation layout.
+  case Map.lookup (T.pack (renderNativeTarget (backendTarget backend))) (snapshotFixtureCodegenErrors fixture) of
+    Just expected -> case backendCompile backend lirModule of
+      Left actual -> assertEqual "backend error" expected actual
+      Right _ -> assertFailure "backend accepted a fixture with an expected error"
+    Nothing -> do
+      output <- compileUnit backend lirModule
+      when (backendRuns backend) $ do
+        native <- runObservedUnit backend fixture output metadata
+        case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture, native) of
+          (Just returnValue, Just heapValue, Nothing, Right snapshot) -> do
+            let allocatedBytes = snapshotFixtureAllocatedBytes fixture >>= Map.lookup (backendAllocationKey backend)
+            let heap = T.stripEnd heapValue
+                expected
+                  | heap == "[]" = "return: " <> returnValue <> "\nheap: []"
+                  | otherwise = "return: " <> returnValue <> "\nheap:\n" <> T.unlines (map ("  " <>) (T.lines heap))
+            case allocatedBytes of
+              Just count -> assertEqual "native snapshot" (T.stripEnd expected <> "\nallocated bytes: " <> T.pack (show count)) (T.stripEnd snapshot)
+              Nothing -> assertEqual "native snapshot" (T.stripEnd expected) (T.stripEnd (fst (T.breakOn "\nallocated bytes:" snapshot)))
+          (Nothing, Nothing, Just err, Left message) -> assertEqual "native error" (T.strip err) message
+          (_, _, _, Left message) -> assertFailure ("native snapshot failed: " <> T.unpack message)
+          (_, _, _, Right snapshot) -> assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
 
 -- | Source fixtures declare one boxed value named @value@ in module @Test@.
 snapshotProgram :: SnapshotFixture -> Either String GrinProgram
@@ -357,11 +370,14 @@ runObservedUnit backend fixture output metadata =
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
         executablePath = directory </> "snapshot"
+        cPath = directory </> "fixture.c"
     TIO.writeFile metadataPath ((if snapshotFixtureRequireGc fixture || snapshotFixtureGcStress fixture then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "") <> metadata)
+    forM_ (snapshotFixtureCSource fixture) (TIO.writeFile cPath)
     (clangExit, _, clangErr) <-
       readProcessWithExitCode
         "clang"
         ( backendClangArguments backend
+            <> [cPath | Just _ <- [snapshotFixtureCSource fixture]]
             <> ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
             <> runtimeIncludeArguments runtimeBuild
             <> [snapshotRuntime, metadataPath, unit, runtimeBuildArchive runtimeBuild, "-lm", "-o", executablePath]

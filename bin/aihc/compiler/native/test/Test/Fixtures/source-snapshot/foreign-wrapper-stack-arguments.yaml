@@ -1,0 +1,28 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  type Callback = Int# -> Int# -> Int# -> Int# -> Int# -> Int# -> Int# -> Int# -> Int8# -> Int8#
+  foreign import ccall "wrapper" wrap :: Callback -> IO (FunPtr Callback)
+  foreign import ccall "dynamic" invoke :: FunPtr Callback -> Callback
+  lastArgument :: Callback
+  lastArgument a b c d e f g h i = i
+  value = runRW# (\s -> case wrap lastArgument of
+    IO make -> case make s of
+      (# s1, callback #) -> case invoke callback 1# 2# 3# 4# 5# 6# 7# 8# (intToInt8# (negateInt# 42#)) of
+        answer -> case free callback of
+          IO release -> case release s1 of
+            (# _, _ #) -> I# (negateInt# (int8ToInt# answer)))
+codegen-errors:
+  linux-amd64: 'Amd64LirUnsupported "C call with more than six integer arguments"'
+return: "@0"
+heap: |
+  @0 = CI# 42
+status: pass
+reason: A callback preserves a signed narrow argument on the C stack.

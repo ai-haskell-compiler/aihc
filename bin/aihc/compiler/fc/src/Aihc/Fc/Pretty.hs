@@ -270,6 +270,8 @@ prettyCCallTarget target =
   case target of
     CCallFunction -> mempty
     CCallAddress -> "address "
+    CCallDynamic -> "dynamic "
+    CCallWrapper -> "wrapper "
 
 prettyCAbiType :: CAbiType -> Doc ann
 prettyCAbiType abiType =

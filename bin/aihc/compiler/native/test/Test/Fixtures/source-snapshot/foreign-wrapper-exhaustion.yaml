@@ -1,0 +1,22 @@
+entry: $entry
+gc-stress: true
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Unit = Unit
+  data FunPtr a = FunPtr Addr#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall "wrapper" wrap :: (Int -> Int) -> IO (FunPtr (Int -> Int))
+  foreign import ccall "dynamic" invoke :: FunPtr (Int -> Int) -> Int -> Int
+  foreign import ccall unsafe "aihc_free_haskell_fun_ptr" free :: FunPtr a -> IO Unit
+  add (I# n) (I# m) = I# (n +# m)
+  loop n s = case n of
+    0# -> I# 42#
+    _ -> case wrap (add (I# n)) of
+      IO make -> case make s of
+        (# s1, _ #) -> loop (n -# 1#) s1
+  value = runRW# (loop 65#)
+error: 'foreign callback pool is exhausted'
+status: pass
+reason: A full callback pool reports a runtime error.

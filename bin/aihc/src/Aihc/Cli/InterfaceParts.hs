@@ -53,7 +53,7 @@ import Aihc.Tc
     tcInterfaceTypeFamilyInstances,
     tvKind,
   )
-import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
+import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignTarget (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Control.Monad (void)
 import Control.Monad.Trans.State.Strict (State, execState, gets, state)
@@ -253,7 +253,9 @@ walkForeignImportInfo :: TcForeignImportInfo -> Parts ()
 walkForeignImportInfo info = case info of
   TcForeignPrimImport -> pure ()
   TcForeignCCallImport _ plan ->
-    traverse_ walkForeignMarshal (tcForeignResult plan : tcForeignArguments plan)
+    traverse_ walkForeignMarshal (tcForeignResult plan : tcForeignArguments plan) >> case tcForeignTarget plan of
+      TcForeignWrapper pointer -> walkForeignMarshal pointer
+      _ -> pure ()
 
 walkForeignMarshal :: TcForeignMarshal -> Parts ()
 walkForeignMarshal marshal = do

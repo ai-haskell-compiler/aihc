@@ -1,0 +1,16 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim
+    data Int = I# Int#
+    data Double = D# Double#
+    data FunPtr a = FunPtr Addr#
+    data IO a
+    foreign import ccall "wrapper" bad :: (Int -> Int) -> IO (FunPtr (Int -> Double))
+output: ""
+expression: I# 0#
+error: 'typecheck error: Test: a wrapper result must point to its callback type'
+status: fail
+reason: The function pointer type must match the callback type.

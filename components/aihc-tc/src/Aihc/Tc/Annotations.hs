@@ -201,6 +201,8 @@ instance NFData TcForeignSafety
 data TcForeignTarget
   = TcForeignCall
   | TcForeignAddress
+  | TcForeignDynamic
+  | TcForeignWrapper !TcForeignMarshal
   deriving (Eq, Show, Read, Generic)
 
 instance NFData TcForeignTarget
