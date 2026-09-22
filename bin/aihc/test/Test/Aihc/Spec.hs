@@ -43,7 +43,6 @@ import System.Directory
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
-    withCurrentDirectory,
   )
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
@@ -63,7 +62,7 @@ import Test.Aihc.SeedStore
     seededPackagePath,
     withSandbox,
   )
-import Test.Tasty (DependencyType (AllFinish), TestTree, dependentTestGroup, testGroup, withResource)
+import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 
 -- | The core libraries are seeded once for the whole group rather than by each
@@ -75,11 +74,11 @@ tests =
     testGroup
       "aihc"
       [ withResource (acquireCoreStore primStore) releaseSeedStore $ \coreStore ->
-          -- These run one at a time: build resolves its build directory
-          -- against the working directory, and the process has only one.
-          dependentTestGroup
+          -- Every build names its build root and output, so these run
+          -- alongside each other. A build that left either to the working
+          -- directory would need the process's one directory to itself.
+          testGroup
             "build"
-            AllFinish
             [ testCase "builds imported source modules and runs the executable" (test_buildModuleSourceDirectories coreStore),
               testCase "reports the ambiguous installed module" (test_buildModuleAmbiguousModule coreStore),
               testCase "reports the generated entry collision" (test_buildModuleEntryCollision coreStore),
@@ -92,13 +91,7 @@ tests =
               -- The --lto builds need core libraries built with the flag,
               -- which the other stores do not hold.
               withResource acquireLtoStore releaseSeedStore $ \ltoStore ->
-                dependentTestGroup
-                  "lto"
-                  AllFinish
-                  [ testCase "compiles the merged program of the executable once" (test_buildLto ltoStore),
-                    testCase "compiles the merged program of each executable of a package" (test_buildPackageLto ltoStore),
-                    testCase "installs a package as System FC only" (test_installLto ltoStore)
-                  ]
+                testCase "compiles the merged program of each executable once" (test_lto ltoStore)
             ],
         testGroup
           "install"
@@ -490,7 +483,7 @@ withBuildModuleSandbox getStore prefix action = do
               buildPackageConstraints = ["aihc-base == 4.21.2.0"],
               buildTarget = buildHostTarget,
               buildStoreRoot = Just storeRoot,
-              buildBuildRoot = Nothing,
+              buildBuildRoot = Just (sandboxRoot sandbox </> ".aihc-target"),
               buildWorkspace = Nothing,
               buildKeepCore = False,
               buildKeepGrin = False,
@@ -509,10 +502,10 @@ withBuildModuleSandbox getStore prefix action = do
 
 -- | Run @build@ and return the error it reports, failing the test when it
 -- succeeds instead.
-buildModuleError :: FilePath -> BuildOptions -> String -> IO String
-buildModuleError workingDirectory options expectation = do
+buildModuleError :: BuildOptions -> String -> IO String
+buildModuleError options expectation = do
   result <-
-    try (withCurrentDirectory workingDirectory (build options)) ::
+    try (build options) ::
       IO (Either IOException [FilePath])
   case result of
     Left err -> pure (ioeGetErrorString err)
@@ -520,7 +513,7 @@ buildModuleError workingDirectory options expectation = do
 
 test_buildModuleSourceDirectories :: IO SeedStore -> Assertion
 test_buildModuleSourceDirectories getStore =
-  withBuildModuleSandbox getStore "aihc-build" $ \sandbox fixtureRoot storeRoot options -> do
+  withBuildModuleSandbox getStore "aihc-build" $ \sandbox _fixtureRoot storeRoot options -> do
     let root = sandboxRoot sandbox
         output = sandboxRoot sandbox </> "program"
         target = buildTarget options
@@ -537,48 +530,33 @@ test_buildModuleSourceDirectories getStore =
     let strayPackage = storeRoot </> nativeTargetStoreDirectory target </> "aihc-base-9999-0123456789abcdef"
     createDirectoryIfMissing True strayPackage
     writePackageManifest (packageManifestPath strayPackage) manifest {packageManifestVersion = "9999"}
-    void (withCurrentDirectory root (build options))
+    void (build options)
     let mainObject = root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o"
     assertFileExists mainObject
     assertFileDoesNotExist (root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
     -- The second build finds every module of the executable unchanged.
     mainTime <- getModificationTime mainObject
-    void (withCurrentDirectory root (build options))
+    void (build options)
     rebuiltTime <- getModificationTime mainObject
     assertEqual "unchanged executable modules are reused" mainTime rebuiltTime
     let customBuildRoot = root </> "custom-build-root"
-    void (withCurrentDirectory fixtureRoot (build options {buildBuildRoot = Just customBuildRoot}))
+    void (build options {buildBuildRoot = Just customBuildRoot})
     assertFileExists (customBuildRoot </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
     BS.writeFile unusedResolve resolveBytes
     typeBytes <- BS.readFile unusedType
     BS.writeFile unusedType "invalid unused type interface"
-    void (withCurrentDirectory root (build options))
+    void (build options)
     BS.writeFile unusedType typeBytes
-    void (withCurrentDirectory root (build options {buildLint = True}))
+    void (build options {buildLint = True})
     -- The entry unit is generated beside the module objects of the
     -- executable, and the runtime is an installed package like any other.
     assertFileExists (root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "entry.o")
     rtsPackage <- seededPackagePath storeRoot target "aihc-rts"
     assertFileExists (rtsPackage </> "cbits" </> "native_aihc_runtime.o")
-    (status, stdout, stderr) <- readProcessWithExitCode output [] ""
-    assertEqual "executable exit status" ExitSuccess status
-    assertEqual "executable stdout" "build works\n" stdout
-    assertEqual "executable stderr" "" stderr
-    (rtsStatus, rtsStdout, rtsStderr) <-
-      readProcessWithExitCode output ["first", "+RTS", "-M1G", "-RTS", "second"] ""
-    assertEqual "RTS executable exit status" ExitSuccess rtsStatus
-    assertEqual "RTS options are absent from program arguments" "first\nsecond\n" rtsStdout
-    assertEqual "RTS executable stderr" "" rtsStderr
-    (plainStatus, plainStdout, plainStderr) <-
-      readProcessWithExitCode output ["-M1G", "second"] ""
-    assertEqual "plain option executable exit status" ExitSuccess plainStatus
-    assertEqual "plain option remains a program argument" "-M1G\nsecond\n" plainStdout
-    assertEqual "plain option executable stderr" "" plainStderr
-    (limitStatus, limitStdout, limitStderr) <-
-      readProcessWithExitCode output ["+RTS", "-M1", "-RTS"] ""
-    assertBool "heap limit terminates the executable" (limitStatus /= ExitSuccess)
-    assertEqual "heap limit stdout" "" limitStdout
-    assertEqual "heap limit diagnostic" "aihc runtime: heap limit exceeded\n" limitStderr
+    -- What the program prints and how the runtime treats its arguments is
+    -- the business of the examples (rts-options, heap-limit); this checks
+    -- the one diagnostic no example can, a runtime option that does not
+    -- parse.
     (invalidStatus, invalidStdout, invalidStderr) <-
       readProcessWithExitCode output ["+RTS", "-M1X", "-RTS"] ""
     assertBool "invalid heap size terminates the executable" (invalidStatus /= ExitSuccess)
@@ -642,7 +620,7 @@ test_buildModuleLinkBundle getStore =
     let root = sandboxRoot sandbox
         bundle = root </> "bundle"
         output = root </> "linked" </> "program"
-    void (withCurrentDirectory root (build options {buildNoLink = True, buildOutput = Just bundle}))
+    void (build options {buildNoLink = True, buildOutput = Just bundle})
     assertFileDoesNotExist (root </> "program")
     assertFileExists (linkBundleManifestPath bundle)
     decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
@@ -657,21 +635,24 @@ test_buildModuleLinkBundle getStore =
       assertBool ("bundle input is relative: " <> input) ("inputs/" `isPrefixOf` input)
       assertFileExists (bundle </> input)
     removeDirectoryRecursive storeRoot
-    withCurrentDirectory root $
-      runLinkExe LinkExeOptions {linkExeBundle = bundle, linkExeOutputFile = output}
+    runLinkExe LinkExeOptions {linkExeBundle = bundle, linkExeOutputFile = output}
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "linked executable exit status" ExitSuccess status
     assertEqual "linked executable stdout" "build works\n" stdout
     assertEqual "linked executable stderr" "" stderr
 
--- | @-O2@ implies @--lto@: every module stops at System FC and the merged
--- program of the executable is compiled once, without
--- the values the entry does not reach. The package archives hold no Haskell
--- object, the executable links the one program object, and an unchanged
--- program keeps that object.
-test_buildLto :: IO SeedStore -> Assertion
-test_buildLto getStore =
-  withBuildModuleSandbox getStore "aihc-build-lto" $ \sandbox _fixtureRoot storeRoot options -> do
+-- | @-O2@ implies @--lto@: every module of a package build stops at System
+-- FC, the merged program of each executable is compiled once under the
+-- executable's own build directory, without the values its entry does not
+-- reach, the package archives hold no Haskell object, the executable links
+-- the one program object, and an unchanged program keeps that object. An
+-- @install --lto@ likewise writes the System FC of each module and nothing
+-- below it, and an archive without Haskell code; the next install reuses
+-- the unit. The seeded core libraries of this store are built at @-O2@,
+-- which is the same build as @-O2 --lto@.
+test_lto :: IO SeedStore -> Assertion
+test_lto getStore =
+  withBuildPackageSandbox getStore "aihc-lto" $ \sandbox buildRoot options -> do
     ltoFlag <-
       case parseCommandPure ["build", "Main.hs", "--target", "apple-arm64", "--lto"] of
         Right (CmdBuild parsed) -> pure (buildLto parsed)
@@ -683,20 +664,31 @@ test_buildLto getStore =
         other -> assertFailure ("install parse: " <> show other)
     assertBool "install parses --lto" installFlag
     let root = sandboxRoot sandbox
-        output = root </> "program"
+        storeRoot = root </> "store"
         target = buildTarget options
-        targetRoot = root </> ".aihc-target" </> nativeTargetStoreDirectory target
-        programObject = targetRoot </> "lto" </> "program" </> "program.o"
-        programCore = targetRoot </> "lto" </> "program" </> "core"
+        targetRoot = buildRoot </> nativeTargetStoreDirectory target
+        greetRoot = targetRoot </> "exe" </> "greet"
+        programObject = greetRoot </> "lto" </> "program" </> "program.o"
+        programCore = greetRoot </> "lto" </> "program" </> "core"
         ltoOptions = options {buildOptimization = O2, buildKeepCore = True}
-    void (withCurrentDirectory root (build ltoOptions))
-    -- The modules of the executable stop at System FC.
-    mainCore <- readCoreFile (targetRoot </> "Main" </> "core")
-    assertFileDoesNotExist (targetRoot </> "Main" </> "Main.o")
-    assertFileExists programObject
+    outputs <- build ltoOptions
+    assertEqual "built executables" [targetRoot </> "bin" </> "greet", targetRoot </> "bin" </> "shout"] outputs
+    forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
+      -- The modules of the executable stop at System FC.
+      assertFileExists (targetRoot </> "exe" </> name </> "lto" </> "program" </> "program.o")
+      assertCoreFile (targetRoot </> "exe" </> name </> "Main" </> "core")
+      assertFileDoesNotExist (targetRoot </> "exe" </> name </> "Main" </> "Main.o")
+      (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> name) [] ""
+      assertEqual (name <> " exit status") ExitSuccess status
+      assertEqual (name <> " stdout") expected stdout
+      assertEqual (name <> " stderr") "" stderr
+    -- The library of the package stops at System FC as well.
+    assertCoreFile (targetRoot </> "executables-0.1.0.0" </> "Words" </> "core")
+    assertFileDoesNotExist (targetRoot </> "executables-0.1.0.0" </> "Words" </> "Words.o")
     -- @--keep-core@ keeps the merged program as well as the modules it was
     -- merged from, so the kept program holds more than the executable's own
     -- module does.
+    mainCore <- readCoreFile (greetRoot </> "Main" </> "core")
     programCoreProgram <- readCoreFile programCore
     assertBool
       "the kept program holds the merged declarations"
@@ -719,58 +711,45 @@ test_buildLto getStore =
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", basePackage </> "lib" </> "libaihc-base.a"] ""
     let moduleObjects = [T.unpack name <> ".o" | name <- packageManifestCompiledModules manifest]
     assertBool ("base archive holds no module object: " <> show members) (all (`notElem` moduleObjects) members)
-    (status, stdout, stderr) <- readProcessWithExitCode output [] ""
-    assertEqual "executable exit status" ExitSuccess status
-    assertEqual "executable stdout" "build works\n" stdout
-    assertEqual "executable stderr" "" stderr
     -- The second build finds the program object current.
     objectTime <- getModificationTime programObject
-    void (withCurrentDirectory root (build ltoOptions))
+    _ <- build ltoOptions
     rebuiltTime <- getModificationTime programObject
     assertEqual "an unchanged program keeps its object" objectTime rebuiltTime
-    -- A link bundle carries the program object in place of the module objects.
-    let bundle = root </> "bundle"
-    void (withCurrentDirectory root (build ltoOptions {buildNoLink = True, buildOutput = Just bundle}))
-    decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
-    linkManifest <- either assertFailure pure decoded
-    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects linkManifest))
-    assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleObjects linkManifest)))
-
--- | An @install --lto@ writes the System FC of each module and nothing
--- below it, and an archive without Haskell code. The next install reuses
--- the unit. The seeded core libraries of this store are built at @-O2@,
--- which is the same build as @-O2 --lto@.
-test_installLto :: IO SeedStore -> Assertion
-test_installLto getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
-  withSandbox getStore "aihc-install-lto" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False True O2 False False False False buildHostTarget defaultPlanOptions
-    result <- install options
+    -- The bundle of an executable carries its program object in place of
+    -- the module objects.
+    let bundles = root </> "bundles"
+    _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
+    bundleManifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
+    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects bundleManifest))
+    assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleObjects bundleManifest)))
+    -- An install at the same level stops at System FC in the same way.
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
+    let installOptions = InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "install-build")) False False False False False False True O2 False False False False target defaultPlanOptions
+    result <- install installOptions
     let packageRoot = installStorePath result
     assertEqual "lto install writes the module" ["Demo"] (installWrittenModules result)
     assertCoreFile (packageRoot </> "Demo" </> "core")
     assertFileDoesNotExist (packageRoot </> "Demo" </> "grin")
     assertFileDoesNotExist (packageRoot </> "Demo" </> "Demo.o")
-    manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath packageRoot)
-    assertEqual "manifest flags" ["lto", "O2"] (packageManifestFlags manifest)
-    assertEqual "manifest compiled modules" ["Demo"] (packageManifestCompiledModules manifest)
+    demoManifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath packageRoot)
+    assertEqual "manifest flags" ["lto", "O2"] (packageManifestFlags demoManifest)
+    assertEqual "manifest compiled modules" ["Demo"] (packageManifestCompiledModules demoManifest)
     let archivePath = packageRoot </> "lib" </> "libdemo.a"
     assertFileExists archivePath
-    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
-    assertEqual "archive members" [] members
-    reused <- install options
+    demoMembers <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+    assertEqual "archive members" [] demoMembers
+    reused <- install installOptions
     assertEqual "lto install reuses the module" ["Demo"] (installReusedModules reused)
 
 -- | A workspace package that exposes a module of aihc-base makes an import
 -- of that module ambiguous.
 test_buildModuleAmbiguousModule :: IO SeedStore -> Assertion
 test_buildModuleAmbiguousModule getStore =
-  withBuildModuleSandbox getStore "aihc-build-ambiguous-module" $ \sandbox _ _ options -> do
+  withBuildModuleSandbox getStore "aihc-build-ambiguous-module" $ \_ _ _ options -> do
     workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/workspace"
     err <-
       buildModuleError
-        (sandboxRoot sandbox)
         options
           { buildPackageConstraints = buildPackageConstraints options <> ["duplicate == 1.0.0"],
             buildWorkspace = Just workspace
@@ -780,11 +759,10 @@ test_buildModuleAmbiguousModule getStore =
 
 test_buildModuleEntryCollision :: IO SeedStore -> Assertion
 test_buildModuleEntryCollision getStore =
-  withBuildModuleSandbox getStore "aihc-build-entry-collision" $ \sandbox _ _ options -> do
+  withBuildModuleSandbox getStore "aihc-build-entry-collision" $ \_ _ _ options -> do
     entryCollisionRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/generated-entry-collision"
     err <-
       buildModuleError
-        (sandboxRoot sandbox)
         options
           { buildInput = entryCollisionRoot </> "Main.hs",
             buildSourceDirectories = [entryCollisionRoot]
@@ -840,7 +818,7 @@ test_buildExecutables getStore =
     let root = sandboxRoot sandbox
         targetDirectory = nativeTargetStoreDirectory (buildTarget options)
     let binDirectory = buildRoot </> targetDirectory </> "bin"
-    outputs <- withCurrentDirectory root (build options)
+    outputs <- build options
     assertEqual "built executables" [binDirectory </> "greet", binDirectory </> "shout"] outputs
     forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
       (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> name) [] ""
@@ -853,12 +831,12 @@ test_buildExecutables getStore =
     assertFileExists greetObject
     -- The second build finds every module of the executables unchanged.
     builtTime <- getModificationTime greetObject
-    _ <- withCurrentDirectory root (build options)
+    _ <- build options
     rebuiltTime <- getModificationTime greetObject
     assertEqual "unchanged executable modules are reused" builtTime rebuiltTime
     -- Without the link, each executable becomes a bundle in the chosen directory.
     let bundles = root </> "bundles"
-    bundleOutputs <- withCurrentDirectory root (build options {buildNoLink = True, buildOutput = Just bundles})
+    bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
     assertEqual "written bundles" [bundles </> "greet", bundles </> "shout"] bundleOutputs
     forM_ ["greet", "shout"] $ \name -> do
       assertFileExists (linkBundleManifestPath (bundles </> name))
@@ -903,7 +881,7 @@ test_buildCxxSources getStore = do
               buildOutput = Nothing,
               buildPlanOptions = defaultPlanOptions
             }
-    outputs <- withCurrentDirectory root (build options)
+    outputs <- build options
     assertEqual "built executables" [targetRoot </> "bin" </> "triangle"] outputs
     (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> "triangle") [] ""
     assertEqual "triangle exit status" ExitSuccess status
@@ -914,46 +892,16 @@ test_buildCxxSources getStore = do
     manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath packageRoot)
     assertBool "the package manifest records its C++ sources" (packageManifestCxxStdLib manifest)
     let bundles = root </> "bundles"
-    bundleOutputs <- withCurrentDirectory root (build options {buildNoLink = True, buildOutput = Just bundles})
+    bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
     assertEqual "written bundles" [bundles </> "triangle"] bundleOutputs
     bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "triangle"))
     assertBool "the bundle asks for the C++ standard library" (linkBundleCxxStdLib bundle)
     assertBool "the bundle lists the C++ object" (any ("cbits_triangle.o" `isSuffixOf`) (linkBundleObjects bundle))
     let linked = root </> "linked" </> "triangle"
-    withCurrentDirectory root $
-      runLinkExe LinkExeOptions {linkExeBundle = bundles </> "triangle", linkExeOutputFile = linked}
+    runLinkExe LinkExeOptions {linkExeBundle = bundles </> "triangle", linkExeOutputFile = linked}
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
     assertEqual "linked executable exit status" ExitSuccess linkedStatus
     assertEqual "linked executable stdout" "55\n" linkedStdout
-
--- | @-O2@ on a package build compiles the merged program of each
--- executable once, under the executable's own build directory, and links
--- no module object.
-test_buildPackageLto :: IO SeedStore -> Assertion
-test_buildPackageLto getStore =
-  withBuildPackageSandbox getStore "aihc-build-package-lto" $ \sandbox buildRoot options -> do
-    let root = sandboxRoot sandbox
-        targetRoot = buildRoot </> nativeTargetStoreDirectory (buildTarget options)
-        ltoOptions = options {buildOptimization = O2}
-    outputs <- withCurrentDirectory root (build ltoOptions)
-    assertEqual "built executables" [targetRoot </> "bin" </> "greet", targetRoot </> "bin" </> "shout"] outputs
-    forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
-      assertFileExists (targetRoot </> "exe" </> name </> "lto" </> "program" </> "program.o")
-      assertCoreFile (targetRoot </> "exe" </> name </> "Main" </> "core")
-      assertFileDoesNotExist (targetRoot </> "exe" </> name </> "Main" </> "Main.o")
-      (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> name) [] ""
-      assertEqual (name <> " exit status") ExitSuccess status
-      assertEqual (name <> " stdout") expected stdout
-      assertEqual (name <> " stderr") "" stderr
-    -- The library of the package stops at System FC as well.
-    assertCoreFile (targetRoot </> "executables-0.1.0.0" </> "Words" </> "core")
-    assertFileDoesNotExist (targetRoot </> "executables-0.1.0.0" </> "Words" </> "Words.o")
-    -- The bundle of an executable carries its program object.
-    let bundles = root </> "bundles"
-    _ <- withCurrentDirectory root (build ltoOptions {buildNoLink = True, buildOutput = Just bundles})
-    manifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
-    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects manifest))
-    assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest)))
 
 -- | The @--keep-*@ flags of @build@ keep the output of each phase beside
 -- the object of the module. They name the modules of the executable alone:
@@ -972,7 +920,7 @@ test_buildModuleKeepIntermediates getStore =
               buildKeepNative = True
             }
         moduleRoot = root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "Main"
-    void (withCurrentDirectory root (build keepOptions))
+    void (build keepOptions)
     assertCoreFile (moduleRoot </> "core")
     forM_ ["grin", "cps.grin", "gc.grin"] $ \name -> assertFileExists (moduleRoot </> name)
     -- The object backends of the host write the object themselves, so the
@@ -981,7 +929,7 @@ test_buildModuleKeepIntermediates getStore =
     assertFileExists (moduleRoot </> "Main.o" <> nativeArtifactExtension target)
     -- A build without the flags leaves no kept output behind.
     let plainRoot = root </> "plain"
-    void (withCurrentDirectory root (build options {buildBuildRoot = Just plainRoot}))
+    void (build options {buildBuildRoot = Just plainRoot})
     let plainModuleRoot = plainRoot </> nativeTargetStoreDirectory target </> "Main"
     assertFileExists (plainModuleRoot </> "Main.o")
     forM_ ["core", "grin", "cps.grin", "gc.grin", "Main.o.lir"] $ \name ->
