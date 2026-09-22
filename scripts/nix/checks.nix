@@ -33,106 +33,94 @@
       "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
     ];
 
-  addHiddenSuccesses = old: {
-    # Replace the package-build sentinel and hide passing test output.
-    testFlags =
-      builtins.filter
-      (flag: !builtins.elem flag ["--pattern" "__nix-build-tests-without-running__"])
-      (old.testFlags or [])
-      ++ ["--hide-successes"];
-  };
+  # The test suites of a package run from the binaries its derivation already
+  # built. mkHsPkgsForChecks builds every test suite into the intermediates
+  # output without running it (the sentinel --pattern), so a check only has to
+  # execute them. The check used to be a second Cabal build on top of those
+  # intermediates, which compiled Setup.hs, configured, recompiled Paths_*
+  # for its own prefix, re-archived the library and relinked every binary
+  # before a single test ran: about a minute for aihc, spent while the whole
+  # example matrix competed for the machine.
+  ghcVersion = hsPkgs.ghc.version;
 
-  addCheckSettings = drv: old:
-    addHiddenSuccesses old
-    // pkgs.lib.optionalAttrs (drv ? intermediates) {
-      # Reuse the optimized build, including its already-compiled test components.
-      doInstallIntermediates = false;
-      enableSeparateIntermediatesOutput = false;
-      previousIntermediates = drv.intermediates;
-    };
-
-  mkPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
-      pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv (addCheckSettings drv))
-    );
-
-  mkEvalPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
-      pkgs.haskell.lib.dontHaddock (
-        pkgs.haskell.lib.overrideCabal drv (
-          old:
-            addCheckSettings drv old
-            // {
-              preCheck =
-                (old.preCheck or "")
-                + ''
-                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
-                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
-                  export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
-                '';
-            }
-        )
+  # The test-suite stanzas of a Cabal file, by name.
+  testSuiteNames = cabalFile:
+    map builtins.head (
+      builtins.filter builtins.isList (
+        builtins.split "\ntest-suite[ \t]+([A-Za-z0-9_-]+)" (builtins.readFile cabalFile)
       )
     );
 
-  mkAihcPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
-      pkgs.haskell.lib.dontHaddock (
-        pkgs.haskell.lib.overrideCabal drv (
-          old:
-            addCheckSettings drv old
-            // {
-              # Tasty defaults to one worker per processor and raises the RTS
-              # capability count to match. The eval fixtures allocate several
-              # gigabytes each, so on a 32-thread runner that many concurrent
-              # tests saturate memory bandwidth and the parallel GC: every
-              # fixture took ~30 s instead of ~2 s. Eight workers keep the
-              # machine busy without the collapse. The capability count is
-              # pinned to match, otherwise the -N default still runs one
-              # parallel-GC thread per processor. The RTS statistics stay in
-              # the log to keep an eye on GC time and capability counts, and
-              # successes stay hidden because fixtures that capture stdout
-              # would otherwise capture tasty's own progress output.
-              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "8" "+RTS" "-N8" "-s" "-RTS"];
-              # The C toolchain is only needed while the tests run. Adding it to
-              # testToolDepends would append --extra-include-dirs/--extra-lib-dirs
-              # to the configure flags, which changes GHC's flag hash and forces a
-              # full recompilation instead of reusing the package intermediates.
-              preCheck =
-                (old.preCheck or "")
-                + ''
-                  # The LLVM bintools must shadow the GNU binutils that the clang wrapper
-                  # links into its own bin directory: the foreign-target suites
-                  # archive their objects with llvm-ar.
-                  export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:$PATH
-                  # The install tests preprocess a .hsc fixture with the real
-                  # tool; the standalone one, not GHC's wrapper, which adds
-                  # GHC's own C flags and include directory.
-                  export AIHC_HSC2HS=${pkgs.haskellPackages.hsc2hs}/bin/hsc2hs
-                  # The wasm32-wasip3 entries of the seed store are keyed by
-                  # the sysroot they were built against, so reading them
-                  # takes the same sysroot the seed store derivation used.
-                  export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
-                  export AIHC_WASM_SYSROOT=${wasmSysroot}
-                  coreLibsRoot="$TMPDIR/aihc-core-libs-root"
-                  mkdir -p "$coreLibsRoot/core-libs"
-                  ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
-                  ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
-                  ln -sfn ${sources.rtsSrc pkgs} "$coreLibsRoot/core-libs/aihc-rts"
-                  ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
-                  ln -sfn ${sources.templateHaskellSrc pkgs} "$coreLibsRoot/core-libs/aihc-template-haskell"
-                  ln -sfn ${sources.systemCxxStdLibSrc pkgs} "$coreLibsRoot/core-libs/system-cxx-std-lib"
-                  export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
-                  export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
-                  export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
-                  export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
-                  export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
-                  export AIHC_PREBUILT_STORE=${specSeedStore}
-                '';
-            }
-        )
-      )
-    );
+  mkTestRunner = {
+    drv,
+    src,
+    # The package directory inside src, for packages built with --subpath.
+    directory ? "",
+    testFlags ? [],
+    setup ? "",
+  }: let
+    packageDirectory =
+      if directory == ""
+      then ""
+      else directory + "/";
+    suites = testSuiteNames "${src}/${packageDirectory}${drv.pname}.cabal";
+    buildDirectory = "${drv.intermediates}/share/haskell/${ghcVersion}/${drv.pname}-${drv.version}/dist/build";
+  in
+    assert suites != [];
+    # runCommandCC: the C toolchain of stdenv was on the path of the Cabal
+    # check phase this replaces, and the native-backend suites link their
+    # programs through it (clang runs dsymutil for a -g link on Darwin).
+      pkgs.runCommandCC "${drv.pname}-tests" {
+        # GHC was on that path as well.
+        nativeBuildInputs = [hsPkgs.ghc];
+        # The binaries bake in the path of the data output of the package.
+        packageOutputs = map (output: drv.${output}) drv.outputs;
+      } ''
+        export LANG=C.UTF-8
+        export LC_ALL=C.UTF-8
+        # The suites read fixtures relative to the package directory, and
+        # some write a build directory beside them, so they run in a writable
+        # copy laid out like the source tree the package was built from.
+        cp -R --no-preserve=mode ${src} "$TMPDIR/source"
+        cd "$TMPDIR/source/${directory}"
+        ${setup}
+        ${pkgs.lib.concatMapStrings (suite: ''
+            echo "Running test suite ${suite}"
+            ${buildDirectory}/${suite}/${suite} ${pkgs.lib.escapeShellArgs (["--hide-successes"] ++ testFlags)}
+          '')
+          suites}
+        touch "$out"
+      '';
+
+  aihcTestSetup = ''
+    # The LLVM bintools must shadow the GNU binutils that the clang wrapper
+    # links into its own bin directory: the foreign-target suites
+    # archive their objects with llvm-ar.
+    export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:$PATH
+    # The install tests preprocess a .hsc fixture with the real
+    # tool; the standalone one, not GHC's wrapper, which adds
+    # GHC's own C flags and include directory.
+    export AIHC_HSC2HS=${pkgs.haskellPackages.hsc2hs}/bin/hsc2hs
+    # The wasm32-wasip3 entries of the seed store are keyed by
+    # the sysroot they were built against, so reading them
+    # takes the same sysroot the seed store derivation used.
+    export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+    export AIHC_WASM_SYSROOT=${wasmSysroot}
+    coreLibsRoot="$TMPDIR/aihc-core-libs-root"
+    mkdir -p "$coreLibsRoot/core-libs"
+    ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
+    ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
+    ln -sfn ${sources.rtsSrc pkgs} "$coreLibsRoot/core-libs/aihc-rts"
+    ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
+    ln -sfn ${sources.templateHaskellSrc pkgs} "$coreLibsRoot/core-libs/aihc-template-haskell"
+    ln -sfn ${sources.systemCxxStdLibSrc pkgs} "$coreLibsRoot/core-libs/system-cxx-std-lib"
+    export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
+    export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
+    export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
+    export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
+    export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
+    export AIHC_PREBUILT_STORE=${specSeedStore}
+  '';
 
   mkSourceCheck = name: src: nativeBuildInputs: text:
     pkgs.runCommand name {
@@ -155,12 +143,12 @@
   };
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
-  # Test.Aihc.SeedStore installs aihc-prim for llvm always, and for linux-amd64
-  # and wasm32-wasip3 when the toolchain supports them, which it does inside
-  # the sandbox. apple-arm64 is no longer among them: the install tests that
-  # named it whatever the host was are gone.
-  specSeedPrimTargets =
-    pkgs.lib.unique (["llvm" "linux-amd64" "wasm32-wasip3"] ++ [hostBackendTarget]);
+  # Test.Aihc.SeedStore installs aihc-prim for llvm, for the native backend
+  # of the host, and for wasm32-wasip3 when the toolchain supports it, which
+  # it does inside the sandbox. No foreign native target: aihc-prim depends on
+  # the runtime, whose C sources need the C compiler of the target, and only
+  # the wasm sysroot supplies one for a platform other than the host.
+  specSeedPrimTargets = pkgs.lib.unique ["llvm" "wasm32-wasip3" hostBackendTarget];
   # The target aihc-base is built for. aihc-prim cross compiles freely -- it is
   # Haskell all the way down -- but aihc-base is only ever built for the
   # backend of the host, so nothing has to supply a C toolchain for a foreign
@@ -376,12 +364,46 @@
     exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M2G -RTS "$@"
   '';
 
-  resolveTests = mkPackageTest hsPkgs.aihc-resolve;
-  tcTests = mkPackageTest hsPkgs.aihc-tc;
-  testingTests = mkPackageTest hsPkgs.aihc-testing;
-  aihcTests = mkAihcPackageTest hsPkgs.aihc;
-  fmtTests = mkPackageTest hsPkgs.aihc-fmt;
-  haddockTests = mkPackageTest hsPkgs.aihc-haddock;
+  resolveTests = mkTestRunner {
+    drv = hsPkgs.aihc-resolve;
+    src = sources.resolveSrc pkgs;
+  };
+  tcTests = mkTestRunner {
+    drv = hsPkgs.aihc-tc;
+    src = sources.tcSrc pkgs;
+    directory = "components/aihc-tc";
+  };
+  testingTests = mkTestRunner {
+    drv = hsPkgs.aihc-testing;
+    src = sources.testingSrc pkgs;
+    directory = "tooling/aihc-testing";
+  };
+  aihcTests = mkTestRunner {
+    drv = hsPkgs.aihc;
+    src = sources.aihcSrc pkgs;
+    directory = "bin/aihc";
+    # Tasty defaults to one worker per processor and raises the RTS
+    # capability count to match. The eval fixtures allocate several
+    # gigabytes each, so on a 32-thread runner that many concurrent
+    # tests saturate memory bandwidth and the parallel GC: every
+    # fixture took ~30 s instead of ~2 s. Eight workers keep the
+    # machine busy without the collapse. The capability count is
+    # pinned to match, otherwise the -N default still runs one
+    # parallel-GC thread per processor. The RTS statistics stay in
+    # the log to keep an eye on GC time and capability counts, and
+    # successes stay hidden because fixtures that capture stdout
+    # would otherwise capture tasty's own progress output.
+    testFlags = ["--num-threads" "8" "+RTS" "-N8" "-s" "-RTS"];
+    setup = aihcTestSetup;
+  };
+  fmtTests = mkTestRunner {
+    drv = hsPkgs.aihc-fmt;
+    src = sources.fmtSrc pkgs;
+  };
+  haddockTests = mkTestRunner {
+    drv = hsPkgs.aihc-haddock;
+    src = sources.haddockSrc pkgs;
+  };
   unicode = import ./unicode.nix {inherit pkgs;};
   unicodeGenerated =
     pkgs.runCommand "aihc-unicode-generated" {
@@ -510,52 +532,96 @@
       touch "$out"
     '';
 
+  # Everything a derivation needs to run the compiler against a store: the
+  # tools the backends call, and the environment of the wasm32-wasip3 target.
+  coreLibraryInstallInputs = [
+    pkgs.llvmPackages.bintools
+    pkgs.llvmPackages.clang
+    pkgs.llvmPackages.clang-unwrapped
+    pkgs.wasm-tools
+    wasmLd
+  ];
+  coreLibraryInstallSetup = ''
+    export GHCRTS=-N
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+    export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+    export AIHC_WASM_SYSROOT=${wasmSysroot}
+  '';
+
+  # aihc-prim on its own, one derivation per target. The example toolchains
+  # layer aihc-base on these and the seed store gathers them, so aihc-prim,
+  # and the runtime it depends on, compile once per target rather than once
+  # per consumer. The lint that the toolchain used to run over aihc-prim while
+  # installing aihc-base runs here instead: a store that already holds
+  # aihc-prim does not compile it again.
+  primStoreWith = extraSetup: target:
+    pkgs.runCommand "aihc-prim-store-${target}" {
+      src = coreLibrariesSource;
+      nativeBuildInputs = coreLibraryInstallInputs;
+    } ''
+      cd "$src"
+      ${coreLibraryInstallSetup}
+      ${extraSetup}
+      mkdir -p "$out"
+
+      ${aihcExe} install core-libs/aihc-prim --store "$out" --immutable --lint --target ${target}
+
+      test -n "$(find "$out" -type f -name 'libaihc-prim.a' -print -quit)"
+      test -n "$(find "$out" -type f -name 'libaihc-rts.a' -print -quit)"
+    '';
+
+  primStoreFor = primStoreWith "";
+
+  # The lto tests want both core libraries built at -O2, which implies --lto.
+  # The build is part of the identity of a package, so the entries of the
+  # other stores do not serve it.
+  ltoStore =
+    pkgs.runCommand "aihc-lto-store-${hostBackendTarget}" {
+      src = coreLibrariesSource;
+      nativeBuildInputs = coreLibraryInstallInputs;
+    } ''
+      cd "$src"
+      ${coreLibraryInstallSetup}
+      mkdir -p "$out"
+
+      ${aihcExe} install core-libs/aihc-prim --store "$out" --immutable --target ${hostBackendTarget} -O2
+      ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --target ${hostBackendTarget} -O2
+
+      test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
+    '';
+
   # The store the aihc test suite works against. Installing anything into an
   # empty store compiles aihc-prim first, and the build tests additionally
   # need aihc-base; the suite used to pay that per test, which was most of what
-  # it allocated. Building the store here instead hands the tests a warm one
-  # through AIHC_PREBUILT_STORE and keeps the result in the Nix cache across
-  # runs. Outside CI the suite installs the same libraries itself, once, from a
-  # tasty resource. The target list must cover everything Test.Aihc.SeedStore
-  # asks for; a superset is harmless, a missing target only makes the tests
-  # install it again.
-  specSeedStore =
-    pkgs.runCommand "aihc-spec-seed-store" {
-      src = coreLibrariesSource;
-      nativeBuildInputs = [
-        pkgs.llvmPackages.bintools
-        pkgs.llvmPackages.clang
-        pkgs.llvmPackages.clang-unwrapped
-        pkgs.wasm-tools
-        wasmLd
-      ];
-    } ''
-      cd "$src"
-      export GHCRTS=-N
-      export LANG=C.UTF-8
-      export LC_ALL=C.UTF-8
-      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
-      export AIHC_WASM_SYSROOT=${wasmSysroot}
-      mkdir -p "$out/prim"
+  # it allocated. Handing the tests a warm store through AIHC_PREBUILT_STORE
+  # keeps that out of the suite. Outside CI the suite installs the same
+  # libraries itself, once, from a tasty resource. The target list must cover
+  # everything Test.Aihc.SeedStore asks for; a superset is harmless, a missing
+  # target only makes the tests install it again.
+  #
+  # This derivation compiles nothing. It gathers the per-target aihc-prim
+  # stores, the toolchain of the host backend and the -O2 store, all of which
+  # build in parallel and are shared with the example and Hackage checks, so
+  # it takes the seconds the copies take rather than the minutes of every
+  # install run back to back. Store entries are named after a content
+  # fingerprint, so -n skips the files an earlier copy already put in place.
+  specSeedStore = pkgs.runCommand "aihc-spec-seed-store" {} ''
+    mkdir -p "$out/prim" "$out/core" "$out/lto"
 
-      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install core-libs/aihc-prim --store "$out/prim" --immutable --target ${target}
-        '')
-        specSeedPrimTargets}
+    ${pkgs.lib.concatMapStringsSep "\n" (target: ''
+        cp -Rn --no-preserve=mode ${primStoreFor target}/. "$out/prim/"
+      '')
+      specSeedPrimTargets}
 
-      # The install tests want aihc-prim on its own and build wants
-      # aihc-base as well. Keeping them apart matches what the suite builds for
-      # itself outside CI, so a test sees the same store either way.
-      cp -R --no-preserve=mode "$out/prim" "$out/core"
-      ${aihcExe} install core-libs/aihc-base --store "$out/core" --immutable --target ${hostBackendTarget}
+    # The install tests want aihc-prim on its own and build wants
+    # aihc-base as well. Keeping them apart matches what the suite builds for
+    # itself outside CI, so a test sees the same store either way.
+    cp -R --no-preserve=mode "$out/prim/." "$out/core/"
+    cp -Rn --no-preserve=mode ${exampleToolchainFor hostBackendTarget}/. "$out/core/"
 
-      # The lto tests want both core libraries built at -O2, which implies
-      # --lto. The build is part of the identity of a package, so the
-      # entries above do not serve it.
-      mkdir -p "$out/lto"
-      ${aihcExe} install core-libs/aihc-prim --store "$out/lto" --immutable --target ${hostBackendTarget} -O2
-      ${aihcExe} install core-libs/aihc-base --store "$out/lto" --immutable --target ${hostBackendTarget} -O2
-    '';
+    cp -R --no-preserve=mode ${ltoStore}/. "$out/lto/"
+  '';
 
   # The compiler owns preparation of the installed toolchain: ordinary package
   # installation emits the reusable library interfaces and target-specific
@@ -587,20 +653,13 @@
   exampleToolchainWith = extraSetup: target:
     pkgs.runCommand "aihc-example-toolchain-${target}" {
       src = coreLibrariesSource;
-      nativeBuildInputs = [
-        pkgs.llvmPackages.bintools
-        pkgs.llvmPackages.clang
-        pkgs.llvmPackages.clang-unwrapped
-        pkgs.wasm-tools
-        pkgs.wit-bindgen
-        wasmLd
-      ];
+      nativeBuildInputs = coreLibraryInstallInputs ++ [pkgs.wit-bindgen];
     } ''
       cd "$src"
       # Installing aihc-base parallelises well -- it is many independent
       # modules rather than a few large ones -- and this install gates the whole
       # chain for its target, so it is worth every core the machine has: 14.3s
-      # at -N1, 5.1s at -N4, 3.8s at -N8. Only the three toolchains and the two
+      # at -N1, 5.1s at -N4, 3.8s at -N8. Only the toolchains and the
       # core-library derivations run in this window.
       #
       # What bounds memory is not the capability count but the -M2G that
@@ -613,14 +672,13 @@
       # than a per-site judgement. Note that packages do not all scale the way
       # aihc-base does: containers measures 9.6s at -N4 against 14.7s with
       # every core, where the parallel collector costs more than it returns.
-      export GHCRTS=-N
-      export LANG=C.UTF-8
-      export LC_ALL=C.UTF-8
-      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
-      export AIHC_WASM_SYSROOT=${wasmSysroot}
+      ${coreLibraryInstallSetup}
       ${extraSetup}
       mkdir -p "$out"
 
+      # aihc-prim and the runtime come from the per-target store, so this
+      # install compiles aihc-base alone.
+      cp -R --no-preserve=mode ${primStoreWith extraSetup target}/. "$out/"
       ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --lint --target ${target}
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
