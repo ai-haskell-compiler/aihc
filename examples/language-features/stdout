@@ -1,3 +1,9 @@
+7
+42
+42
+[2,3]
+42
+existential dictionary
 -- same type
 Int -> Int: cast succeeded
 Bool -> Bool: cast succeeded

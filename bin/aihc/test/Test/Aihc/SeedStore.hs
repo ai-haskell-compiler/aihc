@@ -38,7 +38,7 @@ import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget,
 import Control.Exception (IOException, bracket, bracketOnError, try)
 import Control.Monad (forM_, unless, void)
 import Data.List (isPrefixOf, nub)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import System.Directory
   ( copyFile,
     createDirectory,
@@ -110,10 +110,11 @@ data Sandbox = Sandbox
 -- aihc-prim is seeded for. Seeding the extra targets is cheap because the
 -- frontend Core is shared: only the backend runs again.
 --
--- @AppleArm64@ was here for the install tests that pinned it whatever the
--- host was. Those are gone, and nothing asks for it any more. What is left
--- is the portable @Llvm@ and the two the sandbox can archive and assemble
--- for.
+-- The native target is the host's own, never a foreign one: aihc-prim
+-- depends on the runtime package, whose C sources compile with the C
+-- compiler of the target, and only wasm32-wasip3 comes with a toolchain for
+-- that. @LinuxAmd64@ used to be listed outright, which was the host on the
+-- CI runner and a cross compilation that failed everywhere else.
 installTestTargets :: IO [NativeTarget]
 installTestTargets = do
   foreignArchives <- arSupportsForeignObjects
@@ -124,7 +125,7 @@ installTestTargets = do
   sysroot <- wasmSysrootAvailable
   pure $
     [Llvm]
-      <> [LinuxAmd64 | foreignArchives]
+      <> maybeToList hostNativeTarget
       <> [Wasm32Wasip3 | wasm && foreignArchives && sysroot]
 
 -- | Every target the seed store holds aihc-prim for: what the install tests

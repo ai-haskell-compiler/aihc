@@ -13,6 +13,7 @@ import System.IO (hGetBuf, hPutBuf, stdin, stdout)
 -- input block while the green-thread scheduler can run during each IO request.
 main :: IO ()
 main = do
+  hPutBuf stdout (Ptr "Hello world!\n"# :: Ptr ()) 13
   buffer <- newPinnedByteArray 64
   let pointer = Ptr (pinnedByteArrayContents# buffer) :: Ptr ()
   count <- hGetBuf stdin pointer 64
