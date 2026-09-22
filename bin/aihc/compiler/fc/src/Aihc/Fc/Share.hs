@@ -113,6 +113,7 @@ shareDecl decl =
                 <$> shareName (valName value)
                 <*> shareType (valType value)
                 <*> shareExpr (valBody value)
+                <*> pure (valInline value)
             )
     DeclRule rule ->
       DeclRule

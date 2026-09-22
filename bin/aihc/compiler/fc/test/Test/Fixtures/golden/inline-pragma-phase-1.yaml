@@ -1,0 +1,126 @@
+---
+extensions: []
+modules:
+- |
+  module Test (useKeep, useBig, useBig2, useForce, useForce2, useLater, useMethod) where
+  data Nat = Z | S Nat
+  class C a where
+    op :: a -> a
+  instance C Nat where
+    op x = S x
+    {-# NOINLINE op #-}
+  keep :: Nat -> Nat
+  keep x = S x
+  {-# NOINLINE keep #-}
+  big :: Nat -> Nat
+  big x = case x of
+    Z -> S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S Z)))))))))))))))))))))))))))))))))))))))
+    S y -> S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S y)))))))))))))))))))))))))))))))))))))))
+  force :: Nat -> Nat
+  force x = case x of
+    Z -> S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S Z)))))))))))))))))))))))))))))))))))))))
+    S y -> S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S y)))))))))))))))))))))))))))))))))))))))
+  {-# INLINE force #-}
+  later :: Nat -> Nat
+  later x = S x
+  {-# NOINLINE [1] later #-}
+  useKeep :: Nat -> Nat
+  useKeep x = keep x
+  useBig :: Nat -> Nat
+  useBig x = big (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  useBig2 :: Nat -> Nat
+  useBig2 x = big (big x)
+  useForce :: Nat -> Nat
+  useForce x = force (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  useForce2 :: Nat -> Nat
+  useForce2 x = force (force x)
+  useLater :: Nat -> Nat
+  useLater x = later x
+  useMethod :: Nat -> Nat
+  useMethod x = op x
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tNat :: 2.sType {
+      1.cZ :: 1.tNat;
+      1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  type 1.t$Dict$C (a : 2.sType) :: 2.sType {
+      1.c$Dict$C :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$C a
+  }
+
+  pub val 1.v$fCNat :: 1.t$Dict$C 1.tNat
+   = 1.c$Dict$C @1.tNat 1.v$fCNat$cop
+
+  val 1.v$fCNat$cop noinline :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.cS x
+
+  val 1.vkeep noinline :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.cS x
+
+  val 1.vbig :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    case x as (_scrut : 1.tNat) return (1.tNat) of {
+        1.cZ →
+            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS 1.cZ)))))))))))))))))))))))))))))))))))))));
+        1.cS (y : 1.tNat) →
+            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS y)))))))))))))))))))))))))))))))))))))))
+    }
+
+  val 1.vforce inline :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    case x as (_scrut : 1.tNat) return (1.tNat) of {
+        1.cZ →
+            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS 1.cZ)))))))))))))))))))))))))))))))))))))));
+        1.cS (y : 1.tNat) →
+            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS y)))))))))))))))))))))))))))))))))))))))
+    }
+
+  pub val 1.vuseKeep :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.vkeep x
+
+  pub val 1.vuseBig :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.vbig (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+  pub val 1.vuseBig2 :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.vbig (1.vbig x)
+
+  pub val 1.vuseForce :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+  pub val 1.vuseForce2 :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.vforce (1.vforce x)
+
+  pub val 1.vuseLater :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.cS x
+
+  pub val 1.vuseMethod :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.v$fCNat$cop x
+status: pass
+reason: In phase 1 the growing policy copies the NOINLINE [1] value and, at a site with room, the large INLINE value, while its unmarked twin is over the callee limit and the plain NOINLINE values still stay calls.

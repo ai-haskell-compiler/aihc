@@ -22,6 +22,7 @@ module Aihc.Fc.Syntax
     SynonymDecl (..),
     AxiomDecl (..),
     ValDecl (..),
+    InlineSpec (..),
     RuleDecl (..),
     RuleActivation (..),
     ForeignCall (..),
@@ -269,8 +270,26 @@ data ValDecl = ValDecl
   { valVis :: Vis,
     valName :: Name,
     valType :: Type,
-    valBody :: Expr
+    valBody :: Expr,
+    -- | What the source said about inlining the value.
+    valInline :: InlineSpec
   }
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
+-- | The @INLINE@, @INLINABLE@ or @NOINLINE@ pragma of a value, with the
+-- phases in which inlining is allowed. Without a pragma the inliner
+-- decides by its policy.
+data InlineSpec
+  = InlineDefault
+  | -- | @INLINE@: copy the value at every saturated call in the phases the
+    -- activation names, whatever the size, and never before them.
+    InlineAlways RuleActivation
+  | -- | @INLINABLE@: the usual policy, in the phases the activation names.
+    InlineWhenUseful RuleActivation
+  | -- | @NOINLINE@: no copy until the phases the activation names; a plain
+    -- @NOINLINE@ names none.
+    InlineNever RuleActivation
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 

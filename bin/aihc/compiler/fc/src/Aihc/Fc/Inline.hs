@@ -34,7 +34,7 @@ where
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
-import Aihc.Fc.Rules (RuleTable, ruleTable)
+import Aihc.Fc.Rules (RuleTable, ruleActiveIn, ruleTable)
 import Aihc.Fc.Simplify
 import Aihc.Fc.Size (exprSize, programSize)
 import Aihc.Fc.Syntax
@@ -195,6 +195,8 @@ data Inliner = Inliner
     inRoots :: !(Set Name),
     -- | The rules that fire in this pass, by head.
     inRules :: !RuleTable,
+    -- | What the source said about inlining each value.
+    inSpecs :: !(Map Name InlineSpec),
     inRulesFired :: !Int
   }
 
@@ -215,6 +217,7 @@ initialInliner config env decls supply =
       inChanged = False,
       inRoots = roots,
       inRules = ruleTable (inlinePhase config) decls,
+      inSpecs = Map.map valInline declarations,
       inRulesFired = 0
     }
   where
@@ -230,6 +233,28 @@ initialInliner config env decls supply =
           Just names -> Set.fromList names
     ruleReferences =
       Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
+
+-- | Whether a value's pragma lets a phase copy it. Without a pragma the
+-- policy decides. @INLINE@ and @INLINABLE@ allow the phases their
+-- activation names and forbid the rest; @NOINLINE@ forbids until its
+-- activation, and a plain one forbids every phase.
+inliningAllowed :: Int -> InlineSpec -> Bool
+inliningAllowed phase spec =
+  case spec of
+    InlineDefault -> True
+    InlineAlways activation -> ruleActiveIn phase activation
+    InlineWhenUseful activation -> ruleActiveIn phase activation
+    InlineNever activation -> ruleActiveIn phase activation
+
+-- | Whether a value's pragma asks for it to be a candidate whatever its
+-- size: @INLINE@ in its active phases. The site policy still decides each
+-- copy, so the shrinking pass keeps its promise not to grow the program;
+-- GHC copies such a value at every saturated call instead.
+inliningRequested :: Int -> InlineSpec -> Bool
+inliningRequested phase spec =
+  case spec of
+    InlineAlways activation -> ruleActiveIn phase activation
+    _ -> False
 
 -- | The size a value of the given size may grow to under a policy.
 valueLimit :: InlinePolicy -> Int -> Int
@@ -292,13 +317,15 @@ simplifyValue config known recursive st name
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
+                    let spec = Map.findWithDefault InlineDefault callee (inSpecs st),
+                    inliningAllowed (inlinePhase config) spec,
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
                     isInlinable calleeBody,
                     let size = exprSize (inEnv st) calleeBody
                         every = unconditional callee size,
                     -- A callee over the limit is never copied, unless every
-                    -- copy together replaces it.
-                    every || size <= policyCalleeLimit policy
+                    -- copy together replaces it or its pragma asks for it.
+                    every || inliningRequested (inlinePhase config) spec || size <= policyCalleeLimit policy
                   ]
               -- A body that references no candidate and scrutinises nothing
               -- known is left alone.

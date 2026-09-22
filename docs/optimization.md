@@ -190,9 +190,30 @@ of every module, which is what makes rules from a library fire in a program
 that uses it. Per-module firing of imported rules waits on the same import
 facts as "-O1 in import order" below.
 
-`INLINE` and `NOINLINE` pragmas are not honoured yet, so a rule whose
-left-hand side names a small non-recursive function competes with the
-inliner for the call: the rule wins only when its phase comes first.
+### Inline pragmas
+
+A top-level value and an instance method carry their `INLINE`, `INLINABLE`
+or `NOINLINE` pragma into System FC as the `valInline` of the `ValDecl`
+(`inline [2]`, `inlinable`, `noinline [~1]` in the text form). The inliner
+reads it per phase, with the activation read as a rule's is:
+
+| Pragma | In the phases the activation names | In the other phases |
+| ------ | ---------------------------------- | ------------------- |
+| `INLINE` | a candidate whatever its size; the site policy decides each copy | never copied |
+| `INLINABLE` | the usual policy | never copied |
+| `NOINLINE` | the usual policy | never copied |
+| none | the usual policy | the usual policy |
+
+A plain `NOINLINE` names no phase, so the value is never copied (the text form
+leaves its `[~]` unsaid); a plain `INLINE` names every phase. GHC copies an
+`INLINE` value at every saturated call whatever the growth; here the site
+policy still decides, so that `shrinkPolicy` keeps its invariant below, and
+an `INLINE` value that the policy rejects stays a call. The `text` package
+marks large functions `INLINE`, and honouring them GHC's way made its
+example two and a half times larger at `-O2`. This is what lets a rule beat the inliner to a
+call: `NOINLINE [1] f` keeps `f` a call through phase 2, where a rule on
+`f` fires, and lets the growing inliner copy it afterwards. `CONLIKE` is
+read and ignored. A recursive value is never copied whatever its pragma.
 
 ## Invariants
 
