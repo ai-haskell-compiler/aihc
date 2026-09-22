@@ -48,3 +48,4 @@ declaredNames decl =
     DeclSynonym declaration -> [synName declaration]
     DeclAxiom declaration -> [axiomName declaration]
     DeclVal declaration -> [valName declaration]
+    DeclRule {} -> []

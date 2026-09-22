@@ -136,6 +136,8 @@ lowerDecl env declaration =
         withCurrentValue (Fc.valName value) (lowerValueDecl env value)
     Fc.DeclSynonym {} -> pure mempty
     Fc.DeclAxiom {} -> pure mempty
+    -- A rule guides the System FC passes and has no code of its own.
+    Fc.DeclRule {} -> pure mempty
 
 withLowerContext :: String -> LowerM a -> LowerM a
 withLowerContext context =

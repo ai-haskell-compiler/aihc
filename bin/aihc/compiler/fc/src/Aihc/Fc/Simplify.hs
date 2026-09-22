@@ -1631,6 +1631,12 @@ declBinderNames :: Decl -> Set Name
 declBinderNames decl =
   case decl of
     DeclVal declaration -> exprBinderNames (valBody declaration) <> typeBinderNames (valType declaration)
+    DeclRule declaration ->
+      Set.fromList (map binderName (ruleTypeBinders declaration <> ruleBinders declaration))
+        <> foldMap (typeBinderNames . binderType) (ruleTypeBinders declaration <> ruleBinders declaration)
+        <> typeBinderNames (ruleType declaration)
+        <> exprBinderNames (ruleLhs declaration)
+        <> exprBinderNames (ruleRhs declaration)
     DeclType declaration -> Set.fromList (map binderName (typeBinders declaration)) <> foldMap (typeBinderNames . conType) (typeCons declaration)
     DeclSynonym declaration -> Set.fromList (map binderName (synBinders declaration)) <> typeBinderNames (synBody declaration)
     DeclAxiom declaration -> Set.fromList (map binderName (axiomBinders declaration))
