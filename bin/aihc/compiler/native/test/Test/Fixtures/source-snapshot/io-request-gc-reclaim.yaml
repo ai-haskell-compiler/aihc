@@ -30,7 +30,7 @@ return: "@0"
 heap: |
   @0 = CResult 200
 allocated-bytes:
-  macos-arm64: 96152
-  linux-amd64: 96152
+  macos-arm64: 96040
+  linux-amd64: 96040
 status: pass
 reason: Consumed host requests and their buffers must become reclaimable within the heap limit.

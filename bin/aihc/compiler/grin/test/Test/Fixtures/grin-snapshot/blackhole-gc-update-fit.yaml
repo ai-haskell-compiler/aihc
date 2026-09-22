@@ -1,0 +1,27 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-M8192", "-RTS"]
+program: |
+  constructor Done/0 []
+  primitive -# :: IntRep/2
+  global done = (CDone)
+
+  $step (count :: IntRep) -> BoxedRep Lifted =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant global-ref done
+      _ ->
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (thunk :: BoxedRep Lifted) <- store (F$step (next :: IntRep))
+        eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $step (64 :: IntRep)
+return: "@0"
+heap: |
+  @0 = CDone
+allocated-bytes:
+  macos-arm64: 2560
+  linux-amd64: 2560
+status: pass
+reason: The same nested evaluation must complete when its thunks and update continuations fit within the heap limit.

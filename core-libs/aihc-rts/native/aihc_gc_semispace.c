@@ -282,15 +282,6 @@ static void aihc_scan_object(AihcForwardingContext *context,
                              AihcValue *object) {
   const AihcInfo *info = aihc_value_info_table(object);
   AihcObjectKind kind = info->object_kind;
-  if (kind == AIHC_OBJECT_BLACKHOLE) {
-    /* Static and heap thunks refer to an info table inside a managed record.
-       Copy that record and repair the header before the old space is released.
-     */
-    AihcBlackhole *record = (AihcBlackhole *)aihc_forward(
-        context, (AihcValue *)aihc_blackhole_from_info(info));
-    info = &record->info;
-    object->header = (AihcSlot)(uintptr_t)info;
-  }
   uint64_t count = info->field_count;
   if (aihc_visit_runtime_object(object, aihc_forward_root, context)) {
     return;
