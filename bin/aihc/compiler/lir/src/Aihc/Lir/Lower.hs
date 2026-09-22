@@ -644,6 +644,14 @@ storeSlot ty value object offset = do
       word <- emitValue "slot" I64 (PtrToInt value)
       emit [] (Store I64 (typedOperand word) (byteAddress object offset) (byteAlignment 8))
 
+-- | Thunk headers carry evaluation and waiter bits in their low two bits.
+-- Every info table has at least four-byte alignment, including on wasm32.
+loadObjectInfo :: Operand -> LowerM Typed
+loadObjectInfo object = do
+  header <- loadSlot "header_word" I64 object 0
+  info <- emitValue "info_word" I64 (Binary And I64 (typedOperand header) (OperandLiteral (LitInt (-4))))
+  emitValue "header" Ptr (PtrFromInt (typedOperand info))
+
 -- | Byte field @index@ of an info table as an @i64@. The byte fields follow
 -- the word fields.
 loadInfoByte :: Text -> Operand -> Int -> LowerM Typed
@@ -1130,7 +1138,7 @@ compileExpr ctx env expression =
           terminate (TailCallIndirect entry [ctxMachine ctx] (Signature [Ptr] [] AihcConvention))
     GrinIfWhnf value ready slow -> do
       object <- pointerValue ctx env value
-      header <- loadSlot "header" Ptr object 0
+      header <- loadObjectInfo object
       kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
       readyLabel <- freshLabel "eval_ready"
       slowLabel <- freshLabel "eval_slow"
@@ -2323,7 +2331,7 @@ compileCase ctx env scrutinee binder alternatives = do
       [] -> freshLabel "no_match"
   if isPointer
     then do
-      header <- loadSlot "header" Ptr (typedOperand typed) 0
+      header <- loadObjectInfo (typedOperand typed)
       identity <- loadInfoPointer "identity" (typedOperand header) 0
       checks <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
         case grinAltCon alternative of
@@ -2624,7 +2632,7 @@ generateHelper env helper =
     _ -> failWith (LowerUnsupportedExpression "internal: shared helper requested a local definition")
   where
     symbol = helperSymbol helper
-    loadHeader object = typedOperand <$> loadSlot "header" Ptr object 0
+    loadHeader object = typedOperand <$> loadObjectInfo object
 
 -- | The word fields of an info table precede its byte fields. See the
 -- "Info tables" section of @docs/lir.md@.

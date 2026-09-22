@@ -3,32 +3,14 @@
 
 #include <errno.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
-_Static_assert(offsetof(AihcBlackhole, info) == sizeof(AihcSlot),
-               "blackhole info-table offset");
 /* Match the offsets in aihc_constants.lir on both pointer widths. */
 _Static_assert(offsetof(AihcMachine, current_thread) == 6 * sizeof(void *) + 48,
                "machine current-thread ABI");
-_Static_assert(offsetof(AihcMachine, blackholes) == 9 * sizeof(void *) + 48,
-               "machine blackholes ABI");
 _Static_assert(sizeof(AihcInfo) == 6 * sizeof(void *), "info-table size ABI");
-_Static_assert(offsetof(AihcBlackhole, original_info) == 8 + sizeof(AihcInfo),
-               "blackhole original-info ABI");
-_Static_assert(offsetof(AihcBlackhole, object) == 8 + 7 * sizeof(void *),
-               "blackhole object ABI");
-_Static_assert(offsetof(AihcBlackhole, owner) == 8 + 8 * sizeof(void *),
-               "blackhole owner ABI");
-_Static_assert(offsetof(AihcBlackhole, waiters_head) == 8 + 9 * sizeof(void *),
-               "blackhole waiters-head ABI");
-_Static_assert(offsetof(AihcBlackhole, waiters_tail) == 8 + 10 * sizeof(void *),
-               "blackhole waiters-tail ABI");
-_Static_assert(offsetof(AihcBlackhole, previous) == 8 + 11 * sizeof(void *),
-               "blackhole previous ABI");
-_Static_assert(offsetof(AihcBlackhole, next) == 8 + 12 * sizeof(void *),
-               "blackhole next ABI");
-_Static_assert(sizeof(AihcBlackhole) == (8 + 13 * sizeof(void *) + 7) / 8 * 8,
-               "blackhole size ABI");
+_Static_assert(_Alignof(AihcInfo) >= 4, "info tables need two header tag bits");
 
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
@@ -118,6 +100,8 @@ void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots) {
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 
 static const AihcResume *aihc_schedule(AihcMachine *machine);
+static void aihc_visit_blackholes(AihcMachine *machine, AihcRootVisitor visitor,
+                                  void *context);
 
 static const uint8_t aihc_indirection_field_is_pointer[] = {1};
 static const AihcInfo aihc_indirection_info = {
@@ -234,8 +218,6 @@ uint64_t aihc_value_words(const AihcValue *value) {
     return aihc_record_words(sizeof(AihcStableName));
   case AIHC_OBJECT_THREAD:
     return aihc_record_words(sizeof(AihcThread));
-  case AIHC_OBJECT_BLACKHOLE_RECORD:
-    return aihc_record_words(sizeof(AihcBlackhole));
   case AIHC_OBJECT_BLACKHOLE_WAITER:
     return aihc_record_words(sizeof(AihcBlackholeWaiter));
   case AIHC_OBJECT_MVAR:
@@ -503,19 +485,6 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
     }
     return 1;
   }
-  case AIHC_OBJECT_BLACKHOLE_RECORD: {
-    AihcBlackhole *blackhole = (AihcBlackhole *)object;
-    aihc_visit_value(&blackhole->object, visitor, context);
-    blackhole->owner = aihc_visit_pointer(blackhole->owner, visitor, context);
-    blackhole->waiters_head =
-        aihc_visit_pointer(blackhole->waiters_head, visitor, context);
-    blackhole->waiters_tail =
-        aihc_visit_pointer(blackhole->waiters_tail, visitor, context);
-    blackhole->previous =
-        aihc_visit_pointer(blackhole->previous, visitor, context);
-    blackhole->next = aihc_visit_pointer(blackhole->next, visitor, context);
-    return 1;
-  }
   case AIHC_OBJECT_BLACKHOLE_WAITER: {
     AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)object;
     waiter->thread = aihc_visit_pointer(waiter->thread, visitor, context);
@@ -604,8 +573,7 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
       aihc_visit_pointer(machine->run_queue_head, visitor, context);
   machine->run_queue_tail =
       aihc_visit_pointer(machine->run_queue_tail, visitor, context);
-  machine->blackholes =
-      aihc_visit_pointer(machine->blackholes, visitor, context);
+  aihc_visit_blackholes(machine, visitor, context);
   machine->io_requests_head =
       aihc_visit_pointer(machine->io_requests_head, visitor, context);
   machine->io_requests_tail =
@@ -810,52 +778,159 @@ static AihcThread *aihc_dequeue_thread(AihcMachine *machine) {
   return thread;
 }
 
-/* The caller has checked the BLACKHOLE kind. The thunk header points to
-   the embedded info table of its managed scheduler record. */
-static AihcBlackhole *aihc_blackhole_record(AihcValue *object) {
-  AihcBlackhole *blackhole =
-      aihc_blackhole_from_info(aihc_value_info_table(object));
-  if (blackhole->object != object) {
-    aihc_fail("blackhole scheduler record names a different object");
+/* Hash slots contain only contended thunks. Storage is reusable collector
+   metadata, like the collector's static-object sets. Waiters stay managed. */
+static size_t aihc_blackhole_slot(AihcBlackholeEntry *entries, size_t capacity,
+                                  const AihcValue *object) {
+  uintptr_t hash = (uintptr_t)object >> 3;
+  hash ^= hash >> 17;
+  hash *= (uintptr_t)0x27d4eb2dU;
+  size_t slot = (size_t)hash & (capacity - 1);
+  while (entries[slot].object != NULL && entries[slot].object != object) {
+    slot = (slot + 1) & (capacity - 1);
   }
-  return blackhole;
+  return slot;
+}
+
+static void aihc_grow_blackholes(AihcBlackholeTable *table) {
+  size_t capacity = table->capacity == 0 ? 16 : table->capacity * 2;
+  if (capacity < table->capacity ||
+      capacity > SIZE_MAX / sizeof(AihcBlackholeEntry)) {
+    aihc_fail("blackhole waiter table is too large");
+  }
+  AihcBlackholeEntry *entries = calloc(capacity, sizeof(*entries));
+  AihcBlackholeEntry *spare = calloc(capacity, sizeof(*spare));
+  if (entries == NULL || spare == NULL) {
+    aihc_fail("out of memory");
+  }
+  for (size_t index = 0; index < table->capacity; ++index) {
+    AihcBlackholeEntry entry = table->entries[index];
+    if (entry.object != NULL) {
+      entries[aihc_blackhole_slot(entries, capacity, entry.object)] = entry;
+    }
+  }
+  free(table->entries);
+  free(table->spare);
+  table->entries = entries;
+  table->spare = spare;
+  table->capacity = capacity;
+}
+
+static void aihc_visit_blackholes(AihcMachine *machine, AihcRootVisitor visitor,
+                                  void *context) {
+  AihcBlackholeTable *table = machine->blackholes;
+  if (table == NULL || table->count == 0) {
+    return;
+  }
+  memset(table->spare, 0, table->capacity * sizeof(*table->spare));
+  for (size_t index = 0; index < table->capacity; ++index) {
+    AihcBlackholeEntry entry = table->entries[index];
+    if (entry.object == NULL) {
+      continue;
+    }
+    aihc_visit_value(&entry.object, visitor, context);
+    entry.head = aihc_visit_pointer(entry.head, visitor, context);
+    entry.tail = aihc_visit_pointer(entry.tail, visitor, context);
+    size_t slot =
+        aihc_blackhole_slot(table->spare, table->capacity, entry.object);
+    table->spare[slot] = entry;
+  }
+  AihcBlackholeEntry *old = table->entries;
+  table->entries = table->spare;
+  table->spare = old;
+}
+
+/* Only the current chain can prove self-re-entry. Suspended threads do not
+   need owner records. Update frames cannot be captured by control0#. */
+static void aihc_check_blackhole_reentry(AihcValue *object,
+                                         AihcValue *continuation) {
+  while (continuation != NULL) {
+    if (aihc_value_kind(continuation) == AIHC_OBJECT_INDIRECTION) {
+      continuation = (AihcValue *)(uintptr_t)continuation->fields[0];
+      continue;
+    }
+    const AihcInfo *info = aihc_value_info_table(continuation);
+    if (info->object_kind != AIHC_OBJECT_CLOSURE ||
+        info->frame_kind == AIHC_FRAME_NONE) {
+      aihc_fail("blackhole check found an invalid continuation");
+    }
+    if (info->frame_kind == AIHC_FRAME_STOP) {
+      return;
+    }
+    if (info->frame_kind == AIHC_FRAME_UPDATE) {
+      if (info->field_count < 2) {
+        aihc_fail("update continuation has an invalid layout");
+      }
+      if ((AihcValue *)(uintptr_t)continuation->fields[1] == object) {
+        aihc_fail("blackholed thunk re-entered");
+      }
+    }
+    if (info->field_count < 1) {
+      aihc_fail("continuation has no parent");
+    }
+    continuation = (AihcValue *)(uintptr_t)continuation->fields[0];
+  }
 }
 
 static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
                                       AihcValue *continuation) {
-  AihcBlackhole *blackhole = aihc_blackhole_record(object);
-  if (blackhole->owner == machine->current_thread) {
-    aihc_fail("blackholed thunk re-entered");
+  aihc_check_blackhole_reentry(object, continuation);
+  if (machine->blackholes == NULL) {
+    machine->blackholes = calloc(1, sizeof(*machine->blackholes));
+    if (machine->blackholes == NULL) {
+      aihc_fail("out of memory");
+    }
   }
+  AihcBlackholeTable *table = machine->blackholes;
+  if (table->count >= table->capacity / 2) {
+    aihc_grow_blackholes(table);
+  }
+  size_t slot = aihc_blackhole_slot(table->entries, table->capacity, object);
+  AihcBlackholeEntry *entry = &table->entries[slot];
+  if (entry->object == NULL) {
+    entry->object = object;
+    ++table->count;
+  }
+  /* The eval helper reserved this waiter before it entered the C runtime. */
   AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)aihc_gc_allocate(
       machine, aihc_record_words(sizeof(*waiter)));
   waiter->header = (AihcSlot)(uintptr_t)&aihc_blackhole_waiter_info;
   waiter->thread = machine->current_thread;
   waiter->continuation = continuation;
   waiter->next = NULL;
-  if (blackhole->waiters_tail == NULL) {
-    blackhole->waiters_head = waiter;
+  if (entry->tail == NULL) {
+    entry->head = waiter;
   } else {
-    blackhole->waiters_tail->next = waiter;
+    entry->tail->next = waiter;
   }
-  blackhole->waiters_tail = waiter;
+  entry->tail = waiter;
+  object->header |= AIHC_HEADER_WAITERS;
 }
 
-static AihcBlackhole *aihc_remove_blackhole(AihcMachine *machine,
-                                            AihcValue *object) {
-  AihcBlackhole *blackhole = aihc_blackhole_record(object);
-  if (blackhole->previous != NULL) {
-    blackhole->previous->next = blackhole->next;
-  } else {
-    if (machine->blackholes != blackhole) {
-      aihc_fail("blackhole scheduler record is not the list head");
-    }
-    machine->blackholes = blackhole->next;
+static AihcBlackholeWaiter *aihc_remove_blackhole_waiters(AihcMachine *machine,
+                                                          AihcValue *object) {
+  AihcBlackholeTable *table = machine->blackholes;
+  if (table == NULL || table->count == 0) {
+    aihc_fail("marked thunk has no waiter table entry");
   }
-  if (blackhole->next != NULL) {
-    blackhole->next->previous = blackhole->previous;
+  size_t slot = aihc_blackhole_slot(table->entries, table->capacity, object);
+  AihcBlackholeWaiter *head = table->entries[slot].head;
+  if (head == NULL) {
+    aihc_fail("marked thunk has no waiters");
   }
-  return blackhole;
+  table->entries[slot] = (AihcBlackholeEntry){0};
+  --table->count;
+  /* Restore the probe chain without tombstones or further allocation. */
+  slot = (slot + 1) & (table->capacity - 1);
+  while (table->entries[slot].object != NULL) {
+    AihcBlackholeEntry entry = table->entries[slot];
+    table->entries[slot] = (AihcBlackholeEntry){0};
+    size_t target =
+        aihc_blackhole_slot(table->entries, table->capacity, entry.object);
+    table->entries[target] = entry;
+    slot = (slot + 1) & (table->capacity - 1);
+  }
+  return head;
 }
 
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
@@ -1522,9 +1597,13 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
   if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("attempted to update a cell that is not blackholed");
   }
-  AihcBlackhole *blackhole = aihc_remove_blackhole(machine, object);
+  AihcSlot flags = object->header;
   aihc_update(object, value);
-  AihcBlackholeWaiter *waiter = blackhole->waiters_head;
+  if ((flags & AIHC_HEADER_WAITERS) == 0) {
+    return;
+  }
+  /* No collection can occur between the update and removal of its key. */
+  AihcBlackholeWaiter *waiter = aihc_remove_blackhole_waiters(machine, object);
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
     aihc_suspend_continue(waiter->thread, waiter->continuation, 1,
@@ -1539,9 +1618,12 @@ static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
   if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("exception update frame does not contain a blackhole");
   }
-  AihcBlackhole *blackhole = aihc_remove_blackhole(machine, object);
-  object->header = (AihcSlot)(uintptr_t)blackhole->original_info;
-  AihcBlackholeWaiter *waiter = blackhole->waiters_head;
+  AihcSlot flags = object->header;
+  object->header &= ~AIHC_HEADER_TAG_MASK;
+  if ((flags & AIHC_HEADER_WAITERS) == 0) {
+    return;
+  }
+  AihcBlackholeWaiter *waiter = aihc_remove_blackhole_waiters(machine, object);
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
     aihc_suspend_raise(waiter->thread, exception, waiter->continuation);

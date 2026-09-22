@@ -1,8 +1,12 @@
 entry: $entry
 gc-stress: true
 program: |
+  primitive fork# :: BoxedRep Unlifted/1
   primitive newPromptTag# :: BoxedRep Unlifted/0
   primitive yield# :: TupleRep []/0
+
+  $child (shared :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (shared :: BoxedRep Lifted)
 
   $loop (self :: BoxedRep Lifted) -> BoxedRep Lifted =
     () <- primitive-call @(TupleRep []) yield#
@@ -12,7 +16,9 @@ program: |
   $entry -> BoxedRep Lifted =
     store-rec
       (self :: BoxedRep Lifted) = (F$loop (self :: BoxedRep Lifted))
+    (child :: BoxedRep Lifted) <- store (P$child/[[]] (self :: BoxedRep Lifted))
+    (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child :: BoxedRep Lifted)
     eval @(BoxedRep Lifted) (self :: BoxedRep Lifted)
 error: blackholed thunk re-entered
 status: pass
-reason: Collection must preserve the update continuation that detects self-re-entry.
+reason: Self-re-entry must fail after a competing thread registers a waiter and collection moves the thunk.

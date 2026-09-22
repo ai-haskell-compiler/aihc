@@ -21,22 +21,14 @@ const @AIHC_INFO_BYTES = 6 words
 const @AIHC_MACHINE_HEAP_NEXT_OFFSET = 1 word + 16
 const @AIHC_MACHINE_HEAP_LIMIT_OFFSET = 2 words + 16
 const @AIHC_MACHINE_CURRENT_THREAD_OFFSET = 6 words + 48
-const @AIHC_MACHINE_BLACKHOLES_OFFSET = 9 words + 48
 
-; A blackhole record starts with an eight-byte header and an embedded info table.
-; The remaining fields are C pointers. Round its size to whole heap slots.
-const @AIHC_BLACKHOLE_INFO_OFFSET = 8
-const @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET = 8 + @AIHC_INFO_BYTES
-const @AIHC_BLACKHOLE_OBJECT_OFFSET = @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET + 1 word
-const @AIHC_BLACKHOLE_OWNER_OFFSET = @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET + 2 words
-const @AIHC_BLACKHOLE_WAITERS_HEAD_OFFSET = @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET + 3 words
-const @AIHC_BLACKHOLE_WAITERS_TAIL_OFFSET = @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET + 4 words
-const @AIHC_BLACKHOLE_PREVIOUS_OFFSET = @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET + 5 words
-const @AIHC_BLACKHOLE_NEXT_OFFSET = @AIHC_BLACKHOLE_ORIGINAL_INFO_OFFSET + 6 words
-const @AIHC_BLACKHOLE_BYTES = (@AIHC_BLACKHOLE_NEXT_OFFSET + 1 word + 7) / 8 * 8
+; Two low header bits preserve the original info-table pointer.
+const @AIHC_HEADER_EVALUATING = 1
+const @AIHC_HEADER_WAITERS = 2
+const @AIHC_HEADER_INFO_MASK = -4
 
 ; Object kinds occupy the object_kind field of an info table.
-; AIHC_OBJECT_RUNTIME is a reserved legacy kind.
+; AIHC_OBJECT_RUNTIME and AIHC_OBJECT_BLACKHOLE_RECORD are reserved legacy kinds.
 const @AIHC_OBJECT_NODE = 0
 const @AIHC_OBJECT_CLOSURE = 1
 const @AIHC_OBJECT_THUNK = 2
@@ -73,8 +65,8 @@ const @AIHC_RESUME_CONTINUE = 2
 const @AIHC_RESUME_RAISE = 3
 
 ; Heap slots have eight bytes on every target.
-; Fourteen slots cover a blackhole record or waiter on every target.
-const @AIHC_EVAL_RECORD_WORDS = 14
+; Four slots cover a waiter on every target.
+const @AIHC_EVAL_WAITER_WORDS = 4
 const @AIHC_UPDATE_FRAME_WORDS = 3
 const @AIHC_UPDATE_FRAME_BYTES = @AIHC_UPDATE_FRAME_WORDS * 8
-const @AIHC_EVAL_THUNK_WORDS = @AIHC_EVAL_RECORD_WORDS + @AIHC_UPDATE_FRAME_WORDS
+const @AIHC_EVAL_THUNK_WORDS = @AIHC_UPDATE_FRAME_WORDS

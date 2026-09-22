@@ -32,7 +32,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 76800
-  linux-amd64: 76800
+  macos-arm64: 54400
+  linux-amd64: 54400
 status: pass
-reason: Completed blackhole records and waiters must become reclaimable in a small heap.
+reason: Completed update continuations and waiters must become reclaimable in a small heap.

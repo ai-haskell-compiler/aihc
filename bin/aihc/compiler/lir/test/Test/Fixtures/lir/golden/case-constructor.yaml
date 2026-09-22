@@ -15,14 +15,16 @@ expected: |
 
   func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %value_1: ptr, %$cps_return_2: ptr) {
   entry:
-    %header_6 = load ptr [%value_1] align 8
-    %identity_7 = load ptr [%header_6] align 1 word
-    %matches_8 = eq ptr %identity_7, @aihc_c_aihc_entry_Nothing_0
-    br %matches_8, alt_3, check_9
+    %header_word_6 = load i64 [%value_1] align 8
+    %info_word_7 = and i64 %header_word_6, -4
+    %header_8 = ptr.from_int %info_word_7
+    %identity_9 = load ptr [%header_8] align 1 word
+    %matches_10 = eq ptr %identity_9, @aihc_c_aihc_entry_Nothing_0
+    br %matches_10, alt_3, check_11
 
-  check_9:
-    %matches_10 = eq ptr %identity_7, @aihc_c_aihc_entry_Just_0
-    br %matches_10, alt_4, no_match_5
+  check_11:
+    %matches_12 = eq ptr %identity_9, @aihc_c_aihc_entry_Just_0
+    br %matches_12, alt_4, no_match_5
 
   no_match_5:
     call @aihc_no_match()
@@ -32,8 +34,8 @@ expected: |
     tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, 0)
 
   alt_4:
-    %payload_11 = load i64 [%value_1 + 8] align 8
-    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, %payload_11)
+    %payload_13 = load i64 [%value_1 + 8] align 8
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, %payload_13)
   }
 
   export data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }

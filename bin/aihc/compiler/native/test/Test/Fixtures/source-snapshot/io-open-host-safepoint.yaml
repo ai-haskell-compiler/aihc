@@ -23,8 +23,8 @@ return: "@0"
 heap: |
   @0 = CResult 42
 allocated-bytes:
-  macos-arm64: 1296
+  macos-arm64: 1184
   # Linux host buffer alignment adds eight bytes to the path allocation.
-  linux-amd64: 1304
+  linux-amd64: 1192
 status: pass
 reason: A host allocation must retain the open result handle and relocate the saved continuation and its array.

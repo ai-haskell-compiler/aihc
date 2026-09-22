@@ -23,7 +23,7 @@ return: "@0"
 heap: |
   @0 = CResult 42
 allocated-bytes:
-  macos-arm64: 32520
-  linux-amd64: 32520
+  macos-arm64: 32408
+  linux-amd64: 32408
 status: pass
 reason: The keep-alive action must retain the pinned owner across collection.

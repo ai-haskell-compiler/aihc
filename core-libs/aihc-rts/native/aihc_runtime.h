@@ -24,6 +24,7 @@ enum {
   AIHC_OBJECT_MVAR,
   AIHC_OBJECT_MVAR_WAITER,
   AIHC_OBJECT_BLACKHOLE_WAITER,
+  /* Reserved legacy object kind. */
   AIHC_OBJECT_BLACKHOLE_RECORD,
   AIHC_OBJECT_STABLE_NAME,
   AIHC_OBJECT_BYTE_ARRAY,
@@ -39,7 +40,7 @@ typedef struct AihcTransactionTimer AihcTransactionTimer;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
-typedef struct AihcBlackhole AihcBlackhole;
+typedef struct AihcBlackholeTable AihcBlackholeTable;
 typedef struct AihcIoHandle AihcIoHandle;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
@@ -162,7 +163,7 @@ struct AihcMachine {
   AihcThread *current_thread;
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
-  AihcBlackhole *blackholes;
+  AihcBlackholeTable *blackholes;
   AihcStableName *stable_names;
   uint64_t next_stable_name;
   /* The number of the next new thread. The counter starts at one, it gives the
@@ -202,12 +203,20 @@ _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
 /* Transfer a scheduler record to fixed-width Lir slots. */
 void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots);
 
+/* Info tables have at least four-byte alignment on every target.
+   These bits belong to the thunk header, not to references to the thunk. */
+#define AIHC_HEADER_EVALUATING UINT64_C(1)
+#define AIHC_HEADER_WAITERS UINT64_C(2)
+#define AIHC_HEADER_TAG_MASK UINT64_C(3)
+
 static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
-  return (const AihcInfo *)(uintptr_t)value->header;
+  return (const AihcInfo *)(uintptr_t)(value->header & ~AIHC_HEADER_TAG_MASK);
 }
 
 static inline AihcObjectKind aihc_value_kind(const AihcValue *value) {
-  return aihc_value_info_table(value)->object_kind;
+  return (value->header & AIHC_HEADER_EVALUATING) != 0
+             ? AIHC_OBJECT_BLACKHOLE
+             : aihc_value_info_table(value)->object_kind;
 }
 
 static inline uintptr_t aihc_value_info(const AihcValue *value) {

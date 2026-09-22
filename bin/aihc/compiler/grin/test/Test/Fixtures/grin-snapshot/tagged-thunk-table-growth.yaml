@@ -1,0 +1,68 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  primitive newMVar# :: BoxedRep Unlifted/0
+  primitive putMVar# :: TupleRep []/2
+  primitive takeMVar# :: BoxedRep Lifted/1
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+  global token = (CNumber (42 :: IntRep))
+
+  $shared (gate :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    primitive-call @(BoxedRep Lifted) takeMVar# (gate :: BoxedRep Unlifted)
+
+  $child (shared :: BoxedRep Lifted) (results :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    (value :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (shared :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) putMVar# (results :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
+    constant (value :: BoxedRep Lifted)
+
+  $start (count :: IntRep) (gate :: BoxedRep Unlifted) (results :: BoxedRep Unlifted) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (shared :: BoxedRep Lifted) <- store (F$shared (gate :: BoxedRep Unlifted))
+        (child :: BoxedRep Lifted) <- store (P$child/[[]] (shared :: BoxedRep Lifted) (results :: BoxedRep Unlifted))
+        (first :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child :: BoxedRep Lifted)
+        (second :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (child :: BoxedRep Lifted)
+        () <- primitive-call @(TupleRep []) yield#
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @IntRep $start (next :: IntRep) (gate :: BoxedRep Unlifted) (results :: BoxedRep Unlifted)
+
+  $release (count :: IntRep) (gate :: BoxedRep Unlifted) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        () <- primitive-call @(TupleRep []) putMVar# (gate :: BoxedRep Unlifted) global-ref token
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @IntRep $release (next :: IntRep) (gate :: BoxedRep Unlifted)
+
+  $gather (count :: IntRep) (results :: BoxedRep Unlifted) (sum :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (sum :: IntRep)
+      _ ->
+        (value :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (results :: BoxedRep Unlifted)
+        case (value :: BoxedRep Lifted) as result :: BoxedRep Lifted of
+          data Number (number :: IntRep) ->
+            (total :: IntRep) <- primitive-call @IntRep +# (sum :: IntRep) (number :: IntRep)
+            (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+            call @IntRep $gather (next :: IntRep) (results :: BoxedRep Unlifted) (total :: IntRep)
+
+  $entry -> IntRep =
+    (gate :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (results :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (started :: IntRep) <- call @IntRep $start (32 :: IntRep) (gate :: BoxedRep Unlifted) (results :: BoxedRep Unlifted)
+    (released :: IntRep) <- call @IntRep $release (32 :: IntRep) (gate :: BoxedRep Unlifted)
+    call @IntRep $gather (64 :: IntRep) (results :: BoxedRep Unlifted) (0 :: IntRep)
+return: "2688"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 22432
+  linux-amd64: 22432
+status: pass
+reason: Concurrent thunk waiters survive table growth, moving collection, and removal after owners blocked on MVars resume.

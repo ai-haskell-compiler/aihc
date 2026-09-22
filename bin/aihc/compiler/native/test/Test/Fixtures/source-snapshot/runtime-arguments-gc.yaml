@@ -23,7 +23,7 @@ return: "@0"
 heap: |
   @0 = CResult 4341065
 allocated-bytes:
-  macos-arm64: 28224
-  linux-amd64: 28224
+  macos-arm64: 28112
+  linux-amd64: 28112
 status: pass
 reason: Argument replacement must retain movable arrays and reclaim previous arrays within the heap limit.

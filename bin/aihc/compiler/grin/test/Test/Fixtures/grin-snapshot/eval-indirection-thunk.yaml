@@ -18,7 +18,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 184
-  linux-amd64: 184
+  macos-arm64: 72
+  linux-amd64: 72
 status: pass
 reason: An update frame must contain the resolved thunk after an indirection and collection.
