@@ -1164,7 +1164,8 @@ packageUnitIdentity inputs =
 archiveInputsHash :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> PackageInputs -> String -> IO String
 archiveInputsHash config root dependencies inputs headerHash = do
   let cInputs = inputCCompileInfo inputs
-  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileCxxSources cInputs <> HackageCabal.cCompileLirSources cInputs)
+  lirSources <- lirSourceFiles (HackageCabal.cCompileLirSources cInputs)
+  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileCxxSources cInputs <> lirSources)
   cSysrootArguments <-
     if null (HackageCabal.cCompileSources cInputs) && null (HackageCabal.cCompileCxxSources cInputs)
       then pure []
@@ -1184,6 +1185,25 @@ archiveInputsHash config root dependencies inputs headerHash = do
             )
         )
     )
+
+-- | Every file the Lir sources of a package depend on: the sources the
+-- Cabal file names and the files their includes reach. A unit that is only
+-- included is named by no field, so nothing else would fingerprint it, and
+-- an edit to it would leave a stale store entry behind.
+--
+-- A source that does not parse is left to the compile step, which reports
+-- it properly. Hashing the file itself is right in the meantime: it is what
+-- the expansion would have read first.
+lirSourceFiles :: [FilePath] -> IO [FilePath]
+lirSourceFiles sources = concat <$> mapM expand sources
+  where
+    expand source = do
+      exists <- doesFileExist source
+      if not exists
+        then pure [source]
+        else do
+          result <- Lir.loadModuleWithIncludes source
+          pure (source : either (const []) snd result)
 
 buildEnvironmentIdentity :: NativeTarget -> IO String
 buildEnvironmentIdentity target = do

@@ -268,20 +268,40 @@ A constant is not a data
 object: it has no address, a `ptr` field cannot name it, and `ptr.to_int`
 cannot take it.
 
-An `include` item names a file whose constants the module takes as its own.
-The path is relative to the directory of the file that holds the include. An
-included file holds nothing but constants and includes, so including it
-defines no function, global, or data object, and every module that includes
-it stays one object of its own. A chain of includes does not return to a file
-already on it.
+An `include` item names a file whose items the module takes as its own: its
+constants, and its functions, globals, and data objects too. The path is
+relative to the directory of the file that holds the include. Including a
+file is how several units become one module and so one object, which lets a
+backend optimize across them and inline a call from one into another.
+
+A file is expanded once however many times it is included. A unit of shared
+constants therefore reaches a whole tree of units through one copy, and the
+diamond that would otherwise define every one of those constants twice is
+ordinary rather than an error. A chain of includes that returns to a file
+already on it is still a cycle, and is rejected.
+
+Merging whole files brings together declarations that were one per file, so
+the expansion collapses them:
+
+- identical `extern` declarations of a symbol become one;
+- an `extern` declaration of a symbol the merged module defines is dropped in
+  favour of the definition, which is how one unit calls a function of another
+  unit it is merged with.
+
+A declaration that disagrees with the definition is an error, not a silent
+choice. Everything else the merge duplicates -- two definitions of one symbol
+-- is left to the linter, which names it.
 
 Constants and includes exist in the text and in the parsed module, so a file
 round-trips through the pretty-printer. Before a module reaches the linter,
-`expandIncludes` replaces every include with the constants of its file, and
+`expandIncludes` replaces every include with the items of its file, and
 before it reaches a backend, `resolveConstants` substitutes every reference
-with its value and drops the definitions. The backends and the interpreter
-run that substitution themselves, so a caller hands them the expanded module.
-`loadModule` reads, parses, and expands a file in one step.
+with its value and drops the definitions. `Aihc.Lir.Inline` then splices the
+inline functions. The backends and the interpreter run those two themselves
+through `prepareModule`, so a caller hands them the expanded module.
+`loadModule` reads, parses, and expands a file in one step, and
+`loadModuleWithIncludes` also reports the files it read, which a caller that
+fingerprints its inputs needs.
 
 ```text
 include "aihc_constants.lir"
@@ -695,11 +715,12 @@ than the Lir text.
 
 ## Runtime units
 
-A runtime unit is a `.lir` file in `core-libs/aihc-rts/native`, named by
-the `x-aihc-lir-sources` field of the `aihc-rts` package. Installing the
-package parses, lints, and compiles each unit with the backend of the
-target, and its object joins the C objects of the package in its `cbits`
-directory, which every link takes object by object.
+A runtime unit is a `.lir` file in `core-libs/aihc-rts/native`. They reach
+the `aihc-rts` package through `rts.lir`, which includes them and is the one
+file the `x-aihc-lir-sources` field names. Installing the package parses,
+lints, and compiles that one module with the backend of the target, and its
+object joins the C objects of the package in its `cbits` directory, which
+every link takes object by object.
 Calls between Lir and C use the `c` convention.
 Calls to shared Lir helpers use the `aihc` convention.
 
@@ -708,8 +729,13 @@ This level does not depend on the optimization level of the program.
 
 Runtime units take shared constants from `aihc_constants.lir` with
 `include "aihc_constants.lir"`. These constants identify object kinds,
-frame kinds, and scheduler resumption kinds. This file contains only
-constants, so it does not produce an object file.
+frame kinds, and scheduler resumption kinds. This file holds only constants,
+so it produces no code of its own.
+
+`x-aihc-lir-sources` names one file, `rts.lir`, which includes every other
+unit. The runtime is therefore one object and a backend optimizes across the
+unit boundaries. The units keep their own files, and each is still a Lir
+module that parses and lints by itself.
 
 A program links the objects of the installed package. A test harness that
 needs its own runtime — an instrumented one, or one with a smaller
