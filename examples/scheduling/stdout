@@ -4,3 +4,6 @@ Hello from forked thread
 Back in main
 main thread keeps one number
 new thread has a larger number
+main: delaying
+main: the worker ran while main waited: True
+STM timers: ok

@@ -1,6 +1,69 @@
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE MagicHash #-}
+
+-- Lambdas over constructor, tuple and unboxed patterns; a constrained
+-- existential; and Typeable casts.
 module Main where
 
+import Data.Coerce (coerce)
 import Data.Typeable (Typeable, cast, tyConName, typeOf, typeRepTyCon)
+import GHC.Exts (Int (I#), (*#), (+#))
+
+main :: IO ()
+main = do
+  lambdaPatterns
+  existential
+  typeableCasts
+
+newtype Wrapped = Wrapped Int
+
+addUnboxed :: Int -> Int -> Int
+addUnboxed = \(I# x#) (I# y#) -> I# (x# +# y#)
+
+scaleWrapped :: Wrapped -> Int -> Int
+scaleWrapped = coerce $ \(I# x#) (I# k#) -> I# (x# *# k#)
+
+sumPair :: (Int, Int) -> Int
+sumPair = \(a, b) -> a + b
+
+nested :: Maybe (Int, Int) -> Int
+nested = \(Just (a, b)) -> a * b
+
+lambdaPatterns :: IO ()
+lambdaPatterns = do
+  print (addUnboxed 3 4)
+  print (scaleWrapped (Wrapped 6) 7)
+  print (sumPair (10, 32))
+  print (map (\(Just n) -> n + 1) [Just (1 :: Int), Just 2])
+  print (nested (Just (6, 7)))
+
+data Mark = Marked | Unmarked
+
+data Payload = Payload
+
+data Tag = Tag
+
+class Markable a where
+  mark :: a -> Mark
+
+instance Markable Payload where
+  mark Payload = Marked
+
+data Crate tag = forall value. (Markable value) => Crate tag value
+
+crated :: Crate Tag
+crated = Crate Tag Payload
+
+inspect :: Crate tag -> Mark
+inspect crate =
+  case crate of
+    Crate _ value -> mark value
+
+existential :: IO ()
+existential =
+  case inspect crated of
+    Marked -> putStrLn "existential dictionary"
+    Unmarked -> putStrLn "missing dictionary"
 
 -- | A newtype over 'Int'. At runtime a 'Meters' value is just an 'Int',
 -- but 'cast' compares types, so casting between the two must fail.
@@ -27,8 +90,8 @@ attempt label result =
 sumInts :: [Maybe Int] -> Int
 sumInts = foldr (\entry total -> maybe total (+ total) entry) 0
 
-main :: IO ()
-main = do
+typeableCasts :: IO ()
+typeableCasts = do
   putStrLn "-- same type"
   putStrLn (attempt "Int -> Int" (cast (42 :: Int) :: Maybe Int))
   putStrLn (attempt "Bool -> Bool" (cast True :: Maybe Bool))
