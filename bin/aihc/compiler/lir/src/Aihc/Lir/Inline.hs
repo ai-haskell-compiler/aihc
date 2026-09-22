@@ -36,6 +36,11 @@ import Data.Text qualified as T
 -- constants substituted and inline functions spliced. Every backend and the
 -- interpreter run this, so a module reaches them the same way whether it was
 -- parsed from text or lowered by the compiler.
+-- The two passes commute: the splice copies operands, addresses and switch
+-- cases without reading them, so it neither consumes nor creates a constant
+-- reference. Constants are resolved first only because it is the cheaper
+-- half of the order -- a constant in an inline body is then substituted once
+-- in the definition rather than once in each copy of it.
 prepareModule :: Integer -> Module -> Module
 prepareModule wordBytes = inlineModule . resolveConstants wordBytes
 
