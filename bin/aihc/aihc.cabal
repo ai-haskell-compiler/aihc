@@ -150,6 +150,7 @@ library
     Aihc.Fc.Pass
     Aihc.Fc.Pretty
     Aihc.Fc.Prune
+    Aihc.Fc.Rules
     Aihc.Fc.Share
     Aihc.Fc.Simplify
     Aihc.Fc.Size

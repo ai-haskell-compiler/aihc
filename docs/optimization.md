@@ -56,17 +56,22 @@ after each pass under `--lint`.
 | Pass | What it does |
 | ---- | ------------ |
 | `PassEtaExpand` | Arity analysis, then eta expansion of every top-level value to the arity it finds. `Aihc.Fc.Arity`. |
-| `PassInline policy rounds` | The inliner under a policy, for at most that many rounds. `Aihc.Fc.Inline`. |
-| `PassSimplify` | One walk over every body with the local rewrites and no copy of any callee. `Aihc.Fc.Simplify`. |
+| `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
+| `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
+
+A phase is a number that counts down as GHC's phases do: the shrinking
+inliner runs in phase 2, the growing inliner in phase 1, and the final
+simplifying walk in phase 0. Nothing else reads the phase: it decides which
+rewrite rules fire (see below).
 
 The plans are:
 
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, inline `shrinkPolicy`, inline `growPolicy`, eta expand, simplify |
+| `-O1` | eta expand, inline `shrinkPolicy` [2], inline `growPolicy` [1], eta expand, simplify [0] |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, inline `shrinkPolicy`, eta expand, simplify |
+| `-Os` | eta expand, inline `shrinkPolicy` [2], eta expand, simplify [0] |
 
 `-Os` is a prefix of `-O2`: the growing phase of `-O2` starts from the
 program that `-Os` would have produced. Eta expansion runs before the
@@ -148,6 +153,47 @@ the pass reports, not by bisecting a limit.
 - A ratio backstop over the whole program. It would only ever fire when a
   local rule is wrong, and then it would hide the wrong rule.
 
+## Rewrite rules
+
+A `{-# RULES #-}` pragma reaches System FC as a `DeclRule`: the rule's type
+binders, the dictionaries of its constraints, and its pattern variables, the
+shared type of its sides, and the two sides as expressions (`docs/system-fc.md`).
+The simplifier fires rules, in `Aihc.Fc.Simplify.fireRule`, and the matcher
+is `Aihc.Fc.Rules`.
+
+- A rule is tried at an application whose head names the head of its
+  left-hand side, after the arguments are simplified and before the head is
+  inlined, so that a rule written for a function sees its calls. Because the
+  inliner simplifies every copy it makes, rules fire on inlined code too.
+- Matching is first-order and syntactic, modulo the names of binders both
+  sides bind in the same place. Type binders of the rule match the type
+  arguments; a ground type of the pattern is compared up to synonyms. No
+  beta reduction or eta expansion is attempted. An application may give the
+  head more arguments than the left-hand side names; the surplus applies to
+  the result.
+- A pattern variable never takes an expression that names a variable the
+  application binds inside the part being matched, as in GHC, because that
+  variable would escape into the right-hand side.
+- The right-hand side is copied with fresh binders, instantiated, and
+  simplified again in place. Each walk over one body fires at most
+  `ruleFuel` rules, so a looping pair of rules stays finite.
+- A rule fires only in the phases its activation names: `[n]` from phase
+  `n` down to 0, `[~n]` before phase `n`, `[~]` never. `Aihc.Fc.Rules.ruleTable`
+  selects the rules of a pass.
+- A value a rule names is a root of the inliner: it is never dropped while
+  the rule may still put it in place.
+- Every pass report counts the rules it fired; `--verbose` prints it.
+
+Rules are matched in the program the pass is given. At the per-module scope
+that is the module's own rules; at the whole-program scope it is every rule
+of every module, which is what makes rules from a library fire in a program
+that uses it. Per-module firing of imported rules waits on the same import
+facts as "-O1 in import order" below.
+
+`INLINE` and `NOINLINE` pragmas are not honoured yet, so a rule whose
+left-hand side names a small non-recursive function competes with the
+inliner for the call: the rule wins only when its phase comes first.
+
 ## Invariants
 
 These are the properties the structure is meant to keep. Each is checkable,
@@ -161,7 +207,8 @@ and a change that breaks one needs a reason in its pull request.
   imports.
 - Every pass has golden fixtures under
   `compiler/fc/test/Test/Fixtures/golden`, run through `passes:` in the
-  fixture, in the order a plan would run them.
+  fixture, in the order a plan would run them. A `simplify` entry may carry a
+  phase (`simplify: 2`), and an `inline` object a `phase` knob.
 
 ## Not done
 

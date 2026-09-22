@@ -50,7 +50,10 @@ optimizationPlan lto level =
     O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> grow}
     Os -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> finish}
   where
-    shrink = [Fc.PassEtaExpand, Fc.PassInline Fc.shrinkPolicy rounds]
-    grow = [Fc.PassInline Fc.growPolicy rounds] <> finish
-    finish = [Fc.PassEtaExpand, Fc.PassSimplify]
+    -- The phases count down as GHC's do: the shrinking inliner is phase
+    -- 2, the growing one phase 1 and the final walk phase 0, so a rule
+    -- with a phase control fires where its author expects.
+    shrink = [Fc.PassEtaExpand, Fc.PassInline Fc.shrinkPolicy rounds 2]
+    grow = [Fc.PassInline Fc.growPolicy rounds 1] <> finish
+    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0]
     rounds = 4
