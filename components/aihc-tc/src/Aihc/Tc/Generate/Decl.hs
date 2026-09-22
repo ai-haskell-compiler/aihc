@@ -62,6 +62,8 @@ import Aihc.Parser.Syntax
     Rhs (..),
     Role (..),
     RoleAnnotation (..),
+    RuleBinder (..),
+    RuleDecl (..),
     SourceSpan,
     TupleFlavor (..),
     TyVarBinder,
@@ -133,7 +135,7 @@ import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
 import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
-import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
+import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
@@ -703,7 +705,10 @@ tcModuleBodyWithDefaults schemes m = do
   classDecls <- mapM (atDecl tcClassDeclBodies) (moduleDecls valueAnnotatedModule)
   instanceHeaders <- mapM (atDecl (annotateInstanceHeaderTc (resolvedModuleOrigin m) False)) classDecls
   instanceDecls <- mapM (atDecl tcInstanceDeclBodies) instanceHeaders
-  let pendingModule = valueAnnotatedModule {moduleDecls = instanceDecls}
+  -- Rewrite rules come last: both sides of a rule are expressions over the
+  -- generalized types of the values above.
+  ruleDecls <- mapM (atDecl tcRulesDecl) instanceDecls
+  let pendingModule = valueAnnotatedModule {moduleDecls = ruleDecls}
   -- Phase 5: reject source top-level values whose finalized types are
   -- unlifted. Generated declarations without source spans are permitted so
   -- downstream passes can introduce internal unlifted bindings.
@@ -716,6 +721,89 @@ annotatePendingModule pending = do
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
   annotateModuleTc (Map.fromList [(tbName result, tbType result) | result <- pendingValueResults pending]) (pendingSyntax pending)
+
+-- | Check the rules of a @RULES@ pragma. Any other declaration is left alone.
+tcRulesDecl :: Decl -> TcM Decl
+tcRulesDecl decl =
+  case decl of
+    DeclAnn ann inner -> DeclAnn ann <$> tcRulesDecl inner
+    DeclRules rules -> DeclRules <$> mapM tcRuleDecl rules
+    _ -> pure decl
+
+-- | Check one rewrite rule.
+--
+-- The type variables of a leading @forall@ are skolems in scope over the
+-- binder types and both sides. Each pattern variable is a monomorphic
+-- binder at its signature, or at a fresh meta-variable that the sides
+-- determine. The left-hand side is inferred and the right-hand side is
+-- checked against its type, so that both sides agree. What the sides leave
+-- open is then generalized as a top-level binding would be: the rule's
+-- annotation is the type of the function from the pattern variables to
+-- the sides, closed over its type variables and residual constraints, so a
+-- consumer finds the type binders, the dictionary binders and the binder
+-- types in that one type. A rule with a type error keeps its source form.
+tcRuleDecl :: RuleDecl -> TcM RuleDecl
+tcRuleDecl rule = withAmbientSpan sp $ do
+  kinds <- getKinds
+  typeBinders <- foldM (ruleTypeBinder kinds) [] (ruleTypeBinders rule)
+  let scope = Map.fromList [(tvName tv, (tv, tvKind tv)) | tv <- typeBinders]
+  withImpliedScopedTyVars scope $ do
+    binders <- forM (ruleBinders rule) $ \binder -> do
+      ty <- case ruleBinderType binder of
+        Nothing -> freshMetaTv
+        Just sig -> do
+          scoped <- getScopedTyVars
+          checkRuntimeType scoped sig
+      pure (binder, ty)
+    let ruleTypeOf lhsTy = foldr (TcFunTy . snd) lhsTy binders
+    ((lhs', lhsTy, rhs', residualPreds), failed) <-
+      withErrorTracking $
+        withRuleBinders binders $ do
+          (lhs', lhsTy, lhsCts) <- inferExpr (ruleLhs rule)
+          (rhs', rhsTy, rhsCts) <- checkExpr lhsTy (ruleRhs rule)
+          -- The check pushes the type into a lambda or a case; any other
+          -- right-hand side comes back with its own type, which the two
+          -- sides of a rule must share.
+          sidesEv <- freshEvVar
+          let sidesCt =
+                mkWantedEqCt
+                  TypeTrace {typeTraceType = rhsTy, typeTraceRole = ActualType, typeTraceOrigin = ExpressionTypeOrigin sp}
+                  TypeTrace {typeTraceType = lhsTy, typeTraceRole = ExpectedType, typeTraceOrigin = ExpressionTypeOrigin sp}
+                  sidesEv
+                  (UnifyOrigin sp)
+                  sp
+          solveResult <- solveWithImpls (lhsCts <> rhsCts <> [sidesCt]) []
+          residualPreds <- generalizableResidualPreds (ruleTypeOf lhsTy) solveResult
+          pure (lhs', lhsTy, rhs', residualPreds)
+    if failed
+      then pure rule
+      else do
+        Scheme inferred specified predicates body <- generalizeAndCommit (ruleTypeOf lhsTy) residualPreds
+        let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
+        binders' <- forM binders $ \(binder, ty) ->
+          pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
+        pure
+          rule
+            { ruleAnns = mkAnnotation (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleAnns rule,
+              ruleBinders = binders',
+              ruleLhs = lhs',
+              ruleRhs = rhs'
+            }
+  where
+    sp = sourceSpanFromAnns (ruleAnns rule)
+
+    withRuleBinders binders action =
+      foldr (\(binder, ty) -> extendResolvedTermEnv (ruleBinderName binder) (TcMonoIdBinder ty)) action binders
+
+    -- A type binder is a skolem at the kind its signature gives it, or at
+    -- kind Type. The kind may name an earlier binder.
+    ruleTypeBinder kinds bound binder = do
+      kind <- case tyVarBinderKind binder of
+        Nothing -> pure (typeKind kinds)
+        Just kindSyntax ->
+          checkSurfaceType (Map.fromList [(tvName tv, (tv, tvKind tv)) | tv <- bound]) kindSyntax (typeKind kinds)
+      skolem <- freshSkolemTvOfKind (tyVarBinderName binder) kind
+      pure (bound <> [skolem])
 
 -- | The global tables as one pass left them, so that a later pass can tell
 -- the entries it added from the ones that were already there.
