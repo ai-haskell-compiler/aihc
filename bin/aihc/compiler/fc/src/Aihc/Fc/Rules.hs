@@ -125,6 +125,12 @@ matchArg matcher scope subst pair =
     _ -> Nothing
 
 matchExpr :: Matcher -> Scope -> Subst -> Expr -> Expr -> Maybe Subst
+matchExpr matcher scope subst template target
+  -- The desugarer eta-expands a binder of the rule that is passed at a
+  -- polymorphic or a function type, so the template reads @Λb. g @b@ or
+  -- @λx. g x@ where the source said @g@. The binder stands for the whole
+  -- argument, so the template is matched eta-reduced.
+  | Just reduced <- etaReduced template = matchExpr matcher scope subst reduced target
 matchExpr matcher scope subst template target =
   case (template, target) of
     (ExVar name, _)
@@ -242,6 +248,21 @@ matchType matcher scope subst template target =
           | otherwise -> do
               guard (template == target)
               pure subst
+
+-- | The function an eta-expansion applies, when the template is one:
+-- @Λb. f @b@ or @λx. f x@ with the binder free in neither @f@ nor its type.
+etaReduced :: Expr -> Maybe Expr
+etaReduced template =
+  case template of
+    ExTyLam binder (ExTyApp function (TyVar name))
+      | name == binderName binder,
+        not (Set.member name (exprNames function)) ->
+          Just function
+    ExLam binder (ExApp function (ExVar name))
+      | name == binderName binder,
+        not (Set.member name (exprNames function)) ->
+          Just function
+    _ -> Nothing
 
 renamed :: Scope -> Name -> Name
 renamed scope name = Map.findWithDefault name name (scopeRenaming scope)
