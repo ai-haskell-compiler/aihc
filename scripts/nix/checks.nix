@@ -494,7 +494,8 @@
       test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-rts.a' -print -quit)"
-      test -n "$(find "$store" -path '*/cbits/native_aihc_helpers.o' -print -quit)"
+      # The Lir units compile to one object: rts.lir includes them all.
+      test -n "$(find "$store" -path '*/cbits/native_rts.o' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
       # aihc-template-haskell depends on base, so this install builds aihc-base
