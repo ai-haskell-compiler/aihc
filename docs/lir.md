@@ -587,7 +587,19 @@ message of a `trap` terminator:
 ## Lint
 
 The linter checks every rule of this document that the parser cannot check. A
-module passes the linter before it reaches a backend. The linter reports each
+module passes the linter before it reaches a backend.
+
+A module is linted twice: as it was written, and again as the backend
+receives it, after `resolveConstants` has substituted the constants and
+`Aihc.Lir.Inline` has spliced the inline functions. The second pass holds
+those two to the same rules as hand-written Lir. Without it nothing checks
+the module a backend is handed, and a splice that dropped a value out of
+scope arrives as an internal error from the backend, or as invalid output
+from the tool behind it, naming neither the block nor the rule it broke.
+`prepareCheckedModule` runs both; a caller that does not lint runs
+`prepareModule`. A backend lints a unit it was given and lints one the
+compiler lowered only under `--lint`, so the second pass costs nothing on
+the modules that have no inline functions to splice. The linter reports each
 error as `@symbol/block: message`. It omits the block, or the symbol and the
 block, when they do not apply.
 

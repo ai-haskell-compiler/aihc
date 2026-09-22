@@ -46,8 +46,8 @@ module Aihc.Native.Lir
   )
 where
 
-import Aihc.Lir.Inline (prepareModule)
-import Aihc.Lir.Lint (LintError, lintModuleFor)
+import Aihc.Lir.Inline (prepareCheckedModule, prepareModule)
+import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, readCounts)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
@@ -58,6 +58,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Control.Monad.Trans.State.Strict (StateT (..), evalStateT, execStateT, get, mapStateT, modify, modify', put, runState, runStateT)
 import Data.ByteString qualified as BS
+import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -314,9 +315,9 @@ compileNativeStatementsWith lint backend lirModule = concat <$> sequence (compil
 -- rather than the whole module's. A failed chunk is the last one.
 compileNativeChunksWith :: (Ord register) => Bool -> NativeBackend statement register error -> Module -> [Either error [statement]]
 compileNativeChunksWith lint backend lirModule =
-  case if lint then lintModuleFor wordBytes lirModule else [] of
-    [] -> functionChunks initialState (zip [0 ..] [function | ItemFunction function <- items])
-    errors -> [Left (nbLintErrors backend errors)]
+  case prepared of
+    Right _ -> functionChunks initialState (zip [0 ..] [function | ItemFunction function <- items])
+    Left errors -> [Left (nbLintErrors backend errors)]
   where
     functionChunks state remaining =
       case remaining of
@@ -330,7 +331,8 @@ compileNativeChunksWith lint backend lirModule =
             Right (trapStatements, _) -> [Right (trapStatements <> dataStatements <> globalStatements <> nbAfterObject backend)]
     dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
     globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
-    Module items = prepareModule wordBytes lirModule
+    prepared = if lint then prepareCheckedModule wordBytes lirModule else Right (prepareModule wordBytes lirModule)
+    Module items = fromRight (Module []) prepared
     initialState = initialObjectState backend
     signatures =
       Map.fromList
@@ -353,11 +355,12 @@ initialObjectState backend =
 compileNativeTo :: (Monad m, Ord register) => Bool -> NativeBackend statement register error -> (statement -> m ()) -> m () -> Module -> m (Either error ())
 {-# INLINEABLE compileNativeTo #-}
 compileNativeTo lint backend output endFunction lirModule =
-  case if lint then lintModuleFor wordBytes lirModule else [] of
-    errors@(_ : _) -> pure (Left (nbLintErrors backend errors))
-    [] -> go (initialObjectState backend) functions
+  case prepared of
+    Left errors -> pure (Left (nbLintErrors backend errors))
+    Right _ -> go (initialObjectState backend) functions
   where
-    Module items = prepareModule wordBytes lirModule
+    prepared = if lint then prepareCheckedModule wordBytes lirModule else Right (prepareModule wordBytes lirModule)
+    Module items = fromRight (Module []) prepared
     functions = [item | item@ItemFunction {} <- items]
     signatures = Map.fromList ([(functionName function, functionSignature function) | ItemFunction function <- items] <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items])
     go state remaining = case remaining of

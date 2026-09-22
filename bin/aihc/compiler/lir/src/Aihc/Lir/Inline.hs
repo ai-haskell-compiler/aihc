@@ -18,11 +18,13 @@
 -- linted module.
 module Aihc.Lir.Inline
   ( prepareModule,
+    prepareCheckedModule,
     inlineModule,
     hasInlineFunctions,
   )
 where
 
+import Aihc.Lir.Lint (LintError, lintModuleFor)
 import Aihc.Lir.Resolve (resolveConstants)
 import Aihc.Lir.Syntax
 import Control.Monad.Trans.State.Strict (State, runState, state)
@@ -43,6 +45,28 @@ import Data.Text qualified as T
 -- in the definition rather than once in each copy of it.
 prepareModule :: Integer -> Module -> Module
 prepareModule wordBytes = inlineModule . resolveConstants wordBytes
+
+-- | 'prepareModule', with the module linted as it was written and again as
+-- the backend will receive it.
+--
+-- The second pass is what makes the splice answerable to the same rules as
+-- hand-written Lir. Without it nothing checks the module a backend is handed:
+-- a splice that dropped a value out of scope, or left a block parameter
+-- unbound, reached the backend as @unknown value \<x\>@ or as invalid LLVM IR,
+-- naming neither the block nor the rule it broke.
+--
+-- A caller that does not lint calls 'prepareModule' instead. The backends
+-- lint a unit they were given and lint one the compiler lowered only under
+-- @--lint@, so the cost of the second pass falls where the splice runs.
+prepareCheckedModule :: Integer -> Module -> Either [LintError] Module
+prepareCheckedModule wordBytes lirModule =
+  case lintModuleFor wordBytes lirModule of
+    errors@(_ : _) -> Left errors
+    [] ->
+      let prepared = prepareModule wordBytes lirModule
+       in case lintModuleFor wordBytes prepared of
+            errors@(_ : _) -> Left errors
+            [] -> Right prepared
 
 -- | Whether a module defines any inline function, so a caller can skip the
 -- pass on the modules the compiler itself lowers.
