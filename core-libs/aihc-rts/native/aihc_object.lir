@@ -1,0 +1,123 @@
+; The operations the runtime units repeat on an object and its info table.
+;
+; Every one is an inline function: it is spliced into each call and defines
+; no symbol, so a unit reads as what it means -- "the info table of this
+; object", "the kind of this object" -- and compiles to the same
+; instructions as the loads and masks written out. The asm fixture
+; code-quality-inline-function in the Lir tests holds that to be true.
+;
+; See "Info tables" in docs/lir.md for the layout these reach into.
+
+include "aihc_constants.lir"
+
+; The two low bits of a header carry the evaluation state, so the info table
+; is the header with them masked off. Reading a header keeps them.
+inline func @aihc_object_header_word(%object: ptr) -> i64 {
+entry:
+  %header_word = load i64 [%object] align 8
+  return %header_word
+}
+
+inline func @aihc_info_table_of_header(%header_word: i64) -> ptr {
+entry:
+  %info_word = and i64 %header_word, @AIHC_HEADER_INFO_MASK
+  %header = ptr.from_int %info_word
+  return %header
+}
+
+; The info table of an object.
+inline func @aihc_info_table(%object: ptr) -> ptr {
+entry:
+  %header_word = call @aihc_object_header_word(%object)
+  %header = call @aihc_info_table_of_header(%header_word)
+  return %header
+}
+
+; Whether the header says the object is under evaluation.
+inline func @aihc_header_is_evaluating(%header_word: i64) -> i1 {
+entry:
+  %evaluating_bit = and i64 %header_word, @AIHC_HEADER_EVALUATING
+  %evaluating = ne i64 %evaluating_bit, 0
+  return %evaluating
+}
+
+; The byte fields of an info table. Each is one byte widened to a word, which
+; is what a comparison against an object kind or a frame kind wants.
+inline func @aihc_info_kind(%header: ptr) -> i64 {
+entry:
+  %kind_byte = load i8 [%header + @AIHC_INFO_KIND_OFFSET] align 1
+  %kind = zext i8 %kind_byte to i64
+  return %kind
+}
+
+inline func @aihc_info_frame(%header: ptr) -> i64 {
+entry:
+  %frame_byte = load i8 [%header + @AIHC_INFO_FRAME_OFFSET] align 1
+  %frame = zext i8 %frame_byte to i64
+  return %frame
+}
+
+inline func @aihc_info_arity(%header: ptr) -> i64 {
+entry:
+  %arity_byte = load i8 [%header + @AIHC_INFO_ARITY_OFFSET] align 1
+  %arity = zext i8 %arity_byte to i64
+  return %arity
+}
+
+inline func @aihc_info_count(%header: ptr) -> i64 {
+entry:
+  %count_byte = load i8 [%header + @AIHC_INFO_COUNT_OFFSET] align 1
+  %count = zext i8 %count_byte to i64
+  return %count
+}
+
+; The pointer fields of an info table. Each is one word, so the load states a
+; word alignment and is exact on every target.
+;
+; The identity field is at offset zero: it is the code an enter function
+; tail-calls. The entry field is the backend entry, which takes the machine,
+; the object, and the continuation.
+inline func @aihc_info_identity(%header: ptr) -> code {
+entry:
+  %identity = load code [%header] align 1 word
+  return %identity
+}
+
+inline func @aihc_info_entry(%header: ptr) -> code {
+entry:
+  %entry_code = load code [%header + @AIHC_INFO_ENTRY_OFFSET] align 1 word
+  return %entry_code
+}
+
+inline func @aihc_info_bitmap(%header: ptr) -> ptr {
+entry:
+  %bitmap = load ptr [%header + @AIHC_INFO_BITMAP_OFFSET] align 1 word
+  return %bitmap
+}
+
+inline func @aihc_info_next(%header: ptr) -> ptr {
+entry:
+  %next_info = load ptr [%header + @AIHC_INFO_NEXT_OFFSET] align 1 word
+  return %next_info
+}
+
+; The object an indirection stands for: the field after the header.
+inline func @aihc_indirection_target(%object: ptr) -> ptr {
+entry:
+  %next_word = load i64 [%object + 8] align 8
+  %next = ptr.from_int %next_word
+  return %next
+}
+
+; Whether a continuation stands for another one. An indirection does, and so
+; does a forwarding frame, which the collector leaves behind when it moves a
+; frame. A caller follows either to the object in the field after the header.
+inline func @aihc_follows_indirection(%header: ptr) -> i1 {
+entry:
+  %kind = call @aihc_info_kind(%header)
+  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
+  %frame = call @aihc_info_frame(%header)
+  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
+  %follows = or i1 %indirection, %forward
+  return %follows
+}

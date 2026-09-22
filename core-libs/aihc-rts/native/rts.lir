@@ -20,6 +20,7 @@
 ; refer to a definition that follows it.
 
 include "aihc_constants.lir"
+include "aihc_object.lir"
 
 include "aihc_array.lir"
 include "aihc_byte_array.lir"

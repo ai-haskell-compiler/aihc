@@ -727,10 +727,11 @@ Calls to shared Lir helpers use the `aihc` convention.
 LLVM compiles standalone Lir units and executable entry code with `-O2`.
 This level does not depend on the optimization level of the program.
 
-Runtime units take shared constants from `aihc_constants.lir` with
-`include "aihc_constants.lir"`. These constants identify object kinds,
-frame kinds, and scheduler resumption kinds. This file holds only constants,
-so it produces no code of its own.
+Runtime units take shared constants from `aihc_constants.lir` and the shared
+reads of a header and an info table from `aihc_object.lir`, each with an
+`include`. The constants identify object kinds, frame kinds, and scheduler
+resumption kinds; the accessors are inline functions, so neither file
+produces code of its own.
 
 `x-aihc-lir-sources` names one file, `rts.lir`, which includes every other
 unit. The runtime is therefore one object and a backend optimizes across the
@@ -746,6 +747,12 @@ Lir then changes no test. A link places that archive after the objects that
 reference it.
 
 The units are:
+
+- `aihc_object.lir` defines the inline functions that read a header and the
+  fields of an info table: `aihc_info_table`, `aihc_info_kind`,
+  `aihc_info_entry`, `aihc_follows_indirection`, and the rest. Each is
+  spliced into its calls, so a unit reads as what it means and compiles to
+  the loads and masks written out.
 
 - `aihc_helpers.lir` defines `eval`, `resume`, the slot dispatchers,
   `quotrem2`, `cstring_length`, and the shared update continuation
