@@ -13,6 +13,7 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
+import GHC.Base (build)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
@@ -555,6 +556,32 @@ enumIntFromTo value last =
         : case value == last of
           True -> []
           False -> enumIntFromTo (value + 1) last
+
+-- | An 'Int' range written as a 'GHC.Base.foldr': each element goes to
+-- the consumer @c@ and the end to @n@.
+enumIntFromToFB :: (Int -> r -> r) -> r -> Int -> Int -> r
+enumIntFromToFB c n first last =
+  case first <= last of
+    False -> n
+    True -> go first
+  where
+    go value =
+      c
+        value
+        ( case value == last of
+            True -> n
+            False -> go (value + 1)
+        )
+{-# INLINE [1] enumIntFromToFB #-}
+
+-- The same scheme as the rules for 'map' in "GHC.Base": a range is a
+-- producer through 'build' up to phase 1, and a range that did not fuse
+-- is a plain range again from phase 1.
+{-# RULES
+"enumIntFromTo" [~1] forall x y. enumIntFromTo x y = build (\c n -> enumIntFromToFB c n x y)
+"enumIntFromToList" [1] enumIntFromToFB (:) [] = enumIntFromTo
+"enumIntFromTo/build" [1] forall x y. build (\c n -> enumIntFromToFB c n x y) = enumIntFromTo x y
+  #-}
 
 enumIntFromThenTo :: Int -> Int -> Int -> [Int]
 enumIntFromThenTo first second last = go first

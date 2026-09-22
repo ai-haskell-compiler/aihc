@@ -183,6 +183,26 @@ is `Aihc.Fc.Rules`.
 - A value a rule names is a root of the inliner: it is never dropped while
   the rule may still put it in place.
 - Every pass report counts the rules it fired; `--verbose` prints it.
+- A template that is an eta-expansion of a binder, `Λb. g @b` or `λx. g x`,
+  is matched eta-reduced: the desugarer expands a binder passed at a
+  polymorphic or a function type, and the source meant the binder alone.
+
+### List fusion in the core libraries
+
+`GHC.Base`, `Prelude` and `GHC.Enum` carry GHC's foldr/build scheme: a
+producer (`map`, `filter`, `++`, an `Int` range) turns into its `build` form
+in phase 2 by a `[~1]` rule, `foldr` over a `build` fuses there, and from
+phase 1 a `[1]` rule turns what did not fuse back into the plain function.
+Two things differ from GHC:
+
+- Each producer also has a `[1]` rule from its `build` form straight back to
+  the plain call (`"map/build"`, `"filter/build"`, `"++/augment"`,
+  `"enumIntFromTo/build"`), so the round trip does not depend on `build`
+  being inlined, which a size-bound pass or the `-Os` plan may not do.
+- `foldr` takes all three arguments in its head, so that a consumer written
+  as a partial application, `sum = foldr (+) 0`, has the arity of its type
+  and is copied at its calls. The arity pass reads arity from the body, and
+  GHC's `foldr k z = go` gives it arity 2.
 
 Rules are matched in the program the pass is given. At the per-module scope
 that is the module's own rules; at the whole-program scope it is every rule

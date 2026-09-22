@@ -12,6 +12,7 @@ import Data.Either (Either (..))
 import Data.Kind (Type)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Maybe (..), id, seq, (++), (.))
+import GHC.Base qualified
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -99,8 +100,9 @@ emptyStructure :: a
 emptyStructure = emptyStructure
 
 instance Foldable [] where
-  foldr _ initial [] = initial
-  foldr f initial (value : values) = f value (foldr f initial values)
+  -- The list fold is the one the fusion rules know, so that a consumer
+  -- written with the class method fuses with a producer.
+  foldr = GHC.Base.foldr
 
   foldl _ initial [] = initial
   foldl f initial (value : values) = foldl f (f initial value) values
