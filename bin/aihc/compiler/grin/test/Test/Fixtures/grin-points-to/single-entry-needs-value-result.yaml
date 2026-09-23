@@ -1,0 +1,41 @@
+program: |
+  constructor I# [IntRep]
+
+  pub global entry = (F$entry)
+
+  $inner -> BoxedRep Lifted =
+    store (CI# (1 :: IntRep))
+
+  $passThrough (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    inner :: BoxedRep Lifted <-
+      store (F$inner)
+    outer :: BoxedRep Lifted <-
+      store (F$passThrough (inner :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (outer :: BoxedRep Lifted)
+expected: |-
+  constructor I# [IntRep]
+
+  pub global entry = (F$entry)
+
+  $inner -> BoxedRep Lifted =
+    store (CI# (1 :: IntRep))
+
+  $passThrough (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    inner :: BoxedRep Lifted <-
+      store (F$inner)
+    outer :: BoxedRep Lifted <-
+      store (F$passThrough (inner :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (outer :: BoxedRep Lifted)
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 0
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: a thunk whose function can give another thunk keeps its update frame, because the update frame is what evaluates that result

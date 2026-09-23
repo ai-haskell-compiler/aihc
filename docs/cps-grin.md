@@ -66,6 +66,28 @@ The GC pass hoists one heap reservation above the test, sized for the larger bra
 The test itself cannot allocate or collect, so the reservation protects the value and captured pointers before the slow branch allocates its frame.
 The runtime protects the value and continuation before it allocates an update frame or blackhole waiter.
 
+### Single-entry evaluation
+
+`eval-once` is an evaluation that no other evaluation of the same thunk can follow.
+The heap points-to analysis finds these evaluations in a whole program.
+CPS changes `eval-once` to `cps-eval-once`, with the same `if-whnf` shape.
+The runtime helper `aihc_lir_eval_single_entry` enters a thunk without an update frame.
+It does not set the evaluation bit, and it makes no heap reservation.
+The thunk entry continues directly to the continuation of the evaluation.
+Thus the thunk keeps its node, and the result is not an indirection.
+The analysis proves that the thunk function gives a value in weak-head normal form.
+Thus nothing must evaluate that result again.
+An indirection or a blackhole goes to `aihc_lir_eval`.
+These objects do not occur when the proof is correct.
+
+### Fetch
+
+`fetch (TAG) value` reads the fields of a node in weak-head normal form.
+The compiler knows the tag, and nothing checks it at runtime.
+The results are the fields in their order.
+A direct call of a closure function uses `fetch` to get the stored fields of the closure.
+`fetch` is a direct expression: it does not allocate, collect, or transfer control.
+
 ## Final uses and abstract results
 
 `touch# owner` is a final use of `owner` for liveness analysis.

@@ -1,0 +1,73 @@
+program: |
+  constructor I# [IntRep]
+  constructor Just [BoxedRep Lifted]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CJust (x :: BoxedRep Lifted))
+
+  $useOnce (t :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+
+  $useTwice (t :: BoxedRep Lifted) -> BoxedRep Lifted =
+    a :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+    b :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+    store (CPair (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    once :: BoxedRep Lifted <-
+      store (F$delayed (one :: BoxedRep Lifted))
+    r1 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $useOnce (once :: BoxedRep Lifted)
+    twice :: BoxedRep Lifted <-
+      store (F$delayed (r1 :: BoxedRep Lifted))
+    r2 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $useTwice (twice :: BoxedRep Lifted)
+    store (CPair (r1 :: BoxedRep Lifted) (r2 :: BoxedRep Lifted))
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Just [BoxedRep Lifted]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CJust (x :: BoxedRep Lifted))
+
+  $useOnce (t :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval-once @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+
+  $useTwice (t :: BoxedRep Lifted) -> BoxedRep Lifted =
+    a :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+    b :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+    store (CPair (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    once :: BoxedRep Lifted <-
+      store (F$delayed (one :: BoxedRep Lifted))
+    r1 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $useOnce (once :: BoxedRep Lifted)
+    twice :: BoxedRep Lifted <-
+      store (F$delayed (r1 :: BoxedRep Lifted))
+    r2 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $useTwice (twice :: BoxedRep Lifted)
+    store (CPair (r1 :: BoxedRep Lifted) (r2 :: BoxedRep Lifted))
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 0
+  direct-calls: 0
+  single-entry-evals: 1
+status: pass
+reason: a thunk that one reference reaches and that one eval enters needs no update frame, but a thunk that a parameter with two uses reaches keeps its update

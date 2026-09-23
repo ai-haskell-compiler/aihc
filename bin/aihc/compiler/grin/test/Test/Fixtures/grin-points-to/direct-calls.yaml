@@ -1,0 +1,108 @@
+program: |
+  constructor I# [IntRep]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $first (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (a :: BoxedRep Lifted)
+
+  $second (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $three (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (c :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CPair (a :: BoxedRep Lifted) (c :: BoxedRep Lifted))
+
+  $applyKnown (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    g :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (f :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (g :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $applyEither (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    g :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (f :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (g :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $applyTwice (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    g :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (g :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    two :: BoxedRep Lifted <-
+      store (CI# (2 :: IntRep))
+    firstOf :: BoxedRep Lifted <-
+      store (P$first/1 (one :: BoxedRep Lifted))
+    secondOf :: BoxedRep Lifted <-
+      store (P$second/1 (one :: BoxedRep Lifted))
+    known :: BoxedRep Lifted <-
+      store (P$first/1 (two :: BoxedRep Lifted))
+    r1 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $applyKnown (known :: BoxedRep Lifted) (two :: BoxedRep Lifted)
+    r2 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $applyEither (firstOf :: BoxedRep Lifted) (r1 :: BoxedRep Lifted)
+    r3 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $applyEither (secondOf :: BoxedRep Lifted) (r2 :: BoxedRep Lifted)
+    three :: BoxedRep Lifted <-
+      store (P$three/2 (one :: BoxedRep Lifted))
+    call @(BoxedRep Lifted) $applyTwice (three :: BoxedRep Lifted) (r3 :: BoxedRep Lifted) (two :: BoxedRep Lifted)
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $first (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (a :: BoxedRep Lifted)
+
+  $second (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (b :: BoxedRep Lifted)
+
+  $three (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (c :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CPair (a :: BoxedRep Lifted) (c :: BoxedRep Lifted))
+
+  $applyKnown (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    a%1 :: BoxedRep Lifted <-
+      fetch (P$first/1) (f :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $first (a%1 :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $applyEither (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $applyTwice (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    g :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+    a%2 :: BoxedRep Lifted, b%3 :: BoxedRep Lifted <-
+      fetch (P$three/1) (g :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $three (a%2 :: BoxedRep Lifted) (b%3 :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    two :: BoxedRep Lifted <-
+      store (CI# (2 :: IntRep))
+    firstOf :: BoxedRep Lifted <-
+      store (P$first/1 (one :: BoxedRep Lifted))
+    secondOf :: BoxedRep Lifted <-
+      store (P$second/1 (one :: BoxedRep Lifted))
+    known :: BoxedRep Lifted <-
+      store (P$first/1 (two :: BoxedRep Lifted))
+    r1 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $applyKnown (known :: BoxedRep Lifted) (two :: BoxedRep Lifted)
+    r2 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $applyEither (firstOf :: BoxedRep Lifted) (r1 :: BoxedRep Lifted)
+    r3 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $applyEither (secondOf :: BoxedRep Lifted) (r2 :: BoxedRep Lifted)
+    three :: BoxedRep Lifted <-
+      store (P$three/2 (one :: BoxedRep Lifted))
+    call @(BoxedRep Lifted) $applyTwice (three :: BoxedRep Lifted) (r3 :: BoxedRep Lifted) (two :: BoxedRep Lifted)
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 4
+  direct-calls: 2
+  single-entry-evals: 0
+status: pass
+reason: an apply whose function is always a closure of one function with one argument left fetches the stored fields and calls the function, also through a partial application that an earlier apply made; closures of two functions keep the apply

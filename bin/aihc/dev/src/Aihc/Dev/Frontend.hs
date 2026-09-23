@@ -194,6 +194,7 @@ runFrontend options = do
             compileCheckPrimBounds = False,
             compileLto = False,
             compilePasses = [],
+            compileGrinPointsTo = False,
             compileNoCode = True,
             compileOptimization = defaultOptimizationLevel,
             compileTarget = target,

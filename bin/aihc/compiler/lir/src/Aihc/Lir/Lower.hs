@@ -272,6 +272,8 @@ data LowerEnv = LowerEnv
 -- | Shared functions that lowered code tail-calls.
 data Helper
   = HelperEval
+  | -- | Evaluation without an update frame, for a single-entry thunk.
+    HelperEvalSingleEntry
   | HelperResume
   | HelperExit
   | HelperQuotRem2
@@ -288,6 +290,7 @@ helperSymbol :: Helper -> Symbol
 helperSymbol helper =
   Symbol $ case helper of
     HelperEval -> "aihc_lir_eval"
+    HelperEvalSingleEntry -> "aihc_lir_eval_single_entry"
     HelperResume -> "aihc_lir_resume"
     HelperExit -> "aihc_lir_exit"
     HelperQuotRem2 -> "aihc_lir_quotrem2"
@@ -532,6 +535,7 @@ requireHelper helper = do
 helperSignature :: Helper -> Signature
 helperSignature helper = case helper of
   HelperEval -> signature [Ptr, Ptr, Ptr] []
+  HelperEvalSingleEntry -> signature [Ptr, Ptr, Ptr] []
   HelperResume -> signature [Ptr, Ptr] []
   HelperContinue shape -> signature (Ptr : Ptr : shape) []
   HelperApply shape -> signature (Ptr : Ptr : Ptr : shape) []
@@ -1116,10 +1120,12 @@ compileExpr ctx env expression =
       forM_ allocated $ \(var, object) ->
         for_ (lookup var bindings) (initializeFields ctx env' object)
       compileExpr ctx env' body
-    GrinCpsEval _ value continuation -> do
+    GrinCpsEval update _ value continuation -> do
       valueOperand <- pointerValue ctx env value
       continuationOperand <- pointerValue ctx env continuation
-      eval <- requireHelper HelperEval
+      eval <- requireHelper $ case update of
+        EvalUpdate -> HelperEval
+        EvalSingleEntry -> HelperEvalSingleEntry
       terminate (TailCall eval [ctxMachine ctx, valueOperand, continuationOperand])
     GrinCall _ name arguments -> do
       target <- functionTarget (ctxEnv ctx) name
@@ -1186,6 +1192,7 @@ compileExpr ctx env expression =
     GrinUpdate {} -> unsupported "direct-style update after CPS"
     GrinUpdateBlackhole {} -> unsupported "unbound blackhole update"
     GrinEval {} -> unsupported "direct-style eval after CPS"
+    GrinFetch {} -> unsupported "unbound fetch after CPS"
     GrinPrimitiveCall {} -> unsupported "unbound primitive call after CPS"
     GrinApply {} -> unsupported "direct-style apply after CPS"
     GrinForward -> unsupported "forward outside a forwarding continuation"
@@ -1296,6 +1303,14 @@ compileBinding ctx env vars expression =
     GrinForeignCallExpr foreignCall arguments -> do
       (results, relocated) <- protectedForeignCall ctx env foreignCall arguments
       bindVars relocated vars results
+    GrinFetch tag value -> do
+      object <- pointerValue ctx env value
+      -- The fields start where 'initializeFields' writes them.
+      let payloadShift = if isPartialConstructorNode (GrinNode tag []) then 1 else 0
+      fields <- forM (zip [0 :: Int ..] vars) $ \(index, var) -> do
+        typed <- loadSlot (varBase var) (repType (grinVarRuntimeRep var)) object (toInteger (8 * (index + 1 + payloadShift)))
+        pure (var, typed)
+      pure (Map.fromList fields `Map.union` env)
     _ -> failWith (LowerUnsupportedExpression "non-direct expression remained in a CPS bind")
   where
     update symbol passMachine pointer value = do

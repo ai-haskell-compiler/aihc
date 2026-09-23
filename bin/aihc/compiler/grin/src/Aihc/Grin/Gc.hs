@@ -199,6 +199,7 @@ relocateExpr bound expression =
     GrinUpdateBlackhole {} -> pure expression
     GrinEval {} -> pure expression
     GrinCpsEval {} -> pure expression
+    GrinFetch {} -> pure expression
     GrinCall {} -> pure expression
     GrinPrimitiveCall {} -> pure expression
     GrinCpsPrimitiveCall {} -> pure expression
@@ -278,9 +279,10 @@ substituteExpr substitutions expression =
     GrinStoreRecUnchecked bindings body -> substituteStoreRec GrinStoreRecUnchecked substitutions bindings body
     GrinUpdate pointer value -> GrinUpdate (substituteValue substitutions pointer) (substituteValue substitutions value)
     GrinUpdateBlackhole pointer value -> GrinUpdateBlackhole (substituteValue substitutions pointer) (substituteValue substitutions value)
-    GrinEval runtimeRep value -> GrinEval runtimeRep (substituteValue substitutions value)
-    GrinCpsEval runtimeRep value continuation ->
-      GrinCpsEval runtimeRep (substituteValue substitutions value) (substituteValue substitutions continuation)
+    GrinEval update runtimeRep value -> GrinEval update runtimeRep (substituteValue substitutions value)
+    GrinCpsEval update runtimeRep value continuation ->
+      GrinCpsEval update runtimeRep (substituteValue substitutions value) (substituteValue substitutions continuation)
+    GrinFetch tag value -> GrinFetch tag (substituteValue substitutions value)
     GrinCall runtimeRep name arguments -> GrinCall runtimeRep name (map (substituteValue substitutions) arguments)
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->

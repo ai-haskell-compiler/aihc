@@ -2,8 +2,8 @@
 --
 -- A level names a purpose: finish quickly, optimize each module, produce
 -- fast code, or produce a small executable. 'optimizationPlan' expands
--- it once, at the command line, into the scope of the build and the
--- System FC passes to run. Everything downstream reads the plan, and no
+-- it once, at the command line, into the scope of the build, the System FC
+-- passes to run, and the GRIN analyses to run. Everything downstream reads the plan, and no
 -- pass reads the level. The level itself still reaches Clang, and it is
 -- part of the identity of an installed package.
 --
@@ -24,7 +24,10 @@ data OptimizationPlan = OptimizationPlan
     -- | The System FC passes, in order. They run on each module at a
     -- per-module scope, and on the merged program at a whole-program
     -- scope.
-    planPasses :: ![Fc.Pass]
+    planPasses :: ![Fc.Pass],
+    -- | Whether the whole program gets the heap points-to analysis of GRIN
+    -- and the rewrites that its result permits.
+    planGrinPointsTo :: !Bool
   }
   deriving (Eq, Show)
 
@@ -41,14 +44,17 @@ data OptimizationPlan = OptimizationPlan
 -- expansion leaves behind.
 --
 -- @-O2@ and @-Os@ compile the whole program; @--lto@ asks for the same
--- scope at the other levels without changing their passes.
+-- scope at the other levels without changing their passes. @-O2@ and @-Os@
+-- also run the heap points-to analysis of GRIN on the whole program. Each of
+-- its rewrites removes code or replaces a runtime dispatch with a direct
+-- jump, so it serves a small executable as well as a fast one.
 optimizationPlan :: Bool -> OptimizationLevel -> OptimizationPlan
 optimizationPlan lto level =
   case level of
-    O0 -> OptimizationPlan {planWholeProgram = lto, planPasses = []}
-    O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> grow}
-    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> grow}
-    Os -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> finish}
+    O0 -> OptimizationPlan {planWholeProgram = lto, planPasses = [], planGrinPointsTo = False}
+    O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> grow, planGrinPointsTo = False}
+    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> grow, planGrinPointsTo = True}
+    Os -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
   where
     -- The phases count down as GHC's do: the shrinking inliner is phase
     -- 2, the growing one phase 1 and the final walk phase 0, so a rule
