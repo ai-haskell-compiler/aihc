@@ -1,0 +1,58 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ErrorCall, evaluate, try)
+    import qualified Data.Foldable as Foldable
+    import qualified Data.List as List
+    import GHC.Exts (RealWorld, State#, realWorld#)
+    import GHC.IO (IO (..))
+    import qualified GHC.List as GHCList
+    import qualified Prelude as P
+    import Prelude
+
+    type Length = [Bool] -> Int
+
+    lengths :: [Length]
+    lengths = [P.length, List.length, Foldable.length, GHCList.length]
+
+    raises :: Int -> IO Bool
+    raises value = do
+      result <- try (evaluate value)
+      pure (isFailure result)
+
+    isFailure :: Either ErrorCall Int -> Bool
+    isFailure (Left _) = True
+    isFailure (Right _) = False
+
+    long :: [Bool]
+    long = replicate 20000 True
+
+    check :: Length -> IO Bool
+    check count = do
+      spine <- raises (count (True : error "spine"))
+      pure
+        ( spine
+            && count [] == 0
+            && count [error "element", error "element", error "element"] == 3
+            && count long == 20000
+            && count (filter id (take 7 (cycle [True, False]))) == 4
+        )
+
+    checks :: IO Bool
+    checks = do
+      results <- mapM check lengths
+      pure (and results && P.sum (P.map fromEnum long) == 20000)
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+output: |
+  True
+expression: |
+  case runIO checks realWorld# of
+    (# _, result #) -> result
+status: pass
+reason: List length counts the spine and does not force the elements. A long list gives the correct count, and a partial spine raises its error.
