@@ -76,7 +76,7 @@ forwardedProgramWith extra =
             (FunctionName "forward")
             [boxed "k"]
             ResultForwarded
-            (GrinApply ResultForwarded (GrinVarValue (boxed "k")) [GrinGlobalValue "unit"]),
+            (GrinApply ResultForwarded (GrinVarValue (boxed "k")) [[GrinGlobalValue "unit"]]),
           GrinFunction
             (FunctionName "useInt")
             [boxed "k"]

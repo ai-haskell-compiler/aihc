@@ -1129,12 +1129,13 @@ compileExpr ctx env expression =
       operands <- zipWithM coerce parameters values
       terminate (TailCall target (ctxMachine ctx : operands))
     GrinCpsPrimitiveCall runtimeRep name arguments continuation -> compileCpsPrimitive ctx env runtimeRep name arguments continuation
-    GrinCpsApply _ function arguments continuation -> do
+    GrinCpsApply _ function [arguments] continuation -> do
       functionOperand <- pointerValue ctx env function
       continuationOperand <- pointerValue ctx env continuation
       values <- mapM (materialize ctx env) arguments
       apply <- requireHelper (HelperApply (map typedType values))
       terminate (TailCall apply (ctxMachine ctx : functionOperand : continuationOperand : map typedOperand values))
+    GrinCpsApply {} -> unsupported "an application of more than one argument group"
     GrinContinue continuation values -> do
       continuationOperand <- pointerValue ctx env continuation
       typedValues <- mapM (materialize ctx env) values

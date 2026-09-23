@@ -355,12 +355,12 @@ lowerForeignWrapper env call specification axioms constructors argumentTypes val
     applyCallback function [] result representation finish = pure (GrinBind [result] (GrinEval representation function) finish)
     applyCallback function [arguments] result representation finish = do
       evaluated <- freshVar "callback_function" liftedGrinRep
-      pure (GrinBind [evaluated] (GrinEval liftedGrinRep function) (GrinBind [result] (GrinApply (ResultRep representation) (GrinVarValue evaluated) arguments) finish))
+      pure (GrinBind [evaluated] (GrinEval liftedGrinRep function) (GrinBind [result] (GrinApply (ResultRep representation) (GrinVarValue evaluated) [arguments]) finish))
     applyCallback function (arguments : rest) result representation finish = do
       evaluated <- freshVar "callback_function" liftedGrinRep
       applied <- freshVar "callback_partial" liftedGrinRep
       inner <- applyCallback (GrinVarValue applied) rest result representation finish
-      pure (GrinBind [evaluated] (GrinEval liftedGrinRep function) (GrinBind [applied] (GrinApply liftedResultRep (GrinVarValue evaluated) arguments) inner))
+      pure (GrinBind [evaluated] (GrinEval liftedGrinRep function) (GrinBind [applied] (GrinApply liftedResultRep (GrinVarValue evaluated) [arguments]) inner))
 
 -- | The function of a foreign import that takes every argument of the
 -- import. The module has one such function for each import that it applies
@@ -436,7 +436,7 @@ lowerRunRW resultRep action = do
     ( GrinBind
         [evaluatedAction]
         (GrinEval liftedGrinRep action)
-        (GrinApply resultRep (GrinVarValue evaluatedAction) [])
+        (GrinApply resultRep (GrinVarValue evaluatedAction) [[]])
     )
 
 -- | Lower a foreign call body. Each adapter declares the primitive it
@@ -805,7 +805,7 @@ lowerApplication env function argument = do
           ( GrinBind
               [evaluated]
               functionExpression
-              (GrinApply resultRep (GrinVarValue evaluated) argumentValues)
+              (GrinApply resultRep (GrinVarValue evaluated) [argumentValues])
           )
 
 collectApplications :: Fc.Expr -> (Fc.Expr, [Fc.Expr])
@@ -939,12 +939,12 @@ lowerLocalFunctionApplication env resultRep name function arguments
 lowerDynamicApplication :: LowerEnv -> GrinResultRep -> GrinValue -> [Fc.Expr] -> LowerM GrinExpr
 lowerDynamicApplication env resultRep = go
   where
-    go functionValue [argument] = lowerArgument env argument (pure . GrinApply resultRep functionValue)
+    go functionValue [argument] = lowerArgument env argument (pure . GrinApply resultRep functionValue . pure)
     go functionValue (argument : remaining) =
       lowerArgument env argument $ \argumentValues -> do
         applied <- freshVar "function_application" liftedGrinRep
         rest <- go (GrinVarValue applied) remaining
-        pure (GrinBind [applied] (GrinApply liftedResultRep functionValue argumentValues) rest)
+        pure (GrinBind [applied] (GrinApply liftedResultRep functionValue [argumentValues]) rest)
     go _ [] = throwLower "GRIN local function application needs an argument"
 
 lowerArguments :: LowerEnv -> [Fc.Expr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
@@ -1032,11 +1032,11 @@ lowerCatch resultRep action handler stateValues = do
             (GrinEval liftedGrinRep (GrinVarValue handlerCapture))
             ( GrinBind
                 [handlerAction]
-                (GrinApply liftedResultRep (GrinVarValue evaluatedHandler) [GrinVarValue exception])
+                (GrinApply liftedResultRep (GrinVarValue evaluatedHandler) [[GrinVarValue exception]])
                 ( GrinBind
                     [evaluatedAction]
                     (GrinEval liftedGrinRep (GrinVarValue handlerAction))
-                    (GrinApply (ResultRep resultRep) (GrinVarValue evaluatedAction) (map GrinVarValue stateCaptures))
+                    (GrinApply (ResultRep resultRep) (GrinVarValue evaluatedAction) [map GrinVarValue stateCaptures])
                 )
             )
       }

@@ -144,14 +144,14 @@ prettyExprWith scopes expr =
         <+> "@"
         <> prettyResultRepArgument resultRep
         <+> prettyValue scopes function
-        <> prettyArgument scopes arguments
+        <> foldMap (prettyArgument scopes) arguments
     GrinForward -> "forward"
     GrinCpsApply resultRep function arguments continuation ->
       "cps-apply"
         <+> "@"
         <> prettyResultRepArgument resultRep
         <+> prettyValue scopes function
-        <> prettyArgument scopes arguments
+        <> foldMap (prettyArgument scopes) arguments
         <+> "->"
         <+> prettyValue scopes continuation
     GrinContinue continuation values ->

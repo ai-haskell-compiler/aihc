@@ -93,6 +93,8 @@ checkLintFixture path = do
                   | all isResultLayout problems -> pure ()
                 ("invalid-forward", problems@(_ : _))
                   | all isInvalidForward problems -> pure ()
+                ("apply-group-count", problems@(_ : _))
+                  | all isApplyGroupCount problems -> pure ()
                 (_, problems) -> assertFailure ("expected " <> T.unpack expected <> ", got " <> show problems)
   where
     parseFixture = withObject "GRIN lint fixture" $ \object -> do
@@ -100,9 +102,11 @@ checkLintFixture path = do
       status <- object .: "status"
       expected <- object .: "error"
       reason <- object .: "reason"
-      if status == ("pass" :: Text) && expected `elem` ["none", "result-layout", "invalid-forward"] && not (T.null reason)
+      if status == ("pass" :: Text) && expected `elem` ["none", "result-layout", "invalid-forward", "apply-group-count"] && not (T.null reason)
         then pure (source, expected)
         else fail "invalid GRIN lint fixture status or error"
+    isApplyGroupCount GrinLintApplyGroupCount {} = True
+    isApplyGroupCount _ = False
     isResultLayout GrinLintResultLayout {} = True
     isResultLayout _ = False
     isInvalidForward GrinLintInvalidForward = True

@@ -241,7 +241,7 @@ transformTail parent bound resultRep continuation expression =
               ( GrinBind
                   [evaluatedAction]
                   (GrinEval (grinValueRuntimeRep action) action)
-                  (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [])
+                  (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [[]])
               )
           pure (GrinBind [promptVar] (GrinStore promptNode) delimitedAction)
     GrinPrimitiveCall runtimeRep name arguments
@@ -284,7 +284,7 @@ transformTail parent bound resultRep continuation expression =
           ( GrinBind
               [evaluatedAction]
               (GrinEval (grinValueRuntimeRep action) action)
-              (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) state)
+              (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [state])
           )
       pure
         ( GrinBind

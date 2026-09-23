@@ -1,0 +1,27 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Pair = Pair Int Int
+  oneThenOne :: Int -> (Int -> Int)
+  oneThenOne (I# a) = \(I# b) -> I# (a *# b)
+  twoThenOne :: Int -> Int -> (Int -> Int)
+  twoThenOne (I# a) (I# b) = \(I# c) -> I# (a +# (b *# c))
+  over2 :: (Int -> Int -> Int) -> Int
+  over2 g = g (I# 6#) (I# 7#)
+  over3 :: (Int -> Int -> Int -> Int) -> Int
+  over3 g = g (I# 1#) (I# 2#) (I# 3#)
+  value = case over2 oneThenOne of
+    I# a -> case over3 twoThenOne of
+      I# b -> Pair (I# a) (I# b)
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = CI# 42
+  @2 = CI# 7
+allocated-bytes:
+  macos-arm64: 368
+  linux-amd64: 368
+status: pass
+reason: An unknown call that supplies more arguments than the function takes applies the result to the remaining arguments.

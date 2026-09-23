@@ -1,0 +1,48 @@
+program: |
+  $add3 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $mix (w :: WordRep) (x :: IntRep) (y :: IntRep) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (z :: BoxedRep Lifted)
+
+  $exact (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (c :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$add3/3)
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (c :: BoxedRep Lifted)
+
+  $under (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$add3/3)
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $grouped (w :: WordRep) (x :: IntRep) (y :: IntRep) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$mix/[[WordRep], [IntRep, IntRep], [BoxedRep Lifted]])
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (w :: WordRep) ((x :: IntRep) (y :: IntRep)) (z :: BoxedRep Lifted)
+
+  $over (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$add3/3)
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+expected: |-
+  $add3 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $mix (w :: WordRep) (x :: IntRep) (y :: IntRep) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (z :: BoxedRep Lifted)
+
+  $exact (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (c :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $add3 (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (c :: BoxedRep Lifted)
+
+  $under (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (P$add3/1 (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $grouped (w :: WordRep) (x :: IntRep) (y :: IntRep) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $mix (w :: WordRep) (x :: IntRep) (y :: IntRep) (z :: BoxedRep Lifted)
+
+  $over (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$add3/3)
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+status: pass
+reason: applying several argument groups to a known closure enters its code when the groups supply every argument and grows the closure in one step when they supply fewer; an application of more groups than the closure takes stays

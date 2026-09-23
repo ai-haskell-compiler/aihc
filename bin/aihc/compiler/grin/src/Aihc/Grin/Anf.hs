@@ -189,10 +189,10 @@ mapExprValues f expression =
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map f arguments)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       GrinCpsPrimitiveCall runtimeRep name (map f arguments) (f continuation)
-    GrinApply runtimeRep function arguments -> GrinApply runtimeRep (f function) (map f arguments)
+    GrinApply runtimeRep function arguments -> GrinApply runtimeRep (f function) (map (map f) arguments)
     GrinForward -> GrinForward
     GrinCpsApply runtimeRep function arguments continuation ->
-      GrinCpsApply runtimeRep (f function) (map f arguments) (f continuation)
+      GrinCpsApply runtimeRep (f function) (map (map f) arguments) (f continuation)
     GrinContinue continuation arguments -> GrinContinue (f continuation) (map f arguments)
     GrinCpsRaise exception continuation -> GrinCpsRaise (f exception) (f continuation)
     GrinUpdateBlackhole pointer value -> GrinUpdateBlackhole (f pointer) (f value)

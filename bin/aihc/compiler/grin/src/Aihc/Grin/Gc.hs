@@ -285,10 +285,10 @@ substituteExpr substitutions expression =
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       GrinCpsPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
-    GrinApply runtimeRep function arguments -> GrinApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments)
+    GrinApply runtimeRep function arguments -> GrinApply runtimeRep (substituteValue substitutions function) (map (map (substituteValue substitutions)) arguments)
     GrinForward -> GrinForward
     GrinCpsApply runtimeRep function arguments continuation ->
-      GrinCpsApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
+      GrinCpsApply runtimeRep (substituteValue substitutions function) (map (map (substituteValue substitutions)) arguments) (substituteValue substitutions continuation)
     GrinContinue continuation values -> GrinContinue (substituteValue substitutions continuation) (map (substituteValue substitutions) values)
     GrinCpsRaise exception continuation -> GrinCpsRaise (substituteValue substitutions exception) (substituteValue substitutions continuation)
     GrinHalt values -> GrinHalt (map (substituteValue substitutions) values)

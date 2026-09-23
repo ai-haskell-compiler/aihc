@@ -1,0 +1,30 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Pair = Pair Int Int
+  add3 :: Int -> Int -> Int -> Int
+  add3 (I# a) (I# b) (I# c) = I# (a +# (b +# c))
+  wide :: Int -> Int -> Int -> Int -> Int -> Int -> (Int -> Int -> Int -> Int -> Int)
+  wide (I# a) (I# b) (I# c) (I# d) (I# e) (I# f) = \(I# w) (I# x) (I# y) (I# z) ->
+    I# (a +# (b +# (c +# (d +# (e +# (f +# (w +# (x +# (y +# z)))))))))
+  under2 :: (Int -> Int -> Int -> Int) -> (Int -> Int)
+  under2 g = g (I# 1#) (I# 2#)
+  under3 :: (Int -> Int -> Int -> Int -> Int) -> (Int -> Int)
+  under3 g = g (I# 3#) (I# 4#) (I# 5#)
+  finish :: (Int -> Int) -> Int
+  finish h = h (I# 100#)
+  value = case finish (under2 add3) of
+    I# a -> case finish (under3 (wide (I# 10#) (I# 20#) (I# 30#) (I# 40#) (I# 50#) (I# 60#))) of
+      I# b -> Pair (I# a) (I# b)
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = CI# 103
+  @2 = CI# 322
+allocated-bytes:
+  macos-arm64: 1000
+  linux-amd64: 1000
+status: pass
+reason: An unknown call that supplies fewer arguments than the function takes builds a partial application.
