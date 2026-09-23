@@ -1,0 +1,46 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  data StrictPair a = StrictPair !a !a
+
+  makePair :: a -> a -> StrictPair a
+  makePair left right = StrictPair left right
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tStrictPair (a : 2.sType) :: 2.sType {
+      pub 1.cStrictPair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tStrictPair a
+  }
+
+  pub val 1.vmakePair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tStrictPair a
+   = Λ(a : 2.sType).
+    λ(x : a).
+      λ(y : a).
+        case x as (_strict_forced : a) return (1.tStrictPair a) of {
+            _ →
+                case y as (_strict_forced{1} : a) return (1.tStrictPair a) of {
+                    _ →
+                        1.cStrictPair @a _strict_forced _strict_forced{1}
+                }
+        }
+status: pass
+reason: A strict field uses its evaluated case binder.

@@ -88,6 +88,10 @@ with join points, and cancelling casts. The inliner calls it on every copy it
 makes, and the plan runs it standalone. A new local rewrite goes there. A new
 rule about *which* copies to make goes in the inliner.
 
+For a default case on a variable, the simplifier uses the evaluated case
+binder in the case body. This gives a strict constructor field one use before
+the case. The simplifier can then move a single-use thunk into the case.
+
 ## The inliner
 
 The inliner follows the non-recursive inliner of MLton. It walks the values
