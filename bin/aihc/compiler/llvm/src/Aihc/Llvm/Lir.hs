@@ -4,6 +4,8 @@
 --
 -- The @aihc@ convention is @tailcc@, and every @tailcall@ is a @musttail@
 -- call followed by @ret@, so LLVM verifies that the stack does not grow.
+-- A call that is not a tail call goes to an @aihc@ function through a shim.
+-- See 'renderCallShim'.
 -- Block parameters become @phi@ instructions. Every edge with arguments
 -- goes through its own block, so a target reached twice from one
 -- predecessor still has one @phi@ entry per edge. The operations that trap
@@ -51,7 +53,7 @@ compileLirModule :: Module -> Either LlvmLirError Text
 compileLirModule lirModule =
   case prepared of
     Right _ -> do
-      (functions, traps) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) Map.empty
+      (functions, ModuleState traps shims) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) (ModuleState Map.empty Map.empty)
       pure
         ( T.unlines
             ( preamble
@@ -65,6 +67,7 @@ compileLirModule lirModule =
                    ]
                 <> [""]
                 <> concat functions
+                <> concatMap (uncurry renderCallShim) (Map.toAscList shims)
             )
         )
     Left errors -> Left (LlvmLirLintErrors errors)
@@ -270,8 +273,14 @@ typed ty operand = renderType ty <> " " <> renderOperand ty operand
 -- | The trap messages of the module, each with its constant index.
 type Traps = Map Text Int
 
+-- | The call shims of the module, each with its index. See 'renderCallShim'.
+type CallShims = Map Signature Int
+
+data ModuleState = ModuleState !Traps !CallShims
+
 data FunctionState = FunctionState
   { stateTraps :: !Traps,
+    stateCallShims :: !CallShims,
     -- | The trap blocks this function branches to.
     stateFunctionTraps :: !(Map Text Int),
     stateNextTemp :: !Int,
@@ -324,6 +333,41 @@ trapBlock message = do
 trapBlockName :: Int -> Text
 trapBlockName index = quote ("trap." <> tshow index)
 
+-- | The shim that makes a call that is not a tail call to a function of the
+-- @aihc@ convention.
+callShim :: Signature -> M Text
+callShim signature = do
+  state <- get
+  case Map.lookup signature (stateCallShims state) of
+    Just index -> pure (callShimName index)
+    Nothing -> do
+      let index = Map.size (stateCallShims state)
+      put state {stateCallShims = Map.insert signature index (stateCallShims state)}
+      pure (callShimName index)
+
+callShimName :: Int -> Text
+callShimName index = "@" <> quote (".Llir_call_" <> tshow index)
+
+-- | A @tailcc@ callee removes its stack arguments, and the caller then moves
+-- the stack pointer back. At -O0, LLVM for AArch64 can put a spill reload
+-- between the call and that adjustment, and the reload then reads the wrong
+-- stack slot. A caller that is not a tail call thus calls this shim. The shim
+-- takes the callee as its first argument, does the call, and returns
+-- immediately, so no reload can occur there. The shim is @noinline@, so the
+-- defect cannot come back after inlining.
+renderCallShim :: Signature -> Int -> [Text]
+renderCallShim signature index =
+  [ "define internal " <> results <> " " <> callShimName index <> "(" <> T.intercalate ", " ("ptr %callee" : zipWith typed' (signatureParameters signature) arguments) <> ") noinline {",
+    "  " <> (if null (signatureResults signature) then "" else "%result = ") <> "call " <> renderConvention (signatureConvention signature) <> results <> " %callee(" <> T.intercalate ", " (zipWith typed' (signatureParameters signature) arguments) <> ")",
+    "  " <> (if null (signatureResults signature) then "ret void" else "ret " <> results <> " %result"),
+    "}",
+    ""
+  ]
+  where
+    results = renderResults (signatureResults signature)
+    arguments = ["%a" <> tshow position | position <- [0 :: Int .. length (signatureParameters signature) - 1]]
+    typed' ty argument = renderType ty <> " " <> argument
+
 -- | A jump edge. A target with parameters gets its own block so the phi of
 -- the target sees one predecessor per edge.
 edgeTo :: Map Label [(Var, Type)] -> Target -> M Text
@@ -339,12 +383,13 @@ edgeTo parameters (Target label arguments)
           }
       pure ("%" <> name)
 
-compileFunction :: Ctx -> Function -> StateT Traps (Either LlvmLirError) [Text]
+compileFunction :: Ctx -> Function -> StateT ModuleState (Either LlvmLirError) [Text]
 compileFunction ctx function = do
-  traps <- get
+  ModuleState traps shims <- get
   let initial =
         FunctionState
           { stateTraps = traps,
+            stateCallShims = shims,
             stateFunctionTraps = Map.empty,
             stateNextTemp = 0,
             stateBlocksRev = [],
@@ -354,7 +399,7 @@ compileFunction ctx function = do
           }
       parameters = Map.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function]
   (bodies, final) <- lift (runStateT (mapM (compileBlock ctx function parameters) (functionBlocks function)) initial)
-  put (stateTraps final)
+  put (ModuleState (stateTraps final) (stateCallShims final))
   let edges = stateEdges final
       -- The phi instructions of a block are known only after every edge is
       -- compiled, so the blocks are rendered from their bodies here.
@@ -684,7 +729,12 @@ compileInstruction ctx (Instruction results operation) =
         offset = addressByteOffset wordBytes address
 
     call callee signature arguments = do
-      let body = "call " <> renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")"
+      rendered <- case signatureConvention signature of
+        AihcConvention -> do
+          shim <- callShim signature
+          pure (shim <> "(ptr " <> callee <> (T.concat [", " <> argument | argument <- zipWith typed (signatureParameters signature) arguments]) <> ")")
+        CConvention -> pure (callee <> "(" <> T.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")")
+      let body = "call " <> renderResults (signatureResults signature) <> " " <> rendered
       case (signatureResults signature, results) of
         ([], []) -> emit body
         ([_], [var]) -> emit (renderVar var <> " = " <> body)
