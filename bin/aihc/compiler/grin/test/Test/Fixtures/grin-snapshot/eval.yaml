@@ -16,7 +16,7 @@ heap: |
   @1 = Indirection @2
   @2 = CI32# 7
 allocated-bytes:
-  macos-arm64: 104
-  linux-amd64: 104
+  macos-arm64: 56
+  linux-amd64: 56
 status: pass
 reason: only explicit GrinEval enters the thunk, preserving its heap-pointer result and exposing the update as an indirection

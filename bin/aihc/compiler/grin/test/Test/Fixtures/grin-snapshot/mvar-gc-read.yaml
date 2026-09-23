@@ -37,7 +37,7 @@ heap: |
   @0 = CPair @1 @1
   @1 = CNumber 42
 allocated-bytes:
-  macos-arm64: 1008
-  linux-amd64: 1008
+  macos-arm64: 616
+  linux-amd64: 616
 status: pass
 reason: Collection preserves two blocked read operations, queue order, values, and continuations.

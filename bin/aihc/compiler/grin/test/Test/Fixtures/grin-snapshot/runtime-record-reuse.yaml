@@ -48,7 +48,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 92800
-  linux-amd64: 92800
+  macos-arm64: 49600
+  linux-amd64: 49600
 status: pass
 reason: Runtime records must initialize their fields when collections reuse heap memory for different object kinds.

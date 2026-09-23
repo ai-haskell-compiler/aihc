@@ -700,6 +700,17 @@ machineHeapNextOffset target = machineExitCodeOffset + toInteger (lowerWordSize 
 machineHeapLimitOffset :: LowerTarget -> Integer
 machineHeapLimitOffset target = machineHeapNextOffset target + toInteger (lowerWordSize target)
 
+-- | The first free byte of the stack of the running thread, the field after
+-- the end of the space. A continuation frame is pushed there, and entering a
+-- frame sets it to the address of the frame.
+machineStackNextOffset :: LowerTarget -> Integer
+machineStackNextOffset target = machineHeapLimitOffset target + toInteger (lowerWordSize target)
+
+-- | The size and the alignment of a thread stack chunk. See
+-- @aihc_runtime_internal.h@.
+stackChunkBytes :: Integer
+stackChunkBytes = 4096
+
 -- Coercion
 
 -- | Convert a typed operand to a type. Pointers and words convert both ways.
@@ -1109,6 +1120,8 @@ compileExpr ctx env expression =
       compileExpr ctx env' body
     GrinStoreRec {} -> unsupported "store-rec without a heap reservation"
     GrinStoreRecUnchecked bindings body -> do
+      when (any (isFrameNode (ctxEnv ctx) . snd) bindings) $
+        unsupported "continuation frame in a recursive store group"
       allocated <- forM bindings $ \(var, node) -> do
         object <- allocateNode ctx node
         pure (var, object)
@@ -1376,11 +1389,16 @@ bindVars env vars values
         pure (var, typed)
       pure (Map.fromList bound `Map.union` env)
 
--- | One object of a reservation the code before it has already made.
+-- | One object of a reservation the code before it has already made, or a
+-- continuation frame, which goes on the stack of the thread and needs no
+-- reservation.
 allocateNode :: FunctionCtx -> GrinNode -> LowerM Typed
 allocateNode ctx node = do
   info <- nodeInfoSymbol (ctxEnv ctx) node
-  object <- bumpAllocate (ctxMachine ctx) (nodeWords node)
+  object <-
+    if isFrameNode (ctxEnv ctx) node
+      then pushFrame (ctxMachine ctx) (nodeWords node)
+      else bumpAllocate (ctxMachine ctx) (nodeWords node)
   storeSlot Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
   -- The shared info table of an unsaturated constructor does not say how wide
   -- this stage is, so the object records the count itself.
@@ -1399,6 +1417,45 @@ bumpAllocate machine words' = do
   next <- emitValue "heap" Ptr (PtrAdd (typedOperand object) (OperandLiteral (LitInt (8 * toInteger words'))))
   emit [] (Store Ptr (typedOperand next) address (wordAlignment 1))
   pure object
+
+-- | Whether a node is a continuation frame: a closure of a function that the
+-- CPS pass made a continuation.
+isFrameNode :: LowerEnv -> GrinNode -> Bool
+isFrameNode env node =
+  case grinNodeTag node of
+    GrinClosure name _ -> name `Set.member` envContinuationFunctions env
+    _ -> False
+
+-- | Push the given words on the stack of the running thread and give back
+-- the frame. The frame fits in the current chunk when its last byte and the
+-- byte before the stack pointer are in the same chunk. Otherwise the runtime
+-- continues the stack in the next chunk. Neither path collects, so no root
+-- moves. The caller writes the header and every field.
+pushFrame :: Operand -> Int -> LowerM Typed
+pushFrame machine words' = do
+  target <- targetM
+  let address = byteAddress machine (machineStackNextOffset target)
+      bytes = 8 * toInteger words'
+  frame <- emitValue "frame" Ptr (Load Ptr address (wordAlignment 1))
+  end <- emitValue "stack" Ptr (PtrAdd (typedOperand frame) (OperandLiteral (LitInt bytes)))
+  frameWord <- emitValue "frame_word" I64 (PtrToInt (typedOperand frame))
+  before <- emitValue "stack_before" I64 (Binary Sub I64 (typedOperand frameWord) (OperandLiteral (LitInt 1)))
+  lastByte <- emitValue "stack_last" I64 (Binary Add I64 (typedOperand frameWord) (OperandLiteral (LitInt (bytes - 1))))
+  differ <- emitValue "stack_differ" I64 (Binary Xor I64 (typedOperand before) (typedOperand lastByte))
+  fits <- emitValue "stack_fits" I1 (Compare LtU I64 (typedOperand differ) (OperandLiteral (LitInt stackChunkBytes)))
+  fitsLabel <- freshLabel "stack_fits"
+  growLabel <- freshLabel "stack_grow"
+  pushedLabel <- freshLabel "stack_pushed"
+  terminate (Branch (typedOperand fits) (Target fitsLabel []) (Target growLabel []))
+  beginBlock fitsLabel []
+  emit [] (Store Ptr (typedOperand end) address (wordAlignment 1))
+  terminate (Jump (Target pushedLabel [typedOperand frame]))
+  beginBlock growLabel []
+  grown <- callRuntime "aihc_stack_grow" [Ptr, I64] [Ptr] [machine, OperandLiteral (LitInt (toInteger words'))]
+  terminate (Jump (Target pushedLabel [grown]))
+  pushed <- fresh "frame"
+  beginBlock pushedLabel [(pushed, Ptr)]
+  pure (Typed (OperandVar pushed) Ptr)
 
 -- | An unsaturated constructor spends field zero on its applied count, so its
 -- payload starts one slot later than every other object's.
@@ -2636,9 +2693,6 @@ startMachine = do
   exit <- requireHelper HelperExit
   let entryGlobal = globalSymbol executableEntryName
   machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
-  -- The start-up code reaches no static object of its own, so it passes no
-  -- table.
-  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr, Ptr] [] [machine, OperandLiteral (LitInt 4), OperandLiteral (LitInt 0), OperandLiteral LitNull, OperandLiteral LitNull]
   final <- allocateContinuation machine finalInfo 1
   top <- allocateContinuation machine topInfo 2
   storeSlot Ptr final top 8
@@ -2651,12 +2705,12 @@ startMachine = do
   emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), top])
   pure machine
 
--- | One continuation of an entry, in words the caller has already reserved:
--- an info-table pointer and the captured slots the caller fills. Exported for
--- harnesses that build their own entry.
+-- | One continuation of an entry, pushed on the stack of the running
+-- thread: an info-table pointer and the captured slots the caller fills.
+-- Exported for harnesses that build their own entry.
 allocateContinuation :: Operand -> Symbol -> Int -> LowerM Operand
 allocateContinuation machine info words' = do
-  object <- typedOperand <$> bumpAllocate machine words'
+  object <- callRuntime "aihc_stack_push" [Ptr, I64] [Ptr] [machine, OperandLiteral (LitInt (toInteger words'))]
   storeSlot Ptr (OperandLiteral (LitSymbol info)) object 0
   pure object
 
@@ -2715,6 +2769,9 @@ generateHelper env helper =
       next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "enter") []
+      -- Entering a frame pops it and every frame above it.
+      target <- targetM
+      emit [] (Store Ptr (OperandVar current) (byteAddress (OperandVar machine) (machineStackNextOffset target)) (wordAlignment 1))
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate
         ( TailCallIndirect

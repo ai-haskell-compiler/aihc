@@ -9,10 +9,8 @@ expected: |
   primitive touch# :: TupleRep []/1
 
   protect (owner :: BoxedRep Unlifted) (action :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> forwarded =
-    $cps_return$gc :: BoxedRep Lifted, action$gc :: BoxedRep Lifted, owner$gc :: BoxedRep Unlifted <-
-      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (action :: BoxedRep Lifted) (owner :: BoxedRep Unlifted)
     $cps_continuation :: BoxedRep Lifted <-
-      store-unchecked (Pprotect_cont/[[]] ($cps_return$gc :: BoxedRep Lifted) (owner$gc :: BoxedRep Unlifted))
-    cps-apply @forwarded (action$gc :: BoxedRep Lifted) () -> ($cps_continuation :: BoxedRep Lifted)
+      store-unchecked (Pprotect_cont/[[]] ($cps_return :: BoxedRep Lifted) (owner :: BoxedRep Unlifted))
+    cps-apply @forwarded (action :: BoxedRep Lifted) () -> ($cps_continuation :: BoxedRep Lifted)
 status: pass
-reason: The CPS stage captures the owner in an ordinary closure, and the GC stage reserves that closure.
+reason: The CPS stage captures the owner in an ordinary continuation frame. The frame goes on the thread stack, so the GC stage gives it no heap reservation.

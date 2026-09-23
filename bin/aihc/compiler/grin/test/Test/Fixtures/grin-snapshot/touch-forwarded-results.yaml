@@ -36,7 +36,7 @@ return: "(@0, 42)"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 592
-  linux-amd64: 592
+  macos-arm64: 496
+  linux-amd64: 496
 status: pass
 reason: One abstract continuation must retain multiple owners and pass zero-width or mixed pointer and scalar results unchanged.

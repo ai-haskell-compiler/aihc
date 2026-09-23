@@ -71,7 +71,7 @@ lowerGc cps =
       | (names, helper, arity) <- reservationHelpers,
         any (\(var, _) -> grinVarName var `elem` names) (grinPrimitives program)
       ]
-    normalizedProgram = normalizeHeapReservations (insertHeapReservations dynamicProgram)
+    normalizedProgram = normalizeHeapReservations (insertHeapReservations (cpsContinuationFunctions cps) dynamicProgram)
     nextUnique = 1 + maximumProgramVarUnique normalizedProgram
 
 -- | Size helpers validate counts before the reservation. They cannot collect.
@@ -121,33 +121,41 @@ byteArrayReservation name arguments = case (name, arguments) of
   where
     literal = GrinLitValue . GrinLitInt IntRep
 
-insertHeapReservations :: GrinProgram -> GrinProgram
-insertHeapReservations program =
-  program {grinFunctions = map insertFunctionReservations (grinFunctions program)}
+-- | Give each managed store a reservation. A continuation frame is not a
+-- managed object: the backend pushes it on the stack of the thread, which
+-- never collects, so its store needs no reservation.
+insertHeapReservations :: Set FunctionName -> GrinProgram -> GrinProgram
+insertHeapReservations continuations program =
+  program {grinFunctions = map (insertFunctionReservations continuations) (grinFunctions program)}
 
-insertFunctionReservations :: GrinFunction -> GrinFunction
-insertFunctionReservations function =
-  function {grinFunctionBody = insertExprReservations (grinFunctionBody function)}
+insertFunctionReservations :: Set FunctionName -> GrinFunction -> GrinFunction
+insertFunctionReservations continuations function =
+  function {grinFunctionBody = insertExprReservations continuations (grinFunctionBody function)}
 
-insertExprReservations :: GrinExpr -> GrinExpr
-insertExprReservations expression =
+insertExprReservations :: Set FunctionName -> GrinExpr -> GrinExpr
+insertExprReservations continuations expression =
   case expression of
+    GrinBind resultVars (GrinStore node) body
+      | isFrame node ->
+          GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body)
     GrinBind resultVars (GrinStore node) body ->
       GrinBind
         []
         (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
-        (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations body))
+        (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
     GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind
             []
             (GrinEnsureHeap (staticHeapWords requiredWords) [])
-            (GrinBind resultVars call (insertExprReservations body))
+            (GrinBind resultVars call (insertExprReservations continuations body))
     call@(GrinCpsPrimitiveCall _ name _ _)
       | Just requiredWords <- primitiveHeapWords name ->
           GrinBind [] (GrinEnsureHeap (staticHeapWords requiredWords) []) call
     GrinBind resultVars valueExpression body ->
-      GrinBind resultVars (insertExprReservations valueExpression) (insertExprReservations body)
+      GrinBind resultVars (insertExprReservations continuations valueExpression) (insertExprReservations continuations body)
+    GrinStore node
+      | isFrame node -> GrinStoreUnchecked node
     GrinStore node ->
       GrinBind
         []
@@ -157,17 +165,22 @@ insertExprReservations expression =
       GrinBind
         []
         (GrinEnsureHeap (staticHeapWords (sum (map (nodeWords . snd) bindings))) [])
-        (GrinStoreRecUnchecked bindings (insertExprReservations body))
+        (GrinStoreRecUnchecked bindings (insertExprReservations continuations body))
     GrinStoreRecUnchecked bindings body ->
-      GrinStoreRecUnchecked bindings (insertExprReservations body)
-    GrinIfWhnf value ready slow -> GrinIfWhnf value (insertExprReservations ready) (insertExprReservations slow)
+      GrinStoreRecUnchecked bindings (insertExprReservations continuations body)
+    GrinIfWhnf value ready slow -> GrinIfWhnf value (insertExprReservations continuations ready) (insertExprReservations continuations slow)
     GrinCase scrutinee binder alternatives ->
-      GrinCase scrutinee binder (map insertAlternativeReservations alternatives)
+      GrinCase scrutinee binder (map (insertAlternativeReservations continuations) alternatives)
     _ -> expression
+  where
+    isFrame node =
+      case grinNodeTag node of
+        GrinClosure name _ -> name `Set.member` continuations
+        _ -> False
 
-insertAlternativeReservations :: GrinAlt -> GrinAlt
-insertAlternativeReservations alternative =
-  alternative {grinAltRhs = insertExprReservations (grinAltRhs alternative)}
+insertAlternativeReservations :: Set FunctionName -> GrinAlt -> GrinAlt
+insertAlternativeReservations continuations alternative =
+  alternative {grinAltRhs = insertExprReservations continuations (grinAltRhs alternative)}
 
 relocateFunction :: GrinFunction -> State Int GrinFunction
 relocateFunction function = do

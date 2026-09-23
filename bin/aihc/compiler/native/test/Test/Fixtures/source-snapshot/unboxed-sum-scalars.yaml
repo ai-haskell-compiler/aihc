@@ -28,7 +28,7 @@ return: "@0"
 heap: |
   @0 = CResult -128 18446744073709551615 1.5 2.5 0
 allocated-bytes:
-  macos-arm64: 232
-  linux-amd64: 232
+  macos-arm64: 48
+  linux-amd64: 48
 status: pass
 reason: Native sum slots preserve scalar widths, floating-point bits, and addresses.

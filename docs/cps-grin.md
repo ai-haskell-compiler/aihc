@@ -62,9 +62,12 @@ else
 Both branches use the same generated continuation function.
 The ready branch passes captures directly and creates no heap frame.
 The slow branch stores captures in the normal continuation frame.
-The GC pass hoists one heap reservation above the test, sized for the larger branch.
-The test itself cannot allocate or collect, so the reservation protects the value and captured pointers before the slow branch allocates its frame.
-The runtime protects the value and continuation before it allocates an update frame or blackhole waiter.
+A continuation frame is on the thread stack and not in the managed heap.
+Thus the GC pass gives the store of a frame no heap reservation, and the backend pushes the frame.
+A push never collects.
+See "Thread stacks" in `docs/native-runtime-objects.md`.
+The runtime pushes an update frame on the stack when it enters a thunk.
+It protects the value and continuation before it allocates a blackhole waiter.
 
 ## Final uses and abstract results
 
@@ -135,11 +138,12 @@ their results.
 Consequently, adding a file, socket, timer, or process operation does not
 require a new compiler primitive.
 
-Suspended computations remain ordinary continuation closures. Runnable and
-blackhole-blocked threads retain those closure values in runtime resume
-records; pending IO requests retain the blocked thread and continuation until
-the backend reports completion. These ordinary heap pointers are collector
-roots, so scheduling does not introduce a native stack-scanning convention.
+Suspended computations remain ordinary continuation frames on the stack of
+their thread. Runnable and blackhole-blocked threads retain pointers to those
+frames in runtime resume records; pending IO requests retain the blocked thread and continuation until
+the backend reports completion. These pointers are collector roots. The
+collector scans each frame that it reaches through them, so scheduling does
+not introduce a native stack-scanning convention.
 Each request also retains its unmanaged buffer allocation and slice. That
 allocation cannot move while a backend owns its address and is not a collector
 root.

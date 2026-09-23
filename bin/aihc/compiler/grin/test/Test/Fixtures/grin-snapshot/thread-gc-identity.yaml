@@ -28,7 +28,7 @@ return: "@0"
 heap: |
   @0 = CResult 1 2 3 1
 allocated-bytes:
-  macos-arm64: 296
-  linux-amd64: 296
+  macos-arm64: 200
+  linux-amd64: 200
 status: pass
 reason: Collection preserves thread identity, the run queue, and references to completed threads.
