@@ -1,0 +1,18 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $sum3 (first%2 :: IntRep) (second%3 :: IntRep) (third%4 :: IntRep) -> IntRep =
+    (partial%5 :: IntRep) <- primitive-call @IntRep +# (first%2 :: IntRep) (second%3 :: IntRep)
+    primitive-call @IntRep +# (partial%5 :: IntRep) (third%4 :: IntRep)
+
+  $entry -> IntRep =
+    (function%6 :: BoxedRep Lifted) <- store (P$sum3/[[IntRep],[IntRep],[IntRep]])
+    apply @IntRep (function%6 :: BoxedRep Lifted) (10 :: IntRep) (20 :: IntRep) (30 :: IntRep)
+return: "60"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 8
+  linux-amd64: 8
+status: pass
+reason: an application whose groups supply every remaining argument enters the function code directly without a partial application

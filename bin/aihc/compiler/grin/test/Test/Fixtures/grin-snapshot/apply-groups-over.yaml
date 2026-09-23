@@ -1,0 +1,22 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+  primitive *#%2 :: IntRep/2
+
+  $scale (factor%3 :: IntRep) (value%4 :: IntRep) -> IntRep =
+    primitive-call @IntRep *# (factor%3 :: IntRep) (value%4 :: IntRep)
+
+  $offset (base%5 :: IntRep) (step%6 :: IntRep) -> BoxedRep Lifted =
+    (sum%7 :: IntRep) <- primitive-call @IntRep +# (base%5 :: IntRep) (step%6 :: IntRep)
+    store (P$scale/[[IntRep]] (sum%7 :: IntRep))
+
+  $entry -> IntRep =
+    (function%8 :: BoxedRep Lifted) <- store (P$offset/[[IntRep],[IntRep]])
+    apply @IntRep (function%8 :: BoxedRep Lifted) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep)
+return: "35"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 48
+  linux-amd64: 48
+status: pass
+reason: an application whose groups supply more arguments than the function takes calls the function with its arity and applies the result to the other groups

@@ -13,7 +13,7 @@ const @WORD_HIGH_BIT = 63
 
 extern func @aihc_lir_take_resume(ptr, ptr) cc c
 
-extern func @aihc_apply_slow(ptr, ptr, i64, ptr, ptr) -> ptr cc c
+extern func @aihc_apply_slow(ptr, ptr, i64, i64, ptr, ptr) -> ptr cc c
 
 extern func @aihc_block_on_blackhole(ptr, ptr, ptr) -> ptr cc c
 
@@ -299,7 +299,7 @@ fast:
 
 slow:
   store ptr %continuation, [%slot] align 8
-  %result = call @aihc_apply_slow(%machine, %current, 0, null, %slot)
+  %result = call @aihc_apply_slow(%machine, %current, 1, 0, null, %slot)
   %adjusted = load ptr [%slot] align 8
   tailcall @aihc_lir_continue_p(%machine, %adjusted, %result)
 }
@@ -334,7 +334,7 @@ fast:
 slow:
   store i64 %value, [%arguments] align 8
   store ptr %continuation, [%slot] align 8
-  %result = call @aihc_apply_slow(%machine, %current, 1, %arguments, %slot)
+  %result = call @aihc_apply_slow(%machine, %current, 1, 1, %arguments, %slot)
   %adjusted = load ptr [%slot] align 8
   tailcall @aihc_lir_continue_p(%machine, %adjusted, %result)
 }
@@ -370,7 +370,7 @@ slow:
   %argument_word = ptr.to_int %value
   store i64 %argument_word, [%arguments] align 8
   store ptr %continuation, [%slot] align 8
-  %result = call @aihc_apply_slow(%machine, %current, 1, %arguments, %slot)
+  %result = call @aihc_apply_slow(%machine, %current, 1, 1, %arguments, %slot)
   %adjusted = load ptr [%slot] align 8
   tailcall @aihc_lir_continue_p(%machine, %adjusted, %result)
 }
