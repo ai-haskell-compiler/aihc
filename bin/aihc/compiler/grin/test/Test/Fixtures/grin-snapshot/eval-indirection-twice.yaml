@@ -1,0 +1,22 @@
+entry: $entry
+program: |
+  constructor I32#/1 [Int32Rep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $delayed -> BoxedRep Lifted =
+    store (CI32# (7 :: Int32Rep))
+
+  $entry -> BoxedRep Lifted =
+    (thunk :: BoxedRep Lifted) <- store (F$delayed)
+    (first :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    (second :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    store (CPair (first :: BoxedRep Lifted) (second :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CPair @1 @1
+  @1 = CI32# 7
+allocated-bytes:
+  macos-arm64: 104
+  linux-amd64: 104
+status: pass
+reason: The second evaluation of an updated thunk follows the indirection and allocates no continuation frame.
