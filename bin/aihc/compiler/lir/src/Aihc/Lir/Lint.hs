@@ -15,6 +15,7 @@ import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryO
 import Aihc.Lir.Resolve (evaluateConstants)
 import Aihc.Lir.Syntax
 import Data.Bits (popCount)
+import Data.Functor.Const (Const (..))
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
@@ -58,7 +59,7 @@ lintModule = lintModuleFor 8
 -- | Validate constants with the target word size in bytes.
 lintModuleFor :: Integer -> Module -> [LintError]
 lintModuleFor wordBytes (Module items) =
-  duplicateErrors <> concatMap (lintItem symbols) items
+  duplicateErrors <> inlineErrors (Module items) <> concatMap (lintItem symbols) items
   where
     (symbols, duplicateErrors) = moduleSymbolsFor wordBytes (Module items)
 
@@ -88,6 +89,106 @@ itemSymbol constants item =
     ItemExternData symbol -> Just (symbol, SymbolData)
     ItemConstant constant -> Just (constantName constant, SymbolConstant (constants Map.! constantName constant))
     ItemInclude _ -> Nothing
+
+-- | The rules "Aihc.Lir.Inline" relies on. An inline function is spliced
+-- into every call of it and then dropped, so it has no symbol at run time:
+-- nothing may name it except a call, nothing may return from it into a
+-- caller that is not the call site, and the splice has to terminate.
+inlineErrors :: Module -> [LintError]
+inlineErrors (Module items) =
+  concatMap itemErrors items <> cycleErrors
+  where
+    inlines = Map.fromList [(functionName function, function) | ItemFunction function <- items, functionLinkage function == Inline]
+    isInline symbol = Map.member symbol inlines
+
+    itemErrors item =
+      case item of
+        ItemData dataItem ->
+          [ LintError (Just (dataName dataItem)) Nothing "a data object cannot be inline"
+          | dataLinkage dataItem == Inline
+          ]
+            <> valueUseErrors (Just (dataName dataItem)) item
+        ItemFunction function -> functionErrors function
+        _ -> valueUseErrors Nothing item
+    functionErrors function =
+      [ LintError (Just name) Nothing "an inline function cannot use the c calling convention"
+      | isInline name,
+        functionConvention function == CConvention
+      ]
+        <> [ LintError (Just name) (Just (blockLabel block)) "an inline function cannot tail-call"
+           | isInline name,
+             block <- functionBlocks function,
+             isTailCall (blockTerminator block)
+           ]
+        <> valueUseErrors (Just name) (ItemFunction function)
+      where
+        name = functionName function
+    isTailCall terminator =
+      case terminator of
+        TailCall {} -> True
+        TailCallIndirect {} -> True
+        _ -> False
+
+    -- Every mention of an inline function outside a direct call. Such a
+    -- mention wants an address, and an inline function has none.
+    valueUseErrors owner item =
+      [ LintError owner Nothing ("inline function " <> renderSymbol symbol <> " has no address")
+      | symbol <- itemValueSymbols item,
+        isInline symbol
+      ]
+    itemValueSymbols item =
+      case item of
+        ItemData dataItem -> concatMap fieldSymbols (dataFields dataItem)
+        ItemFunction function -> concatMap blockValueSymbols (functionBlocks function)
+        _ -> []
+    fieldSymbols field =
+      case field of
+        DataCode (Just symbol) -> [symbol]
+        DataSymbol symbol _ -> [symbol]
+        _ -> []
+    blockValueSymbols block =
+      concatMap (operationValueSymbols . instructionOperation) (blockInstructions block)
+        <> terminatorValueSymbols (blockTerminator block)
+    -- A direct call names the callee in the item itself rather than in an
+    -- operand, so its arguments are all this has to walk.
+    operationValueSymbols operation =
+      case operation of
+        Call _ arguments -> concatMap operandSymbols arguments
+        CallIndirect callee arguments _ -> concatMap operandSymbols (callee : arguments)
+        _ -> getConst (forOperationOperands (Const . operandSymbols) operation)
+    terminatorValueSymbols terminator =
+      case terminator of
+        TailCall _ arguments -> concatMap operandSymbols arguments
+        TailCallIndirect callee arguments _ -> concatMap operandSymbols (callee : arguments)
+        _ -> getConst (forTerminatorOperands (Const . operandSymbols) terminator)
+    operandSymbols value =
+      case value of
+        OperandLiteral (LitSymbol symbol) -> [symbol]
+        _ -> []
+
+    -- The splice of a body looks up the bodies it calls, so a cycle would
+    -- not terminate.
+    cycleErrors = concatMap report (Map.keys inlines)
+      where
+        report name =
+          [ LintError (Just name) Nothing ("inline function " <> renderSymbol name <> " calls itself")
+          | reaches Set.empty name name
+          ]
+        -- Whether @target@ is reachable from the calls of @name@.
+        reaches seen name target =
+          or
+            [ callee == target || (not (Set.member callee seen) && reaches (Set.insert callee seen) callee target)
+            | callee <- maybe [] calledInlines (Map.lookup name inlines)
+            ]
+        calledInlines function =
+          [ callee
+          | block <- functionBlocks function,
+            callee <- calledSymbols block,
+            isInline callee
+          ]
+        calledSymbols block =
+          [symbol | instruction <- blockInstructions block, Call symbol _ <- [instructionOperation instruction]]
+            <> [symbol | TailCall symbol _ <- [blockTerminator block]]
 
 lintItem :: Symbols -> Item -> [LintError]
 lintItem symbols item =

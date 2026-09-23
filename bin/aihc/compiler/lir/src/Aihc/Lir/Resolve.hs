@@ -1,16 +1,17 @@
--- | Named constants and includes. See the "Constants" section of
--- @docs/lir.md@.
+-- | Includes and named constants. See the "Constants" and "Includes"
+-- sections of @docs/lir.md@.
 --
--- A module names its constants with @const@ items and takes the constants of
--- another file with @include@ items. 'expandIncludes' replaces every include
--- with the constants of the file it names, and 'resolveConstants' substitutes
--- every reference to a constant with its value and drops the definitions, so
--- a backend sees a module without constants.
+-- A module takes the items of another file with an @include@ item.
+-- 'expandIncludes' replaces every include with those items, and
+-- 'resolveConstants' substitutes every reference to a constant with its value
+-- and drops the definitions, so a backend sees a module without constants.
 module Aihc.Lir.Resolve
   ( LoadError (..),
     renderLoadError,
     expandIncludes,
+    expandIncludesWith,
     loadModule,
+    loadModuleWithIncludes,
     resolveConstants,
     evaluateConstants,
     unresolvedConstant,
@@ -21,21 +22,25 @@ where
 import Aihc.Lir.Parser (LirParseError, parseModule, renderParseError)
 import Aihc.Lir.Pretty (prettySymbol, renderDoc)
 import Aihc.Lir.Syntax
-import Control.Monad.Trans.State.Strict (State, evalState, get, modify')
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
+import Control.Monad.Trans.State.Strict (State, StateT, evalState, get, gets, modify', runStateT)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (normalise, takeDirectory, (</>))
 
 data LoadError
   = LoadParseError !FilePath !LirParseError
   | -- | The chain of includes that returns to a file already on it.
     LoadIncludeCycle ![FilePath]
-  | -- | An included file holds an item that is not a constant or an include.
-    LoadIncludeItem !FilePath !Symbol
+  | -- | A symbol declared @extern@ in one file of an expansion and defined
+    -- with a different signature in another.
+    LoadIncludeConflict !Symbol
   deriving (Eq, Show)
 
 renderLoadError :: LoadError -> String
@@ -43,51 +48,100 @@ renderLoadError err =
   case err of
     LoadParseError path parseError -> path <> ": Lir parse failed: " <> renderParseError parseError
     LoadIncludeCycle chain -> "include cycle: " <> unwords (map show chain)
-    LoadIncludeItem path symbol -> path <> ": included file defines " <> T.unpack (renderDoc (prettySymbol symbol)) <> ", which is not a constant"
+    LoadIncludeConflict symbol -> "included declaration of " <> T.unpack (renderDoc (prettySymbol symbol)) <> " does not match its definition"
 
 -- | Read, parse, and expand the includes of the module at @path@.
 loadModule :: FilePath -> IO (Either LoadError Module)
-loadModule path = do
+loadModule = fmap (fmap fst) . loadModuleWithIncludes
+
+-- | 'loadModule' with the files the expansion read, innermost first and
+-- without repeats. A caller that fingerprints its inputs needs them: the
+-- module it gets back depends on every one of them.
+loadModuleWithIncludes :: FilePath -> IO (Either LoadError (Module, [FilePath]))
+loadModuleWithIncludes path = do
   text <- TIO.readFile path
   case parseModule text of
     Left err -> pure (Left (LoadParseError path err))
-    Right lirModule -> expandIncludes TIO.readFile path lirModule
+    Right lirModule -> expandIncludesWith TIO.readFile path lirModule
 
--- | Replace every @include@ item of a module with the constants of the file
--- it names. An include path is relative to the directory of the file that
--- holds it, and @path@ is that file. An included file may itself include
--- files; it may hold nothing but constants and includes. The reader supplies
--- the text of a file, so a test can run this without a file system.
+-- | Replace every @include@ item of a module with the items of the file it
+-- names. An include path is relative to the directory of the file that holds
+-- it, and @path@ is that file.
 expandIncludes :: (FilePath -> IO Text) -> FilePath -> Module -> IO (Either LoadError Module)
-expandIncludes reader path = fmap (fmap Module) . expandItems path [] . moduleItems
+expandIncludes reader path = fmap (fmap fst) . expandIncludesWith reader path
+
+-- | 'expandIncludes' with the files it read. The reader supplies the text of
+-- a file, so a test can run this without a file system.
+--
+-- A file is expanded once however many times it is included: a unit of
+-- shared constants reaches a whole tree of units through one copy, and the
+-- diamond that would otherwise define every one of them twice is ordinary.
+-- An include chain that returns to a file already on it is still a cycle.
+--
+-- Merging whole files brings together declarations that were one per file.
+-- Identical @extern@ declarations of a symbol collapse into one, and an
+-- @extern@ declaration of a symbol the merged module defines is dropped in
+-- favour of the definition -- that is how a unit calls a function of another
+-- unit it is now merged with. A declaration that disagrees with the
+-- definition is an error rather than a silent choice.
+expandIncludesWith :: (FilePath -> IO Text) -> FilePath -> Module -> IO (Either LoadError (Module, [FilePath]))
+expandIncludesWith reader path lirModule =
+  runExceptT $ do
+    (items, visited) <- runStateT (expandItems path [] (moduleItems lirModule)) Set.empty
+    merged <- either throwE pure (mergeDeclarations items)
+    pure (Module merged, Set.toAscList visited)
   where
     -- @current@ is the file whose items these are, and @chain@ the files
-    -- that include it, innermost first.
-    expandItems current chain items = concatEither <$> mapM (expandItem current chain) items
+    -- that include it, innermost first. The state is every file already
+    -- expanded.
+    expandItems :: FilePath -> [FilePath] -> [Item] -> StateT (Set FilePath) (ExceptT LoadError IO) [Item]
+    expandItems current chain items = concat <$> mapM (expandItem current chain) items
     expandItem current chain item =
       case item of
-        ItemInclude relative -> includeFile (current : chain) (takeDirectory current </> T.unpack relative)
-        _ -> pure (Right [item])
+        ItemInclude relative -> includeFile (current : chain) (normalise (takeDirectory current </> T.unpack relative))
+        _ -> pure [item]
     includeFile chain included
-      | included `elem` chain = pure (Left (LoadIncludeCycle (reverse (included : chain))))
+      | included `elem` chain = lift (throwE (LoadIncludeCycle (reverse (included : chain))))
       | otherwise = do
-          text <- reader included
-          case parseModule text of
-            Left err -> pure (Left (LoadParseError included err))
-            Right (Module items) ->
-              case [symbol | item <- items, Just symbol <- [definedSymbol item]] of
-                symbol : _ -> pure (Left (LoadIncludeItem included symbol))
-                [] -> expandItems included chain items
-    definedSymbol item =
+          seen <- gets (Set.member included)
+          if seen
+            then pure []
+            else do
+              modify' (Set.insert included)
+              text <- lift (lift (reader included))
+              case parseModule text of
+                Left err -> lift (throwE (LoadParseError included err))
+                Right (Module items) -> expandItems included chain items
+
+-- | Collapse the declarations that merging files duplicated. Everything this
+-- does not justify dropping is left for the linter to report.
+mergeDeclarations :: [Item] -> Either LoadError [Item]
+mergeDeclarations items = go Map.empty Set.empty items
+  where
+    definedFunctions = Map.fromList [(functionName function, functionSignature function) | ItemFunction function <- items]
+    definedData =
+      Set.fromList
+        ( [dataName dataItem | ItemData dataItem <- items]
+            <> [globalName global | ItemGlobal global <- items]
+        )
+    -- @functions@ and @dataObjects@ are the externs already kept.
+    go _ _ [] = Right []
+    go functions dataObjects (item : rest) =
       case item of
-        ItemFunction function -> Just (functionName function)
-        ItemExternFunction external -> Just (externFunctionName external)
-        ItemGlobal global -> Just (globalName global)
-        ItemData dataItem -> Just (dataName dataItem)
-        ItemExternData symbol -> Just symbol
-        ItemConstant _ -> Nothing
-        ItemInclude _ -> Nothing
-    concatEither = fmap concat . sequence
+        ItemExternFunction external
+          | Just defined <- Map.lookup name definedFunctions ->
+              if defined == declared then go functions dataObjects rest else Left (LoadIncludeConflict name)
+          | Just earlier <- Map.lookup name functions ->
+              if earlier == declared then go functions dataObjects rest else Left (LoadIncludeConflict name)
+          | otherwise -> (item :) <$> go (Map.insert name declared functions) dataObjects rest
+          where
+            name = externFunctionName external
+            declared = externFunctionSignature external
+        ItemExternData symbol
+          | Set.member symbol definedData -> go functions dataObjects rest
+          | Set.member symbol dataObjects -> go functions dataObjects rest
+          | otherwise -> (item :) <$> go functions (Set.insert symbol dataObjects) rest
+        _ -> (item :) <$> go functions dataObjects rest
 
 -- | Evaluate each constant once. Reject cycles and invalid arithmetic.
 evaluateConstants :: Integer -> Module -> Map Symbol (Either Text Integer)

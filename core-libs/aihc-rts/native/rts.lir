@@ -1,0 +1,32 @@
+; The runtime as one Lir unit.
+;
+; Every unit below is included here rather than compiled on its own, so the
+; whole runtime becomes one object and a backend optimizes across the unit
+; boundaries: a call from one unit to another is a call inside one module,
+; and LLVM can inline it.
+;
+; The units keep their own files. Each one is a subject on its own -- the
+; evaluation helpers, the shared enter functions, the array primitives --
+; and each is still a Lir module that parses and lints by itself. What
+; changes here is only how many objects they compile to.
+;
+; A file is included once however many times it is named, so a unit may
+; include the constants it uses without regard to what its neighbours
+; include. An extern declaration of a symbol another unit defines collapses
+; into that definition.
+;
+; aihc_constants.lir comes first for the reader, not for the expansion: an
+; include may name a file that a later include also names, and a constant may
+; refer to a definition that follows it.
+
+include "aihc_constants.lir"
+include "aihc_object.lir"
+
+include "aihc_array.lir"
+include "aihc_byte_array.lir"
+include "aihc_enter.lir"
+include "aihc_helpers.lir"
+include "aihc_mutvar.lir"
+include "aihc_prompt_tag.lir"
+include "aihc_runtime_options.lir"
+include "aihc_stable_name.lir"

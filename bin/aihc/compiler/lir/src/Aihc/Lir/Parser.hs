@@ -187,6 +187,7 @@ item =
     [ externItem,
       ItemGlobal <$> globalItem,
       exportedItem,
+      ItemFunction <$> (keyword "inline" *> functionItem Inline),
       ItemFunction <$> functionItem Internal,
       ItemData <$> dataItem Internal,
       ItemConstant <$> constantItem,

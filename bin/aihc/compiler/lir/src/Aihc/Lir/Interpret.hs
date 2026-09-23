@@ -10,8 +10,9 @@ module Aihc.Lir.Interpret
   )
 where
 
+import Aihc.Lir.Inline (prepareModule)
 import Aihc.Lir.Pretty (prettySymbol, renderDoc)
-import Aihc.Lir.Resolve (evaluateConstants, resolveConstants, resolvedSwitchCaseValue)
+import Aihc.Lir.Resolve (evaluateConstants, resolvedSwitchCaseValue)
 import Aihc.Lir.Syntax
 import Control.Monad (foldM, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -92,7 +93,7 @@ failure = lift . Left . InterpretFailure
 runFunction :: Module -> Symbol -> [Value] -> Either InterpretError [Value]
 runFunction lirModule entry arguments = do
   mapM_ (either (Left . InterpretFailure) (const (Right ()))) (evaluateConstants wordBytes lirModule)
-  (program, machine) <- buildProgram (resolveConstants wordBytes lirModule)
+  (program, machine) <- buildProgram (prepareModule wordBytes lirModule)
   evalStateT (callFunction program entry arguments) machine
 
 -- Program setup

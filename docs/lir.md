@@ -122,7 +122,7 @@ Every symbol is defined or declared at most once in a module.
 ### Functions
 
 ```text
-function ::= "export"? "func" symbol "(" parameters ")" results? cc? "{" block+ "}"
+function ::= ("export" | "inline")? "func" symbol "(" parameters ")" results? cc? "{" block+ "}"
 parameters ::= (value ":" type ("," value ":" type)*)?
 results ::= "->" type | "->" "(" type ("," type)* ")"
 cc ::= "cc" ("aihc" | "c")
@@ -142,6 +142,46 @@ extern-function ::= "extern" "func" symbol "(" (type ("," type)*)? ")" results? 
 ```
 
 An extern function is defined in another module or in the host.
+
+#### Inline functions
+
+A function with `inline` in place of `export` has no symbol of its own.
+`Aihc.Lir.Inline` splices its body into every call of it and then drops the
+definition, so no backend sees one and no object holds code for one. Use it for
+the operations a hand-written module repeats -- reading a header, reaching a
+field of an info table -- which a call would otherwise obscure or cost.
+
+The splice follows the control-flow graph, so the body may have any number of
+blocks and any number of returns. A call in the middle of a block cuts the
+block in two: the first half jumps into a renamed copy of the body, the entry
+block of the copy takes the parameters of the function as block parameters, and
+every `return` of the copy jumps to the second half, which takes the results of
+the call as block parameters. A `tailcall` of an inline function needs no cut:
+it jumps into the copy, whose returns stay returns.
+
+An inline function has no address, so it is named only by `call @f(args)` and
+`tailcall @f(args)`. The linter rejects every other mention of it: a `code`
+literal, a `code` data field, and the callee of a `call.indirect`. It also
+rejects the three shapes the splice cannot serve:
+
+- recursion, direct or mutual, because the splice would not terminate;
+- a `tailcall` or `tailcall.indirect` inside the body, because at a call site
+  that is not itself a tail call it would return past the call site;
+- the `c` calling convention, which describes an ABI that an inline function
+  never reaches.
+
+An inline function may call other inline functions, and a `stack.alloc` in its
+body allocates in the frame of each caller it is spliced into.
+
+```text
+inline func @info_table(%object: ptr) -> ptr {
+entry:
+  %header_word = load i64 [%object] align 8
+  %info_word = and i64 %header_word, @AIHC_HEADER_INFO_MASK
+  %header = ptr.from_int %info_word
+  return %header
+}
+```
 
 ### Globals
 
@@ -228,20 +268,40 @@ A constant is not a data
 object: it has no address, a `ptr` field cannot name it, and `ptr.to_int`
 cannot take it.
 
-An `include` item names a file whose constants the module takes as its own.
-The path is relative to the directory of the file that holds the include. An
-included file holds nothing but constants and includes, so including it
-defines no function, global, or data object, and every module that includes
-it stays one object of its own. A chain of includes does not return to a file
-already on it.
+An `include` item names a file whose items the module takes as its own: its
+constants, and its functions, globals, and data objects too. The path is
+relative to the directory of the file that holds the include. Including a
+file is how several units become one module and so one object, which lets a
+backend optimize across them and inline a call from one into another.
+
+A file is expanded once however many times it is included. A unit of shared
+constants therefore reaches a whole tree of units through one copy, and the
+diamond that would otherwise define every one of those constants twice is
+ordinary rather than an error. A chain of includes that returns to a file
+already on it is still a cycle, and is rejected.
+
+Merging whole files brings together declarations that were one per file, so
+the expansion collapses them:
+
+- identical `extern` declarations of a symbol become one;
+- an `extern` declaration of a symbol the merged module defines is dropped in
+  favour of the definition, which is how one unit calls a function of another
+  unit it is merged with.
+
+A declaration that disagrees with the definition is an error, not a silent
+choice. Everything else the merge duplicates -- two definitions of one symbol
+-- is left to the linter, which names it.
 
 Constants and includes exist in the text and in the parsed module, so a file
 round-trips through the pretty-printer. Before a module reaches the linter,
-`expandIncludes` replaces every include with the constants of its file, and
+`expandIncludes` replaces every include with the items of its file, and
 before it reaches a backend, `resolveConstants` substitutes every reference
-with its value and drops the definitions. The backends and the interpreter
-run that substitution themselves, so a caller hands them the expanded module.
-`loadModule` reads, parses, and expands a file in one step.
+with its value and drops the definitions. `Aihc.Lir.Inline` then splices the
+inline functions. The backends and the interpreter run those two themselves
+through `prepareModule`, so a caller hands them the expanded module.
+`loadModule` reads, parses, and expands a file in one step, and
+`loadModuleWithIncludes` also reports the files it read, which a caller that
+fingerprints its inputs needs.
 
 ```text
 include "aihc_constants.lir"
@@ -527,7 +587,19 @@ message of a `trap` terminator:
 ## Lint
 
 The linter checks every rule of this document that the parser cannot check. A
-module passes the linter before it reaches a backend. The linter reports each
+module passes the linter before it reaches a backend.
+
+A module is linted twice: as it was written, and again as the backend
+receives it, after `resolveConstants` has substituted the constants and
+`Aihc.Lir.Inline` has spliced the inline functions. The second pass holds
+those two to the same rules as hand-written Lir. Without it nothing checks
+the module a backend is handed, and a splice that dropped a value out of
+scope arrives as an internal error from the backend, or as invalid output
+from the tool behind it, naming neither the block nor the rule it broke.
+`prepareCheckedModule` runs both; a caller that does not lint runs
+`prepareModule`. A backend lints a unit it was given and lints one the
+compiler lowered only under `--lint`, so the second pass costs nothing on
+the modules that have no inline functions to splice. The linter reports each
 error as `@symbol/block: message`. It omits the block, or the symbol and the
 block, when they do not apply.
 
@@ -655,21 +727,28 @@ than the Lir text.
 
 ## Runtime units
 
-A runtime unit is a `.lir` file in `core-libs/aihc-rts/native`, named by
-the `x-aihc-lir-sources` field of the `aihc-rts` package. Installing the
-package parses, lints, and compiles each unit with the backend of the
-target, and its object joins the C objects of the package in its `cbits`
-directory, which every link takes object by object.
+A runtime unit is a `.lir` file in `core-libs/aihc-rts/native`. They reach
+the `aihc-rts` package through `rts.lir`, which includes them and is the one
+file the `x-aihc-lir-sources` field names. Installing the package parses,
+lints, and compiles that one module with the backend of the target, and its
+object joins the C objects of the package in its `cbits` directory, which
+every link takes object by object.
 Calls between Lir and C use the `c` convention.
 Calls to shared Lir helpers use the `aihc` convention.
 
 LLVM compiles standalone Lir units and executable entry code with `-O2`.
 This level does not depend on the optimization level of the program.
 
-Runtime units take shared constants from `aihc_constants.lir` with
-`include "aihc_constants.lir"`. These constants identify object kinds,
-frame kinds, and scheduler resumption kinds. This file contains only
-constants, so it does not produce an object file.
+Runtime units take shared constants from `aihc_constants.lir` and the shared
+reads of a header and an info table from `aihc_object.lir`, each with an
+`include`. The constants identify object kinds, frame kinds, and scheduler
+resumption kinds; the accessors are inline functions, so neither file
+produces code of its own.
+
+`x-aihc-lir-sources` names one file, `rts.lir`, which includes every other
+unit. The runtime is therefore one object and a backend optimizes across the
+unit boundaries. The units keep their own files, and each is still a Lir
+module that parses and lints by itself.
 
 A program links the objects of the installed package. A test harness that
 needs its own runtime — an instrumented one, or one with a smaller
@@ -680,6 +759,12 @@ Lir then changes no test. A link places that archive after the objects that
 reference it.
 
 The units are:
+
+- `aihc_object.lir` defines the inline functions that read a header and the
+  fields of an info table: `aihc_info_table`, `aihc_info_kind`,
+  `aihc_info_entry`, `aihc_follows_indirection`, and the rest. Each is
+  spliced into its calls, so a unit reads as what it means and compiles to
+  the loads and masks written out.
 
 - `aihc_helpers.lir` defines `eval`, `resume`, the slot dispatchers,
   `quotrem2`, `cstring_length`, and the shared update continuation

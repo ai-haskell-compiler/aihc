@@ -90,8 +90,12 @@ compileLirObject target name lirModule directory object = do
         ExitFailure _ -> ioError (userError (compiler <> " failed (" <> show exitCode <> "): " <> stderr))
 
 -- | Whether a Lir module has anything to put in an object. A unit that holds
--- only constants, such as @aihc_constants.lir@, is there to be included by
--- the others and produces no object.
+-- only constants, or only inline functions, is there to be included by the
+-- others and produces no object.
+--
+-- The runtime reaches this with one module, @rts.lir@, which includes its
+-- code-free units rather than naming them, so nothing it installs answers
+-- False here. The check stays for a package that names such a unit itself.
 lirModuleDefinesCode :: Module -> Bool
 lirModuleDefinesCode lirModule = any definesCode (moduleItems lirModule)
   where

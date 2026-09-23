@@ -15,8 +15,9 @@ module Aihc.Llvm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
-import Aihc.Lir.Lint (LintError, lintModuleFor)
-import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
+import Aihc.Lir.Inline (prepareCheckedModule)
+import Aihc.Lir.Lint (LintError)
+import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM, forM_)
 import Control.Monad.Trans.Class (lift)
@@ -24,6 +25,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char (ord)
+import Data.Either (fromRight)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -43,11 +45,12 @@ data LlvmLirError
   | LlvmLirUnsupported !Text
   deriving (Eq, Show)
 
--- | Lint the module, then render it.
+-- | Lint the module as written and as this backend receives it, then render
+-- it.
 compileLirModule :: Module -> Either LlvmLirError Text
 compileLirModule lirModule =
-  case lintModuleFor wordBytes lirModule of
-    [] -> do
+  case prepared of
+    Right _ -> do
       (functions, traps) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) Map.empty
       pure
         ( T.unlines
@@ -64,9 +67,10 @@ compileLirModule lirModule =
                 <> concat functions
             )
         )
-    errors -> Left (LlvmLirLintErrors errors)
+    Left errors -> Left (LlvmLirLintErrors errors)
   where
-    Module items = resolveConstants wordBytes lirModule
+    prepared = prepareCheckedModule wordBytes lirModule
+    Module items = fromRight (Module []) prepared
     ctx =
       Ctx
         { ctxSignatures =

@@ -25,13 +25,15 @@ module Aihc.Wasm.Lir
 where
 
 import Aihc.Lir.Convert (integerConversionBounds)
-import Aihc.Lir.Lint (LintError, lintModuleFor)
-import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
+import Aihc.Lir.Inline (prepareCheckedModule)
+import Aihc.Lir.Lint (LintError)
+import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Control.Monad (forM_, unless, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.ByteString qualified as BS
+import Data.Either (fromRight)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -46,13 +48,14 @@ data WasmLirError
   | WasmLirUnsupported !Text
   deriving (Eq, Show)
 
--- | Lint the module, then render it. The helpers for wide 64-bit
+-- | Lint the module as written and as this backend receives it, then render
+-- it. The helpers for wide 64-bit
 -- multiplication are Lir functions that the backend adds to the module when
 -- it uses them.
 compileLirModule :: Module -> Either WasmLirError Text
 compileLirModule lirModule =
-  case lintModuleFor wordBytes lirModule of
-    [] -> do
+  case prepared of
+    Right _ -> do
       let items = userItems <> [ItemFunction helper | usesWideMultiply, helper <- wideHelpers]
           ctx = moduleContext items
       (functions, final) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) initialState
@@ -70,9 +73,10 @@ compileLirModule lirModule =
                 <> ["\t.no_dead_strip\t__indirect_function_table", ""]
             )
         )
-    errors -> Left (WasmLirLintErrors errors)
+    Left errors -> Left (WasmLirLintErrors errors)
   where
-    Module userItems = resolveConstants wordBytes lirModule
+    prepared = prepareCheckedModule wordBytes lirModule
+    Module userItems = fromRight (Module []) prepared
     usesWideMultiply =
       or
         [ True
@@ -112,12 +116,14 @@ moduleContext items =
         ItemConstant _ -> Nothing
         ItemInclude _ -> Nothing
 
--- | An internal symbol is local to its object.
+-- | An internal symbol is local to its object. An inline function is
+-- spliced and dropped before a backend runs, so none reaches here.
 linkedName :: Linkage -> Symbol -> Text
 linkedName linkage symbol =
   case linkage of
     Export -> unSymbol symbol
     Internal -> ".L" <> unSymbol symbol
+    Inline -> error ("Lir inline function " <> T.unpack (unSymbol symbol) <> " reached the wasm backend")
 
 symbolText :: Ctx -> Symbol -> Text
 symbolText ctx symbol = fromMaybe (unSymbol symbol) (Map.lookup symbol (ctxSymbols ctx))

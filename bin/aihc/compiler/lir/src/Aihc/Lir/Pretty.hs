@@ -85,6 +85,7 @@ prettyLinkage linkage =
   case linkage of
     Internal -> mempty
     Export -> "export "
+    Inline -> "inline "
 
 prettyFunction :: Function -> Doc ann
 prettyFunction function =
@@ -351,7 +352,7 @@ prettyBytes bytes = pretty ("\"" <> T.concat (map escapeByte (BS.unpack bytes)) 
 -- these names is quoted.
 reservedWords :: [Text]
 reservedWords =
-  ["default", "func", "export", "extern", "global", "data", "mut", "align", "cc", "to", "null", "inf", "nan", "bytes", "zero"]
+  ["default", "func", "export", "inline", "extern", "global", "data", "mut", "align", "cc", "to", "null", "inf", "nan", "bytes", "zero"]
     <> ["jump", "br", "switch", "return", "tailcall", "tailcall.indirect", "trap"]
     <> map binaryOpName [minBound .. maxBound]
     <> map wideOpName [minBound .. maxBound]

@@ -1,0 +1,37 @@
+; An inline function costs nothing: the same work written out at the call
+; site and written through an inline function compile to the same
+; instructions. The splice cuts the caller's block in two, and the merge in
+; Aihc.Lir.Inline puts it back together.
+;
+; This is the shape the runtime repeats most -- read the header of an object,
+; mask the two tag bits off it, and reach the info table.
+
+const @AIHC_HEADER_INFO_MASK = -4
+
+inline func @info_table(%object: ptr) -> ptr {
+entry:
+  %header_word = load i64 [%object] align 8
+  %info_word = and i64 %header_word, @AIHC_HEADER_INFO_MASK
+  %header = ptr.from_int %info_word
+  return %header
+}
+
+export func @enter_direct(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %info_word = and i64 %header_word, @AIHC_HEADER_INFO_MASK
+  %header = ptr.from_int %info_word
+  %code = load code [%header] align 1 word
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  tailcall.indirect %code(%machine, %stored0) : (ptr, ptr)
+}
+
+export func @enter_inline(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header = call @info_table(%object)
+  %code = load code [%header] align 1 word
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  tailcall.indirect %code(%machine, %stored0) : (ptr, ptr)
+}
