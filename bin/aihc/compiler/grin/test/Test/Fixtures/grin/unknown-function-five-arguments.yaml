@@ -1,0 +1,17 @@
+extensions: []
+source: |
+  module Test where
+  apply5 f a b c d e = f a b c d e
+expected: |-
+  scope 1 = "" Test
+
+  pub global 1.apply5 = (P$apply5/6)
+
+  $apply5 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) (x1 :: BoxedRep Lifted) (x2 :: BoxedRep Lifted) (x3 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    function_application :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) (x1 :: BoxedRep Lifted) (x2 :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x3 :: BoxedRep Lifted)
+status: pass
+reason: an unknown call with five arguments applies four argument groups, then applies the result to the fifth
