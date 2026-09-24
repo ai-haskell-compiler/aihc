@@ -1,0 +1,79 @@
+extensions: []
+modules:
+- |
+  module Test where
+
+  import GHC.Types (Char)
+
+  prefix :: [Char] -> [Char]
+  prefix suffix = 'E' : 'x' : 'i' : 't' : suffix
+
+  complete :: [Char]
+  complete = 'a' : 'b' : []
+
+  single :: [Char] -> [Char]
+  single suffix = 'x' : suffix
+
+  nul :: [Char] -> [Char]
+  nul suffix = 'a' : '\0' : 'b' : suffix
+
+  unicode :: [Char] -> [Char]
+  unicode suffix = '\955' : '\8594' : suffix
+
+  variable :: Char -> [Char] -> [Char]
+  variable char suffix = 'a' : 'b' : char : 'c' : 'd' : suffix
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.CString
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tAddr# :: 4.tTYPE 4.cAddrRep;
+    4.tChar :: 4.sType;
+    3.tChar# :: 4.tTYPE 4.cWordRep;
+    4.tLevity :: 4.sType;
+    4.sLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.sType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
+    4.sType :: 4.sType;
+    4.t[] :: ∀(a : 4.sType). 4.sType;
+    4.c: :: ∀(a : 4.sType). a 4.→ 4.t[] a 4.→ 4.t[] a;
+    4.cAddrRep :: 4.tRuntimeRep;
+    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.cC# :: FUN @4.cWordRep @4.sLiftedRep 3.tChar# 4.tChar;
+    4.cLifted :: 4.tLevity;
+    4.cWordRep :: 4.tRuntimeRep;
+    2.vunpackAppendCString# :: FUN @4.cAddrRep @4.sLiftedRep 3.tAddr# (4.t[] 4.tChar 4.→ 4.t[] 4.tChar);
+    2.vunpackAppendCStringUtf8# :: FUN @4.cAddrRep @4.sLiftedRep 3.tAddr# (4.t[] 4.tChar 4.→ 4.t[] 4.tChar);
+    2.vunpackCString# :: FUN @4.cAddrRep @4.sLiftedRep 3.tAddr# (4.t[] 4.tChar)
+
+  import synonyms
+    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
+    4.sType = 4.tTYPE 4.sLiftedRep
+
+  pub val 1.vprefix :: 4.t[] 4.tChar 4.→ 4.t[] 4.tChar
+   = λ(x : 4.t[] 4.tChar).
+    2.vunpackAppendCString# "Exit"#4.cAddrRep x
+
+  pub val 1.vcomplete :: 4.t[] 4.tChar
+   = 2.vunpackCString# "ab"#4.cAddrRep
+
+  pub val 1.vsingle :: 4.t[] 4.tChar 4.→ 4.t[] 4.tChar
+   = λ(x : 4.t[] 4.tChar).
+    4.c: @4.tChar (4.cC# 'x'#4.cWordRep) x
+
+  pub val 1.vnul :: 4.t[] 4.tChar 4.→ 4.t[] 4.tChar
+   = λ(x : 4.t[] 4.tChar).
+    2.vunpackAppendCStringUtf8# "a\xc0\x80b"#4.cAddrRep x
+
+  pub val 1.vunicode :: 4.t[] 4.tChar 4.→ 4.t[] 4.tChar
+   = λ(x : 4.t[] 4.tChar).
+    2.vunpackAppendCStringUtf8# "\xce\xbb\xe2\x86\x92"#4.cAddrRep x
+
+  pub val 1.vvariable :: 4.tChar 4.→ 4.t[] 4.tChar 4.→ 4.t[] 4.tChar
+   = λ(x : 4.tChar).
+    λ(y : 4.t[] 4.tChar).
+      2.vunpackAppendCString# "ab"#4.cAddrRep (4.c: @4.tChar x (2.vunpackAppendCString# "cd"#4.cAddrRep y))
+status: pass
+reason: Constant character prefixes use compact string literals and preserve the suffix.
