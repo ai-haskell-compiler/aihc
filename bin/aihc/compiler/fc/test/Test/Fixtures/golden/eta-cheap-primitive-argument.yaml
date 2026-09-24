@@ -1,0 +1,70 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (render) where
+
+  import GHC.Prim (Word#, eqWord#, int2Word#, minusWord#)
+  import GHC.Types (Bool (..), Int (..))
+
+  showWord :: Word# -> [Bool] -> [Bool]
+  showWord w xs = case eqWord# w 0## of
+    1# -> True : xs
+    _ -> xs
+
+  render :: Int -> [Bool] -> [Bool]
+  render (I# value) = showWord (minusWord# 0## (int2Word# value))
+passes:
+- eta
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tBool :: 3.sType;
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.tWord# :: 3.tTYPE 3.cWordRep;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTrue :: 3.tBool;
+    3.cWordRep :: 3.tRuntimeRep
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  val 1.vshowWord :: FUN @3.cWordRep @3.sLiftedRep 2.tWord# (3.t[] 3.tBool 3.→ 3.t[] 3.tBool)
+   = λ(x : 2.tWord#).
+    λ(y : 3.t[] 3.tBool).
+      let {
+          _case : 2.tInt# =
+              foreign {prim 2.veqWord# :: FUN @3.cWordRep @3.sLiftedRep 2.tWord# (FUN @3.cWordRep @3.cIntRep 2.tWord# 2.tInt#)} x 0#3.cWordRep
+      } in
+          case _case as (_scrut : 2.tInt#) return (3.t[] 3.tBool) of {
+              1#3.cIntRep →
+                  3.c: @3.tBool 3.cTrue y;
+              _ →
+                  y
+          }
+
+  pub val 1.vrender :: 3.tInt 3.→ 3.t[] 3.tBool 3.→ 3.t[] 3.tBool
+   = λ(x : 3.tInt).
+    λ(eta{1} : 3.t[] 3.tBool).
+      case x as (_scrut : 3.tInt) return (3.t[] 3.tBool) of {
+          3.cI# (value : 2.tInt#) →
+              1.vshowWord (foreign {prim 2.vminusWord# :: FUN @3.cWordRep @3.sLiftedRep 2.tWord# (FUN @3.cWordRep @3.cWordRep 2.tWord# 2.tWord#)} 0#3.cWordRep (foreign {prim 2.vint2Word# :: FUN @3.cIntRep @3.cWordRep 2.tInt# 2.tWord#} value)) eta{1}
+      }
+status: pass
+reason: The argument of the partial application 'showWord' is a call of 'minusWord#' on a call of 'int2Word#'. These primitives cannot fail, have no side effect, and do not allocate, so the partial application is cheap and 'render' takes both arguments.
