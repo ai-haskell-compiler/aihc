@@ -1,0 +1,48 @@
+program: |
+  primitive aihcControl0#%1 :: BoxedRep Lifted/2
+
+  constructor I# [IntRep]
+  constructor Just [BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CJust (x :: BoxedRep Lifted))
+
+  $capture (tag :: BoxedRep Lifted) (body :: BoxedRep Lifted) -> BoxedRep Lifted =
+    primitive-call @(BoxedRep Lifted) aihcControl0# (tag :: BoxedRep Lifted) (body :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    once :: BoxedRep Lifted <-
+      store (F$delayed (one :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (once :: BoxedRep Lifted)
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Just [BoxedRep Lifted]
+
+  primitive aihcControl0#%1 :: BoxedRep Lifted/2
+
+  pub global entry = (F$entry)
+
+  $delayed (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CJust (x :: BoxedRep Lifted))
+
+  $capture (tag :: BoxedRep Lifted) (body :: BoxedRep Lifted) -> BoxedRep Lifted =
+    primitive-call @(BoxedRep Lifted) aihcControl0# (tag :: BoxedRep Lifted) (body :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    once :: BoxedRep Lifted <-
+      store (F$delayed (one :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (once :: BoxedRep Lifted)
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 0
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: a program that captures a continuation can resume an eval more than one time, so no eval of it goes without an update frame

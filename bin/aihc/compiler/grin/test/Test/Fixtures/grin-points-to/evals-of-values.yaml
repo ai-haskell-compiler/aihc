@@ -1,0 +1,66 @@
+program: |
+  constructor I# [IntRep]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (2 :: IntRep))
+
+  $forceValue (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $forceAny (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    lazy :: BoxedRep Lifted <-
+      store (F$delayed)
+    a :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (one :: BoxedRep Lifted)
+    b :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceAny (a :: BoxedRep Lifted)
+    c :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceAny (lazy :: BoxedRep Lifted)
+    r :: BoxedRep Lifted <-
+      store (CPair (b :: BoxedRep Lifted) (c :: BoxedRep Lifted))
+    store (CPair (r :: BoxedRep Lifted) (lazy :: BoxedRep Lifted))
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (2 :: IntRep))
+
+  $forceValue (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $forceAny (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    lazy :: BoxedRep Lifted <-
+      store (F$delayed)
+    a :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (one :: BoxedRep Lifted)
+    b :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceAny (a :: BoxedRep Lifted)
+    c :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceAny (lazy :: BoxedRep Lifted)
+    r :: BoxedRep Lifted <-
+      store (CPair (b :: BoxedRep Lifted) (c :: BoxedRep Lifted))
+    store (CPair (r :: BoxedRep Lifted) (lazy :: BoxedRep Lifted))
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 1
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: an eval of a parameter that only values reach is the parameter itself, and a parameter that a thunk reaches from one call site keeps its eval

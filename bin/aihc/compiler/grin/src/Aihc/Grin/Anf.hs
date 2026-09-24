@@ -182,9 +182,10 @@ mapExprValues f expression =
     GrinStoreRec bindings body -> GrinStoreRec (nodes bindings) body
     GrinStoreRecUnchecked bindings body -> GrinStoreRecUnchecked (nodes bindings) body
     GrinUpdate pointer value -> GrinUpdate (f pointer) (f value)
-    GrinEval runtimeRep value -> GrinEval runtimeRep (f value)
-    GrinCpsEval runtimeRep value continuation ->
-      GrinCpsEval runtimeRep (f value) (f continuation)
+    GrinEval update runtimeRep value -> GrinEval update runtimeRep (f value)
+    GrinCpsEval update runtimeRep value continuation ->
+      GrinCpsEval update runtimeRep (f value) (f continuation)
+    GrinFetch tag value -> GrinFetch tag (f value)
     GrinCall runtimeRep functionName arguments -> GrinCall runtimeRep functionName (map f arguments)
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map f arguments)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->

@@ -74,9 +74,10 @@ tidyExpr expression =
     GrinStoreRecUnchecked bindings body -> tidyStoreRec GrinStoreRecUnchecked bindings body
     GrinUpdate pointer value -> GrinUpdate <$> useValue pointer <*> useValue value
     GrinUpdateBlackhole pointer value -> GrinUpdateBlackhole <$> useValue pointer <*> useValue value
-    GrinEval runtimeRep value -> GrinEval runtimeRep <$> useValue value
-    GrinCpsEval runtimeRep value continuation ->
-      GrinCpsEval runtimeRep <$> useValue value <*> useValue continuation
+    GrinEval update runtimeRep value -> GrinEval update runtimeRep <$> useValue value
+    GrinCpsEval update runtimeRep value continuation ->
+      GrinCpsEval update runtimeRep <$> useValue value <*> useValue continuation
+    GrinFetch tag value -> GrinFetch tag <$> useValue value
     GrinCall runtimeRep functionName arguments ->
       GrinCall runtimeRep functionName <$> useValues arguments
     GrinPrimitiveCall runtimeRep name arguments ->

@@ -1,0 +1,67 @@
+program: |
+  constructor Nothing []
+  constructor Just [BoxedRep Lifted]
+  constructor I# [IntRep]
+
+  pub global entry = (F$entry)
+
+  $fromMaybe (m :: BoxedRep Lifted) -> BoxedRep Lifted =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (m :: BoxedRep Lifted)
+    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Nothing ->
+        store (CI# (0 :: IntRep))
+      data Just (x :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $isJust (m :: BoxedRep Lifted) -> IntRep =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (m :: BoxedRep Lifted)
+    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Just (x :: BoxedRep Lifted) ->
+        constant (1 :: IntRep)
+      _ ->
+        constant (0 :: IntRep)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    m :: BoxedRep Lifted <-
+      store (CJust (one :: BoxedRep Lifted))
+    n :: IntRep <-
+      call @IntRep $isJust (m :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $fromMaybe (m :: BoxedRep Lifted)
+expected: |-
+  constructor Nothing []
+
+  constructor Just [BoxedRep Lifted]
+
+  constructor I# [IntRep]
+
+  pub global entry = (F$entry)
+
+  $fromMaybe (m :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (m :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Just (x :: BoxedRep Lifted) ->
+        constant (x :: BoxedRep Lifted)
+
+  $isJust (m :: BoxedRep Lifted) -> IntRep =
+    case (m :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Just (x :: BoxedRep Lifted) ->
+        constant (1 :: IntRep)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    m :: BoxedRep Lifted <-
+      store (CJust (one :: BoxedRep Lifted))
+    n :: IntRep <-
+      call @IntRep $isJust (m :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $fromMaybe (m :: BoxedRep Lifted)
+rewrites:
+  dead-alternatives: 2
+  evals-of-values: 3
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: only Just values reach the cases, so the Nothing alternative and the default alternative are dead, and every eval sees a value

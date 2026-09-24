@@ -281,6 +281,11 @@ Exception unwinding clears both bits and raises the exception in each waiter.
 The restored thunk can be evaluated again.
 No collection or scheduler switch occurs between a header change and removal of its waiter entry.
 
+`aihc_lir_eval_single_entry` enters a thunk with no update frame, evaluation bit, or reservation.
+The compiler uses it only for a thunk that no other evaluation can reach.
+The thunk is not updated, and the collector can reclaim it as soon as its entry has loaded its fields.
+A value with the evaluation bit, an indirection, or a blackhole goes to `aihc_lir_eval`.
+
 The collector masks the header tags and traces the original thunk layout and static reference table.
 An update continuation retains its thunk while evaluation is in progress.
 The waiter table also retains contended thunks and their waiter queues.

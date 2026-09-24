@@ -45,12 +45,16 @@ data GrinLintError
   | GrinLintUnknownForeignCall !Text
   | GrinLintForeignCallDescriptorMismatch !Text
   | GrinLintConstructorLayout !Text ![GrinRep] ![GrinRep]
+  | -- | A fetch names a tag whose fields the program does not declare.
+    GrinLintFetchTag !GrinNodeTag
+  | GrinLintFetchNonPointer !GrinRep
   deriving (Eq, Show)
 
 data LintEnv = LintEnv
   { lintFunctionArities :: !(Map FunctionName Int),
     lintFunctionNodeArities :: !(Map FunctionName Int),
     lintFunctionResults :: !(Map FunctionName GrinResultRep),
+    lintFunctionParameterReps :: !(Map FunctionName [GrinRep]),
     lintPrimitiveArities :: !(Map Text Int),
     lintConstructorLayouts :: !(Map Text [[GrinRep]]),
     lintForeignCalls :: !(Map Text GrinForeignCall),
@@ -104,6 +108,9 @@ lintProgramWith continuations frames program =
           lintFunctionResults =
             Map.fromList
               [(grinFunctionName function, grinFunctionResultRep function) | function <- functions],
+          lintFunctionParameterReps =
+            Map.fromList
+              [(grinFunctionName function, map grinVarRuntimeRep (grinFunctionParameters function)) | function <- functions],
           lintFunctionNodeArities =
             Map.fromList
               [ (grinFunctionName function, semanticFunctionArity function)
@@ -142,7 +149,7 @@ lintFunction env function =
     <> lintExpr env bound (grinFunctionBody function)
   where
     bound = Set.fromList (grinFunctionParameters function)
-    results = exprResults (grinFunctionBody function)
+    results = exprResults env (grinFunctionBody function)
     resultErrors =
       case grinFunctionResultRep function of
         ResultRep runtimeRep ->
@@ -177,14 +184,14 @@ lintExpr env bound expr =
   case expr of
     GrinConstant values -> concatMap (lintValue bound) values
     GrinBind [] valueExpr body
-      | let results = exprResults valueExpr,
+      | let results = exprResults env valueExpr,
         not (null results),
         all (== Forwarded) results,
         Just _ <- forwardedResultUses body ->
           lintExpr (env {lintForwardedResult = False}) bound valueExpr
             <> lintExpr (env {lintForwardedResult = True}) bound body
     GrinBind vars valueExpr body ->
-      bindRepresentationErrors vars valueExpr
+      bindRepresentationErrors env vars valueExpr
         <> lintExpr env bound valueExpr
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
@@ -206,13 +213,17 @@ lintExpr env bound expr =
       [GrinLintUpdateNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isLiftedRuntimeRep runtimeRep)]
         <> lintValue bound pointer
         <> lintValue bound value
-    GrinEval _ value ->
+    GrinEval _ _ value ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
         <> lintValue bound value
-    GrinCpsEval _ value continuation ->
+    GrinCpsEval _ _ value continuation ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
         <> lintValue bound value
         <> lintValue bound continuation
+    GrinFetch tag value ->
+      [GrinLintFetchNonPointer runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isPointerRuntimeRep runtimeRep)]
+        <> [GrinLintFetchTag tag | isNothing (fetchFieldReps env tag)]
+        <> lintValue bound value
     GrinCall resultRep functionName arguments ->
       lintKnownCall env bound resultRep functionName arguments
     GrinPrimitiveCall _ name arguments ->
@@ -296,12 +307,12 @@ lintKnownCall env bound resultRep functionName arguments =
 cpsCallResultRep :: GrinRep
 cpsCallResultRep = TupleRep []
 
-bindRepresentationErrors :: [GrinVar] -> GrinExpr -> [GrinLintError]
-bindRepresentationErrors vars valueExpr =
+bindRepresentationErrors :: LintEnv -> [GrinVar] -> GrinExpr -> [GrinLintError]
+bindRepresentationErrors env vars valueExpr =
   [GrinLintResultLayout "bind" expected actual | Placed actual <- results, actual /= expected]
     <> [GrinLintForwardedResultPlaced "bind" | Forwarded <- results]
   where
-    results = exprResults valueExpr
+    results = exprResults env valueExpr
     expected = map grinVarRuntimeRep vars
 
 lintAlt :: LintEnv -> Set GrinVar -> GrinAlt -> [GrinLintError]
@@ -380,20 +391,22 @@ data ExprResult
 
 -- | Each returning case alternative contributes its own result.
 -- Control transfers do not produce a result at this expression.
-exprResults :: GrinExpr -> [ExprResult]
-exprResults expr =
+exprResults :: LintEnv -> GrinExpr -> [ExprResult]
+exprResults env expr =
   case expr of
     GrinConstant values -> [Placed (map grinValueRuntimeRep values)]
-    GrinBind _ _ body -> exprResults body
+    GrinBind _ _ body -> exprResults env body
     GrinStore {} -> [Placed [liftedGrinRep]]
     GrinEnsureHeap _ roots -> [Placed (map grinValueRuntimeRep roots)]
     GrinStoreUnchecked {} -> [Placed [liftedGrinRep]]
-    GrinStoreRec _ body -> exprResults body
-    GrinStoreRecUnchecked _ body -> exprResults body
+    GrinStoreRec _ body -> exprResults env body
+    GrinStoreRecUnchecked _ body -> exprResults env body
     GrinUpdate _ value -> [Placed [grinValueRuntimeRep value]]
     GrinUpdateBlackhole _ value -> [Placed [grinValueRuntimeRep value]]
-    GrinEval runtimeRep _ -> [Placed (runtimeRepComponents runtimeRep)]
+    GrinEval _ runtimeRep _ -> [Placed (runtimeRepComponents runtimeRep)]
     GrinCpsEval {} -> []
+    -- An unknown tag is its own error, so it places nothing here.
+    GrinFetch tag _ -> maybe [] (pure . Placed) (fetchFieldReps env tag)
     GrinCall resultRep _ _ ->
       case resultRepComponents resultRep of
         Nothing -> [Forwarded]
@@ -408,10 +421,30 @@ exprResults expr =
     GrinCpsRaise {} -> []
     GrinHalt {} -> []
     GrinExit {} -> []
-    GrinIfWhnf _ ready slow -> exprResults ready <> exprResults slow
+    GrinIfWhnf _ ready slow -> exprResults env ready <> exprResults env slow
     GrinCase _ _ alternatives ->
-      concatMap (exprResults . grinAltRhs) alternatives
+      concatMap (exprResults env . grinAltRhs) alternatives
     GrinThrow {} -> []
     GrinCatch runtimeRep _ _ _ -> [Placed (runtimeRepComponents runtimeRep)]
     GrinForeignCallExpr foreignCall _ ->
       [Placed (grinForeignCallResultReps (grinForeignCallSignature foreignCall))]
+
+-- | The runtime layout of the fields of a node with the given tag. A
+-- constructor declares its layout. A closure or a thunk stores the leading
+-- parameters of its function: all of them but the ones the remaining
+-- arguments supply.
+fetchFieldReps :: LintEnv -> GrinNodeTag -> Maybe [GrinRep]
+fetchFieldReps env tag =
+  case tag of
+    GrinConstructor name remaining -> do
+      layouts <- Map.lookup name (lintConstructorLayouts env)
+      let supplied = length layouts - remaining
+      if supplied < 0 then Nothing else Just (concat (take supplied layouts))
+    GrinClosure functionName layouts -> storedParameters functionName (length (concat layouts))
+    GrinThunk functionName -> storedParameters functionName 0
+  where
+    storedParameters functionName suppliedLater = do
+      parameters <- Map.lookup functionName (lintFunctionParameterReps env)
+      nodeArity <- Map.lookup functionName (lintFunctionNodeArities env)
+      let stored = nodeArity - suppliedLater
+      if stored < 0 then Nothing else Just (take stored parameters)

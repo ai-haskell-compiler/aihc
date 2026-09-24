@@ -148,7 +148,7 @@ blackholeSchedulerProgram =
               grinFunctionBody =
                 GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [global childClosure]) $
                   GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
-                    GrinBind [mainShared] (GrinEval lifted (global sharedThunk)) $
+                    GrinBind [mainShared] (GrinEval EvalUpdate lifted (global sharedThunk)) $
                       GrinBind [parentOutput] (putchar 'A') $
                         GrinConstant [global unitValue]
             },
@@ -156,7 +156,7 @@ blackholeSchedulerProgram =
             { grinFunctionName = childFunction,
               grinFunctionParameters = [],
               grinFunctionResultRep = ResultRep lifted,
-              grinFunctionBody = GrinEval lifted (global sharedThunk)
+              grinFunctionBody = GrinEval EvalUpdate lifted (global sharedThunk)
             },
           GrinFunction
             { grinFunctionName = sharedFunction,

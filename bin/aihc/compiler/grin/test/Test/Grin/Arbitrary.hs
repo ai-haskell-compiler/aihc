@@ -74,8 +74,9 @@ genExpr =
       GrinEnsureHeap <$> genValue <*> smallList genValue,
       GrinStoreUnchecked <$> genNode,
       GrinUpdate <$> genValue <*> genValue,
-      GrinEval <$> genRuntimeRep <*> genValue,
-      GrinCpsEval <$> genRuntimeRep <*> genValue <*> genValue,
+      GrinEval <$> genEvalUpdate <*> genRuntimeRep <*> genValue,
+      GrinCpsEval <$> genEvalUpdate <*> genRuntimeRep <*> genValue <*> genValue,
+      GrinFetch <$> genNodeTag <*> genValue,
       GrinCall <$> genResultRep <*> genFunctionName <*> smallList genValue,
       GrinPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue,
       GrinCpsPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue <*> genValue,
@@ -96,6 +97,9 @@ genExpr =
       GrinIfWhnf <$> genValue <*> genExpr <*> genExpr,
       GrinCase <$> genValue <*> genVar <*> smallList (genAlt genExpr)
     ]
+
+genEvalUpdate :: Gen GrinEvalUpdate
+genEvalUpdate = Gen.element [EvalUpdate, EvalSingleEntry]
 
 genAlt :: Gen GrinExpr -> Gen GrinAlt
 genAlt rhs = GrinAlt <$> genAltCon <*> smallList genVar <*> rhs

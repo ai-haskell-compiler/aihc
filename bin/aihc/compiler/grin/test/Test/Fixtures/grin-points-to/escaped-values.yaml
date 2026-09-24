@@ -1,0 +1,66 @@
+program: |
+  primitive keep%1 :: BoxedRep Lifted/1
+
+  constructor I# [IntRep]
+  constructor Nothing []
+  constructor Just [BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+  pub global exported = (P$exported/1)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (1 :: IntRep))
+
+  $exported (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    t :: BoxedRep Lifted <-
+      store (F$delayed)
+    kept :: BoxedRep Lifted <-
+      primitive-call @(BoxedRep Lifted) keep (t :: BoxedRep Lifted)
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (kept :: BoxedRep Lifted)
+    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Nothing ->
+        store (CI# (0 :: IntRep))
+      data Just (x :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Nothing []
+
+  constructor Just [BoxedRep Lifted]
+
+  primitive keep%1 :: BoxedRep Lifted/1
+
+  pub global entry = (F$entry)
+
+  pub global exported = (P$exported/1)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (1 :: IntRep))
+
+  $exported (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    t :: BoxedRep Lifted <-
+      store (F$delayed)
+    kept :: BoxedRep Lifted <-
+      primitive-call @(BoxedRep Lifted) keep (t :: BoxedRep Lifted)
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (kept :: BoxedRep Lifted)
+    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Nothing ->
+        store (CI# (0 :: IntRep))
+      data Just (x :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 0
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: a value that a primitive gives or that a public closure receives can be anything, so its evals and the alternatives of its case stay

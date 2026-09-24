@@ -24,6 +24,7 @@ module Aihc.Grin.Syntax
     FunctionName (..),
     GrinVar (..),
     GrinExpr (..),
+    GrinEvalUpdate (..),
     forwardedResultUses,
     GrinValue (..),
     GrinNode (..),
@@ -298,9 +299,14 @@ data GrinExpr
   | -- | Enter a heap pointer until it points to a node in weak-head normal
     -- form. The result remains a heap pointer; evaluation never returns the
     -- fetched node payload directly.
-    GrinEval !GrinRep !GrinValue
-  | -- | CPS-only evaluation. The runtime creates an update frame for each thunk it enters.
-    GrinCpsEval !GrinRep !GrinValue !GrinValue
+    GrinEval !GrinEvalUpdate !GrinRep !GrinValue
+  | -- | CPS-only evaluation. With 'EvalUpdate', the runtime creates an update
+    -- frame for each thunk it enters.
+    GrinCpsEval !GrinEvalUpdate !GrinRep !GrinValue !GrinValue
+  | -- | Read the fields of a node in weak-head normal form. The tag is the
+    -- tag of that node. The compiler knows it, and nothing checks it at
+    -- runtime. The results are the fields in their order.
+    GrinFetch !GrinNodeTag !GrinValue
   | -- | CPS-only WHNF test. Neither the test nor the ready branch requires a heap frame.
     -- Indirections, thunks, and blackholes select the slow branch.
     GrinIfWhnf !GrinValue !GrinExpr !GrinExpr
@@ -350,6 +356,17 @@ data GrinExpr
     GrinForeignCallExpr !GrinForeignCall ![GrinValue]
   deriving (Eq, Show, Read)
 
+-- | What an evaluation does with a thunk that it enters.
+data GrinEvalUpdate
+  = -- | Write the result of the thunk back into the thunk, so that each
+    -- later evaluation of the same thunk gets that result.
+    EvalUpdate
+  | -- | Enter the thunk without an update frame. Use this mode only where
+    -- no other evaluation can get to the same thunk. The heap points-to
+    -- analysis finds these evaluations.
+    EvalSingleEntry
+  deriving (Eq, Ord, Show, Read)
+
 -- | Atomic operands in the strict language.
 data GrinValue
   = GrinVarValue !GrinVar
@@ -373,7 +390,7 @@ data GrinNodeTag
   | -- | A suspended computation. Its target function must return exactly
     -- @BoxedRep Lifted@; unlifted computations are always evaluated strictly.
     GrinThunk !FunctionName
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 data GrinAlt = GrinAlt
   { grinAltCon :: !GrinAltCon,
@@ -428,6 +445,7 @@ exprTagNames expression =
     GrinBind _ valueExpression body -> exprTagNames valueExpression <> exprTagNames body
     GrinStore node -> nodeTagNames node
     GrinStoreUnchecked node -> nodeTagNames node
+    GrinFetch tag _ -> nodeTagNames (GrinNode tag [])
     GrinStoreRec bindings body -> concatMap (nodeTagNames . snd) bindings <> exprTagNames body
     GrinStoreRecUnchecked bindings body -> concatMap (nodeTagNames . snd) bindings <> exprTagNames body
     GrinIfWhnf _ ready slow -> exprTagNames ready <> exprTagNames slow
@@ -461,9 +479,10 @@ grinProgramLiterals program =
         GrinStoreRec bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
         GrinStoreRecUnchecked bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
         GrinUpdate pointer value -> valueLiterals pointer <> valueLiterals value
-        GrinEval _ value -> valueLiterals value
-        GrinCpsEval _ value continuation ->
+        GrinEval _ _ value -> valueLiterals value
+        GrinCpsEval _ _ value continuation ->
           valueLiterals value <> valueLiterals continuation
+        GrinFetch _ value -> valueLiterals value
         GrinCall _ _ arguments -> concatMap valueLiterals arguments
         GrinPrimitiveCall _ _ arguments -> concatMap valueLiterals arguments
         GrinCpsPrimitiveCall _ _ arguments continuation ->
@@ -515,8 +534,9 @@ grinExprGlobalReferences = exprReferences
         GrinStoreRec bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
         GrinStoreRecUnchecked bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
         GrinUpdate pointer value -> valueReferences pointer <> valueReferences value
-        GrinEval _ value -> valueReferences value
-        GrinCpsEval _ value continuation -> valuesReferences [value, continuation]
+        GrinEval _ _ value -> valueReferences value
+        GrinCpsEval _ _ value continuation -> valuesReferences [value, continuation]
+        GrinFetch _ value -> valueReferences value
         GrinCall _ _ arguments -> valuesReferences arguments
         GrinPrimitiveCall _ _ arguments -> valuesReferences arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> valuesReferences arguments <> valueReferences continuation
@@ -560,6 +580,7 @@ grinExprFunctionNames = exprNames
         GrinCall _ name _ -> [name]
         GrinBind _ valueExpression body -> exprNames valueExpression <> exprNames body
         GrinStore node -> grinNodeFunctionNames node
+        GrinFetch tag _ -> grinNodeFunctionNames (GrinNode tag [])
         GrinStoreUnchecked node -> grinNodeFunctionNames node
         GrinStoreRec bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
         GrinStoreRecUnchecked bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
