@@ -17,21 +17,28 @@ import GHC.Prim
     Word#,
     compareInt#,
     eqWord#,
+    geWord#,
+    gtWord#,
     int16ToInt#,
     int32ToInt#,
     int64ToInt#,
     int8ToInt#,
+    leWord#,
     ltWord#,
     ord#,
     word16ToWord#,
     word32ToWord#,
     word64ToWord#,
     word8ToWord#,
+    (<#),
+    (<=#),
     (==#),
+    (>#),
+    (>=#),
   )
 import GHC.Prim.Base (List (..), Maybe (..))
 import GHC.Tuple (Solo (..))
-import GHC.Types (Bool (..), Char (..), Ordering (..))
+import GHC.Types (Bool (..), Char (..), Ordering (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 instance Eq Bool where
@@ -113,10 +120,10 @@ instance Ord Bool where
 
 instance Ord Int where
   compare = compareInt
-  left < right = classesLessBy compareInt left right
-  left <= right = classesLessOrEqualBy compareInt left right
-  left > right = classesGreaterBy compareInt left right
-  left >= right = classesGreaterOrEqualBy compareInt left right
+  I# left < I# right = isTrue# ((<#) left right)
+  I# left <= I# right = isTrue# ((<=#) left right)
+  I# left > I# right = isTrue# ((>#) left right)
+  I# left >= I# right = isTrue# ((>=#) left right)
   max = classesMaxBy compareInt
   min = classesMinBy compareInt
 
@@ -140,82 +147,82 @@ instance Ord Ordering where
 
 instance Ord Word where
   compare = compareWord
-  left < right = classesLessBy compareWord left right
-  left <= right = classesLessOrEqualBy compareWord left right
-  left > right = classesGreaterBy compareWord left right
-  left >= right = classesGreaterOrEqualBy compareWord left right
+  W# left < W# right = isTrue# (ltWord# left right)
+  W# left <= W# right = isTrue# (leWord# left right)
+  W# left > W# right = isTrue# (gtWord# left right)
+  W# left >= W# right = isTrue# (geWord# left right)
   max = classesMaxBy compareWord
   min = classesMinBy compareWord
 
 instance Ord Word8 where
   compare = compareWord8
-  left < right = classesLessBy compareWord8 left right
-  left <= right = classesLessOrEqualBy compareWord8 left right
-  left > right = classesGreaterBy compareWord8 left right
-  left >= right = classesGreaterOrEqualBy compareWord8 left right
+  W8# left < W8# right = isTrue# (ltWord# (word8ToWord# left) (word8ToWord# right))
+  W8# left <= W8# right = isTrue# (leWord# (word8ToWord# left) (word8ToWord# right))
+  W8# left > W8# right = isTrue# (gtWord# (word8ToWord# left) (word8ToWord# right))
+  W8# left >= W8# right = isTrue# (geWord# (word8ToWord# left) (word8ToWord# right))
   max = classesMaxBy compareWord8
   min = classesMinBy compareWord8
 
 instance Ord Word16 where
   compare = compareWord16
-  left < right = classesLessBy compareWord16 left right
-  left <= right = classesLessOrEqualBy compareWord16 left right
-  left > right = classesGreaterBy compareWord16 left right
-  left >= right = classesGreaterOrEqualBy compareWord16 left right
+  W16# left < W16# right = isTrue# (ltWord# (word16ToWord# left) (word16ToWord# right))
+  W16# left <= W16# right = isTrue# (leWord# (word16ToWord# left) (word16ToWord# right))
+  W16# left > W16# right = isTrue# (gtWord# (word16ToWord# left) (word16ToWord# right))
+  W16# left >= W16# right = isTrue# (geWord# (word16ToWord# left) (word16ToWord# right))
   max = classesMaxBy compareWord16
   min = classesMinBy compareWord16
 
 instance Ord Word32 where
   compare = compareWord32
-  left < right = classesLessBy compareWord32 left right
-  left <= right = classesLessOrEqualBy compareWord32 left right
-  left > right = classesGreaterBy compareWord32 left right
-  left >= right = classesGreaterOrEqualBy compareWord32 left right
+  W32# left < W32# right = isTrue# (ltWord# (word32ToWord# left) (word32ToWord# right))
+  W32# left <= W32# right = isTrue# (leWord# (word32ToWord# left) (word32ToWord# right))
+  W32# left > W32# right = isTrue# (gtWord# (word32ToWord# left) (word32ToWord# right))
+  W32# left >= W32# right = isTrue# (geWord# (word32ToWord# left) (word32ToWord# right))
   max = classesMaxBy compareWord32
   min = classesMinBy compareWord32
 
 instance Ord Word64 where
   compare = compareWord64
-  left < right = classesLessBy compareWord64 left right
-  left <= right = classesLessOrEqualBy compareWord64 left right
-  left > right = classesGreaterBy compareWord64 left right
-  left >= right = classesGreaterOrEqualBy compareWord64 left right
+  W64# left < W64# right = isTrue# (ltWord# (word64ToWord# left) (word64ToWord# right))
+  W64# left <= W64# right = isTrue# (leWord# (word64ToWord# left) (word64ToWord# right))
+  W64# left > W64# right = isTrue# (gtWord# (word64ToWord# left) (word64ToWord# right))
+  W64# left >= W64# right = isTrue# (geWord# (word64ToWord# left) (word64ToWord# right))
   max = classesMaxBy compareWord64
   min = classesMinBy compareWord64
 
 instance Ord Int8 where
   compare = compareInt8
-  left < right = classesLessBy compareInt8 left right
-  left <= right = classesLessOrEqualBy compareInt8 left right
-  left > right = classesGreaterBy compareInt8 left right
-  left >= right = classesGreaterOrEqualBy compareInt8 left right
+  I8# left < I8# right = isTrue# ((<#) (int8ToInt# left) (int8ToInt# right))
+  I8# left <= I8# right = isTrue# ((<=#) (int8ToInt# left) (int8ToInt# right))
+  I8# left > I8# right = isTrue# ((>#) (int8ToInt# left) (int8ToInt# right))
+  I8# left >= I8# right = isTrue# ((>=#) (int8ToInt# left) (int8ToInt# right))
   max = classesMaxBy compareInt8
   min = classesMinBy compareInt8
 
 instance Ord Int16 where
   compare = compareInt16
-  left < right = classesLessBy compareInt16 left right
-  left <= right = classesLessOrEqualBy compareInt16 left right
-  left > right = classesGreaterBy compareInt16 left right
-  left >= right = classesGreaterOrEqualBy compareInt16 left right
+  I16# left < I16# right = isTrue# ((<#) (int16ToInt# left) (int16ToInt# right))
+  I16# left <= I16# right = isTrue# ((<=#) (int16ToInt# left) (int16ToInt# right))
+  I16# left > I16# right = isTrue# ((>#) (int16ToInt# left) (int16ToInt# right))
+  I16# left >= I16# right = isTrue# ((>=#) (int16ToInt# left) (int16ToInt# right))
   max = classesMaxBy compareInt16
   min = classesMinBy compareInt16
 
 instance Ord Int32 where
   compare = compareInt32
-  left < right = classesLessBy compareInt32 left right
-  left <= right = classesLessOrEqualBy compareInt32 left right
-  left > right = classesGreaterBy compareInt32 left right
-  left >= right = classesGreaterOrEqualBy compareInt32 left right
+  I32# left < I32# right = isTrue# ((<#) (int32ToInt# left) (int32ToInt# right))
+  I32# left <= I32# right = isTrue# ((<=#) (int32ToInt# left) (int32ToInt# right))
+  I32# left > I32# right = isTrue# ((>#) (int32ToInt# left) (int32ToInt# right))
+  I32# left >= I32# right = isTrue# ((>=#) (int32ToInt# left) (int32ToInt# right))
   max = classesMaxBy compareInt32
   min = classesMinBy compareInt32
 
 instance Ord Int64 where
   compare = compareInt64
-  left < right = classesLessBy compareInt64 left right
-  left <= right = classesLessOrEqualBy compareInt64 left right
-  left > right = classesGreaterBy compareInt64 left right
-  left >= right = classesGreaterOrEqualBy compareInt64 left right
+  I64# left < I64# right = isTrue# ((<#) (int64ToInt# left) (int64ToInt# right))
+  I64# left <= I64# right = isTrue# ((<=#) (int64ToInt# left) (int64ToInt# right))
+  I64# left > I64# right = isTrue# ((>#) (int64ToInt# left) (int64ToInt# right))
+  I64# left >= I64# right = isTrue# ((>=#) (int64ToInt# left) (int64ToInt# right))
   max = classesMaxBy compareInt64
   min = classesMinBy compareInt64
 
@@ -341,10 +348,10 @@ instance Eq Char where
 
 instance Ord Char where
   compare = compareChar
-  left < right = classesLessBy compareChar left right
-  left <= right = classesLessOrEqualBy compareChar left right
-  left > right = classesGreaterBy compareChar left right
-  left >= right = classesGreaterOrEqualBy compareChar left right
+  C# left < C# right = isTrue# ((<#) (ord# left) (ord# right))
+  C# left <= C# right = isTrue# ((<=#) (ord# left) (ord# right))
+  C# left > C# right = isTrue# ((>#) (ord# left) (ord# right))
+  C# left >= C# right = isTrue# ((>=#) (ord# left) (ord# right))
   max = classesMaxBy compareChar
   min = classesMinBy compareChar
 
