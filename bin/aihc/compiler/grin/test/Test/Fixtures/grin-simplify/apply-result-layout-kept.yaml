@@ -3,6 +3,8 @@ program: |
   global forwarded = (P$forwarding/1)
 
   $unboxed (x :: BoxedRep Lifted) -> IntRep =
+    y :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     constant (0 :: IntRep)
 
   $forwarding (x :: BoxedRep Lifted) -> forwarded =
@@ -21,6 +23,8 @@ expected: |-
   global forwarded = (P$forwarding/1)
 
   $unboxed (x :: BoxedRep Lifted) -> IntRep =
+    y :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     constant (0 :: IntRep)
 
   $forwarding (x :: BoxedRep Lifted) -> forwarded =

@@ -8,10 +8,10 @@ program: |
   global ne = (P$ne/2)
 
   $eq (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    constant (x :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
   $ne (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    constant (y :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
 
   $method (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
     d :: BoxedRep Lifted <-
@@ -62,10 +62,10 @@ expected: |-
   global ne = (P$ne/2)
 
   $eq (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    constant (x :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
   $ne (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    constant (y :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
 
   $method (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
     call @(BoxedRep Lifted) $ne (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)

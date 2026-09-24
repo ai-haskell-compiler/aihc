@@ -19,6 +19,16 @@
 --   the same way. An application that supplies more groups than the closure
 --   takes stays as it is.
 --
+-- * A direct @call@ of a function whose body is one @store@, one
+--   @constant@, one @primitive-call@, or one tail @call@ on its parameters
+--   is that operation, with the arguments in place of the parameters. The
+--   call site already has the operands in hand, so the operation is not
+--   larger than the call, and a @store@ that it exposes is a known node for
+--   the rules that follow. An operand that is a global or a literal can
+--   cost more code at each call site than in the callee, so such a body
+--   stays a call. A chain of such calls unfolds until it gets to a function
+--   that is already in the chain.
+--
 -- * @case v of ...@ takes the alternative the node selects. The binders of
 --   the alternative are bound to the fields of the node.
 --
@@ -52,6 +62,9 @@ data Env = Env
   { -- | The parameter count and the result of every function of the
     -- program.
     envFunctions :: !(Map FunctionName (Int, GrinResultRep)),
+    -- | The functions whose body is one operation, with their parameters
+    -- and their result.
+    envUnfoldings :: !(Map FunctionName Unfolding),
     -- | The layout of every constructor of the program.
     envConstructors :: !(Map Text [[GrinRep]]),
     -- | The static node behind every global-table reference that has one:
@@ -76,6 +89,12 @@ simplifyGrinProgram program =
             Map.fromList
               [ (grinFunctionName function, (length (grinFunctionParameters function), grinFunctionResultRep function))
               | function <- grinFunctions program
+              ],
+          envUnfoldings =
+            Map.fromList
+              [ (grinFunctionName function, unfolding)
+              | function <- grinFunctions program,
+                Just unfolding <- [functionUnfolding function]
               ],
           envConstructors = Map.fromList [(grinConstructorName c, grinConstructorLayouts c) | c <- grinConstructors program],
           envStatics =
@@ -165,6 +184,11 @@ simplifyExpr env expression =
        in ( GrinStoreRecUnchecked bindings body',
             (foldMap (freeNodeVars . snd) bindings <> bodyFree) `Set.difference` Set.fromList (map fst bindings)
           )
+    GrinCall resultRep functionName arguments
+      | Just inlined <- inlineCall env Set.empty resultRep functionName arguments ->
+          -- The unfolding is final: simplifying it again would unfold a
+          -- call that closes a cycle once more.
+          (inlined, freeExprVars inlined)
     GrinEval _ _ value
       | isEvaluated env value -> (GrinConstant [value], freeValueVars value)
     GrinApply resultRep function arguments
@@ -272,6 +296,60 @@ applyKnown env resultRep node groups =
   where
     groupReps = map (map grinValueRuntimeRep) groups
     fields = grinNodeFields node <> concat groups
+
+-- | The parameters, the result, and the body of a function whose body is
+-- one operation on its parameters.
+data Unfolding = Unfolding ![GrinVar] !GrinResultRep !GrinExpr
+
+functionUnfolding :: GrinFunction -> Maybe Unfolding
+functionUnfolding function =
+  case grinFunctionBody function of
+    body@(GrinStore node) | onlyVariables (grinNodeFields node) -> placed body
+    body@(GrinConstant values) | onlyVariables values -> placed body
+    body@(GrinPrimitiveCall _ _ values) | onlyVariables values -> placed body
+    body@(GrinCall _ _ values) | onlyVariables values -> Just (unfolding body)
+    _ -> Nothing
+  where
+    onlyVariables = all isVariable
+    isVariable value =
+      case value of
+        GrinVarValue {} -> True
+        _ -> False
+    unfolding = Unfolding (grinFunctionParameters function) (grinFunctionResultRep function)
+    -- Only a function that places its result has one of these bodies.
+    placed body
+      | grinFunctionResultRep function == ResultForwarded = Nothing
+      | otherwise = Just (unfolding body)
+
+-- | The operation that a direct call of a function with an unfolding is.
+-- The visited functions are the ones the chain already unfolded.
+inlineCall :: Env -> Set FunctionName -> GrinResultRep -> FunctionName -> [GrinValue] -> Maybe GrinExpr
+inlineCall env visited resultRep functionName arguments = do
+  Unfolding parameters declared body <- Map.lookup functionName (envUnfoldings env)
+  if Set.member functionName visited
+    || length parameters /= length arguments
+    || (declared /= ResultForwarded && declared /= resultRep)
+    then Nothing
+    else
+      let substitution = Map.fromList (zip parameters arguments)
+          substitute value =
+            case value of
+              GrinVarValue var -> Map.findWithDefault value var substitution
+              _ -> value
+          substituteNode (GrinNode tag fields) = GrinNode tag (map substitute fields)
+       in case body of
+            GrinStore node -> Just (GrinStore (substituteNode node))
+            GrinConstant values -> Just (GrinConstant (map substitute values))
+            GrinPrimitiveCall runtimeRep name values -> Just (GrinPrimitiveCall runtimeRep name (map substitute values))
+            GrinCall calleeRep callee values ->
+              -- A function that forwards its result forwards it to a
+              -- callee that also forwards, so the callee serves the layout
+              -- of this call site too.
+              let siteRep = if declared == ResultForwarded then resultRep else calleeRep
+                  arguments' = map substitute values
+               in inlineCall env (Set.insert functionName visited) siteRep callee arguments'
+                    <|> Just (GrinCall siteRep callee arguments')
+            _ -> Nothing
 
 -- | Split a recursive allocation group into its strongly connected
 -- components and allocate each in turn, dependencies first.
