@@ -72,7 +72,11 @@ data InlinePolicy = InlinePolicy
     policyValueGrowth :: !Int,
     -- | Nodes every value may grow by in the pass whatever its size, so
     -- that a small value can still take one useful copy.
-    policyValueSlack :: !Int
+    policyValueSlack :: !Int,
+    -- | Whether an @INLINE@ value within the callee limit is copied at
+    -- every site the site rule admits, whatever the growth and the
+    -- allowance of the value.
+    policyTakeRequested :: !Bool
   }
   deriving (Eq, Show)
 
@@ -89,7 +93,8 @@ shrinkPolicy =
       policySiteLimit = 0,
       policyFunctionArgumentDiscount = 0,
       policyValueGrowth = 0,
-      policyValueSlack = 0
+      policyValueSlack = 0,
+      policyTakeRequested = False
     }
 
 -- | Accept a site that makes the program larger, within the limits.
@@ -98,6 +103,13 @@ shrinkPolicy =
 -- a larger one takes no more of them, because the growth of such a
 -- wrapper is a few nodes either way. A value may double, plus the slack
 -- that lets a value of a few nodes take one copy.
+--
+-- A small @INLINE@ value is copied at each site whatever the allowance,
+-- as GHC does. Without that, the wrappers of the IO monad and function
+-- composition stay calls in a large value that other sites filled first.
+-- A large @INLINE@ value is only a candidate: the @text@ package marks
+-- large functions @INLINE@, and to copy them at every call made its
+-- example two and a half times larger.
 growPolicy :: InlinePolicy
 growPolicy =
   InlinePolicy
@@ -106,7 +118,8 @@ growPolicy =
       policySiteLimit = 100,
       policyFunctionArgumentDiscount = 6,
       policyValueGrowth = 100,
-      policyValueSlack = 20
+      policyValueSlack = 20,
+      policyTakeRequested = True
     }
 
 data InlineConfig = InlineConfig
@@ -247,9 +260,10 @@ inliningAllowed phase spec =
     InlineNever activation -> ruleActiveIn phase activation
 
 -- | Whether a value's pragma asks for it to be a candidate whatever its
--- size: @INLINE@ in its active phases. The site policy still decides each
--- copy, so the shrinking pass keeps its promise not to grow the program;
--- GHC copies such a value at every saturated call instead.
+-- size: @INLINE@ in its active phases. A policy that takes requested
+-- sites copies such a value at each site when it is within the callee
+-- limit. Otherwise the site policy decides each copy, so the shrinking
+-- pass keeps its promise not to grow the program.
 inliningRequested :: Int -> InlineSpec -> Bool
 inliningRequested phase spec =
   case spec of
@@ -313,7 +327,7 @@ simplifyValue config known recursive st name
               reachable = calleesOf (inRefs st) references
               candidates =
                 Map.fromList
-                  [ (callee, Candidate calleeBody every)
+                  [ (callee, Candidate calleeBody sites)
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
@@ -322,10 +336,16 @@ simplifyValue config known recursive st name
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
                     isInlinable calleeBody,
                     let size = exprSize (inEnv st) calleeBody
-                        every = unconditional callee size,
+                        every = unconditional callee size
+                        requested = inliningRequested (inlinePhase config) spec
+                        withinLimit = size <= policyCalleeLimit policy
+                        sites
+                          | every = SitesUnconditional
+                          | requested && withinLimit && policyTakeRequested policy = SitesRequested
+                          | otherwise = SitesMeasured,
                     -- A callee over the limit is never copied, unless every
                     -- copy together replaces it or its pragma asks for it.
-                    every || inliningRequested (inlinePhase config) spec || size <= policyCalleeLimit policy
+                    every || requested || withinLimit
                   ]
               -- A body that references no candidate and scrutinises nothing
               -- known is left alone.

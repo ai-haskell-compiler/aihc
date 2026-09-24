@@ -113,7 +113,7 @@ what the walk did to any other value, so the result of one value is stable
 under edits to unrelated values, and any single decision can be read off a
 dump of the program.
 
-`Aihc.Fc.Inline.InlinePolicy` has five knobs:
+`Aihc.Fc.Inline.InlinePolicy` has six knobs:
 
 | Knob | Meaning |
 | ---- | ------- |
@@ -122,8 +122,10 @@ dump of the program.
 | `policyFunctionArgumentDiscount` | What a site earns for each argument that names a function the callee applies. The saving is a closure not allocated and a call made direct, which no size of the result shows. |
 | `policyValueGrowth` | How far one top-level value may grow in the pass, as a percentage of its size when the pass began. |
 | `policyValueSlack` | Nodes every value may grow by in the pass, whatever its size, so that a small value can still take one useful copy. |
+| `policyTakeRequested` | Whether an `INLINE` value within the callee limit is copied at every site that the site rule admits, whatever the growth and the allowance of the value. |
 
-`shrinkPolicy` sets the callee limit to 80 and every other limit to zero.
+`shrinkPolicy` sets the callee limit to 80, every other limit to zero, and
+does not take requested sites.
 The callee limit reduces work on large copies that the site rule would reject.
 A removable value bypasses this limit when its copies together replace it.
 `growPolicy` is the speed policy. Its numbers are in the code.
@@ -146,7 +148,8 @@ value's size.
 
 Why these rules bound the program without a global counter: every accepted
 site adds at most the callee limit, every value grows at most to its own
-multiple, an exempt copy never grows the program, recursive groups are never
+multiple, an exempt copy never grows the program, a requested copy is a
+small `INLINE` value at a call that was already in the body, recursive groups are never
 copied into themselves, and the round count is fixed. Total growth is
 bounded by construction. There is no program budget and no backstop: a
 program that grows more than expected is a mis-tuned knob, found by reading
@@ -228,18 +231,36 @@ reads it per phase, with the activation read as a rule's is:
 
 | Pragma | In the phases the activation names | In the other phases |
 | ------ | ---------------------------------- | ------------------- |
-| `INLINE` | a candidate whatever its size; the site policy decides each copy | never copied |
+| `INLINE` | a candidate whatever its size; copied at each admitted site when the policy takes requested sites and the value is within the callee limit; otherwise the site policy decides each copy | never copied |
 | `INLINABLE` | the usual policy | never copied |
 | `NOINLINE` | the usual policy | never copied |
 | none | the usual policy | the usual policy |
 
 A plain `NOINLINE` names no phase, so the value is never copied (the text form
-leaves its `[~]` unsaid); a plain `INLINE` names every phase. GHC copies an
-`INLINE` value at every saturated call whatever the growth; here the site
-policy still decides, so that `shrinkPolicy` keeps its invariant below, and
-an `INLINE` value that the policy rejects stays a call. The `text` package
-marks large functions `INLINE`, and honouring them GHC's way made its
-example two and a half times larger at `-O2`. This is what lets a rule beat the inliner to a
+leaves its `[~]` unsaid); a plain `INLINE` names every phase.
+
+GHC copies an `INLINE` value at every saturated call whatever the growth.
+`growPolicy` does the same for an `INLINE` value within the callee limit.
+Such a site does not charge the allowance of the value it lands in, so the
+other sites of that value keep their room. The sites inside the copy still
+charge it. The core libraries mark the small wrappers `INLINE`: `(.)`,
+`thenIO`, `bindIO`, `returnIO`, and the `Monad IO` methods. Without the
+pragma, a large value such as `bufWrite` used its allowance before it
+reached them, and `>>` and `(.)` stayed calls and partial applications.
+
+Two things differ from GHC:
+
+- The site rule decides which sites are admitted. A call that gives every
+  parameter is admitted, and so is a partial call with an interesting
+  argument. System FC does not keep the arity of the left-hand side apart
+  from the lambdas of the body, so `(.) f g = \x -> f (g x)` has arity three.
+- A larger `INLINE` value is only a candidate, and the site policy decides
+  each copy. The `text` package marks large functions `INLINE`, and
+  honouring them GHC's way made its example two and a half times larger at
+  `-O2`.
+
+`shrinkPolicy` does not take requested sites, so it keeps its invariant
+below, and an `INLINE` value that it rejects stays a call. This is what lets a rule beat the inliner to a
 call: `NOINLINE [1] f` keeps `f` a call through phase 2, where a rule on
 `f` fires, and lets the growing inliner copy it afterwards. `CONLIKE` is
 read and ignored. A recursive value is never copied whatever its pragma.

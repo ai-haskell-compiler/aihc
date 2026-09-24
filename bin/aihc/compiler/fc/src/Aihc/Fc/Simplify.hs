@@ -30,6 +30,7 @@ module Aihc.Fc.Simplify
     initialSimplState,
     SimplM,
     Candidate (..),
+    CandidateSites (..),
     simplifyExpr,
 
     -- * Views of expressions
@@ -175,9 +176,22 @@ functionArity expr =
 
 data Candidate = Candidate
   { candidateBody :: !Expr,
-    -- | Take every site, whatever its growth.
-    candidateUnconditional :: !Bool
+    -- | How the sites of the candidate are decided.
+    candidateSites :: !CandidateSites
   }
+
+-- | How the sites of a candidate are decided.
+data CandidateSites
+  = -- | Take every site, whatever its growth. The site charges the
+    -- allowance with its growth.
+    SitesUnconditional
+  | -- | Take every site, whatever its growth, and do not charge the
+    -- allowance. The pragma of the value asks for each copy.
+    SitesRequested
+  | -- | Take a site when its growth fits the site limit and the
+    -- allowance.
+    SitesMeasured
+  deriving (Eq, Show)
 
 data Simpl = Simpl
   { spEnv :: !TypeEnv,
@@ -360,12 +374,21 @@ nestedPaid before after = ssAllowance before - ssAllowance after
 -- case once for each path of its scrutinee, so a copy can be larger
 -- than the value it replaces, and the sites after it must see the
 -- allowance that is left.
+--
+-- A requested site is taken whatever its growth, and it does not charge
+-- the allowance: the pragma asks for the copy, and a copy that the pragma
+-- asks for must not starve the other sites of the value. The sites inside
+-- the copy still charge the allowance.
 acceptSite :: Simpl -> Candidate -> Int -> SimplM Bool
-acceptSite env candidate growth
-  | candidateUnconditional candidate = do
+acceptSite env candidate growth =
+  case candidateSites candidate of
+    SitesUnconditional -> do
       modify' (\st -> st {ssAllowance = ssAllowance st - growth, ssInlined = ssInlined st + 1})
       pure True
-  | otherwise = do
+    SitesRequested -> do
+      modify' (\st -> st {ssInlined = ssInlined st + 1})
+      pure True
+    SitesMeasured -> do
       accepted <- acceptGrowth env growth
       if accepted
         then do
