@@ -468,7 +468,7 @@ applyExpr = do
   horizontal1
   function <- grinValue
   horizontal1
-  arguments <- grinArgument
+  arguments <- grinArgumentGroups
   lineEnd
   pure (GrinApply representation function arguments)
 
@@ -480,7 +480,7 @@ cpsApplyExpr = do
   horizontal1
   function <- grinValue
   horizontal1
-  arguments <- grinArgument
+  arguments <- grinArgumentGroups
   horizontal1
   _ <- MPC.string "->"
   horizontal1
@@ -529,6 +529,10 @@ grinArgument :: Parser [GrinValue]
 grinArgument =
   MP.try ((: []) <$> grinValue)
     <|> betweenHorizontal '(' ')' (MP.many (grinValue <* horizontal))
+
+-- | One or more argument groups, separated by horizontal space.
+grinArgumentGroups :: Parser [[GrinValue]]
+grinArgumentGroups = (:) <$> grinArgument <*> MP.many (MP.try (horizontal1 *> grinArgument))
 
 grinNode :: Parser GrinNode
 grinNode = betweenHorizontal '(' ')' $ do

@@ -179,8 +179,8 @@ data Trigger
   | -- | The binders of the alternatives, per constructor, and all binders.
     TriggerCase !(Map Text [Slot]) ![Slot]
   | -- | The location of the partial applications this makes, the argument
-    -- set nodes, and the result.
-    TriggerApply !Int ![Maybe Int] !Results
+    -- set nodes of each argument group, and the result.
+    TriggerApply !Int ![[Maybe Int]] !Results
   | TriggerFetch !GrinNodeTag !Results
   | -- | The location escapes.
     TriggerEscape
@@ -511,30 +511,41 @@ fireUnknown solver trigger =
     TriggerEval target -> addLocation solver target unknownValueLocation
     TriggerCase _ binders -> mapM_ (unknownSlot solver) binders
     TriggerApply _ arguments results -> do
-      forM_ (catMaybes arguments) $ \argument -> addEdge solver argument escapeNode
+      forM_ (concatMap catMaybes arguments) $ \argument -> addEdge solver argument escapeNode
       unknownResults solver results
     TriggerFetch _ results -> unknownResults solver results
     TriggerEscape -> pure ()
 
-applyNode :: Solver s -> Int -> [Maybe Int] -> Results -> GrinNodeTag -> [Int] -> ST s ()
-applyNode solver site arguments results tag fields =
+-- | Apply argument groups to one location. A closure takes as many groups as
+-- it has stages left. When it takes all its stages before the groups end,
+-- its result gets the other groups.
+applyNode :: Solver s -> Int -> [[Maybe Int]] -> Results -> GrinNodeTag -> [Int] -> ST s ()
+applyNode solver site groups results tag fields =
   case tag of
-    GrinClosure functionName (_ : remaining) -> do
+    GrinClosure functionName layouts@(_ : _) -> do
       known <- lookupFunction solver functionName
+      let (supplied, extra) = splitAt (length layouts) groups
+          arguments = concat supplied
+          remaining = drop (length groups) layouts
       case known of
         Nothing -> do
-          forM_ (fields <> catMaybes arguments) $ \node -> addEdge solver node escapeNode
+          forM_ (fields <> concatMap catMaybes groups) $ \node -> addEdge solver node escapeNode
           unknownResults solver results
         Just info
           | null remaining -> do
               zipWithM_ (\value slot -> for_ value (\node -> edgeToSlot solver node slot)) (map Just fields <> arguments) (functionParameters info)
-              flowResults solver (functionResults info) results
-          | otherwise -> grow (GrinClosure functionName remaining)
+              if null extra
+                then flowResults solver (functionResults info) results
+                else do
+                  applied <- newNode solver
+                  flowResults solver (functionResults info) (ResultMerged applied)
+                  addTrigger solver applied (TriggerApply site extra results)
+          | otherwise -> grow arguments (GrinClosure functionName remaining)
     GrinConstructor name remaining
-      | remaining >= 1 -> grow (GrinConstructor name (remaining - 1))
+      | remaining >= length groups -> grow (concat groups) (GrinConstructor name (remaining - length groups))
     _ -> pure ()
   where
-    grow grown = do
+    grow arguments grown = do
       grownFields <- addNode solver site grown (length fields + length arguments)
       zipWithM_ (addEdge solver) fields grownFields
       zipWithM_ (\value field -> for_ value (\node -> addEdge solver node field)) arguments (drop (length fields) grownFields)
@@ -719,7 +730,7 @@ generateExpr solver varsRef results expression =
     GrinApply _ function arguments -> do
       vars <- readSTRef varsRef
       site <- newLocation solver
-      argumentNodes <- mapM (valueNode solver vars) arguments
+      argumentNodes <- mapM (mapM (valueNode solver vars)) arguments
       withValue function (\node -> addTrigger solver node (TriggerApply site argumentNodes results))
     GrinForward -> pure ()
     GrinExit {} -> pure ()
@@ -818,8 +829,8 @@ exprOperands expression =
     GrinCall _ _ arguments -> arguments
     GrinPrimitiveCall _ _ arguments -> arguments
     GrinCpsPrimitiveCall _ _ arguments continuation -> continuation : arguments
-    GrinApply _ function arguments -> function : arguments
-    GrinCpsApply _ function arguments continuation -> function : continuation : arguments
+    GrinApply _ function arguments -> function : concat arguments
+    GrinCpsApply _ function arguments continuation -> function : continuation : concat arguments
     GrinContinue continuation values -> continuation : values
     GrinCpsRaise exception continuation -> [exception, continuation]
     GrinHalt values -> values
@@ -971,7 +982,7 @@ rewriteExpr analysis declared vars = go
             any isSingleEntry (IntSet.toList locations) -> do
               count (\counts -> counts {rewritesSingleEntryEvals = rewritesSingleEntryEvals counts + 1})
               pure (GrinEval EvalSingleEntry runtimeRep value)
-        GrinApply resultRep function arguments
+        GrinApply resultRep function [arguments]
           | Just (tag, functionName, stored) <- knownClosure function arguments,
             Just callee <- Map.lookup functionName declared,
             grinFunctionResultRep callee == ResultForwarded || grinFunctionResultRep callee == resultRep -> do

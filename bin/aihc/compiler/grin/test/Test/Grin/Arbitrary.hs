@@ -80,8 +80,8 @@ genExpr =
       GrinCall <$> genResultRep <*> genFunctionName <*> smallList genValue,
       GrinPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue,
       GrinCpsPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue <*> genValue,
-      GrinApply <$> genResultRep <*> genValue <*> smallList genValue,
-      GrinCpsApply <$> genResultRep <*> genValue <*> smallList genValue <*> genValue,
+      GrinApply <$> genResultRep <*> genValue <*> genArgumentGroups,
+      GrinCpsApply <$> genResultRep <*> genValue <*> genArgumentGroups <*> genValue,
       GrinContinue <$> genValue <*> smallList genValue,
       GrinCpsRaise <$> genValue <*> genValue,
       GrinUpdateBlackhole <$> genValue <*> genValue,
@@ -221,6 +221,9 @@ genText = T.pack <$> Gen.string (Range.linear 0 8) Gen.unicodeAll
 
 genInt :: Gen Int
 genInt = Gen.int (Range.linearFrom 0 (-1000) 1000)
+
+genArgumentGroups :: Gen [[GrinValue]]
+genArgumentGroups = Gen.list (Range.linear 1 3) (smallList genValue)
 
 smallList :: Gen value -> Gen [value]
 smallList = Gen.list (Range.linear 0 3)

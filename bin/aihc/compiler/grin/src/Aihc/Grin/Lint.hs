@@ -45,6 +45,9 @@ data GrinLintError
   | GrinLintUnknownForeignCall !Text
   | GrinLintForeignCallDescriptorMismatch !Text
   | GrinLintConstructorLayout !Text ![GrinRep] ![GrinRep]
+  | -- | An application supplies no argument group, or more groups than
+    -- 'grinApplyGroupLimit' permits.
+    GrinLintApplyGroupCount !Int
   | -- | A fetch names a tag whose fields the program does not declare.
     GrinLintFetchTag !GrinNodeTag
   | GrinLintFetchNonPointer !GrinRep
@@ -233,11 +236,11 @@ lintExpr env bound expr =
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
         <> concatMap (lintValue bound) arguments
         <> lintValue bound continuation
-    GrinApply _ function arguments -> lintValue bound function <> concatMap (lintValue bound) arguments
+    GrinApply _ function arguments -> lintValue bound function <> lintArgumentGroups bound arguments
     GrinForward -> [GrinLintInvalidForward | not (lintForwardedResult env)]
     GrinCpsApply _ function arguments continuation ->
       lintValue bound function
-        <> concatMap (lintValue bound) arguments
+        <> lintArgumentGroups bound arguments
         <> lintValue bound continuation
     GrinContinue continuation values ->
       lintValue bound continuation <> concatMap (lintValue bound) values
@@ -318,6 +321,13 @@ bindRepresentationErrors env vars valueExpr =
 lintAlt :: LintEnv -> Set GrinVar -> GrinAlt -> [GrinLintError]
 lintAlt env bound alt =
   lintExpr env (Set.fromList (grinAltBinders alt) <> bound) (grinAltRhs alt)
+
+lintArgumentGroups :: Set GrinVar -> [[GrinValue]] -> [GrinLintError]
+lintArgumentGroups bound groups =
+  [GrinLintApplyGroupCount count | count < 1 || count > grinApplyGroupLimit]
+    <> concatMap (lintValue bound) (concat groups)
+  where
+    count = length groups
 
 lintValue :: Set GrinVar -> GrinValue -> [GrinLintError]
 lintValue bound value =

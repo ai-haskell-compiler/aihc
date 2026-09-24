@@ -13,9 +13,11 @@
 -- * @eval v@ is @v@ itself when @v@ points at a constructor or a closure,
 --   or is a variable an earlier @eval@ or a case bound.
 --
--- * @apply f a@ enters the code of a closure directly when @a@ is its last
---   argument, and otherwise builds the closure of the remaining arguments
---   in place. A partially applied constructor grows the same way.
+-- * @apply f a ...@ enters the code of a closure directly when the groups
+--   supply all its remaining arguments, and otherwise builds the closure of
+--   the remaining arguments in place. A partially applied constructor grows
+--   the same way. An application that supplies more groups than the closure
+--   takes stays as it is.
 --
 -- * @case v of ...@ takes the alternative the node selects. The binders of
 --   the alternative are bound to the fields of the node.
@@ -241,32 +243,35 @@ bindCopies :: [(GrinVar, GrinValue)] -> GrinExpr -> GrinExpr
 bindCopies copies body =
   foldr (\(var, value) rest -> GrinBind [var] (GrinConstant [value]) rest) body copies
 
--- | Apply one logical argument to a known node.
-applyKnown :: Env -> GrinResultRep -> GrinNode -> [GrinValue] -> Maybe GrinExpr
-applyKnown env resultRep node arguments =
+-- | Apply argument groups to a known node. The node must take at least as
+-- many arguments as the groups supply.
+applyKnown :: Env -> GrinResultRep -> GrinNode -> [[GrinValue]] -> Maybe GrinExpr
+applyKnown env resultRep node groups =
   case grinNodeTag node of
-    GrinClosure functionName (layout : remaining)
-      | map grinValueRuntimeRep arguments == layout ->
-          case remaining of
+    GrinClosure functionName layouts
+      | length groups <= length layouts,
+        groupReps == take (length groups) layouts ->
+          case drop (length groups) layouts of
             []
               | Just (arity, declared) <- Map.lookup functionName (envFunctions env),
                 arity == length fields,
                 declared == ResultForwarded || declared == resultRep ->
                   Just (GrinCall resultRep functionName fields)
-            _ : _
+            remaining@(_ : _)
               | resultRep == liftedResultRep ->
                   Just (GrinStore (GrinNode (GrinClosure functionName remaining) fields))
             _ -> Nothing
     GrinConstructor name remaining
-      | remaining >= 1,
+      | remaining >= length groups,
         resultRep == liftedResultRep,
         Just layouts <- Map.lookup name (envConstructors env),
         length layouts >= remaining,
-        map grinValueRuntimeRep arguments == layouts !! (length layouts - remaining) ->
-          Just (GrinStore (GrinNode (GrinConstructor name (remaining - 1)) fields))
+        groupReps == take (length groups) (drop (length layouts - remaining) layouts) ->
+          Just (GrinStore (GrinNode (GrinConstructor name (remaining - length groups)) fields))
     _ -> Nothing
   where
-    fields = grinNodeFields node <> arguments
+    groupReps = map (map grinValueRuntimeRep) groups
+    fields = grinNodeFields node <> concat groups
 
 -- | Split a recursive allocation group into its strongly connected
 -- components and allocate each in turn, dependencies first.

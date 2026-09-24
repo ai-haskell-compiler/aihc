@@ -1,0 +1,10 @@
+program: |
+  $sum (a :: IntRep) (b :: IntRep) (c :: IntRep) (d :: IntRep) (e :: IntRep) -> IntRep =
+    constant (a :: IntRep)
+
+  $entry -> IntRep =
+    (closure%1 :: BoxedRep Lifted) <- store (P$sum/[[IntRep], [IntRep], [IntRep], [IntRep], [IntRep]])
+    apply @(IntRep) (closure%1 :: BoxedRep Lifted) (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep)
+error: apply-group-count
+status: pass
+reason: One application supplies at most four argument groups.

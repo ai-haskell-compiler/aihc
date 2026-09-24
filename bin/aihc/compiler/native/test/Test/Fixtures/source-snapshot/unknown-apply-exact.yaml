@@ -1,0 +1,28 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Int = I# Int#
+  data Pair = Pair Int Int
+  add2 :: Int -> Int -> Int
+  add2 (I# a) (I# b) = I# (a +# b)
+  wide :: Int -> Int -> Int -> Int -> Int -> Int -> (Int -> Int -> Int -> Int)
+  wide (I# a) (I# b) (I# c) (I# d) (I# e) (I# f) = \(I# x) (I# y) (I# z) ->
+    I# (a +# (b +# (c +# (d +# (e +# (f +# (x +# (y +# z))))))))
+  call2 :: (Int -> Int -> Int) -> Int
+  call2 g = g (I# 1#) (I# 2#)
+  call3 :: (Int -> Int -> Int -> Int) -> Int
+  call3 g = g (I# 3#) (I# 4#) (I# 5#)
+  value = case call2 add2 of
+    I# a -> case call3 (wide (I# 10#) (I# 20#) (I# 30#) (I# 40#) (I# 50#) (I# 60#)) of
+      I# b -> Pair (I# a) (I# b)
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = CI# 3
+  @2 = CI# 222
+allocated-bytes:
+  macos-arm64: 528
+  linux-amd64: 528
+status: pass
+reason: An unknown call that supplies exactly the arguments the function takes enters the function code.

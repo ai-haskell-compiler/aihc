@@ -478,8 +478,8 @@ evalScheduledExpr env expr continue =
     GrinCpsPrimitiveCall {} -> rejectCpsExpression
     GrinApply _ function arguments -> do
       functionValue <- materializeValue env function
-      argumentValues <- mapM (materializeValue env) arguments
-      applyScheduledValue functionValue argumentValues continue
+      argumentValues <- mapM (mapM (materializeValue env)) arguments
+      applyScheduledGroups functionValue argumentValues continue
     GrinForward -> rejectCpsExpression
     GrinCpsApply {} -> rejectCpsExpression
     GrinContinue {} -> rejectCpsExpression
@@ -785,32 +785,44 @@ callScheduledFunction functionName arguments continue = do
     else throwInterpret (InterpretFunctionArity functionName (length parameters) (length arguments))
 
 applyScheduledValue :: RuntimeValue -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
-applyScheduledValue function arguments continue = do
+applyScheduledValue function arguments = applyScheduledGroups function [arguments]
+
+-- | Apply argument groups to a function value. The function takes as many
+-- groups as it has arguments left, in one step. When the function takes all
+-- its arguments before the groups end, the result gets the other groups.
+applyScheduledGroups :: RuntimeValue -> [[RuntimeValue]] -> ScheduledContinuation -> EvalM [RuntimeValue]
+applyScheduledGroups function groups continue = do
   (tag, fields) <- appliedNode function
   case tag of
-    GrinClosure functionName remainingLayouts ->
-      case remainingLayouts of
-        [] -> throwInterpret (InterpretFunctionArity functionName 0 1)
-        layout : rest ->
-          let normalizedArguments
+    GrinClosure functionName remainingLayouts
+      | null remainingLayouts -> throwInterpret (InterpretFunctionArity functionName 0 1)
+      | otherwise ->
+          let (layouts, rest) = splitAt (length groups) remainingLayouts
+              (supplied, extra) = splitAt (length remainingLayouts) groups
+              normalize layout arguments
                 | layout == [BoxedRep Lifted], null arguments = [RuntimeStateToken]
                 | otherwise = arguments
-              appliedFields = fields <> normalizedArguments
+              appliedFields = fields <> concat (zipWith normalize layouts supplied)
            in case rest of
-                [] -> callScheduledFunction functionName appliedFields continue
+                []
+                  | null extra -> callScheduledFunction functionName appliedFields continue
+                  | otherwise -> callScheduledFunction functionName appliedFields (applyResult extra)
                 _ -> do
                   applied <- allocateCell (HeapValue (RuntimeNode (GrinClosure functionName rest) appliedFields))
                   continue [applied]
-    GrinConstructor name remaining ->
-      case compare remaining 1 of
-        GT -> do
-          applied <- allocateCell (HeapValue (RuntimeNode (GrinConstructor name (remaining - 1)) (fields <> arguments)))
+    GrinConstructor name remaining
+      | remaining >= length groups -> do
+          applied <- allocateCell (HeapValue (RuntimeNode (GrinConstructor name (remaining - length groups)) (fields <> concat groups)))
           continue [applied]
-        EQ -> do
-          applied <- allocateCell (HeapValue (RuntimeNode (GrinConstructor name 0) (fields <> arguments)))
-          continue [applied]
-        LT -> throwInterpret (InterpretConstructorArity name 0 1)
+      | otherwise -> throwInterpret (InterpretConstructorArity name remaining (length groups))
     GrinThunk _ -> throwInterpret (InterpretApplyNonFunction function)
+  where
+    -- A function that returns a lifted value returns it in weak-head normal
+    -- form, so the result takes the other groups without evaluation.
+    applyResult extra results =
+      case results of
+        [result] -> applyScheduledGroups result extra continue
+        _ -> throwInterpret (InterpretApplyNonFunction function)
 
 forceScheduledValue :: RuntimeValue -> (RuntimeValue -> EvalM [RuntimeValue]) -> EvalM [RuntimeValue]
 forceScheduledValue value continue =

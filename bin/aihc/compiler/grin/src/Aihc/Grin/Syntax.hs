@@ -12,6 +12,7 @@ module Aihc.Grin.Syntax
     GrinResultRep (..),
     liftedResultRep,
     resultRepComponents,
+    grinApplyGroupLimit,
     GrinProgram (..),
     GrinVis (..),
     GrinConstructorDecl (..),
@@ -319,11 +320,13 @@ data GrinExpr
   | -- | A CPS-only primitive that may transfer execution to another thread.
     -- The continuation receives the primitive's logical result.
     GrinCpsPrimitiveCall !GrinRep !Text ![GrinValue] !GrinValue
-  | -- | Apply exactly one logical argument to a heap pointer whose node is
-    -- already in weak-head normal form. The list contains that argument's
-    -- runtime values and may be empty for a zero-width argument such as
-    -- @State# RealWorld@.
-    GrinApply !GrinResultRep !GrinValue ![GrinValue]
+  | -- | Apply one or more logical arguments to a heap pointer whose node is
+    -- already in weak-head normal form. Each inner list is one argument
+    -- group: the runtime values of one logical argument. A group can be
+    -- empty for a zero-width argument such as @State# RealWorld@. The list
+    -- of groups is never empty. The function can take fewer or more groups
+    -- than the application supplies.
+    GrinApply !GrinResultRep !GrinValue ![[GrinValue]]
   | -- | Return the abstract result of an enclosing empty bind without a concrete layout.
     -- Only final uses through @touch#@ can occur between that bind and this return.
     -- After CPS conversion, a forwarding continuation retains those uses as ordinary closure fields.
@@ -332,7 +335,7 @@ data GrinExpr
     -- constructors transfer their result to the continuation; saturated
     -- closures enter their code with the continuation as the hidden final
     -- argument.
-    GrinCpsApply !GrinResultRep !GrinValue ![GrinValue] !GrinValue
+    GrinCpsApply !GrinResultRep !GrinValue ![[GrinValue]] !GrinValue
   | -- | Invoke an ordinary continuation closure with one logical result.
     -- Unlike 'GrinCpsApply', continuation entries do not themselves receive a
     -- return continuation.
@@ -355,6 +358,13 @@ data GrinExpr
   | -- | A saturated call whose operands are already strict primitive values.
     GrinForeignCallExpr !GrinForeignCall ![GrinValue]
   deriving (Eq, Show, Read)
+
+-- | The largest number of argument groups that one 'GrinApply' or
+-- 'GrinCpsApply' supplies. The backend generates an apply helper for each
+-- shape of groups, and the code of a helper grows with the square of the
+-- group count. A longer application is a chain of applications.
+grinApplyGroupLimit :: Int
+grinApplyGroupLimit = 4
 
 -- | What an evaluation does with a thunk that it enters.
 data GrinEvalUpdate
@@ -487,10 +497,10 @@ grinProgramLiterals program =
         GrinPrimitiveCall _ _ arguments -> concatMap valueLiterals arguments
         GrinCpsPrimitiveCall _ _ arguments continuation ->
           concatMap valueLiterals arguments <> valueLiterals continuation
-        GrinApply _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
+        GrinApply _ function arguments -> valueLiterals function <> concatMap valueLiterals (concat arguments)
         GrinForward -> []
         GrinCpsApply _ function arguments continuation ->
-          valueLiterals function <> concatMap valueLiterals arguments <> valueLiterals continuation
+          valueLiterals function <> concatMap valueLiterals (concat arguments) <> valueLiterals continuation
         GrinContinue continuation values -> valueLiterals continuation <> concatMap valueLiterals values
         GrinCpsRaise exception continuation -> valueLiterals exception <> valueLiterals continuation
         GrinUpdateBlackhole pointer value -> valueLiterals pointer <> valueLiterals value
@@ -540,9 +550,9 @@ grinExprGlobalReferences = exprReferences
         GrinCall _ _ arguments -> valuesReferences arguments
         GrinPrimitiveCall _ _ arguments -> valuesReferences arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> valuesReferences arguments <> valueReferences continuation
-        GrinApply _ function arguments -> valueReferences function <> valuesReferences arguments
+        GrinApply _ function arguments -> valueReferences function <> valuesReferences (concat arguments)
         GrinForward -> []
-        GrinCpsApply _ function arguments continuation -> valueReferences function <> valuesReferences arguments <> valueReferences continuation
+        GrinCpsApply _ function arguments continuation -> valueReferences function <> valuesReferences (concat arguments) <> valueReferences continuation
         GrinContinue continuation values -> valueReferences continuation <> valuesReferences values
         GrinCpsRaise exception continuation -> valueReferences exception <> valueReferences continuation
         GrinUpdateBlackhole pointer value -> valueReferences pointer <> valueReferences value
