@@ -1,0 +1,56 @@
+program: |
+  constructor I# [IntRep]
+  constructor Just [BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+  global action = (P$action/[[]])
+  global handler = (P$handler/[[BoxedRep Lifted]])
+
+  $action -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    exception :: BoxedRep Lifted <-
+      store (CJust (one :: BoxedRep Lifted))
+    throw (exception :: BoxedRep Lifted)
+
+  $handler (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (exception :: BoxedRep Lifted)
+    case (value :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Just (x :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    catch @(BoxedRep Lifted) global-ref action global-ref handler
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Just [BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  global action = (P$action/[[]])
+
+  global handler = (P$handler/1)
+
+  $action -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    exception :: BoxedRep Lifted <-
+      store (CJust (one :: BoxedRep Lifted))
+    throw (exception :: BoxedRep Lifted)
+
+  $handler (exception :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (exception :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data Just (x :: BoxedRep Lifted) ->
+        constant (x :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    catch @(BoxedRep Lifted) global-ref action global-ref handler
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 2
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: a raised value goes only to the handlers of catch, so a handler knows the values that the program raises

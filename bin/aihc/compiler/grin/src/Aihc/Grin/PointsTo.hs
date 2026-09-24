@@ -12,6 +12,17 @@
 -- at. It is the analysis of Boquist's GRIN thesis, in the inclusion-based
 -- form of Andersen's analysis.
 --
+-- A @MutVar#@ or an @MVar#@ that a primitive makes is a location too. It
+-- holds one cell node, and the field of that node holds the values that the
+-- program puts in the cell. A read of the cell gives the values of that
+-- field. Each other primitive that gets a reference to the cell makes it
+-- escape, and then its field can hold any value.
+--
+-- A raised value does not escape. The runtime gives it only to the handlers
+-- of @catch#@, and the analysis applies each handler to all raised values.
+-- The runtime evaluates the action of a @catch#@ and applies it to the
+-- state, and the analysis does the same.
+--
 -- Two special locations stand for heap objects that the program cannot see:
 -- 'unknownLocation', which can be a thunk, and 'unknownValueLocation', which
 -- is in weak-head normal form. A value that a primitive, a foreign call, or
@@ -168,9 +179,50 @@ unknownValueLocation = 1
 isUnknownLocation :: Int -> Bool
 isUnknownLocation location = location == unknownLocation || location == unknownValueLocation
 
+-- | The tag of the one node of a @MutVar#@ location. Its one field holds
+-- the values of the cell. No constructor has this name: a constructor name
+-- does not start with a dollar sign.
+cellTag :: GrinNodeTag
+cellTag = GrinConstructor "$MutVar#" 0
+
+-- | What a primitive does to a mutable cell.
+data CellOperation
+  = -- | Make a cell. Its pointer arguments, if any, are the initial value.
+    CellNew
+  | -- | Give a value of the cell, which is the one pointer argument.
+    CellRead
+  | -- | Put the second pointer argument in the cell of the first.
+    CellWrite
+
+-- | The primitives that the analysis models as operations on a cell. A
+-- @MutVar#@ always holds a value and an @MVar#@ can be empty, but both
+-- only give values that the program put in them.
+cellPrimitive :: Text -> Maybe CellOperation
+cellPrimitive name =
+  case name of
+    "newMutVar#" -> Just CellNew
+    "newMVar#" -> Just CellNew
+    "readMutVar#" -> Just CellRead
+    "takeMVar#" -> Just CellRead
+    "readMVar#" -> Just CellRead
+    "tryTakeMVar#" -> Just CellRead
+    "tryReadMVar#" -> Just CellRead
+    "writeMutVar#" -> Just CellWrite
+    "putMVar#" -> Just CellWrite
+    "tryPutMVar#" -> Just CellWrite
+    _ -> Nothing
+
 -- | The set node of everything that escapes.
 escapeNode :: Int
 escapeNode = 0
+
+-- | The set node of the values that the program raises. A handler of a
+-- @catch#@ receives them. The runtime does not make exceptions: each value
+-- that it raises, also to a thread that waits for a blackhole, is a value
+-- that the program raised. It does not look at an exception that no handler
+-- catches.
+raisedNode :: Int
+raisedNode = 1
 
 -- | What a location that reaches a set node does.
 data Trigger
@@ -182,6 +234,10 @@ data Trigger
     -- set nodes of each argument group, and the result.
     TriggerApply !Int ![[Maybe Int]] !Results
   | TriggerFetch !GrinNodeTag !Results
+  | -- | A @readMutVar#@ of the location. The value goes to the set node.
+    TriggerCellRead !Int
+  | -- | A @writeMutVar#@ to the location of the value of the set node.
+    TriggerCellWrite !Int
   | -- | The location escapes.
     TriggerEscape
 
@@ -249,6 +305,8 @@ runAnalysis program = runST $ do
   escape <- newNode solver
   when (escape /= escapeNode) (error "points-to: the escape set node must come first")
   addTrigger solver escapeNode TriggerEscape
+  raised <- newNode solver
+  when (raised /= raisedNode) (error "points-to: the raised set node must come second")
   unknown <- newLocation solver
   unknownValue <- newLocation solver
   when (unknown /= unknownLocation || unknownValue /= unknownValueLocation) (error "points-to: the unknown locations must come first")
@@ -502,6 +560,12 @@ fireNode solver trigger location tag fields =
         case results of
           ResultSlots slots -> zipWithM_ (edgeToSlot solver) fields slots
           ResultMerged merged -> forM_ fields (\field -> addEdge solver field merged)
+    TriggerCellRead target
+      | tag == cellTag -> forM_ fields (\field -> addEdge solver field target)
+      | otherwise -> fireUnknown solver trigger
+    TriggerCellWrite value
+      | tag == cellTag -> forM_ fields (addEdge solver value)
+      | otherwise -> fireUnknown solver trigger
     TriggerEscape -> escapeNode' solver tag fields
 
 -- | A trigger sees a location that the program cannot see.
@@ -514,6 +578,8 @@ fireUnknown solver trigger =
       forM_ (concatMap catMaybes arguments) $ \argument -> addEdge solver argument escapeNode
       unknownResults solver results
     TriggerFetch _ results -> unknownResults solver results
+    TriggerCellRead target -> addLocation solver target unknownLocation
+    TriggerCellWrite value -> addEdge solver value escapeNode
     TriggerEscape -> pure ()
 
 -- | Apply argument groups to one location. A closure takes as many groups as
@@ -556,6 +622,8 @@ applyNode solver site groups results tag fields =
 escapeNode' :: Solver s -> GrinNodeTag -> [Int] -> ST s ()
 escapeNode' solver tag fields = do
   forM_ fields $ \field -> addEdge solver field escapeNode
+  -- Code that the program cannot see can write any value to a cell.
+  when (tag == cellTag) (forM_ fields (\field -> addLocation solver field unknownLocation))
   case tag of
     GrinClosure functionName _ -> do
       known <- lookupFunction solver functionName
@@ -726,7 +794,26 @@ generateExpr solver varsRef results expression =
         Nothing -> do
           mapM_ (escapeValue solver vars) arguments
           unknownResults solver results
-    GrinPrimitiveCall _ _ arguments -> unknownCall arguments
+    GrinPrimitiveCall _ name arguments -> do
+      vars <- readSTRef varsRef
+      argumentNodes <- mapM (valueNode solver vars) [argument | argument <- arguments, pointerKind (grinValueRuntimeRep argument) /= NotPointer]
+      case (cellPrimitive name, argumentNodes) of
+        (Just CellNew, initial)
+          | length initial <= 1,
+            all isJust initial -> do
+              location <- newLocation solver
+              fields <- addNode solver location cellTag 1
+              forM_ fields $ \field -> forM_ (catMaybes initial) (\value -> addEdge solver value field)
+              addLocationResult solver results location
+        (Just CellRead, [Just reference]) -> do
+          target <- evalTarget solver results
+          addTrigger solver reference (TriggerCellRead target)
+        (Just CellWrite, [Just reference, Just value]) ->
+          addTrigger solver reference (TriggerCellWrite value)
+        _
+          | name == "raise#" || name == "raiseIO#" ->
+              forM_ (catMaybes argumentNodes) (\exception -> addEdge solver exception raisedNode)
+        _ -> unknownCall arguments
     GrinApply _ function arguments -> do
       vars <- readSTRef varsRef
       site <- newLocation solver
@@ -749,8 +836,18 @@ generateExpr solver varsRef results expression =
       forM_ alternatives $ \alternative -> generateExpr solver varsRef results (grinAltRhs alternative)
     GrinThrow exception -> do
       vars <- readSTRef varsRef
-      escapeValue solver vars exception
-    GrinCatch _ action handler state -> unknownCall (action : handler : state)
+      flowValue solver vars exception (Slot raisedNode LiftedPointer)
+    -- The runtime evaluates the action and applies it to the state. When
+    -- the action raises, the runtime evaluates the handler and applies it
+    -- to the exception and the state.
+    GrinCatch _ action handler state -> do
+      vars <- readSTRef varsRef
+      stateNodes <- mapM (valueNode solver vars) state
+      forM_ [(action, stateNodes), (handler, Just raisedNode : stateNodes)] $ \(function, group) -> do
+        evaluated <- newNode solver
+        site <- newLocation solver
+        addTrigger solver evaluated (TriggerApply site [group] results)
+        withValue function (\node -> addTrigger solver node (TriggerEval evaluated))
     GrinForeignCallExpr _ arguments -> unknownCall arguments
     -- 'supportedExpr' excludes the other forms.
     _ -> pure ()
@@ -863,6 +960,17 @@ sharedLocations sets locationNodes functions evalNodes variables uses statics =
       IntSet.unions
         ( statics
             : setOf escapeNode
+            -- Each handler that catches a raised value gets one more
+            -- reference to it.
+            : setOf raisedNode
+            -- A cell keeps its value, and each read gives one more
+            -- reference to it.
+            : IntSet.unions
+              [ setOf field
+              | nodes <- V.toList locationNodes,
+                Just fields <- [Map.lookup cellTag nodes],
+                field <- fields
+              ]
             : [ setOf node
               | (functionName, counts) <- Map.toList uses,
                 let nodes = Map.findWithDefault Map.empty functionName variables,
