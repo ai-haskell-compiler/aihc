@@ -12,5 +12,10 @@ expected: |
     $cps_continuation :: BoxedRep Lifted <-
       store-unchecked (Pprotect_cont/[[]] ($cps_return :: BoxedRep Lifted) (owner :: BoxedRep Unlifted))
     cps-apply @forwarded (action :: BoxedRep Lifted) () -> ($cps_continuation :: BoxedRep Lifted)
+
+  protect_cont ($cps_return :: BoxedRep Lifted) (owner :: BoxedRep Unlifted) -> forwarded =
+    () <-
+      primitive-call @(TupleRep []) touch# (owner :: BoxedRep Unlifted)
+    forward
 status: pass
 reason: The CPS stage captures the owner in an ordinary continuation frame. The frame goes on the thread stack, so the GC stage gives it no heap reservation.

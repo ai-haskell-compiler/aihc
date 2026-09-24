@@ -23,5 +23,20 @@ expected: |
         chosen%1 :: BoxedRep Lifted <-
           constant (right :: BoxedRep Lifted)
         call @(TupleRep []) pick_join (other :: BoxedRep Lifted) (chosen%1 :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted)
+
+  pick_cont ($cps_join :: BoxedRep Lifted) (other :: BoxedRep Lifted) (ready :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_join$gc :: BoxedRep Lifted, other$gc :: BoxedRep Lifted, ready$gc :: BoxedRep Lifted <-
+      ensure-heap (3 :: WordRep) ($cps_join :: BoxedRep Lifted) (other :: BoxedRep Lifted) (ready :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Lifted <-
+      store-unchecked (CPair (ready$gc :: BoxedRep Lifted) (other$gc :: BoxedRep Lifted))
+    continue ($cps_join$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Lifted)
+
+  pick_join (other :: BoxedRep Lifted) (chosen :: BoxedRep Lifted) ($cps_join :: BoxedRep Lifted) -> BoxedRep Lifted =
+    if-whnf (chosen :: BoxedRep Lifted)
+      call @(TupleRep []) pick_cont ($cps_join :: BoxedRep Lifted) (other :: BoxedRep Lifted) (chosen :: BoxedRep Lifted)
+    else
+      $cps_continuation :: BoxedRep Lifted <-
+        store-unchecked (Ppick_cont/1 ($cps_join :: BoxedRep Lifted) (other :: BoxedRep Lifted))
+      cps-eval @(BoxedRep Lifted) (chosen :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
 status: pass
-reason: The continuation of the case is small, but its evaluation reifies a frame and a continuation function. A copy in each alternative would copy that function too, so both alternatives call one join point.
+reason: The continuation of the case is small, but its evaluation reifies a frame and a continuation function. A copy in each alternative would copy that function too. Thus both alternatives call one join point, and the program has only one continuation function.
