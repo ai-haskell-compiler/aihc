@@ -1,0 +1,55 @@
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Prim (RealWorld, State#)
+  import GHC.Types (Int (..))
+
+  newtype Eff a = Eff (State# RealWorld -> a)
+
+  run :: Eff Int -> Eff Int
+  run (Eff f) = let e = Eff (\s -> case f s of I# n -> I# n) in Eff (\t -> case e of Eff g -> g t)
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    2.tRealWorld :: 3.sType;
+    3.tRuntimeRep :: 3.sType;
+    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tEff (a : 3.sType) :: 3.sType {}
+
+  axiom 1.$ax$Eff (a : 3.sType) : 1.tEff a ~R FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (2.tState# 2.tRealWorld) a
+
+  pub val 1.vrun :: 1.tEff 3.tInt 3.→ 1.tEff 3.tInt
+   = λ(x : 1.tEff 3.tInt).
+    (λ(t : 2.tState# 2.tRealWorld).
+      case (x ▷ axiom-co 1.$ax$Eff @3.tInt) t as (_scrut : 3.tInt) return (3.tInt) of {
+          3.cI# (n : 2.tInt#) →
+              3.cI# n
+      }) ▷ sym (axiom-co 1.$ax$Eff @3.tInt)
+status: pass
+reason: The right side is a lambda under a newtype cast. Its one use casts it back and calls it, so the lambda moves to its call and the two casts cancel.

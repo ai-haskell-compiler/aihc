@@ -668,7 +668,11 @@ mkCast body coercion =
         ExLet bind inner -> ExLet bind <$> mkCast inner coercion
         _ -> pure (ExCast body coercion)
   where
-    cancels left right = left == CoSym right || right == CoSym left
+    cancels = cancelsCoercion
+
+-- | Whether a cast by one coercion undoes a cast by the other.
+cancelsCoercion :: Coercion -> Coercion -> Bool
+cancelsCoercion left right = left == CoSym right || right == CoSym left
 
 -- | Whether the name occurs nowhere in the expression.
 unused :: Name -> Expr -> Bool
@@ -702,6 +706,67 @@ valueArity arities expr =
             all (either (const True) isTrivial) args ->
               arity - given
         _ -> 0
+
+-- | How many more value arguments the right-hand side of a binding takes
+-- before it does work, for the move of the binding to its one call.
+--
+-- This is 'valueArity', but it also looks through a cast to a lambda.
+-- The move is permitted only when the call casts the name back, see
+-- 'castedBackUses'. Then 'mkCast' cancels the two casts at the call, and
+-- the lambda lands on its arguments.
+movableArity :: Map Name Int -> Expr -> (Int, Maybe Coercion)
+movableArity arities expr =
+  case expr of
+    ExCast inner coercion
+      | arity <- valueArity arities inner,
+        arity > 0 ->
+          (arity, Just coercion)
+    _ -> (valueArity arities expr, Nothing)
+
+-- | How many occurrences of the name stand directly under a cast that
+-- undoes a cast by the coercion.
+castedBackUses :: Name -> Coercion -> Expr -> Int
+castedBackUses name coercion = go
+  where
+    go expr =
+      case expr of
+        ExCast (ExVar var) outer
+          | var == name,
+            cancelsCoercion coercion outer ->
+              1
+        ExVar {} -> 0
+        ExLit {} -> 0
+        ExCoercion {} -> 0
+        ExApp function argument -> go function + go argument
+        ExTyApp function _ -> go function
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) + go body
+        ExRec binds body -> sum (map (go . bindRhs) binds) + go body
+        ExCase scrutinee _ _ alternatives -> go scrutinee + sum (map (go . altRhs) alternatives)
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> sum (map go arguments)
+
+-- | The lifted lets around a right-hand side whose innermost body is a
+-- value that 'movableArity' accepts.
+--
+-- @let x = let c = e in \y -> b@ becomes @let c = e in let x = \y -> b@.
+-- The binding of @c@ is lazy, so it allocates a thunk in both forms, and
+-- @x@ becomes a function instead of a thunk that returns one. A strict
+-- binding does work when it is evaluated, so it does not float out.
+floatValueLets :: Simpl -> Expr -> Maybe ([Bind], Expr)
+floatValueLets env expr =
+  case peelLiftedLets expr of
+    (binds@(_ : _), inner)
+      | fst (movableArity (spArity env) inner) > 0 -> Just (binds, inner)
+    _ -> Nothing
+  where
+    peelLiftedLets e =
+      case e of
+        ExLet bind body
+          | isLiftedBinder (spEnv env) (bindBinder bind) ->
+              let (binds, inner) = peelLiftedLets body in (bind : binds, inner)
+        _ -> ([], e)
 
 -- | How many occurrences of the name stand in the head of an application
 -- that gives it at least the given number of value arguments.
@@ -751,13 +816,25 @@ mkLet env bind body
   -- where they land, and the call runs the body exactly where it ran it
   -- before. The one use is the call, because the whole body holds one
   -- occurrence and the call accounts for it.
+  --
+  -- A lambda under a cast moves only when the call casts it back, so
+  -- that the two casts cancel and the lambda lands on its arguments.
   | lifted,
     Occurrences 1 True <- uses,
-    arity <- valueArity (spArity env) rhs,
+    (arity, cast) <- movableArity (spArity env) rhs,
     arity > 0,
-    saturatedCalls name arity body == 1 = do
+    saturatedCalls name arity body == 1,
+    maybe True (\coercion -> castedBackUses name coercion body == 1) cast = do
       copy <- freshenExpr rhs
       simplifyExpr env (substExpr (Map.singleton name copy) body)
+  -- Lifted lets around a value float out of the right-hand side. The
+  -- binding is then a value, which gets a new chance to move to its use.
+  -- The binders of the floated lets are distinct from every name in the
+  -- body, so the body captures nothing.
+  | lifted,
+    Just (floated, value) <- floatValueLets env rhs = do
+      inner <- mkLet env (Bind binder value) body
+      pure (foldr ExLet inner floated)
   | lifted = pure (ExLet bind body)
   -- A strict binding whose one use is the scrutinee of the case that
   -- follows it is that case on the right-hand side: the case evaluates it
