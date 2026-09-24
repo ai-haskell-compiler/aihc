@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Test.Resolver.Suite
   ( resolverGoldenTests,
@@ -7,8 +8,9 @@ module Test.Resolver.Suite
 where
 
 import Aihc.Parser (defaultConfig, parseModule)
-import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition))
-import Aihc.Resolve (ModuleUnit (..), ResolveResult (..), collectModuleExportsWithDeps, emptyScope, lookupImportedModule, resolveUnit, unnamedPackage)
+import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition), fromAnnotation, pattern SourceSpan)
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), ResolutionAnnotation (..), ResolveResult (..), collectModuleExportsWithDeps, emptyScope, lookupImportedModule, resolveUnit, unnamedPackage)
+import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)
 import Data.Text (Text)
@@ -20,8 +22,40 @@ resolverUnitTests :: TestTree
 resolverUnitTests =
   testGroup
     "resolver-unit"
-    [ testCase "dependency-backed GHC.Num supplies built-in fromInteger" testDependencyBackedGhcNum
+    [ testCase "dependency-backed GHC.Num supplies built-in fromInteger" testDependencyBackedGhcNum,
+      testCase "infix operators have the spans of their tokens" testInfixOperatorSpans
     ]
+
+-- | The golden fixtures place each label at the node it annotates, so they
+-- do not show the span that a resolution records. This test reads the
+-- spans directly.
+testInfixOperatorSpans :: Assertion
+testInfixOperatorSpans =
+  case parseModule defaultConfig source of
+    ([], modu) -> do
+      let unit = ModuleUnit unnamedPackage (fixtureExtensions Haskell2010Edition modu) modu
+          exports = collectModuleExportsWithDeps mempty [unit]
+          result = resolveUnit emptyScope exports [unit]
+          uses =
+            [ (line, col, endCol)
+            | ann <- concatMap (collectAnnotations fromAnnotation . moduleUnitAst) (resolvedModules result),
+              resolutionIdentifier ann `elem` [IdentifierNamed "k", IdentifierNamed "<+>"],
+              Just (SourceSpan _ line col _ endCol _ _) <- [resolutionSpan ann],
+              line >= 4
+            ]
+      when (uses /= expected) $
+        assertFailure ("operator spans: expected " <> show expected <> ", found " <> show uses)
+    (errors, _) -> assertFailure ("parse failure: " <> show errors)
+  where
+    source :: Text
+    source =
+      "module M where\n\
+      \k a b = a\n\
+      \a <+> b = a\n\
+      \f y = y `k` y\n\
+      \g y = (y <+> y, (`k` y), (<+> y))\n"
+    -- Line, start column and end column of each use of an operator.
+    expected = [(4, 10, 11), (5, 10, 13), (5, 19, 20), (5, 27, 30)]
 
 testDependencyBackedGhcNum :: Assertion
 testDependencyBackedGhcNum =
