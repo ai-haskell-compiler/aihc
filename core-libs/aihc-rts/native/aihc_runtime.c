@@ -8,8 +8,8 @@
 
 /* Match the offsets in aihc_constants.lir on both pointer widths. */
 /* On a 32-bit target, stack_next takes a slot that alignment padding held
-   before, so the offset grows by two words on a 64-bit target and not on a
-   32-bit target. */
+   before. Thus stack_next moves current_thread by one word on a 64-bit
+   target and does not move it on a 32-bit target. */
 _Static_assert(offsetof(AihcMachine, current_thread) == 8 * sizeof(void *) + 40,
                "machine current-thread ABI");
 _Static_assert(sizeof(AihcInfo) == 6 * sizeof(void *), "info-table size ABI");
