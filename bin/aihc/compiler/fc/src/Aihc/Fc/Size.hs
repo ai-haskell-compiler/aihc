@@ -15,6 +15,7 @@ module Aihc.Fc.Size
     tailLeaves,
     isStrictBinder,
     isLiftedBinder,
+    isLiftedType,
   )
 where
 
@@ -88,8 +89,12 @@ isStrictBinder env = not . isLiftedBinder env
 -- | A binder whose type is lifted: a let of such a binder allocates a
 -- thunk and evaluates nothing before its body.
 isLiftedBinder :: TypeEnv -> Binder -> Bool
-isLiftedBinder env binder =
-  case reduceType env <$> repOf env (binderType binder) of
+isLiftedBinder env = isLiftedType env . binderType
+
+-- | A type whose values are lifted: such a value can be a thunk.
+isLiftedType :: TypeEnv -> Type -> Bool
+isLiftedType env ty =
+  case reduceType env <$> repOf env ty of
     Just (TyCon name) -> nameText name == "LiftedRep"
     Just (TyApp (TyCon boxed) (TyCon levity)) ->
       nameText boxed == "BoxedRep" && nameText levity == "Lifted"

@@ -8,7 +8,9 @@
 -- case of a known constructor or literal, a case on a comparison with a
 -- literal, a strict pure primitive call bound twice, a case whose
 -- default alternative is a case on the same value, a case of a case with
--- join points, and a cast against its symmetry.
+-- join points, a cast against its symmetry, a case that only evaluates a
+-- value that is already evaluated, and a lazy constructor application of
+-- a primitive call that is safe to run early.
 --
 -- A copy of a candidate at a use site is one of its rewrites. The
 -- 'Simpl' environment carries the candidates and the site policy that
@@ -51,7 +53,7 @@ import Aihc.Fc.Fold (foldForeignCall)
 import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
-import Aihc.Fc.Size (exprSize, isLiftedBinder, isStrictBinder, programSize)
+import Aihc.Fc.Size (exprSize, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, viewForAll, viewFun)
@@ -64,10 +66,11 @@ import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- * The standalone pass
 
@@ -102,6 +105,7 @@ simplifyProgram phase program =
                 spArity = arities,
                 spLocals = Map.empty,
                 spCse = Map.empty,
+                spEvaluated = Set.empty,
                 spSiteLimit = 0,
                 spDiscount = 0,
                 spRules = ruleTable phase (programDecls program)
@@ -206,6 +210,10 @@ data Simpl = Simpl
     -- names the earlier binder instead: the earlier binding is evaluated
     -- on every path that reaches the later one.
     spCse :: !(Map Expr Name),
+    -- | Local binders that hold a value in weak-head normal form: case
+    -- binders, variable scrutinees inside their alternatives, binders of
+    -- strict fields, and let binders of values.
+    spEvaluated :: !(Set Name),
     spSiteLimit :: !Int,
     -- | The discount one function argument of a call site takes off the
     -- growth of inlining it.
@@ -293,6 +301,11 @@ simplifyExpr env expr =
 -- inner case when the scrutinee is a case, or in place otherwise.
 simplifyCase :: Simpl -> Expr -> Binder -> Type -> [Alt] -> SimplM Expr
 simplifyCase env scrutinee binder resultType alternatives
+  -- A case that only evaluates an evaluated value does nothing. The case
+  -- binder is the scrutinee.
+  | [Alt AltDefault [] [] rhs] <- alternatives,
+    isEvaluated env scrutinee =
+      simplifyExpr env (substExpr (Map.singleton (binderName binder) scrutinee) rhs)
   | Just rewritten <- literalEqualityCase (spEnv env) scrutinee binder resultType alternatives = simplifyExpr env rewritten
   | otherwise = do
       reduced <- caseOfKnown env scrutinee binder alternatives
@@ -461,12 +474,48 @@ inlineCandidate env name candidate args = do
 -- strict pure primitive call for the reuse of its binder.
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
 bindingEnv env binder rhs
-  | isKnownConstructor (spArity env) rhs = env {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
+  | isKnownConstructor (spArity env) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
   | isStrictBinder (spEnv env) binder,
     isPurePrimitiveCall (spEnv env) rhs,
     Map.notMember rhs (spCse env) =
-      env {spCse = Map.insert rhs (binderName binder) (spCse env)}
-  | otherwise = env
+      evaluatedEnv {spCse = Map.insert rhs (binderName binder) (spCse env)}
+  | otherwise = evaluatedEnv
+  where
+    evaluatedEnv
+      | isValue env rhs = markEvaluated [binderName binder] env
+      | otherwise = env
+
+-- | Record that binders hold values in weak-head normal form.
+markEvaluated :: [Name] -> Simpl -> Simpl
+markEvaluated names env = env {spEvaluated = List.foldl' (flip Set.insert) (spEvaluated env) names}
+
+-- | Whether an expression is a variable, under casts, that holds a value
+-- in weak-head normal form.
+isEvaluated :: Simpl -> Expr -> Bool
+isEvaluated env expr =
+  case fst (peelCasts expr) of
+    ExVar name -> Set.member name (spEvaluated env)
+    _ -> False
+
+-- | Whether an expression is in weak-head normal form: a literal, a
+-- lambda, a constructor application, or an evaluated variable.
+isValue :: Simpl -> Expr -> Bool
+isValue env expr =
+  case expr of
+    ExLit {} -> True
+    ExCoercion {} -> True
+    ExLam {} -> True
+    ExVar name -> isConstructorName name || Set.member name (spEvaluated env)
+    ExTyLam _ body -> isValue env body
+    ExTyApp body _ -> isValue env body
+    ExCast body _ -> isValue env body
+    ExLet _ body -> isValue env body
+    ExRec _ body -> isValue env body
+    ExApp {} ->
+      case collectSpine expr of
+        (ExVar name, _) -> isConstructorName name
+        _ -> False
+    _ -> False
 
 -- | Simplify an alternative. Inside a constructor alternative, the case
 -- binder and a scrutinee variable are known to be that constructor
@@ -488,7 +537,7 @@ simplifyAlt env scrutinee binder alternative = do
 -- later case on that variable, cast the same way, selects its fields.
 alternativeEnv :: Simpl -> Expr -> Binder -> Alt -> Simpl
 alternativeEnv env scrutinee binder alternative =
-  case known of
+  markEvaluated (binderName binder : maybe [] pure scrutineeName <> strictBinders) $ case known of
     Just application ->
       typeEnv
         { spLocals =
@@ -508,6 +557,13 @@ alternativeEnv env scrutinee binder alternative =
       case scrutineeCore of
         ExVar name -> Just name
         _ -> Nothing
+    -- The binders of the strict fields of the constructor.
+    strictBinders =
+      case altCon alternative of
+        AltData con ->
+          let strict = Map.findWithDefault [] con (teConStrictFields (spEnv env))
+           in [binderName field | (position, field) <- zip [0 ..] (altBinders alternative), position `elem` strict]
+        _ -> []
 
 -- | Strip the casts on an expression. The coercions come innermost
 -- first, in the order the casts apply.
@@ -592,7 +648,9 @@ simplifyApp env headExpr args = do
           -- in scope, so the copies capture nothing.
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp env (altRhs alternative) args') alternatives
           pure (ExCase scrutinee binder resultType' alternatives')
-    _ -> pure (rebuildSpine headExpr' args')
+    _ -> do
+      bound <- mapM (either (pure . (,) [] . Left) (fmap (fmap Right) . bindLazyPrimitives env)) args'
+      pure (foldr ExLet (rebuildSpine headExpr' (map snd bound)) (concatMap fst bound))
 
 -- | Fire the first active rule that matches an application, if any. The
 -- right-hand side is copied with fresh binders, instantiated by the
@@ -860,6 +918,12 @@ mkLet env bind body
     Just (floated, value) <- floatValueLets env rhs = do
       inner <- mkLet env (Bind binder value) body
       pure (foldr ExLet inner floated)
+  -- A lazy constructor application runs its safe primitive calls first,
+  -- so that lowering stores the value instead of a thunk.
+  | lifted,
+    hasLazyPrimitive (spEnv env) rhs = do
+      (binds, rhs') <- bindLazyPrimitives env rhs
+      pure (foldr ExLet (ExLet (Bind binder rhs') body) binds)
   | lifted = pure (ExLet bind body)
   -- A strict binding whose one use is the scrutinee of the case that
   -- follows it is that case on the right-hand side: the case evaluates it
@@ -1502,14 +1566,108 @@ isPurePrimitiveCall env expr =
         && null types
         && all isTrivial arguments
         && case foreignSignature env (foreignCallType call) of
-          Just (argumentTypes, resultType) -> not (any mentionsState (resultType : argumentTypes))
+          Just (argumentTypes, resultType) -> not (any (mentionsState env) (resultType : argumentTypes))
           Nothing -> False
     _ -> False
+
+-- | Whether a type mentions a state token or a mutable or address type.
+mentionsState :: TypeEnv -> Type -> Bool
+mentionsState env ty =
+  case typeSpine (reduceType env ty) of
+    (TyCon name, args) -> nameText name `elem` ["State#", "MutVar#", "MVar#", "TVar#", "MutableArray#", "MutableByteArray#", "SmallMutableArray#", "MutableArrayArray#", "Weak#", "StablePtr#", "StableName#", "ThreadId#", "BCO", "Addr#"] || any (mentionsState env) args
+    (_, args) -> any (mentionsState env) args
+
+-- * Primitive calls in lazy constructor applications
+
+-- | Bind the safe primitive calls in a constructor application to strict
+-- lets outside it. The application is in a lazy position, and lowering
+-- makes a thunk of a constructor application that has an unlifted operand
+-- that is not a value. With the calls bound, it stores the value. The
+-- walk goes into the lifted constructor applications among the arguments,
+-- which are lazy too, and into nothing else, so every free variable of a
+-- call is in scope outside the application.
+--
+-- A safe call cannot fail and does little work, so it can run when the
+-- application is made instead of when it is evaluated.
+bindLazyPrimitives :: Simpl -> Expr -> SimplM ([Bind], Expr)
+bindLazyPrimitives env expr
+  | hasLazyPrimitive (spEnv env) expr,
+    (ExVar con, args) <- collectSpine expr = do
+      bound <- mapM argument args
+      pure (concatMap fst bound, rebuildSpine (ExVar con) (map snd bound))
+  | otherwise = pure ([], expr)
   where
-    mentionsState ty =
-      case typeSpine (reduceType env ty) of
-        (TyCon name, args) -> nameText name `elem` ["State#", "MutVar#", "MVar#", "TVar#", "MutableArray#", "MutableByteArray#", "SmallMutableArray#", "MutableArrayArray#", "Weak#", "StablePtr#", "StableName#", "ThreadId#", "BCO", "Addr#"] || any mentionsState args
-        (_, args) -> any mentionsState args
+    argument arg =
+      case arg of
+        Left ty -> pure ([], Left ty)
+        Right value
+          | Just ty <- safePrimitiveCall (spEnv env) value -> do
+              name <- freshLocal (Name "argument" SortValue (OriginLocal (Unique 0)))
+              pure ([Bind (Binder name ty) value], Right (ExVar name))
+          | otherwise -> fmap Right <$> bindLazyPrimitives env value
+
+-- | Whether a constructor application has a safe primitive call among its
+-- arguments or among the arguments of its constructor arguments.
+hasLazyPrimitive :: TypeEnv -> Expr -> Bool
+hasLazyPrimitive env expr =
+  case collectSpine expr of
+    (ExVar con, args)
+      | isConstructorName con ->
+          any (\value -> isJust (safePrimitiveCall env value) || hasLazyPrimitive env value) (rights args)
+    _ -> False
+
+-- | The unlifted result type of a primitive call that is safe to run
+-- early: a call of an arithmetic, comparison, bit or conversion primitive
+-- on trivial arguments or on such calls. It has no effect, it reads no
+-- memory, and it cannot fail. A division can fail, so it is not safe.
+safePrimitiveCall :: TypeEnv -> Expr -> Maybe Type
+safePrimitiveCall env expr =
+  case expr of
+    ExForeignCall call [] arguments
+      | foreignCallConvention call == Prim,
+        isSafePrimitive (nameText (foreignCallName call)),
+        all (\argument -> isTrivial argument || isJust (safePrimitiveCall env argument)) arguments,
+        Just (argumentTypes, resultType) <- foreignSignature env (foreignCallType call),
+        not (any (mentionsState env) (resultType : argumentTypes)),
+        -- One primitive value: not a tuple, and not a heap object.
+        Just (TyCon _) <- reduceType env <$> repOf env resultType,
+        not (isLiftedType env resultType) ->
+          Just resultType
+    _ -> Nothing
+
+-- | The primitives that cannot fail and read no memory.
+isSafePrimitive :: Text -> Bool
+isSafePrimitive name =
+  not (any (`T.isInfixOf` name) ["quot", "rem", "div", "mod", "index", "read", "write", "Addr", "Array"])
+    && ( T.all (`elem` ("+-*=/<>#" :: String)) name
+           || any (`T.isPrefixOf` name) safePrefixes
+           || "To" `T.isInfixOf` name
+       )
+  where
+    safePrefixes =
+      [ "plus",
+        "minus",
+        "times",
+        "negate",
+        "eq",
+        "ne",
+        "lt",
+        "le",
+        "gt",
+        "ge",
+        "and",
+        "or",
+        "xor",
+        "not",
+        "narrow",
+        "unchecked",
+        "int2",
+        "word2",
+        "float2",
+        "double2",
+        "chr#",
+        "ord#"
+      ]
 
 -- * Occurrences
 

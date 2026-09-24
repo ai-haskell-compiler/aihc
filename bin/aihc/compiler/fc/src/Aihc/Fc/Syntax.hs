@@ -174,7 +174,9 @@ data Imports = Imports
     importSynonyms :: Map Name Type,
     importAxioms :: Map Name AxiomDecl,
     importBinders :: Map Name Type,
-    importConRepresentations :: Map Name ConRepresentation
+    importConRepresentations :: Map Name ConRepresentation,
+    -- | The strict fields of each imported constructor that has one.
+    importConStrictFields :: Map Name [Int]
   }
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
@@ -240,7 +242,13 @@ data ConDecl = ConDecl
   { conVis :: Vis,
     conName :: Name,
     conType :: Type,
-    conRepresentation :: ConRepresentation
+    conRepresentation :: ConRepresentation,
+    -- | The zero-based positions of the strict fields among the value
+    -- arguments of the constructor, in ascending order. The dictionary
+    -- arguments of a constraint count as positions. Every construction
+    -- gives a strict field a value in weak-head normal form, so a binder
+    -- that a case alternative binds to a strict field is evaluated.
+    conStrictFields :: [Int]
   }
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)

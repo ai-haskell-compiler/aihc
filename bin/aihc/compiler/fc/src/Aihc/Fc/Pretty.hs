@@ -63,7 +63,7 @@ prettyImports scopes imports =
     <> prettyImportGroup "value-binders" valueBinderEntries
   where
     headerEntries =
-      map (\(name, ty) -> prettyConRepresentation (Map.findWithDefault HeapConstructor name (importConRepresentations imports)) <> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importHeaders imports))
+      map (\(name, ty) -> prettyConStrictFields (Map.findWithDefault [] name (importConStrictFields imports)) <> prettyConRepresentation (Map.findWithDefault HeapConstructor name (importConRepresentations imports)) <> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importHeaders imports))
     synonymEntries =
       map (\(name, ty) -> prettyTopName scopes name <+> "=" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importSynonyms imports))
     axiomEntries =
@@ -134,10 +134,16 @@ prettyConstructors scopes constructors =
 prettyConDecl :: ScopeIndex -> ConDecl -> Doc ann
 prettyConDecl scopes declaration =
   prettyVis (conVis declaration)
+    <> prettyConStrictFields (conStrictFields declaration)
     <> prettyConRepresentation (conRepresentation declaration)
     <> prettyTopName scopes (conName declaration)
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (conType declaration)
+
+prettyConStrictFields :: [Int] -> Doc ann
+prettyConStrictFields fields
+  | null fields = mempty
+  | otherwise = "strict [" <> hsep (punctuate "," (map pretty fields)) <> "] "
 
 prettyConRepresentation :: ConRepresentation -> Doc ann
 prettyConRepresentation representation = case representation of

@@ -28,7 +28,7 @@ expected: |-
     2.sType = 2.tTYPE 2.sLiftedRep
 
   pub type 1.tStrictPair (a : 2.sType) :: 2.sType {
-      pub 1.cStrictPair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tStrictPair a
+      pub strict [0, 1] 1.cStrictPair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tStrictPair a
   }
 
   pub val 1.vmakePair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tStrictPair a
