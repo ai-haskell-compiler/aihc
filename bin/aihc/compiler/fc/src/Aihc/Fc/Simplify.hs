@@ -826,10 +826,15 @@ saturatedCalls name arity = go
 -- is dropped when its right-hand side is a cheap value, because the
 -- evaluation of that value does no work and cannot fail. A lifted
 -- binding with one use outside a lambda, and a lifted function whose one
--- use is a saturated call, move to their use.
+-- use is a saturated call, move to their use. A binding whose body is
+-- only its binder becomes its right-hand side.
 mkLet :: Simpl -> Bind -> Expr -> SimplM Expr
 mkLet env bind body
   | isTrivial rhs = simplifyExpr env (substExpr (Map.singleton name rhs) body)
+  -- A let whose body is its own binder is its right-hand side. This is
+  -- also correct for a strict binding, because the right-hand side is
+  -- evaluated at the same point in both forms.
+  | ExVar var <- body, var == name = pure rhs
   | Occurrences 0 _ <- uses, lifted || isCheapValue (spArity env) rhs = pure body
   | lifted,
     Occurrences 1 False <- uses = do
