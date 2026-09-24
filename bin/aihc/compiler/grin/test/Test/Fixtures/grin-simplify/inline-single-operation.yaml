@@ -1,0 +1,142 @@
+program: |
+  constructor Cons [BoxedRep Lifted, BoxedRep Lifted]
+
+  primitive +# :: IntRep/2
+
+  global cons = (P$cons/2)
+
+  $cons (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+
+  $second (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (y :: BoxedRep Lifted)
+
+  $plus (a :: IntRep) (b :: IntRep) -> IntRep =
+    primitive-call @IntRep +# (a :: IntRep) (b :: IntRep)
+
+  $wrap (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (x :: BoxedRep Lifted) global-ref cons)
+
+  $flip (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $cons (y :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $ping (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $pong (x :: BoxedRep Lifted)
+
+  $pong (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $ping (x :: BoxedRep Lifted)
+
+  $forwarding (x :: BoxedRep Lifted) -> forwarded =
+    call @forwarded $forwarding (x :: BoxedRep Lifted)
+
+  $forwarder (x :: BoxedRep Lifted) -> forwarded =
+    call @forwarded $forwarding (x :: BoxedRep Lifted)
+
+  $store (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $cons (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $chain (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $flip (a :: BoxedRep Lifted) global-ref cons
+
+  $copy (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    c :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $second (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $cons (c :: BoxedRep Lifted) (c :: BoxedRep Lifted)
+
+  $primitive (n :: IntRep) -> IntRep =
+    m :: IntRep <-
+      call @IntRep $plus (n :: IntRep) (1 :: IntRep)
+    call @IntRep $plus (m :: IntRep) (m :: IntRep)
+
+  $known (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    p :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $cons (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+    case (p :: BoxedRep Lifted) as pair :: BoxedRep Lifted of
+      data Cons (h :: BoxedRep Lifted) (t :: BoxedRep Lifted) ->
+        constant (t :: BoxedRep Lifted)
+
+  $applied (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref cons (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $recursive (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    b :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $loop (a :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $ping (b :: BoxedRep Lifted)
+
+  $forward (a :: BoxedRep Lifted) -> IntRep =
+    call @IntRep $forwarder (a :: BoxedRep Lifted)
+
+  $static (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $wrap (a :: BoxedRep Lifted)
+expected: |-
+  constructor Cons [BoxedRep Lifted, BoxedRep Lifted]
+
+  primitive +# :: IntRep/2
+
+  global cons = (P$cons/2)
+
+  $cons (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+
+  $second (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (y :: BoxedRep Lifted)
+
+  $plus (a :: IntRep) (b :: IntRep) -> IntRep =
+    primitive-call @IntRep +# (a :: IntRep) (b :: IntRep)
+
+  $wrap (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (x :: BoxedRep Lifted) global-ref cons)
+
+  $flip (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (y :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+
+  $loop (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $loop (x :: BoxedRep Lifted)
+
+  $ping (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $pong (x :: BoxedRep Lifted)
+
+  $pong (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $ping (x :: BoxedRep Lifted)
+
+  $forwarding (x :: BoxedRep Lifted) -> forwarded =
+    call @forwarded $forwarding (x :: BoxedRep Lifted)
+
+  $forwarder (x :: BoxedRep Lifted) -> forwarded =
+    call @forwarded $forwarding (x :: BoxedRep Lifted)
+
+  $store (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $chain (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons global-ref cons (a :: BoxedRep Lifted))
+
+  $copy (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (b :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $primitive (n :: IntRep) -> IntRep =
+    m :: IntRep <-
+      primitive-call @IntRep +# (n :: IntRep) (1 :: IntRep)
+    primitive-call @IntRep +# (m :: IntRep) (m :: IntRep)
+
+  $known (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (b :: BoxedRep Lifted)
+
+  $applied (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CCons (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $recursive (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    b :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $loop (a :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $ping (b :: BoxedRep Lifted)
+
+  $forward (a :: BoxedRep Lifted) -> IntRep =
+    call @IntRep $forwarding (a :: BoxedRep Lifted)
+
+  $static (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $wrap (a :: BoxedRep Lifted)
+status: pass
+reason: a direct call to a function whose body is one store, constant, primitive call, or call on its parameters is that operation with the arguments in place of the parameters. A body with a global or literal operand stays a call. A call chain stops at a cycle.

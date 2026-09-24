@@ -2,7 +2,7 @@ program: |
   global bind = (P$bindIO/2)
 
   $bindIO (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    constant (x :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
   $saturated (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
     f :: BoxedRep Lifted <-
@@ -22,7 +22,7 @@ expected: |-
   global bind = (P$bindIO/2)
 
   $bindIO (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    constant (x :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
   $saturated (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
     call @(BoxedRep Lifted) $bindIO (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
