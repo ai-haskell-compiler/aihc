@@ -822,13 +822,15 @@ saturatedCalls name arity = go
         ExCast {} -> 0
 
 -- | Build a let from a simplified right-hand side and a simplified body.
--- A lifted binding with no use is dropped. A lifted binding with one use
--- outside a lambda, and a lifted function whose one use is a saturated
--- call, move to their use.
+-- A lifted binding with no use is dropped. A strict binding with no use
+-- is dropped when its right-hand side is a cheap value, because the
+-- evaluation of that value does no work and cannot fail. A lifted
+-- binding with one use outside a lambda, and a lifted function whose one
+-- use is a saturated call, move to their use.
 mkLet :: Simpl -> Bind -> Expr -> SimplM Expr
 mkLet env bind body
   | isTrivial rhs = simplifyExpr env (substExpr (Map.singleton name rhs) body)
-  | lifted, Occurrences 0 _ <- uses = pure body
+  | Occurrences 0 _ <- uses, lifted || isCheapValue (spArity env) rhs = pure body
   | lifted,
     Occurrences 1 False <- uses = do
       copy <- freshenExpr rhs
