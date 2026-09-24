@@ -1,0 +1,112 @@
+program: |
+  primitive newMutVar# :: TupleRep [TupleRep [],BoxedRep Unlifted]/2
+  primitive readMutVar# :: TupleRep [TupleRep [],BoxedRep Lifted]/2
+  primitive writeMutVar# :: TupleRep []/3
+  primitive keep# :: TupleRep []/1
+
+  constructor I# [IntRep]
+  constructor Just [BoxedRep Lifted]
+  constructor Triple [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (2 :: IntRep))
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    first :: BoxedRep Lifted <-
+      store (CJust (one :: BoxedRep Lifted))
+    cell :: BoxedRep Unlifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Unlifted]) newMutVar# (first :: BoxedRep Lifted)
+    second :: BoxedRep Lifted <-
+      store (CJust (first :: BoxedRep Lifted))
+    () <-
+      primitive-call @(TupleRep []) writeMutVar# (cell :: BoxedRep Unlifted) (second :: BoxedRep Lifted)
+    read :: BoxedRep Lifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (cell :: BoxedRep Unlifted)
+    value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (read :: BoxedRep Lifted)
+    field :: BoxedRep Lifted <-
+      case (value :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+        data Just (x :: BoxedRep Lifted) ->
+          eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    lazy :: BoxedRep Lifted <-
+      store (F$delayed)
+    lazyCell :: BoxedRep Unlifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Unlifted]) newMutVar# (lazy :: BoxedRep Lifted)
+    lazyRead :: BoxedRep Lifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (lazyCell :: BoxedRep Unlifted)
+    lazyValue :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (lazyRead :: BoxedRep Lifted)
+    escaped :: BoxedRep Unlifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Unlifted]) newMutVar# (one :: BoxedRep Lifted)
+    () <-
+      primitive-call @(TupleRep []) keep# (escaped :: BoxedRep Unlifted)
+    escapedRead :: BoxedRep Lifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (escaped :: BoxedRep Unlifted)
+    escapedValue :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (escapedRead :: BoxedRep Lifted)
+    store (CTriple (field :: BoxedRep Lifted) (lazyValue :: BoxedRep Lifted) (escapedValue :: BoxedRep Lifted))
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Just [BoxedRep Lifted]
+
+  constructor Triple [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  primitive newMutVar# :: TupleRep [TupleRep [],BoxedRep Unlifted]/2
+
+  primitive readMutVar# :: TupleRep [TupleRep [],BoxedRep Lifted]/2
+
+  primitive writeMutVar# :: TupleRep []/3
+
+  primitive keep# :: TupleRep []/1
+
+  pub global entry = (F$entry)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (2 :: IntRep))
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    first :: BoxedRep Lifted <-
+      store (CJust (one :: BoxedRep Lifted))
+    cell :: BoxedRep Unlifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Unlifted]) newMutVar# (first :: BoxedRep Lifted)
+    second :: BoxedRep Lifted <-
+      store (CJust (first :: BoxedRep Lifted))
+    () <-
+      primitive-call @(TupleRep []) writeMutVar# (cell :: BoxedRep Unlifted) (second :: BoxedRep Lifted)
+    read :: BoxedRep Lifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (cell :: BoxedRep Unlifted)
+    field :: BoxedRep Lifted <-
+      case (read :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+        data Just (x :: BoxedRep Lifted) ->
+          constant (x :: BoxedRep Lifted)
+    lazy :: BoxedRep Lifted <-
+      store (F$delayed)
+    lazyCell :: BoxedRep Unlifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Unlifted]) newMutVar# (lazy :: BoxedRep Lifted)
+    lazyRead :: BoxedRep Lifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (lazyCell :: BoxedRep Unlifted)
+    lazyValue :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (lazyRead :: BoxedRep Lifted)
+    escaped :: BoxedRep Unlifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Unlifted]) newMutVar# (one :: BoxedRep Lifted)
+    () <-
+      primitive-call @(TupleRep []) keep# (escaped :: BoxedRep Unlifted)
+    escapedRead :: BoxedRep Lifted <-
+      primitive-call @(TupleRep [TupleRep [],BoxedRep Lifted]) readMutVar# (escaped :: BoxedRep Unlifted)
+    escapedValue :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (escapedRead :: BoxedRep Lifted)
+    store (CTriple (field :: BoxedRep Lifted) (lazyValue :: BoxedRep Lifted) (escapedValue :: BoxedRep Lifted))
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 2
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: a read of a cell gives only the values that the program put in it, but a cell that escapes can hold any value
