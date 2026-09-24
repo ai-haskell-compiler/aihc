@@ -8,13 +8,11 @@ expected: |
   constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
 
   force (value :: BoxedRep Lifted) (capture :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
-    $cps_return$gc :: BoxedRep Lifted, capture$gc :: BoxedRep Lifted, value$gc :: BoxedRep Lifted <-
-      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted) (value :: BoxedRep Lifted)
-    if-whnf (value$gc :: BoxedRep Lifted)
-      call @(TupleRep []) force_cont ($cps_return$gc :: BoxedRep Lifted) (capture$gc :: BoxedRep Lifted) (value$gc :: BoxedRep Lifted)
+    if-whnf (value :: BoxedRep Lifted)
+      call @(TupleRep []) force_cont ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted) (value :: BoxedRep Lifted)
     else
       $cps_continuation :: BoxedRep Lifted <-
-        store-unchecked (Pforce_cont/1 ($cps_return$gc :: BoxedRep Lifted) (capture$gc :: BoxedRep Lifted))
-      cps-eval @(BoxedRep Lifted) (value$gc :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
+        store-unchecked (Pforce_cont/1 ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted))
+      cps-eval @(BoxedRep Lifted) (value :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
 status: pass
-reason: The WHNF branch calls the shared continuation body directly; the slow branch's frame reservation is hoisted above the test so the function reserves once.
+reason: The WHNF branch calls the shared continuation body directly. The slow branch pushes its frame on the thread stack, so the function needs no heap reservation.

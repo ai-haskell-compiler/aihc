@@ -2,9 +2,10 @@
 
 ## Goals
 
-AIHC exceptions must use the same heap-resident continuation chain as every
-other control transfer. They must not introduce a native stack, a second
-exception stack, sentinel return values, or backend-specific Haskell semantics.
+AIHC exceptions must use the same continuation chain as every other control
+transfer. The frames of this chain are on the thread stacks. They must not
+introduce a native stack, a second exception stack, sentinel return values, or
+backend-specific Haskell semantics.
 
 The intended source interface is the `base` interface built around `Exception`,
 `SomeException`, `throw`, `throwIO`, `catch`, `try`, `mask`, and `throwTo`.
@@ -314,22 +315,25 @@ primitives so that the runtime never has to evaluate or apply a function in
 more than one stage:
 
 - `aihcControl0# tag g` walks the chain from the current continuation to the
-  prompt frame, records the top frame and the prompt frame in a heap node,
-  and applies `g` to that node with the prompt's parent as continuation. `g`
+  prompt frame. The frames between them are on the thread stack, and the
+  stack reuses their bytes when the prompt pops. Thus the capture copies each
+  frame to the managed heap. Each copy keeps its info table and captures, and
+  links to the copy below it. The lowest copy has a null parent. A heap node
+  records the top copy. The primitive then applies `g` to that node with the
+  prompt's parent as continuation. `g`
   closes over the state token, so it has one application stage. The walk
   fails at an update frame, because the thunk it belongs to is not reentrant
   and marks the start of another state thread, and at a stop frame, because
   no prompt with the tag exists. GHC raises an exception in both cases; AIHC
   stops the program, since GHC documents that no program may rely on catching
   that exception.
-- `aihcResume# captured m` copies the recorded frames, top down, onto the
-  current continuation: each copy keeps its info table and captures, its
-  parent link is rewritten to the copy below it, and the lowest copy is
-  linked where the prompt frame used to be. It then applies `m`, which the
-  wrapper has already evaluated, under the copied top. The original frames
-  are never written, which is what makes the capture multi-shot. Capture is
-  therefore constant time and every resume costs the length of the segment;
-  GHC copies at both ends.
+- `aihcResume# captured m` pushes new copies of the recorded frames on the
+  thread stack, from the bottom up. Each pushed copy links to the frame below
+  it, and the lowest copy links where the prompt frame used to be. It then
+  applies `m`, which the wrapper has already evaluated, under the pushed top.
+  The heap copies are never written, which is what makes the capture
+  multi-shot. Capture and resume each cost the length of the segment, as in
+  GHC.
 
 Masking state is not tracked yet, so nothing corresponds to GHC's handling of
 mask frames inside a captured continuation. When restore-mask frames land,

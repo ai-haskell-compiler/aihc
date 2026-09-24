@@ -23,7 +23,7 @@ return: "@0"
 heap: |
   @0 = CResult 42
 allocated-bytes:
-  macos-arm64: 32392
-  linux-amd64: 32392
+  macos-arm64: 32336
+  linux-amd64: 32336
 status: pass
 reason: A final touch must retain the pinned owner across earlier collections.

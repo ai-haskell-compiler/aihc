@@ -1,0 +1,40 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Box/1 [IntRep]
+  constructor Total/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+
+  $sum (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (cell :: BoxedRep Lifted) <- store (CBox (count :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $sum (next :: IntRep)
+        case (cell :: BoxedRep Lifted) as boxed :: BoxedRep Lifted of
+          data Box (value :: IntRep) ->
+            primitive-call @IntRep +# (value :: IntRep) (rest :: IntRep)
+
+  $delayed (depth :: IntRep) -> BoxedRep Lifted =
+    (total :: IntRep) <- call @IntRep $sum (depth :: IntRep)
+    store (CTotal (total :: IntRep))
+
+  $entry -> BoxedRep Lifted =
+    (marker :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))
+    (thunk :: BoxedRep Lifted) <- store (F$delayed (3000 :: IntRep))
+    (evaluated :: BoxedRep Lifted) <- eval-once @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    store (CPair (marker :: BoxedRep Lifted) (evaluated :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = CBox 1
+  @2 = CTotal 4501500
+allocated-bytes:
+  macos-arm64: 48072
+  linux-amd64: 48072
+status: pass
+reason: A single-entry eval enters its thunk with no update frame, so the thunk continues directly to the stack frame of the eval. The thunk then pushes 3000 frames that hold heap cells across more than one stack chunk, and a collection runs at each reservation. The frame of the eval must keep its capture, and the pops must return to it.

@@ -25,7 +25,7 @@ return: "@0"
 heap: |
   @0 = CResult 200
 allocated-bytes:
-  macos-arm64: 68840
-  linux-amd64: 68840
+  macos-arm64: 68816
+  linux-amd64: 68816
 status: pass
 reason: Handles must survive collection and become reclaimable after their last reference disappears.

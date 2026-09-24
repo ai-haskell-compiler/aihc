@@ -982,6 +982,13 @@ design of the AArch64 backend:
 
 - The `aihc` convention is `tailcc`, and a `tailcall` is a `musttail` call
   followed by `ret`, so LLVM verifies that the stack does not grow.
+- A `call` to an `aihc` function that can pass stack arguments goes through
+  a `noinline` shim. Such a call has more than six integer or more than eight
+  float arguments. The shim makes the call and returns immediately. A
+  `tailcc` callee removes its stack arguments. At `-O0`, LLVM for AArch64 can
+  put a spill reload before the caller moves the stack pointer back, and the
+  reload then reads the wrong slot (issue #2254). The shim has no reload
+  after its call.
 - Block parameters are `phi` instructions. Every edge with arguments goes
   through its own block, so a target reached twice from one predecessor has
   one `phi` entry per edge.

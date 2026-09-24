@@ -145,7 +145,7 @@ wordValue :: Text -> GrinValue
 wordValue = GrinVarValue . wordVar
 
 eval :: GrinValue -> GrinExpr
-eval = GrinEval liftedGrinRep
+eval = GrinEval EvalUpdate liftedGrinRep
 
 store :: [GrinValue] -> GrinExpr
 store = GrinStore . GrinNode (GrinConstructor "Box" 0)

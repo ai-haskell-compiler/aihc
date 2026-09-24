@@ -27,7 +27,7 @@ program: |
 return: "200"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 30400
-  linux-amd64: 30400
+  macos-arm64: 17600
+  linux-amd64: 17600
 status: pass
 reason: Unreachable MVars and their values must fit a small heap after repeated allocation and collection.

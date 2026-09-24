@@ -20,7 +20,8 @@ const @AIHC_INFO_BYTES = 6 words
 ; AihcMachine fields used by evaluation. C assertions check these offsets.
 const @AIHC_MACHINE_HEAP_NEXT_OFFSET = 1 word + 16
 const @AIHC_MACHINE_HEAP_LIMIT_OFFSET = 2 words + 16
-const @AIHC_MACHINE_CURRENT_THREAD_OFFSET = 6 words + 48
+const @AIHC_MACHINE_STACK_NEXT_OFFSET = 3 words + 16
+const @AIHC_MACHINE_CURRENT_THREAD_OFFSET = 8 words + 40
 
 ; Two low header bits preserve the original info-table pointer.
 const @AIHC_HEADER_EVALUATING = 1
@@ -67,6 +68,12 @@ const @AIHC_RESUME_RAISE = 3
 ; Heap slots have eight bytes on every target.
 ; Four slots cover a waiter on every target.
 const @AIHC_EVAL_WAITER_WORDS = 4
+const @AIHC_EVAL_WAITER_BYTES = @AIHC_EVAL_WAITER_WORDS * 8
 const @AIHC_UPDATE_FRAME_WORDS = 3
 const @AIHC_UPDATE_FRAME_BYTES = @AIHC_UPDATE_FRAME_WORDS * 8
-const @AIHC_EVAL_THUNK_WORDS = @AIHC_UPDATE_FRAME_WORDS
+
+; Thread stacks are linked lists of chunks. A chunk has this size and this
+; alignment, so the chunk of a frame is its address with the low bits
+; cleared. A push fits in the current chunk when its last byte and the byte
+; before the stack pointer have the same high bits.
+const @AIHC_STACK_CHUNK_BYTES = 4096

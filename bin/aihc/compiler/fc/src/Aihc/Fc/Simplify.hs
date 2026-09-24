@@ -450,7 +450,12 @@ bindingEnv env binder rhs
 -- applied to the alternative binders.
 simplifyAlt :: Simpl -> Expr -> Binder -> Alt -> SimplM Alt
 simplifyAlt env scrutinee binder alternative = do
-  rhs <- simplifyExpr (alternativeEnv env scrutinee binder alternative) (altRhs alternative)
+  let body =
+        case (scrutinee, altCon alternative) of
+          (ExVar name, AltDefault) ->
+            substExpr (Map.singleton name (ExVar (binderName binder))) (altRhs alternative)
+          _ -> altRhs alternative
+  rhs <- simplifyExpr (alternativeEnv env scrutinee binder alternative) body
   pure alternative {altRhs = rhs}
 
 -- | The environment inside an alternative: its type binders are in scope,

@@ -23,7 +23,7 @@ heap: |
   @0 = CPair @1 @1
   @1 = CBox 42
 allocated-bytes:
-  macos-arm64: 160
-  linux-amd64: 160
+  macos-arm64: 48
+  linux-amd64: 48
 status: pass
 reason: A future partial application must retain the static objects that its code can reach before allocation.

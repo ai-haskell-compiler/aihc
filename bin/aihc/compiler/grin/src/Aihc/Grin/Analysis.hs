@@ -22,8 +22,9 @@ freeExprVars expression =
     GrinStoreRecUnchecked bindings body -> freeStoreRecVars bindings body
     GrinUpdate pointer value -> freeValueVars pointer <> freeValueVars value
     GrinUpdateBlackhole pointer value -> freeValueVars pointer <> freeValueVars value
-    GrinEval _ value -> freeValueVars value
-    GrinCpsEval _ value continuation ->
+    GrinEval _ _ value -> freeValueVars value
+    GrinFetch _ value -> freeValueVars value
+    GrinCpsEval _ _ value continuation ->
       freeValueVars value <> freeValueVars continuation
     GrinCall _ _ arguments -> foldMap freeValueVars arguments
     GrinPrimitiveCall _ _ arguments -> foldMap freeValueVars arguments
@@ -94,8 +95,9 @@ maximumProgramVarUnique program =
         GrinStoreRecUnchecked bindings body -> storeRecUniques bindings body
         GrinUpdate pointer value -> concatMap valueUnique [pointer, value]
         GrinUpdateBlackhole pointer value -> concatMap valueUnique [pointer, value]
-        GrinEval _ value -> valueUnique value
-        GrinCpsEval _ value continuation -> concatMap valueUnique [value, continuation]
+        GrinEval _ _ value -> valueUnique value
+        GrinCpsEval _ _ value continuation -> concatMap valueUnique [value, continuation]
+        GrinFetch _ value -> valueUnique value
         GrinCall _ _ arguments -> concatMap valueUnique arguments
         GrinPrimitiveCall _ _ arguments -> concatMap valueUnique arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> concatMap valueUnique (continuation : arguments)

@@ -28,7 +28,7 @@ program: |
 return: "1"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 33816
-  linux-amd64: 33816
+  macos-arm64: 33800
+  linux-amd64: 33800
 status: pass
 reason: A live stable name must permit collection of its dead referent and retain its hash.

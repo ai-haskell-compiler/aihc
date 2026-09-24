@@ -28,7 +28,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 360
-  linux-amd64: 360
+  macos-arm64: 224
+  linux-amd64: 224
 status: pass
 reason: Evaluation of a thunk result must reserve waiter memory before it blocks on a blackhole.

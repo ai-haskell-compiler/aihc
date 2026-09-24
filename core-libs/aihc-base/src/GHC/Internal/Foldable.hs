@@ -1,9 +1,18 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MagicHash #-}
+
+-- The list methods keep their arguments: the arity pass reads the arity
+-- from the body, and an eta-reduced alias is not inlined. The bang
+-- pattern of listFoldl' also makes its eta reduction incorrect.
+{-# HLINT ignore "Eta reduce" #-}
 
 -- | The Foldable class and its instances for the core types. This module
 -- does not import Prelude, so Prelude can export the class methods.
 module GHC.Internal.Foldable
   ( Foldable (..),
+    listFoldl',
+    listLength,
   )
 where
 
@@ -13,10 +22,11 @@ import Data.Kind (Type)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Maybe (..), id, seq, (++), (.))
 import GHC.Base qualified
-import GHC.Int (Int)
+import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))
+import GHC.Prim (Int#, (+#))
 
 class Foldable (t :: Type -> Type) where
   fold :: (Monoid m) => t m -> m
@@ -99,6 +109,29 @@ instance Monoid (Endo a) where
 emptyStructure :: a
 emptyStructure = emptyStructure
 
+-- | The strict left fold of a list. It evaluates the initial accumulator
+-- once, and then each new accumulator before the next step. The step
+-- result goes into a strict case, so no step allocates a thunk for the
+-- accumulator.
+listFoldl' :: (b -> a -> b) -> b -> [a] -> b
+listFoldl' combine !initial values = listFoldlEvaluated combine initial values
+
+-- | The loop of 'listFoldl''. The accumulator is always evaluated.
+listFoldlEvaluated :: (b -> a -> b) -> b -> [a] -> b
+listFoldlEvaluated _ accumulator [] = accumulator
+listFoldlEvaluated combine accumulator (value : values) =
+  case combine accumulator value of
+    !next -> listFoldlEvaluated combine next values
+
+-- | The length of a list. The count is an unboxed accumulator, as in
+-- GHC's @lenAcc@, so the loop allocates nothing.
+listLength :: [a] -> Int
+listLength values = I# (listLengthFrom values 0#)
+
+listLengthFrom :: [a] -> Int# -> Int#
+listLengthFrom [] count = count
+listLengthFrom (_ : values) count = listLengthFrom values (count +# 1#)
+
 instance Foldable [] where
   -- The list fold is the one the fusion rules know, so that a consumer
   -- written with the class method fuses with a producer.
@@ -107,9 +140,9 @@ instance Foldable [] where
   foldl _ initial [] = initial
   foldl f initial (value : values) = foldl f (f initial value) values
 
-  foldl' _ initial [] = initial
-  foldl' f initial (value : values) =
-    initial `seq` foldl' f (f initial value) values
+  foldl' f initial values = listFoldl' f initial values
+
+  length values = listLength values
 
   null [] = True
   null (_ : _) = False

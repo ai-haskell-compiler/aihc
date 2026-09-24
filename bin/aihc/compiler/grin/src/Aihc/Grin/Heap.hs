@@ -40,8 +40,8 @@ normalizeExpr expression =
                 GrinBind vars valueExpression' body'
               )
     -- The WHNF test neither allocates nor collects, so one reservation above
-    -- it covers whichever branch runs. The ready branch pays for the slow
-    -- branch's frame until reservations can hand unused words back.
+    -- it covers whichever branch runs. The continuation frame of the slow
+    -- branch goes on the thread stack and needs no reservation.
     GrinIfWhnf value ready slow ->
       let (readyWords, ready') = normalizeExpr ready
           (slowWords, slow') = normalizeExpr slow
