@@ -6,7 +6,8 @@
 -- copy of a callee, or that the inliner asks for with a copy in hand: a
 -- lambda applied to an argument, a let in the head of an application, the
 -- case of a known constructor or literal, a case on a comparison with a
--- literal, a strict pure primitive call bound twice, a case whose
+-- literal, a strict pure primitive call bound twice, a lifted let that the
+-- case after it forces, a case whose
 -- default alternative is a case on the same value, a case of a case with
 -- join points, and a cast against its symmetry.
 --
@@ -758,6 +759,26 @@ mkLet env bind body
     saturatedCalls name arity body == 1 = do
       copy <- freshenExpr rhs
       simplifyExpr env (substExpr (Map.singleton name copy) body)
+  -- A lifted binding that the case after it evaluates first is that case
+  -- on the right-hand side, whatever the number of uses: the case forces
+  -- the value before any other use, so no thunk is necessary. The other
+  -- uses name the evaluated case binder, under the symmetric casts when
+  -- casts stand between the scrutinee and the bound variable. The body
+  -- is simplified, so the case is built as it is.
+  --
+  -- A right-hand side that is a case, or a let around one, stays a let.
+  -- A case of that case needs the push of 'simplifyCase', which
+  -- simplifies the alternatives again, and without the push the case of
+  -- a case costs more than the thunk. A lambda is a value, so its let
+  -- builds no thunk.
+  | lifted,
+    forcedInPlace rhs,
+    ExCase scrutinee caseBinder resultType alternatives <- body,
+    (ExVar scrutineeName, casts) <- peelCasts scrutinee,
+    scrutineeName == name =
+      let evaluated = List.foldl' (\expr co -> ExCast expr (coSym co)) (ExVar (binderName caseBinder)) (reverse casts)
+          alternatives' = [alternative {altRhs = substExpr (Map.singleton name evaluated) (altRhs alternative)} | alternative <- alternatives]
+       in pure (mkCase (spEnv env) (List.foldl' ExCast rhs casts) caseBinder resultType alternatives')
   | lifted = pure (ExLet bind body)
   -- A strict binding whose one use is the scrutinee of the case that
   -- follows it is that case on the right-hand side: the case evaluates it
@@ -776,6 +797,15 @@ mkLet env bind body
     name = binderName binder
     lifted = isLiftedBinder (spEnv env) binder
     uses = occurrences name body
+    forcedInPlace expr =
+      case expr of
+        ExCast inner _ -> forcedInPlace inner
+        ExLet {} -> False
+        ExRec {} -> False
+        ExCase {} -> False
+        ExLam {} -> False
+        ExTyLam {} -> False
+        _ -> True
 
 -- | Accept a growth of the program: always when nothing grows, and in
 -- budget mode while the allowance and the site limit permit it.

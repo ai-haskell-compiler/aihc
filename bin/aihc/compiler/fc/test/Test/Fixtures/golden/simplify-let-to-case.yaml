@@ -1,0 +1,165 @@
+---
+extensions: []
+modules:
+- |
+  module Test (letFoldl, boxFoldl, firstJust, caseFirstJust, lazyFoldl) where
+  import GHC.Prim (seq)
+  data List a = Nil | Cons a (List a)
+  data Maybe a = Nothing | Just a
+  newtype Box a = Box a
+
+  letFoldl :: (b -> a -> b) -> b -> List a -> b
+  letFoldl combine initial values = case values of
+    Nil -> initial
+    Cons value rest -> let next = combine initial value in next `seq` letFoldl combine next rest
+
+  boxFoldl :: (b -> a -> b) -> b -> List a -> Box b
+  boxFoldl combine initial values = case values of
+    Nil -> Box initial
+    Cons value rest -> let next = combine initial value in Box next `seq` boxFoldl combine next rest
+
+  firstJust :: (a -> Maybe b) -> Maybe b -> List a -> Maybe b
+  firstJust check fallback values = case values of
+    Nil -> fallback
+    Cons value rest -> let found = check value in case found of
+      Nothing -> firstJust check fallback rest
+      Just _ -> found
+
+  caseFirstJust :: (a -> Maybe b) -> Maybe b -> List (Maybe a) -> Maybe b
+  caseFirstJust check fallback values = case values of
+    Nil -> fallback
+    Cons value rest -> let found = case value of { Nothing -> fallback; Just inner -> check inner } in case found of
+      Nothing -> caseFirstJust check fallback rest
+      Just _ -> found
+
+  lazyFoldl :: (b -> a -> b) -> b -> List a -> b
+  lazyFoldl combine initial values = case values of
+    Nil -> initial
+    Cons value rest -> let next = combine initial value in initial `seq` lazyFoldl combine next rest
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tList (a : 2.sType) :: 2.sType {
+      1.cNil :: ∀(a : 2.sType). 1.tList a;
+      1.cCons :: ∀(a : 2.sType). a 2.→ 1.tList a 2.→ 1.tList a
+  }
+
+  type 1.tMaybe (a : 2.sType) :: 2.sType {
+      1.cNothing :: ∀(a : 2.sType). 1.tMaybe a;
+      1.cJust :: ∀(a : 2.sType). a 2.→ 1.tMaybe a
+  }
+
+  type 1.tBox (a : 2.sType) :: 2.sType {}
+
+  axiom 1.$ax$Box (a : 2.sType) : 1.tBox a ~R a
+
+  pub val 1.vletFoldl :: ∀(b : 2.sType) (a : 2.sType). (b 2.→ a 2.→ b) 2.→ b 2.→ 1.tList a 2.→ b
+   = Λ(b : 2.sType).
+    Λ(a : 2.sType).
+      λ(x : b 2.→ a 2.→ b).
+        λ(y : b).
+          λ(z : 1.tList a).
+            case z as (_scrut : 1.tList a) return (b) of {
+                1.cNil →
+                    y;
+                1.cCons (value : a) (rest : 1.tList a) →
+                    case x y value as (seq_evaluated : b) return (b) of {
+                        _ →
+                            1.vletFoldl @b @a x seq_evaluated rest
+                    }
+            }
+
+  pub val 1.vboxFoldl :: ∀(b : 2.sType) (a : 2.sType). (b 2.→ a 2.→ b) 2.→ b 2.→ 1.tList a 2.→ 1.tBox b
+   = Λ(b : 2.sType).
+    Λ(a : 2.sType).
+      λ(x : b 2.→ a 2.→ b).
+        λ(y : b).
+          λ(z : 1.tList a).
+            case z as (_scrut : 1.tList a) return (1.tBox b) of {
+                1.cNil →
+                    y ▷ sym (axiom-co 1.$ax$Box @b);
+                1.cCons (value : a) (rest : 1.tList a) →
+                    case (x y value) ▷ sym (axiom-co 1.$ax$Box @b) as (seq_evaluated : 1.tBox b) return (1.tBox b) of {
+                        _ →
+                            1.vboxFoldl @b @a x (seq_evaluated ▷ axiom-co 1.$ax$Box @b) rest
+                    }
+            }
+
+  pub val 1.vfirstJust :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ 1.tMaybe b) 2.→ 1.tMaybe b 2.→ 1.tList a 2.→ 1.tMaybe b
+   = Λ(a : 2.sType).
+    Λ(b : 2.sType).
+      λ(x : a 2.→ 1.tMaybe b).
+        λ(y : 1.tMaybe b).
+          λ(z : 1.tList a).
+            case z as (_scrut : 1.tList a) return (1.tMaybe b) of {
+                1.cNil →
+                    y;
+                1.cCons (value : a) (rest : 1.tList a) →
+                    case x value as (_scrut{1} : 1.tMaybe b) return (1.tMaybe b) of {
+                        1.cNothing →
+                            1.vfirstJust @a @b x y rest;
+                        1.cJust (_pat : b) →
+                            _scrut{1}
+                    }
+            }
+
+  pub val 1.vcaseFirstJust :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ 1.tMaybe b) 2.→ 1.tMaybe b 2.→ 1.tList (1.tMaybe a) 2.→ 1.tMaybe b
+   = Λ(a : 2.sType).
+    Λ(b : 2.sType).
+      λ(x : a 2.→ 1.tMaybe b).
+        λ(y : 1.tMaybe b).
+          λ(z : 1.tList (1.tMaybe a)).
+            case z as (_scrut : 1.tList (1.tMaybe a)) return (1.tMaybe b) of {
+                1.cNil →
+                    y;
+                1.cCons (value : 1.tMaybe a) (rest : 1.tList (1.tMaybe a)) →
+                    let {
+                        found : 1.tMaybe b =
+                            case value as (_scrut{1} : 1.tMaybe a) return (1.tMaybe b) of {
+                                1.cNothing →
+                                    y;
+                                1.cJust (inner : a) →
+                                    x inner
+                            }
+                    } in
+                        case found as (_scrut{1} : 1.tMaybe b) return (1.tMaybe b) of {
+                            1.cNothing →
+                                1.vcaseFirstJust @a @b x y rest;
+                            1.cJust (_pat : b) →
+                                found
+                        }
+            }
+
+  pub val 1.vlazyFoldl :: ∀(b : 2.sType) (a : 2.sType). (b 2.→ a 2.→ b) 2.→ b 2.→ 1.tList a 2.→ b
+   = Λ(b : 2.sType).
+    Λ(a : 2.sType).
+      λ(x : b 2.→ a 2.→ b).
+        λ(y : b).
+          λ(z : 1.tList a).
+            case z as (_scrut : 1.tList a) return (b) of {
+                1.cNil →
+                    y;
+                1.cCons (value : a) (rest : 1.tList a) →
+                    case y as (seq_evaluated : b) return (b) of {
+                        _ →
+                            1.vlazyFoldl @b @a x (x seq_evaluated value) rest
+                    }
+            }
+status: pass
+reason: A lifted let whose body is a case on the bound variable becomes a case on the right-hand side, also through a cast and with other uses in constructor alternatives. A right-hand side that is a case, and a case on another variable, keep the let.

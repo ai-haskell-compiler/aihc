@@ -92,6 +92,12 @@ For a default case on a variable, the simplifier uses the evaluated case
 binder in the case body. This gives a strict constructor field one use before
 the case. The simplifier can then move a single-use thunk into the case.
 
+A lifted let whose body is a case on the bound variable becomes a case on the
+right-hand side. This rule applies for all numbers of uses, because the case
+evaluates the value before each other use. The other uses name the case
+binder. Casts on the scrutinee stay on the new scrutinee. The uses then get
+the symmetric casts.
+
 ## The inliner
 
 The inliner follows the non-recursive inliner of MLton. It walks the values
