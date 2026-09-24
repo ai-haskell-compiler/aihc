@@ -381,7 +381,7 @@ primPackage = Package "aihc-prim" primPackageId
 
 evalBuiltinScope :: ModuleExports -> Scope
 evalBuiltinScope allExports =
-  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Prim.String", "GHC.Real"]
+  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
   where
     lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name allExports
 

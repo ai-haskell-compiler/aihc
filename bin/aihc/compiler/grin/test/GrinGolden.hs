@@ -189,7 +189,8 @@ preparePrimitiveSupport sources = do
   modules <- traverse (uncurry parsePrimitiveModule) sources
   let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
       exports = collectModuleExportsWithDeps mempty packageModules
-      builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
+      builtinScope = foldr (unionScope . lookupPrimitive) emptyScope ["GHC.Prim", "GHC.Types"]
+      lookupPrimitive name = lookupImportedModule primitivePackage Nothing name exports
   resolved <-
     case resolveUnit builtinScope exports packageModules of
       result@ResolveResult {resolveErrors = []} -> Right result
@@ -246,7 +247,7 @@ fixtureBuiltinScope visibleExports =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name visibleExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum"]
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Types"]
 
 -- | The kind vocabulary of the fixture compiler.
 fixtureWiring :: TcWiring
