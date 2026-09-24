@@ -407,6 +407,9 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- | The System FC passes of the plan, in order. They run on each
     -- module, or on the merged program of a whole-program build.
     compilePasses :: ![Fc.Pass],
+    -- | Run the heap points-to analysis of GRIN and its rewrites on each
+    -- program that the backend lowers. Only a whole-program plan sets it.
+    compileGrinPointsTo :: !Bool,
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
     compileOptimization :: !OptimizationLevel,
@@ -538,6 +541,7 @@ installWith output options = do
             compileCheckPrimBounds = installCheckPrimBounds options,
             compileLto = planWholeProgram levelPlan,
             compilePasses = planPasses levelPlan,
+            compileGrinPointsTo = planGrinPointsTo levelPlan,
             compileNoCode = installNoCode options,
             compileOptimization = installOptimization options,
             compileTarget = target,
@@ -2489,6 +2493,57 @@ lintOptimized config phase name program =
     let errors = Fc.lintProgram program
     unless (null errors) (ioError (userError ("FC lint failed after " <> phase <> " " <> T.unpack name <> ":\n" <> unlines (map (("    " <>) . show) errors))))
 
+-- | Run the heap points-to analysis on a GRIN program, apply the rewrites
+-- that its result permits, and simplify the program again. The analysis
+-- and its rewrites are logged under @--verbose@.
+optimizeGrinPointsTo :: (String -> IO ()) -> Text -> Grin.GrinProgram -> IO Grin.GrinProgram
+optimizeGrinPointsTo verbose name program = do
+  (analysis, analysisNs) <- measureTime (evaluate (Grin.analyzePointsTo program) >>= traverse evaluate)
+  case analysis of
+    Nothing -> do
+      verbose ("points-to GRIN: " <> T.unpack name <> ", skipped: the program holds a form that the analysis does not model")
+      pure program
+    Just result -> do
+      ((optimized, rewrites), rewriteNs) <- measureTime $ do
+        let (rewritten, counts) = Grin.rewriteWithPointsTo result program
+        finished <- either (ioError . userError . ("GRIN points-to rewrite failed: " <>)) pure (Grin.finishGrinProgram rewritten)
+        (,) finished <$> evaluate counts
+      verbose (renderPointsToReport name (Grin.pointsToStats result) rewrites analysisNs rewriteNs)
+      pure optimized
+
+-- | One log line for the points-to analysis: how long the analysis and the
+-- rewrites took, how much work the solver did, and the number of rewrites
+-- of each kind.
+renderPointsToReport :: Text -> Grin.PointsToStats -> Grin.PointsToRewrites -> Word64 -> Word64 -> String
+renderPointsToReport name stats rewrites analysisNs rewriteNs =
+  "points-to GRIN: "
+    <> T.unpack name
+    <> ", analysis "
+    <> renderDuration analysisNs
+    <> " ("
+    <> show (Grin.statsIterations stats)
+    <> " iterations, "
+    <> show (Grin.statsVariables stats)
+    <> " variables, "
+    <> show (Grin.statsSetNodes stats)
+    <> " set nodes, "
+    <> show (Grin.statsLocations stats)
+    <> " locations, "
+    <> show (Grin.statsSharedLocations stats)
+    <> " shared, "
+    <> show (Grin.statsSingleEntryThunks stats)
+    <> " single-entry thunks), rewrites "
+    <> renderDuration rewriteNs
+    <> " ("
+    <> show (Grin.rewritesDeadAlternatives rewrites)
+    <> " dead alternatives, "
+    <> show (Grin.rewritesEvaluatedEvals rewrites)
+    <> " evals of values, "
+    <> show (Grin.rewritesDirectCalls rewrites)
+    <> " direct calls, "
+    <> show (Grin.rewritesSingleEntryEvals rewrites)
+    <> " single-entry evals)"
+
 -- | Lower System FC modules to objects: GRIN, then Lir, then the object of
 -- the target. A module with no declarations gets an empty object. Returns
 -- the time the GRIN phase and the native phase took.
@@ -2546,7 +2601,11 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
       let name = fcModuleName fcModule
           paths = outputPaths name
       verbose ("Lower GRIN: " <> T.unpack (fcModuleName fcModule))
-      plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
+      loweredProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
+      plainProgram <-
+        if compileGrinPointsTo config
+          then optimizeGrinPointsTo verbose name loweredProgram
+          else pure loweredProgram
       when (compileLint config) $ do
         let plainErrors = Grin.lintProgram plainProgram
         unless (null plainErrors) (ioError (userError ("GRIN lint failed in " <> T.unpack (fcModuleName fcModule) <> ": " <> show plainErrors)))

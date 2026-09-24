@@ -120,6 +120,40 @@ ready:
   tailcall @aihc_lir_continue_p(%machine, %continuation, %current)
 }
 
+; Evaluate a value whose thunk, if it has one, no other evaluation reaches.
+; The compiler proved this, and it proved that the thunk gives a value in
+; weak-head normal form. Thus the thunk gets no update frame, no
+; evaluation mark, and no heap reservation: its entry continues directly to
+; the continuation of this evaluation. A value that the ordinary
+; evaluation must look at, such as an indirection or a blackhole, goes to
+; @aihc_lir_eval. These values do not occur when the proof is correct.
+export func @aihc_lir_eval_single_entry(%machine: ptr, %value: ptr, %continuation: ptr) {
+entry:
+  %header_word = call @aihc_object_header_word(%value)
+  %evaluating = call @aihc_header_is_evaluating(%header_word)
+  br %evaluating, shared, inspect
+
+inspect:
+  %header = call @aihc_info_table_of_header(%header_word)
+  %kind = call @aihc_info_kind(%header)
+  switch i64 %kind {
+    @AIHC_OBJECT_THUNK -> enter
+    @AIHC_OBJECT_INDIRECTION -> shared
+    @AIHC_OBJECT_BLACKHOLE -> shared
+    default -> ready
+  }
+
+enter:
+  %entry = call @aihc_info_entry(%header)
+  tailcall.indirect %entry(%machine, %value, %continuation) : (ptr, ptr, ptr)
+
+shared:
+  tailcall @aihc_lir_eval(%machine, %value, %continuation)
+
+ready:
+  tailcall @aihc_lir_continue_p(%machine, %continuation, %value)
+}
+
 ; A null resumption returns control to the host.
 ; Clear the selected record before the next scheduler operation.
 export func @aihc_lir_resume(%machine: ptr, %resume: ptr) {

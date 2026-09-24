@@ -1,0 +1,16 @@
+entry: $entry
+program: |
+  constructor Pair#/2 [IntRep, IntRep]
+
+  $entry -> BoxedRep Lifted =
+    (partial%1 :: BoxedRep Lifted) <- store (CPair#/1 (10 :: IntRep))
+    (first%2 :: IntRep) <- fetch (CPair#/1) (partial%1 :: BoxedRep Lifted)
+    store (CPair# (first%2 :: IntRep) (20 :: IntRep))
+return: "@0"
+heap: |
+  @0 = CPair# 10 20
+allocated-bytes:
+  macos-arm64: 48
+  linux-amd64: 48
+status: pass
+reason: the fields of a partial constructor start one slot later, after the count of the fields that it holds

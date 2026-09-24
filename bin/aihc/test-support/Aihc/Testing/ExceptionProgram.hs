@@ -41,7 +41,7 @@ synchronousExceptionProgram =
             { grinFunctionName = failingActionFunction,
               grinFunctionParameters = [],
               grinFunctionResultRep = ResultRep lifted,
-              grinFunctionBody = GrinEval lifted (global failingThunk)
+              grinFunctionBody = GrinEval EvalUpdate lifted (global failingThunk)
             },
           GrinFunction
             { grinFunctionName = failingThunkFunction,

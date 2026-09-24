@@ -112,10 +112,10 @@ prettyExprWith scopes expr =
       "update" <+> prettyValue scopes pointer <+> prettyValue scopes value
     GrinUpdateBlackhole pointer value ->
       "update-blackhole" <+> prettyValue scopes pointer <+> prettyValue scopes value
-    GrinEval runtimeRep value ->
-      "eval" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue scopes value
-    GrinCpsEval runtimeRep value continuation ->
-      "cps-eval"
+    GrinEval update runtimeRep value ->
+      evalKeyword update "eval" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue scopes value
+    GrinCpsEval update runtimeRep value continuation ->
+      evalKeyword update "cps-eval"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
         <+> hsep (map (prettyValue scopes) [value, continuation])
@@ -186,11 +186,20 @@ prettyExprWith scopes expr =
         <> prettyRuntimeRepArgument runtimeRep
         <+> hsep (map (prettyValue scopes) [action, handler])
         <> prettyValues scopes state
+    GrinFetch tag value ->
+      "fetch" <+> parens (prettyNodeTag scopes tag) <+> prettyValue scopes value
     GrinForeignCallExpr foreignCall arguments ->
       "foreign-call"
         <+> prettyForeignCall scopes foreignCall
         <+> "with"
         <> prettyValues scopes arguments
+
+-- | A single-entry evaluation prints with the suffix @-once@.
+evalKeyword :: GrinEvalUpdate -> Doc ann -> Doc ann
+evalKeyword update keyword =
+  case update of
+    EvalUpdate -> keyword
+    EvalSingleEntry -> keyword <> "-once"
 
 prettyStoreRec :: Scopes -> Doc ann -> [(GrinVar, GrinNode)] -> GrinExpr -> Doc ann
 prettyStoreRec scopes name bindings body =

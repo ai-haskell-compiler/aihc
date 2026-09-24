@@ -74,6 +74,15 @@ data InterpretError
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
   | InterpretBlackhole !Int
+  | -- | An evaluation reached a thunk that a single-entry evaluation had
+    -- already entered. The analysis that chose the single entry was wrong.
+    InterpretSingleEntryReentered !Int
+  | -- | A thunk that a single-entry evaluation entered gave a value that is
+    -- not in weak-head normal form. Without an update frame, nothing
+    -- evaluates that value further.
+    InterpretSingleEntryResult !FunctionName !RuntimeValue
+  | -- | A fetch found a node with a different tag.
+    InterpretFetchTag !GrinNodeTag !RuntimeValue
   | InterpretNoRunnableThreads
   | -- | control0# found no prompt with its tag in the current state thread.
     InterpretNoMatchingPrompt
@@ -196,6 +205,10 @@ data HeapCell
   | HeapValue !RuntimeValue
   | HeapRaised !RuntimeValue
   | HeapBlackhole
+  | -- | A thunk that a single-entry evaluation entered. The native runtime
+    -- leaves such a thunk as it was. The interpreter marks it, so that a
+    -- second evaluation, which the analysis promised cannot occur, fails.
+    HeapEntered
   | -- | A green thread, which carries the number that identifies it.
     HeapThread !Word64
 
@@ -445,9 +458,15 @@ evalScheduledExpr env expr continue =
       result <- updateValue pointerValue updatedValue
       continue [result]
     GrinUpdateBlackhole {} -> rejectCpsExpression
-    GrinEval _ value -> do
+    GrinEval EvalUpdate _ value -> do
       runtimeValue <- materializeValue env value
       forceScheduledValue runtimeValue (continue . (: []))
+    GrinEval EvalSingleEntry _ value -> do
+      runtimeValue <- materializeValue env value
+      forceSingleEntryValue runtimeValue (continue . (: []))
+    GrinFetch tag value -> do
+      runtimeValue <- materializeValue env value
+      continue =<< fetchFields tag runtimeValue
     GrinCpsEval {} -> rejectCpsExpression
     GrinIfWhnf {} -> rejectCpsExpression
     GrinCall _ functionName arguments -> do
@@ -817,6 +836,7 @@ forceScheduledLocation location continue = do
     HeapValue _ -> continue (RuntimeLocation location)
     HeapRaised exception -> raiseScheduled exception
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
+    HeapEntered -> throwInterpret (InterpretSingleEntryReentered location)
     HeapThread _ -> continue (RuntimeLocation location)
   where
     updateThunk original values = do
@@ -831,6 +851,60 @@ forceScheduledLocation location continue = do
         _ -> do
           writeCell location original
           throwInterpret (InterpretInvalidThunkResult values)
+
+-- | Evaluate a value without an update frame. The thunk that this enters
+-- gets the mark 'HeapEntered' in place of an update, and its result goes to
+-- the continuation as it is: the native runtime does not evaluate it again.
+forceSingleEntryValue :: RuntimeValue -> (RuntimeValue -> EvalM [RuntimeValue]) -> EvalM [RuntimeValue]
+forceSingleEntryValue value continue =
+  case value of
+    RuntimeLocation location -> do
+      cell <- readCell location
+      case cell of
+        HeapSuspended functionName fields -> do
+          writeCell location HeapEntered
+          callScheduledFunction functionName fields $ \values ->
+            case values of
+              [result] -> do
+                evaluated <- isWhnfValue result
+                if evaluated
+                  then continue result
+                  else throwInterpret (InterpretSingleEntryResult functionName result)
+              _ -> throwInterpret (InterpretInvalidThunkResult values)
+        _ -> forceScheduledLocation location continue
+    _ -> continue value
+
+-- | Whether a value is in weak-head normal form and not behind an
+-- indirection. The native code gives such a value to a continuation without
+-- another evaluation.
+isWhnfValue :: RuntimeValue -> EvalM Bool
+isWhnfValue value =
+  case value of
+    RuntimeLocation location -> do
+      cell <- readCell location
+      pure $ case cell of
+        HeapValue (RuntimeLocation _) -> False
+        HeapValue _ -> True
+        HeapThread _ -> True
+        _ -> False
+    _ -> pure True
+
+-- | The fields of the node that a value points at. The node must have the
+-- tag that the fetch names.
+fetchFields :: GrinNodeTag -> RuntimeValue -> EvalM [RuntimeValue]
+fetchFields tag value = do
+  node <- fetchValue value
+  case node of
+    RuntimeNode actual fields
+      | sameTag actual -> pure fields
+    _ -> throwInterpret (InterpretFetchTag tag node)
+  where
+    sameTag actual =
+      case (tag, actual) of
+        (GrinConstructor expected expectedRemaining, GrinConstructor name remaining) -> expected == name && expectedRemaining == remaining
+        (GrinClosure expected expectedLayouts, GrinClosure name layouts) -> expected == name && expectedLayouts == layouts
+        (GrinThunk expected, GrinThunk name) -> expected == name
+        _ -> False
 
 matchScheduledAlternative :: Env -> RuntimeValue -> [GrinAlt] -> ScheduledContinuation -> EvalM [RuntimeValue]
 matchScheduledAlternative env value alternatives continue = do
@@ -917,6 +991,7 @@ fetchValue value =
         HeapValue result -> pure result
         HeapRaised exception -> throwE (EvalRaised exception)
         HeapBlackhole -> throwInterpret (InterpretBlackhole location)
+        HeapEntered -> throwInterpret (InterpretSingleEntryReentered location)
         HeapThread _ -> pure (RuntimeLocation location)
     other -> throwInterpret (InterpretExpectedLocation other)
 

@@ -4,8 +4,9 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinGlobal (..), GrinLintError (..), GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram)
+import Aihc.Grin (GrinConstructorDecl (..), GrinGlobal (..), GrinLintError (..), GrinProgram (..), GrinVis (..), InterpretError (..), PointsToRewrites (..), ProgramStreams (..), analyzePointsTo, finishGrinProgram, interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram, rewriteWithPointsTo)
 import Aihc.Grin.Cps (toCpsGrin)
+import Aihc.Grin.Dce (sweptGrinProgram)
 import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
 import Aihc.Grin.Lint (lintGcProgram)
 import Aihc.Grin.Parser qualified as GrinParser
@@ -15,7 +16,7 @@ import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
 import Control.Exception (evaluate)
-import Data.Aeson ((.:))
+import Data.Aeson ((.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.List (sort)
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -47,6 +48,7 @@ tests :: IO TestTree
 tests = do
   lintFixtures <- loadLintFixtures
   simplifyFixtures <- loadSimplifyFixtures
+  pointsToFixtures <- loadPointsToFixtures
   gcFixtures <- loadGcFixtures
   fixtures <- GrinGolden.loadGrinCases
   evalFixtures <- filter (("grin" `elem`) . EvalFixture.evalCaseEvaluators) <$> EvalFixture.loadEvalCases
@@ -59,11 +61,20 @@ tests = do
           Lint.tests,
           testGroup "GRIN lint fixtures" lintFixtures,
           testGroup "GRIN simplify fixtures" simplifyFixtures,
+          testGroup "GRIN points-to fixtures" pointsToFixtures,
           testGroup "GRIN GC fixtures" gcFixtures,
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
           withResource loadGrinEvalEnvironment (const (pure ())) $ \getEnvironment ->
-            testGroup "shared evaluation fixtures via GRIN" (map (evalFixtureTest getEnvironment) evalFixtures)
+            testGroup
+              "shared evaluation fixtures via GRIN"
+              [ testGroup "separate core" (map (evalFixtureTest getEnvironment SeparateCore) evalFixtures),
+                -- The whole program of each fixture, with the rewrites of the
+                -- points-to analysis. The interpreter fails an evaluation of
+                -- a thunk that a single-entry evaluation entered before, so
+                -- these runs check the sharing analysis too.
+                testGroup "whole program with points-to" (map (evalFixtureTest getEnvironment WholeProgramPointsTo) evalFixtures)
+              ]
         ]
     )
 
@@ -150,6 +161,92 @@ checkSimplifyFixture path = do
         then pure (source, expected :: Text)
         else fail "invalid GRIN simplify fixture status"
 
+-- | Analyze each textual GRIN fixture, apply the rewrites of the points-to
+-- analysis, and compare the normalized program and the number of rewrites
+-- of each kind with the fixture. The result must lint. A fixture with
+-- @analysis: skipped@ holds a form that the analysis refuses.
+loadPointsToFixtures :: IO [TestTree]
+loadPointsToFixtures = do
+  root <- getEnv "AIHC_TEST_ROOT"
+  let directory = root </> "bin/aihc/compiler/grin/test/Test/Fixtures/grin-points-to"
+  paths <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory directory
+  pure [testCase path (checkPointsToFixture (directory </> path)) | path <- paths]
+
+checkPointsToFixture :: FilePath -> IO ()
+checkPointsToFixture path = do
+  decoded <- Y.decodeFileEither path
+  case decoded of
+    Left problem -> assertFailure (Y.prettyPrintParseException problem)
+    Right value ->
+      case parseEither parseFixture value of
+        Left problem -> assertFailure problem
+        Right (source, expectation) ->
+          case GrinParser.parseProgram source of
+            Left problem -> assertFailure (GrinParser.renderParseError problem)
+            Right program ->
+              case (analyzePointsTo program, expectation) of
+                (Nothing, Nothing) -> pure ()
+                (Nothing, Just _) -> assertFailure "the analysis refused the program"
+                (Just _, Nothing) -> assertFailure "the analysis accepted a program that the fixture expects it to refuse"
+                (Just analysis, Just (expected, expectedRewrites)) -> do
+                  let (rewritten, rewrites) = rewriteWithPointsTo analysis program
+                      normalized = normalizeGrinProgram rewritten
+                      actual = T.strip (T.pack (renderString (layoutPretty defaultLayoutOptions (prettyProgram normalized))))
+                  case lintProgram normalized of
+                    [] -> pure ()
+                    problems -> assertFailure ("the rewritten program does not lint: " <> show problems)
+                  if actual == T.strip expected
+                    then pure ()
+                    else assertFailure ("output mismatch\nexpected:\n" <> T.unpack expected <> "\nactual:\n" <> T.unpack actual)
+                  let counts = [rewritesDeadAlternatives rewrites, rewritesEvaluatedEvals rewrites, rewritesDirectCalls rewrites, rewritesSingleEntryEvals rewrites]
+                  if counts == expectedRewrites
+                    then pure ()
+                    else assertFailure ("rewrite counts: expected " <> show expectedRewrites <> ", actual " <> show counts)
+  where
+    parseFixture = withObject "GRIN points-to fixture" $ \object -> do
+      source <- object .: "program"
+      status <- object .: "status"
+      reason <- object .: "reason"
+      analysis <- object .:? "analysis"
+      expectation <-
+        case analysis of
+          Just ("skipped" :: Text) -> pure Nothing
+          Just _ -> fail "invalid GRIN points-to fixture analysis"
+          Nothing -> do
+            expected <- object .: "expected"
+            rewrites <- object .: "rewrites"
+            counts <-
+              withObject
+                "rewrites"
+                ( \counts ->
+                    sequence
+                      [ counts .: "dead-alternatives",
+                        counts .: "evals-of-values",
+                        counts .: "direct-calls",
+                        counts .: "single-entry-evals"
+                      ]
+                )
+                rewrites
+            pure (Just (expected :: Text, counts :: [Int]))
+      if status == ("pass" :: Text) && not (T.null reason)
+        then pure (source :: Text, expectation)
+        else fail "invalid GRIN points-to fixture status"
+
+-- | Make the binding the one public global of a whole program, drop what it
+-- does not reach, and run the points-to analysis and its rewrites, as a
+-- whole-program build does.
+optimizeWholeProgram :: Text -> GrinProgram -> Either String GrinProgram
+optimizeWholeProgram binding program = do
+  swept <-
+    sweptGrinProgram
+      program
+        { grinGlobals = [global {grinGlobalVis = if grinGlobalName global == binding then GrinPub else GrinPrivate} | global <- grinGlobals program],
+          grinConstructors = [constructor {grinConstructorVis = GrinPrivate} | constructor <- grinConstructors program]
+        }
+  case analyzePointsTo swept of
+    Nothing -> Left "the points-to analysis refused the program"
+    Just analysis -> finishGrinProgram (fst (rewriteWithPointsTo analysis swept))
+
 -- | Check explicit roots and relocated results after the GC stage.
 loadGcFixtures :: IO [TestTree]
 loadGcFixtures = do
@@ -227,13 +324,22 @@ fixtureTest fixture = testCase (GrinGolden.caseId fixture) $
     (GrinGolden.OutcomeXPass, details) -> assertFailure ("unexpected pass: " <> details)
     (GrinGolden.OutcomeFail, details) -> assertFailure details
 
-evalFixtureTest :: IO GrinEvalEnvironment -> EvalFixture.EvalCase -> TestTree
-evalFixtureTest getEnvironment fixture = testCase (EvalFixture.evalCaseId fixture) $ do
+-- | How the program of an evaluation fixture gets its core library.
+data GrinEvalMode
+  = -- | Lower the fixture alone and put it after the core GRIN.
+    SeparateCore
+  | -- | Merge the fixture with the System FC of the core library, keep what
+    -- the binding reaches, lower the result as one program, and run the
+    -- points-to analysis on it.
+    WholeProgramPointsTo
+
+evalFixtureTest :: IO GrinEvalEnvironment -> GrinEvalMode -> EvalFixture.EvalCase -> TestTree
+evalFixtureTest getEnvironment mode fixture = testCase (EvalFixture.evalCaseId fixture) $ do
   environment <- getEnvironment
   (outcome, details) <-
     EvalFixture.evaluateEvalCase
       (grinEvalFrontend environment)
-      (evaluateGrin (grinEvalCore environment))
+      (evaluateGrin mode environment)
       fixture
   case outcome of
     EvalFixture.OutcomePass -> pure ()
@@ -242,21 +348,43 @@ evalFixtureTest getEnvironment fixture = testCase (EvalFixture.evalCaseId fixtur
     EvalFixture.OutcomeFail -> assertFailure details
 
 -- | The program writes its standard output to the given handle.
-evaluateGrin :: GrinProgram -> EvalFixture.ProgramEvaluator
-evaluateGrin coreProgram output name program =
+evaluateGrin :: GrinEvalMode -> GrinEvalEnvironment -> EvalFixture.ProgramEvaluator
+evaluateGrin mode environment output name program =
   case prepareEvalProgram name program of
     Left problem -> pure (Left (EvalFixture.EvaluationError problem))
-    Right (prepared, unwrapResult) -> evaluatePrepared prepared unwrapResult
+    Right (prepared, unwrapResult) ->
+      case mode of
+        SeparateCore -> evaluateSeparate prepared unwrapResult
+        WholeProgramPointsTo -> evaluateWhole prepared unwrapResult
   where
-    evaluatePrepared prepared unwrapResult =
+    evaluateSeparate prepared unwrapResult =
       case lowerProgram prepared of
         Left problem -> pure (Left (EvalFixture.EvaluationError problem))
         Right fixtureProgram ->
           case lintProgram fixtureProgram of
-            [] ->
-              fmap unwrapResult . classifyResult
-                <$> interpreter streams (bindingName name fixtureProgram) (appendGrinProgram coreProgram fixtureProgram)
+            [] -> run unwrapResult fixtureProgram (appendGrinProgram (grinEvalCore environment) fixtureProgram)
             problems -> pure (Left (EvalFixture.EvaluationError ("GRIN lint error: " <> show problems)))
+    -- The fixture must lower on its own first, as a module does in a build
+    -- that is not whole-program. Pruning would otherwise hide an error in a
+    -- declaration that the binding does not use.
+    evaluateWhole prepared unwrapResult =
+      case ([Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls prepared, Fc.nameText (Fc.valName declaration) == name], lowerProgram prepared) of
+        (_, Left problem) -> pure (Left (EvalFixture.EvaluationError problem))
+        (root : _, Right _) -> do
+          let merged = Fc.pruneProgram [root] (Fc.mergePrograms [EvalFixture.evalEnvironmentProgram (grinEvalFrontend environment), prepared])
+          case lowerProgram merged of
+            Left problem -> pure (Left (EvalFixture.EvaluationError problem))
+            Right lowered -> do
+              let binding = bindingName name lowered
+              case optimizeWholeProgram binding lowered of
+                Left problem -> pure (Left (EvalFixture.EvaluationError problem))
+                Right optimized ->
+                  case lintProgram optimized of
+                    [] -> run unwrapResult optimized optimized
+                    problems -> pure (Left (EvalFixture.EvaluationError ("GRIN lint error after the points-to rewrites: " <> show problems)))
+        ([], Right _) -> pure (Left (EvalFixture.EvaluationError ("missing evaluation binding " <> T.unpack name)))
+    run unwrapResult named whole =
+      fmap unwrapResult . classifyResult <$> interpreter streams (bindingName name named) whole
     streams = ProgramStreams {programStdin = stdin, programStdout = output, programStderr = stderr}
     interpreter
       | evalBindingIsIo name program = interpretProgramIoBinding
