@@ -65,6 +65,7 @@ module Aihc.Fc.Arity
   )
 where
 
+import Aihc.Fc.Fold (isCheapPrimitive)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
@@ -296,7 +297,8 @@ exprCost env expr = if isCheap env expr then IsCheap else IsExpensive
 
 -- | An expression that does no work when it is evaluated: a literal, a
 -- variable, a lambda, a constructor or partial application of cheap
--- arguments, or a case or let made of cheap parts. This is GHC's
+-- arguments, a cheap primitive call on cheap arguments, or a case or let
+-- made of cheap parts. This is GHC's
 -- @exprIsCheap@.
 --
 -- A case on a cheap scrutinee whose alternatives are all cheap does no
@@ -324,6 +326,12 @@ isCheap env expr =
               let AT lams = fromMaybe topArityType (Map.lookup name (envSigs env))
                in length [() | Right _ <- arguments] < length lams && all cheapArgument arguments
         _ -> False
+    -- A primitive call that does one machine operation on cheap
+    -- arguments costs no more to repeat than to share.
+    ExForeignCall call [] arguments ->
+      foreignCallConvention call == Prim
+        && isCheapPrimitive (nameText (foreignCallName call))
+        && all (isCheap env) arguments
     ExLet bind body ->
       isCheap env (bindRhs bind)
         && isCheap (extendSig env (binderName (bindBinder bind)) (arityType env (bindRhs bind))) body

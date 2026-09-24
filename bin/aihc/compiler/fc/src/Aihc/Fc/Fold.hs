@@ -24,6 +24,7 @@ module Aihc.Fc.Fold
     foldedPrimitives,
     foldForeignCall,
     hasLiteralPrimitiveCall,
+    isCheapPrimitive,
   )
 where
 
@@ -72,6 +73,15 @@ foldPrimitive name arguments = do
         (Just rep, PrimInt actual _) -> rep == actual
         (Nothing, PrimChar _) -> True
         _ -> False
+
+-- | Whether a primitive is one machine operation that cannot fail, has
+-- no side effect, and does not allocate. Such a call may be repeated at
+-- each entry to a lambda, which is GHC's @primOpIsCheap@. The folded
+-- primitives are all of this kind, except a division, which can fail.
+isCheapPrimitive :: Text -> Bool
+isCheapPrimitive name =
+  Map.member name table
+    && name `notElem` ["quotInt#", "remInt#", "quotWord#", "remWord#"]
 
 table :: Map Text (Signature, [PrimLiteral] -> Maybe PrimLiteral)
 table =
