@@ -2009,11 +2009,15 @@ resolveTermUse name = do
   scope <- currentScope
   resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name
 
+-- | Resolve a term name that has its own place in the source, such as an
+-- infix operator. The parser gives the name the span of its token. A name
+-- without a span takes the start of the enclosing syntax.
 resolveTermUseAtName :: Name -> ResolveM Name
 resolveTermUseAtName name = do
   sp <- currentSpan
   scope <- currentScope
-  resolveNameTo (spanStartNameSpan sp (nameText name)) ResolutionNamespaceTerm (resolveTermName scope name) name
+  let nameSpan = sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan sp (nameText name)
+  resolveNameTo nameSpan ResolutionNamespaceTerm (resolveTermName scope name) name
 
 resolveInfixExpr :: Expr -> ResolveM Expr
 resolveInfixExpr expr = do
