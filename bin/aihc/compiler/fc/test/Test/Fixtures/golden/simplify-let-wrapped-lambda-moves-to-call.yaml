@@ -1,0 +1,46 @@
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Types (Char (..))
+
+  run :: ([Char] -> [Char]) -> [Char] -> [Char]
+  run g = let x = let c = C# 'a'# in \y -> c : y in \z -> x (g z)
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tChar :: 3.sType;
+    2.tChar# :: 3.tTYPE 3.cWordRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cC# :: FUN @3.cWordRep @3.sLiftedRep 2.tChar# 3.tChar;
+    3.cLifted :: 3.tLevity;
+    3.cWordRep :: 3.tRuntimeRep
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub val 1.vrun :: (3.t[] 3.tChar 3.→ 3.t[] 3.tChar) 3.→ 3.t[] 3.tChar 3.→ 3.t[] 3.tChar
+   = λ(x : 3.t[] 3.tChar 3.→ 3.t[] 3.tChar).
+    let {
+        c : 3.tChar =
+            3.cC# 'a'#3.cWordRep
+    } in
+        λ(z : 3.t[] 3.tChar).
+          3.c: @3.tChar c (x z)
+status: pass
+reason: The inner let floats out of the right side, so the right side is a lambda whose one use is a saturated call, and the lambda moves to its call.
