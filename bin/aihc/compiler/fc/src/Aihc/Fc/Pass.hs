@@ -78,7 +78,7 @@ runPass roots pass program =
               { reportPass = passName pass,
                 reportBefore = programSize program,
                 reportAfter = programSize expanded,
-                reportDetail = count (reportExpandedValues report) "values" <> ", " <> count (reportAddedLambdas report) "lambdas added"
+                reportDetail = count (reportExpandedValues report) "values" <> ", " <> count (reportExpandedLocals report) "locals" <> ", " <> count (reportAddedLambdas report) "lambdas added"
               }
           )
     PassInline policy rounds phase ->

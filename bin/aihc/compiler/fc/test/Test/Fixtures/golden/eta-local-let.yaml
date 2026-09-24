@@ -1,0 +1,139 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Prim (RealWorld, State#)
+  import GHC.Types (Bool (..), Int (..))
+
+  newtype Eff a = Eff (State# RealWorld -> a)
+
+  step :: Int -> Eff Int
+  step n = Eff (\s -> n)
+
+  andThen :: Eff Int -> Eff Int -> Eff Int
+  andThen (Eff f) (Eff g) = Eff (\s -> case f s of I# _ -> g s)
+
+  choose :: Bool -> Bool
+  choose flag = case flag of
+    True -> False
+    False -> True
+
+  run :: Bool -> (Int -> Int, Eff Int)
+  run flag =
+    let next = case flag of
+          True -> step (I# 1#)
+          False -> step (I# 2#)
+        pick = case choose flag of
+          True -> \x -> x
+          False -> \x -> I# 0#
+     in ( \y -> pick (pick y),
+          andThen next (case flag of
+            True -> next
+            False -> step (I# 3#))
+        )
+passes:
+- eta
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Tuple
+  scope 4 = "aihc-prim" GHC.Types
+
+  import headers
+    4.tBool :: 4.sType;
+    4.tInt :: 4.sType;
+    2.tInt# :: 4.tTYPE 4.cIntRep;
+    4.tLevity :: 4.sType;
+    4.sLiftedRep :: 4.tRuntimeRep;
+    2.tRealWorld :: 4.sType;
+    4.tRuntimeRep :: 4.sType;
+    2.tState# :: ∀(s : 4.sType). 4.tTYPE (4.cTupleRep (4.c[] 4.tRuntimeRep));
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
+    3.tTuple2 :: ∀(a1 : 4.sType) (a2 : 4.sType). 4.sType;
+    4.sType :: 4.sType;
+    4.t[] :: ∀(a : 4.sType). 4.sType;
+    3.c(,) :: ∀(a1 : 4.sType) (a2 : 4.sType). a1 4.→ a2 4.→ 3.tTuple2 a1 a2;
+    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.cFalse :: 4.tBool;
+    4.cI# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 4.tInt;
+    4.cIntRep :: 4.tRuntimeRep;
+    4.cLifted :: 4.tLevity;
+    4.cTrue :: 4.tBool;
+    4.cTupleRep :: 4.t[] 4.tRuntimeRep 4.→ 4.tRuntimeRep;
+    4.c[] :: ∀(a : 4.sType). 4.t[] a
+
+  import synonyms
+    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
+    4.sType = 4.tTYPE 4.sLiftedRep
+
+  type 1.tEff (a : 4.sType) :: 4.sType {}
+
+  axiom 1.$ax$Eff (a : 4.sType) : 1.tEff a ~R FUN @(4.cTupleRep (4.c[] 4.tRuntimeRep)) @4.sLiftedRep (2.tState# 2.tRealWorld) a
+
+  val 1.vstep :: 4.tInt 4.→ 1.tEff 4.tInt
+   = λ(x : 4.tInt).
+    (λ(s : 2.tState# 2.tRealWorld).
+      x) ▷ sym (axiom-co 1.$ax$Eff @4.tInt)
+
+  val 1.vandThen :: 1.tEff 4.tInt 4.→ 1.tEff 4.tInt 4.→ 1.tEff 4.tInt
+   = λ(x : 1.tEff 4.tInt).
+    λ(y : 1.tEff 4.tInt).
+      (λ(eta{2} : 2.tState# 2.tRealWorld).
+        let {
+            f : FUN @(4.cTupleRep (4.c[] 4.tRuntimeRep)) @4.sLiftedRep (2.tState# 2.tRealWorld) 4.tInt =
+                x ▷ axiom-co 1.$ax$Eff @4.tInt
+        } in
+            let {
+                g : FUN @(4.cTupleRep (4.c[] 4.tRuntimeRep)) @4.sLiftedRep (2.tState# 2.tRealWorld) 4.tInt =
+                    y ▷ axiom-co 1.$ax$Eff @4.tInt
+            } in
+                case f eta{2} as (_scrut : 4.tInt) return (4.tInt) of {
+                    4.cI# (_pat : 2.tInt#) →
+                        g eta{2}
+                }) ▷ sym (axiom-co 1.$ax$Eff @4.tInt)
+
+  val 1.vchoose :: 4.tBool 4.→ 4.tBool
+   = λ(x : 4.tBool).
+    case x as (_scrut : 4.tBool) return (4.tBool) of {
+        4.cTrue →
+            4.cFalse;
+        4.cFalse →
+            4.cTrue
+    }
+
+  pub val 1.vrun :: 4.tBool 4.→ 3.tTuple2 (4.tInt 4.→ 4.tInt) (1.tEff 4.tInt)
+   = λ(x : 4.tBool).
+    let {
+        pick : 4.tInt 4.→ 4.tInt =
+            case 1.vchoose x as (_scrut : 4.tBool) return (4.tInt 4.→ 4.tInt) of {
+                4.cTrue →
+                    λ(x{1} : 4.tInt).
+                      x{1};
+                4.cFalse →
+                    λ(x{1} : 4.tInt).
+                      4.cI# 0#4.cIntRep
+            }
+    } in
+        let {
+            next : 1.tEff 4.tInt =
+                (λ(eta{3} : 2.tState# 2.tRealWorld).
+                  case x as (_scrut : 4.tBool) return (4.tInt) of {
+                      4.cTrue →
+                          ((1.vstep (4.cI# 1#4.cIntRep)) ▷ axiom-co 1.$ax$Eff @4.tInt) eta{3};
+                      4.cFalse →
+                          ((1.vstep (4.cI# 2#4.cIntRep)) ▷ axiom-co 1.$ax$Eff @4.tInt) eta{3}
+                  }) ▷ sym (axiom-co 1.$ax$Eff @4.tInt)
+        } in
+            3.c(,) @(4.tInt 4.→ 4.tInt) @(1.tEff 4.tInt) (λ(y : 4.tInt).
+              pick (pick y)) (1.vandThen next ((λ(eta{4} : 2.tState# 2.tRealWorld).
+              case x as (_scrut : 4.tBool) return (4.tInt) of {
+                  4.cTrue →
+                      (next ▷ axiom-co 1.$ax$Eff @4.tInt) eta{4};
+                  4.cFalse →
+                      ((1.vstep (4.cI# 3#4.cIntRep)) ▷ axiom-co 1.$ax$Eff @4.tInt) eta{4}
+              }) ▷ sym (axiom-co 1.$ax$Eff @4.tInt)))
+status: pass
+reason: A local binding and an argument expand as a top-level value does. 'next' is a case on a variable whose alternatives are partial applications of an Eff action, so it takes the state token and becomes a closure, not a thunk. The second argument of 'andThen' is a case of the same kind and expands too. The scrutinee of 'pick' is a call, and its lambda is not one-shot, so an expansion would repeat that call and 'pick' stays as it is.
