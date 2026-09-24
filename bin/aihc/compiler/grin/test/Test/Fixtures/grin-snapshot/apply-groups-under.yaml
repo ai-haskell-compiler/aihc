@@ -1,0 +1,21 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $wide (a%2 :: IntRep) (b%3 :: IntRep) (c%4 :: IntRep) (d%5 :: IntRep) (e%6 :: IntRep) (f%7 :: IntRep) (g%8 :: IntRep) (h%9 :: IntRep) (i%10 :: IntRep) (x%11 :: IntRep) (y%12 :: IntRep) (z%13 :: IntRep) -> IntRep =
+    (ab%14 :: IntRep) <- primitive-call @IntRep +# (a%2 :: IntRep) (i%10 :: IntRep)
+    (abx%15 :: IntRep) <- primitive-call @IntRep +# (ab%14 :: IntRep) (x%11 :: IntRep)
+    (abxy%16 :: IntRep) <- primitive-call @IntRep +# (abx%15 :: IntRep) (y%12 :: IntRep)
+    primitive-call @IntRep +# (abxy%16 :: IntRep) (z%13 :: IntRep)
+
+  $entry -> IntRep =
+    (function%17 :: BoxedRep Lifted) <- store (P$wide/[[IntRep],[IntRep],[IntRep]] (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep))
+    (partial%18 :: BoxedRep Lifted) <- apply @(BoxedRep Lifted) (function%17 :: BoxedRep Lifted) (100 :: IntRep) (200 :: IntRep)
+    apply @IntRep (partial%18 :: BoxedRep Lifted) (300 :: IntRep)
+return: "610"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 176
+  linux-amd64: 176
+status: pass
+reason: an application whose groups supply fewer arguments than the closure takes builds one partial application that copies the nine captured fields once

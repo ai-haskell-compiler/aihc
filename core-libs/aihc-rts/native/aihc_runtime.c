@@ -794,15 +794,23 @@ void aihc_reset_heap_allocated_bytes(AihcMachine *machine) {
   machine->heap_allocated_bytes = 0;
 }
 
-/* The next stage of a closure. Closures keep a chain of info tables: each
-   stage names the slots it holds and points at the stage after it. */
+/* The stage of a closure after the given number of stages. Closures keep a
+   chain of info tables: each stage names the slots it holds and points at
+   the stage after it. */
 const AihcInfo *aihc_next_application_info(const AihcInfo *info,
+                                           uint64_t stages,
                                            uint64_t supplied_count) {
-  const AihcInfo *next = info->next;
-  if (info->remaining_arity == 0 || next == NULL ||
-      next->remaining_arity + 1 != info->remaining_arity ||
-      next->field_count < info->field_count ||
-      next->field_count - info->field_count != supplied_count) {
+  const AihcInfo *next = info;
+  for (uint64_t stage = 0; stage < stages; ++stage) {
+    const AihcInfo *current = next;
+    next = current->next;
+    if (current->remaining_arity == 0 || next == NULL ||
+        next->remaining_arity + 1 != current->remaining_arity ||
+        next->field_count < current->field_count) {
+      aihc_fail("application does not match static info-table transition");
+    }
+  }
+  if (next->field_count - info->field_count != supplied_count) {
     aihc_fail("application does not match static info-table transition");
   }
   return next;
@@ -825,12 +833,14 @@ const AihcInfo *aihc_applied_constructor_info(const AihcInfo *info,
   return applied == saturated->field_count ? saturated : info;
 }
 
-/* Extend one object by the given slots. A closure grows into the next stage
-   of its own chain; a partial constructor keeps its single shared info table
-   until the last slot arrives and it becomes the saturated constructor. */
+/* Extend one object by the given slots. A closure grows by the given number
+   of stages of its own chain; a partial constructor keeps its single shared
+   info table until the last slot arrives and it becomes the saturated
+   constructor. */
 static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
                                         AihcValue **value_pointer,
-                                        uint64_t count, const AihcSlot *fields,
+                                        uint64_t stages, uint64_t count,
+                                        const AihcSlot *fields,
                                         AihcValue **continuation_pointer) {
   AihcValue *value = *value_pointer;
   const AihcInfo *info = aihc_value_info_table(value);
@@ -839,7 +849,7 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
       partial ? aihc_partial_applied(value) : info->field_count;
   const AihcInfo *next_info =
       partial ? aihc_applied_constructor_info(info, original_count + count)
-              : aihc_next_application_info(info, count);
+              : aihc_next_application_info(info, stages, count);
   /* Both stages of a constructor index the saturated bitmap, so the pointer
      map of the arriving slots is the same array either way. */
   const uint8_t *field_is_pointer = next_info->field_is_pointer;
@@ -1185,7 +1195,8 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 
 AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
-                           uint64_t count, const AihcSlot *arguments,
+                           uint64_t stages, uint64_t count,
+                           const AihcSlot *arguments,
                            AihcValue **continuation) {
   if (function == NULL) {
     aihc_fail("attempted to apply null");
@@ -1199,17 +1210,17 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
   switch (aihc_value_kind(function)) {
   case AIHC_OBJECT_CLOSURE: {
     uint64_t arity = aihc_value_arity(function);
-    if (arity <= 1) {
+    if (arity <= stages) {
       aihc_fail("closure application does not require the slow path");
     }
-    return aihc_copy_with_fields(machine, &function, count, arguments,
+    return aihc_copy_with_fields(machine, &function, stages, count, arguments,
                                  continuation);
   }
   case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
     if (aihc_partial_applied(function) + count > aihc_partial_total(function)) {
       aihc_fail("constructor application overruns the constructor");
     }
-    return aihc_copy_with_fields(machine, &function, count, arguments,
+    return aihc_copy_with_fields(machine, &function, stages, count, arguments,
                                  continuation);
   }
   case AIHC_OBJECT_NODE:

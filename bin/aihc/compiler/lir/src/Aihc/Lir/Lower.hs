@@ -279,7 +279,12 @@ data Helper
   | HelperQuotRem2
   | HelperCStringLength
   | HelperContinue ![Type]
-  | HelperApply ![Type]
+  | -- | Apply one to 'grinApplyGroupLimit' argument groups to a function.
+    HelperApply ![[Type]]
+  | -- | The code of the frame that an over-saturated application pushes: it
+    -- applies the function that arrives to the argument groups the frame
+    -- holds.
+    HelperApplyFrame ![[Type]]
   | -- | Continue with one value that arrives as a raw slot: the runtime
     -- does not know whether it is a pointer, so the info table decides.
     HelperContinueSlot
@@ -296,7 +301,8 @@ helperSymbol helper =
     HelperQuotRem2 -> "aihc_lir_quotrem2"
     HelperCStringLength -> "aihc_lir_cstring_length"
     HelperContinue shape -> "aihc_lir_continue_" <> shapeName shape
-    HelperApply shape -> "aihc_lir_apply_" <> shapeName shape
+    HelperApply groups -> "aihc_lir_apply_" <> groupsName groups
+    HelperApplyFrame groups -> "aihc_lir_apply_frame_" <> groupsName groups
     HelperContinueSlot -> "aihc_lir_continue_slot"
     HelperApplySlot -> "aihc_lir_apply_slot"
 
@@ -304,6 +310,23 @@ shapeName :: [Type] -> Text
 shapeName = T.pack . map letter
   where
     letter ty = if ty == Ptr then 'p' else 'i'
+
+-- | One group keeps the name of its shape. Several groups separate their
+-- shapes with underscores and name an empty group @v@, so the two forms
+-- cannot give the same name.
+groupsName :: [[Type]] -> Text
+groupsName groups =
+  case groups of
+    [shape] -> shapeName shape
+    _ -> T.intercalate "_" (map groupName groups)
+  where
+    groupName shape = if null shape then "v" else shapeName shape
+
+-- | The two info tables of the frame an over-saturated application pushes
+-- for the given argument groups.
+applyFrameInfoSymbol, applyFrameAppliedInfoSymbol :: [[Type]] -> Symbol
+applyFrameInfoSymbol groups = Symbol ("aihc_lir_apply_frame_" <> groupsName groups <> "_info")
+applyFrameAppliedInfoSymbol groups = Symbol ("aihc_lir_apply_frame_" <> groupsName groups <> "_applied_info")
 
 -- | An open block under construction.
 data OpenBlock = OpenBlock
@@ -462,17 +485,22 @@ lowerEnvironment options gcProgram =
         Just target <- [Map.lookup name functionSymbols]
       ]
     targetParameters name = Map.findWithDefault [] name functionParameters
+    -- A closure stage takes all its remaining groups in one entry. An
+    -- application supplies at most 'grinApplyGroupLimit' groups, so a stage
+    -- that wants more has no entry: an apply helper never enters it.
     runtimeEnter target name key =
       case key of
-        ClosureRuntimeInfo _ fields [supplied] ->
-          Just
-            RuntimeEnter
-              { enterTarget = target,
-                enterStored = map repType fields,
-                enterSupplied = map repType supplied,
-                enterTargetParameters = targetParameters name,
-                enterPassesContinuation = name `Set.notMember` continuationFunctions
-              }
+        ClosureRuntimeInfo _ fields layouts
+          | not (null layouts),
+            length layouts <= grinApplyGroupLimit ->
+              Just
+                RuntimeEnter
+                  { enterTarget = target,
+                    enterStored = map repType fields,
+                    enterSupplied = map repType (concat layouts),
+                    enterTargetParameters = targetParameters name,
+                    enterPassesContinuation = name `Set.notMember` continuationFunctions
+                  }
         ThunkRuntimeInfo _ fields ->
           Just
             RuntimeEnter
@@ -538,7 +566,10 @@ helperSignature helper = case helper of
   HelperEvalSingleEntry -> signature [Ptr, Ptr, Ptr] []
   HelperResume -> signature [Ptr, Ptr] []
   HelperContinue shape -> signature (Ptr : Ptr : shape) []
-  HelperApply shape -> signature (Ptr : Ptr : Ptr : shape) []
+  HelperApply groups -> signature (Ptr : Ptr : Ptr : concat groups) []
+  -- The frame stores its parent and the values of the groups. The applied
+  -- function arrives after them.
+  HelperApplyFrame groups -> signature (Ptr : Ptr : concat groups <> [Ptr]) []
   HelperExit -> signature [Ptr] []
   HelperContinueSlot -> signature [Ptr, Ptr, I64] []
   HelperApplySlot -> signature [Ptr, Ptr, Ptr, I64] []
@@ -553,7 +584,9 @@ sharedHelperSignature helper =
   case helper of
     HelperExit -> Nothing
     HelperContinue shape | not (common shape) -> Nothing
-    HelperApply shape | not (common shape) -> Nothing
+    HelperApply [shape] | common shape -> Just (helperSignature helper)
+    HelperApply _ -> Nothing
+    HelperApplyFrame _ -> Nothing
     _ -> Just (helperSignature helper)
   where
     common shape = shape `elem` [[], [Ptr], [I64]]
@@ -885,7 +918,7 @@ sharedEnterSymbol enter
 -- | The shapes @aihc_enter.lir@ defines.
 sharedEnterMaxStored, sharedEnterMaxSupplied :: Int
 sharedEnterMaxStored = 8
-sharedEnterMaxSupplied = 1
+sharedEnterMaxSupplied = 4
 
 -- | The dynamic entry of one enterable object. It loads the stored fields,
 -- takes the supplied values as parameters, and tail-calls the code.
@@ -1148,13 +1181,14 @@ compileExpr ctx env expression =
       operands <- zipWithM coerce parameters values
       terminate (TailCall target (ctxMachine ctx : operands))
     GrinCpsPrimitiveCall runtimeRep name arguments continuation -> compileCpsPrimitive ctx env runtimeRep name arguments continuation
-    GrinCpsApply _ function [arguments] continuation -> do
+    GrinCpsApply _ function groups continuation -> do
+      when (null groups || length groups > grinApplyGroupLimit) $
+        unsupported "an application with no argument group or with too many argument groups"
       functionOperand <- pointerValue ctx env function
       continuationOperand <- pointerValue ctx env continuation
-      values <- mapM (materialize ctx env) arguments
-      apply <- requireHelper (HelperApply (map typedType values))
-      terminate (TailCall apply (ctxMachine ctx : functionOperand : continuationOperand : map typedOperand values))
-    GrinCpsApply {} -> unsupported "an application of more than one argument group"
+      values <- mapM (mapM (materialize ctx env)) groups
+      apply <- requireHelper (HelperApply (map (map typedType) values))
+      terminate (TailCall apply (ctxMachine ctx : functionOperand : continuationOperand : map typedOperand (concat values)))
     GrinContinue continuation values -> do
       continuationOperand <- pointerValue ctx env continuation
       typedValues <- mapM (materialize ctx env) values
@@ -1638,7 +1672,7 @@ lowerCallbackPool call signature = do
     closure <- callRuntime "aihc_callback_closure" [Ptr] [Ptr] [frame]
     continuation <- callRuntime "aihc_callback_continuation" [Ptr] [Ptr] [frame]
     converted <- zipWithM (\foreignTy (value, ty) -> extendForeignResult foreignTy (Typed (OperandVar value) ty)) (grinForeignArgumentTypes signature) arguments
-    apply <- requireHelper (HelperApply rawTypes)
+    apply <- requireHelper (HelperApply [rawTypes])
     emit [] (Call apply (machine : closure : continuation : map typedOperand converted))
     result <- callRuntime "aihc_callback_leave" [Ptr] [I64] [frame]
     returned <- mapM (\ty -> coerce ty (Typed result I64)) results
@@ -2706,7 +2740,7 @@ entryItems _ = do
     final <- fresh "final"
     result <- fresh "result"
     beginBlock (Label "entry") []
-    apply <- requireHelper (HelperApply [])
+    apply <- requireHelper (HelperApply [[]])
     terminate (TailCall apply [OperandVar machine, OperandVar result, OperandVar final])
     finishFunction topTarget Internal [(machine, Ptr), (final, Ptr), (result, Ptr)] [] AihcConvention
   do
@@ -2821,7 +2855,7 @@ generateHelper env helper =
             (Signature (Ptr : Ptr : Ptr : shape) [] AihcConvention)
         )
       finishFunction symbol Internal ((machine, Ptr) : (continuation, Ptr) : values) [] AihcConvention
-    HelperApply shape -> do
+    HelperApply [shape] -> do
       target <- targetM
       let word = toInteger (lowerWordSize target)
       machine <- fresh "machine"
@@ -2860,15 +2894,114 @@ generateHelper env helper =
         storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
       -- The continuation slot is a C pointer variable, not a heap slot.
       emit [] (Store Ptr (OperandVar continuation) (byteAddress continuationSlot 0) (wordAlignment 1))
-      applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt (toInteger (length shape))), arguments, continuationSlot]
+      applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt 1), OperandLiteral (LitInt (toInteger (length shape))), arguments, continuationSlot]
       adjusted <- emitValue "adjusted" Ptr (Load Ptr (byteAddress continuationSlot 0) (wordAlignment 1))
       continue <- requireHelper (HelperContinue [Ptr])
       terminate (TailCall continue [OperandVar machine, typedOperand adjusted, applied])
       finishFunction symbol Internal ((machine, Ptr) : (function, Ptr) : (continuation, Ptr) : values) [] AihcConvention
+    -- Several groups, as the eval/apply model of GHC does it. A closure
+    -- whose remaining arity equals the group count takes every value in its
+    -- entry. A closure that takes k < n groups gets the first k groups, and
+    -- a frame that holds the other groups becomes its continuation. Any
+    -- other function goes to the runtime, which builds one partial
+    -- application.
+    HelperApply groups -> do
+      target <- targetM
+      let word = toInteger (lowerWordSize target)
+          count = length groups
+      machine <- fresh "machine"
+      function <- fresh "function"
+      continuation <- fresh "continuation"
+      valueGroups <- forM groups (mapM (\ty -> (,ty) <$> fresh "value"))
+      let values = concat valueGroups
+      beginBlock (Label "entry") []
+      arguments <- if null values then pure (OperandLiteral LitNull) else typedOperand <$> emitValue "arguments" Ptr (StackAlloc (toInteger (8 * length values)) (byteAlignment 8))
+      continuationSlot <- typedOperand <$> emitValue "slot" Ptr (StackAlloc word (wordAlignment 1))
+      terminate (Jump (Target (Label "loop") [OperandVar function]))
+      current <- fresh "current"
+      beginBlock (Label "loop") [(current, Ptr)]
+      header <- loadHeader (OperandVar current)
+      kind <- loadInfoByte "kind" header infoObjectKindByte
+      isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
+      terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "apply") []))
+      beginBlock (Label "indirection") []
+      next <- loadSlot "next" Ptr (OperandVar current) 8
+      terminate (Jump (Target (Label "loop") [typedOperand next]))
+      beginBlock (Label "apply") []
+      isClosure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
+      terminate (Branch (typedOperand isClosure) (Target (Label "arity") []) (Target (Label "slow") []))
+      beginBlock (Label "arity") []
+      arity <- loadInfoByte "arity" header infoRemainingArityByte
+      terminate
+        ( Switch
+            I64
+            (typedOperand arity)
+            ( SwitchCase (toInteger count) (Target (Label "exact") [])
+                : [SwitchCase (toInteger taken) (Target (overLabel taken) []) | taken <- [1 .. count - 1]]
+            )
+            (Just (Target (Label "slow") []))
+        )
+      beginBlock (Label "exact") []
+      entry <- loadInfoCode "entry" header infoBackendEntryIndex
+      terminate
+        ( TailCallIndirect
+            (typedOperand entry)
+            (OperandVar machine : OperandVar current : OperandVar continuation : [OperandVar var | (var, _) <- values])
+            (Signature (Ptr : Ptr : Ptr : concat groups) [] AihcConvention)
+        )
+      forM_ [1 .. count - 1] $ \taken -> do
+        beginBlock (overLabel taken) []
+        let (supplied, held) = splitAt taken valueGroups
+        applyOverSaturated machine (OperandVar current) (OperandVar continuation) header supplied held
+      beginBlock (Label "slow") []
+      forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
+        storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
+      -- The continuation slot is a C pointer variable, not a heap slot.
+      emit [] (Store Ptr (OperandVar continuation) (byteAddress continuationSlot 0) (wordAlignment 1))
+      applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt (toInteger count)), OperandLiteral (LitInt (toInteger (length values))), arguments, continuationSlot]
+      adjusted <- emitValue "adjusted" Ptr (Load Ptr (byteAddress continuationSlot 0) (wordAlignment 1))
+      continue <- requireHelper (HelperContinue [Ptr])
+      terminate (TailCall continue [OperandVar machine, typedOperand adjusted, applied])
+      finishFunction symbol Internal ((machine, Ptr) : (function, Ptr) : (continuation, Ptr) : values) [] AihcConvention
+    -- The frame applies the function that arrives to the groups it holds,
+    -- with the parent as the continuation.
+    HelperApplyFrame groups -> do
+      continuationInfoItems (ContinuationSpec (applyFrameInfoSymbol groups) (applyFrameAppliedInfoSymbol groups) symbol (Ptr : concat groups) [Ptr] ContinuationFrameNormal)
+      machine <- fresh "machine"
+      parent <- fresh "parent"
+      values <- forM (concat groups) $ \ty -> (,ty) <$> fresh "value"
+      applied <- fresh "applied"
+      beginBlock (Label "entry") []
+      apply <- requireHelper (HelperApply groups)
+      terminate (TailCall apply (OperandVar machine : OperandVar applied : OperandVar parent : [OperandVar var | (var, _) <- values]))
+      finishFunction symbol Internal ((machine, Ptr) : (parent, Ptr) : values <> [(applied, Ptr)]) [] AihcConvention
     _ -> failWith (LowerUnsupportedExpression "internal: shared helper requested a local definition")
   where
     symbol = helperSymbol helper
     loadHeader object = typedOperand <$> loadObjectInfo object
+    overLabel taken = Label ("over_" <> T.pack (show taken))
+
+-- | The block of an apply helper for a closure that takes fewer groups than
+-- the application supplies. It pushes a frame that holds the other groups
+-- on the stack of the thread, then enters the closure with the groups it
+-- takes. A push does not collect, so no value moves.
+applyOverSaturated :: Var -> Operand -> Operand -> Operand -> [[(Var, Type)]] -> [[(Var, Type)]] -> LowerM ()
+applyOverSaturated machine function continuation header supplied held = do
+  let heldTypes = map (map snd) held
+      heldValues = concat held
+  _ <- requireHelper (HelperApplyFrame heldTypes)
+  frame <- pushFrame (OperandVar machine) (2 + length heldValues)
+  storeSlot Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) (typedOperand frame) 0
+  storeSlot Ptr continuation (typedOperand frame) 8
+  forM_ (zip [0 :: Int ..] heldValues) $ \(index, (var, ty)) ->
+    storeSlot ty (OperandVar var) (typedOperand frame) (toInteger (8 * (index + 2)))
+  entry <- loadInfoCode "entry" header infoBackendEntryIndex
+  terminate
+    ( TailCallIndirect
+        (typedOperand entry)
+        (OperandVar machine : function : typedOperand frame : [OperandVar var | (var, _) <- concat supplied])
+        (Signature (Ptr : Ptr : Ptr : map snd (concat supplied)) [] AihcConvention)
+    )
 
 -- | The word fields of an info table precede its byte fields. See the
 -- "Info tables" section of @docs/lir.md@.

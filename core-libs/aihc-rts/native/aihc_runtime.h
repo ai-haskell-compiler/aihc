@@ -399,9 +399,12 @@ AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial);
 void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value);
 /* State and allocation helpers used by native code. None of these functions
    transfers control to a generated user function. */
+/* Apply `stages` argument groups with `count` slots in total. The function
+   must take more groups than the application supplies, or be a partial
+   constructor. The result is one partial application. */
 AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
-                           uint64_t count, const AihcSlot *arguments,
-                           AihcValue **continuation);
+                           uint64_t stages, uint64_t count,
+                           const AihcSlot *arguments, AihcValue **continuation);
 /* Consume at most fourteen reserved heap slots without collection. */
 /* Consume at most four reserved heap slots without collection. */
 const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,

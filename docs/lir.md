@@ -355,8 +355,11 @@ types `T...` are the Lir types of the supplied values, so a call site with
 `n` supplied values states a signature with `n` value parameters. A
 continuation object ignores the continuation parameter. The function loads
 the stored fields, takes the supplied values as parameters, and tail-calls
-the code of the object. When every stored field and every supplied value is
-a `ptr`, with at most eight stored fields and at most one supplied value,
+the code of the object. A closure stage takes the values of all its
+remaining argument groups. Only a closure stage with a remaining arity from
+one to four has an entry, because one application supplies at most four
+groups. When every stored field and every supplied value is
+a `ptr`, with at most eight stored fields and at most four supplied values,
 the field names a shared function of the runtime unit `aihc_enter.lir`,
 which reaches the code through the `identity` field. Every other shape gets
 one generated function per enterable object.
@@ -778,7 +781,7 @@ The units are:
 
 - `aihc_enter.lir` defines the shared enter functions `aihc_lir_enter_S_V`
   and `aihc_lir_enter_S_V_k` for `S` stored pointers up to eight and `V`
-  supplied pointers up to one; the `_k` form passes the continuation to the
+  supplied pointers up to four; the `_k` form passes the continuation to the
   code. See "Info tables".
 - `aihc_array.lir` holds the info table of a boxed array, `aihc_array_new`,
   and the bulk operations: copy, clone, shrink, and resize. The lowering

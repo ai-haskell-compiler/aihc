@@ -1,0 +1,15 @@
+entry: $entry
+program: |
+  constructor I#/1 [IntRep]
+  constructor Triple/3 [BoxedRep Lifted, IntRep, BoxedRep Lifted]
+
+  $entry -> BoxedRep Lifted =
+    (x%1 :: BoxedRep Lifted) <- store (CI# (1 :: IntRep))
+    (function%2 :: BoxedRep Lifted) <- store (CTriple/3)
+    apply @(BoxedRep Lifted) (function%2 :: BoxedRep Lifted) (x%1 :: BoxedRep Lifted) (2 :: IntRep)
+return: "@0"
+heap: |
+  @0 = CTriple/1 @1 2
+  @1 = CI# 1
+status: pass
+reason: several groups applied to a partial constructor fill its slots in one step

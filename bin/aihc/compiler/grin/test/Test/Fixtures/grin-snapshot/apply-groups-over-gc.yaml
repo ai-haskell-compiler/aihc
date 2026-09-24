@@ -1,0 +1,27 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor I#/1 [IntRep]
+  constructor Triple/3 [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  $finish (a%1 :: BoxedRep Lifted) (b%2 :: BoxedRep Lifted) (c%3 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CTriple (a%1 :: BoxedRep Lifted) (b%2 :: BoxedRep Lifted) (c%3 :: BoxedRep Lifted))
+
+  $first (a%4 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (padding%5 :: BoxedRep Lifted) <- store (CI# (0 :: IntRep))
+    store (P$finish/2 (a%4 :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    (function%6 :: BoxedRep Lifted) <- store (P$first/1)
+    (x%7 :: BoxedRep Lifted) <- store (CI# (1 :: IntRep))
+    (y%8 :: BoxedRep Lifted) <- store (CI# (2 :: IntRep))
+    (z%9 :: BoxedRep Lifted) <- store (CI# (3 :: IntRep))
+    apply @(BoxedRep Lifted) (function%6 :: BoxedRep Lifted) (x%7 :: BoxedRep Lifted) (y%8 :: BoxedRep Lifted) (z%9 :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CTriple @1 @2 @3
+  @1 = CI# 1
+  @2 = CI# 2
+  @3 = CI# 3
+status: pass
+reason: the frame that holds the other groups of an over-saturated application keeps its pointer arguments across a collection

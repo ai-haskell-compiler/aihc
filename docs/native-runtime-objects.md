@@ -185,16 +185,31 @@ Application changes the header to the statically known next table.
 Ordinary objects share this static metadata.
 A thunk under evaluation retains its original info table and payload.
 
-The Lir lowering gives saturated closure stages an apply entry, the
-`backend_entry` of the info table. Apply sites pass the machine, the closure,
-the continuation, and the supplied values in the `aihc` convention and
-tail-call that entry. The entry loads captured fields directly from the
-closure, takes the supplied values as parameters, and tail-calls the target
-function. A stage whose fields and supplied values are all pointers shares
-one of the runtime's enter functions, which reaches the target through the
-identity field of the table; any other stage gets a generated stub.
-Non-saturating closures, partial constructors, and invalid applications
-leave the apply entry empty and use the shared C slow path.
+The Lir lowering gives each closure stage with a remaining arity from one to
+four an apply entry, the `backend_entry` of the info table. The entry takes
+the values of all remaining argument groups of the stage. Apply sites pass
+the machine, the closure, the continuation, and the supplied values in the
+`aihc` convention and tail-call that entry. The entry loads captured fields
+directly from the closure, takes the supplied values as parameters, and
+tail-calls the target function. A stage whose fields and supplied values are
+all pointers shares one of the runtime's enter functions, which reaches the
+target through the identity field of the table; any other stage gets a
+generated stub.
+
+One application supplies from one to four argument groups, as in the GHC
+eval/apply model. The apply helper for the shape of the groups compares the
+remaining arity of a closure with the group count:
+
+- The arity is equal to the group count: the helper tail-calls the entry
+  with all the values.
+- The arity `k` is less than the group count: the helper pushes a normal
+  continuation frame on the thread stack. The frame holds the parent
+  continuation and the other groups. Then it tail-calls the
+  entry with the first `k` groups and the frame as the continuation. The
+  frame applies the result to the groups it holds.
+- The arity is more than the group count, or the function is a partial
+  constructor: the shared C slow path builds one
+  partial application with all the supplied values.
 
 Primitive operations have no heap-object tag. A partially applied primitive is
 lowered to an ordinary closure whose generated entry makes the saturated

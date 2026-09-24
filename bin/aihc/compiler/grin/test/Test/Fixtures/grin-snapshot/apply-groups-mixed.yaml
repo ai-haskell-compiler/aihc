@@ -1,0 +1,20 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $mixed (a%2 :: IntRep) (b%3 :: IntRep) (c%4 :: IntRep) (d%5 :: IntRep) -> IntRep =
+    (ab%6 :: IntRep) <- primitive-call @IntRep +# (a%2 :: IntRep) (b%3 :: IntRep)
+    (abc%7 :: IntRep) <- primitive-call @IntRep +# (ab%6 :: IntRep) (c%4 :: IntRep)
+    primitive-call @IntRep +# (abc%7 :: IntRep) (d%5 :: IntRep)
+
+  $entry -> IntRep =
+    (function%8 :: BoxedRep Lifted) <- store (P$mixed/[[IntRep],[IntRep,IntRep],[],[IntRep]])
+    (partial%9 :: BoxedRep Lifted) <- apply @(BoxedRep Lifted) (function%8 :: BoxedRep Lifted) (1 :: IntRep) ((2 :: IntRep) (3 :: IntRep))
+    apply @IntRep (partial%9 :: BoxedRep Lifted) () (4 :: IntRep)
+return: "10"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 40
+  linux-amd64: 40
+status: pass
+reason: groups with several values and an empty group follow the stage layouts of the closure
