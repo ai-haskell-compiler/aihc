@@ -4,6 +4,7 @@
 -- | Conservative lowering from System FC to GRIN.
 module Aihc.Grin.Lower
   ( lowerProgram,
+    finishGrinProgram,
   )
 where
 
@@ -103,28 +104,31 @@ lowerProgram program = do
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
     mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
-  -- Normalizing first gives the simplifier flat bind spines, and normalizing
-  -- again folds the copy binds it leaves behind. Sweeping between the two
-  -- drops what simplification orphaned, so the rest of the pipeline never
-  -- sees it and 'tidyGrinProgram' renumbers only what survives.
-  swept <-
-    sweptGrinProgram
-      ( simplifyGrinProgram
-          ( normalizeGrinProgram
-              GrinProgram
-                { grinConstructors = topConstructors parts,
-                  grinPrimitives = Map.elems (lowerPrimitives finalState),
-                  grinForeignCalls = Map.elems (lowerForeignCalls finalState),
-                  grinGlobals =
-                    topGlobals parts
-                      -- A static closure exists only because a private
-                      -- function of this module is used as a value, so no
-                      -- other module can name it.
-                      <> [GrinGlobal name node GrinPrivate | (name, node) <- Map.toList (lowerValueGlobals finalState)],
-                  grinFunctions = reverse (lowerFunctionsRev finalState)
-                }
-          )
-      )
+  finishGrinProgram
+    GrinProgram
+      { grinConstructors = topConstructors parts,
+        grinPrimitives = Map.elems (lowerPrimitives finalState),
+        grinForeignCalls = Map.elems (lowerForeignCalls finalState),
+        grinGlobals =
+          topGlobals parts
+            -- A static closure exists only because a private
+            -- function of this module is used as a value, so no
+            -- other module can name it.
+            <> [GrinGlobal name node GrinPrivate | (name, node) <- Map.toList (lowerValueGlobals finalState)],
+        grinFunctions = reverse (lowerFunctionsRev finalState)
+      }
+
+-- | Simplify a program, drop what nothing reaches, and renumber its
+-- variables. Lowering does this, and so does each pass that rewrites a
+-- lowered program.
+--
+-- Normalizing first gives the simplifier flat bind spines, and normalizing
+-- again folds the copy binds it leaves behind. Sweeping between the two
+-- drops what simplification orphaned, so the rest of the pipeline never
+-- sees it and 'tidyGrinProgram' renumbers only what survives.
+finishGrinProgram :: GrinProgram -> Either String GrinProgram
+finishGrinProgram program = do
+  swept <- sweptGrinProgram (simplifyGrinProgram (normalizeGrinProgram program))
   pure (tidyGrinProgram (normalizeGrinProgram swept))
 
 lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
@@ -330,7 +334,7 @@ lowerForeignWrapper env call specification axioms constructors argumentTypes val
     if resultRep == TupleRep []
       then do
         forced <- freshVar "callback_unit" resultSourceRep
-        pure (GrinBind [forced] (GrinEval resultSourceRep (GrinVarValue result)) (GrinConstant []))
+        pure (GrinBind [forced] (GrinEval EvalUpdate resultSourceRep (GrinVarValue result)) (GrinConstant []))
       else adaptForeignOperands env axioms constructors [((resultSource, GrinVarValue result), resultRep)] (pure . GrinConstant)
   body <- applyCallback (GrinVarValue captured) sourceValues' result resultSourceRep finish
   boxedBody <- boxArguments (zip sourceArguments sourceGroups) raw body
@@ -352,11 +356,11 @@ lowerForeignWrapper env call specification axioms constructors argumentTypes val
       expression <- adaptForeignResult env axioms constructors source (grinVarRuntimeRep boxed) (grinVarRuntimeRep raw) (GrinConstant [GrinVarValue raw])
       pure (GrinBind [boxed] expression inner)
     boxArguments _ _ _ = throwLower "callback argument layouts do not match the C ABI"
-    applyCallback function [] result representation finish = pure (GrinBind [result] (GrinEval representation function) finish)
+    applyCallback function [] result representation finish = pure (GrinBind [result] (GrinEval EvalUpdate representation function) finish)
     applyCallback function groups result representation finish = do
       evaluated <- freshVar "callback_function" liftedGrinRep
       applied <- applyArgumentGroups (ResultRep representation) (GrinVarValue evaluated) groups
-      pure (GrinBind [evaluated] (GrinEval liftedGrinRep function) (GrinBind [result] applied finish))
+      pure (GrinBind [evaluated] (GrinEval EvalUpdate liftedGrinRep function) (GrinBind [result] applied finish))
 
 -- | The function of a foreign import that takes every argument of the
 -- import. The module has one such function for each import that it applies
@@ -431,7 +435,7 @@ lowerRunRW resultRep action = do
   pure
     ( GrinBind
         [evaluatedAction]
-        (GrinEval liftedGrinRep action)
+        (GrinEval EvalUpdate liftedGrinRep action)
         (GrinApply resultRep (GrinVarValue evaluatedAction) [[]])
     )
 
@@ -555,7 +559,7 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
           pure
             ( GrinBind
                 [evaluated]
-                (GrinEval liftedGrinRep value)
+                (GrinEval EvalUpdate liftedGrinRep value)
                 ( GrinCase
                     (GrinVarValue evaluated)
                     caseBinder
@@ -697,7 +701,7 @@ lowerVariable env name = do
     Just variables ->
       if isLiftedRuntimeRep representation
         then case variables of
-          [variable] -> pure (GrinEval representation (GrinVarValue variable))
+          [variable] -> pure (GrinEval EvalUpdate representation (GrinVarValue variable))
           _ -> throwLower ("GRIN expected one lifted local value: " <> show name)
         else pure (GrinConstant (map GrinVarValue variables))
     Nothing
@@ -715,7 +719,7 @@ lowerVariable env name = do
           GrinConstant . pure . GrinGlobalValue <$> valueGlobalName env name
       | otherwise -> do
           globalName <- lookupGlobalName env name
-          pure (GrinEval representation (GrinGlobalValue globalName))
+          pure (GrinEval EvalUpdate representation (GrinGlobalValue globalName))
 
 -- | The partial-application node of a private top-level function, or
 -- 'Nothing' for a name that has a global of its own.
@@ -993,7 +997,7 @@ lowerSpecialApplication env resultRep name arguments =
     ("unsafeCoerce#", value : _) ->
       lowerArgument env value $ \values ->
         case values of
-          [result] | resultRep == liftedResultRep -> pure (GrinEval liftedGrinRep result)
+          [result] | resultRep == liftedResultRep -> pure (GrinEval EvalUpdate liftedGrinRep result)
           _ -> pure (GrinConstant values)
     ("raise#", exception : _) ->
       lowerLazy env "exception" exception (pure . GrinThrow)
@@ -1025,7 +1029,7 @@ lowerSpecialApplication env resultRep name arguments =
     ("seq#", value : state : _) -> do
       placedRep <- placedResult
       lowerLazy env "seq_value" value $ \valueThunk ->
-        lowerArgument env state (const (pure (GrinEval placedRep valueThunk)))
+        lowerArgument env state (const (pure (GrinEval EvalUpdate placedRep valueThunk)))
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
   where
     -- The primitives that place their result need its layout.
@@ -1055,13 +1059,13 @@ lowerCatch resultRep action handler stateValues = do
           -- has raised, as 'catch#' promises.
           GrinBind
             [evaluatedHandler]
-            (GrinEval liftedGrinRep (GrinVarValue handlerCapture))
+            (GrinEval EvalUpdate liftedGrinRep (GrinVarValue handlerCapture))
             ( GrinBind
                 [handlerAction]
                 (GrinApply liftedResultRep (GrinVarValue evaluatedHandler) [[GrinVarValue exception]])
                 ( GrinBind
                     [evaluatedAction]
-                    (GrinEval liftedGrinRep (GrinVarValue handlerAction))
+                    (GrinEval EvalUpdate liftedGrinRep (GrinVarValue handlerAction))
                     (GrinApply (ResultRep resultRep) (GrinVarValue evaluatedAction) [map GrinVarValue stateCaptures])
                 )
             )

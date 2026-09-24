@@ -1,0 +1,22 @@
+entry: $entry
+program: |
+  constructor I32#/1 [Int32Rep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $delayed -> BoxedRep Lifted =
+    store (CI32# (7 :: Int32Rep))
+
+  $entry -> BoxedRep Lifted =
+    (thunk%1 :: BoxedRep Lifted) <- store (F$delayed)
+    (evaluated%2 :: BoxedRep Lifted) <- eval-once @(BoxedRep Lifted) (thunk%1 :: BoxedRep Lifted)
+    store (CPair (thunk%1 :: BoxedRep Lifted) (evaluated%2 :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = F$delayed
+  @2 = CI32# 7
+allocated-bytes:
+  macos-arm64: 56
+  linux-amd64: 56
+status: pass
+reason: a single-entry eval enters the thunk without an update frame, so the thunk keeps its node and the result is not an indirection. The update frame that eval.yaml pushes is on the thread stack, so both programs allocate the same heap bytes.

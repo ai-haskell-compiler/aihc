@@ -1,3 +1,7 @@
+-- foldl' and length keep their arguments: the arity pass reads the arity
+-- from the body, and an eta-reduced alias is not inlined.
+{-# HLINT ignore foldl' "Eta reduce" #-}
+{-# HLINT ignore length "Eta reduce" #-}
 module GHC.List
   ( map,
     (++),
@@ -57,7 +61,8 @@ module GHC.List
   )
 where
 
-import Prelude hiding (all, and, any, concat, concatMap, elem, notElem, or)
+import GHC.Internal.Foldable (listFoldl', listLength)
+import Prelude hiding (all, and, any, concat, concatMap, elem, foldl', length, notElem, or)
 
 -- The list-specialised versions GHC's "GHC.List" exports; "Prelude" and
 -- "Data.List" export the 'Foldable' ones.
@@ -98,9 +103,10 @@ unsnoc [] = Nothing
 unsnoc values = Just (init values, last values)
 
 foldl' :: (b -> a -> b) -> b -> [a] -> b
-foldl' _ initial [] = initial
-foldl' combine initial (value : values) =
-  initial `seq` foldl' combine (combine initial value) values
+foldl' combine initial values = listFoldl' combine initial values
+
+length :: [a] -> Int
+length values = listLength values
 
 foldl1' :: (a -> a -> a) -> [a] -> a
 foldl1' _ [] = errorWithoutStackTrace "Prelude.foldl1': empty list"

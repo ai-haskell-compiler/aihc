@@ -1,0 +1,27 @@
+entry: $entry
+rts-arguments: ["+RTS", "-M4096", "-RTS"]
+program: |
+  constructor Total/1 [IntRep]
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+
+  $sum (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $sum (next :: IntRep)
+        primitive-call @IntRep +# (count :: IntRep) (rest :: IntRep)
+
+  $entry -> BoxedRep Lifted =
+    (total :: IntRep) <- call @IntRep $sum (20000 :: IntRep)
+    store (CTotal (total :: IntRep))
+return: "@0"
+heap: |
+  @0 = CTotal 200010000
+allocated-bytes:
+  macos-arm64: 16
+  linux-amd64: 16
+status: pass
+reason: A non-tail recursion 20000 calls deep keeps 20000 continuation frames live. The frames are on the thread stack, which grows by chunks outside the managed heap, so they do not count against a 4096-byte heap limit.

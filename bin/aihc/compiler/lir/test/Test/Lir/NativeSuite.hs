@@ -351,7 +351,7 @@ snapshotProgram fixture =
         [fc] -> do
           program <- Grin.lowerProgram fc
           let name = grinScopedName "" "Test" "value"
-              entry = GrinFunction (FunctionName (snapshotFixtureEntry fixture)) [] liftedResultRep (GrinEval liftedGrinRep (GrinGlobalValue name))
+              entry = GrinFunction (FunctionName (snapshotFixtureEntry fixture)) [] liftedResultRep (GrinEval EvalUpdate liftedGrinRep (GrinGlobalValue name))
               result = program {grinFunctions = entry : grinFunctions program}
           if any ((== name) . grinGlobalName) (grinGlobals program) && null (lintProgram result)
             then Right result

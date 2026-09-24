@@ -1,0 +1,31 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Box/1 [IntRep]
+  constructor Total/1 [IntRep]
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+
+  $sum (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (cell :: BoxedRep Lifted) <- store (CBox (count :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $sum (next :: IntRep)
+        case (cell :: BoxedRep Lifted) as boxed :: BoxedRep Lifted of
+          data Box (value :: IntRep) ->
+            primitive-call @IntRep +# (value :: IntRep) (rest :: IntRep)
+
+  $entry -> BoxedRep Lifted =
+    (total :: IntRep) <- call @IntRep $sum (3000 :: IntRep)
+    store (CTotal (total :: IntRep))
+return: "@0"
+heap: |
+  @0 = CTotal 4501500
+allocated-bytes:
+  macos-arm64: 48016
+  linux-amd64: 48016
+status: pass
+reason: Each of 3000 nested calls keeps a heap cell in its continuation frame on the thread stack, across more than one stack chunk. A collection at each reservation moves the cells, so the collector must find the frames through the continuation chain and update their fields in place.

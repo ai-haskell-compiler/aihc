@@ -20,6 +20,14 @@ module Aihc.Grin
     gcGrinProgram,
     lowerGc,
     lowerProgram,
+    finishGrinProgram,
+    PointsTo,
+    PointsToStats (..),
+    PointsToRewrites (..),
+    analyzePointsTo,
+    pointsToStats,
+    rewriteWithPointsTo,
+    totalPointsToRewrites,
     lintProgram,
     lintCpsProgram,
     lintGcProgram,
@@ -52,7 +60,8 @@ import Aihc.Grin.Cps
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, lowerGc)
 import Aihc.Grin.Interpret (InterpretError (..), ProgramStreams (..), RuntimeValue (..), interpretProgramBinding, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintCpsProgram, lintGcProgram, lintProgram)
-import Aihc.Grin.Lower (lowerProgram)
+import Aihc.Grin.Lower (finishGrinProgram, lowerProgram)
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
+import Aihc.Grin.PointsTo (PointsTo, PointsToRewrites (..), PointsToStats (..), analyzePointsTo, pointsToStats, rewriteWithPointsTo, totalPointsToRewrites)
 import Aihc.Grin.Pretty (prettyProgram)
 import Aihc.Grin.Syntax

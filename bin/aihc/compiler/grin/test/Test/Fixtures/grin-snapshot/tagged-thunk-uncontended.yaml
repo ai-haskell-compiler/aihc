@@ -17,7 +17,7 @@ return: "@0"
 heap: |
   @0 = CDone
 allocated-bytes:
-  macos-arm64: 48
-  linux-amd64: 48
+  macos-arm64: 0
+  linux-amd64: 0
 status: pass
-reason: Two uncontended thunk evaluations need only their update continuations.
+reason: Two uncontended thunk evaluations allocate nothing in the heap. Their update frames are on the thread stack.

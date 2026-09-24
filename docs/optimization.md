@@ -3,7 +3,8 @@
 This document is the design of the optimizer: what each `-O` level is for,
 how a level turns into a plan of passes, how the System FC inliner decides,
 and the rules that keep the passes from becoming a pile of special cases.
-The implementation lives in `bin/aihc/compiler/fc` (the passes) and in
+The implementation lives in `bin/aihc/compiler/fc` (the passes), in
+`Aihc.Grin.PointsTo` (the GRIN analysis), and in
 `Aihc.Cli.OptimizationPlan` (the plans). The document and the code change
 together.
 
@@ -36,7 +37,8 @@ A level conflates three things that are separate in the code:
 
 `Aihc.Cli.OptimizationPlan.optimizationPlan` expands a level and the `--lto`
 flag into an `OptimizationPlan` once, at the command line. The plan holds the
-scope and the list of passes. Everything downstream reads the plan.
+scope, the list of System FC passes, and whether the heap points-to analysis
+of GRIN runs. Everything downstream reads the plan.
 
 **No pass and no driver reads the level.** The level still reaches Clang,
 which gets it for the C sources of a package and for LLVM output, and it is
@@ -73,6 +75,9 @@ The plans are:
 | `-O2` | the same as `-O1`, on the whole program |
 | `-Os` | eta expand, inline `shrinkPolicy` [2], eta expand, simplify [0] |
 
+`-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
+whole program. See "Heap points-to analysis" below.
+
 `-Os` is a prefix of `-O2`: the growing phase of `-O2` starts from the
 program that `-Os` would have produced. Eta expansion runs before the
 inliner so that a value it turns into a function is a saturated call, and
@@ -87,6 +92,10 @@ on a comparison with a literal, common strict primitive calls, case of case
 with join points, and cancelling casts. The inliner calls it on every copy it
 makes, and the plan runs it standalone. A new local rewrite goes there. A new
 rule about *which* copies to make goes in the inliner.
+
+For a default case on a variable, the simplifier uses the evaluated case
+binder in the case body. This gives a strict constructor field one use before
+the case. The simplifier can then move a single-use thunk into the case.
 
 ## The inliner
 
@@ -235,6 +244,65 @@ call: `NOINLINE [1] f` keeps `f` a call through phase 2, where a rule on
 `f` fires, and lets the growing inliner copy it afterwards. `CONLIKE` is
 read and ignored. A recursive value is never copied whatever its pragma.
 
+## Heap points-to analysis
+
+`Aihc.Grin.PointsTo` is the heap points-to analysis of Boquist's GRIN
+thesis, in the inclusion-based form of Andersen's analysis. It runs on the
+GRIN of a whole program, after lowering and before the CPS conversion.
+`Aihc.Cli.Install.optimizeGrinPointsTo` runs it when the plan sets
+`planGrinPointsTo`, and it prints one report line under `--verbose`.
+
+The analysis finds the heap locations that each pointer variable can point
+at. A location is a `store`, a binding of a `store-rec`, an `apply` that
+makes a partial application, a global, or the shared object of a nullary
+constructor. The analysis also finds the nodes of each location and the
+locations of each field. Two locations stand for objects that the program
+cannot see: one that can be a thunk, and one in weak-head normal form. A
+value that a primitive, a foreign call, `catch#`, or the runtime gives is
+one of them. A value that goes to such code, and each public global,
+escapes: the unknown code can read, apply, and evaluate it.
+
+The solver is sequential. A variable, a parameter, a result, and a field
+are each a set node. A copy is an edge. `eval`, `apply`, `case`, and `fetch`
+are triggers on the set node of their operand. The worklist gives each set
+node only its new locations (difference propagation). The solver does not
+merge cycles. The analysis refuses a program that has an explicit `update`,
+because an update can change a value node into an indirection.
+
+The rewrites are:
+
+| Rewrite | Condition |
+| ------- | --------- |
+| Remove a case alternative | No location of the scrutinee holds its constructor. |
+| Replace `eval x` with `x` | Each location of `x` holds only nodes in weak-head normal form. |
+| Replace `apply f a` with `fetch` and `call` | Each location of `f` holds a closure of one function with one argument left. |
+| Replace `eval` with `eval-once` | Each thunk that `eval` can enter is single-entry, and its function gives a value in weak-head normal form. |
+
+A thunk is single-entry when its location is not shared. A location is
+shared when a variable that points at it has two uses, when a shared or an
+escaped node holds it in a field, when it is a static object, or when it is
+the result of a shared thunk. Alternatives count as the largest use of any
+one of them. A case binder and the binders of a default alternative are
+other names for the scrutinee. A program that calls `aihcControl0#` gets no
+single-entry evaluations, because a captured continuation can resume an
+evaluation more than one time.
+
+Each rewrite removes code or replaces a runtime dispatch with a direct
+jump. An `eval` that CPS would change into `if-whnf` and a continuation
+frame goes away completely. Thus the analysis runs at `-Os` as well as at
+`-O2`. After the rewrites, the program gets the normalization, the
+simplification, the sweep, and the renumbering that lowering gives it.
+
+The report line gives the time of the analysis and of the rewrites, the
+number of solver iterations (set nodes that the worklist gave new
+locations), the numbers of variables, set nodes, locations, shared locations
+and single-entry thunks, and the number of rewrites of each kind.
+
+The fixtures are in `compiler/grin/test/Test/Fixtures/grin-points-to`. The
+shared evaluation fixtures also run as whole programs with the rewrites, in
+the GRIN interpreter. The interpreter marks a thunk that a single-entry
+evaluation entered, and a second evaluation of it fails.
+
 ## Invariants
 
 These are the properties the structure is meant to keep. Each is checkable,
@@ -252,6 +320,16 @@ and a change that breaks one needs a reason in its pull request.
   phase (`simplify: 2`), and an `inline` object a `phase` knob.
 
 ## Not done
+
+- **Faster points-to solving.** The solver does not merge cycles of copy
+  edges, and it does not use more than one core. Constraint generation for
+  each function is independent, so it can run in parallel. The solve can
+  get lazy cycle detection. Measure first: the analysis takes about 100 ms
+  for the largest example.
+- **More precise points-to analysis.** The analysis is not context
+  sensitive, and a value that goes through a mutable reference or an array
+  is unknown. A model of `MutVar#` and array cells per allocation site would
+  keep such values known.
 
 - **Growth in context.** A site's growth is measured on the copy alone. A
   copy that adds tail leaves to a strict let or a case scrutinee multiplies

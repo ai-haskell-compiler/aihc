@@ -205,7 +205,7 @@ transformTail parent bound resultRep continuation expression =
               valueExpression
           let slow = GrinBind [nextVar] (GrinStore (reifiedNode next)) transformedValue
           pure $ case valueExpression of
-            GrinEval _ value ->
+            GrinEval _ _ value ->
               GrinIfWhnf
                 value
                 (GrinCall (ResultRep cpsResultRep) (reifiedEntry next) (reifiedCaptures next <> [value]))
@@ -223,7 +223,7 @@ transformTail parent bound resultRep continuation expression =
       continueDirect (grinValueRuntimeRep value) continuation (GrinUpdate pointer value)
     GrinUpdateBlackhole pointer value ->
       continueDirect (grinValueRuntimeRep value) continuation (GrinUpdateBlackhole pointer value)
-    GrinEval runtimeRep value -> pure (GrinCpsEval runtimeRep value continuation)
+    GrinEval update runtimeRep value -> pure (GrinCpsEval update runtimeRep value continuation)
     GrinIfWhnf {} -> alreadyTransformed
     GrinCpsEval {} -> alreadyTransformed
     GrinCall _ functionName arguments ->
@@ -240,7 +240,7 @@ transformTail parent bound resultRep continuation expression =
               (GrinVarValue promptVar)
               ( GrinBind
                   [evaluatedAction]
-                  (GrinEval (grinValueRuntimeRep action) action)
+                  (GrinEval EvalUpdate (grinValueRuntimeRep action) action)
                   (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [[]])
               )
           pure (GrinBind [promptVar] (GrinStore promptNode) delimitedAction)
@@ -283,7 +283,7 @@ transformTail parent bound resultRep continuation expression =
           (GrinVarValue catchVar)
           ( GrinBind
               [evaluatedAction]
-              (GrinEval (grinValueRuntimeRep action) action)
+              (GrinEval EvalUpdate (grinValueRuntimeRep action) action)
               (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [state])
           )
       pure
@@ -294,6 +294,7 @@ transformTail parent bound resultRep continuation expression =
         )
     GrinForeignCallExpr foreignCall arguments ->
       continuePlaced (GrinForeignCallExpr foreignCall arguments)
+    GrinFetch tag value -> continuePlaced (GrinFetch tag value)
   where
     alreadyTransformed = lift (Left (CpsGrinAlreadyTransformed parent))
     -- A direct expression in tail position places the function's result,
@@ -469,6 +470,7 @@ isDirectExpression expression =
     GrinPrimitiveCall _ name _ -> not (isControlPrimitive name)
     GrinCpsPrimitiveCall {} -> False
     GrinForeignCallExpr {} -> True
+    GrinFetch {} -> True
     _ -> False
 
 -- | Name a continuation after the function that needs it, so that a reader

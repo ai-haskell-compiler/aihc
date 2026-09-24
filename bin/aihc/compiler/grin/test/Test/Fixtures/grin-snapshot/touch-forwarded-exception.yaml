@@ -30,7 +30,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 136
-  linux-amd64: 136
+  macos-arm64: 88
+  linux-amd64: 88
 status: pass
 reason: An exception must pass through an abstract continuation to its enclosing handler.

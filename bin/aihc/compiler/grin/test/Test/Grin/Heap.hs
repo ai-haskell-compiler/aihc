@@ -27,26 +27,28 @@ tests =
         assertEqual "reservations" [4] reservations,
       testCase "a call ends a reservation" $ do
         reservations <- allReservations acrossCallProgram
-        -- The entry reserves the first node and the continuation the call
-        -- needs; the store after the call reserves in that continuation
-        -- instead, because the call itself can collect.
+        -- The entry reserves the first node. The continuation frame of the
+        -- call goes on the thread stack and reserves nothing. The store
+        -- after the call reserves in that continuation instead, because the
+        -- call itself can collect.
         assertEqual
           "reservations"
-          [("$entry", [5]), ("$entry_cont", [2])]
+          [("$entry", [2]), ("$entry_cont", [2])]
           reservations,
       testCase "a primitive that cannot allocate keeps one reservation" $ do
         reservations <- entryReservations (betweenStoresProgram "+#" 2 "(2 :: IntRep) (2 :: IntRep)")
         -- The addition is one instruction and takes nothing from the heap,
         -- so both nodes stay under the reservation that reaches it.
         assertEqual "reservations" [4] reservations,
-      testCase "stores before an eval share the reservation of its frame" $ do
+      testCase "stores before an eval keep one reservation above the test" $ do
         reservations <- allReservations beforeEvalProgram
-        -- The WHNF test cannot collect, so the two-word box and the
-        -- three-word continuation frame of the slow branch reserve once above
-        -- the test. The continuation reserves its own pair after the eval.
+        -- The WHNF test cannot collect, so the two-word box reserves once
+        -- above the test. The continuation frame of the slow branch goes on
+        -- the thread stack and reserves nothing. The continuation reserves
+        -- its own pair after the eval.
         assertEqual
           "reservations"
-          [("$entry", [5]), ("$entry_cont", [3])]
+          [("$entry", [2]), ("$entry_cont", [3])]
           reservations,
       testCase "a primitive that allocates ends a reservation" $ do
         reservations <- entryReservations (betweenStoresProgram "newMutVar#" 1 "(0 :: IntRep)")

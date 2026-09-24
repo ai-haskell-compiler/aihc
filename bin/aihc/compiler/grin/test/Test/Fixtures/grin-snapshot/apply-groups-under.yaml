@@ -15,7 +15,7 @@ program: |
 return: "610"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 192
-  linux-amd64: 192
+  macos-arm64: 176
+  linux-amd64: 176
 status: pass
 reason: an application whose groups supply fewer arguments than the closure takes builds one partial application that copies the nine captured fields once

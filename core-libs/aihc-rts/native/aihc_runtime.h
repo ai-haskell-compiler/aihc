@@ -167,13 +167,21 @@ struct AihcMachine {
   AihcEntry exit_code;
   uint8_t *heap_next;
   uint8_t *heap_limit;
+  /* The first free byte of the stack of the running thread. Continuation
+     frames live in stack chunks, not in the managed heap. Compiled code
+     pushes a frame here, and the continue helpers set this field to the
+     address of the frame they enter. That pops the frame and every frame
+     above it. See aihc_stack_push. */
+  uint8_t *stack_next;
   uint8_t *heap_start;
   uint8_t *other_space;
   uint64_t semispace_bytes;
   uint64_t heap_max_bytes;
   uint64_t heap_allocated_bytes;
   uint8_t heap_limit_enabled;
-  AihcValue *thread_done_continuation;
+  /* The info table of the frame at the bottom of each forked thread. Each
+     thread gets its own copy of the frame on its own stack. */
+  const AihcInfo *thread_done_info;
   AihcThread *current_thread;
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
@@ -211,6 +219,12 @@ struct AihcMachine {
   uint8_t program_started;
   AihcForeignFrame *foreign_frames;
   AihcCallbackFrame *callback_frames;
+  /* The stack of each thread that has not finished. The collector releases
+     the stack of a thread that it did not retain. */
+  struct AihcStack *stacks;
+  /* Released chunks that the next stack growth can use again. */
+  struct AihcStackChunk *spare_chunks;
+  uint64_t spare_chunk_count;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -233,7 +247,8 @@ void aihc_callback_return(AihcMachine *machine, uint64_t result);
 uint64_t aihc_callback_leave(AihcCallbackFrame *frame);
 
 /* Transfer a scheduler record to fixed-width Lir slots. */
-void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots);
+void aihc_lir_take_resume(AihcMachine *machine, AihcResume *resume,
+                          uint64_t *slots);
 
 /* Info tables have at least four-byte alignment on every target.
    These bits belong to the thunk header, not to references to the thunk. */
