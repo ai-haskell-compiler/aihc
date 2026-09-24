@@ -1,0 +1,27 @@
+program: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pick (flag :: IntRep) (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) (other :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (chosen :: BoxedRep Lifted) <-
+      case (flag :: IntRep) as choice :: IntRep of
+        0 ->
+          constant (left :: BoxedRep Lifted)
+        _ ->
+          constant (right :: BoxedRep Lifted)
+    (ready :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (chosen :: BoxedRep Lifted)
+    store (CPair (ready :: BoxedRep Lifted) (other :: BoxedRep Lifted))
+expected: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pick (flag :: IntRep) (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) (other :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (flag :: IntRep) as choice :: IntRep of
+      (0 :: IntRep) ->
+        chosen :: BoxedRep Lifted <-
+          constant (left :: BoxedRep Lifted)
+        call @(TupleRep []) pick_join (other :: BoxedRep Lifted) (chosen :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted)
+      _ ->
+        chosen%1 :: BoxedRep Lifted <-
+          constant (right :: BoxedRep Lifted)
+        call @(TupleRep []) pick_join (other :: BoxedRep Lifted) (chosen%1 :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted)
+status: pass
+reason: The continuation of the case is small, but its evaluation reifies a frame and a continuation function. A copy in each alternative would copy that function too, so both alternatives call one join point.

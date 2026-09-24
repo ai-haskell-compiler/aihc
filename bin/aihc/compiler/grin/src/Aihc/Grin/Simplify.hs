@@ -37,7 +37,7 @@ module Aihc.Grin.Simplify
   )
 where
 
-import Aihc.Grin.Analysis (freeExprVars)
+import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars)
 import Aihc.Grin.Syntax
 import Control.Applicative ((<|>))
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -299,13 +299,3 @@ simplifyStoreRec env bindings body = allocate (forget (map fst bindings) env) co
                     (foldMap (freeNodeVars . snd) group <> restFree) `Set.difference` Set.fromList vars
                   )
                 else (rest', restFree)
-
-freeNodeVars :: GrinNode -> Set GrinVar
-freeNodeVars = foldMap freeValueVars . grinNodeFields
-
-freeValueVars :: GrinValue -> Set GrinVar
-freeValueVars value =
-  case value of
-    GrinVarValue var -> Set.singleton var
-    GrinGlobalValue {} -> Set.empty
-    GrinLitValue {} -> Set.empty

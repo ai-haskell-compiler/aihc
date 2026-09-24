@@ -19,7 +19,7 @@ module Aihc.Grin.Cps
   )
 where
 
-import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
+import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.Class (lift)
@@ -339,17 +339,65 @@ liftJoinPoint parent resultRep captures resultVars body = do
     joinContinuation
   pure joinName
 
--- | The number of nodes of an expression, used only to weigh a copy of a
--- continuation against a call of it.
+-- | The size of an expression after the CPS transformation, used only to
+-- weigh a copy of a continuation against a call of it.
+--
+-- Each node counts as one. A bind whose value is not direct also reifies
+-- the rest of its body as a continuation, and a copy of the body copies
+-- that continuation as a whole: 'reifyContinuation' makes a new function
+-- and a new frame for each copy. Thus such a bind also counts the entry of
+-- a function, the store of its frame, and the load of each capture from
+-- that frame. An evaluation also has the direct entry path, which is a
+-- WHNF check and a call with the captures and the results.
 grinExprSize :: GrinExpr -> Int
-grinExprSize expression =
-  case expression of
-    GrinBind _ valueExpression body -> 1 + grinExprSize valueExpression + grinExprSize body
-    GrinIfWhnf _ ready slow -> 1 + grinExprSize ready + grinExprSize slow
-    GrinCase _ _ alternatives -> 1 + sum [1 + grinExprSize (grinAltRhs alternative) | alternative <- alternatives]
-    GrinStoreRec _ body -> 1 + grinExprSize body
-    GrinStoreRecUnchecked _ body -> 1 + grinExprSize body
-    _ -> 1
+grinExprSize = fst . sizeAndFreeVars
+  where
+    sizeAndFreeVars expression =
+      case expression of
+        GrinBind resultVars valueExpression body ->
+          let (valueSize, valueFree) = sizeAndFreeVars valueExpression
+              (bodySize, bodyFree) = sizeAndFreeVars body
+              restFree = bodyFree `Set.difference` Set.fromList resultVars
+           in ( 1 + valueSize + bodySize + reifiedSize resultVars valueExpression restFree,
+                valueFree <> restFree
+              )
+        GrinIfWhnf value ready slow ->
+          let (readySize, readyFree) = sizeAndFreeVars ready
+              (slowSize, slowFree) = sizeAndFreeVars slow
+           in (1 + readySize + slowSize, freeValueVars value <> readyFree <> slowFree)
+        GrinCase scrutinee binder alternatives ->
+          let alternativeSize alternative =
+                let (rhsSize, rhsFree) = sizeAndFreeVars (grinAltRhs alternative)
+                 in (1 + rhsSize, rhsFree `Set.difference` Set.fromList (binder : grinAltBinders alternative))
+              (sizes, frees) = unzip (map alternativeSize alternatives)
+           in (1 + sum sizes, freeValueVars scrutinee <> mconcat frees)
+        GrinStoreRec bindings body -> storeRecSize bindings body
+        GrinStoreRecUnchecked bindings body -> storeRecSize bindings body
+        _ -> (1, freeExprVars expression)
+    storeRecSize bindings body =
+      let (bodySize, bodyFree) = sizeAndFreeVars body
+          nodeFree = foldMap (freeNodeVars . snd) bindings
+       in (1 + bodySize, (nodeFree <> bodyFree) `Set.difference` Set.fromList (map fst bindings))
+    -- A case in bind position is shared or copied by its own decision in
+    -- 'transformTail', so it reifies no continuation.
+    reifiedSize resultVars valueExpression restFree
+      | isDirectExpression valueExpression = 0
+      | GrinCase {} <- valueExpression = 0
+      | otherwise =
+          -- The captures are the parent continuation and the free
+          -- variables of the rest of the body.
+          let captures = 1 + Set.size restFree
+              frameSize = 1 + captures
+              directEntrySize = case valueExpression of
+                GrinEval {} -> 1 + 1 + captures + length resultVars
+                _ -> 0
+           in functionEntrySize + frameSize + captures + directEntrySize
+
+-- | The size of the entry of a generated function, in expression nodes:
+-- the symbol, the header that the collector reads, and the prologue and
+-- epilogue of the machine code.
+functionEntrySize :: Int
+functionEntrySize = 8
 
 reifyContinuation :: FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> [GrinVar] -> GrinExpr -> CpsM ReifiedContinuation
 reifyContinuation parent bound resultRep outerContinuation resultVars body = do
