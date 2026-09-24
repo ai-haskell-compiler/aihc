@@ -110,9 +110,8 @@ flip :: (a -> b -> c) -> b -> a -> c
 flip function right left = function left right
 
 (.) :: (b -> c) -> (a -> b) -> a -> c
-f . g = compose
-  where
-    compose value = f (g value)
+(.) f g value = f (g value)
+{-# INLINE (.) #-}
 
 infixr 9 .
 

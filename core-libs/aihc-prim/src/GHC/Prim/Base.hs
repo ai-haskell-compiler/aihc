@@ -77,8 +77,11 @@ instance Applicative IO where
 
 instance Monad IO where
   (>>=) = bindIO
+  {-# INLINE (>>=) #-}
   (>>) = thenIO
+  {-# INLINE (>>) #-}
   return = returnIO
+  {-# INLINE return #-}
 
 bindIO :: IO a -> (a -> IO b) -> IO b
 bindIO (IO action) next =
@@ -89,6 +92,7 @@ bindIO (IO action) next =
             case next value of
               IO nextAction -> nextAction nextState
     )
+{-# INLINE bindIO #-}
 
 thenIO :: IO a -> IO b -> IO b
 thenIO (IO action) (IO nextAction) =
@@ -97,9 +101,11 @@ thenIO (IO action) (IO nextAction) =
         case action state of
           (# nextState, _ #) -> nextAction nextState
     )
+{-# INLINE thenIO #-}
 
 returnIO :: a -> IO a
 returnIO value = IO (returnIOState value)
+{-# INLINE returnIO #-}
 
 returnIOState :: a -> State# RealWorld -> (# State# RealWorld, a #)
 returnIOState value state = (# state, value #)
