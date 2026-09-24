@@ -2295,7 +2295,7 @@ builtinFunctionScope currentPackage visibleExports =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name visibleExports
-    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String"]
+    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do

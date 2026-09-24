@@ -227,7 +227,7 @@ fixtureLanguageEdition :: LanguageEdition
 fixtureLanguageEdition = Haskell2010Edition
 
 builtinModuleNames :: [Text]
-builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real"]
+builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
 
 listSupportModule :: Text
 listSupportModule =

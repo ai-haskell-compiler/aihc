@@ -382,7 +382,8 @@ preparePrimitiveSupport primitiveModules =
     Right modules ->
       let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
           exports = collectModuleExportsWithDeps mempty packageModules
-          builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
+          builtinScope = foldr (unionScope . lookupPrimitive) emptyScope ["GHC.Prim", "GHC.Types"]
+          lookupPrimitive name = lookupImportedModule primitivePackage Nothing name exports
        in case resolveUnit builtinScope exports packageModules of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface resolvedModules
@@ -420,7 +421,7 @@ fixtureBuiltinScope visibleExports =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name visibleExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real"]
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

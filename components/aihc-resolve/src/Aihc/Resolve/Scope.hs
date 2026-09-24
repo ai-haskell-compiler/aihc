@@ -632,25 +632,30 @@ dataConDeclRecordFields dataConDecl =
 -- | The names in scope inside one module. The extensions are the ones the
 -- driver decided for the module; 'moduleImportsImplicitPrelude' reads them
 -- rather than the module's pragmas.
-moduleScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
-moduleScope packageId exports extensions modu =
+--
+-- The builtin scope comes from the caller. The resolver does not know which
+-- module defines a builtin name.
+moduleScope :: Scope -> Package -> ModuleExports -> [Extension] -> Module -> Scope
+moduleScope builtins packageId exports extensions modu =
   ownScope
     `unionScope` imported
-    `unionScope` listConstructorScope
-    `unionScope` equalityScope
+    `unionScope` implicitSyntaxScope builtins
     `unionScope` builtinScope
   where
     (unqualifiedOwnScope, imported) = ownAndImportedScopes packageId exports extensions modu
     -- A module's own top-level names are also in scope qualified by the
     -- module name, so @M.x@ inside module @M@ names the local @x@.
     ownScope = insertQualifiedModule (moduleKey modu) unqualifiedOwnScope unqualifiedOwnScope
-    -- The list constructor @:@ is an ordinary infix constructor of
-    -- @GHC.Types@ that the syntax reaches without an import. The empty
-    -- list is built-in syntax and needs no scope entry.
-    ghcTypesScope = lookupImportedModule packageId Nothing "GHC.Types" exports
-    listConstructorScope = selectTerm ":" ghcTypesScope
-    -- Equality syntax uses the exported type identity without an import.
-    equalityScope = selectType "~" ghcTypesScope
+
+-- | The names from the builtin scope that the syntax reaches without an
+-- import.
+--
+-- The list constructor @:@ is an ordinary infix constructor. The empty list
+-- is built-in syntax and needs no scope entry. Equality syntax uses the type
+-- @~@. Imported and local names shadow these names.
+implicitSyntaxScope :: Scope -> Scope
+implicitSyntaxScope builtins =
+  selectTerm ":" builtins `unionScope` selectType "~" builtins
 
 -- | What a module's own declarations bind, and what its imports bring in.
 --
