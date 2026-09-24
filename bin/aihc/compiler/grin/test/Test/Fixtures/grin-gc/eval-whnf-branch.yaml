@@ -14,5 +14,12 @@ expected: |
       $cps_continuation :: BoxedRep Lifted <-
         store-unchecked (Pforce_cont/1 ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted))
       cps-eval @(BoxedRep Lifted) (value :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
+
+  force_cont ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted) (ready :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_return$gc :: BoxedRep Lifted, capture$gc :: BoxedRep Lifted, ready$gc :: BoxedRep Lifted <-
+      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted) (ready :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Lifted <-
+      store-unchecked (CPair (ready$gc :: BoxedRep Lifted) (capture$gc :: BoxedRep Lifted))
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Lifted)
 status: pass
 reason: The WHNF branch calls the shared continuation body directly. The slow branch pushes its frame on the thread stack, so the function needs no heap reservation.

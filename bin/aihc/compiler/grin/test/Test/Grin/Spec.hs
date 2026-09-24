@@ -11,7 +11,6 @@ import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
 import Aihc.Grin.Lint (lintGcProgram)
 import Aihc.Grin.Parser qualified as GrinParser
 import Aihc.Grin.Simplify (simplifyGrinProgram)
-import Aihc.Grin.Syntax (GrinFunction (..))
 import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
@@ -275,17 +274,15 @@ checkGcFixture path = do
                 Left problem -> assertFailure (show problem)
                 Right cps -> do
                   let gc = lowerGc cps
-                      output = gcGrinProgram gc
-                      names = map grinFunctionName (grinFunctions program)
-                      selected = output {grinFunctions = filter ((`elem` names) . grinFunctionName) (grinFunctions output)}
-                      actual = T.strip (T.pack (renderString (layoutPretty defaultLayoutOptions (prettyProgram (tidyGrinProgram selected)))))
+                      output = tidyGrinProgram (gcGrinProgram gc)
+                      actual = T.strip (T.pack (renderString (layoutPretty defaultLayoutOptions (prettyProgram output))))
                   case lintGcProgram gc of
                     [] -> pure ()
                     problems -> assertFailure ("the GC program does not lint: " <> show problems)
                   case GrinParser.parseProgram actual of
                     Left problem -> assertFailure (GrinParser.renderParseError problem)
                     Right parsed ->
-                      if parsed == tidyGrinProgram selected
+                      if parsed == output
                         then pure ()
                         else assertFailure "the GC program does not survive a parser round trip"
                   if actual == T.strip expected
