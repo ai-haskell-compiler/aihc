@@ -14,7 +14,7 @@ program: |
 return: "10"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 56
-  linux-amd64: 56
+  macos-arm64: 40
+  linux-amd64: 40
 status: pass
 reason: groups with several values and an empty group follow the stage layouts of the closure
