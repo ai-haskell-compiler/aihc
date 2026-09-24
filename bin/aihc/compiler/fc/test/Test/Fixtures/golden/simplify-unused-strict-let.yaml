@@ -1,0 +1,37 @@
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Types (Int (..))
+
+  run :: Int -> Int
+  run x = case (# x, I# 0# #) of (# a, _ #) -> a
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.sType;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub val 1.vrun :: 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt).
+    x
+status: pass
+reason: The strict binding of the unboxed tuple has no use after the case selects its field, and a constructor application of values does no work, so the binding goes.
