@@ -16,6 +16,8 @@ expected: |
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr)
 
+  extern func @aihc_stack_grow(ptr, i64) -> ptr cc c
+
   func @aihc_f_aihc_entry___sother(%machine_0: ptr, %$cps_return_1: ptr) {
   entry:
     tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_1, 7)
@@ -29,12 +31,12 @@ expected: |
     %heap_word_7 = ptr.to_int %heap_5
     %heap_end_word_8 = ptr.to_int %heap_end_6
     %heap_room_9 = sub i64 %heap_end_word_8, %heap_word_7
-    %heap_fits_10 = ge.u i64 %heap_room_9, 40
+    %heap_fits_10 = ge.u i64 %heap_room_9, 16
     br %heap_fits_10, gc_reserved_12(%$cps_return_3), gc_collect_11
 
   gc_collect_11:
     store ptr %$cps_return_3, [%roots_4] align 8
-    call @aihc_heap_collect(%machine_2, 5, 1, %roots_4, null)
+    call @aihc_heap_collect(%machine_2, 2, 1, %roots_4, null)
     %$cps_return$gc_14 = load ptr [%roots_4] align 8
     jump gc_reserved_12(%$cps_return$gc_14)
 
@@ -44,42 +46,57 @@ expected: |
     store ptr %heap_16, [%machine_2 + 24] align 1 word
     store ptr @aihc_c_aihc_entry_Box_0, [%object_15] align 8
     store i64 1, [%object_15 + 8] align 8
-    %object_17 = load ptr [%machine_2 + 24] align 1 word
-    %heap_18 = ptr.add %object_17, 24
-    store ptr %heap_18, [%machine_2 + 24] align 1 word
-    store ptr @aihc_lir_info_0, [%object_17] align 8
-    store ptr %$cps_return$gc_13, [%object_17 + 8] align 8
-    store ptr %object_15, [%object_17 + 16] align 8
-    tailcall @aihc_f_aihc_entry___sother(%machine_2, %object_17)
+    %frame_17 = load ptr [%machine_2 + 40] align 1 word
+    %stack_18 = ptr.add %frame_17, 24
+    %frame_word_19 = ptr.to_int %frame_17
+    %stack_before_20 = sub i64 %frame_word_19, 1
+    %stack_last_21 = add i64 %frame_word_19, 23
+    %stack_differ_22 = xor i64 %stack_before_20, %stack_last_21
+    %stack_fits_23 = lt.u i64 %stack_differ_22, 4096
+    br %stack_fits_23, stack_fits_24, stack_grow_25
+
+  stack_fits_24:
+    store ptr %stack_18, [%machine_2 + 40] align 1 word
+    jump stack_pushed_26(%frame_17)
+
+  stack_grow_25:
+    %result_27 = call @aihc_stack_grow(%machine_2, 3)
+    jump stack_pushed_26(%result_27)
+
+  stack_pushed_26(%frame_28: ptr):
+    store ptr @aihc_lir_info_0, [%frame_28] align 8
+    store ptr %$cps_return$gc_13, [%frame_28 + 8] align 8
+    store ptr %object_15, [%frame_28 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sother(%machine_2, %frame_28)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%machine_19: ptr, %$cps_return_20: ptr, %first_21: ptr, %value_22: i64) {
+  func @aihc_f_aihc_entry___sentry__ucont(%machine_29: ptr, %$cps_return_30: ptr, %first_31: ptr, %value_32: i64) {
   entry:
-    %roots_23 = stack.alloc 16 align 8
-    %heap_24 = load ptr [%machine_19 + 24] align 1 word
-    %heap_end_25 = load ptr [%machine_19 + 32] align 1 word
-    %heap_word_26 = ptr.to_int %heap_24
-    %heap_end_word_27 = ptr.to_int %heap_end_25
-    %heap_room_28 = sub i64 %heap_end_word_27, %heap_word_26
-    %heap_fits_29 = ge.u i64 %heap_room_28, 24
-    br %heap_fits_29, gc_reserved_31(%$cps_return_20, %first_21), gc_collect_30
+    %roots_33 = stack.alloc 16 align 8
+    %heap_34 = load ptr [%machine_29 + 24] align 1 word
+    %heap_end_35 = load ptr [%machine_29 + 32] align 1 word
+    %heap_word_36 = ptr.to_int %heap_34
+    %heap_end_word_37 = ptr.to_int %heap_end_35
+    %heap_room_38 = sub i64 %heap_end_word_37, %heap_word_36
+    %heap_fits_39 = ge.u i64 %heap_room_38, 24
+    br %heap_fits_39, gc_reserved_41(%$cps_return_30, %first_31), gc_collect_40
 
-  gc_collect_30:
-    store ptr %$cps_return_20, [%roots_23] align 8
-    store ptr %first_21, [%roots_23 + 8] align 8
-    call @aihc_heap_collect(%machine_19, 3, 2, %roots_23, null)
-    %$cps_return$gc_34 = load ptr [%roots_23] align 8
-    %first$gc_35 = load ptr [%roots_23 + 8] align 8
-    jump gc_reserved_31(%$cps_return$gc_34, %first$gc_35)
+  gc_collect_40:
+    store ptr %$cps_return_30, [%roots_33] align 8
+    store ptr %first_31, [%roots_33 + 8] align 8
+    call @aihc_heap_collect(%machine_29, 3, 2, %roots_33, null)
+    %$cps_return$gc_44 = load ptr [%roots_33] align 8
+    %first$gc_45 = load ptr [%roots_33 + 8] align 8
+    jump gc_reserved_41(%$cps_return$gc_44, %first$gc_45)
 
-  gc_reserved_31(%$cps_return$gc_32: ptr, %first$gc_33: ptr):
-    %object_36 = load ptr [%machine_19 + 24] align 1 word
-    %heap_37 = ptr.add %object_36, 24
-    store ptr %heap_37, [%machine_19 + 24] align 1 word
-    store ptr @aihc_c_aihc_entry_Pair_0, [%object_36] align 8
-    store ptr %first$gc_33, [%object_36 + 8] align 8
-    store ptr %first$gc_33, [%object_36 + 16] align 8
-    tailcall @aihc_lir_continue_p(%machine_19, %$cps_return$gc_32, %object_36)
+  gc_reserved_41(%$cps_return$gc_42: ptr, %first$gc_43: ptr):
+    %object_46 = load ptr [%machine_29 + 24] align 1 word
+    %heap_47 = ptr.add %object_46, 24
+    store ptr %heap_47, [%machine_29 + 24] align 1 word
+    store ptr @aihc_c_aihc_entry_Pair_0, [%object_46] align 8
+    store ptr %first$gc_43, [%object_46 + 8] align 8
+    store ptr %first$gc_43, [%object_46 + 16] align 8
+    tailcall @aihc_lir_continue_p(%machine_29, %$cps_return$gc_42, %object_46)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
@@ -94,11 +111,11 @@ expected: |
 
   export data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3 }
 
-  func @aihc_lir_info_0_e(%machine_38: ptr, %object_39: ptr, %continuation_40: ptr, %supplied_41: i64) {
+  func @aihc_lir_info_0_e(%machine_48: ptr, %object_49: ptr, %continuation_50: ptr, %supplied_51: i64) {
   entry:
-    %stored_42 = load ptr [%object_39 + 8] align 8
-    %stored_43 = load ptr [%object_39 + 16] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_38, %stored_42, %stored_43, %supplied_41)
+    %stored_52 = load ptr [%object_49 + 8] align 8
+    %stored_53 = load ptr [%object_49 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_48, %stored_52, %stored_53, %supplied_51)
   }
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1 }
@@ -113,3 +130,5 @@ reason: |
   live across the reservation is a root: the fast path passes it straight to the
   merge block and only the slow path writes it to the root array and reads back
   the address the collector moved it to.
+  The continuation frame of the call is not in that reservation. The code pushes
+  it on the thread stack and calls the runtime only when it needs a new chunk.

@@ -11,7 +11,7 @@ include "aihc_object.lir"
 const @WORD_BITS = 64
 const @WORD_HIGH_BIT = 63
 
-extern func @aihc_lir_take_resume(ptr, ptr) cc c
+extern func @aihc_lir_take_resume(ptr, ptr, ptr) cc c
 
 extern func @aihc_apply_slow(ptr, ptr, i64, ptr, ptr) -> ptr cc c
 
@@ -21,7 +21,37 @@ extern func @aihc_no_match() cc c
 
 extern func @aihc_raise(ptr, ptr, ptr) -> ptr cc c
 
-; Only thunks and blackholes require a heap reservation.
+extern func @aihc_stack_grow(ptr, i64) -> ptr cc c
+
+; Push a frame of the given words on the stack of the running thread and
+; give back its address. The caller writes the header and every field. The
+; frame fits in the current chunk when its last byte and the byte before
+; the stack pointer are in the same chunk. Otherwise the runtime continues
+; the stack in the next chunk. Neither path collects.
+inline func @aihc_stack_push_frame(%machine: ptr, %words: i64) -> ptr {
+entry:
+  %frame = load ptr [%machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
+  %bytes = mul i64 %words, 8
+  %end = ptr.add %frame, %bytes
+  %frame_word = ptr.to_int %frame
+  %end_word = ptr.to_int %end
+  %before = sub i64 %frame_word, 1
+  %last = sub i64 %end_word, 1
+  %differ = xor i64 %before, %last
+  %fits = lt.u i64 %differ, @AIHC_STACK_CHUNK_BYTES
+  br %fits, fits, grow
+
+fits:
+  store ptr %end, [%machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
+  return %frame
+
+grow:
+  %grown = call @aihc_stack_grow(%machine, %words)
+  return %grown
+}
+
+; Only blackholes require a heap reservation. A thunk pushes its update
+; frame on the stack of the thread, which never collects.
 export func @aihc_lir_eval(%machine: ptr, %value: ptr, %continuation: ptr) {
 entry:
   %roots = stack.alloc 16 align 8
@@ -43,24 +73,31 @@ inspect:
   }
 
 thunk:
-  jump reserve(@AIHC_EVAL_THUNK_WORDS, 1)
+  %update = call @aihc_stack_push_frame(%machine, @AIHC_UPDATE_FRAME_WORDS)
+  %update_info_word = ptr.to_int @aihc_lir_cps_update_info
+  store i64 %update_info_word, [%update] align 8
+  %parent_word = ptr.to_int %continuation
+  store i64 %parent_word, [%update + 8] align 8
+  %value_word = ptr.to_int %current
+  store i64 %value_word, [%update + 16] align 8
+  ; The thunk payload and original info table remain intact.
+  %entry = call @aihc_info_entry(%header)
+  %marked = or i64 %header_word, @AIHC_HEADER_EVALUATING
+  store i64 %marked, [%current] align 8
+  tailcall.indirect %entry(%machine, %current, %update) : (ptr, ptr, ptr)
 
 indirection:
   %next = call @aihc_indirection_target(%current)
   jump loop(%next)
 
 blackhole:
-  jump reserve(@AIHC_EVAL_WAITER_WORDS, 0)
-
-reserve(%required_words: i64, %enter_thunk: i1):
   %heap = load ptr [%machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
   %heap_end = load ptr [%machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
   %heap_word = ptr.to_int %heap
   %heap_end_word = ptr.to_int %heap_end
   %heap_room = sub i64 %heap_end_word, %heap_word
-  %required_bytes = mul i64 %required_words, 8
-  %heap_fits = ge.u i64 %heap_room, %required_bytes
-  br %heap_fits, reserved(%current, %continuation), collect
+  %heap_fits = ge.u i64 %heap_room, @AIHC_EVAL_WAITER_BYTES
+  br %heap_fits, block(%current, %continuation), collect
 
 collect:
   %current_word = ptr.to_int %current
@@ -68,36 +105,14 @@ collect:
   %continuation_word = ptr.to_int %continuation
   store i64 %continuation_word, [%roots + 8] align 8
   ; The value and continuation carry the required static reference tables.
-  call @aihc_heap_collect(%machine, %required_words, 2, %roots, null)
+  call @aihc_heap_collect(%machine, @AIHC_EVAL_WAITER_WORDS, 2, %roots, null)
   %moved_value_word = load i64 [%roots] align 8
   %moved_value = ptr.from_int %moved_value_word
   %moved_continuation_word = load i64 [%roots + 8] align 8
   %moved_continuation = ptr.from_int %moved_continuation_word
-  jump reserved(%moved_value, %moved_continuation)
+  jump block(%moved_value, %moved_continuation)
 
-reserved(%live_value: ptr, %live_continuation: ptr):
-  br %enter_thunk, enter, block
-
-enter:
-  ; The only per-evaluation allocation is the update continuation.
-  %update = load ptr [%machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %bumped = ptr.add %update, @AIHC_UPDATE_FRAME_BYTES
-  store ptr %bumped, [%machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
-  %update_info_word = ptr.to_int @aihc_lir_cps_update_info
-  store i64 %update_info_word, [%update] align 8
-  %parent_word = ptr.to_int %live_continuation
-  store i64 %parent_word, [%update + 8] align 8
-  %value_word = ptr.to_int %live_value
-  store i64 %value_word, [%update + 16] align 8
-  ; The thunk payload and original info table remain intact.
-  %live_header_word = call @aihc_object_header_word(%live_value)
-  %live_header = ptr.from_int %live_header_word
-  %entry = call @aihc_info_entry(%live_header)
-  %marked = or i64 %live_header_word, @AIHC_HEADER_EVALUATING
-  store i64 %marked, [%live_value] align 8
-  tailcall.indirect %entry(%machine, %live_value, %update) : (ptr, ptr, ptr)
-
-block:
+block(%live_value: ptr, %live_continuation: ptr):
   %result = call @aihc_block_on_blackhole(%machine, %live_value, %live_continuation)
   tailcall @aihc_lir_resume(%machine, %result)
 
@@ -151,7 +166,7 @@ suspend:
   return
 
 dispatch:
-  call @aihc_lir_take_resume(%resume, %slots)
+  call @aihc_lir_take_resume(%machine, %resume, %slots)
   %kind = load i64 [%slots] align 8
   %function_word = load i64 [%slots + 8] align 8
   %function = ptr.from_int %function_word
@@ -263,6 +278,8 @@ indirection:
   jump loop(%next)
 
 enter:
+  ; Entering a frame pops it and every frame above it.
+  store ptr %current, [%machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%machine, %current, null) : (ptr, ptr, ptr)
 }
@@ -281,6 +298,8 @@ indirection:
   jump loop(%next)
 
 enter:
+  ; Entering a frame pops it and every frame above it.
+  store ptr %current, [%machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%machine, %current, null, %value) : (ptr, ptr, ptr, i64)
 }
@@ -299,6 +318,8 @@ indirection:
   jump loop(%next)
 
 enter:
+  ; Entering a frame pops it and every frame above it.
+  store ptr %current, [%machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%machine, %current, null, %value) : (ptr, ptr, ptr, ptr)
 }

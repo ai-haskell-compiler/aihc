@@ -7,7 +7,10 @@
 #include <string.h>
 
 /* Match the offsets in aihc_constants.lir on both pointer widths. */
-_Static_assert(offsetof(AihcMachine, current_thread) == 6 * sizeof(void *) + 48,
+/* On a 32-bit target, stack_next takes a slot that alignment padding held
+   before. Thus stack_next moves current_thread by one word on a 64-bit
+   target and does not move it on a 32-bit target. */
+_Static_assert(offsetof(AihcMachine, current_thread) == 8 * sizeof(void *) + 40,
                "machine current-thread ABI");
 _Static_assert(sizeof(AihcInfo) == 6 * sizeof(void *), "info-table size ABI");
 _Static_assert(_Alignof(AihcInfo) >= 4, "info tables need two header tag bits");
@@ -17,6 +20,8 @@ _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
 _Static_assert(offsetof(AihcMachine, heap_next) == 24, "machine heap-next ABI");
 _Static_assert(offsetof(AihcMachine, heap_limit) == 32,
                "machine heap-limit ABI");
+_Static_assert(offsetof(AihcMachine, stack_next) == 40,
+               "machine stack-next ABI");
 _Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 8,
                "info-table bitmap ABI");
@@ -54,6 +59,8 @@ _Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
 _Static_assert(offsetof(AihcMachine, heap_next) == 20, "machine heap-next ABI");
 _Static_assert(offsetof(AihcMachine, heap_limit) == 24,
                "machine heap-limit ABI");
+_Static_assert(offsetof(AihcMachine, stack_next) == 28,
+               "machine stack-next ABI");
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 4,
                "info-table bitmap ABI");
 _Static_assert(offsetof(AihcInfo, next) == 8, "info-table next ABI");
@@ -88,7 +95,14 @@ _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 #endif
 
 /* Copy the record to fixed-width slots, then release its object references. */
-void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots) {
+void aihc_lir_take_resume(AihcMachine *machine, AihcResume *resume,
+                          uint64_t *slots) {
+  /* An application returns to its continuation, so that frame is the top of
+     the stack. A continuation that the resumption enters sets the stack
+     pointer itself when the continue helper enters it. */
+  if (resume->kind == AIHC_RESUME_APPLY) {
+    aihc_stack_resume_after(machine, resume->continuation);
+  }
   slots[0] = resume->kind;
   slots[1] = (uintptr_t)resume->function;
   slots[2] = (uintptr_t)resume->continuation;
@@ -638,8 +652,10 @@ void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
   frame->machine = machine;
   frame->closure = slot->closure;
   machine->callback_frames = frame;
-  aihc_ensure_heap(machine, 1, 0, NULL, NULL);
-  frame->continuation = aihc_gc_allocate(machine, 1);
+  /* The callback runs on the stack of the thread that made the foreign call.
+     Its stop frame goes above the frames of that thread. When the callback
+     enters the stop frame, the stack pointer is back where it was. */
+  frame->continuation = aihc_stack_push(machine, 1);
   frame->continuation->header = (AihcSlot)(uintptr_t)stop_info;
 }
 
@@ -703,7 +719,6 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
   }
   machine->transaction_timers =
       aihc_visit_pointer(machine->transaction_timers, visitor, context);
-  aihc_visit_value(&machine->thread_done_continuation, visitor, context);
   aihc_visit_value(&machine->selected_resume.function, visitor, context);
   aihc_visit_value(&machine->selected_resume.continuation, visitor, context);
   if ((machine->selected_resume.kind == AIHC_RESUME_CONTINUE ||
@@ -889,6 +904,7 @@ static AihcThread *aihc_thread_new(AihcMachine *machine) {
   thread->resume_count = 0;
   thread->next = NULL;
   thread->transaction = NULL;
+  (void)aihc_stack_new(machine, thread);
   return thread;
 }
 
@@ -1161,6 +1177,7 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
   machine->global_count = global_count;
   aihc_gc_ensure(machine, aihc_record_words(sizeof(AihcThread)), 0, NULL, NULL);
   machine->current_thread = aihc_thread_new(machine);
+  machine->stack_next = aihc_stack_base(machine->stacks);
   machine->program_started = 1;
   return machine;
 }
@@ -1838,12 +1855,16 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
   }
 }
 
-/* What control0# hands its function: the topmost captured frame and the
-   prompt frame the capture stopped at. The frames between the two are the
-   continuation; they stay where they are, and every resume copies them. */
-static const uint8_t aihc_continuation_field_is_pointer[] = {1, 1};
+/* What control0# hands its function: the topmost captured frame. The
+   frames between the top and the prompt are the continuation. They are on
+   the stack, and the stack reuses their bytes when the prompt returns, so
+   the capture copies them to the managed heap. The copies keep their info
+   tables and captures. Each copy links to the copy below it, and the lowest
+   copy has a null parent. A resume never writes the copies, so it can
+   resume the same record any number of times. */
+static const uint8_t aihc_continuation_field_is_pointer[] = {1};
 static const AihcInfo aihc_continuation_info = {
-    .field_count = 2,
+    .field_count = 1,
     .field_is_pointer = aihc_continuation_field_is_pointer,
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_NODE,
@@ -1894,31 +1915,43 @@ const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
   if (tag == NULL) {
     aihc_fail("control0# received a null prompt tag");
   }
+  uint64_t words = 1 + aihc_continuation_info.field_count;
   AihcValue *prompt = continuation;
   while (!(aihc_value_kind(prompt) == AIHC_OBJECT_CLOSURE &&
            aihc_is_prompt_frame(prompt, tag))) {
+    words += aihc_value_words(prompt);
     prompt = aihc_captured_frame_parent(prompt, 1);
   }
 
-  AihcSlot roots[3] = {(AihcSlot)(uintptr_t)function,
-                       (AihcSlot)(uintptr_t)continuation,
-                       (AihcSlot)(uintptr_t)prompt};
   /* Compiled code transfers to the resumption straight after this call, so
-     the calling function's static references are dead here. */
-  aihc_ensure_heap(machine, 1 + aihc_continuation_info.field_count, 3, roots,
-                   NULL);
+     the calling function's static references are dead here. Frames do not
+     move. The continuation is a root so that the collector scans the frames
+     before this call copies them. */
+  AihcSlot roots[2] = {(AihcSlot)(uintptr_t)function,
+                       (AihcSlot)(uintptr_t)continuation};
+  aihc_ensure_heap(machine, words, 2, roots, NULL);
   function = (AihcValue *)(uintptr_t)roots[0];
-  continuation = (AihcValue *)(uintptr_t)roots[1];
-  prompt = (AihcValue *)(uintptr_t)roots[2];
 
   AihcValue *captured = aihc_place_node(machine, &aihc_continuation_info,
                                         1 + aihc_continuation_info.field_count);
-  AihcSlot *captured_fields = aihc_value_fields(captured);
-  captured_fields[0] = (AihcSlot)(uintptr_t)continuation;
-  captured_fields[1] = (AihcSlot)(uintptr_t)prompt;
+  aihc_value_fields(captured)[0] = 0;
+  AihcValue *previous = NULL;
+  for (AihcValue *frame = continuation; frame != prompt;
+       frame = aihc_captured_frame_parent(frame, 1)) {
+    uint64_t frame_words = aihc_value_words(frame);
+    AihcValue *copy = aihc_gc_allocate(machine, frame_words);
+    memcpy(copy, frame, frame_words * sizeof(AihcSlot));
+    aihc_value_fields(copy)[0] = 0;
+    if (previous == NULL) {
+      aihc_value_fields(captured)[0] = (AihcSlot)(uintptr_t)copy;
+    } else {
+      aihc_value_fields(previous)[0] = (AihcSlot)(uintptr_t)copy;
+    }
+    previous = copy;
+  }
 
   /* The prompt frame is popped with the frames above it: the function runs
-     under the prompt's parent, and the copy a resume makes ends there too. */
+     under the prompt's parent. */
   AihcResume *resume = &machine->selected_resume;
   resume->kind = AIHC_RESUME_APPLY;
   resume->function = function;
@@ -1937,48 +1970,42 @@ const AihcResume *aihc_continuation_resume(AihcMachine *machine,
       aihc_value_info_table(captured) != &aihc_continuation_info) {
     aihc_fail("resumed value is not a captured continuation");
   }
-  AihcValue *top = (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[0];
-  AihcValue *prompt =
-      (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[1];
-
-  uint64_t words = 0;
-  for (AihcValue *frame = top; frame != prompt;
-       frame = aihc_captured_frame_parent(frame, 0)) {
-    words += aihc_object_words(aihc_value_info_table(frame));
-  }
-
-  AihcSlot roots[3] = {(AihcSlot)(uintptr_t)captured,
-                       (AihcSlot)(uintptr_t)action,
-                       (AihcSlot)(uintptr_t)continuation};
-  /* As in aihc_control0: the caller transfers away after this call. */
-  aihc_ensure_heap(machine, words, 3, roots, NULL);
-  captured = (AihcValue *)(uintptr_t)roots[0];
-  action = (AihcValue *)(uintptr_t)roots[1];
-  continuation = (AihcValue *)(uintptr_t)roots[2];
-  top = (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[0];
-  prompt = (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[1];
-
-  /* Copy the frames top down. Each copy keeps its info table and captures,
-     and its parent link is rewritten to the copy below it; the lowest copy
-     is linked to the resumer's continuation, where the prompt frame used to
-     be. The originals are never written, so the record stays resumable. */
-  AihcValue *resumed = continuation;
-  AihcValue *previous = NULL;
-  for (AihcValue *frame = top; frame != prompt;
-       frame = aihc_captured_frame_parent(frame, 0)) {
-    uint64_t frame_words = aihc_object_words(aihc_value_info_table(frame));
-    AihcValue *copy = aihc_gc_allocate(machine, frame_words);
-    memcpy(copy, frame, frame_words * sizeof(AihcSlot));
-    if (previous == NULL) {
-      resumed = copy;
-    } else {
-      aihc_value_fields(previous)[0] = (AihcSlot)(uintptr_t)copy;
+  /* The copies are linked from the top down, and a push must go from the
+     bottom up. Thus one walk collects the copies in an array, and the pushes
+     read the array from its end. */
+  uint64_t count = 0;
+  uint64_t capacity = 0;
+  AihcValue **frames = NULL;
+  for (AihcValue *frame =
+           (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[0];
+       frame != NULL;
+       frame = (AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[0]) {
+    if (count == capacity) {
+      capacity = capacity == 0 ? 16 : capacity * 2;
+      AihcValue **grown = realloc(frames, capacity * sizeof(*frames));
+      if (grown == NULL) {
+        aihc_fail("out of memory");
+      }
+      frames = grown;
     }
-    previous = copy;
+    frames[count++] = frame;
   }
-  if (previous != NULL) {
-    aihc_value_fields(previous)[0] = (AihcSlot)(uintptr_t)continuation;
+
+  /* The resumer's continuation is the top of the stack. Each pushed copy
+     links to the frame below it, and the lowest one links to the resumer's
+     continuation, where the prompt frame used to be. Pushes do not collect,
+     so the heap copies stay where they are. */
+  aihc_stack_resume_after(machine, continuation);
+  AihcValue *resumed = continuation;
+  while (count != 0) {
+    AihcValue *source = frames[--count];
+    uint64_t frame_words = aihc_value_words(source);
+    AihcValue *copy = aihc_stack_push(machine, frame_words);
+    memcpy(copy, source, frame_words * sizeof(AihcSlot));
+    aihc_value_fields(copy)[0] = (AihcSlot)(uintptr_t)resumed;
+    resumed = copy;
   }
+  free(frames);
 
   AihcResume *resume = &machine->selected_resume;
   resume->kind = AIHC_RESUME_APPLY;
@@ -1990,11 +2017,14 @@ const AihcResume *aihc_continuation_resume(AihcMachine *machine,
 }
 
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action) {
-  if (machine->thread_done_continuation == NULL) {
+  if (machine->thread_done_info == NULL) {
     aihc_fail("thread completion continuation is not initialized");
   }
   AihcThread *child = aihc_thread_new(machine);
-  aihc_suspend_apply(child, action, machine->thread_done_continuation);
+  /* The new stack starts with the frame that ends the thread. */
+  AihcValue *done = (AihcValue *)aihc_stack_base(machine->stacks);
+  done->header = (AihcSlot)(uintptr_t)machine->thread_done_info;
+  aihc_suspend_apply(child, action, done);
   aihc_enqueue_thread(machine, child);
   return (AihcSlot)child;
 }
@@ -2007,6 +2037,14 @@ const AihcResume *aihc_yield(AihcMachine *machine, AihcValue *continuation) {
 }
 
 const AihcResume *aihc_thread_done(AihcMachine *machine) {
+  /* The thread entered the frame at the bottom of its stack, so no frame of
+     the stack is live. */
+  AihcStack *stack = aihc_stack_of(machine->stack_next - 1);
+  if (stack->thread != machine->current_thread) {
+    aihc_fail("finished thread does not own the current stack");
+  }
+  aihc_stack_release(machine, stack);
+  machine->stack_next = NULL;
   return aihc_schedule(machine);
 }
 
@@ -2014,10 +2052,11 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation) {
   if (thread_done_continuation == NULL ||
       aihc_value_kind(thread_done_continuation) != AIHC_OBJECT_CLOSURE ||
-      aihc_value_arity(thread_done_continuation) != 1) {
+      aihc_value_arity(thread_done_continuation) != 1 ||
+      aihc_value_info_table(thread_done_continuation)->field_count != 0) {
     aihc_fail("invalid thread completion continuation");
   }
-  machine->thread_done_continuation = thread_done_continuation;
+  machine->thread_done_info = aihc_value_info_table(thread_done_continuation);
 }
 
 AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }

@@ -16,7 +16,7 @@ heap: |
   @1 = F$delayed
   @2 = CI32# 7
 allocated-bytes:
-  macos-arm64: 80
-  linux-amd64: 80
+  macos-arm64: 56
+  linux-amd64: 56
 status: pass
-reason: a single-entry eval enters the thunk without an update frame, so the thunk keeps its node, the result is not an indirection, and the eval allocates 24 bytes fewer than the same program in eval.yaml
+reason: a single-entry eval enters the thunk without an update frame, so the thunk keeps its node and the result is not an indirection. The update frame that eval.yaml pushes is on the thread stack, so both programs allocate the same heap bytes.

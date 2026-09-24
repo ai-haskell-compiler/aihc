@@ -16,7 +16,7 @@ heap: |
   @0 = CPair @1 @1
   @1 = CI32# 7
 allocated-bytes:
-  macos-arm64: 104
-  linux-amd64: 104
+  macos-arm64: 56
+  linux-amd64: 56
 status: pass
 reason: The second evaluation of an updated thunk follows the indirection and allocates no continuation frame.

@@ -1,0 +1,43 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Total/1 [IntRep]
+  constructor Result/2 [IntRep, BoxedRep Lifted]
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  global child = (P$child/[[]])
+  global shared = (F$shared)
+
+  $sum_yield (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        () <- primitive-call @(TupleRep []) yield#
+        constant (0 :: IntRep)
+      _ ->
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $sum_yield (next :: IntRep)
+        primitive-call @IntRep +# (count :: IntRep) (rest :: IntRep)
+
+  $shared -> BoxedRep Lifted =
+    (total :: IntRep) <- call @IntRep $sum_yield (3000 :: IntRep)
+    store (CTotal (total :: IntRep))
+
+  $child -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref shared
+
+  $entry -> BoxedRep Lifted =
+    (thread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    (total :: IntRep) <- call @IntRep $sum_yield (2000 :: IntRep)
+    (other :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) global-ref shared
+    store (CResult (total :: IntRep) (other :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CResult 2001000 @1
+  @1 = CTotal 4501500
+allocated-bytes:
+  macos-arm64: 144
+  linux-amd64: 144
+status: pass
+reason: The main thread and a forked thread each have more than one stack chunk live, and each yields at the bottom of its recursion, so the scheduler switches between the two stacks. The main thread then blocks on the thunk that the child is evaluating, and resumes when the child updates it and finishes.

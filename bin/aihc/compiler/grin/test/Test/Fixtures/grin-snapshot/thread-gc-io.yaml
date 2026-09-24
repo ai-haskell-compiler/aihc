@@ -39,7 +39,7 @@ return: "@0"
 heap: |
   @0 = CNumber 42
 allocated-bytes:
-  macos-arm64: 1960
-  linux-amd64: 1960
+  macos-arm64: 1904
+  linux-amd64: 1904
 status: pass
 reason: A pending IO request must retain its thread while another thread forces collections.
