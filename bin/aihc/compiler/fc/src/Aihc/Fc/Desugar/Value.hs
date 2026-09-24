@@ -352,7 +352,7 @@ desugarModuleValues checked = do
   values <- mapM (desugarTopValue specs) tops
   patternValues <- concat <$> mapM desugarTopPatternGroup patternGroups
   rules <- concat <$> mapM desugarRulesDecl (Syn.moduleDecls checked)
-  pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues) <> rules)
+  compactStringValues (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues) <> rules)
 
 -- | The rules of a @RULES@ pragma. Any other declaration gives none.
 desugarRulesDecl :: Syn.Decl -> ValueM [Decl]
@@ -4358,13 +4358,7 @@ desugarStringValue :: Text -> ValueM Expr
 desugarStringValue value = do
   kinds <- valueKinds
   case T.unpack value of
-    characters@(_ : _ : _) -> do
-      let (unpacker, bytes)
-            | all latin1Safe characters = ("unpackCString#", BS.pack (map (fromIntegral . fromEnum) characters))
-            | otherwise = ("unpackCStringUtf8#", BS.concat (map modifiedUtf8 characters))
-      unpackName <- primitiveName "GHC.CString" unpacker SortValue
-      representation <- convertRuntimeRep (addrRep kinds)
-      pure (ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes)))
+    characters@(_ : _ : _) -> desugarPackedString characters Nothing
     characters -> do
       charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
       charConstructor <- boxedCharConstructor
@@ -4372,10 +4366,75 @@ desugarStringValue value = do
       desugarFcList
         (TyCon charName)
         [ExApp (ExVar charConstructor) (ExLit (LitChar representation character)) | character <- characters]
+
+-- | Encode a string literal, with an optional list suffix that stays lazy.
+desugarPackedString :: [Char] -> Maybe Expr -> ValueM Expr
+desugarPackedString characters suffix = do
+  kinds <- valueKinds
+  let (encoding, bytes)
+        | all latin1Safe characters = ("", BS.pack (map (fromIntegral . fromEnum) characters))
+        | otherwise = ("Utf8", BS.concat (map modifiedUtf8 characters))
+      prefix = if isJust suffix then "unpackAppendCString" else "unpackCString"
+  unpackName <- primitiveName "GHC.CString" (prefix <> encoding <> "#") SortValue
+  representation <- convertRuntimeRep (addrRep kinds)
+  let unpacked = ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes))
+  pure (maybe unpacked (ExApp unpacked) suffix)
   where
     latin1Safe character = character >= '\1' && character <= '\127'
     modifiedUtf8 '\0' = BS.pack [0xC0, 0x80]
     modifiedUtf8 character = TE.encodeUtf8 (T.singleton character)
+
+-- | Compact constant character prefixes, including the lists from derived Show.
+-- Keep empty and single-character prefixes as constructors, as for source literals.
+-- Inspect each complete prefix before its children, so one literal contains the whole prefix.
+compactStringValues :: [Decl] -> ValueM [Decl]
+compactStringValues declarations = do
+  package <- gets (cePrimPackage . vsConvertEnv)
+  let name text sort = Name text sort (OriginTop package "GHC.Types")
+      charType = TyCon (name "Char" SortTypeConstructor)
+      cons = ExTyApp (ExVar (name ":" SortDataConstructor)) charType
+      nil = ExTyApp (ExVar (name "[]" SortDataConstructor)) charType
+      charConstructor = name "C#" SortDataConstructor
+      wordRepresentation = TyCon (name "WordRep" SortDataConstructor)
+      stringPrefix expression =
+        case expression of
+          ExApp (ExApp constructor (ExApp (ExVar boxed) (ExLit (LitChar representation character)))) rest
+            | constructor == cons,
+              boxed == charConstructor,
+              representation == wordRepresentation ->
+                let (characters, suffix) = stringPrefix rest
+                 in (character : characters, suffix)
+          _ -> ([], expression)
+      compact expression
+        | (characters@(_ : _ : _), rest) <- stringPrefix expression = do
+            suffix <- if rest == nil then pure Nothing else Just <$> compact rest
+            desugarPackedString characters suffix
+        | otherwise =
+            case expression of
+              ExApp function argument -> ExApp <$> compact function <*> compact argument
+              ExTyApp function argument -> (`ExTyApp` argument) <$> compact function
+              ExLam binder body -> ExLam binder <$> compact body
+              ExTyLam binder body -> ExTyLam binder <$> compact body
+              ExLet binding body -> ExLet <$> compactBind binding <*> compact body
+              ExRec bindings body -> ExRec <$> mapM compactBind bindings <*> compact body
+              ExCase scrutinee binder resultType alternatives ->
+                ExCase <$> compact scrutinee <*> pure binder <*> pure resultType <*> mapM compactAlt alternatives
+              ExCast body coercion -> (`ExCast` coercion) <$> compact body
+              ExForeignCall call types arguments -> ExForeignCall call types <$> mapM compact arguments
+              _ -> pure expression
+      compactBind binding = do
+        rhs <- compact (bindRhs binding)
+        pure binding {bindRhs = rhs}
+      compactAlt alternative = do
+        rhs <- compact (altRhs alternative)
+        pure alternative {altRhs = rhs}
+      compactDecl declaration =
+        case declaration of
+          DeclVal value -> do
+            body <- compact (valBody value)
+            pure (DeclVal value {valBody = body})
+          _ -> pure declaration
+  mapM compactDecl declarations
 
 -- | The dictionary of a @KnownNat@ or @KnownSymbol@ constraint.
 --

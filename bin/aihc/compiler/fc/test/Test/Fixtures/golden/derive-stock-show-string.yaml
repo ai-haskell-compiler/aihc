@@ -1,0 +1,73 @@
+extensions:
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies #-}
+  module Test where
+
+  import GHC.Prim.Show (Show)
+
+  data Code = ExitSuccess | ExitFailure | Cλ
+    deriving stock Show
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.CString
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Prim.Show
+  scope 5 = "aihc-prim" GHC.Types
+
+  import headers
+    4.t$Dict$Show :: ∀(a : 5.sType). 5.sType;
+    3.tAddr# :: 5.tTYPE 5.cAddrRep;
+    5.tChar :: 5.sType;
+    5.tInt :: 5.sType;
+    5.tLevity :: 5.sType;
+    5.sLiftedRep :: 5.tRuntimeRep;
+    5.tRuntimeRep :: 5.sType;
+    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.sType;
+    5.sType :: 5.sType;
+    5.t[] :: ∀(a : 5.sType). 5.sType;
+    4.c$Dict$Show :: ∀(a : 5.sType). (5.tInt 5.→ a 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar) 5.→ (a 5.→ 5.t[] 5.tChar) 5.→ (5.t[] a 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar) 5.→ 4.t$Dict$Show a;
+    4.v$dmshow :: ∀(a : 5.sType). 4.t$Dict$Show a 5.→ a 5.→ 5.t[] 5.tChar;
+    4.v$dmshowList :: ∀(a : 5.sType). 4.t$Dict$Show a 5.→ 5.t[] a 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar;
+    5.cAddrRep :: 5.tRuntimeRep;
+    5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
+    5.cLifted :: 5.tLevity;
+    2.vunpackAppendCString# :: FUN @5.cAddrRep @5.sLiftedRep 3.tAddr# (5.t[] 5.tChar 5.→ 5.t[] 5.tChar);
+    2.vunpackAppendCStringUtf8# :: FUN @5.cAddrRep @5.sLiftedRep 3.tAddr# (5.t[] 5.tChar 5.→ 5.t[] 5.tChar)
+
+  import synonyms
+    5.sLiftedRep = 5.cBoxedRep 5.cLifted;
+    5.sType = 5.tTYPE 5.sLiftedRep
+
+  pub type 1.tCode :: 5.sType {
+      pub 1.cExitSuccess :: 1.tCode;
+      pub 1.cExitFailure :: 1.tCode;
+      pub 1.cCλ :: 1.tCode
+  }
+
+  pub val 1.v$fShowCode :: 4.t$Dict$Show 1.tCode
+   = 4.c$Dict$Show @1.tCode 1.v$fShowCode$cshowsPrec 1.v$fShowCode$cshow 1.v$fShowCode$cshowList
+
+  val 1.v$fShowCode$cshowsPrec :: 5.tInt 5.→ 1.tCode 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar
+   = λ(x : 5.tInt).
+    λ(y : 1.tCode).
+      case y as (_scrut : 1.tCode) return (5.t[] 5.tChar 5.→ 5.t[] 5.tChar) of {
+          1.cExitSuccess →
+              λ(s : 5.t[] 5.tChar).
+                2.vunpackAppendCString# "ExitSuccess"#5.cAddrRep s;
+          1.cExitFailure →
+              λ(s : 5.t[] 5.tChar).
+                2.vunpackAppendCString# "ExitFailure"#5.cAddrRep s;
+          1.cCλ →
+              λ(s : 5.t[] 5.tChar).
+                2.vunpackAppendCStringUtf8# "C\xce\xbb"#5.cAddrRep s
+      }
+
+  val 1.v$fShowCode$cshow :: 1.tCode 5.→ 5.t[] 5.tChar
+   = 4.v$dmshow @1.tCode 1.v$fShowCode
+
+  val 1.v$fShowCode$cshowList :: 5.t[] 1.tCode 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar
+   = 4.v$dmshowList @1.tCode 1.v$fShowCode
+status: pass
+reason: Derived Show uses compact constructor names with a variable suffix.

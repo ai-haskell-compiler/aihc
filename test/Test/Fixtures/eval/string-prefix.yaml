@@ -1,0 +1,24 @@
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Results = Results Bool Bool Bool Bool Bool Bool
+
+  prefix suffix = 'E' : 'x' : 'i' : 't' : suffix
+  nul suffix = 'a' : '\0' : 'b' : suffix
+  unicode suffix = '\955' : '\8594' : suffix
+  variable char suffix = 'a' : 'b' : char : 'c' : 'd' : suffix
+
+  result =
+    Results
+      (prefix "!" == "Exit!")
+      (take 4 (prefix undefined) == "Exit")
+      (nul "!" == "a\0b!")
+      (unicode "!" == "\955\8594!")
+      (variable 'X' "!" == "abXcd!")
+      (take 2 (variable undefined undefined) == "ab")
+expression: result
+output: Results True True True True True True
+status: pass
+reason: Compact character prefixes preserve Unicode, NUL characters, variable characters, and lazy suffixes.

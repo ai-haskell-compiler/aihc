@@ -417,6 +417,7 @@ primitiveModulePaths =
     "GHC/Prim/Integer.hs",
     "GHC/Prim/Num.hs",
     "GHC/Prim/Real.hs",
+    "GHC/Prim/Show.hs",
     "GHC/Prim/String.hs",
     "GHC/Tuple.hs",
     "GHC/Types.hs"
