@@ -2914,13 +2914,9 @@ generateHelper env helper =
       continuation <- fresh "continuation"
       valueGroups <- forM groups (mapM (\ty -> (,ty) <$> fresh "value"))
       let values = concat valueGroups
-          pointerCount = length (filter ((== Ptr) . snd) values)
       beginBlock (Label "entry") []
       arguments <- if null values then pure (OperandLiteral LitNull) else typedOperand <$> emitValue "arguments" Ptr (StackAlloc (toInteger (8 * length values)) (byteAlignment 8))
       continuationSlot <- typedOperand <$> emitValue "slot" Ptr (StackAlloc word (wordAlignment 1))
-      -- The roots of a frame allocation: the function, the continuation,
-      -- and every pointer value.
-      roots <- typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * (2 + pointerCount))) (byteAlignment 8))
       terminate (Jump (Target (Label "loop") [OperandVar function]))
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
@@ -2956,7 +2952,7 @@ generateHelper env helper =
       forM_ [1 .. count - 1] $ \taken -> do
         beginBlock (overLabel taken) []
         let (supplied, held) = splitAt taken valueGroups
-        applyOverSaturated machine roots (OperandVar current) (OperandVar continuation) supplied held
+        applyOverSaturated machine (OperandVar current) (OperandVar continuation) header supplied held
       beginBlock (Label "slow") []
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
         storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
@@ -2986,57 +2982,25 @@ generateHelper env helper =
     overLabel taken = Label ("over_" <> T.pack (show taken))
 
 -- | The block of an apply helper for a closure that takes fewer groups than
--- the application supplies. It pushes a frame that holds the other groups,
--- then enters the closure with the groups it takes. The frame allocation
--- can collect, so the function, the continuation, and every pointer value
--- are roots. The static references of the function that applied the value
--- are dead, as for the runtime slow path: the helper is entered by a tail
--- call.
+-- the application supplies. It pushes a frame that holds the other groups
+-- on the stack of the thread, then enters the closure with the groups it
+-- takes. A push does not collect, so no value moves.
 applyOverSaturated :: Var -> Operand -> Operand -> Operand -> [[(Var, Type)]] -> [[(Var, Type)]] -> LowerM ()
-applyOverSaturated machine roots function continuation supplied held = do
-  target <- targetM
-  info <- requireHelper (HelperApplyFrame (map (map snd) held)) >> pure (applyFrameInfoSymbol (map (map snd) held))
-  let heldValues = concat held
-      suppliedValues = concat supplied
-      pointers = [var | (var, Ptr) <- suppliedValues <> heldValues]
-      frameWords = 2 + length heldValues
-      rootOperands = function : continuation : map OperandVar pointers
-      loadMachinePointer base offset =
-        emitValue base Ptr (Load Ptr (byteAddress (OperandVar machine) offset) (wordAlignment 1))
-  heapNext <- loadMachinePointer "heap" (machineHeapNextOffset target)
-  heapLimit <- loadMachinePointer "heap_end" (machineHeapLimitOffset target)
-  nextWord <- emitValue "heap_word" I64 (PtrToInt (typedOperand heapNext))
-  limitWord <- emitValue "heap_end_word" I64 (PtrToInt (typedOperand heapLimit))
-  room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
-  fits <- emitValue "heap_fits" I1 (Compare GeU I64 (typedOperand room) (OperandLiteral (LitInt (8 * toInteger frameWords))))
-  collect <- freshLabel "gc_collect"
-  reserved <- freshLabel "gc_reserved"
-  terminate (Branch (typedOperand fits) (Target reserved rootOperands) (Target collect []))
-  beginBlock collect []
-  forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-    storeSlot Ptr root roots (toInteger (8 * index))
-  _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [OperandVar machine, OperandLiteral (LitInt (toInteger frameWords)), OperandLiteral (LitInt (toInteger (length rootOperands))), roots, OperandLiteral LitNull]
-  relocated <- forM (zip [0 :: Int ..] rootOperands) $ \(index, _) ->
-    loadSlot "relocated" Ptr roots (toInteger (8 * index))
-  terminate (Jump (Target reserved (map typedOperand relocated)))
-  liveFunction <- fresh "function"
-  liveContinuation <- fresh "continuation"
-  livePointers <- mapM (const (fresh "pointer")) pointers
-  beginBlock reserved [(var, Ptr) | var <- liveFunction : liveContinuation : livePointers]
-  let renamed = Map.fromList (zip pointers livePointers)
-      live (var, ty) = (Map.findWithDefault var var renamed, ty)
-  frame <- bumpAllocate (OperandVar machine) frameWords
-  storeSlot Ptr (OperandLiteral (LitSymbol info)) (typedOperand frame) 0
-  storeSlot Ptr (OperandVar liveContinuation) (typedOperand frame) 8
-  forM_ (zip [0 :: Int ..] (map live heldValues)) $ \(index, (var, ty)) ->
+applyOverSaturated machine function continuation header supplied held = do
+  let heldTypes = map (map snd) held
+      heldValues = concat held
+  _ <- requireHelper (HelperApplyFrame heldTypes)
+  frame <- pushFrame (OperandVar machine) (2 + length heldValues)
+  storeSlot Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) (typedOperand frame) 0
+  storeSlot Ptr continuation (typedOperand frame) 8
+  forM_ (zip [0 :: Int ..] heldValues) $ \(index, (var, ty)) ->
     storeSlot ty (OperandVar var) (typedOperand frame) (toInteger (8 * (index + 2)))
-  header <- typedOperand <$> loadObjectInfo (OperandVar liveFunction)
   entry <- loadInfoCode "entry" header infoBackendEntryIndex
   terminate
     ( TailCallIndirect
         (typedOperand entry)
-        (OperandVar machine : OperandVar liveFunction : typedOperand frame : [OperandVar var | (var, _) <- map live suppliedValues])
-        (Signature (Ptr : Ptr : Ptr : map snd suppliedValues) [] AihcConvention)
+        (OperandVar machine : function : typedOperand frame : [OperandVar var | (var, _) <- concat supplied])
+        (Signature (Ptr : Ptr : Ptr : map snd (concat supplied)) [] AihcConvention)
     )
 
 -- | The word fields of an info table precede its byte fields. See the

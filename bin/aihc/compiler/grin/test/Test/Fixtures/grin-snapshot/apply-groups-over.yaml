@@ -16,7 +16,7 @@ program: |
 return: "35"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 48
-  linux-amd64: 48
+  macos-arm64: 24
+  linux-amd64: 24
 status: pass
 reason: an application whose groups supply more arguments than the function takes calls the function with its arity and applies the result to the other groups

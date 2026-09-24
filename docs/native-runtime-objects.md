@@ -202,8 +202,9 @@ remaining arity of a closure with the group count:
 
 - The arity is equal to the group count: the helper tail-calls the entry
   with all the values.
-- The arity `k` is less than the group count: the helper allocates a normal continuation frame that
-  holds the parent continuation and the other groups. Then it tail-calls the
+- The arity `k` is less than the group count: the helper pushes a normal
+  continuation frame on the thread stack. The frame holds the parent
+  continuation and the other groups. Then it tail-calls the
   entry with the first `k` groups and the frame as the continuation. The
   frame applies the result to the groups it holds.
 - The arity is more than the group count, or the function is a partial
