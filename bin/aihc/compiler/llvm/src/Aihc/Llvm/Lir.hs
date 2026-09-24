@@ -4,8 +4,8 @@
 --
 -- The @aihc@ convention is @tailcc@, and every @tailcall@ is a @musttail@
 -- call followed by @ret@, so LLVM verifies that the stack does not grow.
--- A call that is not a tail call goes to an @aihc@ function through a shim.
--- See 'renderCallShim'.
+-- A call that is not a tail call and passes stack arguments goes to an
+-- @aihc@ function through a shim. See 'renderCallShim'.
 -- Block parameters become @phi@ instructions. Every edge with arguments
 -- goes through its own block, so a target reached twice from one
 -- predecessor still has one @phi@ entry per edge. The operations that trap
@@ -28,6 +28,7 @@ import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Either (fromRight)
+import Data.List (partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -345,16 +346,27 @@ callShim signature = do
       put state {stateCallShims = Map.insert signature index (stateCallShims state)}
       pure (callShimName index)
 
+-- | Whether a @tailcc@ call can pass arguments on the stack. The limits are
+-- the smallest register counts of the hosts: six integer registers on
+-- x86-64 and eight float registers on x86-64 and AArch64. A call below them
+-- passes all of its arguments in registers, so the callee removes nothing.
+hasStackArguments :: Signature -> Bool
+hasStackArguments signature =
+  length integers > 6 || length floats > 8
+  where
+    (floats, integers) = partition isFloatType (signatureParameters signature)
+
 callShimName :: Int -> Text
 callShimName index = "@" <> quote (".Llir_call_" <> tshow index)
 
 -- | A @tailcc@ callee removes its stack arguments, and the caller then moves
 -- the stack pointer back. At -O0, LLVM for AArch64 can put a spill reload
 -- between the call and that adjustment, and the reload then reads the wrong
--- stack slot. A caller that is not a tail call thus calls this shim. The shim
--- takes the callee as its first argument, does the call, and returns
--- immediately, so no reload can occur there. The shim is @noinline@, so the
--- defect cannot come back after inlining.
+-- stack slot (issue #2254). Thus a call that is not a tail call and passes
+-- stack arguments calls this shim. The shim takes the callee as its first
+-- argument, does the call, and returns immediately, so no reload can occur
+-- there. The shim is @noinline@, so the defect cannot come back after
+-- inlining. Remove the shim when the supported LLVM versions are correct.
 renderCallShim :: Signature -> Int -> [Text]
 renderCallShim signature index =
   [ "define internal " <> results <> " " <> callShimName index <> "(" <> T.intercalate ", " ("ptr %callee" : zipWith typed' (signatureParameters signature) arguments) <> ") noinline {",
@@ -729,12 +741,13 @@ compileInstruction ctx (Instruction results operation) =
         offset = addressByteOffset wordBytes address
 
     call callee signature arguments = do
-      rendered <- case signatureConvention signature of
-        AihcConvention -> do
-          shim <- callShim signature
-          pure (shim <> "(ptr " <> callee <> (T.concat [", " <> argument | argument <- zipWith typed (signatureParameters signature) arguments]) <> ")")
-        CConvention -> pure (callee <> "(" <> T.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")")
-      let body = "call " <> renderResults (signatureResults signature) <> " " <> rendered
+      let rendered = zipWith typed (signatureParameters signature) arguments
+      body <-
+        if signatureConvention signature == AihcConvention && hasStackArguments signature
+          then do
+            shim <- callShim signature
+            pure ("call " <> renderResults (signatureResults signature) <> " " <> shim <> "(" <> T.intercalate ", " (("ptr " <> callee) : rendered) <> ")")
+          else pure ("call " <> renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " rendered <> ")")
       case (signatureResults signature, results) of
         ([], []) -> emit body
         ([_], [var]) -> emit (renderVar var <> " = " <> body)
