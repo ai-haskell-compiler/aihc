@@ -228,6 +228,127 @@ static _Noreturn void aihc_semispace_exhausted(const AihcMachine *machine) {
   aihc_fail("live data exceeds semispace");
 }
 
+/* The number of released chunks a machine keeps for later growth. */
+#define AIHC_STACK_SPARE_CHUNKS 64
+
+static AihcStackChunk *aihc_stack_chunk_of(const void *address) {
+  return (AihcStackChunk *)((uintptr_t)address &
+                            ~(uintptr_t)(AIHC_STACK_CHUNK_BYTES - 1));
+}
+
+static uint8_t *aihc_stack_chunk_frames(AihcStackChunk *chunk) {
+  return (uint8_t *)chunk + AIHC_STACK_CHUNK_HEADER_BYTES;
+}
+
+static AihcStackChunk *aihc_stack_chunk_new(AihcMachine *machine,
+                                            AihcStack *stack) {
+  AihcStackChunk *chunk = machine->spare_chunks;
+  if (chunk != NULL) {
+    machine->spare_chunks = chunk->above;
+    --machine->spare_chunk_count;
+  } else {
+    chunk = aligned_alloc(AIHC_STACK_CHUNK_BYTES, AIHC_STACK_CHUNK_BYTES);
+    if (chunk == NULL) {
+      aihc_fail("out of memory for the thread stack");
+    }
+  }
+  chunk->stack = stack;
+  chunk->below = NULL;
+  chunk->above = NULL;
+  return chunk;
+}
+
+static void aihc_stack_chunk_free(AihcMachine *machine, AihcStackChunk *chunk) {
+  if (machine->spare_chunk_count < AIHC_STACK_SPARE_CHUNKS) {
+    chunk->stack = NULL;
+    chunk->below = NULL;
+    chunk->above = machine->spare_chunks;
+    machine->spare_chunks = chunk;
+    ++machine->spare_chunk_count;
+  } else {
+    free(chunk);
+  }
+}
+
+AihcStack *aihc_stack_new(AihcMachine *machine, AihcThread *thread) {
+  AihcStack *stack = malloc(sizeof(*stack));
+  if (stack == NULL) {
+    aihc_fail("out of memory for the thread stack");
+  }
+  stack->thread = thread;
+  stack->base = aihc_stack_chunk_new(machine, stack);
+  stack->next = machine->stacks;
+  machine->stacks = stack;
+  return stack;
+}
+
+uint8_t *aihc_stack_base(const AihcStack *stack) {
+  return aihc_stack_chunk_frames(stack->base);
+}
+
+AihcStack *aihc_stack_of(const void *frame) {
+  return aihc_stack_chunk_of(frame)->stack;
+}
+
+void aihc_stack_release(AihcMachine *machine, AihcStack *stack) {
+  AihcStack **link = &machine->stacks;
+  while (*link != stack) {
+    if (*link == NULL) {
+      aihc_fail("released stack is not registered");
+    }
+    link = &(*link)->next;
+  }
+  *link = stack->next;
+  AihcStackChunk *chunk = stack->base;
+  while (chunk != NULL) {
+    AihcStackChunk *above = chunk->above;
+    aihc_stack_chunk_free(machine, chunk);
+    chunk = above;
+  }
+  free(stack);
+}
+
+AihcValue *aihc_stack_grow(AihcMachine *machine, uint64_t words) {
+  if (words > (AIHC_STACK_CHUNK_BYTES - AIHC_STACK_CHUNK_HEADER_BYTES) /
+                  sizeof(AihcSlot)) {
+    aihc_fail("continuation frame exceeds a stack chunk");
+  }
+  AihcStackChunk *current = aihc_stack_chunk_of(machine->stack_next - 1);
+  AihcStackChunk *next = current->above;
+  if (next == NULL) {
+    next = aihc_stack_chunk_new(machine, current->stack);
+    next->below = current;
+    current->above = next;
+  }
+  uint8_t *frame = aihc_stack_chunk_frames(next);
+  machine->stack_next = frame + words * sizeof(AihcSlot);
+  return (AihcValue *)frame;
+}
+
+AihcValue *aihc_stack_push(AihcMachine *machine, uint64_t words) {
+  uint8_t *frame = machine->stack_next;
+  if (frame == NULL) {
+    aihc_fail("stack push before the machine started");
+  }
+  uintptr_t last = (uintptr_t)frame + words * sizeof(AihcSlot) - 1;
+  if ((((uintptr_t)frame - 1) ^ last) >= AIHC_STACK_CHUNK_BYTES) {
+    return aihc_stack_grow(machine, words);
+  }
+  machine->stack_next = frame + words * sizeof(AihcSlot);
+  return (AihcValue *)frame;
+}
+
+void aihc_stack_resume_after(AihcMachine *machine, const AihcValue *frame) {
+  machine->stack_next =
+      (uint8_t *)frame + aihc_value_words(frame) * sizeof(AihcSlot);
+}
+
+/* Release the stacks of the threads this collection did not retain, and the
+   chunks above the one after the running chunk. Frames above the stack
+   pointer are dead, and one spare chunk stops a loop at a chunk boundary
+   from allocating a chunk on every push. */
+static void aihc_sweep_stacks(AihcForwardingContext *context);
+
 /* Copy one object or return where it already went. Heap indirections are
    not copied: the collector follows them and returns their target, so the new
    space holds no indirection and no chain grows across collections. */
@@ -380,6 +501,36 @@ static AihcValue *aihc_live_value(AihcForwardingContext *context,
   return NULL;
 }
 
+static void aihc_sweep_stacks(AihcForwardingContext *context) {
+  AihcMachine *machine = context->machine;
+  AihcStack *stack = machine->stacks;
+  while (stack != NULL) {
+    AihcStack *next = stack->next;
+    AihcThread *thread =
+        (AihcThread *)aihc_live_value(context, (AihcValue *)stack->thread);
+    if (thread == NULL) {
+      aihc_stack_release(machine, stack);
+    } else {
+      stack->thread = thread;
+    }
+    stack = next;
+  }
+  if (machine->stack_next == NULL) {
+    return;
+  }
+  AihcStackChunk *spare = aihc_stack_chunk_of(machine->stack_next - 1)->above;
+  if (spare == NULL) {
+    return;
+  }
+  AihcStackChunk *chunk = spare->above;
+  spare->above = NULL;
+  while (chunk != NULL) {
+    AihcStackChunk *above = chunk->above;
+    aihc_stack_chunk_free(machine, chunk);
+    chunk = above;
+  }
+}
+
 /* Rebuild the weak lookup list after strong tracing. Do not retain names
    through this list or retain referents through their names. */
 static void aihc_update_stable_names(AihcForwardingContext *context) {
@@ -495,6 +646,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
 
   aihc_trace(&context);
   aihc_update_stable_names(&context);
+  aihc_sweep_stacks(&context);
   AihcPinnedBlock **link = &machine->pinned_blocks;
   while (*link != NULL) {
     AihcPinnedBlock *block = *link;

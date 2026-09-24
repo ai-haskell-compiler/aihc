@@ -165,7 +165,7 @@ simplifyExpr env expression =
        in ( GrinStoreRecUnchecked bindings body',
             (foldMap (freeNodeVars . snd) bindings <> bodyFree) `Set.difference` Set.fromList (map fst bindings)
           )
-    GrinEval _ value
+    GrinEval _ _ value
       | isEvaluated env value -> (GrinConstant [value], freeValueVars value)
     GrinApply resultRep function arguments
       | Just node <- knownNode env function,

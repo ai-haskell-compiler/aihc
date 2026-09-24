@@ -1,0 +1,19 @@
+program: |
+  constructor I# [IntRep]
+
+  pub global entry = (F$entry)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (1 :: IntRep))
+
+  $entry -> BoxedRep Lifted =
+    t :: BoxedRep Lifted <-
+      store (F$delayed)
+    alias :: BoxedRep Lifted <-
+      store (CI# (0 :: IntRep))
+    updated :: BoxedRep Lifted <-
+      update (alias :: BoxedRep Lifted) (t :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (alias :: BoxedRep Lifted)
+analysis: skipped
+status: pass
+reason: an explicit update can turn a value node into an indirection, which the analysis does not model, so it refuses the program

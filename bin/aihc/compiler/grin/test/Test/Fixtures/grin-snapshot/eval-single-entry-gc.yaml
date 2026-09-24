@@ -1,0 +1,23 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor I32#/1 [Int32Rep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $delayed (left%1 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (right%2 :: BoxedRep Lifted) <- store (CI32# (8 :: Int32Rep))
+    (inner%3 :: BoxedRep Lifted) <- store (CPair (left%1 :: BoxedRep Lifted) (right%2 :: BoxedRep Lifted))
+    store (CPair (inner%3 :: BoxedRep Lifted) (right%2 :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    (left%4 :: BoxedRep Lifted) <- store (CI32# (7 :: Int32Rep))
+    (thunk%5 :: BoxedRep Lifted) <- store (F$delayed (left%4 :: BoxedRep Lifted))
+    eval-once @(BoxedRep Lifted) (thunk%5 :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CPair @1 @3
+  @1 = CPair @2 @3
+  @2 = CI32# 7
+  @3 = CI32# 8
+status: pass
+reason: a collection while a single-entry thunk runs keeps the fields that its entry loaded, although no update frame keeps the thunk

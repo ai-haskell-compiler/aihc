@@ -27,7 +27,7 @@ return: "@0"
 heap: |
   @0 = CNumber 20
 allocated-bytes:
-  macos-arm64: 304
-  linux-amd64: 304
+  macos-arm64: 272
+  linux-amd64: 272
 status: pass
 reason: A timer retains its final value across collections and expires after an IO wait.

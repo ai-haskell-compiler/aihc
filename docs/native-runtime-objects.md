@@ -74,6 +74,56 @@ No allocation occurs before GC initialization or outside a reservation or explic
 
 The collector alone obtains backing storage and metadata from the C allocator.
 The runtime has no second heap or general auxiliary allocator.
+The thread stacks below are the only other storage, and the collector file owns them too.
+
+## Thread stacks
+
+Continuation frames are not in the managed heap.
+Each thread has a stack, and the frames of the thread are on this stack.
+A stack is a doubly linked list of chunks.
+Each chunk has 4096 bytes and the same alignment.
+Thus the chunk of an address is the address with the low 12 bits cleared.
+A chunk starts with a 32-byte header: the owner stack and the chunks below and above.
+The frames of a chunk follow the header.
+
+The machine field `stack_next` is the first free byte of the stack of the running thread.
+A push writes the frame at `stack_next` and increases it.
+The frame fits when its last byte and the byte before `stack_next` are in the same chunk.
+If the frame does not fit, `aihc_stack_grow` puts it at the start of the next chunk.
+A new chunk comes from the C allocator, so a push never collects.
+A frame keeps the address of its parent in field zero, in any chunk.
+Thus a chunk boundary needs no link frame.
+The largest frame has 256 words, so a frame always fits in an empty chunk.
+
+A continue helper sets `stack_next` to the address of the frame that it enters.
+This pops the frame and every frame above it.
+An application resume sets `stack_next` to the first byte after its continuation.
+These two rules are correct because code always pushes a frame directly above its current continuation.
+The current continuation is thus always the topmost live frame.
+
+The frame layouts do not change, because each frame has its info table.
+The collector finds a live frame through a pointer to it.
+It marks the frame as it marks a static object and scans the frame in place.
+Frames do not move, so a pointer to a frame needs no relocation.
+A stack stays while the collector retains its thread record.
+After each collection, the collector releases the stacks of the threads that it did not retain.
+It also releases the chunks above the chunk after the running chunk.
+When a thread finishes, the runtime releases its stack immediately.
+The machine keeps up to 64 released chunks for later growth.
+
+Stack chunks are not in the heap statistics or in the `-M` limit.
+
+The runtime puts these frames on the stack as well:
+
+- The update frame that `aihc_lir_eval` pushes when it enters a thunk.
+- The final and top continuations of the main thread, and the thread-done frame at the bottom of each forked thread.
+- The stop frame of a foreign callback. The callback runs on the stack of the thread that made the foreign call.
+- The frames that a `control0#` resume pushes again.
+
+`control0#` copies the frames between the top and the prompt to the managed heap.
+The copies link from the top down, and the lowest copy has a null parent.
+A resume pushes new copies of these frames on the stack from the bottom up.
+It never writes the heap copies, so a captured continuation can resume any number of times.
 
 ## Runtime statistics
 
@@ -177,7 +227,7 @@ the test can compile the driver with sanitizers when the C compiler supports
 them.
 
 The cooperative scheduler keeps pending IO requests in managed pinned objects. Suspended threads retain
-ordinary action or continuation closures. The scheduler hands a selected thread
+ordinary action closures or pointers to continuation frames on their stacks. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
 dispatches with a tail call. All retained closure values and pending-request
 continuations are precise collector roots.
@@ -259,9 +309,10 @@ Ordinary thunk evaluation allocates no table entry or blackhole record.
 
 `aihc_lir_eval` follows indirections before it selects a branch.
 A ready value requires no reservation or update frame.
-The thunk branch reserves three slots for its update continuation.
+The thunk branch pushes a three-slot update frame on the thread stack.
+This push does not collect, so the thunk branch needs no reservation.
 The blackhole branch reserves four slots, which cover a waiter on every target.
-Both branches protect the resolved value and the continuation as roots across collection.
+It protects the resolved value and the continuation as roots across collection.
 The thunk branch stores the parent continuation and resolved thunk in the update frame.
 It sets the evaluation bit and transfers to the thunk entry.
 The original info table and payload remain intact, including across suspension.
@@ -280,6 +331,11 @@ The continuation then evaluates the result with the parent continuation.
 Exception unwinding clears both bits and raises the exception in each waiter.
 The restored thunk can be evaluated again.
 No collection or scheduler switch occurs between a header change and removal of its waiter entry.
+
+`aihc_lir_eval_single_entry` enters a thunk with no update frame, evaluation bit, or reservation.
+The compiler uses it only for a thunk that no other evaluation can reach.
+The thunk is not updated, and the collector can reclaim it as soon as its entry has loaded its fields.
+A value with the evaluation bit, an indirection, or a blackhole goes to `aihc_lir_eval`.
 
 The collector masks the header tags and traces the original thunk layout and static reference table.
 An update continuation retains its thunk while evaluation is in progress.

@@ -146,6 +146,7 @@ runBuildModule options = do
             compileCheckPrimBounds = buildCheckPrimBounds options,
             compileLto = planWholeProgram plan,
             compilePasses = planPasses plan,
+            compileGrinPointsTo = planGrinPointsTo plan,
             compileNoCode = False,
             compileOptimization = buildOptimization options,
             compileTarget = target,

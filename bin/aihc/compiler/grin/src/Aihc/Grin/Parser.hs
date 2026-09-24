@@ -329,8 +329,11 @@ atomicExpr =
       ensureHeapExpr,
       twoValuesExpr "update-blackhole" GrinUpdateBlackhole,
       twoValuesExpr "update" GrinUpdate,
-      runtimeRepValueExpr "eval" GrinEval,
-      cpsEvalExpr,
+      MP.try (runtimeRepValueExpr "eval-once" (GrinEval EvalSingleEntry)),
+      runtimeRepValueExpr "eval" (GrinEval EvalUpdate),
+      MP.try (cpsEvalExpr "cps-eval-once" EvalSingleEntry),
+      cpsEvalExpr "cps-eval" EvalUpdate,
+      fetchExpr,
       namedCallExpr "call" GrinCall,
       primitiveCallExpr,
       cpsPrimitiveCallExpr,
@@ -398,9 +401,9 @@ twoValuesExpr expressionName constructor = do
   lineEnd
   pure (constructor first second)
 
-cpsEvalExpr :: Parser GrinExpr
-cpsEvalExpr = do
-  keyword "cps-eval"
+cpsEvalExpr :: Text -> GrinEvalUpdate -> Parser GrinExpr
+cpsEvalExpr expressionName update = do
+  keyword expressionName
   horizontal1
   representation <- runtimeRepArgument
   horizontal1
@@ -408,7 +411,17 @@ cpsEvalExpr = do
   horizontal1
   continuation <- grinValue
   lineEnd
-  pure (GrinCpsEval representation value continuation)
+  pure (GrinCpsEval update representation value continuation)
+
+fetchExpr :: Parser GrinExpr
+fetchExpr = do
+  keyword "fetch"
+  horizontal1
+  tag <- betweenHorizontal '(' ')' nodeTag
+  horizontal1
+  value <- grinValue
+  lineEnd
+  pure (GrinFetch tag value)
 
 namedCallExpr :: Text -> (GrinResultRep -> FunctionName -> [GrinValue] -> GrinExpr) -> Parser GrinExpr
 namedCallExpr expressionName constructor = do

@@ -21,7 +21,7 @@ heap: |
   @1 = CI# 42
   @2 = CI# 7
 allocated-bytes:
-  macos-arm64: 368
-  linux-amd64: 368
+  macos-arm64: 224
+  linux-amd64: 224
 status: pass
 reason: An unknown call that supplies more arguments than the function takes applies the result to the remaining arguments.

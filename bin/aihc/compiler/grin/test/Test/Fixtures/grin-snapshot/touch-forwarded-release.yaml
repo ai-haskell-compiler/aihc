@@ -25,7 +25,7 @@ program: |
 return: "42"
 heap: "[]"
 allocated-bytes:
-  macos-arm64: 1192
-  linux-amd64: 1192
+  macos-arm64: 1152
+  linux-amd64: 1152
 status: pass
 reason: The owner must become collectible after the abstract action returns through its final touch.

@@ -16,7 +16,7 @@ program: |
         eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
 
   $entry -> BoxedRep Lifted =
-    call @(BoxedRep Lifted) $step (64 :: IntRep)
+    call @(BoxedRep Lifted) $step (256 :: IntRep)
 error: heap limit exceeded
 status: pass
-reason: The heap limit must include all 64 active thunks and their update continuations.
+reason: The heap limit must include all 256 active thunks. Their update frames are on the thread stack and not in the heap, so the thunks alone exceed the limit.

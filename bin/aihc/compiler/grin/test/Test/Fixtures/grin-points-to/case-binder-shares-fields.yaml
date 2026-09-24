@@ -1,0 +1,65 @@
+program: |
+  constructor I# [IntRep]
+  constructor Box [BoxedRep Lifted]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (1 :: IntRep))
+
+  $readTwice (p :: BoxedRep Lifted) -> BoxedRep Lifted =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (p :: BoxedRep Lifted)
+    case (v :: BoxedRep Lifted) as whole :: BoxedRep Lifted of
+      data Box (t :: BoxedRep Lifted) ->
+        a :: BoxedRep Lifted <-
+          eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+        case (whole :: BoxedRep Lifted) as again :: BoxedRep Lifted of
+          data Box (u :: BoxedRep Lifted) ->
+            b :: BoxedRep Lifted <-
+              eval @(BoxedRep Lifted) (u :: BoxedRep Lifted)
+            store (CPair (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    t :: BoxedRep Lifted <-
+      store (F$delayed)
+    box :: BoxedRep Lifted <-
+      store (CBox (t :: BoxedRep Lifted))
+    call @(BoxedRep Lifted) $readTwice (box :: BoxedRep Lifted)
+expected: |-
+  constructor I# [IntRep]
+
+  constructor Box [BoxedRep Lifted]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $delayed -> BoxedRep Lifted =
+    store (CI# (1 :: IntRep))
+
+  $readTwice (p :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (p :: BoxedRep Lifted) as whole :: BoxedRep Lifted of
+      data Box (t :: BoxedRep Lifted) ->
+        a :: BoxedRep Lifted <-
+          eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+        case (whole :: BoxedRep Lifted) as again :: BoxedRep Lifted of
+          data Box (u :: BoxedRep Lifted) ->
+            b :: BoxedRep Lifted <-
+              eval @(BoxedRep Lifted) (u :: BoxedRep Lifted)
+            store (CPair (a :: BoxedRep Lifted) (b :: BoxedRep Lifted))
+
+  $entry -> BoxedRep Lifted =
+    t :: BoxedRep Lifted <-
+      store (F$delayed)
+    box :: BoxedRep Lifted <-
+      store (CBox (t :: BoxedRep Lifted))
+    call @(BoxedRep Lifted) $readTwice (box :: BoxedRep Lifted)
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 1
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: a case binder is another name for the scrutinee, so a second case on it reads the thunk field again, and the thunk keeps its update frame
