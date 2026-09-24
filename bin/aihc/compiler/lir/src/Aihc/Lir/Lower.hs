@@ -1173,24 +1173,49 @@ compileExpr ctx env expression =
           _ <- callRuntime "aihc_set_exit_status" [Ptr, I64] [] [ctxMachine ctx, statusOperand]
           entry <- callRuntime "aihc_halt" [Ptr] [Code] [ctxMachine ctx]
           terminate (TailCallIndirect entry [ctxMachine ctx] (Signature [Ptr] [] AihcConvention))
+    -- An updated thunk is an indirection until the next collection. The
+    -- check follows the indirections of a variable to their target. Thus the
+    -- ready branch gets the WHNF value, and no continuation is allocated.
+    -- The info-table address removes the evaluating bit of the header, and a
+    -- thunk under evaluation has the thunk kind. Thus that thunk goes to the
+    -- slow branch.
     GrinIfWhnf value ready slow -> do
       object <- pointerValue ctx env value
-      header <- loadObjectInfo object
-      kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+      checkLabel <- freshLabel "eval_check"
       readyLabel <- freshLabel "eval_ready"
       slowLabel <- freshLabel "eval_slow"
+      current <- fresh "current"
+      terminate (Jump (Target checkLabel [object]))
+      beginBlock checkLabel [(current, Ptr)]
+      header <- loadObjectInfo (OperandVar current)
+      kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
+      followLabel <- freshLabel "eval_follow"
+      -- Only a variable can take the target. Another value keeps the slow
+      -- branch for an indirection.
       let slowTarget = Target slowLabel []
+          follows = case value of
+            GrinVarValue var -> Just var
+            _ -> Nothing
+          env' = maybe env (\var -> Map.insert var (Typed (OperandVar current) Ptr) env) follows
+          indirectionTarget = maybe slowTarget (const (Target followLabel [])) follows
       terminate
         ( Switch
             I64
             (typedOperand kind)
-            [SwitchCase kindCode slowTarget | kindCode <- [toInteger runtimeObjectThunk, runtimeObjectIndirection, runtimeObjectBlackhole]]
+            [ SwitchCase (toInteger runtimeObjectThunk) slowTarget,
+              SwitchCase runtimeObjectIndirection indirectionTarget,
+              SwitchCase runtimeObjectBlackhole slowTarget
+            ]
             (Just (Target readyLabel []))
         )
+      for_ follows $ \_ -> do
+        beginBlock followLabel []
+        next <- loadSlot "next" Ptr (OperandVar current) 8
+        terminate (Jump (Target checkLabel [typedOperand next]))
       beginBlock readyLabel []
-      compileExpr ctx env ready
+      compileExpr ctx env' ready
       beginBlock slowLabel []
-      compileExpr ctx env slow
+      compileExpr ctx env' slow
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
