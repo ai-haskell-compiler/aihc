@@ -13,6 +13,7 @@ where
 import Aihc.Fc.Imports (unusedImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (parseProgram, renderParseError)
+import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf hiding (coercionEndpoints)
 import Aihc.Fc.Wired
@@ -22,6 +23,8 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, isJust)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -39,6 +42,10 @@ data LintError
     -- never places its result.
     RepresentationPolymorphicBinder !Name !Name
   | ShadowedBinder !Name
+  | -- | A strict field of the named constructor, at the zero-based
+    -- position, gets a lifted value that is not known to be in weak-head
+    -- normal form. Each construction must evaluate a strict field first.
+    UnevaluatedStrictField !Name !Int
   | UnusedImport !Name
   | LintFailure !String
   deriving (Eq, Show)
@@ -50,11 +57,79 @@ lintProgram program =
   case primPackageFromScopes (programScopes program) of
     Nothing -> [LintFailure "program needs a GHC.Types scope"]
     Just primPackage ->
-      let env = typeEnvFromProgram primPackage program
+      let typeEnv = typeEnvFromProgram primPackage program
+          env = typeEnv {teEvaluated = topLevelValues typeEnv program}
        in map UnusedImport (unusedImports program)
             <> lintImportDeclarations env (programImports program)
             <> concatMap (lintDeclHeaders env) (programDecls program)
             <> concatMap (lintDeclBodies env) (programDecls program)
+
+-- | The values of a program whose body is in weak-head normal form. A
+-- value that is a function or a constructor application is never a thunk.
+topLevelValues :: TypeEnv -> Program -> Set Name
+topLevelValues env program =
+  Set.fromList
+    [ valName declaration
+    | DeclVal declaration <- programDecls program,
+      isValueExpr env (valBody declaration)
+    ]
+
+-- | Whether an expression is in weak-head normal form, as far as its
+-- syntax and the evaluated binders in scope show it.
+isValueExpr :: TypeEnv -> Expr -> Bool
+isValueExpr env expr =
+  case expr of
+    ExLit {} -> True
+    ExCoercion {} -> True
+    ExVar name ->
+      nameSort name == SortDataConstructor
+        || Set.member name (teEvaluated env)
+        || maybe False (not . isLiftedType env) (either (const Nothing) Just (lookupTerm env name))
+    ExLam {} -> True
+    ExTyLam _ body -> isValueExpr env body
+    ExTyApp body _ -> isValueExpr env body
+    ExCast body _ -> isValueExpr env body
+    ExLet _ body -> isValueExpr env body
+    ExRec _ body -> isValueExpr env body
+    ExApp {} ->
+      case applicationHead expr of
+        ExVar name -> nameSort name == SortDataConstructor
+        _ -> False
+    _ -> False
+
+-- | The head of an application spine.
+applicationHead :: Expr -> Expr
+applicationHead expr =
+  case expr of
+    ExApp function _ -> applicationHead function
+    ExTyApp function _ -> applicationHead function
+    _ -> expr
+
+-- | The number of value arguments in an application spine.
+valueArgumentCount :: Expr -> Int
+valueArgumentCount expr =
+  case expr of
+    ExApp function _ -> 1 + valueArgumentCount function
+    ExTyApp function _ -> valueArgumentCount function
+    _ -> 0
+
+-- | Mark binders as evaluated.
+evaluated :: [Name] -> TypeEnv -> TypeEnv
+evaluated names env = env {teEvaluated = foldr Set.insert (teEvaluated env) names}
+
+-- | Check the argument of an application whose head is a constructor
+-- with strict fields: a lifted strict field must get a value.
+checkStrictField :: TypeEnv -> Expr -> Type -> Expr -> Either LintError ()
+checkStrictField env function expected argument =
+  case applicationHead function of
+    ExVar name
+      | Just strict <- Map.lookup name (teConStrictFields env),
+        let position = valueArgumentCount function,
+        position `elem` strict,
+        isLiftedType env expected,
+        not (isValueExpr env argument) ->
+          Left (UnevaluatedStrictField name position)
+    _ -> Right ()
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
 loadScopeClosure loader seeds = do
@@ -301,7 +376,7 @@ checkExpr env context expected expr =
       bindEnv <- lintNonRecBind env binding
       checkExpr bindEnv context expected body
     ExRec bindings body -> do
-      recEnv <- foldM bindLocal env (map bindBinder bindings)
+      recEnv <- bindRecGroup env bindings
       mapM_ (lintRecRhs recEnv) bindings
       checkExpr recEnv context expected body
     ExCase scrutinee binder resultType alts -> do
@@ -385,6 +460,7 @@ lintExpr env expr =
       case viewFun env functionType of
         Just (_, _, expected, result) -> do
           checkExpr env "application argument" expected argument
+          checkStrictField env function expected argument
           Right result
         Nothing -> Left (LintFailure ("application to a non-FUN type: " <> show functionType))
     ExTyApp function argument -> do
@@ -409,7 +485,7 @@ lintExpr env expr =
       bindEnv <- lintNonRecBind env bind
       lintExpr bindEnv body
     ExRec binds body -> do
-      recEnv <- foldM bindLocal env (map bindBinder binds)
+      recEnv <- bindRecGroup env binds
       mapM_ (lintRecRhs recEnv) binds
       lintExpr recEnv body
     ExCase scrutinee binder resultType alts -> lintCase env scrutinee binder resultType alts
@@ -464,7 +540,15 @@ lintNonRecBind :: TypeEnv -> Bind -> Either LintError TypeEnv
 lintNonRecBind env bind = do
   _ <- lintType env (binderType (bindBinder bind))
   checkExpr env "let binding" (binderType (bindBinder bind)) (bindRhs bind)
-  bindLocal env (bindBinder bind)
+  bindEnv <- bindLocal env (bindBinder bind)
+  pure (if isValueExpr env (bindRhs bind) then evaluated [binderName (bindBinder bind)] bindEnv else bindEnv)
+
+-- | Bind a recursive group. A binder whose right-hand side is a value is
+-- evaluated.
+bindRecGroup :: TypeEnv -> [Bind] -> Either LintError TypeEnv
+bindRecGroup env binds = do
+  recEnv <- foldM bindLocal env (map bindBinder binds)
+  pure (evaluated [binderName (bindBinder bind) | bind <- binds, isValueExpr recEnv (bindRhs bind)] recEnv)
 
 lintRecRhs :: TypeEnv -> Bind -> Either LintError ()
 lintRecRhs env bind = checkExpr env "rec binding" (binderType (bindBinder bind)) (bindRhs bind)
@@ -472,7 +556,9 @@ lintRecRhs env bind = checkExpr env "rec binding" (binderType (bindBinder bind))
 lintCase :: TypeEnv -> Expr -> Binder -> Type -> [Alt] -> Either LintError Type
 lintCase env scrutinee binder resultType alts = do
   checkExpr env "case binder" (binderType binder) scrutinee
-  caseEnv <- bindLocal env binder
+  -- The case evaluates the scrutinee, so the case binder and a scrutinee
+  -- variable hold a value in each alternative.
+  caseEnv <- evaluated (binderName binder : scrutineeVariable scrutinee) <$> bindLocal env binder
   _ <- representationOf env resultType
   mapM_ (lintAlt caseEnv (binderType binder) resultType) alts
   Right resultType
@@ -504,7 +590,17 @@ lintAlt env scrutType expected alt =
           -- declaration; substituting in two passes would capture it.
           (envEx, substitution) <- foldM (bindExistential name) (env, universals) (zip existentials (altTypeBinders alt))
           envFields <- foldM (bindField name) envEx (zip (map (substTypes substitution) fields) (altBinders alt))
-          checkExpr envFields "case alternative" expected (altRhs alt)
+          let strict = Map.findWithDefault [] name (teConStrictFields env)
+              strictBinders = [binderName binder | (position, binder) <- zip [0 ..] (altBinders alt), position `elem` strict]
+          checkExpr (evaluated strictBinders envFields) "case alternative" expected (altRhs alt)
+
+-- | The variable that a scrutinee names under its casts.
+scrutineeVariable :: Expr -> [Name]
+scrutineeVariable scrutinee =
+  case scrutinee of
+    ExVar name -> [name]
+    ExCast body _ -> scrutineeVariable body
+    _ -> []
 
 matchLiteralAlternative :: TypeEnv -> Type -> Literal -> Either LintError ()
 matchLiteralAlternative = checkLiteral

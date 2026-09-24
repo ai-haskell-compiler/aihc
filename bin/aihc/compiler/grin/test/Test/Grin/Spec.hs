@@ -445,7 +445,8 @@ prepareEvalProgram sourceName program =
                         { Fc.conVis = Fc.Private,
                           Fc.conName = constructorName,
                           Fc.conType = Fc.TyFun representation liftedRepresentation (Fc.valType declaration) resultType,
-                          Fc.conRepresentation = Fc.HeapConstructor
+                          Fc.conRepresentation = Fc.HeapConstructor,
+                          Fc.conStrictFields = []
                         }
                     ]
                 }

@@ -1,0 +1,43 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Pair a = Pair !a a
+
+  setSecond :: Pair a -> a -> Pair a
+  setSecond (Pair x _) y = Pair x y
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tPair (a : 2.sType) :: 2.sType {
+      pub strict [0] 1.cPair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tPair a
+  }
+
+  pub val 1.vsetSecond :: ∀(a : 2.sType). 1.tPair a 2.→ a 2.→ 1.tPair a
+   = Λ(a : 2.sType).
+    λ(x : 1.tPair a).
+      λ(y : a).
+        case x as (_scrut : 1.tPair a) return (1.tPair a) of {
+            1.cPair (x{1} : a) (_pat : a) →
+                1.cPair @a x{1} y
+        }
+status: pass
+reason: A strict field binder is evaluated, so a construction that stores it does not force it again.

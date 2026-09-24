@@ -366,6 +366,7 @@ simplifyValue config known recursive st name
                             spArity = arities,
                             spLocals = Map.empty,
                             spCse = Map.empty,
+                            spEvaluated = Set.empty,
                             spSiteLimit = policySiteLimit policy,
                             spDiscount = policyFunctionArgumentDiscount policy,
                             spRules = inRules st

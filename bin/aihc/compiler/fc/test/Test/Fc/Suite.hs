@@ -135,7 +135,12 @@ failClass name
   | "lit-alt" `isInfixOf` name = Just isTypeMismatch
   | "tycon-co-arity" `isInfixOf` name = Just isLintFailure
   | "representation-polymorphic-binder" `isInfixOf` name = Just isRepresentationPolymorphicBinder
+  | "unevaluated-strict-field" `isInfixOf` name = Just isUnevaluatedStrictField
   | otherwise = Nothing
+
+isUnevaluatedStrictField :: LintError -> Bool
+isUnevaluatedStrictField UnevaluatedStrictField {} = True
+isUnevaluatedStrictField _ = False
 
 isRepresentationPolymorphicBinder :: LintError -> Bool
 isRepresentationPolymorphicBinder RepresentationPolymorphicBinder {} = True

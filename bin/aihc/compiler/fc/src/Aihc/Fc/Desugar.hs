@@ -393,7 +393,11 @@ convertHeader convertEnv bindings source =
     HeaderDataCon info -> do
       constructor <- convertConstructor convertEnv info
       let headers = headerOnly (cePrimPackage convertEnv) (conName constructor) (conType constructor)
-      Right headers {TypeOf.teConRepresentations = Map.fromList [(conName constructor, conRepresentation constructor) | conRepresentation constructor /= HeapConstructor]}
+      Right
+        headers
+          { TypeOf.teConRepresentations = Map.fromList [(conName constructor, conRepresentation constructor) | conRepresentation constructor /= HeapConstructor],
+            TypeOf.teConStrictFields = Map.fromList [(conName constructor, conStrictFields constructor) | not (null (conStrictFields constructor))]
+          }
     HeaderSynonym info ->
       declsEnv convertEnv =<< convertSynonym convertEnv info
     HeaderNewtype info ->
@@ -636,7 +640,7 @@ convertClass env info = do
             typeBinders = binders,
             typeResult = result,
             typeRoles = replicate (length binders) Representational,
-            typeCons = [ConDecl vis (classDictConName (ciTyCon info)) constructorType HeapConstructor]
+            typeCons = [ConDecl vis (classDictConName (ciTyCon info)) constructorType HeapConstructor []]
           }
     )
 
@@ -826,7 +830,8 @@ convertFamilyConstructor bindersEnv bindings package moduleName' representationT
       { conVis = Private,
         conName = Name constructorName SortDataConstructor (OriginTop package moduleName'),
         conType = replaced,
-        conRepresentation = HeapConstructor
+        conRepresentation = HeapConstructor,
+        conStrictFields = []
       }
 
 lookupBindingType :: Map.Map TcTermKey TcBindingResult -> PackageId -> Text -> Text -> Either String TcType
@@ -926,7 +931,14 @@ convertConstructor env info = do
         conRepresentation = case dciSourceForm info of
           UnboxedTupleDataCon -> UnboxedTupleConstructor
           UnboxedSumDataCon alternative arity -> UnboxedSumConstructor alternative arity
-          _ -> HeapConstructor
+          _ -> HeapConstructor,
+        -- The strict constructor wrapper of the desugarer forces these
+        -- fields at every construction. The dictionaries come first.
+        conStrictFields =
+          [ length predicates + position
+          | (position, field) <- zip [0 ..] (dciFields info),
+            dcfiStrict field
+          ]
       }
 
 constructorFun :: ConvertEnv -> [Maybe TcType] -> [Type] -> TcType -> Type -> Either String Type

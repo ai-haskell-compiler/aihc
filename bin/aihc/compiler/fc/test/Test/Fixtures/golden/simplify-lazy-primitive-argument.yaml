@@ -1,0 +1,78 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim ((+#))
+  import GHC.Types (Int (..))
+
+  data Box = Box Int
+
+  data Twice = Twice Int Int
+
+  bump :: Int -> Box
+  bump (I# x) = Box (I# (x +# 1#))
+
+  share :: Int -> Twice
+  share (I# x) = let y = I# (x +# 2#) in Twice y y
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tBox :: 3.sType {
+      pub 1.cBox :: 3.tInt 3.→ 1.tBox
+  }
+
+  pub type 1.tTwice :: 3.sType {
+      pub 1.cTwice :: 3.tInt 3.→ 3.tInt 3.→ 1.tTwice
+  }
+
+  pub val 1.vbump :: 3.tInt 3.→ 1.tBox
+   = λ(x : 3.tInt).
+    case x as (_scrut : 3.tInt) return (1.tBox) of {
+        3.cI# (x{1} : 2.tInt#) →
+            let {
+                argument : 2.tInt# =
+                    foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 1#3.cIntRep
+            } in
+                1.cBox (3.cI# argument)
+    }
+
+  pub val 1.vshare :: 3.tInt 3.→ 1.tTwice
+   = λ(x : 3.tInt).
+    case x as (_scrut : 3.tInt) return (1.tTwice) of {
+        3.cI# (x{1} : 2.tInt#) →
+            let {
+                argument : 2.tInt# =
+                    foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 2#3.cIntRep
+            } in
+                let {
+                    y : 3.tInt =
+                        3.cI# argument
+                } in
+                    1.cTwice y y
+    }
+status: pass
+reason: A lazy constructor application runs a safe primitive call first, so that lowering stores the value and makes no thunk.

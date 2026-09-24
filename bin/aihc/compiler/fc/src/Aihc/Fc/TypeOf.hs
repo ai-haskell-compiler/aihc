@@ -57,7 +57,12 @@ data TypeEnv = TypeEnv
     -- declaration order. They reduce a family application.
     teFamilyAxioms :: Map Name [AxiomDecl],
     teBinders :: Map Name Type,
-    teConRepresentations :: Map Name ConRepresentation
+    teConRepresentations :: Map Name ConRepresentation,
+    -- | The strict fields of each constructor that has one.
+    teConStrictFields :: Map Name [Int],
+    -- | The term binders in scope that hold a value in weak-head normal
+    -- form. Only the lint fills this set.
+    teEvaluated :: Set.Set Name
   }
   deriving (Eq, Show)
 
@@ -70,7 +75,9 @@ emptyTypeEnv primPackage =
       teAxioms = Map.empty,
       teFamilyAxioms = Map.empty,
       teBinders = Map.empty,
-      teConRepresentations = Map.empty
+      teConRepresentations = Map.empty,
+      teConStrictFields = Map.empty,
+      teEvaluated = Set.empty
     }
 
 unionTypeEnv :: TypeEnv -> TypeEnv -> TypeEnv
@@ -82,7 +89,9 @@ unionTypeEnv left right =
       teAxioms = teAxioms left `Map.union` teAxioms right,
       teFamilyAxioms = Map.unionWith (<>) (teFamilyAxioms left) (teFamilyAxioms right),
       teBinders = teBinders left `Map.union` teBinders right,
-      teConRepresentations = teConRepresentations left `Map.union` teConRepresentations right
+      teConRepresentations = teConRepresentations left `Map.union` teConRepresentations right,
+      teConStrictFields = teConStrictFields left `Map.union` teConStrictFields right,
+      teEvaluated = teEvaluated left `Set.union` teEvaluated right
     }
 
 typeEnvFromProgram :: PackageId -> Program -> TypeEnv
@@ -107,7 +116,8 @@ addImports env imports =
       teAxioms = importAxioms imports `Map.union` teAxioms env,
       teFamilyAxioms = List.foldl' addFamilyAxiom (teFamilyAxioms env) (Map.elems (importAxioms imports)),
       teBinders = importBinders imports `Map.union` teBinders env,
-      teConRepresentations = importConRepresentations imports `Map.union` teConRepresentations env
+      teConRepresentations = importConRepresentations imports `Map.union` teConRepresentations env,
+      teConStrictFields = importConStrictFields imports `Map.union` teConStrictFields env
     }
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
@@ -116,7 +126,8 @@ addDecl env decl =
     DeclType declaration ->
       env
         { teHeaders = List.foldl' addConstructor (Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)) (typeCons declaration),
-          teConRepresentations = Map.fromList [(conName con, conRepresentation con) | con <- typeCons declaration, conRepresentation con /= HeapConstructor] `Map.union` teConRepresentations env
+          teConRepresentations = Map.fromList [(conName con, conRepresentation con) | con <- typeCons declaration, conRepresentation con /= HeapConstructor] `Map.union` teConRepresentations env,
+          teConStrictFields = Map.fromList [(conName con, conStrictFields con) | con <- typeCons declaration, not (null (conStrictFields con))] `Map.union` teConStrictFields env
         }
       where
         addConstructor headers constructor = Map.insert (conName constructor) (conType constructor) headers

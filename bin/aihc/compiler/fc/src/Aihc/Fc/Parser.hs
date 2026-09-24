@@ -65,7 +65,7 @@ program = do
   imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
   Program scopes imports <$> MP.many declaration
   where
-    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty
+    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 importGroup :: Parser [Imports -> Imports]
 importGroup = do
@@ -83,6 +83,7 @@ importEntries entry = entry `MP.sepBy1` symbol ";"
 
 importedHeader :: Parser (Imports -> Imports)
 importedHeader = do
+  strictFields <- constructorStrictFields
   representation <- constructorRepresentation
   name <- importedHeaderName
   ty <- symbol "::" *> fcType
@@ -90,7 +91,8 @@ importedHeader = do
     ( \imports ->
         imports
           { importHeaders = Map.insert name ty (importHeaders imports),
-            importConRepresentations = if representation == HeapConstructor then importConRepresentations imports else Map.insert name representation (importConRepresentations imports)
+            importConRepresentations = if representation == HeapConstructor then importConRepresentations imports else Map.insert name representation (importConRepresentations imports),
+            importConStrictFields = if null strictFields then importConStrictFields imports else Map.insert name strictFields (importConStrictFields imports)
           }
     )
 
@@ -155,10 +157,17 @@ constructorBlock = braces (MP.many (constructorDecl <* MP.optional (symbol ";"))
 constructorDecl :: Parser ConDecl
 constructorDecl = do
   vis <- optionalPub
+  strictFields <- constructorStrictFields
   representation <- constructorRepresentation
   name <- topName SortDataConstructor
   ty <- symbol "::" *> fcType
-  pure (ConDecl vis name ty representation)
+  pure (ConDecl vis name ty representation strictFields)
+
+-- | The strict fields of a constructor: @strict [0, 2]@, or nothing when
+-- every field is lazy.
+constructorStrictFields :: Parser [Int]
+constructorStrictFields =
+  MP.option [] (keyword "strict" *> brackets (int `MP.sepBy` symbol ","))
 
 constructorRepresentation :: Parser ConRepresentation
 constructorRepresentation =
@@ -776,6 +785,9 @@ parens = MP.between (symbol "(") (symbol ")")
 
 braces :: Parser a -> Parser a
 braces = MP.between (symbol "{") (symbol "}")
+
+brackets :: Parser a -> Parser a
+brackets = MP.between (symbol "[") (symbol "]")
 
 identStart :: Char -> Bool
 identStart character = isAlpha character || character == '_' || character == '$'

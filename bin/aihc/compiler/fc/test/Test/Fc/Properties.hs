@@ -9,6 +9,7 @@ import Aihc.Fc
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
@@ -122,7 +123,7 @@ identityProgram :: Program
 identityProgram =
   Program
     { programScopes = scopes,
-      programImports = Imports mempty mempty mempty mempty mempty,
+      programImports = Imports mempty mempty mempty mempty mempty mempty,
       programDecls =
         [ DeclType
             TypeDecl
@@ -132,8 +133,8 @@ identityProgram =
                 typeResult = TyCon (typeWired "Type"),
                 typeRoles = [],
                 typeCons =
-                  [ ConDecl Pub (dataNameTop "False") (TyCon (typeNameTop "Bool")) HeapConstructor,
-                    ConDecl Pub (dataNameTop "True") (TyCon (typeNameTop "Bool")) HeapConstructor
+                  [ ConDecl Pub (dataNameTop "False") (TyCon (typeNameTop "Bool")) HeapConstructor [],
+                    ConDecl Pub (dataNameTop "True") (TyCon (typeNameTop "Bool")) HeapConstructor []
                   ]
               },
           DeclVal
@@ -170,7 +171,8 @@ genImports = do
   synonyms <- genMap (synonymNameTop . ("ImportedS" <>) <$> genSuffix) genType
   axioms <- Map.fromList <$> Gen.list (Range.linear 0 5) genImportedAxiom
   binders <- genMap genLocalName genType
-  pure (Imports headers synonyms axioms binders mempty)
+  strictFields <- Map.fromList <$> (traverse (\name -> (,) name <$> genStrictFields) =<< Gen.subsequence (Map.keys headers))
+  pure (Imports headers synonyms axioms binders mempty (Map.filter (not . null) strictFields))
   where
     genMap makeName makeValue = Map.fromList <$> Gen.list (Range.linear 0 5) ((,) <$> makeName <*> makeValue)
     genHeaderName = do
@@ -217,6 +219,10 @@ genConDecl typeName =
     <*> (dataNameTop . ("C" <>) <$> genSuffix)
     <*> Gen.choice [pure (TyCon typeName), genType]
     <*> pure HeapConstructor
+    <*> genStrictFields
+
+genStrictFields :: Gen [Int]
+genStrictFields = Set.toAscList . Set.fromList <$> Gen.list (Range.linear 0 3) (Gen.int (Range.linear 0 5))
 
 genSynonymDecl :: Gen SynonymDecl
 genSynonymDecl =
@@ -406,7 +412,7 @@ genTidyProgram = do
   pure
     Program
       { programScopes = scopes,
-        programImports = Imports mempty mempty mempty mempty mempty,
+        programImports = Imports mempty mempty mempty mempty mempty mempty,
         programDecls =
           [ DeclVal
               ValDecl
