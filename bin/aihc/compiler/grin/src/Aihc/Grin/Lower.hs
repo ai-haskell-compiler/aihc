@@ -280,7 +280,7 @@ lowerForeignCallExpr env call types arguments = do
       lowerArguments env arguments $ \values ->
         pure (GrinStore (GrinNode (GrinClosure functionName (drop (length arguments) layouts)) values))
 
--- | Lower the arguments of a foreign call, one group of values for each
+-- | Lower arguments from left to right, one group of values for each
 -- argument.
 lowerArgumentGroups :: LowerEnv -> [Fc.Expr] -> ([[GrinValue]] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgumentGroups env = go []
@@ -357,14 +357,10 @@ lowerForeignWrapper env call specification axioms constructors argumentTypes val
       pure (GrinBind [boxed] expression inner)
     boxArguments _ _ _ = throwLower "callback argument layouts do not match the C ABI"
     applyCallback function [] result representation finish = pure (GrinBind [result] (GrinEval EvalUpdate representation function) finish)
-    applyCallback function [arguments] result representation finish = do
+    applyCallback function groups result representation finish = do
       evaluated <- freshVar "callback_function" liftedGrinRep
-      pure (GrinBind [evaluated] (GrinEval EvalUpdate liftedGrinRep function) (GrinBind [result] (GrinApply (ResultRep representation) (GrinVarValue evaluated) [arguments]) finish))
-    applyCallback function (arguments : rest) result representation finish = do
-      evaluated <- freshVar "callback_function" liftedGrinRep
-      applied <- freshVar "callback_partial" liftedGrinRep
-      inner <- applyCallback (GrinVarValue applied) rest result representation finish
-      pure (GrinBind [evaluated] (GrinEval EvalUpdate liftedGrinRep function) (GrinBind [applied] (GrinApply liftedResultRep (GrinVarValue evaluated) [arguments]) inner))
+      applied <- applyArgumentGroups (ResultRep representation) (GrinVarValue evaluated) groups
+      pure (GrinBind [evaluated] (GrinEval EvalUpdate liftedGrinRep function) (GrinBind [result] applied finish))
 
 -- | The function of a foreign import that takes every argument of the
 -- import. The module has one such function for each import that it applies
@@ -799,18 +795,38 @@ lowerApplication env function argument = do
     -- an @IO@ action applied to the state token, takes them in one call.
     (_, (Fc.ExForeignCall call types callArguments, arguments)) ->
       lowerForeignCallExpr env call types (callArguments <> arguments)
-    _ -> do
+    (_, (callee, arguments)) -> do
       -- The function is needed in weak head normal form right away, so it is
-      -- computed directly rather than suspended and then evaluated.
+      -- computed directly rather than suspended and then evaluated. A
+      -- compiler primitive takes its own arguments. Every other callee is
+      -- unknown and gets all the arguments in one application.
+      let taken = case callee of
+            Fc.ExVar name
+              | Just arity <- Map.lookup (Fc.nameText name) specialPrimitiveArities,
+                arity < length arguments ->
+                  arity
+            _ -> 0
+      --
+      -- The function is evaluated before the arguments are allocated. Then
+      -- the argument thunks are not live across the evaluation, and its
+      -- continuation frame does not hold them.
       evaluated <- freshVar "function_whnf" liftedGrinRep
-      functionExpression <- lowerExpr env function
-      lowerArgument env argument $ \argumentValues ->
-        pure
-          ( GrinBind
-              [evaluated]
-              functionExpression
-              (GrinApply resultRep (GrinVarValue evaluated) [argumentValues])
-          )
+      functionExpression <- lowerExpr env (dropValueArguments (length arguments - taken) application)
+      applied <- lowerDynamicApplication env resultRep (GrinVarValue evaluated) (drop taken arguments)
+      pure (GrinBind [evaluated] functionExpression applied)
+
+-- | The application without its last value arguments. The type
+-- applications and the casts after the first of these arguments go with
+-- them, as 'collectApplications' looks through both.
+dropValueArguments :: Int -> Fc.Expr -> Fc.Expr
+dropValueArguments count expression
+  | count <= 0 = expression
+  | otherwise =
+      case expression of
+        Fc.ExApp function _ -> dropValueArguments (count - 1) function
+        Fc.ExTyApp function _ -> dropValueArguments count function
+        Fc.ExCast function _ -> dropValueArguments count function
+        _ -> expression
 
 collectApplications :: Fc.Expr -> (Fc.Expr, [Fc.Expr])
 collectApplications expression = go expression []
@@ -940,16 +956,26 @@ lowerLocalFunctionApplication env resultRep name function arguments
       | null remainingArguments = resultRep
       | otherwise = liftedResultRep
 
+-- | Apply a function value in weak-head normal form to arguments. Each
+-- argument is one group, and one application takes all the groups, so that
+-- the runtime can enter a function of the same arity directly.
 lowerDynamicApplication :: LowerEnv -> GrinResultRep -> GrinValue -> [Fc.Expr] -> LowerM GrinExpr
-lowerDynamicApplication env resultRep = go
-  where
-    go functionValue [argument] = lowerArgument env argument (pure . GrinApply resultRep functionValue . pure)
-    go functionValue (argument : remaining) =
-      lowerArgument env argument $ \argumentValues -> do
-        applied <- freshVar "function_application" liftedGrinRep
-        rest <- go (GrinVarValue applied) remaining
-        pure (GrinBind [applied] (GrinApply liftedResultRep functionValue [argumentValues]) rest)
-    go _ [] = throwLower "GRIN local function application needs an argument"
+lowerDynamicApplication env resultRep functionValue arguments
+  | null arguments = throwLower "GRIN local function application needs an argument"
+  | otherwise = lowerArgumentGroups env arguments (applyArgumentGroups resultRep functionValue)
+
+-- | Apply argument groups to a function value. An application takes at most
+-- 'grinApplyGroupLimit' groups, so more groups make a chain of
+-- applications.
+applyArgumentGroups :: GrinResultRep -> GrinValue -> [[GrinValue]] -> LowerM GrinExpr
+applyArgumentGroups resultRep functionValue groups =
+  case splitAt grinApplyGroupLimit groups of
+    ([], _) -> throwLower "GRIN application needs an argument group"
+    (now, []) -> pure (GrinApply resultRep functionValue now)
+    (now, later) -> do
+      applied <- freshVar "function_application" liftedGrinRep
+      rest <- applyArgumentGroups resultRep (GrinVarValue applied) later
+      pure (GrinBind [applied] (GrinApply liftedResultRep functionValue now) rest)
 
 lowerArguments :: LowerEnv -> [Fc.Expr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArguments env = go []

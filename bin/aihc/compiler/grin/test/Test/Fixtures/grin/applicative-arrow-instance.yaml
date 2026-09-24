@@ -67,18 +67,14 @@ expected: |-
       store (F$$dmlift2_argument_thunk_2 ($d0 :: BoxedRep Lifted))
     function_application :: BoxedRep Lifted <-
       call @(BoxedRep Lifted) $fmap' (argument :: BoxedRep Lifted)
-    function_application%1 :: BoxedRep Lifted <-
-      apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x :: BoxedRep Lifted)
-    apply @(BoxedRep Lifted) (function_application%1 :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted)
 
   $$dmlift2 ($d0 :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_application :: BoxedRep Lifted <-
       call @(BoxedRep Lifted) $ap ($d0 :: BoxedRep Lifted)
     argument :: BoxedRep Lifted <-
       store (F$$dmlift2_argument_thunk ($d0 :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
-    function_application%1 :: BoxedRep Lifted <-
-      apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
-    apply @(BoxedRep Lifted) (function_application%1 :: BoxedRep Lifted) (z :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (argument :: BoxedRep Lifted) (z :: BoxedRep Lifted)
 
   "$$fFun(->)r$cfmap'_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
@@ -86,10 +82,10 @@ expected: |-
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
 
   "$$fFun(->)r$cfmap'" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
-    argument :: BoxedRep Lifted <-
-      store (F"$$fFun(->)r$cfmap'_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    argument :: BoxedRep Lifted <-
+      store (F"$$fFun(->)r$cfmap'_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
 
   "$$fAp(->)r$cunit" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
@@ -101,13 +97,11 @@ expected: |-
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
 
   "$$fAp(->)r$cap" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
-    argument :: BoxedRep Lifted <-
-      store (F"$$fAp(->)r$cap_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-    function_whnf%1 :: BoxedRep Lifted <-
-      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
-    apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
+    argument :: BoxedRep Lifted <-
+      store (F"$$fAp(->)r$cap_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
 extensions: []
 reason: an instance for the partially applied function arrow gives its
   methods function types, and the lint equates them with the class method
