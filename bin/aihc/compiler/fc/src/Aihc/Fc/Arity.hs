@@ -96,7 +96,9 @@ import Data.Set qualified as Set
 data EtaReport = EtaReport
   { -- | Top-level values that gained a lambda.
     reportExpandedValues :: !Int,
-    -- | Value lambdas added across those values.
+    -- | Local bindings and arguments that gained a lambda.
+    reportExpandedLocals :: !Int,
+    -- | Value lambdas added across those values and bindings.
     reportAddedLambdas :: !Int
   }
   deriving (Eq, Show)
@@ -373,18 +375,18 @@ manifestArity env expr = let AT lams = manifestArityType env expr in length lams
 
 -- * The pass
 
--- | Eta expand every top-level value of a program to the arity its body
--- supports.
+-- | Eta expand every top-level value and every local binding of a program
+-- to the arity its body supports.
 etaExpandProgram :: Program -> (Program, EtaReport)
 etaExpandProgram program =
   case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, EtaReport 0 0)
+    Nothing -> (program, EtaReport 0 0 0)
     Just primPackage ->
       let types = typeEnvFromProgram primPackage program
           env0 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types}
           env = valueSignatures env0 (programDecls program)
           supply = maxLocalUnique program + 1
-          (decls, (_, report)) = runState (traverse (expandDecl env) (programDecls program)) (supply, EtaReport 0 0)
+          (decls, (_, report)) = runState (traverse (expandDecl env) (programDecls program)) (supply, EtaReport 0 0 0)
        in -- An expansion names the axiom of every newtype it unfolded, and
           -- a merged whole program arrives with imports that no longer
           -- match its declarations, so the import table is rebuilt here.
@@ -447,27 +449,156 @@ expandDecl :: Env -> Decl -> ExpandM Decl
 expandDecl env decl =
   case decl of
     DeclVal declaration -> do
-      let body = valBody declaration
-          wanted = safeArity (trimArityType (typeArity env (valType declaration)) (arityType env body))
-          manifest = manifestArity env body
-      if wanted <= manifest
-        then pure decl
-        else do
-          expanded <- expand env Set.empty (valType declaration) (wanted - manifest) body
-          case expanded of
-            Nothing -> pure decl
-            Just body' | body' == body -> pure decl
-            Just body' -> do
-              (supply, report) <- get
-              put
-                ( supply,
-                  report
-                    { reportExpandedValues = reportExpandedValues report + 1,
-                      reportAddedLambdas = reportAddedLambdas report + (wanted - manifest)
-                    }
-                )
-              pure (DeclVal declaration {valBody = body'})
+      body <- expandLocals env (valBody declaration)
+      expanded <- expandBinding env (valType declaration) body
+      case expanded of
+        Nothing -> pure (DeclVal declaration {valBody = body})
+        Just (body', added) -> do
+          record (\report -> report {reportExpandedValues = reportExpandedValues report + 1}) added
+          pure (DeclVal declaration {valBody = body'})
     _ -> pure decl
+
+-- | Eta expand a body of the given type to the arity its arity type
+-- supports. The result is the new body and the number of lambdas that the
+-- expansion added, or 'Nothing' if the body stays as it is.
+expandBinding :: Env -> Type -> Expr -> ExpandM (Maybe (Expr, Int))
+expandBinding env ty body
+  | wanted <= manifest = pure Nothing
+  | otherwise = do
+      expanded <- expand env Set.empty ty (wanted - manifest) body
+      pure $ case expanded of
+        Just body' | body' /= body -> Just (body', wanted - manifest)
+        _ -> Nothing
+  where
+    wanted = safeArity (trimArityType (typeArity env ty) (arityType env body))
+    manifest = manifestArity env body
+
+-- | Count one expansion in the report.
+record :: (EtaReport -> EtaReport) -> Int -> ExpandM ()
+record count added = do
+  (supply, report) <- get
+  put (supply, (count report) {reportAddedLambdas = reportAddedLambdas report + added})
+
+-- | Eta expand the right side of every local binding in an expression.
+--
+-- A local binding whose right side is not a lambda is a thunk, just as a
+-- top-level one is a CAF. The case that matters is again @IO@:
+--
+-- > let next = case n < size of { True -> loop n; False -> write n }
+-- > in thenIO action next
+--
+-- Each alternative is a partial application of an @IO@ action, so @next@
+-- is a function of the state token behind a coercion. Its expansion is
+-- a closure, and a call of it does not first enter a thunk. The binder's
+-- type bounds the expansion, and the arity type of the right side decides
+-- it, exactly as for a top-level value.
+expandLocals :: Env -> Expr -> ExpandM Expr
+expandLocals env expr =
+  case expr of
+    ExVar {} -> pure expr
+    ExLit {} -> pure expr
+    ExCoercion {} -> pure expr
+    ExApp function argument -> ExApp <$> expandLocals env function <*> expandArgument env argument
+    ExTyApp function argument -> (`ExTyApp` argument) <$> expandLocals env function
+    ExLam binder body -> ExLam binder <$> expandLocals (bindTerm env binder) body
+    ExTyLam binder body -> ExTyLam binder <$> expandLocals (extendType env binder) body
+    ExCast body coercion -> (`ExCast` coercion) <$> expandLocals env body
+    ExLet bind body -> do
+      rhs <- expandLocal env bind
+      let binder = bindBinder bind
+          inner = extendSig (bindTerm env binder) (binderName binder) (bindingArityType env binder rhs)
+      ExLet bind {bindRhs = rhs} <$> expandLocals inner body
+    ExRec binds body -> do
+      -- A binding of the group is taken at the arity its lambdas show,
+      -- as a top-level value in a recursive group is.
+      let recursive = List.foldl' bindTerm env (map bindBinder binds)
+      rhss <- traverse (expandLocal recursive) binds
+      let binds' = [bind {bindRhs = rhs} | (bind, rhs) <- zip binds rhss]
+          inner =
+            List.foldl'
+              (\current bind -> extendSig current (binderName (bindBinder bind)) (manifestArityType current (bindRhs bind)))
+              recursive
+              binds'
+      ExRec binds' <$> expandLocals inner body
+    ExCase scrutinee binder resultType alternatives -> do
+      scrutinee' <- expandLocals env scrutinee
+      let inner = bindTerm env binder
+      alternatives' <-
+        traverse
+          ( \alternative -> do
+              rhs <-
+                expandLocals
+                  (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative))
+                  (altRhs alternative)
+              pure alternative {altRhs = rhs}
+          )
+          alternatives
+      pure (ExCase scrutinee' binder resultType alternatives')
+    ExForeignCall call types arguments -> ExForeignCall call types <$> traverse (expandLocals env) arguments
+
+-- | Expand the local bindings inside a right side, then the right side
+-- itself.
+expandLocal :: Env -> Bind -> ExpandM Expr
+expandLocal env bind = do
+  rhs <- expandLocals env (bindRhs bind)
+  expandLocalValue env (binderType (bindBinder bind)) rhs
+
+-- | Expand a local value of the given type. A variable applied to
+-- arguments stays as it is: if it takes more arguments, it is a partial
+-- application, which is already a closure, and otherwise its arity is
+-- not known.
+expandLocalValue :: Env -> Type -> Expr -> ExpandM Expr
+expandLocalValue env ty expr
+  | isApplication expr = pure expr
+  | otherwise = do
+      expanded <- expandBinding env ty expr
+      case expanded of
+        Nothing -> pure expr
+        Just (expr', added) -> do
+          record (\report -> report {reportExpandedLocals = reportExpandedLocals report + 1}) added
+          pure expr'
+  where
+    isApplication current =
+      case current of
+        ExCast inner _ -> isApplication inner
+        _ -> case collectSpine current of
+          (ExVar _, _ : _) -> True
+          _ -> False
+
+-- | Expand the local bindings inside an argument, then the argument
+-- itself. An argument that is not a variable or a literal is a thunk,
+-- just as a local binding is, so the same rule applies to it.
+--
+-- The pass has no type for an arbitrary expression, so an argument
+-- expands only when its syntax shows its type: a case, under lets and
+-- casts. That is the argument that becomes a thunk. An application
+-- that is short of arguments is already a partial application.
+expandArgument :: Env -> Expr -> ExpandM Expr
+expandArgument env argument = do
+  argument' <- expandLocals env argument
+  case syntacticType env argument' of
+    Nothing -> pure argument'
+    Just ty -> expandLocalValue env ty argument'
+
+-- | The type of an expression, when its syntax shows it.
+syntacticType :: Env -> Expr -> Maybe Type
+syntacticType env expr =
+  case expr of
+    ExCase _ _ resultType _ -> Just resultType
+    ExLet _ body -> syntacticType env body
+    ExRec _ body -> syntacticType env body
+    ExCast _ coercion -> snd <$> coercionEndpoints (envTypes env) coercion
+    _ -> Nothing
+
+-- | The arity type of a local binding, cut down to what its type can
+-- expose.
+bindingArityType :: Env -> Binder -> Expr -> ArityType
+bindingArityType env binder rhs = trimArityType (typeArity env (binderType binder)) (arityType env rhs)
+
+-- | Bring a term binder into scope: record its type and forget the arity
+-- of a name it shadows.
+bindTerm :: Env -> Binder -> Env
+bindTerm env binder = extendType (shadow env (binderName binder)) binder
 
 -- | Give an expression @extra@ more value lambdas than it shows, at the
 -- given type. The expansion walks under the lambdas the body already has,
