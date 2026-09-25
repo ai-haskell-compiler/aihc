@@ -1,0 +1,50 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  class Monad m where
+  └─ class methods: ret ∷ ∀ m a. (Monad m) ⇒ a → m a, bind ∷ ∀ m a b. (Monad m) ⇒ m a → (a → m b) → m b
+    ret :: a -> m a
+    bind :: m a -> (a -> m b) -> m b
+  type Action a = forall m. Monad m => m a
+       └─ type: Type → Type
+  output :: Bool -> Action Bool
+  output b = ret b
+  │      │   └─ type: GHC.Types.Bool → m GHC.Types.Bool; type-args: m, Bool; evidence: given Monad m
+  │      └─ type: GHC.Types.Bool
+  └─ type: ∀ m. (Monad m) ⇒ GHC.Types.Bool → m GHC.Types.Bool
+  outputTwice :: Bool -> Action Bool
+  outputTwice b = bind (output b) (\_ -> output b)
+  │           │   │     │          │││    └─ type: GHC.Types.Bool → m GHC.Types.Bool; type-args: m; evidence: given Monad m
+  │           │   │     │          │└─ type: GHC.Types.Bool
+  │           │   │     │          │└─ type: GHC.Types.Bool
+  │           │   │     │          └─ type: GHC.Types.Bool → m GHC.Types.Bool
+  │           │   │     └─ type: GHC.Types.Bool → m GHC.Types.Bool; type-args: m; evidence: given Monad m
+  │           │   └─ type: m GHC.Types.Bool → (GHC.Types.Bool → m GHC.Types.Bool) → m GHC.Types.Bool; type-args: m, Bool, Bool; evidence: given Monad m
+  │           └─ type: GHC.Types.Bool
+  └─ type: ∀ m. (Monad m) ⇒ GHC.Types.Bool → m GHC.Types.Bool
+  count :: Action Bool
+  count = ret True
+  │       └─ type: GHC.Types.Bool → m GHC.Types.Bool; type-args: m, Bool; evidence: given Monad m
+  └─ type: ∀ m. (Monad m) ⇒ m GHC.Types.Bool
+extensions:
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  class Monad m where
+    ret :: a -> m a
+    bind :: m a -> (a -> m b) -> m b
+  type Action a = forall m. Monad m => m a
+  output :: Bool -> Action Bool
+  output b = ret b
+  outputTwice :: Bool -> Action Bool
+  outputTwice b = bind (output b) (\_ -> output b)
+  count :: Action Bool
+  count = ret True
+status: pass
+reason: A function whose signature has a quantified result after its arguments
+  checks its body against the skolemized result.

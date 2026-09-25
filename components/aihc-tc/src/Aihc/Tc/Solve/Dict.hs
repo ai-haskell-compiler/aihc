@@ -43,7 +43,7 @@ import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (elemIndex, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -114,7 +114,7 @@ solveNormalizedDict visited givens ct
                 ("KnownSymbol", [ty]) -> tryTypeLit "KnownSymbol" isSymbolLiteral ty
                 _ -> do
                   instances <- getClassInstances className
-                  result <- tryInstances (ctPred ct : visited) className args' instances
+                  result <- tryInstances (ctPred ct : visited) className args' (mostSpecificInstances args' instances)
                   case result of
                     DictSolved -> pure DictSolved
                     DictStuck _ -> solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
@@ -440,6 +440,19 @@ solveNormalizedDict visited givens ct
           consequentType <- predicateType consequent
           let qualified = if null antecedents then consequentType else TcQualTy antecedents consequentType
           pure (foldr TcForAllTy qualified variables)
+
+-- | The instances whose heads match the arguments, without an instance that
+-- a more specific match overlaps. For @MonadState s (StateT s m)@ the
+-- instance for @StateT s m@ wins over an overlappable instance for @t m@,
+-- although the context of the overlappable instance can also be solvable.
+mostSpecificInstances :: [TcType] -> [InstanceInfo] -> [InstanceInfo]
+mostSpecificInstances args instances =
+  [candidate | candidate <- candidates, not (any (`moreSpecificThan` candidate) candidates)]
+  where
+    candidates = [instanceInfo | instanceInfo <- instances, isJust (matchTypes (iiHead instanceInfo) args)]
+    moreSpecificThan specific general =
+      isJust (matchTypes (iiHead general) (iiHead specific))
+        && isNothing (matchTypes (iiHead specific) (iiHead general))
 
 typeableArguments :: TcType -> Maybe [TcType]
 typeableArguments ty =

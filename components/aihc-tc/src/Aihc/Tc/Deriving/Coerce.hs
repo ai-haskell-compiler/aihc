@@ -50,6 +50,13 @@ coercionBetween equations rawSource rawTarget = go [] (normalize rawSource) (nor
           argument <- go visited sourceArgument targetArgument
           result <- go visited sourceResult targetResult
           pure (FunCo <$> argument <*> result)
+        -- A method type can quantify inside an argument, as the argument
+        -- of @mask@ does. The two bodies are compared under one variable.
+        (TcForAllTy sourceVariable sourceBody, TcForAllTy targetVariable targetBody)
+          | tvKind sourceVariable == tvKind targetVariable -> do
+              let renamedTarget = normalize (applySubst (Map.singleton (tvUnique targetVariable) (TcTyVar sourceVariable)) targetBody)
+              body <- go visited sourceBody renamedTarget
+              pure (ForAllCo sourceVariable <$> body)
         (TcTyCon sourceConstructor sourceArguments, TcTyCon targetConstructor targetArguments)
           | sourceConstructor == targetConstructor,
             length sourceArguments == length targetArguments -> do

@@ -16,6 +16,7 @@ module Aihc.Tc.Kind
     makeParamEnv,
     makeParamEnvWith,
     sigToScheme,
+    patSynSigToScheme,
     hasWildcardType,
     flattenSurfaceContext,
     isUnitConstraintType,
@@ -91,7 +92,15 @@ data ParamInfo = ParamInfo
 -- lexically scoped type variable refers to that variable and is not
 -- quantified again.
 sigToScheme :: Type -> TcM TypeScheme
-sigToScheme ty = do
+sigToScheme = signatureScheme True
+
+-- | The scheme of a pattern synonym signature. Its provided context follows
+-- the required context, thus it stays in the body.
+patSynSigToScheme :: Type -> TcM TypeScheme
+patSynSigToScheme = signatureScheme False
+
+signatureScheme :: Bool -> Type -> TcM TypeScheme
+signatureScheme floatResult ty = do
   scoped <- getScopedTyVars
   let (explicitBinders, context, body) = splitSigma ty
       freeVars = filter (`Map.notMember` scoped) (freeTypeVars ty)
@@ -107,9 +116,31 @@ sigToScheme ty = do
             [ (paramName param, (paramTyVar param, paramKind param))
             | param <- explicitParams
             ]
-  tcTy <- checkRuntimeType tvEnv body
+  checkedBody <- checkRuntimeType tvEnv body
   preds <- surfaceContextToPreds tvEnv context
-  pure (specifiedScheme (implicitTvs <> explicitTvs) preds tcTy)
+  let (floatedTvs, floatedPreds, tcTy)
+        | floatResult = floatResultQuantifiers checkedBody
+        | otherwise = ([], [], checkedBody)
+  pure (specifiedScheme (implicitTvs <> explicitTvs <> floatedTvs) (preds <> floatedPreds) tcTy)
+
+-- | Move the quantifiers and contexts of a function result to the front of
+-- the type. A type synonym can put them there: with @type Action a =
+-- forall m. Monad m => m a@, the signature @Bool -> Action Bool@ is
+-- @forall m. Monad m => Bool -> m Bool@. The binding is then checked like
+-- a signature that has the quantifiers at the front.
+floatResultQuantifiers :: TcType -> ([TyVarId], [Pred], TcType)
+floatResultQuantifiers ty =
+  case ty of
+    TcForAllTy tyVar inner ->
+      let (tyVars, predicates, body) = floatResultQuantifiers inner
+       in (tyVar : tyVars, predicates, body)
+    TcQualTy predicates inner ->
+      let (tyVars, morePredicates, body) = floatResultQuantifiers inner
+       in (tyVars, predicates <> morePredicates, body)
+    TcFunTy argument result ->
+      let (tyVars, predicates, body) = floatResultQuantifiers result
+       in (tyVars, predicates, TcFunTy argument body)
+    _ -> ([], [], ty)
 
 -- | Whether a signature contains a partial-signature wildcard.
 hasWildcardType :: Type -> Bool

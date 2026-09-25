@@ -1,0 +1,5 @@
+status: pass
+reason: An install builds the main library and the sub-libraries that it uses. It does not build a sub-library that nothing uses.
+expect-type-constructors:
+  - [Public, [T]]
+  - [Helper, [H]]

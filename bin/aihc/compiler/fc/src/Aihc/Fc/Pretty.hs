@@ -501,6 +501,7 @@ prettyCoercion scopes coercion =
     CoApp function argument -> "app-co " <> parens (prettyCoercion scopes function) <+> parens (prettyCoercion scopes argument)
     CoNth index proof -> "nth-co " <> pretty index <+> parens (prettyCoercion scopes proof)
     CoFun domain range -> "fun-co " <> parens (prettyCoercion scopes domain) <+> parens (prettyCoercion scopes range)
+    CoForAll binder body -> "forall-co " <> prettyPiBinder scopes binder <+> parens (prettyCoercion scopes body)
     CoTyConApp name arguments ->
       hsep ("tycon-co" : prettyName scopes name : map (parens . prettyCoercion scopes) arguments)
     CoAxiom name arguments ->

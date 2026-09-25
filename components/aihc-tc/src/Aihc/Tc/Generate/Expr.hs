@@ -810,7 +810,19 @@ inferApplicationSpine ambient expr = do
   let instantiationVariables = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables headTypeArgs))
   (steps, resultTy) <- planSpine instantiationVariables headTypeArgs headTy frames
   (expr', stepCts) <- checkSpineSteps headExpr steps
-  pure (expr', resultTy, headCts <> stepCts)
+  -- An application with a polymorphic result, for example a record field
+  -- of higher rank applied to its record, is instantiated like a variable.
+  -- A quick look at it as an argument then binds an instantiation variable
+  -- to the instantiated type, not to the polytype.
+  zonkedResultTy <- zonkType resultTy
+  if isPolyType zonkedResultTy
+    then do
+      let sp = exprSpan expr <|> ambient
+      (instantiated, typeArgs, predicates) <- instantiateSigmaType zonkedResultTy
+      cts <- mapM (predToCt sp "<application>") predicates
+      let pending = pendingAnnotation instantiated typeArgs (map ctEvVar cts) []
+      pure (annotatePendingExprAt sp pending expr', instantiated, headCts <> stepCts <> cts)
+    else pure (expr', resultTy, headCts <> stepCts)
 
 uniqueKey :: Unique -> Int
 uniqueKey (Unique key) = key

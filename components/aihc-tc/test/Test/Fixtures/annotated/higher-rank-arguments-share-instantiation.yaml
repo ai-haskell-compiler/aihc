@@ -1,0 +1,107 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, ExistentialQuantification #-}
+  module Test where
+  class Monad m where
+  └─ class methods: ret ∷ ∀ m a. (Monad m) ⇒ a → m a
+    ret :: a -> m a
+  class Monad m => Command m where
+  └─ class methods: run ∷ ∀ m. (Command m) ⇒ m ()
+    run :: m ()
+  class MonadTrans t where
+  └─ class methods: lift ∷ ∀ t m a. (MonadTrans t, Monad m) ⇒ m a → t m a
+    lift :: Monad m => m a -> t m a
+  newtype ReaderT r m a = ReaderT (r -> m a)
+          │               └─ type: ∀ r m a. (r → m a) → ReaderT r m a
+          └─ type: Type → (Type → Type) → Type → Type
+  instance MonadTrans (ReaderT r) where
+  └─ $fMonadTransReaderTr ∷ ∀ r. () ⇒ MonadTrans (ReaderT r)
+    lift m = ReaderT (\_ -> m)
+    │    │   │        │└─ type: r
+    │    │   │        │└─ type: r
+    │    │   │        └─ type: r → m a
+    │    │   └─ type: (r → m a) → ReaderT r m a; type-args: r, m, a
+    │    └─ type: m a
+    └─ lift ∷ ∀ m a. (Monad m) ⇒ m a → ReaderT r m a
+  data Handles = Handles
+       │         └─ type: Handles
+       └─ type: Type
+  type PosixT m = ReaderT Handles m
+       └─ type: (Type → Type) → Type → Type
+  runPosixT :: Handles -> PosixT m a -> m a
+  runPosixT h (ReaderT f) = f h
+  │         │  │       └─ type: Handles → m a
+  │         │  └─ type: ReaderT Handles m a
+  │         └─ type: Handles
+  └─ type: ∀ m a. Handles → ReaderT Handles m a → m a
+  data EvalTerm m = forall n. Command n => EvalTerm (forall a. n a -> m a) (forall a. m a -> n a)
+       │            └─ type: ∀ m n. (Command n) ⇒ (∀ a. n a → m a) → (∀ a. m a → n a) → EvalTerm m
+       └─ type: (Type → Type) → Type
+  mapEvalTerm :: (forall a. n a -> m a) -> (forall a. m a -> n a) -> EvalTerm n -> EvalTerm m
+  mapEvalTerm eval liftE (EvalTerm eval' liftE') = EvalTerm (eval . eval') (liftE' . liftE)
+  │           │    │      │        │     │         │││         │    │ │       │      │ └─ type: m a → n a; type-args: a
+  │           │    │      │        │     │         │││         │    │ │       │      └─ type: (n a → n a) → (m a → n a) → m a → n a; type-args: n a, n a, m a
+  │           │    │      │        │     │         │││         │    │ │       └─ type: n a → n a; type-args: a
+  │           │    │      │        │     │         │││         │    │ └─ type: n a → n a; type-args: a
+  │           │    │      │        │     │         │││         │    └─ type: (n a → m a) → (n a → n a) → n a → m a; type-args: n a, m a, n a
+  │           │    │      │        │     │         │││         └─ type: n a → m a; type-args: a
+  │           │    │      │        │     │         └─ type: (∀ a. n a → m a) → (∀ a. m a → n a) → EvalTerm m; type-args: m, n; evidence: given Command n
+  │           │    │      │        │     │         └─ type: ∀ a. n a → m a
+  │           │    │      │        │     │         └─ type: ∀ a. m a → n a
+  │           │    │      │        │     └─ type: ∀ a. n a → n a
+  │           │    │      │        └─ type: ∀ a. n a → n a
+  │           │    │      └─ type: (∀ a. n a → n a) → (∀ a. n a → n a) → EvalTerm n; type-args: n, n; evidence: given Command n
+  │           │    └─ type: ∀ a. m a → n a
+  │           └─ type: ∀ a. n a → m a
+  └─ type: ∀ n m. (∀ a. n a → m a) → (∀ a. m a → n a) → EvalTerm n → EvalTerm m
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (f . g) x = f (g x)
+  ││   │  └─ type: a
+  ││   └─ type: a → b
+  │└─ type: b → c
+  └─ type: ∀ b c a. (b → c) → (a → b) → a → c
+  data Ops = Ops { evalOp :: forall m. Command m => EvalTerm m }
+       │     └─ type: (∀ m. (Command m) ⇒ EvalTerm m) → Ops
+       └─ type: Type
+  make :: Handles -> (forall m. Command m => EvalTerm (PosixT m)) -> Ops
+  make hs backend = Ops (mapEvalTerm (runPosixT hs) lift backend)
+  │    │  │         │    ││││            │                  └─ type: EvalTerm (ReaderT Handles m); type-args: m; evidence: given Command m
+  │    │  │         │    ││││            └─ type: Handles → ReaderT Handles m a → m a; type-args: m, a
+  │    │  │         │    └─ type: (∀ a. ReaderT Handles m a → m a) → (∀ a. m a → ReaderT Handles m a) → EvalTerm (ReaderT Handles m) → EvalTerm m; type-args: ReaderT Handles m, m
+  │    │  │         │    └─ type: ∀ a. m a → ReaderT Handles m a
+  │    │  │         │    └─ type: m a → ReaderT Handles m a; type-args: ReaderT Handles, m, a; evidence: $fMonadTransReaderTr @Handles, super[0](given Command m)
+  │    │  │         │    └─ type: ∀ a. ReaderT Handles m a → m a
+  │    │  │         └─ type: ∀ m. (Command m) ⇒ EvalTerm m
+  │    │  └─ type: ∀ m. (Command m) ⇒ EvalTerm (ReaderT Handles m)
+  │    └─ type: Handles
+  └─ type: Handles → (∀ m. (Command m) ⇒ EvalTerm (ReaderT Handles m)) → Ops
+extensions: [RankNTypes, ExistentialQuantification]
+modules:
+- |
+  {-# LANGUAGE RankNTypes, ExistentialQuantification #-}
+  module Test where
+  class Monad m where
+    ret :: a -> m a
+  class Monad m => Command m where
+    run :: m ()
+  class MonadTrans t where
+    lift :: Monad m => m a -> t m a
+  newtype ReaderT r m a = ReaderT (r -> m a)
+  instance MonadTrans (ReaderT r) where
+    lift m = ReaderT (\_ -> m)
+  data Handles = Handles
+  type PosixT m = ReaderT Handles m
+  runPosixT :: Handles -> PosixT m a -> m a
+  runPosixT h (ReaderT f) = f h
+  data EvalTerm m = forall n. Command n => EvalTerm (forall a. n a -> m a) (forall a. m a -> n a)
+  mapEvalTerm :: (forall a. n a -> m a) -> (forall a. m a -> n a) -> EvalTerm n -> EvalTerm m
+  mapEvalTerm eval liftE (EvalTerm eval' liftE') = EvalTerm (eval . eval') (liftE' . liftE)
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (f . g) x = f (g x)
+  data Ops = Ops { evalOp :: forall m. Command m => EvalTerm m }
+  make :: Handles -> (forall m. Command m => EvalTerm (PosixT m)) -> Ops
+  make hs backend = Ops (mapEvalTerm (runPosixT hs) lift backend)
+status: pass
+reason: Two quantified arguments of one application link the same instantiation
+  variables. The unifier follows a meta variable that an earlier part of the
+  same decomposition solved, and it does not write over the solution.

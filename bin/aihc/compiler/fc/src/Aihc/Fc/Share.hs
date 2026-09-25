@@ -190,6 +190,7 @@ shareCoercion coercion =
     CoTrans left right -> CoTrans <$> shareCoercion left <*> shareCoercion right
     CoApp left right -> CoApp <$> shareCoercion left <*> shareCoercion right
     CoFun left right -> CoFun <$> shareCoercion left <*> shareCoercion right
+    CoForAll binder body -> CoForAll <$> shareBinder binder <*> shareCoercion body
     CoNth index inner -> CoNth index <$> shareCoercion inner
     CoTyConApp name arguments -> CoTyConApp <$> shareName name <*> mapM shareCoercion arguments
     CoAxiom name tys -> CoAxiom <$> shareName name <*> mapM shareType tys

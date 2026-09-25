@@ -155,6 +155,9 @@ data Coercion
   | CoTrans Coercion Coercion
   | CoApp Coercion Coercion
   | CoFun Coercion Coercion
+  | -- | Congruence under a type quantifier. The binder is in scope in the
+    -- coercion, and it quantifies both sides.
+    CoForAll Binder Coercion
   | CoNth Int Coercion
   | CoTyConApp Name [Coercion]
   | CoAxiom Name [Type]

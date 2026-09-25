@@ -505,6 +505,9 @@ coercionEndpoints env coercion =
       left <- TyFun <$> repOf env leftDomain <*> repOf env leftRange <*> pure leftDomain <*> pure leftRange
       right <- TyFun <$> repOf env rightDomain <*> repOf env rightRange <*> pure rightDomain <*> pure rightRange
       pure (left, right)
+    CoForAll binder body -> do
+      (left, right) <- coercionEndpoints env body
+      pure (TyForAll binder left, TyForAll binder right)
     CoTyConApp name arguments -> do
       endpoints <- traverse (coercionEndpoints env) arguments
       pure (foldl TyApp (TyCon name) (map fst endpoints), foldl TyApp (TyCon name) (map snd endpoints))

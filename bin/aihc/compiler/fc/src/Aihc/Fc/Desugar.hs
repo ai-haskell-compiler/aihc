@@ -1151,6 +1151,7 @@ coercionOrigins coercion =
     CoApp function argument -> coercionOrigins function <> coercionOrigins argument
     CoNth _ proof -> coercionOrigins proof
     CoFun domain range -> coercionOrigins domain <> coercionOrigins range
+    CoForAll binder body -> binderOrigins binder <> coercionOrigins body
     CoTyConApp name arguments -> nameOriginPair name <> concatMap coercionOrigins arguments
     CoAxiom name arguments -> nameOriginPair name <> concatMap typeOrigins arguments
 

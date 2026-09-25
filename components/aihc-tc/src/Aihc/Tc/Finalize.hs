@@ -221,6 +221,7 @@ zonkCoercion coercion =
     EvidenceCo predicate evidence -> EvidenceCo <$> finalizePred predicate <*> zonkEvTerm evidence
     AppCo function argument -> AppCo <$> zonkCoercion function <*> zonkCoercion argument
     FunCo domain range -> FunCo <$> zonkCoercion domain <*> zonkCoercion range
+    ForAllCo tyVar body -> ForAllCo tyVar <$> zonkCoercion body
     TyConAppCo tyCon arguments coercions ->
       TyConAppCo tyCon <$> mapM zonkType arguments <*> mapM zonkCoercion coercions
     AxiomInstCo name typeArgs ->
@@ -417,6 +418,7 @@ firstMetaCoercion coercion =
     EvidenceCo predicate evidence -> firstMetaPred predicate <|> firstMetaEvTerm evidence
     AppCo function argument -> firstMetaCoercion function <|> firstMetaCoercion argument
     FunCo domain range -> firstMetaCoercion domain <|> firstMetaCoercion range
+    ForAllCo _ body -> firstMetaCoercion body
     TyConAppCo _ arguments coercions ->
       firstJusts (map firstMetaType arguments <> map firstMetaCoercion coercions)
     AxiomInstCo _ typeArgs ->

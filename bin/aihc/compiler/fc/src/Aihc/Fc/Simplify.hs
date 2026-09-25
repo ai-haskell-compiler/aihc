@@ -1303,6 +1303,7 @@ isNominalCoercion env coercion =
     CoApp function argument -> isNominalCoercion env function && isNominalCoercion env argument
     CoNth _ inner -> isNominalCoercion env inner
     CoFun domain range -> isNominalCoercion env domain && isNominalCoercion env range
+    CoForAll _ body -> isNominalCoercion env body
     CoTyConApp _ arguments -> all (isNominalCoercion env) arguments
     CoAxiom name _ ->
       case Map.lookup name (teAxioms env) of
@@ -1719,6 +1720,7 @@ coercionVariables coercion =
     CoTrans left right -> coercionVariables left <> coercionVariables right
     CoApp left right -> coercionVariables left <> coercionVariables right
     CoFun left right -> coercionVariables left <> coercionVariables right
+    CoForAll _ body -> coercionVariables body
     CoNth _ inner -> coercionVariables inner
     CoTyConApp _ inners -> concatMap coercionVariables inners
     CoAxiom {} -> []
@@ -1776,6 +1778,7 @@ substExpr subst = go
         CoTrans left right -> CoTrans (substCoercion left) (substCoercion right)
         CoApp left right -> CoApp (substCoercion left) (substCoercion right)
         CoFun left right -> CoFun (substCoercion left) (substCoercion right)
+        CoForAll binder body -> CoForAll binder (substCoercion body)
         CoNth index inner -> CoNth index (substCoercion inner)
         CoTyConApp name inners -> CoTyConApp name (map substCoercion inners)
         CoAxiom {} -> coercion
@@ -1818,17 +1821,27 @@ substTypeExpr subst = go
         LitInt ty value -> LitInt (onType ty) value
         LitChar ty value -> LitChar (onType ty) value
         LitAddr ty value -> LitAddr (onType ty) value
-    onCoercion coercion =
-      case coercion of
-        CoVar {} -> coercion
-        CoRefl ty -> CoRefl (onType ty)
-        CoSym inner -> CoSym (onCoercion inner)
-        CoTrans left right -> CoTrans (onCoercion left) (onCoercion right)
-        CoApp left right -> CoApp (onCoercion left) (onCoercion right)
-        CoFun left right -> CoFun (onCoercion left) (onCoercion right)
-        CoNth index inner -> CoNth index (onCoercion inner)
-        CoTyConApp name inners -> CoTyConApp name (map onCoercion inners)
-        CoAxiom name types -> CoAxiom name (map onType types)
+    onCoercion = substCoercionTypes subst
+
+-- | Replace type variables in every type of a coercion. A quantifier of the
+-- coercion hides the substitution of its own variable.
+substCoercionTypes :: Map Name Type -> Coercion -> Coercion
+substCoercionTypes subst coercion =
+  case coercion of
+    CoVar {} -> coercion
+    CoRefl ty -> CoRefl (onType ty)
+    CoSym inner -> CoSym (again inner)
+    CoTrans left right -> CoTrans (again left) (again right)
+    CoApp left right -> CoApp (again left) (again right)
+    CoFun left right -> CoFun (again left) (again right)
+    CoForAll binder body ->
+      CoForAll binder {binderType = onType (binderType binder)} (substCoercionTypes (Map.delete (binderName binder) subst) body)
+    CoNth index inner -> CoNth index (again inner)
+    CoTyConApp name inners -> CoTyConApp name (map again inners)
+    CoAxiom name types -> CoAxiom name (map onType types)
+  where
+    onType = substTypes subst
+    again = substCoercionTypes subst
 
 -- * Fresh names
 
@@ -1880,6 +1893,9 @@ renameCoercion renaming coercion =
     CoTrans left right -> CoTrans <$> renameCoercion renaming left <*> renameCoercion renaming right
     CoApp left right -> CoApp <$> renameCoercion renaming left <*> renameCoercion renaming right
     CoFun left right -> CoFun <$> renameCoercion renaming left <*> renameCoercion renaming right
+    CoForAll binder body -> do
+      (binder', bodyRenaming) <- renameBinder renaming binder
+      CoForAll binder' <$> renameCoercion bodyRenaming body
     CoNth index inner -> CoNth index <$> renameCoercion renaming inner
     CoTyConApp name inners -> CoTyConApp name <$> mapM (renameCoercion renaming) inners
     CoAxiom name types -> CoAxiom name <$> mapM (renameType renaming) types

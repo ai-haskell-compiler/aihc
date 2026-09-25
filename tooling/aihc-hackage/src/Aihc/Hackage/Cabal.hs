@@ -20,6 +20,7 @@ module Aihc.Hackage.Cabal
     collectLibraryFiles,
     collectLibraryFilesFor,
     collectLibraryFilesIn,
+    installedLibraryTrees,
 
     -- * Condition evaluation
     BuildContext (..),
@@ -66,6 +67,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Distribution.Compat.Graph qualified as Graph
+import Distribution.Compat.NonEmptySet qualified as NonEmptySet
 import Distribution.Compiler (CompilerFlavor (..), CompilerId (..))
 import Distribution.Compiler qualified as Compiler
 import Distribution.ModuleName qualified as ModuleName
@@ -142,7 +144,7 @@ import Distribution.Types.CondTree
   )
 import Distribution.Types.Condition (Condition (..))
 import Distribution.Types.ConfVar (ConfVar (..))
-import Distribution.Types.Dependency (Dependency, depPkgName)
+import Distribution.Types.Dependency (Dependency (..), depPkgName)
 import Distribution.Types.ExeDependency (ExeDependency (..))
 import Distribution.Types.Flag (FlagAssignment, mkFlagAssignment, unFlagAssignment)
 import Distribution.Types.ForeignLib (foreignLibBuildInfo)
@@ -226,7 +228,7 @@ collectLibraryFilesIn :: BuildContext -> GenericPackageDescription -> FilePath -
 collectLibraryFilesIn context gpd packageRoot = do
   let evalCond = conditionEvaluatorIn context gpd
       pkgDescr = packageDescription gpd
-      libraryTrees = maybe [] (pure . (LMainLibName,)) (condLibrary gpd) <> map (first LSubLibName) (condSubLibraries gpd)
+      libraryTrees = installedLibraryTrees evalCond gpd
 
   libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor pkgDescr evalCond packageRoot)) libraryTrees)
   pure (dedupeFiles libraryFiles)
@@ -251,7 +253,7 @@ collectLibraryCCompileInfoIn context gpd packageRoot =
     ]
   where
     evalCond = conditionEvaluatorIn context gpd
-    libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+    libraryTrees = map snd (installedLibraryTrees evalCond gpd)
 
 cCompileInfoFromBuild :: FilePath -> BuildInfo -> CCompileInfo
 cCompileInfoFromBuild packageRoot build =
@@ -302,7 +304,7 @@ collectLibraryAutogenIncludesIn context gpd =
     ]
   where
     evalCond = conditionEvaluatorIn context gpd
-    libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+    libraryTrees = map snd (installedLibraryTrees evalCond gpd)
 
 -- | Apply the library build information from @<package>.buildinfo@.
 -- Read public headers, include directories, C sources, and C and CPP options.
@@ -348,7 +350,49 @@ collectLibraryExposedModulesIn context gpd =
     ]
   where
     evalCond = conditionEvaluatorIn context gpd
-    libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+    libraryTrees = map snd (installedLibraryTrees evalCond gpd)
+
+-- | The library components that an install builds under the active
+-- conditions. These are the main library and each sub-library that the main
+-- library or an executable uses, directly or through a different
+-- sub-library. Cabal builds only these components of a dependency, and a
+-- sub-library that nothing uses can have dependencies that the plan does not
+-- have (the @benchmarks-O2@ library of vector depends on tasty). A package
+-- without a main library and without executables gives all its
+-- sub-libraries.
+installedLibraryTrees :: (Condition ConfVar -> Bool) -> GenericPackageDescription -> [(LibraryName, CondTree ConfVar [Dependency] Library)]
+installedLibraryTrees evalCond gpd
+  | null (condLibrary gpd) && null (condExecutables gpd) = subLibraries
+  | otherwise = mainLibrary <> filter ((`Set.member` used) . fst) subLibraries
+  where
+    self = packageName (packageDescription gpd)
+    mainLibrary = maybe [] (pure . (LMainLibName,)) (condLibrary gpd)
+    subLibraries = map (first LSubLibName) (condSubLibraries gpd)
+    subLibraryTrees = Map.fromList subLibraries
+    rootDependencies =
+      concatMap (activeDependencies libBuildInfo . snd) mainLibrary
+        <> concatMap (activeDependencies buildInfo . snd) (condExecutables gpd)
+    used = reach Set.empty (ownLibraries rootDependencies)
+    reach seen [] = seen
+    reach seen (name : rest)
+      | name `Set.member` seen = reach seen rest
+      | otherwise =
+          reach
+            (Set.insert name seen)
+            (rest <> maybe [] (ownLibraries . activeDependencies libBuildInfo) (Map.lookup name subLibraryTrees))
+    activeDependencies :: (a -> BuildInfo) -> CondTree ConfVar c a -> [Dependency]
+    activeDependencies toBuildInfo tree =
+      let build = collectMergedBuildInfo evalCond toBuildInfo tree
+       in if buildable build then targetBuildDepends build else []
+    -- The Cabal parser rewrites a dependency on an internal library name to
+    -- a dependency on this package, so this finds each use.
+    ownLibraries dependencies =
+      [ library
+      | Dependency name _ libraries <- dependencies,
+        name == self,
+        library <- NonEmptySet.toList libraries,
+        library /= LMainLibName
+      ]
 
 collectExecutableFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
 collectExecutableFiles gpd packageRoot = do
