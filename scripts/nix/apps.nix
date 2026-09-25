@@ -182,6 +182,44 @@ in {
       exec bash ./scripts/install-hackage-packages.sh "$@"
     '';
 
+  self-hosting-packages =
+    mkAppWithInputs "self-hosting-packages" [
+      pkgs.bash
+      pkgs.cacert
+      pkgs.coreutils
+      pkgs.gawk
+    ] ''
+      set -euo pipefail
+      ${repoRootGuard}
+      export AIHC=${aihcExe}
+      export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      exec bash ./scripts/update-self-hosting-packages.sh "$@"
+    '';
+
+  self-hosting-progress =
+    mkAppWithInputs "self-hosting-progress" [
+      pkgs.bash
+      pkgs.cacert
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.gnutar
+      pkgs.gzip
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.llvmPackages.bintools
+      pkgs.llvmPackages.clang
+      pkgs.haskellPackages.hsc2hs
+    ] ''
+      set -euo pipefail
+      ${repoRootGuard}
+      export GHCRTS=-N
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export AIHC=${aihcExe}
+      export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      exec bash ./scripts/self-hosting-progress.sh "$@"
+    '';
+
   generate-reports = mkReportsApp "generate-reports" ''
     set -euo pipefail
     ${repoRootGuard}

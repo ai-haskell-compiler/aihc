@@ -526,6 +526,7 @@ withBuildModuleSandbox getStore prefix action = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Just (sandboxRoot sandbox </> "program"),
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     action sandbox fixtureRoot storeRoot options
@@ -838,6 +839,7 @@ withBuildPackageSandbox getStore prefix action = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Nothing,
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     action sandbox buildRoot options
@@ -909,6 +911,7 @@ test_buildCxxSources getStore = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Nothing,
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     outputs <- build options

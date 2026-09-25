@@ -618,6 +618,8 @@ planRequestFor index options platform workspaces lockDirectory verbose = do
     PlanRequest
       { requestRoots = [],
         requestGoals = [],
+        requestExecutables = Nothing,
+        requestCheckBuildTools = True,
         requestWorkspaces = workspaces,
         requestPlatform = platform,
         requestConstraints = concat constraints,
