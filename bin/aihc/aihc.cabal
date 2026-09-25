@@ -137,6 +137,7 @@ library
     Aihc.Cli.TypeArtifact
     Aihc.Fc
     Aihc.Fc.Arity
+    Aihc.Fc.ConstantLift
     Aihc.Fc.Convert
     Aihc.Fc.Desugar
     Aihc.Fc.Fold
