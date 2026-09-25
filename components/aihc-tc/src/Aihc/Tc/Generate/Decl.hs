@@ -139,7 +139,7 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, isEmptyContext, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, freeTypeVars, freshKindMeta, hasWildcardType, isUnitConstraintType, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -1925,7 +1925,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
       let classNameText = nameText className
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
-      rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      rawContext <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       tvIds <- resolveInstanceTyVars origin rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
@@ -2194,7 +2194,7 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       let classNameText = nameText className
       (_, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
-      rawGivens <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      rawGivens <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       headTys <- mapM defaultTypeKinds rawHeadTys
       givens <- mapM defaultPredKinds rawGivens
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
@@ -3931,7 +3931,10 @@ registerClassDecl origin classDecl = do
       paramKinds = map paramKind paramInfos
       paramTvEnv = kindEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   kinds <- getKinds
-  superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty (constraintKind kinds)) (fromMaybe [] (classDeclContext classDecl))
+  -- The empty constraint @()@ gives no superclass, also when a constraint
+  -- synonym expands to it.
+  checkedSuperClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty (constraintKind kinds)) (flattenSurfaceContext (fromMaybe [] (classDeclContext classDecl)))
+  superClassTypes <- filterM (fmap not . isUnitConstraintType) checkedSuperClassTypes
   let classKind = foldr KFun (constraintKind kinds) paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
   let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
@@ -4177,7 +4180,7 @@ classSignatureScheme classTvEnv classTyVars ty = do
             ]
   kinds <- getKinds
   methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
-  contextPreds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
+  contextPreds <- surfaceContextToPreds tvEnv context
   pure (specifiedScheme (classTyVars <> extraTyVars <> explicitTyVars) contextPreds methodBody)
 
 registerInstanceDecl :: (Text, Text) -> InstanceDecl -> TcM [TcBindingResult]
@@ -4190,7 +4193,7 @@ registerInstanceDecl origin instanceDecl =
       let classNameText = nameText className
       headTys <- checkInstanceHeadTypes className tvEnv headArgs
       dictName <- allocateInstanceDictName origin classNameText headTys
-      context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      context <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       -- The head check fixed the kinds; the same order as the annotation
       -- pass keeps the dictionary's type arguments aligned with its
       -- type lambdas.
@@ -5038,7 +5041,7 @@ registerDataConWithResult paramInfos resTy con = case con of
     kinds <- getKinds
     gadtResTy <- checkSurfaceType constructorEnv resultSurfTy (typeKind kinds)
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
-    writtenPredicates <- mapM (surfacePredToPred constructorEnv) context
+    writtenPredicates <- surfaceContextToPreds constructorEnv context
     (universalTyVars, refinementPredicates, universalResTy) <- rejigGadtResult resTy gadtResTy
     let predicates = refinementPredicates <> writtenPredicates
         conTy = foldr TcFunTy universalResTy gadtArgTys
@@ -5078,7 +5081,7 @@ registerDataConWithResult paramInfos resTy con = case con of
               <> paramEnv
           constructorTyVars = map paramTyVar constructorParams
       argTys <- mapM (checkRuntimeType constructorEnv) fieldTypes
-      predicates <- mapM (surfacePredToPred constructorEnv) context
+      predicates <- surfaceContextToPreds constructorEnv context
       let conTy = foldr TcFunTy resTy argTys
           scheme = specifiedScheme (paramVarIds <> constructorTyVars) predicates conTy
       constructorKey <-

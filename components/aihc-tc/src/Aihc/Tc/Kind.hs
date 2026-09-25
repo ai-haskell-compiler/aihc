@@ -17,12 +17,13 @@ module Aihc.Tc.Kind
     makeParamEnvWith,
     sigToScheme,
     hasWildcardType,
-    isEmptyContext,
+    flattenSurfaceContext,
+    isUnitConstraintType,
     splitSigma,
     explicitForallNames,
     scopedSigTyVars,
     standaloneKindSigToScheme,
-    surfacePredToPred,
+    surfaceContextToPreds,
     takeVisibleArgumentKinds,
     tyConKindFromParams,
     tyConKindFromParamsWith,
@@ -107,7 +108,7 @@ sigToScheme ty = do
             | param <- explicitParams
             ]
   tcTy <- checkRuntimeType tvEnv body
-  preds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
+  preds <- surfaceContextToPreds tvEnv context
   pure (specifiedScheme (implicitTvs <> explicitTvs) preds tcTy)
 
 -- | Whether a signature contains a partial-signature wildcard.
@@ -142,16 +143,37 @@ scopedSigTyVars explicitNames tyVars =
       tvName tyVar `elem` explicitNames
     ]
 
--- | The empty context @() =>@. A pattern synonym signature uses it for an
--- empty required context before a provided context.
-isEmptyContext :: Type -> Bool
-isEmptyContext ty =
-  case ty of
-    TAnn _ inner -> isEmptyContext inner
-    TParen inner -> isEmptyContext inner
-    TTuple _ _ [] -> True
-    TCon name _ -> nameText name == "()"
+-- | The items of a written context, without the empty constraint @()@.
+-- @()@ is the empty constraint tuple and gives no predicate. The parser
+-- can give it as a unit tuple item or as the unit type constructor, for
+-- example in @() =>@, @(()) =>@, and in the pattern synonym form
+-- @() => provided =>@. A constraint tuple item, as in @((), Eq a) =>@,
+-- gives its components.
+flattenSurfaceContext :: [Type] -> [Type]
+flattenSurfaceContext = concatMap flattenItem
+  where
+    flattenItem ty =
+      case ty of
+        TAnn _ inner -> flattenItem inner
+        TParen inner -> flattenItem inner
+        TTuple Boxed Unpromoted items -> concatMap flattenItem items
+        TCon name _ | nameText name == "()" -> []
+        _ -> [ty]
+
+-- | Whether a checked constraint is the empty constraint tuple @()@.
+-- A constraint synonym such as @type NoC = (() :: Constraint)@ expands to it.
+isUnitConstraintType :: TcType -> TcM Bool
+isUnitConstraintType ty = do
+  wiring <- getWiring
+  pure $ case ty of
+    TcTyCon tyCon [] -> tyCon == tcWiringConstraintTupleTyCon wiring
     _ -> False
+
+-- | The predicates of a written context. The empty constraint @()@ gives
+-- no predicate, also when a constraint synonym expands to it.
+surfaceContextToPreds :: TvKindEnv -> [Type] -> TcM [Pred]
+surfaceContextToPreds tvEnv context =
+  concat <$> mapM (surfacePredToPreds tvEnv) (flattenSurfaceContext context)
 
 standaloneKindSigToScheme :: Type -> TcM TypeScheme
 standaloneKindSigToScheme ty = do
@@ -289,7 +311,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       expected <- kindFromSurfaceType tvEnv kindTy
       checkSurfaceType tvEnv inner expected >>= \innerTy -> pure (innerTy, expected)
     TContext preds inner -> do
-      predicates <- mapM (surfacePredToPred tvEnv) preds
+      predicates <- surfaceContextToPreds tvEnv preds
       (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
       pure (TcQualTy predicates innerType, innerKind)
     TWildcard -> do
@@ -1223,8 +1245,11 @@ splitForalls ty =
        in (forallTelescopeBinders telescope <> binders, body)
     _ -> ([], ty)
 
-surfacePredToPred :: TvKindEnv -> Type -> TcM Pred
-surfacePredToPred tvEnv ty = do
+-- | The predicates of one context item. The empty constraint @()@ gives
+-- no predicate. A quantified constraint with the conclusion @()@ is always
+-- true, so it also gives no predicate.
+surfacePredToPreds :: TvKindEnv -> Type -> TcM [Pred]
+surfacePredToPreds tvEnv ty = do
   let (binders, qualifiedBody) = splitForalls (peelTypeHead ty)
       (antecedentTypes, consequentType) = splitContext (peelTypeHead qualifiedBody)
   if null binders && null antecedentTypes
@@ -1237,19 +1262,20 @@ surfacePredToPred tvEnv ty = do
                 [ (paramName param, (paramTyVar param, paramKind param))
                 | param <- params
                 ]
-      antecedents <- mapM (surfaceAtomicPredToPred quantifiedEnv) antecedentTypes
-      consequent <- surfaceAtomicPredToPred quantifiedEnv consequentType
-      pure (QuantifiedPred (map paramTyVar params) antecedents consequent)
+      antecedents <- surfaceContextToPreds quantifiedEnv antecedentTypes
+      consequents <- concat <$> mapM (surfaceAtomicPredToPred quantifiedEnv) (flattenSurfaceContext [consequentType])
+      pure [QuantifiedPred (map paramTyVar params) antecedents consequent | consequent <- consequents]
 
-surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM Pred
+surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM [Pred]
 surfaceAtomicPredToPred tvEnv ty =
   case peelTypeHead ty of
     TImplicitParam name payload -> do
       kinds <- getKinds
-      IParamPred name <$> checkSurfaceType tvEnv payload (typeKind kinds)
+      payloadType <- checkSurfaceType tvEnv payload (typeKind kinds)
+      pure [IParamPred name payloadType]
     _ -> surfaceClassPredToPred tvEnv ty
 
-surfaceClassPredToPred :: TvKindEnv -> Type -> TcM Pred
+surfaceClassPredToPred :: TvKindEnv -> Type -> TcM [Pred]
 surfaceClassPredToPred tvEnv ty = do
   kinds <- getKinds
   case instanceHeadName (peelTypeHead ty) of
@@ -1265,8 +1291,10 @@ surfaceClassPredToPred tvEnv ty = do
               -- whether its head is a class or a family, so a
               -- family-headed one is reclassified as irreducible here.
               (expanded, _) <- convertSurfaceTypeWithKinds tvEnv ty
+              isUnit <- isUnitConstraintType expanded
               case constraintTypeToPred kinds expanded of
-                Just predicate -> normalizeFamilyPred predicate
+                _ | isUnit -> pure []
+                Just predicate -> pure <$> normalizeFamilyPred predicate
                 Nothing -> do
                   emitError Nothing (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
                   abortTc "invalid constraint synonym expansion"
@@ -1276,18 +1304,18 @@ surfaceClassPredToPred tvEnv ty = do
               (leftType, leftKind) <- convertSurfaceTypeWithKinds tvEnv left
               (rightType, rightKind) <- convertSurfaceTypeWithKinds tvEnv right
               when (tciTyCon classInfo == kindsEqualityTyCon kinds) (unifyKinds leftKind rightKind)
-              pure (EqPred leftType rightType)
+              pure [EqPred leftType rightType]
         Just classInfo
           | tciFlavor classInfo == TypeFamilyTyCon -> do
               -- A constraint whose head is a type family names no class yet.
               -- It is kept whole and reclassified once the family reduces.
               constraint <- checkSurfaceType tvEnv ty (constraintKind kinds)
-              pure (IrredPred constraint)
+              pure [IrredPred constraint]
         Just classInfo -> do
           classKind <- predicateClassKind classInfo
           let argKinds = takeClassArgKinds kinds (length headArgs) classKind
           args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
-          pure (ClassPred (tciTyCon classInfo) args)
+          pure [ClassPred (tciTyCon classInfo) args]
         Nothing -> do
           emitError Nothing (OtherError ("unknown class predicate: " <> T.unpack classNameText))
           abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)
