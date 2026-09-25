@@ -60,6 +60,7 @@ after each pass under `--lint`.
 | `PassEtaExpand` | Arity analysis, then eta expansion of every top-level value to the arity it finds. `Aihc.Fc.Arity`. |
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
+| `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
@@ -71,9 +72,9 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, inline `shrinkPolicy` [2], inline `growPolicy` [1], eta expand, simplify [0] |
+| `-O1` | eta expand, inline `shrinkPolicy` [2], inline `growPolicy` [1], eta expand, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, inline `shrinkPolicy` [2], eta expand, simplify [0] |
+| `-Os` | eta expand, inline `shrinkPolicy` [2], eta expand, simplify [0], lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
@@ -96,6 +97,26 @@ rule about *which* copies to make goes in the inliner.
 For a default case on a variable, the simplifier uses the evaluated case
 binder in the case body. This gives a strict constructor field one use before
 the case. The simplifier can then move a single-use thunk into the case.
+
+## Constant lifting
+
+`PassLiftConstants` runs after the final simplification pass. It moves closed,
+saturated constructor expressions to private constants and reuses identical
+expressions. For example, repeated call-stack constructors can share one
+constant instead of a new graph on each function call.
+
+The pass requires a lifted result and no local term, type, or coercion
+references. Nullary constructors already have static objects. Partial
+constructors and unboxed results stay in place. Arbitrary function calls
+are not candidates by themselves.
+
+The pass preserves lazy fields. A field can contain a closed computation,
+but the pass does not evaluate it early. An IO action in a shared field
+still takes its state argument on each execution. Shared fields can retain
+their evaluated results for longer.
+
+The report gives the number of new constants and the number of replaced
+sites. The constants have private names and a `NOINLINE` annotation.
 
 ## The inliner
 
@@ -296,8 +317,15 @@ The rewrites are:
 | ------- | --------- |
 | Remove a case alternative | No location of the scrutinee holds its constructor. |
 | Replace `eval x` with `x` | Each location of `x` holds only nodes in weak-head normal form. |
-| Replace `apply f a` with `fetch` and `call` | Each location of `f` holds a closure of one function with one argument left. |
+| Replace a saturated `apply` with `fetch` and `call` | Each location holds the same closure tag, and the argument and result layouts match. |
 | Replace `eval` with `eval-once` | Each thunk that `eval` can enter is single-entry, and its function gives a value in weak-head normal form. |
+
+The pass can join consecutive applications of a known closure into one
+call. Each intermediate partial application must occur only as the next
+callee. The pass preserves logical argument groups, including empty groups
+and groups with several values. It fetches captured fields from the original
+closure. It does not cross an evaluation or effect. An oversaturated call
+keeps the application of its remaining arguments.
 
 A thunk is single-entry when its location is not shared. A location is
 shared when a variable that points at it has two uses, when a shared or an

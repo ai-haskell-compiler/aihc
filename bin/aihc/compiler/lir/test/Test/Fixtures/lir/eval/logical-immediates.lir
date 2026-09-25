@@ -1,0 +1,22 @@
+; expect: 1311768467463790320, 1297131253266439680, 1311768467463798771, 5143395744730418086, 305419888, -1842063751, -81, 35
+; reason: A constant operand of and, or, and xor is a logical immediate
+; when its bits are a rotated run of ones in a repeated element.
+; A narrow type uses the 32-bit form. Other constants go through a register.
+
+data @inputs align 8 = { i64 1311768467463790323, i32 305419896, i8 165 }
+
+func @main() -> (i64, i64, i64, i64, i32, i32, i8, i64) {
+entry:
+  %x = load i64 [@inputs] align 8
+  %w = load i32 [@inputs + 8] align 4
+  %b = load i8 [@inputs + 12] align 1
+  %tag = and i64 %x, -4
+  %bytes = and i64 %x, 18374966859414961920
+  %set = or i64 %x, 65280
+  %flip = xor i64 %x, 6148914691236517205
+  %low = and i32 %w, 4294967280
+  %ends = xor i32 %w, 2147483649
+  %nibble = or i8 %b, 15
+  %other = and i64 %x, 291
+  return %tag, %bytes, %set, %flip, %low, %ends, %nibble, %other
+}

@@ -259,6 +259,11 @@ convertTypeWithExpectedKind env expectedKind ty =
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
       converted <- zipWithM (convertTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
       pure (foldl TyApp (TyCon (tyConNameFc env tyCon)) (kindArgs <> converted))
+    -- The type checker recorded the kind arguments of a bare constructor,
+    -- because no visible argument tells them.
+    TcKindedTyCon tyCon kindArguments -> do
+      converted <- mapM (convertKindArgument env) kindArguments
+      pure (foldl TyApp (TyCon (tyConNameFc env tyCon)) converted)
     TcFunTy argument result -> do
       convertedArgument <- convertType env argument
       convertedResult <- convertType env result
@@ -410,15 +415,7 @@ kindVarToType env tyCon arguments expectedKind tyVar =
       checkedKinds <- Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
       let substitution = Tc.tcInvisibleKindSubstitution checkedKinds
       case Map.lookup (tvUnique tyVar) substitution of
-        -- An invisible argument is almost always a representation, of a
-        -- levity-polymorphic constructor, and 'convertRep' is what spells
-        -- one. A constraint is the exception: it is a kind in its own
-        -- right -- the @b@ of @TypeError :: forall b. ErrorMessage -> b@
-        -- applied in a context -- and it has to erase to 'Type' here as it
-        -- does everywhere else, or the lint reads the two spellings of one
-        -- kind as two kinds.
-        Just KConstraint -> Right (typeSynonym (cePrimPackage env))
-        Just argument -> convertRep env argument
+        Just argument -> convertKindArgument env argument
         Nothing ->
           Left
             ( "cannot infer the invisible kind argument "
@@ -433,6 +430,19 @@ kindVarToType env tyCon arguments expectedKind tyVar =
                 -- not say which part of the type to look at.
                 <> concatMap ("\n  " <>) (Tc.tcSkippedArguments checkedKinds)
             )
+
+-- | Spell one invisible kind argument. An invisible argument is almost
+-- always a representation, of a levity-polymorphic constructor, and
+-- 'convertRep' is what spells one. A constraint is the exception: it is a
+-- kind in its own right -- the @b@ of @TypeError :: forall b. ErrorMessage
+-- -> b@ applied in a context -- and it has to erase to 'Type' here as it
+-- does everywhere else, or the lint reads the two spellings of one kind as
+-- two kinds.
+convertKindArgument :: ConvertEnv -> TcType -> Either String Type
+convertKindArgument env argument =
+  case argument of
+    KConstraint -> Right (typeSynonym (cePrimPackage env))
+    _ -> convertRep env argument
 
 visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [TcType]
 visibleArgumentKinds env tyCon arguments expectedKind =

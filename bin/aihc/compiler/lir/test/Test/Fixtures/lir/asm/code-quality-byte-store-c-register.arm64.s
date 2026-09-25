@@ -8,15 +8,11 @@ _store_byte:
 	.text
 	.p2align 2
 _main:
-	stp x29, x30, [sp, #-16]!
-	mov x29, sp
-	sub sp, sp, #16
-	str xzr, [sp]
-	add x0, sp, #0
+	stp x29, x30, [sp, #-32]!
+	add x0, sp, #16
 	mov x1, #37
 	mov x2, #0
 	bl _store_byte
 	and x0, x0, #0xff
-	mov sp, x29
-	ldp x29, x30, [sp], #16
+	ldp x29, x30, [sp], #32
 	ret

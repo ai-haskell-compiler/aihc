@@ -444,6 +444,8 @@ firstMetaType ty =
       Nothing
     TcTyCon _ args ->
       firstJusts (map firstMetaType args)
+    TcKindedTyCon _ kindArgs ->
+      firstJusts (map firstMetaType kindArgs)
     TcFunTy left right ->
       firstMetaType left <|> firstMetaType right
     TcForAllTy _ body ->
