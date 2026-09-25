@@ -1,0 +1,42 @@
+extensions: [TypeFamilies, TypeApplications, ScopedTypeVariables, MultiParamTypeClasses, FlexibleContexts]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, TypeApplications, ScopedTypeVariables, MultiParamTypeClasses, FlexibleContexts #-}
+    module Test where
+    import Data.Coerce (coerce)
+
+    data family F a
+    newtype instance F Bool = FBool Int
+
+    unF :: F Bool -> Int
+    unF (FBool n) = n
+
+    data Vec s a = Vec Int a
+    data family MV s a
+    newtype Wrap a = Wrap a
+    newtype Both a b = Both b
+    newtype instance MV s (Wrap a) = MVWrap (Vec s a)
+    newtype instance MV s (Both a b) = MVBoth (MV s b)
+
+    class Len v a where
+      len :: v s a -> Int
+
+    instance Len Vec a where
+      len (Vec n _) = n
+
+    instance Len MV (Wrap a) where
+      len = coerce (len @Vec @a)
+
+    instance Len MV b => Len MV (Both a b) where
+      len = coerce (len @MV @b)
+
+    both :: MV () (Both Bool (Wrap Char))
+    both = MVBoth (MVWrap (Vec 5 'x'))
+
+    result :: Bool
+    result = (unF (coerce (3 :: Int)), unF ((coerce ((+ 1) :: Int -> Int) :: F Bool -> F Bool) (FBool 1)), len both) == (3, 2, 5)
+
+expression: result
+output: "True"
+status: pass
+reason: coerce unwraps a newtype instance of a data family, also through a function type and a nested instance
