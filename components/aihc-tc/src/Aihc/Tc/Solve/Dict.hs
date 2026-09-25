@@ -162,21 +162,34 @@ solveNormalizedDict visited givens ct
     -- A given equality with a type family application on one side rewrites
     -- that application in the wanted: @Token s ~ Word8@ turns @Num (Token
     -- s)@ into @Num Word8@, which an instance solves, and @a ~ Tokens s@
-    -- turns @IsString (Tokens s)@ into @IsString a@, which is a given. The
+    -- turns @IsString (Tokens s)@ into @IsString a@, which is a given. A
+    -- given equality between two rigid variables, or between a rigid
+    -- variable and another type, rewrites the variable in the same way:
+    -- @a ~ b@ turns @HasSetter t a@ into @HasSetter t b@, which the
+    -- superclass of a given @HasUpdate t a b@ solves. Such an equality has
+    -- no preferred side, so each direction is tried as an alternative. The
     -- evidence for the rewritten wanted is cast back to the original
     -- predicate along the congruence of the given coercions.
     solveThroughGivenEqualities visited' zonkedGivens className args = do
       outerGivens <- mapM zonkPred =<< getGivenPredicates
-      rules <- familyRewriteRules (zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens)
+      ruleSets <- givenRewriteRuleSets (zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens)
+      tryRuleSets visited' zonkedGivens className args ruleSets
+
+    tryRuleSets _ _ _ _ [] = pure (DictStuck ct)
+    tryRuleSets visited' zonkedGivens className args (rules : rest) = do
       let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) args)
       if null rules || and (zipWith sameType rewrittenArgs args)
-        then pure (DictStuck ct)
+        then tryRuleSets visited' zonkedGivens className args rest
         else do
+          saved <- lift get
           rewrittenEvidence <- freshEvVar
           let rewritten = ClassPred className rewrittenArgs
           result <- solveDictWithGivensVisited visited' zonkedGivens (ct {ctPred = rewritten, ctEvVar = rewrittenEvidence})
           case result of
-            DictStuck _ -> pure (DictStuck ct)
+            DictStuck _ -> do
+              -- A failed alternative must not change another alternative's types or evidence.
+              lift (put saved)
+              tryRuleSets visited' zonkedGivens className args rest
             DictSolved -> do
               inner <- lookupEvidence rewrittenEvidence
               case inner of
@@ -468,21 +481,39 @@ typeableArguments ty =
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
 
--- | The given equalities that rewrite a type family application, oriented
--- from the family application to the other side. A given whose two sides
--- are both family applications rewrites nothing. The coercion proves
--- @from ~ to@.
-familyRewriteRules :: [Pred] -> TcM [(TcType, TcType, Coercion)]
-familyRewriteRules givens = do
+-- | The rewrite rule sets that the given equalities permit, most
+-- specific first. Each rule's coercion proves @from ~ to@.
+--
+-- The first set holds every family rule: a family application rewrites to
+-- the other side of its given. A given whose two sides are both family
+-- applications rewrites nothing. Each later set adds one rigid variable
+-- rule to the family rules. A rigid variable equal to another type
+-- rewrites to that type. Two rigid variables give one set for each
+-- direction, because the wanted can name either one while the given names
+-- the other.
+givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
+givenRewriteRuleSets givens = do
   equalities <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
-  concat <$> mapM orient equalities
+  oriented <- mapM orient equalities
+  let familyRules = concat [rules | (rules, _) <- oriented]
+      variableRules = concat [rules | (_, rules) <- oriented]
+  pure (familyRules : [familyRules <> [rule] | rule <- variableRules])
   where
     orient (left, right, proof) = do
       leftIsFamily <- isTypeFamilyApplication left
       rightIsFamily <- isTypeFamilyApplication right
       pure $ case (leftIsFamily, rightIsFamily) of
-        (True, False) -> [(left, right, proof)]
-        (False, True) -> [(right, left, Sym proof)]
+        (True, False) -> ([(left, right, proof)], [])
+        (False, True) -> ([(right, left, Sym proof)], [])
+        (False, False) -> ([], variableRule left right proof)
+        (True, True) -> ([], [])
+    variableRule left right proof =
+      case (left, right) of
+        (TcTyVar leftVar, TcTyVar rightVar)
+          | sameTyVar leftVar rightVar -> []
+          | otherwise -> [(left, right, proof), (right, left, Sym proof)]
+        (TcTyVar _, _) -> [(left, right, proof)]
+        (_, TcTyVar _) -> [(right, left, Sym proof)]
         _ -> []
 
 -- | Rewrite every occurrence of a rule's left side, outermost first, and
