@@ -924,7 +924,9 @@ puts them in. The two conventions can pass arguments in different
 registers, so an argument takes its hint from the convention of its callee,
 and a parameter from the convention of its function. The argument of a jump and the block parameter it reaches are
 partners: each prefers the register the other already has, and failing that
-the register the other was hinted with. Last, a result prefers the register
+the register the other was hinted with. The result and the operand of a
+`ptr.to_int` or a `ptr.from_int` are partners too, because the conversion
+does not change the bits. Last, a result prefers the register
 of an operand of its own instruction, which is free exactly when the operand
 dies there; on a two-operand machine that is the difference between one
 instruction and two. A hint that is not free at the time is dropped, so

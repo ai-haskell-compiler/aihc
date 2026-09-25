@@ -207,7 +207,11 @@ data Encoded = Encoded
     -- and a pool index. The parameters and the calls come first, and the
     -- terminators follow.
     encCallHints :: !(UArray Int Int),
-    encExitHints :: !(UArray Int Int)
+    encExitHints :: !(UArray Int Int),
+    -- | The result and the operand of each conversion between a pointer and
+    -- an integer, as pairs. A conversion does not change the bits, so the
+    -- two values are partners like a jump argument and its block parameter.
+    encCopyPairs :: !(UArray Int Int)
   }
 
 callNone, callAihc, callC :: Int
@@ -235,6 +239,13 @@ forHints :: Encoded -> (Int -> Int -> ST s ()) -> ST s ()
 forHints encoded act = pairs (encCallHints encoded) >> pairs (encExitHints encoded)
   where
     pairs table = forUpTo (lengthOf table `div` 2) (\at -> act (table ! (2 * at)) (table ! (2 * at + 1)))
+
+-- | Run an action on the result and the operand of every conversion between
+-- a pointer and an integer.
+forCopyPairs :: Encoded -> (Int -> Int -> ST s ()) -> ST s ()
+forCopyPairs encoded act = forUpTo (lengthOf pairs `div` 2) (\at -> act (pairs ! (2 * at)) (pairs ! (2 * at + 1)))
+  where
+    pairs = encCopyPairs encoded
 
 -- | Run an action on every value a jump copies, with the block parameter it
 -- reaches.
@@ -280,6 +291,7 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
   argumentTable <- newTable 4 4
   callHints <- newIntBuffer 4
   exitHints <- newIntBuffer 4
+  copies <- newIntBuffer 4
   let intern var = do
         known <- readSTRef identifiers
         case Map.lookup var known of
@@ -312,10 +324,17 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
               writeArray conventions number (conventionOf convention)
               hintOperands callHints (argumentCarrier convention) arguments
               forEach results (pushHint callHints resultCarrier)
-        case operation of
-          Call symbol arguments -> callee arguments (symbolConvention symbol)
-          CallIndirect _ arguments signature -> callee arguments (signatureConvention signature)
+        case (operation, results) of
+          (Call symbol arguments, _) -> callee arguments (symbolConvention symbol)
+          (CallIndirect _ arguments signature, _) -> callee arguments (signatureConvention signature)
+          (PtrToInt (OperandVar source), [result]) -> copy result source
+          (PtrFromInt (OperandVar source), [result]) -> copy result source
           _ -> pure ()
+      copy result source = do
+        resultValue <- intern result
+        sourceValue <- intern source
+        pushInt copies resultValue
+        pushInt copies sourceValue
       goBlock index start block = do
         writeArray blockStart index start
         openRow parameterTable
@@ -367,6 +386,7 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
   targetRows <- freezeTableWith id targetTable
   callHintPairs <- freezeBufferWith renamePairs callHints
   exitHintPairs <- freezeBufferWith renamePairs exitHints
+  copyPairs <- freezeBufferWith (const rename) copies
   blockRangesFrozen <- freezeInts blockRanges
   -- The values the function defines, in the order the text defines them,
   -- and the instruction that defines each one.
@@ -399,6 +419,7 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
     <*> freezeInts definer
     <*> pure callHintPairs
     <*> pure exitHintPairs
+    <*> pure copyPairs
   where
     conventionOf callee =
       case callee of
@@ -524,7 +545,7 @@ runAllocation encoded poolSize volatileCount preservedCost = runST $ do
   cCalls <- callsBefore encoded callC
   earns <- earnedRegisters encoded preservedCost
   hints <- buildRows valueCount (forHints encoded)
-  partners <- buildRows valueCount (\act -> forJumpPairs encoded act >> forJumpPairs encoded (flip act))
+  partners <- buildRows valueCount (\act -> forJumpPairs encoded act >> forJumpPairs encoded (flip act) >> forCopyPairs encoded act >> forCopyPairs encoded (flip act))
   order <- orderByStart encoded starts hints partners
   assigned <- newInts valueCount (-1)
   used <- newBools poolSize False

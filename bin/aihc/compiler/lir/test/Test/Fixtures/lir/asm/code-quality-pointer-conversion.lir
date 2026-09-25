@@ -1,0 +1,18 @@
+; The entry of a frame, as a continue helper does it. A conversion between a
+; pointer and an integer does not change the bits, so its result and its
+; operand are partners in the register allocator. The last conversion takes
+; the register of its operand, and that operand is computed straight into
+; the argument register of the stack limit: no move follows the addition.
+; The stack pointer is a value of its own, so the frame stays in the register
+; of the object argument and only the copy moves.
+func @enter(%machine: ptr, %hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %frame: ptr, %value: ptr) {
+entry:
+  %stack = ptr.add %frame, 0
+  %word = ptr.to_int %frame
+  %last = or i64 %word, 4095
+  %end = add i64 %last, 1
+  %limit = ptr.from_int %end
+  %header = load ptr [%frame] align 8
+  %code = load code [%header + 24] align 8
+  tailcall.indirect %code(%machine, %hp, %hp_limit, %stack, %limit, %frame, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}

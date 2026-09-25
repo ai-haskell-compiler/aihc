@@ -3053,10 +3053,13 @@ generateHelper env helper =
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "enter") []
       -- Entering a frame pops it and every frame above it: the frame is
-      -- the new stack pointer, and its chunk gives the stack limit.
+      -- the new stack pointer, and its chunk gives the stack limit. The
+      -- stack pointer is a value of its own, so the frame can stay in the
+      -- register of the object argument and only the copy moves.
+      stack <- emitValue "sp" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 0)))
       stackLimit <- chunkEnd (OperandVar current)
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
-      let entered = context {contextStack = OperandVar current, contextStackLimit = stackLimit}
+      let entered = context {contextStack = typedOperand stack, contextStackLimit = stackLimit}
       terminate
         ( TailCallIndirect
             (typedOperand entry)

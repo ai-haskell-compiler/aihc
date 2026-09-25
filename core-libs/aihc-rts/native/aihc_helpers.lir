@@ -310,10 +310,13 @@ indirection:
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit.
+  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
+  ; a value of its own, so the frame can stay in the register of the object
+  ; argument and only the copy moves.
+  %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%machine, %hp, %hp_limit, %current, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%machine, %hp, %hp_limit, %entered_sp, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 export func @aihc_lir_continue_i(%machine: ptr, %hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
@@ -331,10 +334,13 @@ indirection:
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit.
+  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
+  ; a value of its own, so the frame can stay in the register of the object
+  ; argument and only the copy moves.
+  %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%machine, %hp, %hp_limit, %current, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  tailcall.indirect %entry(%machine, %hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, i64)
 }
 
 export func @aihc_lir_continue_p(%machine: ptr, %hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: ptr) {
@@ -352,10 +358,13 @@ indirection:
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit.
+  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
+  ; a value of its own, so the frame can stay in the register of the object
+  ; argument and only the copy moves.
+  %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%machine, %hp, %hp_limit, %current, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%machine, %hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 ; Arity counts application stages, not the number of Lir values.
