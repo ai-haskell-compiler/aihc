@@ -19,6 +19,7 @@ module Aihc.Fc.Pass
 where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
+import Aihc.Fc.ConstantLift (liftConstants)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
@@ -38,6 +39,8 @@ data Pass
   | -- | One walk over every body with the local rewrites and no copy of
     -- any callee, in a phase.
     PassSimplify !Int
+  | -- | Share closed constructor expressions through private constants.
+    PassLiftConstants
   deriving (Eq, Show)
 
 -- | The phase a pass runs in. Phases count down as GHC's do, from 2 to
@@ -45,6 +48,7 @@ data Pass
 passPhase :: Pass -> Maybe Int
 passPhase pass =
   case pass of
+    PassLiftConstants -> Nothing
     PassEtaExpand -> Nothing
     PassInline _ _ phase -> Just phase
     PassSimplify phase -> Just phase
@@ -62,6 +66,7 @@ data PassReport = PassReport
 passName :: Pass -> Text
 passName pass =
   case pass of
+    PassLiftConstants -> "lift constants"
     PassEtaExpand -> "eta expand"
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
     PassSimplify phase -> "simplify [" <> T.pack (show phase) <> "]"
@@ -71,6 +76,16 @@ passName pass =
 runPass :: Maybe [Name] -> Pass -> Program -> (Program, PassReport)
 runPass roots pass program =
   case pass of
+    PassLiftConstants ->
+      let (lifted, constants, sites) = liftConstants program
+       in ( lifted,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize program,
+                reportAfter = programSize lifted,
+                reportDetail = count constants "constants" <> ", " <> count sites "sites"
+              }
+          )
     PassEtaExpand ->
       let (expanded, report) = etaExpandProgram program
        in ( expanded,

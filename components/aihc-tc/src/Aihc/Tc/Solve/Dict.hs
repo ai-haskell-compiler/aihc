@@ -458,6 +458,7 @@ typeableArguments :: TcType -> Maybe [TcType]
 typeableArguments ty =
   case ty of
     TcTyCon _ arguments -> Just arguments
+    TcKindedTyCon {} -> Just []
     TcFunTy argument result -> Just [argument, result]
     TcTyVar {} -> Nothing
     TcMetaTv {} -> Nothing
@@ -661,6 +662,11 @@ typeableConstructor ty = do
       kindArguments <- mapM zonkKind (instTypeArgs instantiated)
       metadata <- typeableTyConMetadata constructor
       pure (metadata, kindArguments)
+    -- A bare poly-kinded constructor carries the kind arguments of its use.
+    TcKindedTyCon constructor kindArguments -> do
+      zonked <- mapM zonkKind kindArguments
+      metadata <- typeableTyConMetadata constructor
+      pure (metadata, zonked)
     TcFunTy {} -> do
       let lifted = TypeableKindType (liftedRep kinds)
       constructor <- wiredTyCon tcWiringArrowTyCon (TcFunTy (typeKind kinds) (TcFunTy (typeKind kinds) (typeKind kinds)))

@@ -70,7 +70,7 @@ module Aihc.Grin.PointsTo
   )
 where
 
-import Aihc.Grin.Analysis (maximumProgramVarUnique)
+import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Syntax
 import Control.Monad (forM, forM_, guard, unless, when, zipWithM_)
 import Control.Monad.ST (ST, runST)
@@ -1068,7 +1068,20 @@ rewriteWithPointsTo analysis program =
 rewriteExpr :: PointsTo -> Map FunctionName GrinFunction -> Map GrinVar Int -> GrinExpr -> RewriteM GrinExpr
 rewriteExpr analysis declared vars = go
   where
-    go expression =
+    go expression
+      | Just (function, groups, resultRep, continuation) <- applicationChain expression,
+        Just (tag, functionName, stored) <- knownClosure function groups,
+        Just callee <- Map.lookup functionName declared,
+        grinFunctionResultRep callee == ResultForwarded || grinFunctionResultRep callee == resultRep = do
+          count (\counts -> counts {rewritesDirectCalls = rewritesDirectCalls counts + 1})
+          fields <- mapM freshLike (take stored (grinFunctionParameters callee))
+          let call = GrinCall resultRep functionName (map GrinVarValue fields <> concat groups)
+              fetched = if null fields then call else GrinBind fields (GrinFetch tag function) call
+          case continuation of
+            Nothing -> pure fetched
+            Just (binders, body) -> GrinBind binders fetched <$> go body
+      | otherwise = rewriteChildren expression
+    rewriteChildren expression =
       case expression of
         GrinBind binders valueExpression body -> GrinBind binders <$> go valueExpression <*> go body
         GrinStoreRec bindings body -> GrinStoreRec bindings <$> go body
@@ -1090,18 +1103,30 @@ rewriteExpr analysis declared vars = go
             any isSingleEntry (IntSet.toList locations) -> do
               count (\counts -> counts {rewritesSingleEntryEvals = rewritesSingleEntryEvals counts + 1})
               pure (GrinEval EvalSingleEntry runtimeRep value)
-        GrinApply resultRep function [arguments]
-          | Just (tag, functionName, stored) <- knownClosure function arguments,
-            Just callee <- Map.lookup functionName declared,
-            grinFunctionResultRep callee == ResultForwarded || grinFunctionResultRep callee == resultRep -> do
-              count (\counts -> counts {rewritesDirectCalls = rewritesDirectCalls counts + 1})
-              fields <- mapM freshLike (take stored (grinFunctionParameters callee))
-              let call = GrinCall resultRep functionName (map GrinVarValue fields <> arguments)
-              pure $
-                if null fields
-                  then call
-                  else GrinBind fields (GrinFetch tag function) call
         _ -> pure expression
+    -- Join only consecutive applications of one known closure. Each removed
+    -- intermediate value must occur only as the next callee. No evaluation
+    -- or effect moves across the call, and oversaturation keeps its next apply.
+    applicationChain expression = do
+      (function, groups, resultRep, continuation) <- application expression
+      GrinClosure _ layouts <- closureTag function
+      collect function layouts groups resultRep continuation
+    collect function layouts groups resultRep continuation
+      | length groups == length layouts = Just (function, groups, resultRep, continuation)
+      | length groups < length layouts,
+        resultRep == liftedResultRep,
+        Just ([partial], body) <- continuation = do
+          (next, arguments, nextRep, rest) <- application body
+          guard (next == GrinVarValue partial)
+          guard (GrinVarValue partial `notElem` concat arguments)
+          guard (maybe True (Set.notMember partial . freeExprVars . snd) rest)
+          collect function layouts (groups <> arguments) nextRep rest
+      | otherwise = Nothing
+    application expression =
+      case expression of
+        GrinApply resultRep function groups -> Just (function, groups, resultRep, Nothing)
+        GrinBind binders (GrinApply resultRep function groups) body -> Just (function, groups, resultRep, Just (binders, body))
+        _ -> Nothing
     setOf node = fromMaybe IntSet.empty (resultSets analysis V.!? node)
     -- The locations of a variable, when the analysis knows them all.
     locationsOf value =
@@ -1136,17 +1161,19 @@ rewriteExpr analysis declared vars = go
       pure kept
     -- The function of the closure that an application enters, and the
     -- number of values that the closure stores.
-    knownClosure function arguments = do
+    knownClosure function groups = do
+      tag@(GrinClosure functionName layouts) <- closureTag function
+      guard (map (map grinValueRuntimeRep) groups == layouts)
+      callee <- Map.lookup functionName declared
+      let stored = length (grinFunctionParameters callee) - sum (map length layouts)
+      guard (stored >= 0)
+      pure (tag, functionName, stored)
+    closureTag function = do
       locations <- locationsOf function
       guard (not (IntSet.member unknownValueLocation locations))
-      tags <- fmap concat $ forM (IntSet.toList locations) $ \location -> Just (Map.keys (nodesOf location))
+      let tags = concatMap (Map.keys . nodesOf) (IntSet.toList locations)
       case List.nub tags of
-        [tag@(GrinClosure functionName [layout])]
-          | map grinValueRuntimeRep arguments == layout,
-            Just callee <- Map.lookup functionName declared,
-            let stored = length (grinFunctionParameters callee) - length layout,
-            stored >= 0 ->
-              Just (tag, functionName, stored)
+        [tag@GrinClosure {}] -> Just tag
         _ -> Nothing
     count f = modify' (\state -> state {rewriteCounts = f (rewriteCounts state)})
     freshLike parameter = do

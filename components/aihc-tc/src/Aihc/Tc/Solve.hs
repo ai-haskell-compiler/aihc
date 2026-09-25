@@ -351,6 +351,7 @@ typeMetaVars ty =
     TcTyLit {} -> []
     TcTyVar _ -> []
     TcTyCon _ arguments -> concatMap typeMetaVars arguments
+    TcKindedTyCon _ kindArguments -> concatMap typeMetaVars kindArguments
     TcFunTy argument result -> typeMetaVars argument <> typeMetaVars result
     TcForAllTy _ body -> typeMetaVars body
     TcQualTy predicates body -> concatMap predMetaVars predicates <> typeMetaVars body
@@ -374,6 +375,7 @@ typeTyVars ty =
     TcArrowTy -> []
     TcTyLit {} -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
+    TcKindedTyCon _ kindArguments -> concatMap typeTyVars kindArguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
     TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body

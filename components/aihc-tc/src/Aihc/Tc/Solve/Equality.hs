@@ -11,11 +11,11 @@ where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
-import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
+import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Congruence (proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (unless)
@@ -120,16 +120,23 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
 -- | Solve a meta-variable equality by binding.
 solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult
 solveMetaEq ct u ty
-  | occursIn u ty = pure (EqError ct)
+  | occursIn u ty = do
+      -- An occurrence in a family argument can disappear when the family
+      -- reduces. The equality waits until then.
+      outside <- occursOutsideFamilies
+      pure (if outside u ty then EqError ct else EqStuck ct)
   -- A meta-variable stands for a monotype. Binding it to a polytype
   -- would let inference guess an impredicative instantiation.
   | isPolyType ty = pure (EqError ct)
   | otherwise = do
       declaredKind <- readMetaTvKind u
-      solvedKind <- tcTypeKind ty
+      -- A bare poly-kinded constructor keeps the kind of the meta, as in
+      -- 'Aihc.Tc.Unify.unifyMetaTv'.
+      solved <- kindedTyConAt declaredKind ty
+      solvedKind <- tcTypeKind solved
       unifyKindsAt (ctLoc ct) declaredKind solvedKind
-      writeMetaTv u ty
-      bindEvidence (ctEvVar ct) (EvCoercion (Refl ty))
+      writeMetaTv u solved
+      bindEvidence (ctEvVar ct) (EvCoercion (Refl solved))
       pure EqSolved
 
 solveDecomposed :: Ct -> TcType -> [(TcType, TcType)] -> TcM EqResult
@@ -162,6 +169,7 @@ occursIn u = go
     go (TcTyLit _) = False
     go (TcTyVar _) = False
     go (TcTyCon _ args) = any go args
+    go (TcKindedTyCon _ kindArgs) = any go kindArgs
     go (TcFunTy a b) = go a || go b
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body
