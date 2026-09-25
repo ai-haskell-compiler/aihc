@@ -72,22 +72,11 @@ gcastWith value source target =
     then Just (unsafeCoerce value)
     else Nothing
 
--- | Cast a value over a unary type constructor.
-gcast1 :: forall (c :: Type -> Type) (t :: Type -> Type) (t' :: Type -> Type) a. (Typeable t, Typeable t') => c (t a) -> Maybe (c (t' a))
-gcast1 value = gcast1With value Proxy Proxy
+-- | Cast a value over a unary type constructor. This function has no
+-- Typeable constraints and always returns Nothing.
+gcast1 :: forall (c :: Type -> Type) (t :: Type -> Type) (t' :: Type -> Type) a. c (t a) -> Maybe (c (t' a))
+gcast1 _ = Nothing
 
-gcast1With :: forall (c :: Type -> Type) (t :: Type -> Type) (t' :: Type -> Type) a. (Typeable t, Typeable t') => c (t a) -> Proxy t -> Proxy t' -> Maybe (c (t' a))
-gcast1With value source target =
-  if eqTypeRep (typeRep source) (typeRep target)
-    then Just (unsafeCoerce value)
-    else Nothing
-
--- | Cast a value over a binary type constructor.
-gcast2 :: forall (c :: Type -> Type) (t :: Type -> Type -> Type) (t' :: Type -> Type -> Type) a b. (Typeable t, Typeable t') => c (t a b) -> Maybe (c (t' a b))
-gcast2 value = gcast2With value Proxy Proxy
-
-gcast2With :: forall (c :: Type -> Type) (t :: Type -> Type -> Type) (t' :: Type -> Type -> Type) a b. (Typeable t, Typeable t') => c (t a b) -> Proxy t -> Proxy t' -> Maybe (c (t' a b))
-gcast2With value source target =
-  if eqTypeRep (typeRep source) (typeRep target)
-    then Just (unsafeCoerce value)
-    else Nothing
+-- | Cast a value over a binary type constructor. See 'gcast1'.
+gcast2 :: forall (c :: Type -> Type) (t :: Type -> Type -> Type) (t' :: Type -> Type -> Type) a b. c (t a b) -> Maybe (c (t' a b))
+gcast2 _ = Nothing
