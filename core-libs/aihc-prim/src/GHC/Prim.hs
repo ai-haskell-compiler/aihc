@@ -92,6 +92,7 @@ module GHC.Prim
     indexSmallArray#,
     readSmallArray#,
     writeSmallArray#,
+    casSmallArray#,
     unsafeFreezeSmallArray#,
     unsafeThawSmallArray#,
     sameSmallMutableArray#,
@@ -232,6 +233,7 @@ module GHC.Prim
     word64ToWord#,
     writeWordArray#,
     writeArray#,
+    casArray#,
     writeMutVar#,
     Word#,
     Word8#,
@@ -918,6 +920,8 @@ foreign import prim readArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l))
 
 foreign import prim writeArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int# -> a -> State# d -> State# d
 
+foreign import prim casArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int# -> a -> a -> State# d -> (# State# d, Int#, a #)
+
 foreign import prim unsafeFreezeArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> State# d -> (# State# d, Array# a #)
 
 foreign import prim unsafeThawArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. Array# a -> State# d -> (# State# d, MutableArray# d a #)
@@ -948,6 +952,8 @@ foreign import prim indexSmallArray# :: SmallArray# a -> Int# -> (# a #)
 foreign import prim readSmallArray# :: SmallMutableArray# d a -> Int# -> State# d -> (# State# d, a #)
 
 foreign import prim writeSmallArray# :: SmallMutableArray# d a -> Int# -> a -> State# d -> State# d
+
+foreign import prim casSmallArray# :: SmallMutableArray# d a -> Int# -> a -> a -> State# d -> (# State# d, Int#, a #)
 
 foreign import prim unsafeFreezeSmallArray# :: SmallMutableArray# d a -> State# d -> (# State# d, SmallArray# a #)
 

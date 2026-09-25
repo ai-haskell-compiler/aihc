@@ -419,6 +419,17 @@ kindVarToType env tyCon arguments expectedKind tyVar =
         -- kind as two kinds.
         Just KConstraint -> Right (typeSynonym (cePrimPackage env))
         Just argument -> convertRep env argument
+        -- A constructor whose kind is only its kind variable, such as
+        -- @Any :: forall k. k@, gets no kind from its arguments. When the
+        -- place that the type fills does not give a kind either, it is a
+        -- constructor field, an arrow side, or the type of a term, and
+        -- the kind is 'Type', as GHC defaults it.
+        Nothing
+          | Nothing <- expectedKind,
+            null arguments,
+            Right (ForAll _ _ (TcTyVar resultKind)) <- kindScheme env tyCon,
+            tvUnique resultKind == tvUnique tyVar ->
+              Right (typeSynonym (cePrimPackage env))
         Nothing ->
           Left
             ( "cannot infer the invisible kind argument "
