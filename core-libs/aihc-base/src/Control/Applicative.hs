@@ -20,6 +20,8 @@ where
 
 import Control.Arrow (Arrow (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
+import Foreign.Storable (Storable (..))
+import GHC.Ptr (castPtr)
 import Prelude (Applicative (..), Eq (..), Functor (..), Maybe (..), Monad (..), Ord (..), const, (++), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
@@ -123,3 +125,10 @@ instance Alternative Maybe where
   empty = Nothing
   Nothing <|> value = value
   value <|> _ = value
+
+-- | A 'Const' is stored as the value it wraps.
+instance (Storable a) => Storable (Const a b) where
+  sizeOf value = sizeOf (getConst value)
+  alignment value = alignment (getConst value)
+  peek address = fmap Const (peek (castPtr address))
+  poke address (Const value) = poke (castPtr address) value
