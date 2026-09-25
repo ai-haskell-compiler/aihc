@@ -1,0 +1,64 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    module Test where
+
+    import Data.Data
+
+    newtype Q r a = Q {unQ :: a -> r}
+
+    -- A generic query with a special case at one unary type constructor, as
+    -- in the ext1Q function of syb.
+    ext1Q :: (Data d, Typeable t) => (d -> r) -> (forall e. (Data e) => t e -> r) -> d -> r
+    ext1Q fallback special = unQ (maybe (Q fallback) id (dataCast1 (Q special)))
+
+    -- A generic query with a special case at one binary type constructor.
+    ext2Q :: (Data d, Typeable t) => (d -> r) -> (forall e f. (Data e, Data f) => t e f -> r) -> d -> r
+    ext2Q fallback special = unQ (maybe (Q fallback) id (dataCast2 (Q special)))
+
+    -- A cast helper with a Typeable context on the type constructor, as in
+    -- the dataCast function of vector's Data.Vector.Generic.
+    castBox :: (Typeable t, Typeable v, Data a) => (forall d. (Data d) => c (t d)) -> Maybe (c (v a))
+    castBox f = gcast1 f
+
+    data Box a = Box a
+
+    boxConstr :: Constr
+    boxConstr = mkConstr boxDataType "Box" [] Prefix
+
+    boxDataType :: DataType
+    boxDataType = mkDataType "Test.Box" [boxConstr]
+
+    instance (Data a) => Data (Box a) where
+      gfoldl k z (Box value) = z Box `k` value
+      gunfold k z _ = k (z Box)
+      toConstr _ = boxConstr
+      dataTypeOf _ = boxDataType
+      dataCast1 f = castBox f
+
+    countList :: [e] -> Int
+    countList [] = 0
+    countList (_ : rest) = 1 + countList rest
+
+    listLength :: (Data d) => d -> Int
+    listLength = ext1Q (const (-1)) countList
+
+    boxed :: (Data d) => d -> Bool
+    boxed = ext1Q (const False) (\(Box _) -> True)
+
+    pairQuery :: (Data d) => d -> Bool
+    pairQuery = ext2Q (const False) (\(_, _) -> True)
+
+    results :: Bool
+    results =
+      listLength True == -1
+        && listLength (Box True) == -1
+        && not (boxed [True])
+        && not (pairQuery [True])
+        && (case gcast1 (Just [True]) :: Maybe (Maybe (Box Bool)) of Nothing -> True; _ -> False)
+        && (case gcast2 [(True, 'x')] :: Maybe [Either Bool Char] of Nothing -> True; _ -> False)
+output: "True"
+expression: results
+status: pass
+reason: dataCast1 and dataCast2 have the Typeable contexts of GHC, so an instance can give them through a helper with a Typeable context
