@@ -9,6 +9,8 @@ module Aihc.Arm64.Assemble
     Arm64Condition (..),
     Arm64FloatOp (..),
     assembleMachO,
+    addSubImmediate,
+    logicalImmediate,
     applyStatement,
     alignmentFill,
     arm64Align,
@@ -32,7 +34,7 @@ where
 import Aihc.Native.MachO (writeArm64MachO)
 import Aihc.Native.Object
 import Control.Monad.ST (ST)
-import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (complement, popCount, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -192,9 +194,15 @@ data Arm64Instruction
   | ArmSub !Arm64Register !Arm64Register !Arm64Value
   | ArmSubs !Arm64Register !Arm64Register !Arm64Value
   | ArmCmp !Arm64Register !Arm64Value
-  | ArmAnd !Arm64Register !Arm64Register !Arm64Register
+  | -- | @cmn xn, #imm@: compare with the negation of the operand.
+    ArmCmn !Arm64Register !Arm64Value
+  | -- | The logical instructions. An immediate operand must be a logical
+    -- immediate of the register width (see 'logicalImmediate').
+    ArmAnd !Arm64Register !Arm64Register !Arm64Value
   | ArmOrr !Arm64Register !Arm64Register !Arm64Value
-  | ArmEor !Arm64Register !Arm64Register !Arm64Register
+  | ArmEor !Arm64Register !Arm64Register !Arm64Value
+  | -- | @tst xn, op@: set the flags from the bitwise and of the operands.
+    ArmTst !Arm64Register !Arm64Value
   | ArmMvn !Arm64Register !Arm64Register
   | ArmMul !Arm64Register !Arm64Register !Arm64Register
   | ArmUmulh !Arm64Register !Arm64Register !Arm64Register
@@ -356,11 +364,12 @@ encodeInstruction instruction =
     ArmAdds destination source value -> encodeAddSub False True destination source value
     ArmSub destination source value -> encodeAddSub True False destination source value
     ArmSubs destination source value -> encodeAddSub True True destination source value
-    ArmCmp left right -> encodeCompare left right
-    ArmAnd destination left right -> encodeThreeRegister 0x8a000000 destination left right
-    ArmOrr destination left (Arm64ImmediateValue value) -> encodeLogicalImmediate destination left value
-    ArmOrr destination left (Arm64RegisterValue right) -> encodeThreeRegister 0xaa000000 destination left right
-    ArmEor destination left right -> encodeThreeRegister 0xca000000 destination left right
+    ArmCmp left right -> encodeCompare False left right
+    ArmCmn left right -> encodeCompare True left right
+    ArmAnd destination left right -> encodeLogical 0x0a000000 0x12000000 destination left right
+    ArmOrr destination left right -> encodeLogical 0x2a000000 0x32000000 destination left right
+    ArmEor destination left right -> encodeLogical 0x4a000000 0x52000000 destination left right
+    ArmTst left right -> encodeLogical 0x6a000000 0x72000000 (if registerWidth (registerInfo left) == 64 then XZR else WZR) left right
     ArmMvn destination source ->
       let rd = registerInfo destination
           rn = registerInfo source
@@ -483,24 +492,42 @@ encodeMove destinationRegister source =
               let base = if registerWidth destinationRegister == 64 then 0xaa0003e0 else 0x2a0003e0
                in words32 [base .|. registerNumber sourceRegister `shiftL` 16 .|. registerNumber destinationRegister]
 
+-- | The shortest sequence that puts a constant into a register. The
+-- candidates are a @movz@ and a @movk@ for each other halfword that is not
+-- zero, a @movn@ and a @movk@ for each other halfword that is not all ones,
+-- and one @orr@ from the zero register when the constant is a logical
+-- immediate.
 loadImmediate :: Register -> Integer -> [Word32]
-loadImmediate register value
-  | value >= 0 && value <= 65535 = [movz (fromIntegral value) 0]
-  | value < 0 && value >= -65536 = [movn (fromIntegral (complement (fromIntegral value :: Word64) .&. 0xffff)) 0]
-  | otherwise = movz low 0 : [movk part shift | shift <- shifts, let part = fromIntegral ((bits `shiftR` shift) .&. 0xffff), part /= 0]
+loadImmediate register value =
+  -- The first of the shortest candidates, so a tie keeps the plain move.
+  foldr1 (\candidate best -> if length candidate <= length best then candidate else best) candidates
   where
-    bits = fromIntegral value :: Word64
-    low = fromIntegral (bits .&. 0xffff) :: Word32
+    candidates =
+      [direct, inverted]
+        <> [ [widthBase 0xb2000000 0x32000000 .|. field .|. 31 `shiftL` 5 .|. registerNumber register]
+           | Just field <- [logicalImmediate width value]
+           ]
+    width = registerWidth register
+    bits = fromIntegral value .&. ones64 width :: Word64
     shifts :: [Int]
-    shifts = if registerWidth register == 64 then [16, 32, 48] else [16]
+    shifts = [0, 16 .. width - 16]
+    halfword :: Int -> Word32
+    halfword shift = fromIntegral ((bits `shiftR` shift) .&. 0xffff)
+    direct = sequenceWith movz 0 id
+    inverted = sequenceWith movn 0xffff (xorWord32 0xffff)
+    -- The first instruction sets every halfword to the filler, and each
+    -- @movk@ replaces one halfword that differs from it.
+    sequenceWith first filler firstField =
+      case [shift | shift <- shifts, halfword shift /= filler] of
+        [] -> [first (firstField filler) 0]
+        start : rest -> first (firstField (halfword start)) start : [movk (halfword shift) shift | shift <- rest]
     widthBase :: Word32 -> Word32 -> Word32
-    widthBase base64 base32 = if registerWidth register == 64 then base64 else base32
-    movz :: Word32 -> Int -> Word32
-    movz immediate shift = widthBase 0xd2800000 0x52800000 .|. fromIntegral (shift `div` 16) `shiftL` 21 .|. immediate `shiftL` 5 .|. registerNumber register
-    movn :: Word32 -> Int -> Word32
-    movn immediate shift = widthBase 0x92800000 0x12800000 .|. fromIntegral (shift `div` 16) `shiftL` 21 .|. immediate `shiftL` 5 .|. registerNumber register
-    movk :: Word32 -> Int -> Word32
-    movk immediate shift = widthBase 0xf2800000 0x72800000 .|. fromIntegral (shift `div` 16) `shiftL` 21 .|. immediate `shiftL` 5 .|. registerNumber register
+    widthBase base64 base32 = if width == 64 then base64 else base32
+    wide :: Word32 -> Word32 -> Int -> Word32
+    wide base immediate shift = base .|. fromIntegral (shift `div` 16) `shiftL` 21 .|. immediate `shiftL` 5 .|. registerNumber register
+    movz = wide (widthBase 0xd2800000 0x52800000)
+    movn = wide (widthBase 0x92800000 0x12800000)
+    movk = wide (widthBase 0xf2800000 0x72800000)
 
 encodeAddSub :: Bool -> Bool -> Arm64Register -> Arm64Register -> Arm64Value -> [Item]
 encodeAddSub subtractValue setFlags destination source value =
@@ -514,7 +541,7 @@ encodeAddSub subtractValue setFlags destination source value =
             | subtractValue && setFlags = 0xf1000000
             | subtractValue = 0xd1000000
             | otherwise = 0x91000000
-       in words32 [base .|. (fromIntegral immediate .&. 0xfff) `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+       in words32 [base .|. addSubImmediateField immediate .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
     Arm64RegisterValue register ->
       let rm = registerInfo register
           useExtended = registerSp rd || registerSp rn
@@ -530,24 +557,92 @@ encodeAddSub subtractValue setFlags destination source value =
     rd = registerInfo destination
     rn = registerInfo source
 
-encodeCompare :: Arm64Register -> Arm64Value -> [Item]
-encodeCompare left right =
+-- | @cmp@ is @subs@ and @cmn@ is @adds@, both to the zero register.
+encodeCompare :: Bool -> Arm64Register -> Arm64Value -> [Item]
+encodeCompare negative left right =
   case right of
     Arm64ImmediateValue immediate ->
-      let base = if registerWidth rn == 64 then 0xf100001f else 0x7100001f
-       in words32 [base .|. (fromIntegral immediate .&. 0xfff) `shiftL` 10 .|. registerNumber rn `shiftL` 5]
+      let base = widthBit .|. (if negative then 0x3100001f else 0x7100001f)
+       in words32 [base .|. addSubImmediateField immediate .|. registerNumber rn `shiftL` 5]
     Arm64RegisterValue register ->
       let rm = registerInfo register
-          base = if registerWidth rn == 64 then 0xeb00001f else 0x6b00001f
+          base = widthBit .|. (if negative then 0x2b00001f else 0x6b00001f)
        in words32 [base .|. registerNumber rm `shiftL` 16 .|. registerNumber rn `shiftL` 5]
   where
     rn = registerInfo left
+    widthBit = if registerWidth rn == 64 then 0x80000000 else 0
 
-encodeLogicalImmediate :: Arm64Register -> Arm64Register -> Integer -> [Item]
-encodeLogicalImmediate destination left _ =
-  let rd = registerInfo destination
-      rn = registerInfo left
-   in words32 [0xb2400000 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+-- | Whether an add, a sub, or a compare can encode the constant: 12 bits,
+-- optionally shifted left by 12.
+addSubImmediate :: Integer -> Bool
+addSubImmediate value =
+  value >= 0 && (value < 4096 || (value `mod` 4096 == 0 && value < 4096 * 4096))
+
+-- | The @sh:imm12@ field of an add or a sub immediate.
+addSubImmediateField :: Integer -> Word32
+addSubImmediateField value
+  | value < 4096 = fromIntegral value `shiftL` 10
+  | otherwise = 0x00400000 .|. fromIntegral (value `div` 4096 .&. 0xfff) `shiftL` 10
+
+-- | The @N:immr:imms@ field of a logical immediate for a register of the
+-- given width, in its place in the instruction. A logical immediate is an
+-- element of 2, 4, 8, 16, 32, or 64 bits that repeats to fill the register.
+-- The element is a run of ones that is rotated right. All zeros and all
+-- ones are not logical immediates.
+logicalImmediate :: Int -> Integer -> Maybe Word32
+logicalImmediate width value
+  | bits == 0 || bits == widthMask = Nothing
+  | otherwise =
+      case [rotation | rotation <- [0 .. size - 1], rotateRight run rotation == element] of
+        rotation : _ ->
+          Just
+            ( (if size == 64 then 0x00400000 else 0)
+                .|. fromIntegral rotation `shiftL` 16
+                .|. (sizeField .|. fromIntegral (ones - 1)) `shiftL` 10
+            )
+        [] -> Nothing
+  where
+    widthMask = ones64 width
+    bits = fromIntegral value .&. widthMask :: Word64
+    size = elementSize width
+    elementSize current
+      | current > 2 && low bits == low (bits `shiftR` half) = elementSize half
+      | otherwise = current
+      where
+        half = current `div` 2
+        low word = word .&. ones64 half
+    elementMask = ones64 size
+    element = bits .&. elementMask
+    ones = popCount element
+    run = ones64 ones
+    rotateRight word amount
+      | amount == 0 = word
+      | otherwise = ((word `shiftR` amount) .|. (word `shiftL` (size - amount))) .&. elementMask
+    -- The high bits of @imms@ give the element size: @0xxxxx@ for 32 bits
+    -- and 64 bits, @10xxxx@ for 16 bits, down to @11110x@ for 2 bits.
+    sizeField = (complement (fromIntegral size - 1) `shiftL` 1) .&. 0x3f :: Word32
+
+-- | A value with the low @count@ bits set.
+ones64 :: Int -> Word64
+ones64 count
+  | count >= 64 = maxBound
+  | otherwise = (1 `shiftL` count) - 1
+
+-- | A logical instruction with a shifted-register base and an immediate
+-- base, both for 32-bit registers.
+encodeLogical :: Word32 -> Word32 -> Arm64Register -> Arm64Register -> Arm64Value -> [Item]
+encodeLogical registerBase immediateBase destination left right =
+  case right of
+    Arm64ImmediateValue value ->
+      case logicalImmediate (registerWidth rd) value of
+        Just field -> words32 [widthBit .|. immediateBase .|. field .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+        Nothing -> error ("Aihc.Arm64.Assemble: not a logical immediate: " <> show value)
+    Arm64RegisterValue register ->
+      words32 [widthBit .|. registerBase .|. registerNumber (registerInfo register) `shiftL` 16 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+  where
+    rd = registerInfo destination
+    rn = registerInfo left
+    widthBit = if registerWidth rd == 64 then 0x80000000 else 0
 
 encodeThreeRegister :: Word32 -> Arm64Register -> Arm64Register -> Arm64Register -> [Item]
 encodeThreeRegister base destination left right =
