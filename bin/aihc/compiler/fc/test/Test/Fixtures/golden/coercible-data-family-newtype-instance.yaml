@@ -1,0 +1,128 @@
+extensions:
+- TypeFamilies
+- TypeApplications
+- ScopedTypeVariables
+- MultiParamTypeClasses
+- MagicHash
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, TypeApplications, ScopedTypeVariables, MultiParamTypeClasses, MagicHash #-}
+  module Test where
+  import GHC.Types (Bool (..), Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data family F a
+  newtype instance F Bool = FBool Int
+  toF :: Int -> F Bool
+  toF = coerce
+  mapF :: (Int -> Int) -> F Bool -> F Bool
+  mapF f = coerce f
+  data Vec s a = Vec a
+  data family MV s a
+  newtype Wrap a = Wrap a
+  newtype instance MV s (Wrap a) = MVWrap (Vec s a)
+  class Len v a where
+    len :: v s a -> Int
+  instance Len Vec a where
+    len _ = I# 0#
+  instance Len MV (Wrap a) where
+    len = coerce (len @Vec @a)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.t$Dict$Coercible :: ∀(a : 3.sType) (b : 3.sType). 3.sType;
+    3.tBool :: 3.sType;
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.c$Dict$Coercible :: ∀(a : 3.sType) (b : 3.sType). 3.t$Dict$Coercible a b;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tF (a : 3.sType) :: 3.sType @N {}
+
+  type 1.t$R$F$FBool :: 3.sType {}
+
+  axiom 1.$ax$R$F$FBool : 1.t$R$F$FBool ~R 3.tInt
+
+  axiom 1.$ax$F$FBool : 1.tF 3.tBool ~N 1.t$R$F$FBool
+
+  pub type 1.tVec (s : 3.sType) (a : 3.sType) :: 3.sType {
+      pub 1.cVec :: ∀(s : 3.sType) (a : 3.sType). a 3.→ 1.tVec s a
+  }
+
+  pub type 1.tMV (s : 3.sType) (a : 3.sType) :: 3.sType @N @N {}
+
+  pub type 1.tWrap (a : 3.sType) :: 3.sType {}
+
+  axiom 1.$ax$Wrap (a : 3.sType) : 1.tWrap a ~R a
+
+  type 1.t$R$MV$MVWrap (s : 3.sType) (a : 3.sType) :: 3.sType {}
+
+  axiom 1.$ax$R$MV$MVWrap (s : 3.sType) (a : 3.sType) : 1.t$R$MV$MVWrap s a ~R 1.tVec s a
+
+  axiom 1.$ax$MV$MVWrap (s : 3.sType) (a : 3.sType) : 1.tMV s (1.tWrap a) ~N 1.t$R$MV$MVWrap s a
+
+  pub type 1.t$Dict$Len (v : 3.sType 3.→ 3.sType 3.→ 3.sType) (a : 3.sType) :: 3.sType {
+      pub 1.c$Dict$Len :: ∀(v : 3.sType 3.→ 3.sType 3.→ 3.sType) (a : 3.sType). (∀(s : 3.sType). v s a 3.→ 3.tInt) 3.→ 1.t$Dict$Len v a
+  }
+
+  pub val 1.vlen :: ∀(v : 3.sType 3.→ 3.sType 3.→ 3.sType) (a : 3.sType) (s : 3.sType). 1.t$Dict$Len v a 3.→ v s a 3.→ 3.tInt
+   = Λ(v : 3.sType 3.→ 3.sType 3.→ 3.sType).
+    Λ(a : 3.sType).
+      Λ(s : 3.sType).
+        λ($d0 : 1.t$Dict$Len v a).
+          case $d0 as ($dict : 1.t$Dict$Len v a) return (v s a 3.→ 3.tInt) of {
+              1.c$Dict$Len ($method0 : ∀(s{1} : 3.sType). v s{1} a 3.→ 3.tInt) →
+                  $method0 @s
+          }
+
+  pub val 1.v$fLenVeca :: ∀(a : 3.sType). 1.t$Dict$Len 1.tVec a
+   = Λ(a : 3.sType).
+    1.c$Dict$Len @1.tVec @a (1.v$fLenVeca$clen @a)
+
+  val 1.v$fLenVeca$clen :: ∀(a : 3.sType) (s : 3.sType). 1.tVec s a 3.→ 3.tInt
+   = Λ(a : 3.sType).
+    Λ(s : 3.sType).
+      λ(x : 1.tVec s a).
+        3.cI# 0#3.cIntRep
+
+  pub val 1.v$fLenMVWrapa :: ∀(a : 3.sType). 1.t$Dict$Len 1.tMV (1.tWrap a)
+   = Λ(a : 3.sType).
+    1.c$Dict$Len @1.tMV @(1.tWrap a) (1.v$fLenMVWrapa$clen @a)
+
+  val 1.v$fLenMVWrapa$clen :: ∀(a : 3.sType) (s : 3.sType). 1.tMV s (1.tWrap a) 3.→ 3.tInt
+   = Λ(a : 3.sType).
+    Λ(s : 3.sType).
+      1.vcoerce @(1.tVec s a 3.→ 3.tInt) @(1.tMV s (1.tWrap a) 3.→ 3.tInt) (3.c$Dict$Coercible @(1.tVec s a 3.→ 3.tInt) @(1.tMV s (1.tWrap a) 3.→ 3.tInt)) (1.vlen @1.tVec @a @s (1.v$fLenVeca @a))
+
+  pub val 1.vcoerce :: ∀(a : 3.sType) (b : 3.sType). 3.t$Dict$Coercible a b 3.→ a 3.→ b
+   = Λ(a : 3.sType).
+    Λ(b : 3.sType).
+      λ($d0 : 3.t$Dict$Coercible a b).
+        λ(_foreign_argument : a).
+          foreign {prim 2.vunsafeCoerce# :: ∀(q : 3.tRuntimeRep) (r : 3.tRuntimeRep) (a{1} : 3.tTYPE q) (b{1} : 3.tTYPE r). FUN @q @r a{1} b{1}} @(3.cBoxedRep 3.cLifted) @(3.cBoxedRep 3.cLifted) @a @b _foreign_argument
+
+  pub val 1.vtoF :: 3.tInt 3.→ 1.tF 3.tBool
+   = 1.vcoerce @3.tInt @(1.tF 3.tBool) (3.c$Dict$Coercible @3.tInt @(1.tF 3.tBool))
+
+  pub val 1.vmapF :: (3.tInt 3.→ 3.tInt) 3.→ 1.tF 3.tBool 3.→ 1.tF 3.tBool
+   = λ(x : 3.tInt 3.→ 3.tInt).
+    1.vcoerce @(3.tInt 3.→ 3.tInt) @(1.tF 3.tBool 3.→ 1.tF 3.tBool) (3.c$Dict$Coercible @(3.tInt 3.→ 3.tInt) @(1.tF 3.tBool 3.→ 1.tF 3.tBool)) x
+status: pass
+reason: Coercible evidence through a newtype instance of a data family passes the
+  System FC lint

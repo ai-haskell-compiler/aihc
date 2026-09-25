@@ -111,6 +111,7 @@ dataFamilyInstanceInfoTyCons info =
   Set.insert (dfiiRepresentationTyCon info)
     . typeTyConsInto (dfiiFamilyType info)
     . each tyVarTyCons (dfiiTyVars info)
+    . each dataConInfoTyCons (dfiiConstructors info)
 
 typeFamilyInstanceInfoTyCons :: Collect TypeFamilyInstanceInfo
 typeFamilyInstanceInfoTyCons info =
