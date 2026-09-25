@@ -97,7 +97,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameAnns,
   )
 import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
-import Aihc.Resolve.Traverse (annotationList)
+import Aihc.Resolve.Traverse (annotationList, collectAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
     TcAnnotation (..),
@@ -133,13 +133,13 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, isEmptyContext, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, freeTypeVars, freshKindMeta, hasWildcardType, isUnitConstraintType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -744,6 +744,14 @@ tcRulesDecl decl =
 -- the sides, closed over its type variables and residual constraints, so a
 -- consumer finds the type binders, the dictionary binders and the binder
 -- types in that one type. A rule with a type error keeps its source form.
+--
+-- An occurrence on the left-hand side can have a type that the type of the
+-- rule does not mention. An example is the intermediate type of
+-- @re (re s)@ for @re :: Box u a -> Box v a@. As GHC does, the rule
+-- quantifies such a type variable too, so that the rule matches at each
+-- intermediate type. The matcher finds the type in the type arguments of
+-- the occurrence. A type that only the right-hand side mentions is not
+-- quantified, because a match cannot find it.
 tcRuleDecl :: RuleDecl -> TcM RuleDecl
 tcRuleDecl rule = withAmbientSpan sp $ do
   kinds <- getKinds
@@ -780,7 +788,8 @@ tcRuleDecl rule = withAmbientSpan sp $ do
     if failed
       then pure rule
       else do
-        Scheme inferred specified predicates body <- generalizeAndCommit (ruleTypeOf lhsTy) residualPreds
+        let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
+        Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds
         let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
         binders' <- forM binders $ \(binder, ty) ->
           pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
@@ -793,6 +802,9 @@ tcRuleDecl rule = withAmbientSpan sp $ do
             }
   where
     sp = sourceSpanFromAnns (ruleAnns rule)
+
+    pendingTypes pending =
+      pendingTcAnnType pending : pendingTcAnnTypeArgs pending <> pendingTcAnnTermArgTypes pending
 
     withRuleBinders binders action =
       foldr (\(binder, ty) -> extendResolvedTermEnv (ruleBinderName binder) (TcMonoIdBinder ty)) action binders
@@ -1927,7 +1939,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
       let classNameText = nameText className
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
-      rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      rawContext <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       tvIds <- resolveInstanceTyVars origin rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
@@ -2196,7 +2208,7 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       let classNameText = nameText className
       (_, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
-      rawGivens <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      rawGivens <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       headTys <- mapM defaultTypeKinds rawHeadTys
       givens <- mapM defaultPredKinds rawGivens
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
@@ -2814,7 +2826,8 @@ tcSingleDeclGroup sigs groupId d =
 -- selector per binder, so each binder records the type variables its
 -- selector abstracts and the type arguments that instantiate the shared
 -- value. A type variable that the binder does not mention is instantiated
--- at the unit type, which is what GHC uses @Any@ for.
+-- at the type that 'undeterminedTypeOfKind' gives: the unit type at kind
+-- @Type@ and @Any@ at each other kind.
 tcTopLevelPatternBind :: Map TcTermKey CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
 tcTopLevelPatternBind sigs groupId d pat rhs = do
   let sp = patternSpan pat <|> peelDeclSpan d
@@ -2869,7 +2882,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
                           <> " does not match the type its pattern binding gives it: "
                           <> renderTcType (schemeToType scheme)
                       )
-            typeArgs <- mapM (patternBindTypeArgument sp name scheme) rhsTyVars
+            typeArgs <- mapM (patternBindTypeArgument scheme) rhsTyVars
             zonkedTy <- zonkType (schemeToType scheme)
             let pending = PendingTcAnnotation (typeSchemeBody scheme) (typeSchemeTyVars scheme) typeArgs 0 [] [] []
             pure ((name, pending), TcBindingResult key (renderBinderName binder) zonkedTy)
@@ -2895,27 +2908,9 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
 
     -- The type argument that instantiates one type variable of the shared
     -- right-hand side for one selector.
-    patternBindTypeArgument sp' name scheme tyVar
+    patternBindTypeArgument scheme tyVar
       | tyVar `elem` typeSchemeTyVars scheme = pure (TcTyVar tyVar)
-      | otherwise = do
-          kinds <- getKinds
-          kind <- zonkType (tvKind tyVar)
-          if kind == typeKind kinds
-            then do
-              unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
-              pure (TcTyCon unitTyCon [])
-            else do
-              emitError sp' $
-                OtherError
-                  ( "a pattern binding cannot generalize over the type variable "
-                      <> T.unpack (tvName tyVar)
-                      <> " of kind "
-                      <> renderTcType kind
-                      <> ", which "
-                      <> T.unpack name
-                      <> " does not mention"
-                  )
-              pure (TcTyVar tyVar)
+      | otherwise = undeterminedTypeOfKind =<< zonkType (tvKind tyVar)
 
 typeSchemeTyVars :: TypeScheme -> [TyVarId]
 typeSchemeTyVars (ForAll tyVars _ _) = tyVars
@@ -3913,7 +3908,10 @@ registerClassDecl origin classDecl = do
       paramKinds = map paramKind paramInfos
       paramTvEnv = kindEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   kinds <- getKinds
-  superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty (constraintKind kinds)) (fromMaybe [] (classDeclContext classDecl))
+  -- The empty constraint @()@ gives no superclass, also when a constraint
+  -- synonym expands to it.
+  checkedSuperClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty (constraintKind kinds)) (flattenSurfaceContext (fromMaybe [] (classDeclContext classDecl)))
+  superClassTypes <- filterM (fmap not . isUnitConstraintType) checkedSuperClassTypes
   let classKind = foldr KFun (constraintKind kinds) paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
   let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
@@ -4159,7 +4157,7 @@ classSignatureScheme classTvEnv classTyVars ty = do
             ]
   kinds <- getKinds
   methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
-  contextPreds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
+  contextPreds <- surfaceContextToPreds tvEnv context
   pure (specifiedScheme (classTyVars <> extraTyVars <> explicitTyVars) contextPreds methodBody)
 
 registerInstanceDecl :: (Text, Text) -> InstanceDecl -> TcM [TcBindingResult]
@@ -4172,7 +4170,7 @@ registerInstanceDecl origin instanceDecl =
       let classNameText = nameText className
       headTys <- checkInstanceHeadTypes className tvEnv headArgs
       dictName <- allocateInstanceDictName origin classNameText headTys
-      context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      context <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       -- The head check fixed the kinds; the same order as the annotation
       -- pass keeps the dictionary's type arguments aligned with its
       -- type lambdas.
@@ -4308,8 +4306,24 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
       case maybeFamilyInfo of
         Just familyInfo
           | tciFlavor familyInfo == DataFamilyTyCon -> do
-              representationKind <- tyConKindFromParams paramInfos (dataFamilyInstKind familyInst)
-              let familyName = tciName familyInfo
+              bindings <- mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
+              -- Under PolyKinds the head and the fields can leave the kind
+              -- of a parameter open, as @b@ in @Vector (Const a b)@. GHC
+              -- quantifies such a kind for each instance, so the instance,
+              -- its constructors, and its representation type constructor
+              -- are kind-polymorphic. Without PolyKinds the open kinds
+              -- default to 'Type' later.
+              polyKinds <- isPolyKindOrigin (packageName, moduleName')
+              when polyKinds (generalizeTyVarKinds (map paramTyVar paramInfos))
+              representationKind <- tyConKindFromParams paramInfos (dataFamilyInstKind familyInst) >>= zonkKind
+              let representationKindVariables =
+                    if polyKinds
+                      then
+                        filter
+                          (\variable -> tvUnique variable `notElem` map (tvUnique . paramTyVar) paramInfos)
+                          (uniqueKindVariables (freeKindVariables representationKind))
+                      else []
+                  familyName = tciName familyInfo
                   representationName = dataFamilyRepresentationName familyName firstConstructor
                   representationTyCon =
                     mkTyConWithOrigin
@@ -4323,13 +4337,12 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                       { tciName = representationName,
                         tciArity = length paramInfos,
                         tciTyCon = representationTyCon,
-                        tciKindScheme = Scheme [] [] [] representationKind,
+                        tciKindScheme = Scheme representationKindVariables [] [] representationKind,
                         tciFlavor = DataTyCon,
                         tciTypeSynonym = Nothing,
                         tciInjectivity = Nothing
                       }
               extendTyConEnvPermanent representationInfo
-              bindings <- mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
               -- The constructors belong to the module of the instance, which
               -- the representation type constructor names.
               constructors <- concat <$> mapM (checkedDataConInfos representationTyCon) (dataFamilyInstConstructors familyInst)
@@ -4511,11 +4524,18 @@ typeFamilyInjectivePositions familyDecl =
         ]
     _ -> Nothing
 
+-- | The declared result kind of a type family. A named result binder
+-- gives its kind the same way as a plain result signature:
+-- @type family F a = (r :: K) | r -> a@ has the result kind @K@.
+-- A result binder without a kind gives no result kind, as a family
+-- without a result signature does.
 typeFamilyResultKindType :: TypeFamilyDecl -> Maybe Type
 typeFamilyResultKindType familyDecl =
   case typeFamilyDeclResultSig familyDecl of
     Just (TypeFamilyKindSig ty) -> Just ty
-    _ -> Nothing
+    Just (TypeFamilyTyVarSig binder) -> tyVarBinderKind binder
+    Just (TypeFamilyInjectiveSig binder _) -> tyVarBinderKind binder
+    Nothing -> Nothing
 
 registerClosedTypeFamilyEquations :: (Text, Text) -> TypeFamilyDecl -> TcM [TcBindingResult]
 registerClosedTypeFamilyEquations origin familyDecl =
@@ -5020,7 +5040,7 @@ registerDataConWithResult paramInfos resTy con = case con of
     kinds <- getKinds
     gadtResTy <- checkSurfaceType constructorEnv resultSurfTy (typeKind kinds)
     gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
-    writtenPredicates <- mapM (surfacePredToPred constructorEnv) context
+    writtenPredicates <- surfaceContextToPreds constructorEnv context
     (universalTyVars, refinementPredicates, universalResTy) <- rejigGadtResult resTy gadtResTy
     let predicates = refinementPredicates <> writtenPredicates
         conTy = foldr TcFunTy universalResTy gadtArgTys
@@ -5060,7 +5080,7 @@ registerDataConWithResult paramInfos resTy con = case con of
               <> paramEnv
           constructorTyVars = map paramTyVar constructorParams
       argTys <- mapM (checkRuntimeType constructorEnv) fieldTypes
-      predicates <- mapM (surfacePredToPred constructorEnv) context
+      predicates <- surfaceContextToPreds constructorEnv context
       let conTy = foldr TcFunTy resTy argTys
           scheme = specifiedScheme (paramVarIds <> constructorTyVars) predicates conTy
       constructorKey <-

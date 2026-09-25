@@ -1,0 +1,37 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Tag (v :: Type -> Type) = Tag
+       │                         └─ type: ∀ v. Tag v
+       └─ type: (Type → Type) → Type
+
+  data Flag = Flag
+       │      └─ type: Flag
+       └─ type: Type
+
+  (tag, flag) = (Tag, Flag)
+  │││    │       │└─ type: Tag a; type-args: a
+  │││    │       └─ type: (Tag a, Flag); type-args: Tag a, Flag
+  │││    └─ type: Flag; type-args: Any
+  │└─ type: Tag a; type-args: a
+  └─ type: (Tag a, Flag)
+  └─ type: ∀ a. (Tag a, Flag)
+status: pass
+extensions:
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Tag (v :: Type -> Type) = Tag
+
+  data Flag = Flag
+
+  (tag, flag) = (Tag, Flag)

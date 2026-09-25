@@ -1,0 +1,184 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Provider (Unit(..), Family(..)) where
+    data Unit = Unit
+    data family Family a
+    data instance Family Unit = FamilyUnit Unit
+    data instance Family (a, b) = FamilyPair !(Family a) !(Family b)
+  - |
+    module Consumer where
+    import Provider
+    first :: Family (a, b) -> Family a
+    first (FamilyPair x _) = x
+    unit :: Family Unit -> Family Unit
+    unit (FamilyUnit u) = FamilyUnit u
+  - |
+    module Explicit where
+    import Provider (Unit, Family(..))
+    second :: Family (a, b) -> Family b
+    second (FamilyPair _ y) = y
+    unit :: Family Unit -> Family Unit
+    unit (FamilyUnit u) = FamilyUnit u
+  - |
+    module Extension (Other(..), Family(..)) where
+    import Provider (Unit, Family(..))
+    data Other = Other
+    data instance Family Other = FamilyOther Other
+    unit :: Family Unit -> Family Unit
+    unit (FamilyUnit u) = FamilyUnit u
+  - |
+    module Reexported where
+    import Provider (Unit)
+    import Extension
+    other :: Family Other -> Other
+    other (FamilyOther o) = o
+    unit :: Family Unit -> Family Unit
+    unit (FamilyUnit u) = FamilyUnit u
+  - |
+    module Combined where
+    import Provider
+    import Extension (Other, Family(..))
+    other :: Family Other -> Other
+    other (FamilyOther o) = o
+    first :: Family (a, b) -> Family a
+    first (FamilyPair x _) = x
+annotated:
+  - |-
+    module Combined where
+    import Provider
+    import Extension (Other, Family(..))
+    other :: Family Other -> Other
+    │        │      │        └─ t Extension
+    │        │      └─ t Extension
+    │        └─ t Provider
+    └─ v Combined
+    other (FamilyOther o) = o
+    │      │           │    └─ v 7
+    │      │           └─ v 7
+    │      └─ v Extension
+    └─ v Combined
+    first :: Family (a, b) -> Family a
+    │        │      │         └─ t Provider
+    │        │      └─ t Builtin (,)
+    │        └─ t Provider
+    └─ v Combined
+    first (FamilyPair x _) = x
+    │      │          └─ v 8 └─ v 8
+    │      └─ v Provider
+    └─ v Combined
+  - |-
+    module Consumer where
+    import Provider
+    first :: Family (a, b) -> Family a
+    │        │      │         └─ t Provider
+    │        │      └─ t Builtin (,)
+    │        └─ t Provider
+    └─ v Consumer
+    first (FamilyPair x _) = x
+    │      │          └─ v 0 └─ v 0
+    │      └─ v Provider
+    └─ v Consumer
+    unit :: Family Unit -> Family Unit
+    │       │      │       │      └─ t Provider
+    │       │      │       └─ t Provider
+    │       │      └─ t Provider
+    │       └─ t Provider
+    └─ v Consumer
+    unit (FamilyUnit u) = FamilyUnit u
+    │     │          │    │          └─ v 1
+    │     │          │    └─ v Provider
+    │     │          └─ v 1
+    │     └─ v Provider
+    └─ v Consumer
+  - |-
+    module Explicit where
+    import Provider (Unit, Family(..))
+    second :: Family (a, b) -> Family b
+    │         │      │         └─ t Provider
+    │         │      └─ t Builtin (,)
+    │         └─ t Provider
+    └─ v Explicit
+    second (FamilyPair _ y) = y
+    │       └─ v Provider│    └─ v 2
+    └─ v Explicit        └─ v 2
+    unit :: Family Unit -> Family Unit
+    │       │      │       │      └─ t Provider
+    │       │      │       └─ t Provider
+    │       │      └─ t Provider
+    │       └─ t Provider
+    └─ v Explicit
+    unit (FamilyUnit u) = FamilyUnit u
+    │     │          │    │          └─ v 3
+    │     │          │    └─ v Provider
+    │     │          └─ v 3
+    │     └─ v Provider
+    └─ v Explicit
+  - |-
+    module Extension (Other(..), Family(..)) where
+    import Provider (Unit, Family(..))
+    data Other = Other
+         │       └─ v Extension
+         └─ t Extension
+    data instance Family Other = FamilyOther Other
+                  │      │       │           └─ t Extension
+                  │      │       └─ v Extension
+                  │      └─ t Extension
+                  └─ t Provider
+    unit :: Family Unit -> Family Unit
+    │       │      │       │      └─ t Provider
+    │       │      │       └─ t Provider
+    │       │      └─ t Provider
+    │       └─ t Provider
+    └─ v Extension
+    unit (FamilyUnit u) = FamilyUnit u
+    │     │          │    │          └─ v 4
+    │     │          │    └─ v Provider
+    │     │          └─ v 4
+    │     └─ v Provider
+    └─ v Extension
+  - |-
+    module Provider (Unit(..), Family(..)) where
+    data Unit = Unit
+         │      └─ v Provider
+         └─ t Provider
+    data family Family a
+                └─ t Provider
+    data instance Family Unit = FamilyUnit Unit
+                  │      │      │          └─ t Provider
+                  │      │      └─ v Provider
+                  │      └─ t Provider
+                  └─ t Provider
+    data instance Family (a, b) = FamilyPair !(Family a) !(Family b)
+                  │      │        └─ v Provider│           └─ t Provider
+                  │      └─ t Builtin (,)      └─ t Provider
+                  └─ t Provider
+  - |-
+    module Reexported where
+    import Provider (Unit)
+    import Extension
+    other :: Family Other -> Other
+    │        │      │        └─ t Extension
+    │        │      └─ t Extension
+    │        └─ t Provider
+    └─ v Reexported
+    other (FamilyOther o) = o
+    │      │           │    └─ v 5
+    │      │           └─ v 5
+    │      └─ v Extension
+    └─ v Reexported
+    unit :: Family Unit -> Family Unit
+    │       │      │       │      └─ t Provider
+    │       │      │       └─ t Provider
+    │       │      └─ t Provider
+    │       └─ t Provider
+    └─ v Reexported
+    unit (FamilyUnit u) = FamilyUnit u
+    │     │          │    │          └─ v 6
+    │     │          │    └─ v Provider
+    │     │          └─ v 6
+    │     └─ v Provider
+    └─ v Reexported
+status: pass
+reason: an export or import item T(..) for a data family names the constructors of all data instances of T in scope

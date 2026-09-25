@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -21,6 +22,7 @@ module GHC.Types
     SPEC (..),
     Constraint,
     Symbol,
+    Any,
     Coercible,
     type (~),
     type (~~),
@@ -196,6 +198,12 @@ data Constraint
 -- values: it exists only as a kind, as it does in GHC.
 type Symbol :: Type
 data Symbol
+
+-- | A type of each kind that has no values. The type checker uses it for
+-- a type variable that nothing determines, as GHC does. The family has no
+-- equations, so an application of it never reduces.
+type Any :: forall k. k
+type family Any where
 
 -- | The compiler proves that both types have the same representation.
 type Coercible :: Type -> Type -> Constraint

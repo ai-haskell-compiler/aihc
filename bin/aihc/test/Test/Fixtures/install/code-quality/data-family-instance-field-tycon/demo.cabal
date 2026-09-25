@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: data-family-instance-field-tycon
+version: 0.1.0.0
+
+library
+  exposed-modules: Unboxed
+  other-modules: Boxed
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  default-language: Haskell2010
+  default-extensions:
+    NoImplicitPrelude
+    TypeFamilies
