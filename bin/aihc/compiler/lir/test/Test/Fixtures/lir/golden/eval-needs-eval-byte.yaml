@@ -1,0 +1,129 @@
+program: |
+  constructor Nothing/0 []
+  constructor Box/1 [IntRep]
+
+  global delayed = (F$delayed)
+
+  $delayed -> BoxedRep Lifted =
+    constant global-ref Nothing
+
+  $entry (value%1 :: BoxedRep Lifted) -> IntRep =
+    (ready%2 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (value%1 :: BoxedRep Lifted)
+    case (ready%2 :: BoxedRep Lifted) as scrutinee%3 :: BoxedRep Lifted of
+      data Box (payload%4 :: IntRep) ->
+        constant (payload%4 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, i64)
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+
+  extern func @aihc_lir_enter_0_0_k(ptr, ptr, ptr)
+
+  extern func @aihc_lir_enter_1_1(ptr, ptr, ptr, ptr)
+
+  extern func @aihc_lir_eval(ptr, ptr, ptr)
+
+  extern func @aihc_no_match() cc c
+
+  extern func @aihc_stack_grow(ptr, i64) -> ptr cc c
+
+  func @aihc_f_aihc_entry___sdelayed(%machine_0: ptr, %$cps_return_1: ptr) {
+  entry:
+    tailcall @aihc_lir_continue_p(%machine_0, %$cps_return_1, @aihc_entry_Nothing)
+  }
+
+  func @aihc_f_aihc_entry___sentry(%machine_2: ptr, %value_3: ptr, %$cps_return_4: ptr) {
+  entry:
+    jump eval_check_5(%value_3)
+
+  eval_check_5(%current_8: ptr):
+    %header_word_9 = load i64 [%current_8] align 8
+    %info_word_10 = and i64 %header_word_9, -4
+    %header_11 = ptr.from_int %info_word_10
+    %needs_eval_12 = load i8 [%header_11 + 44] align 1
+    %needs_eval_13 = zext i8 %needs_eval_12 to i64
+    %not_value_14 = ne i64 %needs_eval_13, 0
+    br %not_value_14, eval_not_value_15, eval_ready_6
+
+  eval_not_value_15:
+    %indirection_17 = eq i64 %needs_eval_13, 2
+    br %indirection_17, eval_follow_16, eval_slow_7
+
+  eval_follow_16:
+    %next_18 = load ptr [%current_8 + 8] align 8
+    jump eval_check_5(%next_18)
+
+  eval_ready_6:
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_2, %$cps_return_4, %current_8)
+
+  eval_slow_7:
+    %frame_19 = load ptr [%machine_2 + 40] align 1 word
+    %stack_20 = ptr.add %frame_19, 16
+    %frame_word_21 = ptr.to_int %frame_19
+    %stack_before_22 = sub i64 %frame_word_21, 1
+    %stack_last_23 = add i64 %frame_word_21, 15
+    %stack_differ_24 = xor i64 %stack_before_22, %stack_last_23
+    %stack_fits_25 = lt.u i64 %stack_differ_24, 4096
+    br %stack_fits_25, stack_fits_26, stack_grow_27
+
+  stack_fits_26:
+    store ptr %stack_20, [%machine_2 + 40] align 1 word
+    jump stack_pushed_28(%frame_19)
+
+  stack_grow_27:
+    %result_29 = call @aihc_stack_grow(%machine_2, 2)
+    jump stack_pushed_28(%result_29)
+
+  stack_pushed_28(%frame_30: ptr):
+    store ptr @aihc_lir_info_0, [%frame_30] align 8
+    store ptr %$cps_return_4, [%frame_30 + 8] align 8
+    tailcall @aihc_lir_eval(%machine_2, %current_8, %frame_30)
+  }
+
+  func @aihc_f_aihc_entry___sentry__ucont(%machine_31: ptr, %$cps_return_32: ptr, %ready_33: ptr) {
+  entry:
+    %header_word_36 = load i64 [%ready_33] align 8
+    %info_word_37 = and i64 %header_word_36, -4
+    %header_38 = ptr.from_int %info_word_37
+    %identity_39 = load ptr [%header_38] align 1 word
+    %matches_40 = eq ptr %identity_39, @aihc_c_aihc_entry_Box_0
+    br %matches_40, alt_34, no_match_35
+
+  no_match_35:
+    call @aihc_no_match()
+    trap "no matching case alternative"
+
+  alt_34:
+    %payload_41 = load i64 [%ready_33 + 8] align 8
+    tailcall @aihc_lir_continue_i(%machine_31, %$cps_return_32, %payload_41)
+  }
+
+  data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_2, zero 8 }
+
+  data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }
+
+  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0 }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
+
+  data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3, i8 0 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01" }
+
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_enter_1_1, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0 }
+
+  data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01" }
+
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 2, i8 0, i8 1, i8 1, i8 0 }
+
+  data @aihc_lir_info_2 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr null, ptr null, code @aihc_lir_enter_0_0_k, ptr null, i8 0, i8 0, i8 0, i8 2, i8 1 }
+status: pass
+reason: |
+  The inline evaluation check loads the header, removes the two evaluation
+  bits, loads the needs_eval byte of the info table, and goes to the ready
+  branch when the byte is zero. Only an object that is not a value compares
+  the byte with 2 and follows an indirection. A thunk and a blackhole go to
+  the slow branch. Each info table has five byte fields, and the thunk table
+  has a needs_eval byte of 1.

@@ -1,19 +1,20 @@
 ; expect: 252, 254, 255, 42, 1, 1, 129, 7
 ; runtime-unit: native/aihc_constants.lir
 ; Named offsets select unsigned bytes and pointer-sized fields on each target.
+; The fifth result also checks the needs_eval byte of @info.
 
 data @bitmap align 1 = { bytes "\x81" }
 data @next align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
-  i8 7, i8 0, i8 0, i8 0
+  i8 7, i8 0, i8 0, i8 0, i8 0
 }
 data @info align 8 = {
   ptr @next, ptr @bitmap, ptr @next, code @entry, ptr @bitmap,
-  i8 255, i8 254, i8 253, i8 252
+  i8 255, i8 254, i8 253, i8 252, i8 251
 }
 data @empty align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
-  i8 0, i8 0, i8 0, i8 0
+  i8 0, i8 0, i8 0, i8 0, i8 0
 }
 
 func @entry() -> i64 {
@@ -29,13 +30,17 @@ entry:
   %arity = zext i8 %arity_byte to i64
   %count_byte = load i8 [@info + @AIHC_INFO_COUNT_OFFSET] align 1
   %count = zext i8 %count_byte to i64
+  %needs_eval_byte = load i8 [@info + @AIHC_INFO_NEEDS_EVAL_OFFSET] align 1
+  %needs_eval = zext i8 %needs_eval_byte to i64
+  %needs_eval_matches = eq i64 %needs_eval, 251
   %entry = load code [@info + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   %answer = call.indirect %entry() : () -> i64
   %next = load ptr [@info + @AIHC_INFO_NEXT_OFFSET] align 1 word
   %bitmap = load ptr [@info + @AIHC_INFO_BITMAP_OFFSET] align 1 word
   %next_matches = eq ptr %next, @next
   %bitmap_matches = eq ptr %bitmap, @bitmap
-  %pointers_match = and i1 %next_matches, %bitmap_matches
+  %next_and_bitmap_match = and i1 %next_matches, %bitmap_matches
+  %pointers_match = and i1 %next_and_bitmap_match, %needs_eval_matches
   %flag = load i8 [%bitmap] align 1
   %flag_word = zext i8 %flag to i64
   %next_count_byte = load i8 [%next + @AIHC_INFO_COUNT_OFFSET] align 1
@@ -47,8 +52,11 @@ entry:
   %zero_arity = zext i8 %zero_arity_byte to i64
   %zero_count_byte = load i8 [@empty + @AIHC_INFO_COUNT_OFFSET] align 1
   %zero_count = zext i8 %zero_count_byte to i64
+  %zero_needs_eval_byte = load i8 [@empty + @AIHC_INFO_NEEDS_EVAL_OFFSET] align 1
+  %zero_needs_eval = zext i8 %zero_needs_eval_byte to i64
   %zero_kind_arity = or i64 %zero_kind, %zero_arity
-  %zero_bytes = or i64 %zero_kind_arity, %zero_count
+  %zero_kind_arity_count = or i64 %zero_kind_arity, %zero_count
+  %zero_bytes = or i64 %zero_kind_arity_count, %zero_needs_eval
   %bytes_clear = eq i64 %zero_bytes, 0
   %null_entry = load code [@empty + @AIHC_INFO_ENTRY_OFFSET] align 1 word
   %null_next = load ptr [@empty + @AIHC_INFO_NEXT_OFFSET] align 1 word
