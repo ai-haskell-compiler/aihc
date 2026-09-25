@@ -722,7 +722,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
     -- the record cast with the representation axiom as well.
     ([], info : _) -> do
       instanceArguments <- familyInstanceArguments info scrutineeType
-      axiomArguments <- mapM convertCheckedType instanceArguments
+      axiomArguments <- familyAxiomArguments info instanceArguments
       let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
           record = ExVar (binderName argument)
       if dfiiIsNewtype info
@@ -2276,7 +2276,7 @@ desugarFamilyPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] 
 desugarFamilyPatterns resultType fallback argument remaining argumentTypes works representative info = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   instanceArguments <- familyInstanceArguments info scrutineeType
-  axiomArguments <- mapM convertCheckedType instanceArguments
+  axiomArguments <- familyAxiomArguments info instanceArguments
   let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
       scrutinee = ExVar (binderName argument)
   if dfiiIsNewtype info
@@ -3286,7 +3286,7 @@ desugarFamilyConstructor name annotation info = do
       (_, bodyType) = peelConstraints afterForAlls
       (fieldTypes, resultType) = splitFunctionType bodyType
   instanceArguments <- familyInstanceArguments info resultType
-  axiomArguments <- mapM convertCheckedType instanceArguments
+  axiomArguments <- familyAxiomArguments info instanceArguments
   fields <- mapM (freshBinder "_field") fieldTypes
   let familyCoercion = CoSym (CoAxiom (familyAxiomName info) axiomArguments)
   body <-
@@ -3326,6 +3326,17 @@ familyInstanceArguments info familyType =
               (Map.lookup (tvUnique tyVar) substitution)
         )
         (dfiiTyVars info)
+
+-- | The type arguments of the family axiom and the representation axiom
+-- of one instance. A kind-polymorphic instance, such as
+-- @Vector (Const a b)@ with @b :: k@, binds the kind variables of its
+-- representation type constructor before its own type variables. The
+-- conversion of the representation type application infers those kind
+-- arguments, so the axiom takes all the arguments of that application.
+familyAxiomArguments :: DataFamilyInstanceInfo -> [TcType] -> ValueM [Type]
+familyAxiomArguments info instanceArguments = do
+  representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+  pure (typeApplicationArguments representationType)
 
 familyAxiomName :: DataFamilyInstanceInfo -> Name
 familyAxiomName info =

@@ -4308,8 +4308,24 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
       case maybeFamilyInfo of
         Just familyInfo
           | tciFlavor familyInfo == DataFamilyTyCon -> do
-              representationKind <- tyConKindFromParams paramInfos (dataFamilyInstKind familyInst)
-              let familyName = tciName familyInfo
+              bindings <- mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
+              -- Under PolyKinds the head and the fields can leave the kind
+              -- of a parameter open, as @b@ in @Vector (Const a b)@. GHC
+              -- quantifies such a kind for each instance, so the instance,
+              -- its constructors, and its representation type constructor
+              -- are kind-polymorphic. Without PolyKinds the open kinds
+              -- default to 'Type' later.
+              polyKinds <- isPolyKindOrigin (packageName, moduleName')
+              when polyKinds (generalizeTyVarKinds (map paramTyVar paramInfos))
+              representationKind <- tyConKindFromParams paramInfos (dataFamilyInstKind familyInst) >>= zonkKind
+              let representationKindVariables =
+                    if polyKinds
+                      then
+                        filter
+                          (\variable -> tvUnique variable `notElem` map (tvUnique . paramTyVar) paramInfos)
+                          (uniqueKindVariables (freeKindVariables representationKind))
+                      else []
+                  familyName = tciName familyInfo
                   representationName = dataFamilyRepresentationName familyName firstConstructor
                   representationTyCon =
                     mkTyConWithOrigin
@@ -4323,13 +4339,12 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                       { tciName = representationName,
                         tciArity = length paramInfos,
                         tciTyCon = representationTyCon,
-                        tciKindScheme = Scheme [] [] [] representationKind,
+                        tciKindScheme = Scheme representationKindVariables [] [] representationKind,
                         tciFlavor = DataTyCon,
                         tciTypeSynonym = Nothing,
                         tciInjectivity = Nothing
                       }
               extendTyConEnvPermanent representationInfo
-              bindings <- mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
               -- The constructors belong to the module of the instance, which
               -- the representation type constructor names.
               constructors <- concat <$> mapM (checkedDataConInfos representationTyCon) (dataFamilyInstConstructors familyInst)
