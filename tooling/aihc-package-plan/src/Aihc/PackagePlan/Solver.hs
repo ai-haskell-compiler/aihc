@@ -64,7 +64,7 @@ module Aihc.PackagePlan.Solver
   )
 where
 
-import Aihc.Hackage.Cabal (BuildContext (..), collectCondTreeData, conditionEvaluatorIn, targetFlagOverrides)
+import Aihc.Hackage.Cabal (BuildContext (..), collectCondTreeData, conditionEvaluatorIn, installedLibraryTrees, targetFlagOverrides)
 import Aihc.Hackage.Preprocessor (Preprocessor, preprocessorToolName)
 import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift)
@@ -572,7 +572,7 @@ searchableFlags _ root gpd =
   where
     guarding =
       Set.unions
-        ( map (guardingFlags libBuildInfo) (libraryTrees gpd)
+        ( map (guardingFlags libBuildInfo) (allLibraryTrees gpd)
             <> concat
               [ map (guardingFlags buildInfo) (executableTrees gpd)
                   <> [guardingFlags testBuildInfo tree | stanzasTests stanzas, tree <- map snd (condTestSuites gpd)]
@@ -607,20 +607,22 @@ conditionFlags condition =
     COr left right -> Set.union (conditionFlags left) (conditionFlags right)
     CAnd left right -> Set.union (conditionFlags left) (conditionFlags right)
 
-libraryTrees :: GenericPackageDescription -> [CondTree ConfVar [Dependency] Library]
-libraryTrees gpd = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+-- | All library trees. A flag can change which sub-libraries an install
+-- builds, so the flag search examines each of them.
+allLibraryTrees :: GenericPackageDescription -> [CondTree ConfVar [Dependency] Library]
+allLibraryTrees gpd = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
 
 executableTrees :: GenericPackageDescription -> [CondTree ConfVar [Dependency] Executable]
 executableTrees gpd = map snd (condExecutables gpd)
 
 -- | The build infos of the components that contribute dependencies under
--- one flag assignment: the buildable libraries, and for a root package its
+-- one flag assignment: the buildable libraries that an install builds, and for a root package its
 -- executables and requested stanzas as well.
 contributingBuildInfos :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> GenericPackageDescription -> [BuildInfo]
 contributingBuildInfos (os, arch) flags root gpd =
   filter
     buildable
-    ( map (merged libBuildInfo) (libraryTrees gpd)
+    ( map (merged libBuildInfo . snd) (installedLibraryTrees evalCond gpd)
         <> concat
           [ map (merged buildInfo) (executableTrees gpd)
               <> [merged testBuildInfo tree | stanzasTests stanzas, tree <- map snd (condTestSuites gpd)]
