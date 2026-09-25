@@ -3,6 +3,7 @@ module Aihc.Cli.Options
     BuildOptions (..),
     InstallOptions (..),
     LinkExeOptions (..),
+    PlanCommandOptions (..),
     PlanOptions (..),
     defaultPlanOptions,
     parseCommandIO,
@@ -18,6 +19,7 @@ data Command
   = CmdBuild !BuildOptions
   | CmdInstall !InstallOptions
   | CmdLinkExe !LinkExeOptions
+  | CmdPlan !PlanCommandOptions
   deriving (Eq, Show)
 
 -- | Build an executable, or every executable of a Cabal package.
@@ -55,7 +57,24 @@ data BuildOptions = BuildOptions
     -- of a package go under; a link bundle takes the place of an executable
     -- with @--no-link@.
     buildOutput :: !(Maybe FilePath),
+    -- | The executables of a package to plan and build. An empty list
+    -- selects every buildable executable.
+    buildExecutables :: ![String],
     buildPlanOptions :: !PlanOptions
+  }
+  deriving (Eq, Show)
+
+-- | Solve the dependency plan of a package as @build@ does, and print it
+-- without a build.
+data PlanCommandOptions = PlanCommandOptions
+  { planCommandInput :: !String,
+    planCommandTarget :: !NativeTarget,
+    planCommandWorkspace :: !(Maybe FilePath),
+    -- | The executables of the package whose dependencies the plan takes.
+    -- An empty list takes every executable.
+    planCommandExecutables :: ![String],
+    planCommandVerbose :: !Bool,
+    planCommandPlanOptions :: !PlanOptions
   }
   deriving (Eq, Show)
 
@@ -147,6 +166,12 @@ commandParser =
               (CmdLinkExe <$> linkExeOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Link one Haskell executable from a bundle written by build --no-link")
           )
+        <> OA.command
+          "plan"
+          ( OA.info
+              (CmdPlan <$> planCommandOptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Solve the dependency plan of a Cabal package, and print one line for each package in dependency order")
+          )
     )
 
 buildOptionsParser :: OA.Parser BuildOptions
@@ -168,13 +193,7 @@ buildOptionsParser =
     <*> nativeTargetOption
     <*> storeRootOption "Override the aihc store root"
     <*> buildRootOption "Write the module artifacts under DIR instead of .aihc-target"
-    <*> OA.optional
-      ( OA.strOption
-          ( OA.long "workspace"
-              <> OA.metavar "DIR"
-              <> OA.help "Take the sources of a dependency from DIR/NAME before Hackage"
-          )
-      )
+    <*> workspaceOption
     <*> keepCoreOption
     <*> keepGrinOption
     <*> keepLirOption
@@ -200,7 +219,45 @@ buildOptionsParser =
               <> OA.help "Write the executable of a main module to PATH, or the executables of a package under the directory PATH; with --no-link, the link bundles take their place"
           )
       )
+    <*> executableOptions "Build only the executable NAME of a package, and plan only its dependencies. Give the option again to add an executable"
     <*> planOptionsParser
+
+planCommandOptionsParser :: OA.Parser PlanCommandOptions
+planCommandOptionsParser =
+  PlanCommandOptions
+    <$> OA.strArgument
+      ( OA.metavar "INPUT"
+          <> OA.help "Local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
+      )
+    <*> nativeTargetOption
+    <*> workspaceOption
+    <*> executableOptions "Plan only the dependencies of the executable NAME, and of the library. Give the option again to add an executable"
+    <*> OA.switch
+      ( OA.long "verbose"
+          <> OA.short 'v'
+          <> OA.help "Print each planning step"
+      )
+    <*> planOptionsParser
+
+executableOptions :: String -> OA.Parser [String]
+executableOptions description =
+  OA.many
+    ( OA.strOption
+        ( OA.long "executable"
+            <> OA.metavar "NAME"
+            <> OA.help description
+        )
+    )
+
+workspaceOption :: OA.Parser (Maybe FilePath)
+workspaceOption =
+  OA.optional
+    ( OA.strOption
+        ( OA.long "workspace"
+            <> OA.metavar "DIR"
+            <> OA.help "Take the sources of a dependency from DIR/NAME before Hackage"
+        )
+    )
 
 planOptionsParser :: OA.Parser PlanOptions
 planOptionsParser =

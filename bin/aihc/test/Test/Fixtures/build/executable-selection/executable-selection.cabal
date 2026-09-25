@@ -1,0 +1,29 @@
+cabal-version: 3.0
+name: executable-selection
+version: 0.1.0.0
+build-type: Simple
+
+-- No package has this name, so a plan that takes this executable fails.
+executable unplannable
+  main-is: Unplannable.hs
+  hs-source-dirs: app
+  build-depends:
+    aihc-no-such-package,
+    base,
+
+  default-language: Haskell2010
+
+executable chosen
+  main-is: Chosen.hs
+  hs-source-dirs: app
+  build-depends: base
+  default-language: Haskell2010
+
+-- No host can run this build tool. The plan still solves, and only a
+-- build of this executable fails.
+executable tooled
+  main-is: Tooled.hs
+  hs-source-dirs: app
+  build-depends: base
+  build-tool-depends: aihc-no-such-tool:aihc-no-such-tool
+  default-language: Haskell2010

@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
-# Write docs/self-hosting-packages.md: the packages that GHC builds for the
-# `aihc` executable, in dependency order, from the cabal plan of the repository.
+# Write docs/self-hosting-packages.md: the packages that aihc plans for its own
+# `aihc` executable, in dependency order.
 set -euo pipefail
 
 usage() {
 	cat <<'USAGE'
-Usage: scripts/update-self-hosting-packages.sh [--output FILE]
+Usage: scripts/update-self-hosting-packages.sh [OPTION]...
 
-  --output FILE  Write the table to FILE
-                 (default: docs/self-hosting-packages.md)
-  --help         Show this message
+  --output FILE   Write the table to FILE
+                  (default: docs/self-hosting-packages.md)
+  --target TARGET Plan for TARGET (default: llvm)
+  --help          Show this message
 
-The script runs `cabal build --dry-run exe:aihc` to make the cabal plan.
-If cabal has no package index, run `cabal update` first.
+The aihc executable is taken from $AIHC, and defaults to `aihc` on PATH.
+The script runs `aihc plan bin/aihc --executable aihc`. The plan uses
+bin/aihc/aihc.lock, and writes it when the lock is absent or stale.
 USAGE
 }
 
 output=""
+target="llvm"
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--output)
 		output="${2:?--output needs a file}"
+		shift 2
+		;;
+	--target)
+		target="${2:?--target needs a target}"
 		shift 2
 		;;
 	--help)
@@ -43,17 +50,65 @@ if [ ! -f flake.nix ]; then
 	exit 1
 fi
 
+aihc="${AIHC:-aihc}"
 output="${output:-docs/self-hosting-packages.md}"
 
-# The boot packages that the aihc core libraries replace. Keep this list equal
-# to the boot libraries with a standin in tooling/aihc-hackage/src/Aihc/Hackage/Release.hs.
-standins='["base","ghc-internal","ghc-prim","rts","system-cxx-std-lib","template-haskell"]'
+work_directory="$(mktemp -d)"
+trap 'rm -rf "$work_directory"' EXIT
 
-cabal build --dry-run -v0 exe:aihc
+# The packages of bin/aihc find their siblings under bin/ by themselves. The
+# packages under components/ and tooling/ are in a workspace of links. Each
+# link has the name of its directory, so "links.tsv" maps a link back to its
+# path in the repository.
+workspace="$work_directory/workspace"
+mkdir -p "$workspace"
+: >"$work_directory/links.tsv"
+for directory in components/* tooling/*; do
+	if compgen -G "$directory/*.cabal" >/dev/null; then
+		ln -s "$repo_root/$directory" "$workspace/$(basename "$directory")"
+		printf '%s\t%s\n' "$workspace/$(basename "$directory")" "$directory" >>"$work_directory/links.tsv"
+	fi
+done
 
+"$aihc" plan bin/aihc --executable aihc --workspace "$workspace" --target "$target" >"$work_directory/plan.tsv"
+
+# The core libraries come with aihc, so the table leaves them out, also from
+# the dependencies. A local path becomes a path in the repository.
 rows="$(
-	jq -r --arg root "$repo_root" --argjson standins "$standins" \
-		-f scripts/self-hosting-packages.jq dist-newstyle/cache/plan.json
+	awk -F'\t' -v repo="$repo_root/" '
+		FNR == 1 { pass++ }
+		pass == 1 {
+			link[$1] = $2
+			next
+		}
+		pass == 2 {
+			if ($3 == "core") {
+				core[$1] = 1
+			}
+			next
+		}
+		$3 == "core" { next }
+		{
+			source = $3
+			if (source ~ /^local:/) {
+				path = substr(source, 7)
+				if (path in link) {
+					path = link[path]
+				} else if (index(path, repo) == 1) {
+					path = substr(path, length(repo) + 1)
+				}
+				source = "local:" path
+			}
+			n = split($4, needs, ",")
+			depends = ""
+			for (i = 1; i <= n; i++) {
+				if (needs[i] != "-" && !(needs[i] in core)) {
+					depends = depends (depends == "" ? "" : ",") needs[i]
+				}
+			}
+			print $1 "\t" $2 "\t" source "\t" (depends == "" ? "-" : depends)
+		}
+	' "$work_directory/links.tsv" "$work_directory/plan.tsv" "$work_directory/plan.tsv"
 )"
 
 {
@@ -61,23 +116,20 @@ rows="$(
 # Self-hosting package list
 
 AIHC is self-hosting when it can compile itself. The table below gives every
-package that GHC builds for the `aihc` executable, and `aihc` itself last.
+package that aihc plans for the `aihc` executable, and `aihc` itself last.
 A package comes after all of its dependencies.
 
-`scripts/update-self-hosting-packages.sh` writes this file from the cabal plan
-of `exe:aihc`. The weekly
+`scripts/update-self-hosting-packages.sh` writes this file with
+`aihc plan bin/aihc --executable aihc`. The plan uses `bin/aihc/aihc.lock`.
+The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
-workflow runs it, then installs each package with
+workflow runs the script, then compiles each package with
 `scripts/self-hosting-progress.sh`. The workflow writes the result to the
 "Self-compile" row of the README.
 
-The table does not include the boot packages that the aihc core libraries
-replace: `base`, `ghc-internal`, `ghc-prim`, `rts`, `system-cxx-std-lib`, and
-`template-haskell`. The versions of the other boot packages are the versions
-that GHC 9.12.4 ships.
-
-The "Source" column is `hackage` for a Hackage release, `local:PATH` for a
-package in this repository, or `git:URL@COMMIT` for a pinned Git commit.
+The table does not include the aihc core libraries, because they come with
+aihc. The "Source" column is `hackage:REVISION` for a Hackage release at a
+cabal file revision, or `local:PATH` for a package in this repository.
 
 ## Packages
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install each package of docs/self-hosting-packages.md with `aihc install`,
-# and write the status of each package to a report.
+# build the executable of the last package with `aihc build`, and write the
+# status of each package to a report.
 set -euo pipefail
 
 usage() {
@@ -17,6 +18,9 @@ Usage: scripts/self-hosting-progress.sh --report FILE [OPTION]...
                   (default: 0)
   --store DIR     Use DIR as the package store (default: a temporary directory)
   --log-dir DIR   Keep the install log of each package in DIR
+  --executable NAME
+                  Build the executable NAME of the last package of the list,
+                  which is the package that compiles itself (default: aihc)
   --timeout SECONDS
                   Stop the install of one package after SECONDS
                   (default: 1800)
@@ -35,6 +39,7 @@ level="0"
 store=""
 log_dir=""
 package_timeout="1800"
+root_executable="aihc"
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -64,6 +69,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--log-dir)
 		log_dir="${2:?--log-dir needs a directory}"
+		shift 2
+		;;
+	--executable)
+		root_executable="${2:?--executable needs a name}"
 		shift 2
 		;;
 	--timeout)
@@ -156,7 +165,8 @@ fetch_package() {
 	local destination="$workspace/$name"
 
 	case "$source" in
-	hackage)
+	hackage:*)
+		local revision="${source#hackage:}"
 		local archive="$work_directory/$name-$version.tar.gz"
 		curl --fail --silent --show-error --location \
 			--output "$archive" \
@@ -164,14 +174,11 @@ fetch_package() {
 		tar -xzf "$archive" -C "$work_directory" || return 1
 		rm -f "$archive"
 		mv "$work_directory/$name-$version" "$destination" || return 1
-		# A Hackage revision relaxes the bounds of a release after the fact,
-		# and the tarball carries the original cabal file. Take the latest
-		# revision, as cabal-install does.
-		if ! curl --fail --silent --show-error --location \
+		# The tarball carries revision 0 of the cabal file. Take the
+		# revision of the plan, which can relax the version bounds.
+		curl --fail --silent --show-error --location \
 			--output "$destination/$name.cabal" \
-			"https://hackage.haskell.org/package/$name-$version/$name.cabal"; then
-			echo "Could not fetch the revised cabal file of $name-$version."
-		fi
+			"https://hackage.haskell.org/package/$name-$version/revision/$revision.cabal" || return 1
 		;;
 	local:*)
 		local path="${source#local:}"
@@ -179,15 +186,6 @@ fetch_package() {
 		tar -C "$repo_root/$path" \
 			--exclude=./dist-newstyle --exclude=./.aihc-target \
 			-cf - . | tar -C "$destination" -xf - || return 1
-		;;
-	git:*)
-		local location="${source#git:}"
-		local commit="${location##*@}"
-		location="${location%@*}"
-		git init --quiet "$destination" || return 1
-		git -C "$destination" fetch --quiet --depth 1 "$location" "$commit" || return 1
-		git -C "$destination" checkout --quiet FETCH_HEAD || return 1
-		rm -rf "$destination/.git"
 		;;
 	*)
 		echo "Unknown source '$source' for $name."
@@ -243,6 +241,9 @@ echo "Preparing the $target toolchain at -O$level in $store"
 "$aihc" install core-libs/aihc-base \
 	--store "$store" --immutable --target "$target" -O "$level"
 
+# The last row is the package that compiles itself.
+root_name="$(tail -n 1 <<<"$packages" | cut -f1)"
+
 passed=" "
 : >"$report"
 while IFS=$'\t' read -r name version source depends; do
@@ -270,11 +271,20 @@ while IFS=$'\t' read -r name version source depends; do
 		continue
 	fi
 
-	echo "Installing $name-$version"
 	status=0
-	run_with_timeout "$aihc" install "$workspace/$name" \
-		--store "$store" --immutable --target "$target" -O "$level" \
-		>>"$log" 2>&1 || status=$?
+	if [ "$name" = "$root_name" ]; then
+		# The last package is the one to compile itself. Its executable is
+		# the goal, so it is built rather than installed.
+		echo "Building the executable $root_executable of $name-$version"
+		run_with_timeout "$aihc" build "$workspace/$name" --executable "$root_executable" \
+			--store "$store" --build-root "$work_directory/build" --target "$target" -O "$level" \
+			>>"$log" 2>&1 || status=$?
+	else
+		echo "Installing $name-$version"
+		run_with_timeout "$aihc" install "$workspace/$name" \
+			--store "$store" --immutable --target "$target" -O "$level" \
+			>>"$log" 2>&1 || status=$?
+	fi
 	if [ "$status" -eq 0 ]; then
 		echo "  ok"
 		passed="$passed$name "

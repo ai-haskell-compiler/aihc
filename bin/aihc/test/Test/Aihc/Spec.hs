@@ -6,8 +6,9 @@ import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (build)
 import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
-import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
+import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), PlanCommandOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
+import Aihc.Cli.Plan (PlanRow (..), PlanRowSource (..), planPackageRows, renderPlanRow)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
@@ -86,6 +87,10 @@ tests =
               testCase "parses the optimization level" test_buildModuleOptimizationOption,
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
+              testCase "builds only the executables that --executable names" (test_buildSelectedExecutable coreStore),
+              testCase "plans only the executables that --executable names" test_planSelectedExecutable,
+              testCase "parses the plan command" test_planCommandOptions,
+              testCase "plans a package whose build tool the host cannot run" test_planUnknownBuildTool,
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
@@ -526,6 +531,7 @@ withBuildModuleSandbox getStore prefix action = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Just (sandboxRoot sandbox </> "program"),
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     action sandbox fixtureRoot storeRoot options
@@ -838,9 +844,91 @@ withBuildPackageSandbox getStore prefix action = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Nothing,
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     action sandbox buildRoot options
+
+-- | The executable-selection fixture has an executable whose dependency
+-- no package provides. Only a plan that leaves that executable out solves.
+test_buildSelectedExecutable :: IO SeedStore -> Assertion
+test_buildSelectedExecutable getStore =
+  withBuildPackageSandbox getStore "aihc-build-selected" $ \_ buildRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/executable-selection"
+    let binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget options) </> "bin"
+    outputs <- build options {buildInput = fixtureRoot, buildExecutables = ["chosen"]}
+    assertEqual "built executables" [binDirectory </> "chosen"] outputs
+    (status, stdout, _) <- readProcessWithExitCode (binDirectory </> "chosen") [] ""
+    assertEqual "chosen exit status" ExitSuccess status
+    assertEqual "chosen stdout" "chosen\n" stdout
+    assertFileDoesNotExist (binDirectory </> "unplannable")
+    missing <- try (build options {buildInput = fixtureRoot, buildExecutables = ["absent"]})
+    case missing of
+      Left (err :: IOException) ->
+        assertBool "names the absent executable" ("absent" `isInfixOf` ioeGetErrorString err)
+      Right _ -> assertFailure "expected an unknown executable to fail"
+
+-- | @plan@ prints the packages of the plan in dependency order, and a
+-- package comes after each of its dependencies.
+test_planSelectedExecutable :: Assertion
+test_planSelectedExecutable = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/executable-selection"
+  rows <-
+    planPackageRows
+      PlanCommandOptions
+        { planCommandInput = fixtureRoot,
+          planCommandTarget = buildHostTarget,
+          planCommandWorkspace = Nothing,
+          planCommandExecutables = ["chosen"],
+          planCommandVerbose = False,
+          planCommandPlanOptions = defaultPlanOptions
+        }
+  let names = map planRowName rows
+  case reverse rows of
+    root : _ -> do
+      assertEqual "the root comes last" "executable-selection" (planRowName root)
+      assertEqual "the root is local" (PlanRowLocal fixtureRoot) (planRowSource root)
+      assertEqual "the root depends on base only" ["aihc-base"] (planRowDependencies root)
+    [] -> assertFailure "expected a plan"
+  assertBool "aihc-base is a core library" (any (\row -> planRowName row == "aihc-base" && planRowSource row == PlanRowCore) rows)
+  assertBool "the unplannable executable is left out" ("aihc-no-such-package" `notElem` names)
+  forM_ (zip [0 :: Int ..] rows) $ \(index, row) ->
+    forM_ (planRowDependencies row) $ \dependency ->
+      assertBool
+        (planRowName row <> " comes after " <> dependency)
+        (dependency `elem` take index names)
+  assertEqual
+    "a row is tab-separated"
+    ("executable-selection\t0.1.0.0\tlocal:" <> fixtureRoot <> "\taihc-base")
+    (last (map renderPlanRow rows))
+
+test_planCommandOptions :: Assertion
+test_planCommandOptions =
+  case parseCommandPure ["plan", "pkg", "--target", "llvm", "--executable", "a", "--executable", "b", "--workspace", "ws"] of
+    Right (CmdPlan options) -> do
+      assertEqual "input" "pkg" (planCommandInput options)
+      assertEqual "executables" ["a", "b"] (planCommandExecutables options)
+      assertEqual "workspace" (Just "ws") (planCommandWorkspace options)
+    other -> assertFailure ("unexpected parse: " <> show other)
+
+-- | A build tool that the host cannot run stops the build of a package, not
+-- its plan.
+test_planUnknownBuildTool :: Assertion
+test_planUnknownBuildTool = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/executable-selection"
+  rows <-
+    planPackageRows
+      PlanCommandOptions
+        { planCommandInput = fixtureRoot,
+          planCommandTarget = buildHostTarget,
+          planCommandWorkspace = Nothing,
+          planCommandExecutables = ["tooled"],
+          planCommandVerbose = False,
+          planCommandPlanOptions = defaultPlanOptions
+        }
+  assertEqual "the root comes last" (Just "executable-selection") (planRowName <$> lastMaybe rows)
+  where
+    lastMaybe rows = if null rows then Nothing else Just (last rows)
 
 test_buildExecutables :: IO SeedStore -> Assertion
 test_buildExecutables getStore =
@@ -909,6 +997,7 @@ test_buildCxxSources getStore = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Nothing,
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     outputs <- build options

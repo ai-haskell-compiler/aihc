@@ -182,21 +182,17 @@ in {
       exec bash ./scripts/install-hackage-packages.sh "$@"
     '';
 
-  # The cabal plan needs the Hackage index, so the app updates it first.
   self-hosting-packages =
     mkAppWithInputs "self-hosting-packages" [
       pkgs.bash
-      pkgs.cabal-install
       pkgs.cacert
       pkgs.coreutils
-      pkgs.git
-      pkgs.jq
-      hsPkgs.ghc
+      pkgs.gawk
     ] ''
       set -euo pipefail
       ${repoRootGuard}
+      export AIHC=${aihcExe}
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
-      cabal update -v0
       exec bash ./scripts/update-self-hosting-packages.sh "$@"
     '';
 
@@ -206,7 +202,6 @@ in {
       pkgs.cacert
       pkgs.coreutils
       pkgs.curl
-      pkgs.git
       pkgs.gnutar
       pkgs.gzip
       pkgs.gawk
