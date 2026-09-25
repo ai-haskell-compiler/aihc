@@ -39,7 +39,7 @@ import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Word (Word32, Word64, Word8)
 
@@ -483,14 +483,21 @@ encodePushPop popValue source =
 encodeMove :: Amd64Register -> Amd64MoveSource -> [Item]
 encodeMove destination source =
   case source of
-    Amd64MoveImmediate immediate ->
-      let number = registerNumber destinationRegister
-          prefix
-            | registerWidth destinationRegister == 64 = [rex True False False (number >= 8)]
-            | number >= 8 = [rex False False False True]
-            | otherwise = []
-          immediateBytes = if registerWidth destinationRegister == 64 then word64List (fromIntegral immediate) else word32List (fromIntegral immediate)
-       in bytes (prefix <> [0xb8 + number .&. 7] <> immediateBytes)
+    Amd64MoveImmediate immediate
+      -- @mov r64, imm32@ sign-extends a 32-bit constant in 7 bytes. The
+      -- 64-bit constant form needs 10 bytes.
+      | registerWidth destinationRegister == 64,
+        signed <- toInteger (fromIntegral immediate :: Int64),
+        signed >= -(2 ^ (31 :: Int)) && signed < 2 ^ (31 :: Int) ->
+          encodeGroup True [0xc7] 0 (RegisterOperand destinationRegister) (word32List (fromIntegral immediate))
+      | otherwise ->
+          let number = registerNumber destinationRegister
+              prefix
+                | registerWidth destinationRegister == 64 = [rex True False False (number >= 8)]
+                | number >= 8 = [rex False False False True]
+                | otherwise = []
+              immediateBytes = if registerWidth destinationRegister == 64 then word64List (fromIntegral immediate) else word32List (fromIntegral immediate)
+           in bytes (prefix <> [0xb8 + number .&. 7] <> immediateBytes)
     Amd64MoveRegister sourceValue ->
       let sourceRegister = registerInfo sourceValue
        in encodeRm (registerWidth destinationRegister == 64) [0x89] (registerNumber sourceRegister) (RegisterOperand destinationRegister) False []
@@ -529,7 +536,7 @@ encodeBinary opcode immediateGroup destination source =
     Amd64BinaryRegister registerSource ->
       let sourceRegister = registerInfo registerSource
        in encodeRm (registerWidth sourceRegister == 64) opcode (registerNumber sourceRegister) (rmOperand destination) False []
-    Amd64BinaryImmediate immediate -> encodeGroup True [0x81] immediateGroup (rmOperand destination) (word32List (fromIntegral immediate))
+    Amd64BinaryImmediate immediate -> encodeGroupImmediate immediateGroup (rmOperand destination) immediate
 
 encodeCompare :: Amd64Rm -> Amd64BinarySource -> [Item]
 encodeCompare left right =
@@ -537,7 +544,22 @@ encodeCompare left right =
     Amd64BinaryRegister source ->
       let register = registerInfo source
        in encodeRm (registerWidth register == 64) [0x39] (registerNumber register) (rmOperand left) False []
-    Amd64BinaryImmediate immediate -> encodeGroup (operandUses64Bits (rmOperand left)) [0x81] 7 (rmOperand left) (word32List (fromIntegral immediate))
+    Amd64BinaryImmediate immediate -> encodeGroupImmediate 7 (rmOperand left) immediate
+
+-- | An arithmetic or logical instruction of opcode group 1 with an
+-- immediate. The operand width gives the operation width. A constant from
+-- -128 to 127 uses the sign-extended 8-bit form @0x83@, other constants
+-- the 32-bit form @0x81@.
+encodeGroupImmediate :: Word8 -> Operand -> Integer -> [Item]
+encodeGroupImmediate group operand immediate
+  | signed >= -128 && signed <= 127 = encodeGroup width64 [0x83] group operand [fromIntegral immediate]
+  | otherwise = encodeGroup width64 [0x81] group operand (word32List (fromIntegral immediate))
+  where
+    width64 = operandUses64Bits operand
+    -- The operation reads the constant as a signed value of its width.
+    signed
+      | width64 = toInteger (fromIntegral immediate :: Int64)
+      | otherwise = toInteger (fromIntegral immediate :: Int32)
 
 operandUses64Bits :: Operand -> Bool
 operandUses64Bits operand =

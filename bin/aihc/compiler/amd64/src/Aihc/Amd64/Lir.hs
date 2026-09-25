@@ -19,7 +19,8 @@
 -- Results come back in @rax@, @rdx@, @rcx@, @rsi@, @rdi@, @r8@, @r9@, and
 -- @r10@. An aihc function preserves no register: every call clobbers them
 -- all, so an aihc function that makes no call and spills nothing needs no
--- frame at all. The @c@ convention is the System V convention with at most
+-- frame at all, and one that spills nothing has a frame only in the blocks
+-- that call. The @c@ convention is the System V convention with at most
 -- six integer and eight float arguments and one result. A C function
 -- preserves @rbx@ and @r12@ to @r15@ and saves the ones it touches, and it
 -- saves all of them when it calls into aihc code.
@@ -171,8 +172,12 @@ amd64Backend =
       nbCParameterMoves = Nothing,
       nbTailCallFrame = \_ _ -> False,
       nbLeaveFrame = leaveFrame,
+      -- The return address is already on the stack, so a block frame only
+      -- reserves the stack allocations and aligns the stack for the call.
+      nbBlockFrameBase = 0,
+      nbBlockFrameEnter = adjustStack AmdSub . (+ 8),
+      nbBlockFrameLeave = adjustStack AmdAdd . (+ 8),
       nbSaveReg = storeSlot,
-      nbZeroWord = \offset -> amd64Instruction (AmdStore (slotMemory offset) (Amd64StoreImmediate 0)),
       nbReturn = returnInstruction,
       nbLoadSlot = loadSlot,
       nbStoreSlot = storeSlot,
@@ -486,6 +491,22 @@ smallImmediate ty operand =
       | not (isFloatType ty) -> signedImmediate (canonicalInteger ty value)
     _ -> Nothing
 
+-- | A narrow constant as a signed value of its width. It fits a
+-- sign-extended 32-bit immediate.
+wrappedImmediate :: Type -> Operand -> Maybe Integer
+wrappedImmediate ty operand =
+  case operand of
+    OperandLiteral (LitInt value)
+      | not (isFloatType ty),
+        typeBits ty <= 32 ->
+          Just (signedValue (typeBits ty) (canonicalInteger ty value))
+    _ -> smallImmediate ty operand
+
+signedValue :: Int -> Integer -> Integer
+signedValue bits value
+  | value >= 2 ^ (bits - 1) = value - 2 ^ bits
+  | otherwise = value
+
 signedImmediate :: Integer -> Maybe Integer
 signedImmediate bits
   | bits < 2 ^ (31 :: Int) = Just bits
@@ -565,10 +586,18 @@ floatFlags ctx op ty left right =
 
 compareWith :: Ctx Amd64Register -> Type -> Bool -> Amd64Register -> Operand -> [Amd64Statement]
 compareWith ctx ty signed left right =
-  case smallImmediate ty right of
-    Just value
+  case (smallImmediate ty right, wrappedImmediate ty right) of
+    (Just value, _)
       | not signed || typeBits ty >= 64 || value < 2 ^ (typeBits ty - 1) ->
           [amd64Instruction (AmdCmp (Amd64RmRegister left) (Amd64BinaryImmediate value))]
+    -- A signed narrow compare reads the left operand sign-extended.
+    (_, Just value)
+      | signed ->
+          [amd64Instruction (AmdCmp (Amd64RmRegister left) (Amd64BinaryImmediate value))]
+      -- The upper half of a 32-bit value is zero, so the 32-bit form
+      -- compares the same bits.
+      | typeBits ty == 32 ->
+          [amd64Instruction (AmdCmp (Amd64RmRegister (dwordRegister left)) (Amd64BinaryImmediate value))]
     _ ->
       let (loads, register) = operandIn' ctx 0 ty scratchRight right
           (extend, rightRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
@@ -610,7 +639,7 @@ amd64Binary :: Ctx Amd64Register -> BinaryOp -> Type -> Amd64Register -> Amd64Re
 amd64Binary ctx op ty dst a right =
   case op of
     Add ->
-      let (loads, b) = rightValue ty right
+      let (loads, b) = wrappedValue ty right
        in pure
             ( loads
                 <> narrow
@@ -622,7 +651,7 @@ amd64Binary ctx op ty dst a right =
                   )
             )
     Sub ->
-      let (loads, b) = rightValue ty right
+      let (loads, b) = wrappedValue ty right
        in pure
             ( loads
                 <> narrow
@@ -650,15 +679,13 @@ amd64Binary ctx op ty dst a right =
       zero <- trapLabel "integer division by zero"
       let (loads, b) = rightRegister ty right
       pure (loads <> move RAX a <> [testZero b, amd64Instruction (AmdJe zero), clearRdx, amd64Instruction (AmdDiv (Amd64RmRegister b))] <> move dst RDX)
+    -- The upper bits of a narrow value are zero, so an and with a
+    -- sign-extended constant keeps them zero.
     And ->
-      let (loads, b) = rightValue ty right
+      let (loads, b) = wrappedValue ty right
        in pure (loads <> arith True AmdAnd dst a b)
-    Or ->
-      let (loads, b) = rightValue ty right
-       in pure (loads <> arith True AmdOr dst a b)
-    Xor ->
-      let (loads, b) = rightValue ty right
-       in pure (loads <> arith True AmdXor dst a b)
+    Or -> pure (logical AmdOr)
+    Xor -> pure (logical AmdXor)
     Shl -> pure (shift ty dst (move dst a) AmdShl AmdShlImmediate right)
     ShrS -> pure (shift ty dst (signExtendTo dst ty a) AmdSar AmdSarImmediate right)
     ShrU -> pure (shift ty dst (move dst a) AmdShr AmdShrImmediate right)
@@ -669,7 +696,23 @@ amd64Binary ctx op ty dst a right =
         Nothing ->
           let (loads, b) = operandIn' ctx 0 operandTy scratchRight operand
            in (loads, RightRegister b)
+    -- The result of the operation is narrowed, or its upper bits stay
+    -- zero, so a narrow constant counts only modulo the width of its type.
+    wrappedValue operandTy operand =
+      case wrappedImmediate operandTy operand of
+        Just value -> ([], RightImmediate value)
+        Nothing -> rightValue operandTy operand
     rightRegister operandTy = operandIn' ctx 0 operandTy scratchRight
+    -- An or and a xor with a 32-bit constant that has the sign bit set use
+    -- the 32-bit form, which zero-extends its result.
+    logical instruction =
+      case (smallImmediate ty right, wrappedImmediate ty right) of
+        (Nothing, Just value)
+          | typeBits ty == 32 ->
+              arith True instruction (dwordRegister dst) (dwordRegister a) (RightImmediate value)
+        _ ->
+          let (loads, b) = rightValue ty right
+           in loads <> arith True instruction dst a b
     arith commutative instruction dest left b
       | dest == left = [amd64Instruction (instruction (Amd64RmRegister dest) (binarySource b))]
       | RightRegister register <- b,

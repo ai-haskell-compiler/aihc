@@ -84,6 +84,7 @@ metaVariables ty =
     TcArrowTy -> []
     TcTyLit {} -> []
     TcTyCon _ arguments -> concatMap metaVariables arguments
+    TcKindedTyCon _ kindArguments -> concatMap metaVariables kindArguments
     TcFunTy argument result -> metaVariables argument <> metaVariables result
     TcForAllTy _ body -> metaVariables body
     TcQualTy predicates body -> concatMap predicateMetaVariables predicates <> metaVariables body

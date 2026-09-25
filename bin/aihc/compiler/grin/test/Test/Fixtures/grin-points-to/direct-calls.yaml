@@ -73,11 +73,9 @@ expected: |-
     apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
 
   $applyTwice (f :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    g :: BoxedRep Lifted <-
-      apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (x :: BoxedRep Lifted)
-    a%2 :: BoxedRep Lifted, b%3 :: BoxedRep Lifted <-
-      fetch (P$three/1) (g :: BoxedRep Lifted)
-    call @(BoxedRep Lifted) $three (a%2 :: BoxedRep Lifted) (b%3 :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+    a%2 :: BoxedRep Lifted <-
+      fetch (P$three/2) (f :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $three (a%2 :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted)
 
   $entry -> BoxedRep Lifted =
     one :: BoxedRep Lifted <-

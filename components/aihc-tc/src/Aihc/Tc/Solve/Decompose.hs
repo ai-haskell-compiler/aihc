@@ -26,6 +26,15 @@ decomposeNominalEquality rawLeft rawRight = do
       | leftCon == rightCon,
         length leftArgs == length rightArgs =
           pure (Just (zip leftArgs rightArgs))
+    decompose (TcKindedTyCon leftCon leftKinds) (TcKindedTyCon rightCon rightKinds)
+      | leftCon == rightCon,
+        length leftKinds == length rightKinds =
+          pure (Just (zip leftKinds rightKinds))
+    -- A bare constructor that no use site kinded agrees with every kinding.
+    decompose (TcKindedTyCon leftCon _) (TcTyCon rightCon [])
+      | leftCon == rightCon = pure (Just [])
+    decompose (TcTyCon leftCon []) (TcKindedTyCon rightCon _)
+      | leftCon == rightCon = pure (Just [])
     decompose (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
       pure (Just [(leftArg, rightArg), (leftResult, rightResult)])
     decompose (TcAppTy function argument) (TcFunTy domain range) = do

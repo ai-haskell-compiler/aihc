@@ -137,7 +137,8 @@ wasip3Target = LowerTarget {lowerWordSize = 4, lowerHost = Wasip3Host, lowerPack
 
 data LowerOptions = LowerOptions
   { lowerUnitKind :: !UnitKind,
-    -- | Export every function symbol. Test harnesses use the symbols.
+    -- | Export every function symbol and every constructor table. Test
+    -- harnesses use the symbols.
     lowerExposeFunctions :: !Bool,
     lowerTarget :: !LowerTarget,
     -- | Check the index of every array primitive against the length, as
@@ -416,6 +417,13 @@ lowerEnvironment options gcProgram =
       [ (grinConstructorName constructor, grinConstructorLayouts constructor)
       | constructor <- grinConstructors program
       ]
+    -- Only another unit that can name a constructor needs its tables by
+    -- name. A whole program makes every constructor private.
+    constructorLinkage =
+      Map.fromList
+        [ (grinConstructorName constructor, if grinConstructorVis constructor == GrinPub || lowerExposeFunctions options then Export else Internal)
+        | constructor <- grinConstructors program
+        ]
     -- The program that declares a constructor defines its info tables even
     -- when it builds no node of its own: another module that builds one has
     -- only this program to link its node against.
@@ -439,7 +447,7 @@ lowerEnvironment options gcProgram =
       [ ( key,
           RuntimeInfo
             { infoSymbol = symbol,
-              infoLinkage = Export,
+              infoLinkage = Map.findWithDefault Export name constructorLinkage,
               infoIdentity = DataSymbol (constructorInfoSymbol name 0) 0,
               -- Both tables describe the saturated slots. A partial object
               -- has filled a prefix of them.
@@ -2040,6 +2048,19 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
           emit [] (Store ty narrow (byteAddress address 0) (byteAlignment 1))
           bind []
+    -- casArray# and casSmallArray# give a failure flag and the final
+    -- element, as casMutVar# does for the contents of a reference.
+    (_, [array, index, expected, replacement])
+      | name `elem` arrayCasPrimitives -> do
+          slot <- arrayElement array index
+          expectedOperand <- word expected
+          replacementOperand <- word replacement
+          current <- emitValue "current" I64 (Load I64 (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
+          final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
+          emit [] (Store I64 (typedOperand final) (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
+          bind [unchanged, final]
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileRuntimeCall ctx env runtimeCall arguments
@@ -2344,6 +2365,11 @@ arrayLoadPrimitives, arrayStorePrimitives :: [Text]
 arrayLoadPrimitives = ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"]
 arrayStorePrimitives = ["writeArray#", "writeSmallArray#"]
 
+-- | The compare and swap of one element of a boxed array. The runtime runs
+-- one Haskell thread, so the swap is a plain load, compare, and store.
+arrayCasPrimitives :: [Text]
+arrayCasPrimitives = ["casArray#", "casSmallArray#"]
+
 -- | How a byte-array primitive names an element: by an index that counts
 -- elements of the element width, or by a byte offset.
 data ByteArrayIndexing = ElementIndex | ByteOffset
@@ -2357,6 +2383,8 @@ byteArrayLoadPrimitives :: [(Text, (Type, ByteArrayIndexing))]
 byteArrayLoadPrimitives =
   [ ("indexWordArray#", (I64, ElementIndex)),
     ("readWordArray#", (I64, ElementIndex)),
+    ("indexIntArray#", (I64, ElementIndex)),
+    ("readIntArray#", (I64, ElementIndex)),
     ("atomicReadIntArray#", (I64, ElementIndex)),
     ("indexWord8Array#", (I8, ElementIndex)),
     ("readWord8Array#", (I8, ElementIndex)),
@@ -2381,6 +2409,7 @@ byteArrayLoadPrimitives =
 byteArrayStorePrimitives :: [(Text, (Type, ByteArrayIndexing))]
 byteArrayStorePrimitives =
   [ ("writeWordArray#", (I64, ElementIndex)),
+    ("writeIntArray#", (I64, ElementIndex)),
     ("atomicWriteIntArray#", (I64, ElementIndex)),
     ("writeWord8Array#", (I8, ElementIndex)),
     ("writeWord16Array#", (I16, ElementIndex)),

@@ -12,7 +12,7 @@ modules:
       let shared = Box 1
       first <- GHC.makeStableName shared
       again <- System.makeStableName shared
-      distinct <- System.makeStableName (Box 1)
+      distinct <- System.makeStableName (Box 2)
       return
         ( GHC.eqStableName first again
         , GHC.hashStableName first == System.hashStableName again
@@ -21,4 +21,4 @@ modules:
 output: (True,True,False)
 expression: test
 status: pass
-reason: GHC.StableName and System.Mem.StableName preserve identity across their shared API
+reason: The APIs preserve shared identity. Different values retain distinct names when the compiler shares equal constants.

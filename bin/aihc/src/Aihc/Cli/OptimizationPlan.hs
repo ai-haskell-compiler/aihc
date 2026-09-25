@@ -41,7 +41,7 @@ data OptimizationPlan = OptimizationPlan
 -- inliner to take, and again after it, because a call of a class method
 -- hides the arity of the method until the selection is inlined. One
 -- simplifying walk then reduces the applications and casts the second
--- expansion leaves behind.
+-- expansion leaves behind. Constant lifting then shares closed constructors.
 --
 -- @-O2@ and @-Os@ compile the whole program; @--lto@ asks for the same
 -- scope at the other levels without changing their passes. @-O2@ and @-Os@
@@ -61,5 +61,5 @@ optimizationPlan lto level =
     -- with a phase control fires where its author expects.
     shrink = [Fc.PassEtaExpand, Fc.PassInline Fc.shrinkPolicy rounds 2]
     grow = [Fc.PassInline Fc.growPolicy rounds 1] <> finish
-    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0]
+    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4

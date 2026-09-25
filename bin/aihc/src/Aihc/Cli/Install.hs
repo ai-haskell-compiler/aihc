@@ -106,7 +106,7 @@ import Aihc.Hackage.Cpp (cabalMacrosHeader)
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Lir.Resolve qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyVersions,
     LockMode (..),
@@ -2770,6 +2770,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           ( targetArguments
               <> handwrittenCArguments level
               <> HackageCabal.cCompileCcOptions info
+              <> handwrittenCOverrideArguments level
               <> includeArguments
               <> ["-c", source, "-o", object]
           )
@@ -2784,6 +2785,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           ( targetArguments
               <> handwrittenCArguments level
               <> HackageCabal.cCompileCxxOptions info
+              <> handwrittenCOverrideArguments level
               <> includeArguments
               <> ["-x", "c++", "-c", source, "-o", object]
           )
@@ -3387,4 +3389,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-37"
+packageArtifactFormatVersion = "aihc-artifacts-38"
