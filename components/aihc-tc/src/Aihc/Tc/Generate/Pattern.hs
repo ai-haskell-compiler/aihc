@@ -933,6 +933,7 @@ typeTyVars ty =
     TcArrowTy -> Set.empty
     TcTyLit {} -> Set.empty
     TcTyCon _ arguments -> Set.unions (map typeTyVars arguments)
+    TcKindedTyCon _ kindArguments -> Set.unions (map typeTyVars kindArguments)
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)
     TcQualTy predicates body -> Set.unions (typeTyVars body : map predTyVars predicates)

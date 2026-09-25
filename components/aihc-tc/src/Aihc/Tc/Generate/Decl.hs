@@ -976,6 +976,7 @@ freeKindVariables ty = case ty of
   TcArrowTy -> []
   TcTyLit {} -> []
   TcTyCon _ arguments -> concatMap freeKindVariables arguments
+  TcKindedTyCon _ kindArguments -> concatMap freeKindVariables kindArguments
   TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
   TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument
   TcForAllTy variable body -> filter (/= variable) (freeKindVariables body)
@@ -3074,6 +3075,7 @@ checkBundledPatSyns modu =
       let ForAll _ _ body = psiScheme info
        in case resultType body of
             TcTyCon tyCon _ -> Just (tyConName tyCon)
+            TcKindedTyCon tyCon _ -> Just (tyConName tyCon)
             _ -> Nothing
     resultType ty =
       case ty of
@@ -4221,6 +4223,7 @@ typeSuffix kinds ty =
     TcFunTy argument result ->
       tyConName (kindsArrowTyCon kinds) <> typeSuffix kinds argument <> typeSuffix kinds result
     TcTyCon tc [] -> tyConName tc
+    TcKindedTyCon tc _ -> tyConName tc
     -- A list instance is named after the declaration, @$fShowList@, not
     -- after the syntax the type constructor is spelled with.
     TcTyCon tc [_]
@@ -4262,6 +4265,7 @@ typeConstructorModule :: TcType -> Maybe Text
 typeConstructorModule ty =
   case ty of
     TcTyCon tyCon _ -> Just (tyConModuleName tyCon)
+    TcKindedTyCon tyCon _ -> Just (tyConModuleName tyCon)
     _ -> Nothing
 
 registerDataFamilyDeclHeader :: Maybe TypeScheme -> DataFamilyDecl -> TcM ()
@@ -4642,6 +4646,7 @@ bindWildcardParams lhs = do
         TcArrowTy -> []
         TcTyLit {} -> []
         TcTyCon _ arguments -> concatMap typeMetas arguments
+        TcKindedTyCon _ kindArguments -> concatMap typeMetas kindArguments
         TcFunTy argument result -> typeMetas argument <> typeMetas result
         TcForAllTy _ body -> typeMetas body
         TcQualTy _ body -> typeMetas body
@@ -4661,6 +4666,7 @@ typeFamilyApplicationHead :: TcType -> Maybe TyCon
 typeFamilyApplicationHead ty =
   case ty of
     TcTyCon tyCon _ -> Just tyCon
+    TcKindedTyCon tyCon _ -> Just tyCon
     TcAppTy function _ -> typeFamilyApplicationHead function
     _ -> Nothing
 

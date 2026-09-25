@@ -19,13 +19,14 @@ where
 import Aihc.Tc.Constraint (EqProvenance (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..))
 import Aihc.Tc.Kind (defaultKindMetas, kindNeedsZonkIn, zonkKind)
-import Aihc.Tc.Monad (TcM, TcState (..), getKinds, readMetaTv, writeMetaTv)
+import Aihc.Tc.Monad (TcM, TcState (..), getKinds, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Tidy (tidyDiagnostic)
 import Aihc.Tc.Types
 import Control.Monad ((>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.IntMap.Strict qualified as IntMap
+import Data.Text qualified as T
 
 -- | Zonk a type: chase meta-variable solutions to their final values.
 --
@@ -49,6 +50,7 @@ typeNeedsZonkIn state ty = case ty of
   TcMetaTv (Unique key) -> IntMap.member key (tcsMetaSolutions state)
   TcTyVar tv -> kindNeedsZonkIn state (tvKind tv)
   TcTyCon _ args -> any (typeNeedsZonkIn state) args
+  TcKindedTyCon _ kindArgs -> any (kindNeedsZonkIn state) kindArgs
   TcFunTy a b -> typeNeedsZonkIn state a || typeNeedsZonkIn state b
   TcForAllTy tv body -> kindNeedsZonkIn state (tvKind tv) || typeNeedsZonkIn state body
   TcQualTy preds body -> any (predNeedsZonkIn state) preds || typeNeedsZonkIn state body
@@ -91,6 +93,7 @@ rebuildZonkedType ty = case ty of
           else pure sol
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
   TcTyCon tc args -> TcTyCon tc <$> mapM rebuildZonkedType args
+  TcKindedTyCon tc kindArgs -> TcKindedTyCon tc <$> mapM zonkKind kindArgs
   TcFunTy a b -> TcFunTy <$> rebuildZonkedType a <*> rebuildZonkedType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> rebuildZonkedType body
   TcQualTy preds body -> TcQualTy <$> mapM rebuildZonkedPred preds <*> rebuildZonkedType body
@@ -126,10 +129,35 @@ defaultTypeKinds ty =
     TcTyLit {} -> pure ty
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
     TcTyCon tyCon args -> TcTyCon tyCon <$> mapM defaultTypeKinds args
+    TcKindedTyCon tyCon kindArgs -> TcKindedTyCon tyCon <$> mapM defaultKindArgument kindArgs
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body
     TcAppTy function argument -> mkAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
+
+-- | Settle one kind argument of a bare type constructor. Nothing at the use
+-- site can have fixed it: @Proxy Tagged@ alone does not tell the kind of
+-- @Tagged@. An open kind argument defaults by its own kind: a
+-- representation to the lifted one, a levity to @Lifted@, and a kind to
+-- 'Type'. An argument of another kind stays open.
+defaultKindArgument :: TcType -> TcM TcType
+defaultKindArgument argument = do
+  zonked <- zonkKind argument
+  case zonked of
+    TcMetaTv unique -> do
+      kinds <- getKinds
+      metaKind <- readMetaTvKind unique >>= zonkKind
+      let settled =
+            case metaKind of
+              KRuntimeRep -> Just (liftedRep kinds)
+              KLevity -> Just (TcTyCon (kindsDataCon kinds (T.pack "Lifted") 0) [])
+              KType -> Just (typeKind kinds)
+              TcMetaTv {} -> Just (typeKind kinds)
+              _ -> Nothing
+      case settled of
+        Just value -> writeMetaTv unique value >> pure value
+        Nothing -> pure zonked
+    _ -> defaultKindMetas zonked >>= zonkKind
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
 defaultTypeSchemeKinds = traverseScheme defaultTyVarKinds defaultPredKinds defaultTypeKinds

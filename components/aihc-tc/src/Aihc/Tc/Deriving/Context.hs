@@ -520,6 +520,7 @@ typeableArguments predicate =
       | tyConName classTyCon == "Typeable" ->
           case ty of
             TcTyCon _ arguments -> Just arguments
+            TcKindedTyCon {} -> Just []
             TcFunTy argument result -> Just [argument, result]
             TcTyVar {} -> Nothing
             TcMetaTv {} -> Nothing
@@ -562,6 +563,7 @@ typeHeadTyCon :: TcType -> Maybe Text
 typeHeadTyCon ty =
   case ty of
     TcTyCon tyCon _ -> Just (tyConName tyCon)
+    TcKindedTyCon tyCon _ -> Just (tyConName tyCon)
     TcAppTy function _ -> typeHeadTyCon function
     _ -> Nothing
 
@@ -577,6 +579,7 @@ typeMentionsTyCon name ty =
     TcArrowTy -> False
     TcTyLit {} -> False
     TcTyCon tyCon arguments -> tyConName tyCon == name || any (typeMentionsTyCon name) arguments
+    TcKindedTyCon tyCon kindArguments -> tyConName tyCon == name || any (typeMentionsTyCon name) kindArguments
     TcFunTy argument result -> typeMentionsTyCon name argument || typeMentionsTyCon name result
     TcForAllTy _ body -> typeMentionsTyCon name body
     TcQualTy predicates body -> any (`predicateMentionsTyCon` name) predicates || typeMentionsTyCon name body
@@ -597,6 +600,7 @@ typeTyVars ty =
     TcArrowTy -> []
     TcTyLit {} -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
+    TcKindedTyCon _ kindArguments -> concatMap typeTyVars kindArguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
     TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body

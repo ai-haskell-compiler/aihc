@@ -98,6 +98,7 @@ shareType ty = do
       TcTyVar variable -> TcTyVar <$> shareTyVar variable
       TcMetaTv unique -> pure (TcMetaTv unique)
       TcTyCon tyCon arguments -> TcTyCon <$> shareTyCon tyCon <*> mapM shareType arguments
+      TcKindedTyCon tyCon kindArguments -> TcKindedTyCon <$> shareTyCon tyCon <*> mapM shareType kindArguments
       TcArrowTy -> pure TcArrowTy
       TcTyLit {} -> pure ty
       TcFunTy argument result -> TcFunTy <$> shareType argument <*> shareType result
