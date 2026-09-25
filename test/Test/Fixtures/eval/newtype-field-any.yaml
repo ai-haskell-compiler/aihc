@@ -1,0 +1,21 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Exts (Any, unsafeCoerce#)
+    newtype Ticket a = Ticket Any
+    data Boxes = Boxes Any Any
+    toTicket :: a -> Ticket a
+    toTicket x = Ticket (unsafeCoerce# x)
+    fromTicket :: Ticket a -> a
+    fromTicket (Ticket x) = unsafeCoerce# x
+    firstBox :: Boxes -> Bool
+    firstBox (Boxes x _) = unsafeCoerce# x
+    result :: (Bool, Bool)
+    result = (fromTicket (toTicket True), firstBox (Boxes (unsafeCoerce# False) (unsafeCoerce# ())))
+expression: result
+output: |
+  (True,False)
+status: pass
+reason: A constructor field of type Any gets the kind Type, as GHC gives it.

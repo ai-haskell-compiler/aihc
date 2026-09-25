@@ -1,0 +1,54 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Prim (casArray#, casSmallArray#, newArray#, newSmallArray#, readArray#, readSmallArray#)
+
+    isZero# value =
+      case value of
+        0# -> True
+        _ -> False
+
+    isOne# value =
+      case value of
+        1# -> True
+        _ -> False
+
+    casArrayContract :: IO (Bool, Bool, Bool, Bool, Bool)
+    casArrayContract = IO (\state ->
+      case newArray# 2# True state of
+        (# state1, array #) ->
+          case casArray# array 1# True False state1 of
+            (# state2, firstFailed, firstCurrent #) ->
+              case casArray# array 1# True True state2 of
+                (# state3, secondFailed, secondCurrent #) ->
+                  case readArray# array 0# state3 of
+                    (# state4, untouched #) ->
+                      (# state4, (isZero# firstFailed, firstCurrent, isOne# secondFailed, secondCurrent, untouched) #))
+
+    casSmallArrayContract :: IO (Bool, Bool, Bool, Bool, Bool)
+    casSmallArrayContract = IO (\state ->
+      case newSmallArray# 2# True state of
+        (# state1, array #) ->
+          case casSmallArray# array 0# True False state1 of
+            (# state2, firstFailed, firstCurrent #) ->
+              case casSmallArray# array 0# True True state2 of
+                (# state3, secondFailed, secondCurrent #) ->
+                  case readSmallArray# array 1# state3 of
+                    (# state4, untouched #) ->
+                      (# state4, (isZero# firstFailed, firstCurrent, isOne# secondFailed, secondCurrent, untouched) #))
+
+    result :: IO ((Bool, Bool, Bool, Bool, Bool), (Bool, Bool, Bool, Bool, Bool))
+    result = do
+      array <- casArrayContract
+      small <- casSmallArrayContract
+      pure (array, small)
+output: |
+  ((True,False,True,False,True),(True,False,True,False,True))
+expression: result
+status: pass
+reason: casArray# and casSmallArray# match GHC's failure flag, returned element, and element index.

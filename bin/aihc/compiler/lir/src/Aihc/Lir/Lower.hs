@@ -2048,6 +2048,19 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
           emit [] (Store ty narrow (byteAddress address 0) (byteAlignment 1))
           bind []
+    -- casArray# and casSmallArray# give a failure flag and the final
+    -- element, as casMutVar# does for the contents of a reference.
+    (_, [array, index, expected, replacement])
+      | name `elem` arrayCasPrimitives -> do
+          slot <- arrayElement array index
+          expectedOperand <- word expected
+          replacementOperand <- word replacement
+          current <- emitValue "current" I64 (Load I64 (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
+          final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
+          emit [] (Store I64 (typedOperand final) (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
+          bind [unchanged, final]
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileRuntimeCall ctx env runtimeCall arguments
@@ -2352,6 +2365,11 @@ arrayLoadPrimitives, arrayStorePrimitives :: [Text]
 arrayLoadPrimitives = ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"]
 arrayStorePrimitives = ["writeArray#", "writeSmallArray#"]
 
+-- | The compare and swap of one element of a boxed array. The runtime runs
+-- one Haskell thread, so the swap is a plain load, compare, and store.
+arrayCasPrimitives :: [Text]
+arrayCasPrimitives = ["casArray#", "casSmallArray#"]
+
 -- | How a byte-array primitive names an element: by an index that counts
 -- elements of the element width, or by a byte offset.
 data ByteArrayIndexing = ElementIndex | ByteOffset
@@ -2365,6 +2383,8 @@ byteArrayLoadPrimitives :: [(Text, (Type, ByteArrayIndexing))]
 byteArrayLoadPrimitives =
   [ ("indexWordArray#", (I64, ElementIndex)),
     ("readWordArray#", (I64, ElementIndex)),
+    ("indexIntArray#", (I64, ElementIndex)),
+    ("readIntArray#", (I64, ElementIndex)),
     ("atomicReadIntArray#", (I64, ElementIndex)),
     ("indexWord8Array#", (I8, ElementIndex)),
     ("readWord8Array#", (I8, ElementIndex)),
@@ -2389,6 +2409,7 @@ byteArrayLoadPrimitives =
 byteArrayStorePrimitives :: [(Text, (Type, ByteArrayIndexing))]
 byteArrayStorePrimitives =
   [ ("writeWordArray#", (I64, ElementIndex)),
+    ("writeIntArray#", (I64, ElementIndex)),
     ("atomicWriteIntArray#", (I64, ElementIndex)),
     ("writeWord8Array#", (I8, ElementIndex)),
     ("writeWord16Array#", (I16, ElementIndex)),
