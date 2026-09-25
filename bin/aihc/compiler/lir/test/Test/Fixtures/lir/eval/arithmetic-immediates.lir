@@ -1,0 +1,21 @@
+; expect: 25480, 4993, 5009, -7288, 6, -121412, 71777214294594695, 20014547604360
+; reason: An add or a sub encodes a 12-bit constant, optionally shifted
+; left by 12. A negative constant changes add to sub and sub to add.
+; Other constants use the shortest move sequence into a register.
+
+data @inputs align 8 = { i64 5000, i32 7 }
+
+func @main() -> (i64, i64, i64, i64, i32, i64, i64, i64) {
+entry:
+  %y = load i64 [@inputs] align 8
+  %w = load i32 [@inputs + 8] align 4
+  %shifted = add i64 %y, 20480
+  %minus = add i64 %y, -7
+  %plus = sub i64 %y, -9
+  %down = sub i64 %y, 12288
+  %wrap = add i32 %w, 4294967295
+  %inverted = add i64 %y, 18446744073709425204
+  %pattern = add i64 %y, 71777214294589695
+  %high = add i64 %y, 20014547599360
+  return %shifted, %minus, %plus, %down, %wrap, %inverted, %pattern, %high
+}

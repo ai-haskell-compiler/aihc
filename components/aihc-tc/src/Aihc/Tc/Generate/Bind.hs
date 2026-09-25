@@ -650,6 +650,7 @@ typeMetaVars ty =
     TcTyLit {} -> []
     TcTyVar _ -> []
     TcTyCon _ args -> concatMap typeMetaVars args
+    TcKindedTyCon _ kindArgs -> concatMap typeMetaVars kindArgs
     TcFunTy a b -> typeMetaVars a ++ typeMetaVars b
     TcForAllTy _ body -> typeMetaVars body
     TcQualTy ps body -> concatMap predMetaVars ps ++ typeMetaVars body

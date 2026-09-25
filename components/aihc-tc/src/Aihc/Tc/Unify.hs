@@ -11,10 +11,10 @@ where
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
+import Aihc.Tc.Kind (kindedTyConAt, refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 
@@ -85,12 +85,12 @@ unifyCollecting loc (TcMetaTv u) ty = do
   solution <- readMetaTv u
   case solution of
     Just solved -> unifyCollecting loc solved ty
-    Nothing -> fmap (const []) <$> unifyMetaTv loc u ty
+    Nothing -> unifyMetaTv loc u ty
 unifyCollecting loc ty (TcMetaTv u) = do
   solution <- readMetaTv u
   case solution of
     Just solved -> unifyCollecting loc ty solved
-    Nothing -> fmap (const []) <$> unifyMetaTv loc u ty
+    Nothing -> unifyMetaTv loc u ty
 unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
   -- One variable whose two occurrences carry different kinds (a given
   -- kind refinement rewrites the kinds of occurrences) is still one
@@ -131,22 +131,32 @@ retryDeferred loc pairs = sequence_ <$> mapM retryOne pairs
         else unifyTypesAt loc t1' t2'
 
 -- | Unify a meta-variable with a type, performing the occurs check.
-unifyMetaTv :: Maybe SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind ())
+--
+-- When the meta-variable occurs only in the arguments of type family
+-- applications, the result holds the equality back: a reduction of the
+-- family can remove the occurrence.
+unifyMetaTv :: Maybe SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind [(TcType, TcType)])
 unifyMetaTv loc u ty = do
   ty' <- zonkType ty >>= refineGivenTyVarKinds
+  outside <- occursOutsideFamilies
   case ty' of
-    TcMetaTv u' | u == u' -> pure (Right ())
+    TcMetaTv u' | u == u' -> pure (Right [])
     _
-      | occursIn u ty' -> pure $ Left $ OccursCheckError (TcMetaTv u) ty'
+      | outside u ty' -> pure $ Left $ OccursCheckError (TcMetaTv u) ty'
+      | occursIn u ty' -> pure (Right [(TcMetaTv u, ty')])
       -- A meta-variable stands for a monotype. Binding it to a polytype
       -- would let inference guess an impredicative instantiation.
       | isPolyType ty' -> pure $ Left $ UnificationError (TcMetaTv u) ty' (UnifyOrigin Nothing) Nothing
       | otherwise -> do
           declaredKind <- readMetaTvKind u
-          solvedKind <- tcTypeKind ty'
+          -- A bare poly-kinded constructor keeps the kind of the meta.
+          -- Decomposing @t a b ~ Tagged s b@ solves @t@ with @Tagged@, and
+          -- only the kind of @t@ tells the kind of that @Tagged@.
+          solved <- kindedTyConAt declaredKind ty'
+          solvedKind <- tcTypeKind solved
           unifyKindsAt loc declaredKind solvedKind
-          writeMetaTv u ty'
-          pure (Right ())
+          writeMetaTv u solved
+          pure (Right [])
 
 -- | Check whether a meta-variable occurs in a type (occurs check).
 occursIn :: Unique -> TcType -> Bool
@@ -157,6 +167,7 @@ occursIn u = go
     go (TcTyLit _) = False
     go (TcTyVar _) = False
     go (TcTyCon _ args) = any go args
+    go (TcKindedTyCon _ kindArgs) = any go kindArgs
     go (TcFunTy a b) = go a || go b
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body

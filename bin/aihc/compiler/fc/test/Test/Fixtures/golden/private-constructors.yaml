@@ -25,8 +25,8 @@ expected: |-
   pub type 1.tPayload (a : 2.sType) :: 2.sType @N {}
 
   type 1.t$R$Payload$PayloadA (a : 2.sType) :: 2.sType {
-      1.cPayloadA :: ∀(a : 2.sType). a 2.→ 1.t$R$Payload$PayloadA a;
-      1.cPayloadB :: ∀(a : 2.sType). 1.t$R$Payload$PayloadA a
+      pub 1.cPayloadA :: ∀(a : 2.sType). a 2.→ 1.t$R$Payload$PayloadA a;
+      pub 1.cPayloadB :: ∀(a : 2.sType). 1.t$R$Payload$PayloadA a
   }
 
   axiom 1.$ax$Payload$PayloadA (a : 2.sType) : 1.tPayload a ~R 1.t$R$Payload$PayloadA a

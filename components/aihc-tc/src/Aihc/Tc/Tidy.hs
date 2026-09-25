@@ -106,6 +106,7 @@ typeMetas ty =
     TcTyLit {} -> []
     TcTyVar {} -> []
     TcTyCon _ args -> concatMap typeMetas args
+    TcKindedTyCon _ kindArgs -> concatMap typeMetas kindArgs
     TcFunTy argument result -> typeMetas argument ++ typeMetas result
     TcForAllTy _ body -> typeMetas body
     TcQualTy preds body -> concatMap predMetas preds ++ typeMetas body
@@ -128,6 +129,7 @@ typeNames ty =
     TcTyLit {} -> []
     TcTyVar tv -> [tvName tv]
     TcTyCon _ args -> concatMap typeNames args
+    TcKindedTyCon _ kindArgs -> concatMap typeNames kindArgs
     TcFunTy argument result -> typeNames argument ++ typeNames result
     TcForAllTy tv body -> tvName tv : typeNames body
     TcQualTy preds body -> concatMap predNames preds ++ typeNames body
@@ -151,6 +153,7 @@ tidyTypeWith env ty =
     TcTyLit {} -> ty
     TcTyVar {} -> ty
     TcTyCon tyCon args -> TcTyCon tyCon (map (tidyTypeWith env) args)
+    TcKindedTyCon tyCon kindArgs -> TcKindedTyCon tyCon (map (tidyTypeWith env) kindArgs)
     TcFunTy argument result -> TcFunTy (tidyTypeWith env argument) (tidyTypeWith env result)
     TcForAllTy tv body -> TcForAllTy tv (tidyTypeWith env body)
     TcQualTy preds body -> TcQualTy (map (tidyPredWith env) preds) (tidyTypeWith env body)

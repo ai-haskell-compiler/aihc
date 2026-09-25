@@ -1,0 +1,28 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Prim (indexIntArray#, newByteArray#, readIntArray#, unsafeFreezeByteArray#, writeIntArray#)
+    import qualified GHC.PrimopWrappers as W
+    import GHC.Types (Int(..), isTrue#)
+
+    intArray :: IO (Int, Int, Int, Bool)
+    intArray = IO (\state ->
+      case newByteArray# 16# state of
+        (# state1, array #) ->
+          case writeIntArray# array 0# (W.negateInt# 7#) state1 of
+            state2 -> case writeIntArray# array 1# 9# state2 of
+              state3 -> case readIntArray# array 0# state3 of
+                (# state4, first #) -> case unsafeFreezeByteArray# array state4 of
+                  (# state5, frozen #) ->
+                    let second = indexIntArray# frozen 1#
+                     in (# state5, (I# first, I# second, I# (first W.+# second), isTrue# ((W.==#) first (W.negateInt# 7#))) #))
+output: |
+  ((I# -7),(I# 9),(I# 2),True)
+expression: intArray
+status: pass
+reason: readIntArray#, writeIntArray#, and indexIntArray# keep the sign of an Int# element, and GHC.PrimopWrappers gives the Int# operations as functions.

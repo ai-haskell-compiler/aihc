@@ -524,6 +524,7 @@ putPart index part = case part of
     -- has no bound, so decimal text carries it where a CBOR integer
     -- could not.
     TcTyLit literal -> sum2 15 (cborWord (tyLitSortTag literal)) (cborText (tyLitPayload literal))
+    TcKindedTyCon tyCon kindArguments -> sum2 16 (putTyCon index tyCon) (encodeList (putType index) kindArguments)
   PartPred predicate -> case predicate of
     ClassPred tyCon arguments -> sum2 9 (putTyCon index tyCon) (encodeList (putType index) arguments)
     EqPred left right -> sum2 10 (putType index left) (putType index right)
@@ -597,6 +598,7 @@ getPart tyCons parts = do
     (3, 12) -> predPart (IParamPred <$!> getText <*!> refType)
     (2, 14) -> predPart (IrredPred <$!> refType)
     (3, 15) -> typePart (TcTyLit <$!> (getWord >>= getTyLit))
+    (3, 16) -> typePart (TcKindedTyCon <$!> refTyCon <*!> getList refType)
     (5, 13) -> PartScheme <$!> (Scheme <$!> getList refTyVar <*!> getList refTyVar <*!> getList refPred <*!> refType)
     _ -> fail "unsupported interface part"
   where

@@ -1,0 +1,23 @@
+; expect: 1, 1, 1, 0, 1, 1, 1, 0
+; reason: A compare with a constant encodes a 12-bit constant, optionally
+; shifted left by 12. A negative constant uses cmn. A narrow unsigned
+; compare uses the 32-bit form, and a narrow signed compare sign-extends.
+
+data @inputs align 8 = { i64 5000, i64 -4000, i32 4294967280, i8 144 }
+
+func @main() -> (i1, i1, i1, i1, i1, i1, i1, i1) {
+entry:
+  %y = load i64 [@inputs] align 8
+  %n = load i64 [@inputs + 8] align 8
+  %w = load i32 [@inputs + 16] align 4
+  %c = load i8 [@inputs + 20] align 1
+  %below = lt.u i64 %y, 8192
+  %above = gt.u i64 %y, 4096
+  %not_max = lt.u i64 %y, -1
+  %negative = lt.s i64 %y, -100
+  %equal = eq i64 %n, -4000
+  %greater = gt.s i64 %n, -4001
+  %high = ge.u i32 %w, 4294963200
+  %low = lt.s i8 %c, -120
+  return %below, %above, %not_max, %negative, %equal, %greater, %high, %low
+}

@@ -1493,6 +1493,14 @@ evalPrimitive name [arrayValue, indexValue, value]
       index <- expectIntPrimitiveArgument name indexValue
       writeArrayElement name array index value
       pure []
+evalPrimitive name [arrayValue, indexValue, expected, replacement]
+  | name `elem` ["casArray#", "casSmallArray#"] = do
+      array <- expectArrayPrimitiveArgument name arrayValue
+      index <- expectIntPrimitiveArgument name indexValue
+      current <- readArrayElement name array index
+      let succeeded = current == expected
+      when succeeded (writeArrayElement name array index replacement)
+      pure [intRuntimeValue (if succeeded then 0 else 1), if succeeded then replacement else current]
 evalPrimitive name [arrayValue]
   | name `elem` boxedArrayIdentityPrimitives = do
       array <- expectArrayPrimitiveArgument name arrayValue
@@ -1755,14 +1763,16 @@ evalPrimitive "indexWordArray#" [value, index] = do
   byteOffset <- checkedWordArrayIndex "indexWordArray#" byteArray wordIndex
   word <- liftEvalIO (peekByteOff (grinByteArrayContents byteArray) byteOffset :: IO Word64)
   pure [wordRuntimeValue (toInteger word)]
-evalPrimitive "atomicReadIntArray#" [value, index] = do
-  byteArray <- expectByteArrayPrimitiveArgument "atomicReadIntArray#" value
-  wordIndex <- expectIntPrimitiveArgument "atomicReadIntArray#" index
-  byteOffset <- checkedWordArrayIndex "atomicReadIntArray#" byteArray wordIndex
-  contents <- liftEvalIO (readAddressWord64 (grinByteArrayContents byteArray) byteOffset)
-  pure [intRuntimeValue contents]
-evalPrimitive "atomicWriteIntArray#" [value, index, element] =
-  writeByteArrayElement "atomicWriteIntArray#" 8 8 IntRep writeAddressWord64 value index element
+evalPrimitive name [value, index]
+  | name `elem` ["indexIntArray#", "readIntArray#", "atomicReadIntArray#"] = do
+      byteArray <- expectByteArrayPrimitiveArgument name value
+      wordIndex <- expectIntPrimitiveArgument name index
+      byteOffset <- checkedWordArrayIndex name byteArray wordIndex
+      contents <- liftEvalIO (readAddressWord64 (grinByteArrayContents byteArray) byteOffset)
+      pure [intRuntimeValue contents]
+evalPrimitive name [value, index, element]
+  | name `elem` ["writeIntArray#", "atomicWriteIntArray#"] =
+      writeByteArrayElement name 8 8 IntRep writeAddressWord64 value index element
 evalPrimitive name [value, index, element]
   | Just combine <- lookup name intArrayFetchPrimitives = do
       byteArray <- expectByteArrayPrimitiveArgument name value

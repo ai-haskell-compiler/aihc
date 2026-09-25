@@ -1,0 +1,18 @@
+extensions: []
+modules:
+- |
+  module Test where
+  import Data.IORef
+  data Box a = Box a
+  make :: () -> Box (IO (IORef Int))
+  make _ = Box (newIORef 0)
+  result = case make () of
+    Box action -> do
+      first <- action
+      second <- action
+      writeIORef first 7
+      readIORef second
+expression: result
+output: "I# 0"
+status: pass
+reason: A shared IO action must perform its effect separately on each execution.
