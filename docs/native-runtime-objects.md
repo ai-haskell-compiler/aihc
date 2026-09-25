@@ -181,6 +181,10 @@ blackhole:             [header] [environment / reserved target...]
 Each info table records the object's identity, populated field count, remaining
 logical arity, pointer bitmap, next application-stage table, an optional native
 apply entry, and the static reference table of the object's code.
+Its `needs_eval` byte is `1` for a thunk and a blackhole, `2` for an indirection, and `0` for a value.
+The inline evaluation check of compiled code reads only this byte.
+The byte is correct for each header state.
+A thunk under evaluation keeps its thunk table, and an update writes the indirection table.
 Application changes the header to the statically known next table.
 Ordinary objects share this static metadata.
 A thunk under evaluation retains its original info table and payload.
@@ -351,6 +355,10 @@ No collection or scheduler switch occurs between a header change and removal of 
 The compiler uses it only for a thunk that no other evaluation can reach.
 The thunk is not updated, and the collector can reclaim it as soon as its entry has loaded its fields.
 A value with the evaluation bit, an indirection, or a blackhole goes to `aihc_lir_eval`.
+
+The inline check that compiled code does before an evaluation tests `needs_eval` against zero first.
+Only an object that is not a value then tests for an indirection.
+The check follows an indirection to its target, because an updated thunk stays an indirection until the next collection.
 
 The collector masks the header tags and traces the original thunk layout and static reference table.
 An update continuation retains its thunk while evaluation is in progress.

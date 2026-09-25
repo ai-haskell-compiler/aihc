@@ -40,13 +40,13 @@ expected: |
 
   data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }
 
-  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0 }
+  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0 }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
 
-  data @aihc_constructor_aihc_entry_Just_partial align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Just_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+  data @aihc_constructor_aihc_entry_Just_partial align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Just_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3, i8 0 }
 status: pass
 reason: |
   A case on a pointer loads the header and the identity field of the object and

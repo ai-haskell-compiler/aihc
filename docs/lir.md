@@ -329,11 +329,12 @@ is the address of its info table. GC-GRIN emits one info table per object kind
 as a read-only data object, so every backend receives the same layout and emits
 it as bytes. No backend computes an info table of its own.
 
-An info table is five word-wide fields followed by four byte-wide fields. A
+An info table is five word-wide fields followed by five byte-wide fields. A
 pointer field is `ptr` and a code field is `code`; a count or a kind is an
 `i8`. Word field `k` starts at offset `k` words, byte field `j` at offset
 five words plus `j`, and the table is aligned to the word size, so the same
-text suits every target. A unit reads `backend_entry` at `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
+text suits every target. The table is 48 bytes on a 64-bit target and 28
+bytes on wasm32. A unit reads `backend_entry` at `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
 It reads `object_kind` at `[%header + @AIHC_INFO_KIND_OFFSET]`. A field without a value is `ptr null`, `code null`,
 or `0`. The fields are, in order:
 
@@ -348,6 +349,7 @@ or `0`. The fields are, in order:
 | `remaining_arity` | `i8` | The number of arguments the object still requires. The lowering rejects a function with more than 255 arguments. |
 | `frame_kind` | `i8` | The continuation frame kind for stack unwinding. |
 | `object_kind` | `i8` | Node, closure, thunk, partial constructor, or a runtime object kind. |
+| `needs_eval` | `i8` | `@AIHC_NEEDS_EVAL_FOLLOW` (`2`) for an indirection, `@AIHC_NEEDS_EVAL_ENTER` (`1`) for a thunk and a blackhole, and `@AIHC_NEEDS_EVAL_NONE` (`0`) for every other kind. The inline evaluation check reads only this field, at `[%header + @AIHC_INFO_NEEDS_EVAL_OFFSET]`. |
 
 The `backend_entry` field has the signature `(ptr, ptr, ptr, T...) -> ()`
 with the machine, the object, the continuation, and the supplied values. The
@@ -669,8 +671,13 @@ The lowering keeps the control model of CPS-GRIN:
 - A store takes its object from that reservation itself: it loads the heap
   pointer of the machine, advances it by the words of the object, and writes
   the header and the fields. The runtime exports no allocator.
-- `GrinIfWhnf` loads the object kind and branches without allocation or suspension.
-  Thunks, indirections, and blackholes take its slow branch. All other kinds take its ready branch.
+- `GrinIfWhnf` loads the header, masks the two tag bits, loads the `needs_eval` byte, and branches on it.
+  It does no allocation or suspension.
+  A zero byte sends the object to its ready branch.
+  Only an object that is not a value compares the byte with `@AIHC_NEEDS_EVAL_FOLLOW`.
+  An indirection in a variable is followed to its target, and the check starts again.
+  Thunks and blackholes take its slow branch.
+  A thunk under evaluation keeps its thunk table, so it also takes the slow branch.
   The ready branch calls the continuation function directly with its captures and result.
   The slow branch allocates a continuation frame for the same function.
   Heap reservations stay inside their branches.

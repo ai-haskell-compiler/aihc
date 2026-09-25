@@ -9,7 +9,8 @@ extern func @aihc_gc_allocate_pinned(ptr, i64) -> ptr cc c
 
 data @aihc_byte_array_info align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
-  i8 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY
+  i8 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY,
+  i8 @AIHC_NEEDS_EVAL_NONE
 }
 
 extern func @aihc_fail(ptr) cc c
