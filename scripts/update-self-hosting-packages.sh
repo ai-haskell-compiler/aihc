@@ -13,8 +13,8 @@ Usage: scripts/update-self-hosting-packages.sh [OPTION]...
   --help          Show this message
 
 The aihc executable is taken from $AIHC, and defaults to `aihc` on PATH.
-The script runs `aihc plan bin/aihc --executable aihc`. The plan uses
-bin/aihc/aihc.lock, and writes it when the lock is absent or stale.
+The script runs `aihc plan bin/aihc --executable aihc`. The plan does not
+use a lock file, so it takes the versions that Hackage has now.
 USAGE
 }
 
@@ -120,8 +120,7 @@ package that aihc plans for the `aihc` executable, and `aihc` itself last.
 A package comes after all of its dependencies.
 
 `scripts/update-self-hosting-packages.sh` writes this file with
-`aihc plan bin/aihc --executable aihc`. The plan uses `bin/aihc/aihc.lock`.
-The weekly
+`aihc plan bin/aihc --executable aihc`. The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with
 `scripts/self-hosting-progress.sh`. The workflow writes the result to the

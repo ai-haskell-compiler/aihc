@@ -1,7 +1,7 @@
 -- | The @plan@ command.
 --
 -- It solves the dependency plan of a package as @build@ does, and prints
--- the plan instead of a build. Each line is one package, and a package
+-- the plan instead of a build. It does not read or write @aihc.lock@. Each line is one package, and a package
 -- comes after all of its dependencies:
 --
 -- > NAME<TAB>VERSION<TAB>SOURCE<TAB>DEPENDENCIES
@@ -19,7 +19,7 @@ module Aihc.Cli.Plan
 where
 
 import Aihc.Cli.Install (cabalPlatformForTarget, installTargetRoot, planRequestFor)
-import Aihc.Cli.Options (PlanCommandOptions (..))
+import Aihc.Cli.Options (PlanCommandOptions (..), PlanOptions (..), defaultPlanOptions)
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.PackagePlan (PlanRequest (..), PlannedPackages (..), planPackages)
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..))
@@ -56,16 +56,17 @@ runPlan options = planPackageRows options >>= mapM_ (putStrLn . renderPlanRow)
 planPackageRows :: PlanCommandOptions -> IO [PlanRow]
 planPackageRows options = do
   hackageIndex <- newHackageIndex defaultIndexOptions
-  (root, _, lockDirectory) <- installTargetRoot (planCommandInput options)
+  (root, _, _) <- installTargetRoot (planCommandInput options)
   let verbose message = when (planCommandVerbose options) (putStrLn message)
       executables = planCommandExecutables options
   request <-
     planRequestFor
       hackageIndex
-      (planCommandPlanOptions options)
+      defaultPlanOptions {planConstraints = planCommandConstraints options}
       (cabalPlatformForTarget (planCommandTarget options))
       (maybe [] pure (planCommandWorkspace options))
-      lockDirectory
+      -- The command only reports the plan, so it keeps no lock.
+      Nothing
       verbose
   planned <-
     planPackages

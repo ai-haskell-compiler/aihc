@@ -5,8 +5,7 @@ package that aihc plans for the `aihc` executable, and `aihc` itself last.
 A package comes after all of its dependencies.
 
 `scripts/update-self-hosting-packages.sh` writes this file with
-`aihc plan bin/aihc --executable aihc`. The plan uses `bin/aihc/aihc.lock`.
-The weekly
+`aihc plan bin/aihc --executable aihc`. The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with
 `scripts/self-hosting-progress.sh`. The workflow writes the result to the

@@ -36,10 +36,6 @@ extra-source-files:
   test/Test/Fixtures/build/cxx-sources/cbits/triangle.cpp
   test/Test/Fixtures/build/cxx-sources/cxx-sources.cabal
   test/Test/Fixtures/build/cxx-sources/src/Triangle.hs
-  test/Test/Fixtures/build/executable-selection/app/Chosen.hs
-  test/Test/Fixtures/build/executable-selection/app/Tooled.hs
-  test/Test/Fixtures/build/executable-selection/app/Unplannable.hs
-  test/Test/Fixtures/build/executable-selection/executable-selection.cabal
   test/Test/Fixtures/build/executables/app/Greet.hs
   test/Test/Fixtures/build/executables/app/Shout.hs
   test/Test/Fixtures/build/executables/executables.cabal

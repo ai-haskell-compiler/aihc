@@ -65,7 +65,7 @@ data BuildOptions = BuildOptions
   deriving (Eq, Show)
 
 -- | Solve the dependency plan of a package as @build@ does, and print it
--- without a build.
+-- without a build. The plan is always solved again, without a lock.
 data PlanCommandOptions = PlanCommandOptions
   { planCommandInput :: !String,
     planCommandTarget :: !NativeTarget,
@@ -74,7 +74,9 @@ data PlanCommandOptions = PlanCommandOptions
     -- An empty list takes every executable.
     planCommandExecutables :: ![String],
     planCommandVerbose :: !Bool,
-    planCommandPlanOptions :: !PlanOptions
+    -- | @NAME RANGE@, @NAME +flag@ or @NAME -flag@ restrictions on the
+    -- plan. The plan does not read or write @aihc.lock@.
+    planCommandConstraints :: ![String]
   }
   deriving (Eq, Show)
 
@@ -237,7 +239,17 @@ planCommandOptionsParser =
           <> OA.short 'v'
           <> OA.help "Print each planning step"
       )
-    <*> planOptionsParser
+    <*> constraintOptions
+
+constraintOptions :: OA.Parser [String]
+constraintOptions =
+  OA.many
+    ( OA.strOption
+        ( OA.long "constraint"
+            <> OA.metavar "CONSTRAINT"
+            <> OA.help "Restrict the dependency plan: NAME RANGE fixes the versions of a package, NAME +flag and NAME -flag fix one of its cabal flags"
+        )
+    )
 
 executableOptions :: String -> OA.Parser [String]
 executableOptions description =
@@ -262,13 +274,7 @@ workspaceOption =
 planOptionsParser :: OA.Parser PlanOptions
 planOptionsParser =
   PlanOptions
-    <$> OA.many
-      ( OA.strOption
-          ( OA.long "constraint"
-              <> OA.metavar "CONSTRAINT"
-              <> OA.help "Restrict the dependency plan: NAME RANGE fixes the versions of a package, NAME +flag and NAME -flag fix one of its cabal flags"
-          )
-      )
+    <$> constraintOptions
     <*> OA.switch
       ( OA.long "locked"
           <> OA.help "Take the plan from aihc.lock and fail if the lock is absent or stale, instead of solving and rewriting it"
