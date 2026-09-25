@@ -1,0 +1,15 @@
+extensions: []
+modules:
+- |
+  module Test where
+  data Unit = Unit
+  data Box = Box Unit
+  loop :: Unit
+  loop = loop
+  make :: Unit -> Box
+  make _ = Box loop
+  result = case make Unit of Box _ -> Unit
+expression: result
+output: "Unit"
+status: pass
+reason: A lifted constructor must retain its lazy field without evaluation.

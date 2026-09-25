@@ -3,8 +3,7 @@
 	.globl _enter_direct
 _enter_direct:
 	ldr x8, [x1]
-	mov x17, #-4
-	and x8, x8, x17
+	and x8, x8, #0xfffffffffffffffc
 	ldr x8, [x8]
 	ldr x1, [x1, #8]
 	mov x14, x8
@@ -17,8 +16,7 @@ _enter_direct:
 	.globl _enter_inline
 _enter_inline:
 	ldr x8, [x1]
-	mov x17, #-4
-	and x8, x8, x17
+	and x8, x8, #0xfffffffffffffffc
 	ldr x8, [x8]
 	ldr x1, [x1, #8]
 	mov x14, x8

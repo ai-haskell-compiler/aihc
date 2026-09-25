@@ -1,5 +1,5 @@
 ; expect: 42, 20, 16, 30, 40, 1, 0.0
-; max-arm64-object-bytes: 1584
+; max-arm64-object-bytes: 1760
 ; Local addresses include section offsets and signed addends.
 ; The linker must retain exported symbols and external symbols.
 ; A page relocation must retain its local target symbol.

@@ -147,9 +147,9 @@ acquirePrimStore =
     targets <- primSeedTargets
     forM_ targets (installCoreLibrary primRoot root)
 
--- | Seed aihc-prim and aihc-base. Only @build@ needs aihc-base, so this is
--- a separate resource: tasty initialises it only when one of those tests runs,
--- and the @install@ tests never pay for it.
+-- | Seed aihc-prim and aihc-base. Only @build@ and the @install@ tests of
+-- packages that depend on base need aihc-base, so this is a separate
+-- resource: tasty initialises it only when one of those tests runs.
 acquireCoreStore :: IO SeedStore -> IO SeedStore
 acquireCoreStore getPrimStore =
   withPreparedStore coreStoreDirectory $ \root -> do

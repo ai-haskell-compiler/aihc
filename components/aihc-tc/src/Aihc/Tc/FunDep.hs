@@ -190,9 +190,10 @@ unifyOpenType substitution left right =
     (_, TcQualTy {}) -> Unknown
     (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
       unifyOpen substitution [leftArgument, leftResult] [rightArgument, rightResult]
-    (TcTyCon leftTyCon [], TcTyCon rightTyCon [])
-      | tyConKey leftTyCon == tyConKey rightTyCon -> Unified substitution
-      | otherwise -> NotUnified
+    (leftType, rightType)
+      | Just leftTyCon <- bareTyCon leftType,
+        Just rightTyCon <- bareTyCon rightType ->
+          if tyConKey leftTyCon == tyConKey rightTyCon then Unified substitution else NotUnified
     (TcArrowTy, TcArrowTy) -> Unified substitution
     (leftType, rightType) ->
       case (splitApp leftType, splitApp rightType) of

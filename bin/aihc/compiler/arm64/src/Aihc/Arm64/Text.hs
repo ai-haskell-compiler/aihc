@@ -85,9 +85,11 @@ instruction code =
     ArmSub destination source operand -> arithmetic "sub" destination source operand
     ArmSubs destination source operand -> arithmetic "subs" destination source operand
     ArmCmp register operand -> "cmp " <> reg register <> ", " <> valueText operand
-    ArmAnd destination source operand -> three "and" destination source operand
-    ArmOrr destination source operand -> arithmetic "orr" destination source operand
-    ArmEor destination source operand -> three "eor" destination source operand
+    ArmCmn register operand -> "cmn " <> reg register <> ", " <> valueText operand
+    ArmAnd destination source operand -> logical "and" destination source operand
+    ArmOrr destination source operand -> logical "orr" destination source operand
+    ArmEor destination source operand -> logical "eor" destination source operand
+    ArmTst register operand -> "tst " <> reg register <> ", " <> logicalValue register operand
     ArmMvn destination source -> "mvn " <> reg destination <> ", " <> reg source
     ArmMul destination left right -> three "mul" destination left right
     ArmUmulh destination left right -> three "umulh" destination left right
@@ -138,6 +140,8 @@ instruction code =
   where
     arithmetic name destination source operand =
       name <> " " <> reg destination <> ", " <> reg source <> ", " <> valueText operand
+    logical name destination source operand =
+      name <> " " <> reg destination <> ", " <> reg source <> ", " <> logicalValue destination operand
     three name destination left right =
       name <> " " <> reg destination <> ", " <> reg left <> ", " <> reg right
     shifted name destination source count =
@@ -168,6 +172,16 @@ valueText operand =
   case operand of
     Arm64RegisterValue register -> reg register
     Arm64ImmediateValue literal -> "#" <> show literal
+
+-- | A logical immediate reads best as the bits of the register width.
+logicalValue :: Arm64Register -> Arm64Value -> String
+logicalValue register operand =
+  case operand of
+    Arm64ImmediateValue literal -> "#" <> hex (literal `mod` (2 ^ width))
+    _ -> valueText operand
+  where
+    width :: Int
+    width = if register >= W0 && register <= W30 || register == WZR then 32 else 64
 
 shift :: Arm64Shift -> String
 shift count =

@@ -8,8 +8,8 @@ import Aihc.Fc.Imports (axiomReferences, declReferences, referencesFromImports, 
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (typeHead)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
+import Data.Map.Lazy (Map)
+import Data.Map.Lazy qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 
@@ -63,7 +63,10 @@ pruneProgram roots program =
                       <> Map.findWithDefault Set.empty name familyEquations
                in close (Set.insert name visited) (Set.toList references <> rest)
     -- What each declared name refers to. A name carries its sort, so the
-    -- name of a type never collides with the name of a value.
+    -- name of a type never collides with the name of a value. The map is
+    -- lazy: only the declarations that the walk reaches compute their
+    -- references, and a whole program usually reaches a small part of the
+    -- core libraries.
     declaredReferences :: Map Name (Set Name)
     declaredReferences = Map.fromListWith (<>) (concatMap declaredEntries decls)
     declaredEntries decl =

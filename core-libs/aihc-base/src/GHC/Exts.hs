@@ -14,6 +14,7 @@ module GHC.Exts
     Int64 (..),
     FunPtr (..),
     Constraint,
+    Any,
     coerce,
     considerAccessible,
     lazy,
@@ -128,7 +129,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
 import GHC.Prim
 import GHC.Ptr (FunPtr (..), Ptr (..))
-import GHC.Types (Bool (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
+import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 -- | 'True', written so that the pattern-match checker cannot tell.

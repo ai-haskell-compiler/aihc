@@ -1,0 +1,36 @@
+program: |
+  constructor Unit []
+  pub global entry = (F$entry)
+
+  $first (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (a :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    function :: BoxedRep Lifted <-
+      store (P$first/2)
+    partial :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function :: BoxedRep Lifted) global-ref Unit
+    apply @(BoxedRep Lifted) (partial :: BoxedRep Lifted) (partial :: BoxedRep Lifted)
+expected: |-
+  constructor Unit []
+
+  pub global entry = (F$entry)
+
+  $first (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (a :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    function :: BoxedRep Lifted <-
+      store (P$first/2)
+    partial :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function :: BoxedRep Lifted) global-ref Unit
+    a%1 :: BoxedRep Lifted <-
+      fetch (P$first/1) (partial :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $first (a%1 :: BoxedRep Lifted) (partial :: BoxedRep Lifted)
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 0
+  direct-calls: 1
+  single-entry-evals: 0
+status: pass
+reason: A partial application must remain when a later argument refers to it.

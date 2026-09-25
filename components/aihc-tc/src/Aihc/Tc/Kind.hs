@@ -30,6 +30,8 @@ module Aihc.Tc.Kind
     tyConKindFromParamsWith,
     runtimeRepOrLifted,
     tcTypeKind,
+    kindedTyConAt,
+    kindedTyConUse,
     refineGivenTyVarKinds,
     unifyKinds,
     unifyKindsAt,
@@ -451,8 +453,8 @@ convertResolvedConstructorApplication tvEnv resolution arguments = do
   case maybeInfo of
     Nothing -> inferUnknownType
     Just info -> do
-      constructorKind <- instantiateTyConKind info
-      applySurfaceTypeArguments tvEnv (TcTyCon (tciTyCon info) [], constructorKind) arguments
+      constructorUse <- kindedTyConUse info
+      applySurfaceTypeArguments tvEnv constructorUse arguments
 
 applySurfaceTypeArguments :: TvKindEnv -> (TcType, TcType) -> [Type] -> TcM (TcType, TcType)
 applySurfaceTypeArguments tvEnv = foldM (applyOneArgument tvEnv)
@@ -585,6 +587,9 @@ expandTcTypeSynonyms expanding ty = do
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
     TcTyLit {} -> pure ty
+    -- A synonym is never poly-kinded in this form: it is expanded where
+    -- it is written.
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM (expandTcTypeSynonyms expanding) kindArguments
     TcTyCon tyCon arguments -> do
       expandedArguments <- mapM (expandTcTypeSynonyms expanding) arguments
       maybeInfo <- lookupTyConByIdentity tyCon
@@ -648,13 +653,37 @@ inferTypeConstructor name = do
     Just info
       | isWired constraintTyCon' info ->
           knownType tcWiringConstraintTyCon
-    Just info -> do
-      kind <- instantiateTyConKind info
-      pure (TcTyCon (tciTyCon info) [], kind)
+    Just info -> kindedTyConUse info
     Nothing
       | nameText name == tyConName typeTyCon' -> knownType tcWiringTypeTyCon
       | nameText name == tyConName constraintTyCon' -> knownType tcWiringConstraintTyCon
       | otherwise -> inferUnknownType
+
+-- | A use of a type constructor with no visible argument yet, and its kind.
+-- The kind scheme is instantiated with fresh metas, and a poly-kinded
+-- constructor keeps them as its kind arguments. Unification solves them,
+-- so the type keeps the kind at which the use site uses the constructor.
+kindedTyConUse :: TyConInfo -> TcM (TcType, TcType)
+kindedTyConUse info = do
+  instantiation <- instantiateWithArgs (tciKindScheme info)
+  pure (kindedTyCon (tciTyCon info) (instTypeArgs instantiation), instType instantiation)
+
+-- | Give a bare type constructor the kind arguments of a use. A type
+-- constructor with a visible argument, or with no kind variable, keeps its
+-- form.
+kindedTyConAt :: TcType -> TcType -> TcM TcType
+kindedTyConAt useKind ty =
+  case ty of
+    TcTyCon tyCon [] -> do
+      maybeInfo <- lookupTyConByIdentity tyCon
+      case maybeInfo of
+        Just info
+          | ForAll (_ : _) _ _ <- tciKindScheme info -> do
+              (kinded, kind) <- kindedTyConUse info
+              unifyKinds useKind kind
+              pure kinded
+        _ -> pure ty
+    _ -> pure ty
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = do
@@ -808,6 +837,15 @@ unifyKindsAt sp expected actual = do
       | left == right,
         length leftArguments == length rightArguments ->
           zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
+    (TcKindedTyCon left leftArguments, TcKindedTyCon right rightArguments)
+      | left == right,
+        length leftArguments == length rightArguments ->
+          zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
+    -- A bare constructor that no use site kinded agrees with every kinding.
+    (TcKindedTyCon left _, TcTyCon right [])
+      | left == right -> pure ()
+    (TcTyCon left [], TcKindedTyCon right _)
+      | left == right -> pure ()
     (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
       unifyKindsAt sp leftArgument rightArgument >> unifyKindsAt sp leftResult rightResult
     (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
@@ -907,6 +945,7 @@ isGroundKind ty =
     -- A literal names one type and mentions nothing, so it is ground.
     TcTyLit {} -> True
     TcTyCon _ arguments -> all isGroundKind arguments
+    TcKindedTyCon _ kindArguments -> all isGroundKind kindArguments
     TcFunTy argument result -> isGroundKind argument && isGroundKind result
     TcForAllTy {} -> False
     TcQualTy _ body -> isGroundKind body
@@ -952,6 +991,7 @@ kindNeedsZonkIn state = goKind
             length arguments >= length (tsiParams synonym) ->
               True
           | otherwise -> any goKind arguments
+        TcKindedTyCon _ kindArguments -> any goKind kindArguments
         TcFunTy argument result -> goKind argument || goKind result
         TcForAllTy tyVar body -> goKind (tvKind tyVar) || goKind body
         TcQualTy predicates body -> any goPred predicates || goKind body
@@ -995,6 +1035,7 @@ rebuildZonkedKind kind =
             length arguments >= length (tsiParams synonym) ->
               rebuildZonkedKind =<< expandTcTypeSynonyms Set.empty (TcTyCon tyCon' arguments)
         _ -> TcTyCon tyCon' <$> mapM rebuildZonkedKind arguments
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM rebuildZonkedKind kindArguments
     TcFunTy argument result -> TcFunTy <$> rebuildZonkedKind argument <*> rebuildZonkedKind result
     TcForAllTy tyVar body -> do
       kind' <- rebuildZonkedKind (tvKind tyVar)
@@ -1088,6 +1129,7 @@ settleKindMetas defer kind =
           writeMetaTv levity (TcTyCon (kindsDataCon kinds "Lifted" 0) [])
           pure (liftedRep kinds)
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM recur arguments
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM recur kindArguments
     TcFunTy argument result -> TcFunTy <$> recur argument <*> recur result
     TcForAllTy tyVar body -> do
       kind' <- recur (tvKind tyVar)
@@ -1119,6 +1161,7 @@ kindMentionsMeta kind =
     TcTyLit {} -> False
     TcTyVar tyVar -> kindMentionsMeta (tvKind tyVar)
     TcTyCon _ arguments -> any kindMentionsMeta arguments
+    TcKindedTyCon _ kindArguments -> any kindMentionsMeta kindArguments
     TcFunTy argument result -> kindMentionsMeta argument || kindMentionsMeta result
     TcForAllTy tyVar body -> kindMentionsMeta (tvKind tyVar) || kindMentionsMeta body
     TcQualTy predicates body -> any predicateMentions predicates || kindMentionsMeta body
@@ -1149,6 +1192,7 @@ occursInKind needle kind =
     TcMetaTv unique -> unique == needle
     TcTyVar tyVar -> occursInKind needle (tvKind tyVar)
     TcTyCon _ arguments -> any (occursInKind needle) arguments
+    TcKindedTyCon _ kindArguments -> any (occursInKind needle) kindArguments
     TcFunTy argument result -> occursInKind needle argument || occursInKind needle result
     TcForAllTy tyVar body -> occursInKind needle (tvKind tyVar) || occursInKind needle body
     TcQualTy predicates body -> any occursInPred predicates || occursInKind needle body
@@ -1177,6 +1221,13 @@ tcTypeKind ty =
       kinds <- getKinds
       pure (tyLitKind kinds literal)
     TcMetaTv unique -> readMetaTvKind unique >>= zonkKind
+    TcKindedTyCon tyCon kindArguments -> do
+      maybeInfo <- lookupTyConByIdentity tyCon
+      case maybeInfo of
+        Just info -> do
+          let ForAll variables _ body = tciKindScheme info
+          zonkKind (applySubst (Map.fromList (zip (map tvUnique variables) kindArguments)) body)
+        Nothing -> tcTypeKind (TcTyCon tyCon [])
     TcTyCon tyCon arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
       initialKind <-

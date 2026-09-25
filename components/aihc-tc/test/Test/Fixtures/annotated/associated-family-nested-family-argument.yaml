@@ -1,0 +1,108 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, RankNTypes #-}
+  module Test where
+  data ST s a = ST a
+       │        └─ type: ∀ s a. a → ST s a
+       └─ type: Type → Type → Type
+  data Done = Done
+       │      └─ type: Done
+       └─ type: Type
+  data MV s a = MV a
+       │        └─ type: ∀ s a. a → MV s a
+       └─ type: Type → Type → Type
+  class PrimMonad m where
+  └─ class methods: bindM ∷ ∀ m a b. (PrimMonad m) ⇒ m a → (a → m b) → m b, returnM ∷ ∀ m a. (PrimMonad m) ⇒ a → m a
+    type PrimState m
+         └─ type: (Type → Type) → Type
+    bindM :: m a -> (a -> m b) -> m b
+    returnM :: a -> m a
+  instance PrimMonad (ST s) where
+  └─ $fPrimMonadSTs ∷ ∀ s. () ⇒ PrimMonad (ST s) [associated types: PrimState (ST s) = s]
+    type PrimState (ST s) = s
+    bindM (ST x) f = f x
+    │      │  │  └─ type: a → ST s b
+    │      │  └─ type: a
+    │      └─ type: ST s a
+    └─ bindM ∷ ∀ a b. ST s a → (a → ST s b) → ST s b
+    returnM = ST
+    │         └─ type: a → ST s a; type-args: s, a
+    └─ returnM ∷ ∀ a. a → ST s a
+  stToPrim :: PrimMonad m => ST (PrimState m) a -> m a
+  stToPrim = stToPrim
+  │          └─ type: ST (PrimState m) a → m a; type-args: m, a; evidence: given PrimMonad m
+  └─ type: ∀ m a. (PrimMonad m) ⇒ ST (PrimState m) a → m a
+  unsafeNew :: PrimMonad m => m (MV (PrimState m) a)
+  unsafeNew = unsafeNew
+  │           └─ type: m (MV (PrimState m) a); type-args: m, a; evidence: given PrimMonad m
+  └─ type: ∀ m a. (PrimMonad m) ⇒ m (MV (PrimState m) a)
+  initialize :: MV s a -> ST s Done
+  initialize _ = ST Done
+  │          │   └─ type: Done → ST s Done; type-args: s, Done
+  │          └─ type: MV s a
+  └─ type: ∀ s a. MV s a → ST s Done
+  small :: PrimMonad m => m (MV (PrimState m) a)
+  small = stToPrim unsafeNew
+  │       │        └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a); type-args: ST (PrimState m), a; evidence: $fPrimMonadSTs @PrimState m
+  │       └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a) → m (MV (PrimState (ST (PrimState m))) a); type-args: m, MV (PrimState (ST (PrimState m))) a; evidence: given PrimMonad m
+  └─ type: ∀ m a. (PrimMonad m) ⇒ m (MV (PrimState m) a)
+  new :: PrimMonad m => m (MV (PrimState m) a)
+  new = stToPrim (unsafeNew `bindM` \v -> initialize v `bindM` \_ -> returnM v)
+  │     │         │          │      ││    │             │      │││    └─ type: MV (PrimState (ST (PrimState m))) a → ST (PrimState (ST (PrimState m))) (MV (PrimState (ST (PrimState m))) a); type-args: ST (PrimState (ST (PrimState m))), MV (PrimState (ST (PrimState m))) a; evidence: $fPrimMonadSTs @PrimState m
+  │     │         │          │      ││    │             │      │└─ type: Done
+  │     │         │          │      ││    │             │      │└─ type: Done
+  │     │         │          │      ││    │             │      └─ type: Done → ST (PrimState (ST (PrimState m))) (MV (PrimState (ST (PrimState m))) a)
+  │     │         │          │      ││    │             └─ type: ST (PrimState (ST (PrimState m))) Done → (Done → ST (PrimState (ST (PrimState m))) (MV (PrimState (ST (PrimState m))) a)) → ST (PrimState (ST (PrimState m))) (MV (PrimState (ST (PrimState m))) a); type-args: ST (PrimState (ST (PrimState m))), Done, MV (PrimState (ST (PrimState m))) a; evidence: $fPrimMonadSTs @PrimState m
+  │     │         │          │      ││    └─ type: MV (PrimState (ST (PrimState m))) a → ST (PrimState (ST (PrimState m))) Done; type-args: PrimState (ST (PrimState m)), a
+  │     │         │          │      │└─ type: MV (PrimState (ST (PrimState m))) a
+  │     │         │          │      └─ type: MV (PrimState (ST (PrimState m))) a → ST (PrimState (ST (PrimState m))) (MV (PrimState (ST (PrimState m))) a)
+  │     │         │          └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a) → (MV (PrimState (ST (PrimState m))) a → ST (PrimState m) (MV (PrimState (ST (PrimState m))) a)) → ST (PrimState m) (MV (PrimState (ST (PrimState m))) a); type-args: ST (PrimState m), MV (PrimState (ST (PrimState m))) a, MV (PrimState (ST (PrimState m))) a; evidence: $fPrimMonadSTs @PrimState m
+  │     │         └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a); type-args: ST (PrimState m), a; evidence: $fPrimMonadSTs @PrimState m
+  │     └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a) → m (MV (PrimState (ST (PrimState m))) a); type-args: m, MV (PrimState (ST (PrimState m))) a; evidence: given PrimMonad m
+  └─ type: ∀ m a. (PrimMonad m) ⇒ m (MV (PrimState m) a)
+  withLift :: (forall b. m b -> ST (PrimState m) b) -> m Done
+  withLift = withLift
+  │          └─ type: (∀ b. m b → ST (PrimState m) b) → m Done; type-args: m
+  └─ type: ∀ m. (∀ b. m b → ST (PrimState m) b) → m Done
+  rank :: ST Done Done
+  rank = withLift (\x -> x)
+  │      ││         │└─ type: ST Done b
+  │      ││         └─ type: ST Done b → ST Done b
+  │      └─ type: (∀ b. ST Done b → ST (PrimState (ST Done)) b) → ST Done Done; type-args: ST Done
+  │      └─ type: ∀ b. ST Done b → ST (PrimState (ST Done)) b
+  └─ type: ST Done Done
+extensions:
+- TypeFamilies
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, RankNTypes #-}
+  module Test where
+  data ST s a = ST a
+  data Done = Done
+  data MV s a = MV a
+  class PrimMonad m where
+    type PrimState m
+    bindM :: m a -> (a -> m b) -> m b
+    returnM :: a -> m a
+  instance PrimMonad (ST s) where
+    type PrimState (ST s) = s
+    bindM (ST x) f = f x
+    returnM = ST
+  stToPrim :: PrimMonad m => ST (PrimState m) a -> m a
+  stToPrim = stToPrim
+  unsafeNew :: PrimMonad m => m (MV (PrimState m) a)
+  unsafeNew = unsafeNew
+  initialize :: MV s a -> ST s Done
+  initialize _ = ST Done
+  small :: PrimMonad m => m (MV (PrimState m) a)
+  small = stToPrim unsafeNew
+  new :: PrimMonad m => m (MV (PrimState m) a)
+  new = stToPrim (unsafeNew `bindM` \v -> initialize v `bindM` \_ -> returnM v)
+  withLift :: (forall b. m b -> ST (PrimState m) b) -> m Done
+  withLift = withLift
+  rank :: ST Done Done
+  rank = withLift (\x -> x)
+reason: the instance equation PrimState (ST s) = s reduces PrimState (ST (PrimState m))
+  to PrimState m, also when the argument of ST is an irreducible family application
+status: pass
