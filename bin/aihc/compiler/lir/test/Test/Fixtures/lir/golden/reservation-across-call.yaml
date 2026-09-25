@@ -90,15 +90,15 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
 
-  data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+  data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3, i8 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0 }
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0 }
 
-  data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3 }
+  data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3, i8 0 }
 
   func @aihc_lir_info_0_e(%machine_56: ptr, %hp_57: ptr, %hp_limit_58: ptr, %sp_59: ptr, %sp_limit_60: ptr, %object_61: ptr, %continuation_62: ptr, %supplied_63: i64) {
   entry:
@@ -107,11 +107,11 @@ expected: |
     tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_56, %hp_57, %hp_limit_58, %sp_59, %sp_limit_60, %stored_64, %stored_65, %supplied_63)
   }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x00" }
 
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1 }
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1, i8 0 }
 status: pass
 reason: |
   A call can collect, so it ends the caller's reservation and the store after it

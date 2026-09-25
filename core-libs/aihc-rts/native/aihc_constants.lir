@@ -6,7 +6,8 @@
 ; This file holds nothing but constants, so every unit can include it.
 
 ; Info-table offsets use target words for pointer fields.
-; Byte fields follow the five pointer fields.
+; Byte fields follow the five pointer fields. The size rounds the five byte
+; fields up to a word: 48 bytes on a 64-bit target and 28 bytes on wasm32.
 const @AIHC_INFO_BITMAP_OFFSET = 1 word
 const @AIHC_INFO_NEXT_OFFSET = 2 words
 const @AIHC_INFO_ENTRY_OFFSET = 3 words
@@ -15,7 +16,8 @@ const @AIHC_INFO_COUNT_OFFSET = 5 words
 const @AIHC_INFO_ARITY_OFFSET = 5 words + 1
 const @AIHC_INFO_FRAME_OFFSET = 5 words + 2
 const @AIHC_INFO_KIND_OFFSET = 5 words + 3
-const @AIHC_INFO_BYTES = 6 words
+const @AIHC_INFO_NEEDS_EVAL_OFFSET = 5 words + 4
+const @AIHC_INFO_BYTES = 5 words + 8
 
 ; AihcMachine fields used by evaluation. C assertions check these offsets.
 ; The heap pointer and the stack pointer of the machine are a copy of the
@@ -50,6 +52,12 @@ const @AIHC_OBJECT_BLACKHOLE_WAITER = 14
 const @AIHC_OBJECT_BLACKHOLE_RECORD = 15
 const @AIHC_OBJECT_STABLE_NAME = 16
 const @AIHC_OBJECT_BYTE_ARRAY = 17
+
+; The needs_eval field of an info table. Zero marks a value. Compiled code
+; follows an indirection itself and gives a thunk to @aihc_lir_eval.
+const @AIHC_NEEDS_EVAL_NONE = 0
+const @AIHC_NEEDS_EVAL_ENTER = 1
+const @AIHC_NEEDS_EVAL_FOLLOW = 2
 
 ; Frame kinds, the frame_kind field of an info table.
 const @AIHC_FRAME_NONE = 0

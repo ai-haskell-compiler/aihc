@@ -622,7 +622,8 @@ export data @aihc_lir_cps_update_info align 8 = {
   i8 2,                                   ; field_count
   i8 1,                                   ; remaining_arity
   i8 @AIHC_FRAME_UPDATE,                  ; frame_kind
-  i8 @AIHC_OBJECT_CLOSURE                 ; object_kind
+  i8 @AIHC_OBJECT_CLOSURE,                ; object_kind
+  i8 @AIHC_NEEDS_EVAL_NONE                ; needs_eval
 }
 
 ; The saturated stage the collector reads the full width from.
@@ -635,5 +636,6 @@ export data @aihc_lir_cps_update_applied_info align 8 = {
   i8 3,
   i8 0,
   i8 @AIHC_FRAME_UPDATE,
-  i8 @AIHC_OBJECT_CLOSURE
+  i8 @AIHC_OBJECT_CLOSURE,
+  i8 @AIHC_NEEDS_EVAL_NONE
 }

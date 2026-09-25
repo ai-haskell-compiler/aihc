@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Bits (shiftL, xor, (.&.), (.|.))
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print [k * 7919 `mod` 200003 | k <- [1, 200004, 300000 :: Int]]
+      print [10 * 7 `div` 3, 10 * 7 `quot` 3, 10 * 7 `rem` 3, 10 * 7 `mod` 3 :: Int]
+      print [2 + 7 `div` 2 * 3, 100 `div` 10 `div` 5, 100 `mod` 7 `mod` 3 :: Int]
+      print [1 `shiftL` 2 + 1, 6 `xor` 3 .|. 8 :: Int]
+      print [5 .&. 3 == (1 :: Int), 3 + 1 `elem` [4 :: Int]]
+stdout: |
+  [7919,7919,64366]
+  [23,23,1,1]
+  [11,2,2]
+  [5,13]
+  [True,True]
+output: |
+  ()
+expression: main
+status: pass
+reason: quot, rem, div and mod have the fixity infixl 7 as in GHC.Real, so they group to the left with the multiplication operator

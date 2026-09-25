@@ -1022,7 +1022,8 @@ lowerInfo info = do
                 byte (length fields),
                 byte (infoRemainingArity info),
                 byte (continuationFrameKindCode (infoFrameKind info)),
-                byte (infoObjectKind info)
+                byte (infoObjectKind info),
+                DataInt I8 (objectKindNeedsEval (infoObjectKind info))
               ]
           }
     )
@@ -1376,12 +1377,15 @@ compileExpr ctx env expression =
           _ <- callRuntime "aihc_set_exit_status" [Ptr, I64] [] [ctxMachine ctx, statusOperand]
           entry <- callRuntime "aihc_halt" [Ptr] [Code] [ctxMachine ctx]
           terminate (TailCallIndirect entry [ctxMachine ctx] (Signature [Ptr] [] AihcConvention))
-    -- An updated thunk is an indirection until the next collection. The
-    -- check follows the indirections of a variable to their target. Thus the
-    -- ready branch gets the WHNF value, and no continuation is allocated.
-    -- The info-table address removes the evaluating bit of the header, and a
-    -- thunk under evaluation has the thunk kind. Thus that thunk goes to the
-    -- slow branch.
+    -- The needs_eval byte of the info table is zero for a value. Thus the
+    -- ready branch needs one load and one branch after the header. The
+    -- info-table address removes the evaluation bits of the header, and a
+    -- thunk under evaluation keeps its thunk table. Thus that thunk goes to
+    -- the slow branch. An updated thunk is an indirection until the next
+    -- collection. The check follows the indirections of a variable to their
+    -- target, so the ready branch gets the value and no continuation is
+    -- allocated. That test is only on the path of an object that is not a
+    -- value.
     GrinIfWhnf value ready slow -> do
       object <- pointerValue ctx env value
       checkLabel <- freshLabel "eval_check"
@@ -1391,30 +1395,26 @@ compileExpr ctx env expression =
       terminate (Jump (Target checkLabel [object]))
       beginBlock checkLabel [(current, Ptr)]
       header <- loadObjectInfo (OperandVar current)
-      kind <- loadInfoByte "kind" (typedOperand header) infoObjectKindByte
-      followLabel <- freshLabel "eval_follow"
+      needsEval <- loadInfoByte "needs_eval" (typedOperand header) infoNeedsEvalByte
+      notValue <- emitValue "not_value" I1 (Compare Ne I64 (typedOperand needsEval) (OperandLiteral (LitInt 0)))
       -- Only a variable can take the target. Another value keeps the slow
       -- branch for an indirection.
-      let slowTarget = Target slowLabel []
-          follows = case value of
+      let follows = case value of
             GrinVarValue var -> Just var
             _ -> Nothing
           env' = maybe env (\var -> Map.insert var (Typed (OperandVar current) Ptr) env) follows
-          indirectionTarget = maybe slowTarget (const (Target followLabel [])) follows
-      terminate
-        ( Switch
-            I64
-            (typedOperand kind)
-            [ SwitchCase (toInteger runtimeObjectThunk) slowTarget,
-              SwitchCase runtimeObjectIndirection indirectionTarget,
-              SwitchCase runtimeObjectBlackhole slowTarget
-            ]
-            (Just (Target readyLabel []))
-        )
-      for_ follows $ \_ -> do
-        beginBlock followLabel []
-        next <- loadSlot "next" Ptr (OperandVar current) 8
-        terminate (Jump (Target checkLabel [typedOperand next]))
+      case follows of
+        Nothing -> terminate (Branch (typedOperand notValue) (Target slowLabel []) (Target readyLabel []))
+        Just _ -> do
+          notValueLabel <- freshLabel "eval_not_value"
+          followLabel <- freshLabel "eval_follow"
+          terminate (Branch (typedOperand notValue) (Target notValueLabel []) (Target readyLabel []))
+          beginBlock notValueLabel []
+          isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand needsEval) (OperandLiteral (LitInt needsEvalFollow)))
+          terminate (Branch (typedOperand isIndirection) (Target followLabel []) (Target slowLabel []))
+          beginBlock followLabel []
+          next <- loadSlot "next" Ptr (OperandVar current) 8
+          terminate (Jump (Target checkLabel [typedOperand next]))
       beginBlock readyLabel []
       branchWith (compileExpr ctx env' ready)
       beginBlock slowLabel []
@@ -2239,6 +2239,19 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
           emit [] (Store ty narrow (byteAddress address 0) (byteAlignment 1))
           bind []
+    -- casArray# and casSmallArray# give a failure flag and the final
+    -- element, as casMutVar# does for the contents of a reference.
+    (_, [array, index, expected, replacement])
+      | name `elem` arrayCasPrimitives -> do
+          slot <- arrayElement array index
+          expectedOperand <- word expected
+          replacementOperand <- word replacement
+          current <- emitValue "current" I64 (Load I64 (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
+          final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
+          emit [] (Store I64 (typedOperand final) (byteAddress slot arrayElementsOffset) (byteAlignment 8))
+          unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
+          bind [unchanged, final]
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileRuntimeCall ctx env runtimeCall arguments
@@ -2543,6 +2556,11 @@ arrayLoadPrimitives, arrayStorePrimitives :: [Text]
 arrayLoadPrimitives = ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"]
 arrayStorePrimitives = ["writeArray#", "writeSmallArray#"]
 
+-- | The compare and swap of one element of a boxed array. The runtime runs
+-- one Haskell thread, so the swap is a plain load, compare, and store.
+arrayCasPrimitives :: [Text]
+arrayCasPrimitives = ["casArray#", "casSmallArray#"]
+
 -- | How a byte-array primitive names an element: by an index that counts
 -- elements of the element width, or by a byte offset.
 data ByteArrayIndexing = ElementIndex | ByteOffset
@@ -2556,6 +2574,8 @@ byteArrayLoadPrimitives :: [(Text, (Type, ByteArrayIndexing))]
 byteArrayLoadPrimitives =
   [ ("indexWordArray#", (I64, ElementIndex)),
     ("readWordArray#", (I64, ElementIndex)),
+    ("indexIntArray#", (I64, ElementIndex)),
+    ("readIntArray#", (I64, ElementIndex)),
     ("atomicReadIntArray#", (I64, ElementIndex)),
     ("indexWord8Array#", (I8, ElementIndex)),
     ("readWord8Array#", (I8, ElementIndex)),
@@ -2580,6 +2600,7 @@ byteArrayLoadPrimitives =
 byteArrayStorePrimitives :: [(Text, (Type, ByteArrayIndexing))]
 byteArrayStorePrimitives =
   [ ("writeWordArray#", (I64, ElementIndex)),
+    ("writeIntArray#", (I64, ElementIndex)),
     ("atomicWriteIntArray#", (I64, ElementIndex)),
     ("writeWord8Array#", (I8, ElementIndex)),
     ("writeWord16Array#", (I16, ElementIndex)),
@@ -3231,10 +3252,24 @@ infoWordFieldCount = 5
 infoBackendEntryIndex = 3
 
 -- | The byte fields of an info table, as indices from the first byte field.
-infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte :: Int
+infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte, infoNeedsEvalByte :: Int
 infoRemainingArityByte = 1
 infoFrameKindByte = 2
 infoObjectKindByte = 3
+infoNeedsEvalByte = 4
+
+-- | The needs_eval byte of an info table: 'needsEvalFollow' for an
+-- indirection, 'needsEvalEnter' for a thunk and a blackhole, and 0 for a
+-- value.
+objectKindNeedsEval :: Int -> Integer
+objectKindNeedsEval kind
+  | toInteger kind == runtimeObjectIndirection = needsEvalFollow
+  | toInteger kind `elem` [toInteger runtimeObjectThunk, runtimeObjectBlackhole] = needsEvalEnter
+  | otherwise = 0
+
+needsEvalEnter, needsEvalFollow :: Integer
+needsEvalEnter = 1
+needsEvalFollow = 2
 
 -- | The largest count a byte field of an info table holds.
 infoByteFieldLimit :: Int
