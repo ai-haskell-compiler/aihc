@@ -17,7 +17,8 @@
 -- pushes its own block and the stack does not grow. Results come back in
 -- @x0@ to @x7@. An aihc function preserves no register: every call clobbers
 -- them all, so an aihc function that makes no call and spills nothing needs
--- no frame at all. A C function preserves @x19@ to @x28@ and saves the ones
+-- no frame at all, and one that spills nothing has a frame only in the
+-- blocks that call. A C function preserves @x19@ to @x28@ and saves the ones
 -- it touches, and it saves all of them when it calls into aihc code.
 -- C calls use eight integer registers and eight float registers. Extra
 -- scalar arguments use naturally aligned stack slots. The caller removes
@@ -161,8 +162,10 @@ arm64Backend =
       nbCParameterMoves = Just cParameterMoves,
       nbTailCallFrame = cTailCallFrame,
       nbLeaveFrame = leaveFrame,
+      nbBlockFrameBase = 16,
+      nbBlockFrameEnter = blockFrameEnter,
+      nbBlockFrameLeave = blockFrameLeave,
       nbSaveReg = storeSlot,
-      nbZeroWord = arm64Instruction . ArmStr XZR . Arm64Offset SP . fromIntegral,
       nbReturn = \ctx -> adjustStack ArmAdd (ctxIncomingOverflow ctx) <> [arm64Instruction ArmRet],
       nbLoadSlot = loadSlot,
       nbStoreSlot = storeSlot,
@@ -364,6 +367,24 @@ prologueFrame framed size
       ]
         <> adjustStack ArmSub size
   | otherwise = []
+
+-- | A block frame saves the return address below the stack allocations,
+-- with one pair store that also moves the stack pointer. It does not make
+-- @x29@ point to it: @x29@ still points to a valid frame record of an
+-- older function, so the C callee can make its own.
+blockFrameEnter :: Int -> [Arm64Statement]
+blockFrameEnter size
+  | size <= maximumPairIndex = [arm64Instruction (ArmStp X29 X30 (Arm64PreIndex SP (fromIntegral (negate size))))]
+  | otherwise = adjustStack ArmSub size <> [arm64Instruction (ArmStp X29 X30 (Arm64Offset SP 0))]
+
+blockFrameLeave :: Int -> [Arm64Statement]
+blockFrameLeave size
+  | size <= maximumPairIndex = [arm64Instruction (ArmLdp X29 X30 (Arm64PostIndex SP (fromIntegral size)))]
+  | otherwise = arm64Instruction (ArmLdp X29 X30 (Arm64Offset SP 0)) : adjustStack ArmAdd size
+
+-- | The largest index of a pair store or load that one instruction encodes.
+maximumPairIndex :: Int
+maximumPairIndex = 504
 
 canonicalizeRegister :: Type -> Arm64Register -> [Arm64Statement]
 canonicalizeRegister ty register =

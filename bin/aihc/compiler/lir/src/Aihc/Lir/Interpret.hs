@@ -83,6 +83,10 @@ dataBase = 0x10000
 stackBase = 0x10000000
 stackLimit = stackBase + 0x100000
 
+-- | The byte that fills new stack memory.
+stackPoison :: Word8
+stackPoison = 0xa5
+
 trap :: Text -> M a
 trap = lift . Left . InterpretTrap
 
@@ -445,7 +449,9 @@ execOperation program locals operation =
       let start = alignUp (fromInteger (max 1 (alignmentInBytes wordBytes alignment))) (machineStack machine)
           end = start + fromInteger size
       when (end > stackLimit) $ trap "stack overflow"
-      put machine {machineMemory = writeBytes start (replicate (fromInteger size) 0) (machineMemory machine), machineStack = end}
+      -- The contents are undefined until the program writes them. A fixed
+      -- byte that is not zero makes a read before a write visible.
+      put machine {machineMemory = writeBytes start (replicate (fromInteger size) stackPoison) (machineMemory machine), machineStack = end}
       pure [VPtr start]
     GlobalGet symbol -> do
       globals <- gets machineGlobals

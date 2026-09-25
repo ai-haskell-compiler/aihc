@@ -19,7 +19,8 @@
 -- Results come back in @rax@, @rdx@, @rcx@, @rsi@, @rdi@, @r8@, @r9@, and
 -- @r10@. An aihc function preserves no register: every call clobbers them
 -- all, so an aihc function that makes no call and spills nothing needs no
--- frame at all. The @c@ convention is the System V convention with at most
+-- frame at all, and one that spills nothing has a frame only in the blocks
+-- that call. The @c@ convention is the System V convention with at most
 -- six integer and eight float arguments and one result. A C function
 -- preserves @rbx@ and @r12@ to @r15@ and saves the ones it touches, and it
 -- saves all of them when it calls into aihc code.
@@ -171,8 +172,12 @@ amd64Backend =
       nbCParameterMoves = Nothing,
       nbTailCallFrame = \_ _ -> False,
       nbLeaveFrame = leaveFrame,
+      -- The return address is already on the stack, so a block frame only
+      -- reserves the stack allocations and aligns the stack for the call.
+      nbBlockFrameBase = 0,
+      nbBlockFrameEnter = adjustStack AmdSub . (+ 8),
+      nbBlockFrameLeave = adjustStack AmdAdd . (+ 8),
       nbSaveReg = storeSlot,
-      nbZeroWord = \offset -> amd64Instruction (AmdStore (slotMemory offset) (Amd64StoreImmediate 0)),
       nbReturn = returnInstruction,
       nbLoadSlot = loadSlot,
       nbStoreSlot = storeSlot,

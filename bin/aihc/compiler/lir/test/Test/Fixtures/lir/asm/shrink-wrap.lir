@@ -1,0 +1,25 @@
+; A frame only for the block that calls. The function calls the collector
+; only when the heap is full, so only that block saves the return address
+; and moves the stack pointer. The path that does not collect has no frame.
+; The root array is at the same place in each frame, and the collect block
+; computes its address after it moves the stack pointer. The root array is
+; not set to zero, because the block writes each root before the call.
+extern func @collect(ptr, ptr) cc c
+extern func @next(ptr, ptr)
+
+func @reserve(%machine: ptr, %value: ptr) {
+entry:
+  %roots = stack.alloc 16 align 8
+  %limit = load ptr [%machine] align 8
+  %full = eq ptr %limit, null
+  br %full, collect, ready(%value)
+
+collect:
+  store ptr %value, [%roots] align 8
+  call @collect(%machine, %roots)
+  %moved = load ptr [%roots] align 8
+  jump ready(%moved)
+
+ready(%live: ptr):
+  tailcall @next(%machine, %live)
+}
