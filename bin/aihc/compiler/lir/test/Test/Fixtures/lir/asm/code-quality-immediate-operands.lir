@@ -1,0 +1,29 @@
+; Constant operands that an instruction encodes directly. The header tag
+; mask of and, the bit of or, and the pattern of xor are logical
+; immediates. An add constant that is a multiple of 4096 uses the shifted
+; form, and a negative add constant is a sub. A compare with a negative
+; constant is cmn. A narrow type uses the 32-bit form. On ARM64, no constant
+; goes through a scratch register.
+func @immediates(%x: i64, %y: i64, %w: i32) -> (i64, i64, i64, i64, i64, i32, i1, i1) {
+entry:
+  %tag = and i64 %x, -4
+  %set = or i64 %x, 65280
+  %flip = xor i64 %x, 6148914691236517205
+  %shifted = add i64 %y, 20480
+  %minus = add i64 %y, -7
+  %low = and i32 %w, 4294967280
+  %not_max = lt.u i64 %y, -1
+  %high = ge.u i32 %w, 4294963200
+  return %tag, %set, %flip, %shifted, %minus, %low, %not_max, %high
+}
+
+; The check of the thread-stack chunk compares with 4096 and branches.
+func @chunk(%size: i64) -> i64 {
+entry:
+  %small = lt.u i64 %size, 4096
+  br %small, grow, done
+grow:
+  return 1
+done:
+  return 0
+}

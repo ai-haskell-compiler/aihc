@@ -1,3 +1,4 @@
 status: pass
 reason: A failed type-level comparison is reported as the "Cannot satisfy" message GHC spells, not as an unsolved Assert constraint.
 expect-error: "Cannot satisfy: 1 <= 0"
+needs-base: true

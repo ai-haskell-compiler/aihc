@@ -48,7 +48,7 @@ where
 
 import Aihc.Lir.Inline (prepareCheckedModule, prepareModule)
 import Aihc.Lir.Lint (LintError)
-import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, readCounts)
+import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, operationReads, readCounts, terminatorReads)
 import Aihc.Lir.Resolve (resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
@@ -65,6 +65,8 @@ import Data.List (zip4)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
@@ -132,8 +134,15 @@ data NativeBackend statement register error = NativeBackend
     -- | Some C tail calls require a call and return with a saved return address.
     nbTailCallFrame :: Map Symbol Signature -> Function -> Bool,
     nbLeaveFrame :: Ctx register -> Int -> [statement],
+    -- | The frame of one block that calls, in a function without a frame
+    -- for its full body: the bytes above the stack pointer where the stack
+    -- allocations start, and the statements that make and remove a frame
+    -- of the given size. The size includes those bytes and is a multiple
+    -- of 16. See 'blockFrameLabels'.
+    nbBlockFrameBase :: Int,
+    nbBlockFrameEnter :: Int -> [statement],
+    nbBlockFrameLeave :: Int -> [statement],
     nbSaveReg :: register -> Int -> statement,
-    nbZeroWord :: Int -> statement,
     nbReturn :: Ctx register -> [statement],
     nbLoadSlot :: register -> Int -> statement,
     nbStoreSlot :: register -> Int -> statement,
@@ -189,7 +198,10 @@ data Layout register = Layout
     layoutColdSaves :: !(IntMap.IntMap [(register, Location register)]),
     layoutAllocs :: !(Map Var (Int, Int)),
     layoutSize :: Int,
-    layoutFramed :: Bool
+    layoutFramed :: Bool,
+    -- | The blocks that have a frame of their own, when the function has
+    -- no frame for its full body. See 'blockFrameLabels'.
+    layoutBlockFrames :: !(Maybe (Set Label))
   }
 
 -- | The bytes between the stack pointer after the prologue and the stack of
@@ -498,9 +510,12 @@ compileFunctionTo backend output signatures index function state =
           firsts = scanl (+) 0 (map (length . blockInstructions) blocks)
       forM_ (zip4 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing]) firsts) $ \(entry, block, next, first) -> do
         let (instructions, fused) = fuseCompare backend ctx (blockInstructions block) (blockTerminator block)
+            framed = hasBlockFrame ctx (blockLabel block)
         emitStatements [nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry]
+        when framed $ emitStatements (enterBlockFrame backend ctx entry block)
         forM_ (zip [first ..] instructions) $ \(number, instruction) ->
           native (coldCallSaves backend ctx number <$> compileInstruction backend ctx instruction) >>= emitStatements
+        when framed $ emitStatements (nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)))
         native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
       native (functionTrapTrampolines backend) >>= emitStatements
 
@@ -590,13 +605,27 @@ functionLayout backend signatures function = do
             | otherwise -> [register | register <- allocationUsed allocation, register `elem` nbPreservedRegisters backend]
       slots = Map.fromList (zip (allocationSpills allocation) [0, 8 ..])
       -- The cold calls share one area of the frame. Each call puts what it
-      -- saves there in order, so that the slots are next to each other.
+      -- saves there in order, so that the slots are next to each other. A
+      -- block frame starts the area where its stack allocations would start.
       coldArea = maximum (0 : [length [() | (_, Nothing) <- saves] | saves <- IntMap.elems (allocationColdSaves allocation)])
-      coldSaves = IntMap.map (placeColdSaves (8 * Map.size slots)) (allocationColdSaves allocation)
+      coldBase
+        | isJust blockFrames = nbBlockFrameBase backend
+        | otherwise = 8 * Map.size slots
+      coldSaves = IntMap.map (placeColdSaves coldBase) (allocationColdSaves allocation)
       slotsEnd = 8 * (Map.size slots + coldArea)
       saved = zip savedRegisters [slotsEnd, slotsEnd + 8 ..]
-      allocsStart = slotsEnd + 8 * length saved
       allocations = [(var, size, alignmentInBytes wordBytes alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
+      tailCallFrame = nbTailCallFrame backend signatures function
+      blockFrames
+        | convention == AihcConvention,
+          Map.null slots,
+          not (null calls),
+          not tailCallFrame =
+            blockFrameLabels (Set.fromList [var | (var, _, _) <- allocations]) blocks
+        | otherwise = Nothing
+      allocsStart
+        | isJust blockFrames = coldBase + 8 * coldArea
+        | otherwise = slotsEnd + 8 * length saved
   allocs <- placeAllocations backend allocsStart allocations
   let end = case Map.elems allocs of
         [] -> allocsStart
@@ -613,8 +642,61 @@ functionLayout backend signatures function = do
         layoutColdSaves = coldSaves,
         layoutAllocs = allocs,
         layoutSize = size,
-        layoutFramed = size > 0 || not (null calls) || nbTailCallFrame backend signatures function
+        layoutFramed = isNothing blockFrames && (size > 0 || not (null calls) || tailCallFrame),
+        layoutBlockFrames = blockFrames
       }
+
+-- | The blocks that make a call, when each of them can have a frame of its
+-- own instead of a frame for the full function.
+--
+-- An aihc function preserves no register and ends in a tail call, so it
+-- needs a frame only for its spill slots, for the return address across a
+-- call, and for the stack allocations. When it has no spill slots, only a
+-- block that makes a call needs the frame. That block makes the frame at
+-- its start and removes it before its terminator, so the path that does not
+-- call has no frame setup at all. Each block frame has the same layout, so
+-- a stack allocation is at the same address in each of them.
+--
+-- An instruction that uses a stack allocation must be in a block that
+-- calls, because only there is the memory above the stack pointer. A
+-- terminator must not use one. Otherwise, the function keeps a frame for
+-- its full body. The memory keeps its contents from one block frame to the
+-- next, because the code between two block frames writes nothing below the
+-- stack pointer. A signal handler on the same stack can write there, but
+-- each producer of stack.alloc writes and reads the memory in one block.
+blockFrameLabels :: Set Var -> [Block] -> Maybe (Set Label)
+blockFrameLabels allocations blocks
+  | all allowed blocks = Just callers
+  | otherwise = Nothing
+  where
+    callers = Set.fromList [blockLabel block | block <- blocks, any (isCall . instructionOperation) (blockInstructions block)]
+    allowed block =
+      not (any allocation (terminatorReads (blockTerminator block)))
+        && ( blockLabel block `Set.member` callers
+               || not (any (any allocation . operationReads . instructionOperation) (blockInstructions block))
+           )
+    allocation = (`Set.member` allocations)
+
+-- | Whether the block has a frame of its own.
+hasBlockFrame :: Ctx register -> Label -> Bool
+hasBlockFrame ctx label = maybe False (Set.member label) (layoutBlockFrames (ctxLayout ctx))
+
+-- | Make the frame of one block, and compute the address of each stack
+-- allocation the block uses. The entry block computes an address where
+-- its stack.alloc is, because a parameter can use the register before it.
+enterBlockFrame :: NativeBackend statement register error -> Ctx register -> Bool -> Block -> [statement]
+enterBlockFrame backend ctx entry block =
+  nbBlockFrameEnter backend (layoutSize layout)
+    <> concat
+      [ nbStackAddr backend register offset
+      | not entry,
+        (var, (offset, _)) <- Map.toAscList (layoutAllocs layout),
+        var `Set.member` used,
+        Just register <- [Map.lookup var (layoutRegisters layout)]
+      ]
+  where
+    layout = ctxLayout ctx
+    used = Set.fromList (concatMap (operationReads . instructionOperation) (blockInstructions block))
 
 isCall :: Operation -> Bool
 isCall operation =
@@ -666,7 +748,6 @@ functionPrologue backend ctx = do
   pure
     ( nbPrologueFrame backend (layoutFramed layout) (layoutSize layout)
         <> saveRegisters backend ctx
-        <> concatMap zeroAllocation (Map.elems (layoutAllocs layout))
         <> moves
     )
   where
@@ -675,8 +756,6 @@ functionPrologue backend ctx = do
     parameterLocation index
       | index < length (nbArgumentRegisters backend) = LocRegister (nbArgumentRegisters backend !! index)
       | otherwise = LocSlot (frameBytes backend layout + nbReturnAddressGap backend + 8 * (index - length (nbArgumentRegisters backend)))
-    zeroAllocation (offset, size) =
-      [nbZeroWord backend (offset + position) | position <- [0, 8 .. size - 1]]
 
 saveRegisters :: NativeBackend statement register error -> Ctx register -> [statement]
 saveRegisters backend ctx =
@@ -965,7 +1044,11 @@ compileInstruction backend ctx (Instruction results operation) =
       case results of
         [var]
           | Just (offset, _) <- Map.lookup var (layoutAllocs (ctxLayout ctx)) ->
-              single $ \dst -> pure (nbStackAddr backend dst offset)
+              -- Without a frame in the entry block, the address is not
+              -- known yet. Each block that uses it computes it.
+              if entryHasFrame
+                then single $ \dst -> pure (nbStackAddr backend dst offset)
+                else pure []
         _ -> unsupported backend "stack.alloc without a placed result"
     GlobalGet symbol ->
       single $ \dst -> pure (nbGlobalLoad backend dst (nbSymbol backend symbol))
@@ -975,6 +1058,9 @@ compileInstruction backend ctx (Instruction results operation) =
     Call symbol arguments -> nbCall backend ctx (Left symbol) arguments results
     CallIndirect target arguments signature -> nbCallIndirect backend ctx target arguments signature results
   where
+    entryHasFrame = case (layoutBlockFrames (ctxLayout ctx), functionBlocks (ctxFunction ctx)) of
+      (Just labels, entry : _) -> blockLabel entry `Set.member` labels
+      _ -> True
     single body =
       case results of
         [var] -> do

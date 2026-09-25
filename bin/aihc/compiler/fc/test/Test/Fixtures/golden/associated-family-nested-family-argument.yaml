@@ -1,0 +1,35 @@
+extensions:
+- TypeFamilies
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, RankNTypes #-}
+  module Test where
+  data ST s a = ST a
+  data Done = Done
+  data MV s a = MV a
+  class PrimMonad m where
+    type PrimState m
+    bindM :: m a -> (a -> m b) -> m b
+    returnM :: a -> m a
+  instance PrimMonad (ST s) where
+    type PrimState (ST s) = s
+    bindM (ST x) f = f x
+    returnM = ST
+  stToPrim :: PrimMonad m => ST (PrimState m) a -> m a
+  stToPrim = stToPrim
+  unsafeNew :: PrimMonad m => m (MV (PrimState m) a)
+  unsafeNew = unsafeNew
+  initialize :: MV s a -> ST s Done
+  initialize _ = ST Done
+  small :: PrimMonad m => m (MV (PrimState m) a)
+  small = stToPrim unsafeNew
+  new :: PrimMonad m => m (MV (PrimState m) a)
+  new = stToPrim (unsafeNew `bindM` \v -> initialize v `bindM` \_ -> returnM v)
+  withLift :: (forall b. m b -> ST (PrimState m) b) -> m Done
+  withLift = withLift
+  rank :: ST Done Done
+  rank = withLift (\x -> x)
+reason: the instance equation PrimState (ST s) = s reduces PrimState (ST (PrimState m))
+  to PrimState m, also when the argument of ST is an irreducible family application
+status: pass

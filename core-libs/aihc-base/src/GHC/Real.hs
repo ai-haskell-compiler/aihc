@@ -75,6 +75,8 @@ class (Real a, Enum a) => Integral a where
   divMod :: a -> a -> (a, a)
   toInteger :: a -> Integer
 
+infixl 7 `quot`, `rem`, `div`, `mod`
+
 class (Real a, Fractional a) => RealFrac a where
   properFraction :: (Integral b) => a -> (b, a)
   truncate :: (Integral b) => a -> b

@@ -67,14 +67,14 @@ import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, test
 
 -- | The core libraries are seeded once for the whole group rather than by each
 -- test; see "Test.Aihc.SeedStore". aihc-base is a separate, nested resource so
--- that running only the @install@ tests never installs it.
+-- that a test that does not need it never installs it.
 tests :: TestTree
 tests =
   withResource acquirePrimStore releaseSeedStore $ \primStore ->
-    testGroup
-      "aihc"
-      [ withResource (acquireCoreStore primStore) releaseSeedStore $ \coreStore ->
-          -- Every build names its build root and output, so these run
+    withResource (acquireCoreStore primStore) releaseSeedStore $ \coreStore ->
+      testGroup
+        "aihc"
+        [ -- Every build names its build root and output, so these run
           -- alongside each other. A build that left either to the working
           -- directory would need the process's one directory to itself.
           testGroup
@@ -93,34 +93,37 @@ tests =
               withResource acquireLtoStore releaseSeedStore $ \ltoStore ->
                 testCase "compiles the merged program of each executable once" (test_lto ltoStore)
             ],
-        testGroup
-          "install"
-          [ testCase "code-quality install fixtures" (testInstallFixtures primStore),
-            testCase "compiles and archives capi wrappers" (test_installCapi primStore),
-            testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
-            testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
-            testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude primStore),
-            testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi primStore),
-            testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
-            testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
-            testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
-            -- This one installs aihc-prim into an empty store on purpose: it is
-            -- the test that covers the install the seed store performs.
-            testCase "parses Hackage package targets" test_parsePackageTarget
-          ],
-        testGroup
-          "artifacts"
-          [ testCase "resolve artifacts keep each kind of resolved name" test_resolveArtifactRoundTrip
-          ],
-        testGroup
-          "sources"
-          [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
-            testCase "the sigset_t size matches the platform headers" test_sigsetSize,
-            testCase "the errno numbers match the platform headers" test_errnoNumbers,
-            testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
-            testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
-          ]
-      ]
+          testGroup
+            "install"
+            -- A test whose package depends on base gets the store that holds
+            -- aihc-base. With aihc-prim alone, each such test would compile
+            -- aihc-base again. The code-quality fixtures choose per fixture.
+            [ testCase "code-quality install fixtures" (testInstallFixtures primStore coreStore),
+              testCase "compiles and archives capi wrappers" (test_installCapi primStore),
+              testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
+              testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
+              testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude coreStore),
+              testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi coreStore),
+              testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros coreStore),
+              testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
+              testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
+              -- This one installs aihc-prim into an empty store on purpose: it is
+              -- the test that covers the install the seed store performs.
+              testCase "parses Hackage package targets" test_parsePackageTarget
+            ],
+          testGroup
+            "artifacts"
+            [ testCase "resolve artifacts keep each kind of resolved name" test_resolveArtifactRoundTrip
+            ],
+          testGroup
+            "sources"
+            [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
+              testCase "the sigset_t size matches the platform headers" test_sigsetSize,
+              testCase "the errno numbers match the platform headers" test_errnoNumbers,
+              testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
+              testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
+            ]
+        ]
 
 -- | The suffix the backend adds beside the object file it emits.
 nativeArtifactExtension :: NativeTarget -> FilePath
@@ -423,7 +426,11 @@ data InstallFixture = InstallFixture
     installFixtureInput :: FilePath,
     installFixtureImmutable :: Bool,
     installFixtureNoCode :: Bool,
-    installFixtureReinstall :: Bool
+    installFixtureReinstall :: Bool,
+    -- | The package depends on base, so it gets the seeded store that holds
+    -- aihc-base. The other fixtures get the smaller store, which is faster
+    -- to copy.
+    installFixtureNeedsBase :: Bool
   }
 
 instance FromJSON InstallFixture where
@@ -438,16 +445,18 @@ instance FromJSON InstallFixture where
           <*> obj .:? "immutable" .!= False
           <*> obj .:? "no-code" .!= True
           <*> obj .:? "check-reinstall" .!= False
+          <*> obj .:? "needs-base" .!= False
       else fail "install fixtures require pass status"
 
-testInstallFixtures :: IO SeedStore -> Assertion
-testInstallFixtures getStore = do
+testInstallFixtures :: IO SeedStore -> IO SeedStore -> Assertion
+testInstallFixtures getPrimStore getCoreStore = do
   root <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/code-quality"
   names <- sort <$> listDirectory root
   forM_ names $ \name -> do
     let directory = root </> name
     fixture <- Y.decodeFileThrow (directory </> "fixture.yaml")
     assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
+    let getStore = if installFixtureNeedsBase fixture then getCoreStore else getPrimStore
     withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
       store <- sandboxStore sandbox "store"
       let input = if installFixtureInput fixture == "." then directory else directory </> installFixtureInput fixture
@@ -1133,8 +1142,9 @@ test_installRuntimePackage getStore = do
 -- A @capi@ import that names @Rts.h@ compiles its wrapper against the
 -- compiler's copy of the header. @unix@ imports @stopTimer@ this way before it
 -- forks, and @process@ calls the same entry points from its @c-sources@.
--- Like 'test_installCapi', this installs for the LLVM target, so that the C
--- compile is the host's own.
+-- The package depends on base, so this installs for the target that the
+-- seeded aihc-base is built for. The C compile of that target is the host's
+-- own.
 test_installRtsCapi :: IO SeedStore -> Assertion
 test_installRtsCapi getStore =
   withSandbox getStore "aihc-install-rts-capi" $ \sandbox -> do
@@ -1166,7 +1176,7 @@ test_installRtsCapi getStore =
             "foreign import capi unsafe \"Rts.h rtsSupportsBoundThreads\" boundThreads :: Int32"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm defaultPlanOptions)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False buildHostTarget defaultPlanOptions)
     let stubSource = installStorePath result </> "Demo" </> "Demo.capi.c"
     stub <- readFile stubSource
     assertBool "the wrapper includes Rts.h" ("#include \"Rts.h\"" `isInfixOf` stub)

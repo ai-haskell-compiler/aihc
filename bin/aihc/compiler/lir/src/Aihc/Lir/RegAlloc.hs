@@ -57,6 +57,8 @@ module Aihc.Lir.RegAlloc
     Interval (..),
     functionIntervals,
     readCounts,
+    operationReads,
+    terminatorReads,
   )
 where
 

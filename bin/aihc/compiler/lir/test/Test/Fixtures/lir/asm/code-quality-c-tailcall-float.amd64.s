@@ -70,8 +70,7 @@ indirect:
 	.text
 	.p2align 4
 main:
-	push rbp
-	mov rbp, rsp
+	sub rsp, 0x8
 	mov r11, 0x4000000000000000
 	movq xmm0, r11
 	mov edi, 0x2a
@@ -88,10 +87,9 @@ main:
 	call indirect
 	movd eax, xmm0
 	mov eax, eax
+	add rsp, 0x8
 	mov rdx, rax
 	mov rax, rbx
-	mov rsp, rbp
-	pop rbp
 	ret
 	.text
 	.p2align 4
