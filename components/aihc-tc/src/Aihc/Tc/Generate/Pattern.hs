@@ -7,9 +7,8 @@ module Aihc.Tc.Generate.Pattern
     annotatePatternBindings,
     reannotatePatternBinders,
     checkPattern,
-    checkPatternsWithGivens,
+    checkPatterns,
     checkFunctionPatterns,
-    checkFunctionPatternsWithGivens,
     checkedPattern,
     patternBinderNames,
     withPatternBindings,
@@ -110,24 +109,10 @@ instance Semigroup PatternCheck where
 instance Monoid PatternCheck where
   mempty = PatternCheck [] [] [] [] []
 
-data GadtHandling
-  = GadtAsWanted
-  | GadtAsGiven
-  deriving (Eq)
-
-checkPatternsWithGivens :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkPatternsWithGivens = checkPatternsWith GadtAsGiven
-
 checkFunctionPatterns :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkFunctionPatterns = checkFunctionPatternsWith GadtAsWanted
-
-checkFunctionPatternsWithGivens :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkFunctionPatternsWithGivens = checkFunctionPatternsWith GadtAsGiven
-
-checkFunctionPatternsWith :: GadtHandling -> Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkFunctionPatternsWith gadtHandling sp arguments = do
+checkFunctionPatterns sp arguments = do
   mapM_ (checkFunctionArgument sp) arguments
-  checkPatternsWith gadtHandling sp arguments
+  checkPatterns sp arguments
 
 checkFunctionArgument :: Maybe SourceSpan -> (Pattern, TcType) -> TcM ()
 checkFunctionArgument ambient (pat, ty) = do
@@ -159,12 +144,12 @@ functionArgumentName pat =
 -- | Check patterns left to right. A view pattern's expression sees the
 -- binders of the patterns before it, across a function's arguments and
 -- inside one constructor or tuple pattern alike.
-checkPatternsWith :: GadtHandling -> Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkPatternsWith gadtHandling sp = go mempty
+checkPatterns :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkPatterns sp = go mempty
   where
     go done [] = pure done
     go done ((pat, ty) : rest) = do
-      check <- withEarlierPatternBindings (pcBindings done) (checkPatternWith gadtHandling sp pat ty)
+      check <- withEarlierPatternBindings (pcBindings done) (checkPattern sp pat ty)
       go (done <> check) rest
 
 -- | Bring the binders of the patterns checked so far into scope for the
@@ -190,34 +175,31 @@ localBinderKey name =
     _ -> Nothing
 
 checkPattern :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
-checkPattern = checkPatternWith GadtAsWanted
-
-checkPatternWith :: GadtHandling -> Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
-checkPatternWith gadtHandling sp pat scrutTy = do
+checkPattern sp pat scrutTy = do
   check <- case literalPatternCheck sp pat scrutTy of
     Just literalCheck -> literalCheck
-    Nothing -> checkPatternCore gadtHandling sp pat scrutTy
+    Nothing -> checkPatternCore sp pat scrutTy
   pure check {pcPatterns = map (checkedPatternType sp scrutTy) (pcPatterns check)}
 
-checkPatternWithoutResultType :: GadtHandling -> Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
-checkPatternWithoutResultType gadtHandling sp pat scrutTy =
+checkPatternWithoutResultType :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPatternWithoutResultType sp pat scrutTy =
   case literalPatternCheck sp pat scrutTy of
     Just literalCheck -> literalCheck
     Nothing ->
       case pat of
         PAnn ann inner -> do
-          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
         PParen inner -> do
-          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
         PStrict inner -> do
-          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PStrict (checkedPattern innerCheck)]}
         PIrrefutable inner -> do
-          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
-        _ -> checkPatternCore gadtHandling sp pat scrutTy
+        _ -> checkPatternCore sp pat scrutTy
 
 checkedPatternType :: Maybe SourceSpan -> TcType -> Pattern -> Pattern
 checkedPatternType sp ty pat
@@ -315,16 +297,16 @@ viewExprSpan expr =
     EApp function _ -> viewExprSpan function
     _ -> Nothing
 
-checkPatternCore :: GadtHandling -> Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
-checkPatternCore gadtHandling sp pat scrutTy =
+checkPatternCore :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPatternCore sp pat scrutTy =
   case pat of
     PVar name ->
       pure (checkedOnly pat) {pcBindings = [(name, scrutTy)]}
     PAnn ann inner -> do
-      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
     PParen inner -> do
-      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
     PWildcard {} -> pure (checkedOnly pat)
     PLit lit
@@ -343,50 +325,50 @@ checkPatternCore gadtHandling sp pat scrutTy =
       | otherwise -> pure (checkedOnly pat)
     PAs name inner -> do
       let innerSpan = patternOwnSpan inner <|> sp
-      innerCheck <- checkPatternWithoutResultType gadtHandling innerSpan inner scrutTy
+      innerCheck <- checkPatternWithoutResultType innerSpan inner scrutTy
       pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck, pcPatterns = [PAs name (checkedPattern innerCheck)]}
     PStrict inner -> do
-      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PStrict (checkedPattern innerCheck)]}
-    PTypeSig inner tyAnn -> checkTypeSigPattern gadtHandling sp inner tyAnn scrutTy
+    PTypeSig inner tyAnn -> checkTypeSigPattern sp inner tyAnn scrutTy
     PIrrefutable inner -> do
-      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
     PCon name _typeArgs subPats ->
-      checkConPattern gadtHandling sp pat name subPats scrutTy
+      checkConPattern sp pat name subPats scrutTy
     PInfix lhs op rhs ->
-      checkConPattern gadtHandling sp pat op [lhs, rhs] scrutTy
+      checkConPattern sp pat op [lhs, rhs] scrutTy
     PRecord name fields wildcard -> do
       when wildcard $
         abortTc ("record wildcard patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
       head' <- lookupRecordHead name
       subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ -> pure PWildcard)
-      checkConPattern gadtHandling sp (PCon name [] subPats) name subPats scrutTy
-    PList items -> checkListPattern gadtHandling sp items scrutTy
+      checkConPattern sp (PCon name [] subPats) name subPats scrutTy
+    PList items -> checkListPattern sp items scrutTy
     PView viewExpr inner -> do
       let viewSpan = viewExprSpan viewExpr <|> sp
       (viewExpr', viewTy, viewCts) <- inferExprAt viewSpan viewExpr
       innerTy <- freshMetaTv
       eqCt <- wantedEq viewSpan viewTy (TcFunTy scrutTy innerTy)
-      innerCheck <- checkPatternWith gadtHandling sp inner innerTy
+      innerCheck <- checkPattern sp inner innerTy
       pure
         innerCheck
           { pcWantedCts = eqCt : viewCts <> pcWantedCts innerCheck,
             pcPatterns = [PView viewExpr' (checkedPattern innerCheck)]
           }
-    PTuple flavor items -> checkTuplePattern gadtHandling sp flavor items scrutTy
+    PTuple flavor items -> checkTuplePattern sp flavor items scrutTy
     -- A prefix tuple constructor, @(,) a b@, checks like the @(a, b)@ form.
     -- The type arguments follow 'PCon', which ignores them.
     PBuiltinCon (BuiltinTuple flavor arity) _typeArgs items
       | length items == arity ->
-          checkTuplePattern gadtHandling sp flavor items scrutTy
+          checkTuplePattern sp flavor items scrutTy
     PUnboxedSum alternative arity inner -> do
       types <- mapM (const freshMetaTv) [1 .. arity]
       sumType <- unboxedSumType types
       equality <- wantedEq sp scrutTy sumType
       case drop alternative types of
         innerType : _ -> do
-          checked <- checkPatternWith gadtHandling sp inner innerType
+          checked <- checkPattern sp inner innerType
           pure
             checked
               { pcWantedCts = equality : pcWantedCts checked,
@@ -400,21 +382,21 @@ checkPatternCore gadtHandling sp pat scrutTy =
 -- against it, so the binders the sub-pattern introduces get the type the
 -- signature gives them. A wanted equality ties the signature to the
 -- scrutinee.
-checkTypeSigPattern :: GadtHandling -> Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
-checkTypeSigPattern gadtHandling sp inner tyAnn scrutTy = do
+checkTypeSigPattern :: Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
+checkTypeSigPattern sp inner tyAnn scrutTy = do
   kinds <- getKinds
   scoped <- getScopedTyVars
   sigTy <- checkSurfaceType scoped tyAnn (typeKind kinds)
   eqCt <- wantedEq sp scrutTy sigTy
-  innerCheck <- checkPatternWith gadtHandling sp inner sigTy
+  innerCheck <- checkPattern sp inner sigTy
   pure
     innerCheck
       { pcWantedCts = eqCt : pcWantedCts innerCheck,
         pcPatterns = [PTypeSig (checkedPattern innerCheck) tyAnn]
       }
 
-checkTuplePattern :: GadtHandling -> Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
-checkTuplePattern gadtHandling sp flavor items scrutTy = do
+checkTuplePattern :: Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
+checkTuplePattern sp flavor items scrutTy = do
   kinds <- getKinds
   elemTys <- mapM (const freshMetaTv) items
   let arity = length items
@@ -429,7 +411,7 @@ checkTuplePattern gadtHandling sp flavor items scrutTy = do
   tupleTyCon <- mkWiredTyCon wired fallbackKind
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
-  itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)
+  itemChecks <- checkPatterns sp (zip items elemTys)
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PTuple flavor (pcPatterns itemChecks)]}
 
 checkedOnly :: Pattern -> PatternCheck
@@ -438,18 +420,18 @@ checkedOnly pat = mempty {pcPatterns = [pat]}
 checkedLiteral :: TcType -> Literal -> Literal
 checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
 
-checkListPattern :: GadtHandling -> Maybe SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
-checkListPattern gadtHandling sp items scrutTy =
+checkListPattern :: Maybe SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
+checkListPattern sp items scrutTy =
   case items of
     [] -> do
       (nilCon, scheme) <- listConstructorScheme tcWiringNilDataCon
       (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
-      scrutCts <- constructorScrutineeCt gadtHandling sp (tyConTermKey nilCon) scrutTy nilTy
+      scrutCt <- wantedEq sp scrutTy nilTy
       predicateGivens <- mapM (constructorGiven sp (tyConName nilCon)) predicates
       pure
         mempty
-          { pcWantedCts = fst scrutCts,
-            pcGivenCts = predicateGivens <> snd scrutCts,
+          { pcWantedCts = [scrutCt],
+            pcGivenCts = predicateGivens,
             pcSkolems = skolems,
             pcPatterns = [PList []]
           }
@@ -459,9 +441,9 @@ checkListPattern gadtHandling sp items scrutTy =
       (argumentTypes, resultTy) <- splitConTy 2 consTy
       case argumentTypes of
         [itemTy, tailTy] -> do
-          scrutCts <- constructorScrutineeCt gadtHandling sp (tyConTermKey consCon) scrutTy resultTy
-          itemCheck <- checkPatternWith gadtHandling sp item itemTy
-          tailCheck <- withEarlierPatternBindings (pcBindings itemCheck) (checkListPattern gadtHandling sp rest tailTy)
+          scrutCt <- wantedEq sp scrutTy resultTy
+          itemCheck <- checkPattern sp item itemTy
+          tailCheck <- withEarlierPatternBindings (pcBindings itemCheck) (checkListPattern sp rest tailTy)
           predicateGivens <- mapM (constructorGiven sp (tyConName consCon)) predicates
           let nestedCheck = itemCheck <> tailCheck
               checkedTailItems = case checkedPattern tailCheck of
@@ -471,8 +453,8 @@ checkListPattern gadtHandling sp items scrutTy =
               checkedItems = checkedPattern itemCheck : checkedTailItems
           pure
             nestedCheck
-              { pcWantedCts = fst scrutCts <> pcWantedCts nestedCheck,
-                pcGivenCts = predicateGivens <> snd scrutCts <> pcGivenCts nestedCheck,
+              { pcWantedCts = [scrutCt] <> pcWantedCts nestedCheck,
+                pcGivenCts = predicateGivens <> pcGivenCts nestedCheck,
                 pcSkolems = skolems <> pcSkolems nestedCheck,
                 pcPatterns = [PList checkedItems]
               }
@@ -795,22 +777,21 @@ annotateBinderName bindings name =
       | any annotationIsPending (unqualifiedNameAnns name) -> name
       | otherwise -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
 
-checkConPattern :: GadtHandling -> Maybe SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
-checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
+checkConPattern :: Maybe SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
+checkConPattern sp originalPat conSyntax subPats scrutTy = do
   let conName = patternNameText conSyntax
   target <- resolvedTermTarget conSyntax
-  constructorKey <- resolvedTargetTermKey conName target
   mBinder <- lookupResolvedTerm conName target
   mPatSyn <- lookupPatSynTarget target
   case mBinder of
     Just (TcIdBinder scheme _)
       | Just info <- mPatSyn ->
-          checkPatSynPattern gadtHandling sp originalPat conName constructorKey info scheme subPats scrutTy
+          checkPatSynPattern sp originalPat conName info scheme subPats scrutTy
     Just (TcIdBinder scheme _) -> do
       (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
-      scrutCt <- constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy
-      subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
+      scrutCt <- wantedEq sp scrutTy conResTy
+      subCheck <- checkPatterns sp (zip subPats argTys)
       predicateGivens <- mapM (constructorGiven sp conName) predicates
       -- The annotation carries the constructor's result type, not the
       -- scrutinee's: the desugarer reads the type arguments of a newtype
@@ -832,8 +813,8 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
                   rebuiltPattern
       pure
         subCheck
-          { pcWantedCts = fst scrutCt <> pcWantedCts subCheck,
-            pcGivenCts = predicateGivens <> snd scrutCt <> pcGivenCts subCheck,
+          { pcWantedCts = [scrutCt] <> pcWantedCts subCheck,
+            pcGivenCts = predicateGivens <> pcGivenCts subCheck,
             pcSkolems = skolems <> pcSkolems subCheck,
             pcPatterns = [annotatedPattern]
           }
@@ -847,15 +828,15 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
 -- records the type arguments, the required evidence and then the provided
 -- evidence, and the existential skolems. The desugarer calls the matcher
 -- with them.
-checkPatSynPattern :: GadtHandling -> Maybe SourceSpan -> Pattern -> Text -> TcTermKey -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
-checkPatSynPattern gadtHandling sp originalPat conName constructorKey info scheme subPats scrutTy = do
+checkPatSynPattern :: Maybe SourceSpan -> Pattern -> Text -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
+checkPatSynPattern sp originalPat conName info scheme subPats scrutTy = do
   when (length subPats /= psiArity info) $
     emitError sp (OtherError ("pattern synonym " <> T.unpack conName <> " takes " <> show (psiArity info) <> " arguments, but the pattern gives " <> show (length subPats)))
   (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
   let (requiredPreds, providedPreds) = splitAt (length (psiReqTheta info)) predicates
   (argTys, conResTy) <- splitConTy (length subPats) conTy
-  scrutCt <- constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy
-  subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
+  scrutCt <- wantedEq sp scrutTy conResTy
+  subCheck <- checkPatterns sp (zip subPats argTys)
   requiredCts <- mapM (predToCt sp conName) requiredPreds
   providedGivens <- mapM (constructorGiven sp conName) providedPreds
   let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
@@ -870,8 +851,8 @@ checkPatSynPattern gadtHandling sp originalPat conName constructorKey info schem
           rebuiltPattern
   pure
     subCheck
-      { pcWantedCts = fst scrutCt <> requiredCts <> pcWantedCts subCheck,
-        pcGivenCts = providedGivens <> snd scrutCt <> pcGivenCts subCheck,
+      { pcWantedCts = [scrutCt] <> requiredCts <> pcWantedCts subCheck,
+        pcGivenCts = providedGivens <> pcGivenCts subCheck,
         pcSkolems = skolems <> pcSkolems subCheck,
         pcPatterns = [annotatedPattern]
       }
@@ -981,28 +962,6 @@ replaceConstructorSubpatterns pat subPats =
         [lhs, rhs] -> PInfix lhs op rhs
         _ -> pat
     _ -> pat
-
-constructorScrutineeCt :: GadtHandling -> Maybe SourceSpan -> TcTermKey -> TcType -> TcType -> TcM ([Ct], [Ct])
-constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy = do
-  ev <- freshEvVar
-  gadtCon <- isGadtCon constructorKey
-  if gadtHandling == GadtAsGiven && gadtCon
-    then
-      pure
-        ( [],
-          [ Ct
-              { ctPred = EqPred scrutTy conResTy,
-                ctFlavor = Given,
-                ctEvVar = ev,
-                ctOrigin = AppOrigin sp,
-                ctProvenance = FromCtOrigin (AppOrigin sp),
-                ctLoc = sp
-              }
-          ]
-        )
-    else do
-      let wantedCt = mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp
-      pure ([wantedCt], [])
 
 splitConTy :: Int -> TcType -> TcM ([TcType], TcType)
 splitConTy 0 ty = pure ([], ty)

@@ -5045,13 +5045,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars)
         quantifiedTyVars = universalTyVars <> filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
         gadtScheme = specifiedScheme quantifiedTyVars predicates conTy
-    mapM_
-      ( \n -> do
-          constructorKey <- resolvedUnqualifiedTermKey n
-          extendResolvedTermEnvPermanent n (TcIdBinder gadtScheme Closed)
-          markGadtCon constructorKey
-      )
-      names
+    mapM_ (\n -> extendResolvedTermEnvPermanent n (TcIdBinder gadtScheme Closed)) names
     case names of
       (n : _) -> do
         constructorKey <- resolvedUnqualifiedTermKey n
@@ -5402,7 +5396,7 @@ tcMatchEquation :: Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM (Match
 tcMatchEquation expectedOrigin argTys resTy match = do
   let pats = matchPats match
       sp = sourceSpanFromAnns (matchAnns match)
-  patCheck <- checkFunctionPatternsWithGivens sp (zip pats argTys)
+  patCheck <- checkFunctionPatterns sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
   (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy (matchRhs match)))
   -- RHS type must match the expected result type.

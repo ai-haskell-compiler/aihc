@@ -684,7 +684,7 @@ inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
             Nothing -> do
               (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
               let sourceSpan = Nothing
-              patCheck <- checkPatternsWithGivens sourceSpan [(pat, rhsTy)]
+              patCheck <- checkPatterns sourceSpan [(pat, rhsTy)]
               patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
               cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
               let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
@@ -821,7 +821,7 @@ tcMatchEquation inferExpr argTys resTy match = do
       matchSpan = sourceSpanFromAnnotations (matchAnns match)
   when (length pats > length argTys) $
     abortTc ("internal type checker error: equation with " <> show (length pats) <> " patterns checked against " <> show (length argTys) <> " argument types")
-  patCheck <- checkFunctionPatternsWithGivens matchSpan (zip pats argTys)
+  patCheck <- checkFunctionPatterns matchSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
   let rhsLocation = (<|>) (rhsSourceSpan (matchRhs match)) matchSpan

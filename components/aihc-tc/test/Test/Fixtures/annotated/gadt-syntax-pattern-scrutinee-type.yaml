@@ -1,0 +1,47 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data List a = Nil | Cons a (List a)
+       │        │     └─ type: ∀ a. a → List a → List a
+       │        └─ type: ∀ a. List a
+       └─ type: Type → Type
+  class C a
+  └─ class methods:
+  data Box where
+       └─ type: Type
+    Box :: C v => v -> Box
+    └─ type: ∀ v. (C v) ⇒ v → Box
+
+  rebox :: List Box -> List Box
+  rebox = go
+  └─ type: List Box → List Box
+    where
+      go Nil = Nil
+      │  │     └─ type: List Box; type-args: Box
+      │  └─ type: List Box
+      └─ type: List Box → List Box
+      go (Cons (Box v) rest) = Cons (Box v) (go rest)
+      │   │     │   │  │       │     └─ type: v → Box; type-args: v; evidence: given C v
+      │   │     │   │  │       └─ type: Box → List Box → List Box; type-args: Box
+      │   │     │   │  └─ type: List Box
+      │   │     │   └─ type: v
+      │   │     └─ type: v → Box; type-args: v; evidence: given C v
+      │   └─ type: List Box
+      └─ type: List Box → List Box
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data List a = Nil | Cons a (List a)
+  class C a
+  data Box where
+    Box :: C v => v -> Box
+
+  rebox :: List Box -> List Box
+  rebox = go
+    where
+      go Nil = Nil
+      go (Cons (Box v) rest) = Cons (Box v) (go rest)
+status: pass

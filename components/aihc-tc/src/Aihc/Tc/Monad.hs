@@ -125,8 +125,6 @@ module Aihc.Tc.Monad
     lookupDeclaredClass,
 
     -- * GADT constructor registry
-    markGadtCon,
-    isGadtCon,
 
     -- * Diagnostics
     emitDiagnostic,
@@ -163,7 +161,6 @@ import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
-import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -457,8 +454,6 @@ data TcState = TcState
     tcsDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
     -- | Type-family equations in scope.
     tcsTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
-    -- | Identities of GADT constructors (have non-trivial result types).
-    tcsGadtCons :: !(Set TcTermKey),
     -- | Pattern synonyms in scope, keyed like their builder term.
     tcsPatSyns :: !(Map TcTermKey PatSynInfo),
     -- | Record heads of the record pattern synonyms declared in the
@@ -502,7 +497,6 @@ initTcState =
       tcsInstances = emptyInstanceEnv,
       tcsDataFamilyInstances = Map.empty,
       tcsTypeFamilyInstances = Map.empty,
-      tcsGadtCons = Set.empty,
       tcsForeignImports = Map.empty,
       tcsDeferredKindMetas = IntSet.empty
     }
@@ -1147,13 +1141,3 @@ currentErrorCount =
   lift $ gets $ length . filter isError . tcsDiagnostics
   where
     isError diagnostic = diagSeverity diagnostic == TcError
-
--- | Record that a constructor is a GADT constructor.
-markGadtCon :: TcTermKey -> TcM ()
-markGadtCon key = lift $ modify' $ \s ->
-  s {tcsGadtCons = Set.insert key (tcsGadtCons s)}
-
--- | Check whether a constructor is a GADT constructor.
-isGadtCon :: TcTermKey -> TcM Bool
-isGadtCon key = lift $ gets $ \s ->
-  Set.member key (tcsGadtCons s)
