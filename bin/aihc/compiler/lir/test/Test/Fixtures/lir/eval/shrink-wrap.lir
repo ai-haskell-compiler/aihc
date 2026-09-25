@@ -1,0 +1,51 @@
+; expect: 148
+; reason: A frame exists only in a block that makes a call. The loop runs
+; without a frame, and each call block pushes and pops its own frame. The
+; last parameter is on the stack, and the function reads it after the loop.
+; The main function calls in its entry block and then returns.
+
+func @add_pair(%slots: ptr) cc c {
+entry:
+  %first = load i64 [%slots] align 8
+  %second = load i64 [%slots + 8] align 8
+  %sum = add i64 %first, %second
+  store i64 %sum, [%slots] align 8
+  return
+}
+
+func @sum(%n: i64, %acc: i64, %a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64) -> i64 {
+entry:
+  %slots = stack.alloc 16 align 8
+  jump loop(%n, %acc)
+
+loop(%i: i64, %total: i64):
+  %done = eq i64 %i, 0
+  br %done, finish, step
+
+step:
+  %low = and i64 %i, 3
+  %cold = eq i64 %low, 0
+  br %cold, call, next(%total)
+
+call:
+  store i64 %total, [%slots] align 8
+  store i64 %i, [%slots + 8] align 8
+  call @add_pair(%slots)
+  %added = load i64 [%slots] align 8
+  jump next(%added)
+
+next(%value: i64):
+  %more = add i64 %value, %i
+  %j = sub i64 %i, 1
+  jump loop(%j, %more)
+
+finish:
+  %result = add i64 %total, %h
+  return %result
+}
+
+func @main() -> i64 {
+entry:
+  %result = call @sum(8, 0, 0, 0, 0, 0, 0, 0, 0, 100)
+  return %result
+}

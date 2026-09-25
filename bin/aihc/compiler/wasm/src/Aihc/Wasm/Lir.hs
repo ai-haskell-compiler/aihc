@@ -409,16 +409,6 @@ functionBody fn = do
     emit "i32.sub"
     emit ("local.tee\t" <> tshow frameLocal)
     emit ("global.set\t" <> stackPointer)
-    -- The allocations are zero.
-    forM_ [(offset, size) | block <- take 1 (functionBlocks (fnFunction fn)), Instruction [var] (StackAlloc size _) <- blockInstructions block, Just offset <- [Map.lookup var (fnAllocs fn)]] $ \(offset, size) -> do
-      forM_ [offset, offset + 8 .. offset + fromInteger size - 8] $ \position -> do
-        emit ("local.get\t" <> tshow frameLocal)
-        emit "i64.const\t0"
-        emit ("i64.store\t" <> tshow position)
-      forM_ [offset + (fromInteger size `div` 8) * 8 .. offset + fromInteger size - 1] $ \position -> do
-        emit ("local.get\t" <> tshow frameLocal)
-        emit "i32.const\t0"
-        emit ("i32.store8\t" <> tshow position)
   let blocks = functionBlocks (fnFunction fn)
       count = length blocks
   emit "loop"
