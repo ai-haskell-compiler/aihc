@@ -205,7 +205,7 @@ parseFcFixture path value = do
         casePasses = passes
       }
 
--- | One entry of the @passes@ key: @eta@, @simplify@, or @inline@ with a
+-- | A @passes@ entry: @eta@, @simplify@, @lift-constants@, or @inline@ with a
 -- policy. The policy is @shrink@, @grow@, or an object that names one of
 -- the two under @policy@ and overrides its knobs: @callee-limit@,
 -- @site-limit@, @discount@, @value-growth@, @value-slack@, and the
@@ -213,6 +213,7 @@ parseFcFixture path value = do
 parsePass :: Y.Value -> Y.Parser Pass
 parsePass value =
   case value of
+    Y.String "lift-constants" -> pure PassLiftConstants
     Y.String "eta" -> pure PassEtaExpand
     Y.String "simplify" -> pure (PassSimplify 0)
     Y.Object obj | Just simplify <- KeyMap.lookup "simplify" obj -> do
@@ -244,7 +245,7 @@ parsePass value =
                 phase
             )
         _ -> fail "inline must be shrink, grow, or an object with a policy"
-    _ -> fail "a pass must be eta, simplify, or an object with inline"
+    _ -> fail "a pass must be eta, simplify, lift-constants, or an object with inline"
   where
     defaultRounds = 4
     -- The phases of the optimization plans: the shrinking inliner is

@@ -1,0 +1,56 @@
+extensions:
+- GADTs
+modules:
+- |
+  module Test where
+  data Equal a b where
+    Refl :: Equal a a
+  data Box a = Box a
+  local :: Equal a () -> () -> Box a
+  local Refl _ = Box ()
+passes:
+- lift-constants
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.tUnit :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    2.c() :: 2.tUnit;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tEqual (a : 3.sType) (b : 3.sType) :: 3.sType {
+      pub 1.cRefl :: ∀(a : 3.sType) (b : 3.sType). FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (b ~ a) (1.tEqual a b)
+  }
+
+  pub type 1.tBox (a : 3.sType) :: 3.sType {
+      pub 1.cBox :: ∀(a : 3.sType). a 3.→ 1.tBox a
+  }
+
+  pub val 1.vlocal :: ∀(a : 3.sType). 1.tEqual a 2.tUnit 3.→ 2.tUnit 3.→ 1.tBox a
+   = Λ(a : 3.sType).
+    λ(x : 1.tEqual a 2.tUnit).
+      λ(y : 2.tUnit).
+        case x as (_scrut : 1.tEqual a 2.tUnit) return (1.tBox a) of {
+            1.cRefl ($pattern_d0 : 2.tUnit ~ a) →
+                1.vlocal$constant$0 ▷ sym (tycon-co 1.tBox (sym ($pattern_d0)))
+        }
+
+  val 1.vlocal$constant$0 noinline :: 1.tBox 2.tUnit
+   = 1.cBox @2.tUnit 2.c()
+status: pass
+reason: A local coercion stays inside its case when the closed constructor becomes a constant.
