@@ -2192,7 +2192,7 @@ tcInstanceDeclBodies (DeclAnn ann inner)
     DeclInstance instanceDecl <- peelDeclAnn inner = do
       let classNameText = tyConName (tcInstanceClassTyCon annotation)
           headTys = tcInstanceHeadTypes annotation
-      givens <- mapM (constraintTypePred . tcDictBinderType) (tcInstanceContextDicts annotation)
+      let givens = map tcDictBinderPred (tcInstanceContextDicts annotation)
       classInfo <- lookupClass (tcInstanceClassTyCon annotation) >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       items <-
         withScopedTyVars (tyVarScope (tcInstanceTyVars annotation)) $
@@ -2457,24 +2457,25 @@ predDictBinder :: Pred -> TcM TcDictBinderAnnotation
 predDictBinder pred' =
   case pred' of
     ClassPred classTyCon args ->
-      pure (TcDictBinderAnnotation (tyConName classTyCon) args (TcTyCon classTyCon args))
+      pure (TcDictBinderAnnotation (tyConName classTyCon) args (TcTyCon classTyCon args) pred')
     EqPred {} -> do
       ty <- predType pred'
-      pure (TcDictBinderAnnotation "<constraint>" [] ty)
+      pure (TcDictBinderAnnotation "<constraint>" [] ty pred')
     QuantifiedPred {} -> do
       ty <- predType pred'
-      pure (TcDictBinderAnnotation "<quantified>" [] ty)
+      pure (TcDictBinderAnnotation "<quantified>" [] ty pred')
     IrredPred constraint ->
-      pure (TcDictBinderAnnotation "<irreducible>" [] constraint)
+      pure (TcDictBinderAnnotation "<irreducible>" [] constraint pred')
     IParamPred name payload -> do
       ty <- predType pred'
-      pure (TcDictBinderAnnotation name [payload] ty)
+      pure (TcDictBinderAnnotation name [payload] ty pred')
 
 constraintTypeDictBinder :: TcKinds -> TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder kinds ty =
   case constraintTypeToPred kinds ty of
-    Just (ClassPred classTyCon args) -> TcDictBinderAnnotation (tyConName classTyCon) args ty
-    _ -> TcDictBinderAnnotation "<constraint>" [] ty
+    Just predicate@(ClassPred classTyCon args) -> TcDictBinderAnnotation (tyConName classTyCon) args ty predicate
+    Just predicate -> TcDictBinderAnnotation "<constraint>" [] ty predicate
+    Nothing -> TcDictBinderAnnotation "<constraint>" [] ty (IrredPred ty)
 
 constraintTypePred :: TcType -> TcM Pred
 constraintTypePred ty = do

@@ -76,7 +76,6 @@ import Aihc.Tc.Types
     addrRep,
     applySubst,
     applySubstPred,
-    constraintTypeToPred,
     int16Rep,
     int32Rep,
     int64Rep,
@@ -1364,13 +1363,15 @@ dropClassPredicate classTyCon predicates =
       | predicateClass == classTyCon -> rest
     predicate : rest -> predicate : dropClassPredicate classTyCon rest
 
+-- | The binder of one context dictionary of an instance. The predicate
+-- decides how the binder's type is spelled: a stuck constraint such as
+-- @TypeError msg@ is polymorphic in its result kind, and only the
+-- predicate says that the context fixes that kind to @Constraint@.
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
-  kinds <- valueKinds
-  binder <- freshBinder ("$d" <> T.pack (show index)) (tcDictBinderType annotation)
-  case constraintTypeToPred kinds (tcDictBinderType annotation) of
-    Just predicate -> pure (Dictionary predicate binder)
-    Nothing -> failValue ("invalid checked class dictionary type: " <> show (tcDictBinderType annotation))
+  let predicate = tcDictBinderPred annotation
+  binder <- freshDictionaryBinder "$d" index predicate
+  pure (Dictionary predicate binder)
 
 instanceMethods :: Syn.InstanceDecl -> [(Text, (TcType, [Syn.Match]))]
 instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems instanceDecl)
