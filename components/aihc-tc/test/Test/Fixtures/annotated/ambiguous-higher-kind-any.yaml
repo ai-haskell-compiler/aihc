@@ -1,0 +1,41 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Box (v :: Type -> Type) a = Box a
+       │                           └─ type: ∀ v a. a → Box v a
+       └─ type: (Type → Type) → Type → Type
+
+  re :: Box u a -> Box v a
+  re (Box x) = Box x
+  │   │   │    └─ type: a → Box v a; type-args: v, a
+  │   │   └─ type: a
+  │   └─ type: Box u a
+  └─ type: ∀ u a v. Box u a → Box v a
+
+  useRe :: Box v a -> Box w a
+  useRe b = re (re b)
+  │     │   │   └─ type: Box v a → Box GHC.Types.Any a; type-args: v, a, Any
+  │     │   └─ type: Box GHC.Types.Any a → Box w a; type-args: Any, a, w
+  │     └─ type: Box v a
+  └─ type: ∀ v a w. Box v a → Box w a
+status: pass
+extensions:
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Box (v :: Type -> Type) a = Box a
+
+  re :: Box u a -> Box v a
+  re (Box x) = Box x
+
+  useRe :: Box v a -> Box w a
+  useRe b = re (re b)

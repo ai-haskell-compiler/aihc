@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Finalize type-checker annotations after constraint solving.
@@ -8,7 +7,7 @@ module Aihc.Tc.Finalize
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Module, TupleFlavor (..), fromAnnotation, mkAnnotation)
+import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
 import Aihc.Resolve.Traverse (traverseAnnotations)
 import Aihc.Tc.Annotations
   ( CastDirection (..),
@@ -35,7 +34,7 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
 import Aihc.Tc.Tidy (tidyType)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, typeKind, pattern KType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, typeKind)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
@@ -111,15 +110,7 @@ defaultUnsolvedAnnotationMetas annotation =
               writeMetaTv kindMeta (typeKind kinds)
               pure (typeKind kinds)
             _ -> pure rawKind
-          case kind of
-            KType -> do
-              unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
-              writeMetaTv meta (TcTyCon unitTyCon [])
-            _ ->
-              abortTc
-                ( "internal type annotation error: cannot default a meta-variable with kind "
-                    <> renderTcType (tidyType kinds kind)
-                )
+          writeMetaTv meta =<< undeterminedTypeOfKind kind
       annotation' <- zonkTcAnnotation annotation
       defaultUnsolvedAnnotationMetas annotation'
 

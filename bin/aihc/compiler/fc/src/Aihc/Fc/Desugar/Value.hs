@@ -722,7 +722,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
     -- the record cast with the representation axiom as well.
     ([], info : _) -> do
       instanceArguments <- familyInstanceArguments info scrutineeType
-      axiomArguments <- mapM convertCheckedType instanceArguments
+      axiomArguments <- familyAxiomArguments info instanceArguments
       let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
           record = ExVar (binderName argument)
       if dfiiIsNewtype info
@@ -1629,8 +1629,9 @@ desugarTopValue specs top = do
 -- goes through a hidden function that is generic in every type variable of
 -- the group, because the pattern gives the /other/ binders types that the
 -- value cannot mention. The type checker records on each binder the type
--- arguments that instantiate the group, one per type variable, using the
--- unit type where GHC uses @Any@.
+-- arguments that instantiate the group, one per type variable. The type
+-- checker gives a variable that a binder does not mention the unit type at
+-- kind @Type@ and @Any@ at each other kind.
 desugarTopPatternGroup :: TopPatternGroup -> ValueM [ValDecl]
 desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
   specs <- patternBinderSpecs pattern'
@@ -1684,7 +1685,9 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
         pure (argumentBinder, body)
       selectType <- convertCheckedType (foldr TcForAllTy (TcFunTy rhsBodyType ty) rhsTyVars)
       typeBinders <- convertTypeBinders tyVars
-      convertedArgs <- withTypeVariables tyVars (mapM convertCheckedType typeArgs)
+      -- A type argument can be @Any@, whose kind only the variable that it
+      -- instantiates gives.
+      convertedArgs <- withTypeVariables tyVars (convertCheckedTypeArguments (foldr TcForAllTy rhsBodyType rhsTyVars) typeArgs)
       convertedType <- convertCheckedType (foldr TcForAllTy ty tyVars)
       vis <- termVisibility name
       let instantiate expression = foldl ExTyApp expression convertedArgs
@@ -2278,7 +2281,7 @@ desugarFamilyPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] 
 desugarFamilyPatterns resultType fallback argument remaining argumentTypes works representative info = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   instanceArguments <- familyInstanceArguments info scrutineeType
-  axiomArguments <- mapM convertCheckedType instanceArguments
+  axiomArguments <- familyAxiomArguments info instanceArguments
   let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
       scrutinee = ExVar (binderName argument)
   if dfiiIsNewtype info
@@ -3288,7 +3291,7 @@ desugarFamilyConstructor name annotation info = do
       (_, bodyType) = peelConstraints afterForAlls
       (fieldTypes, resultType) = splitFunctionType bodyType
   instanceArguments <- familyInstanceArguments info resultType
-  axiomArguments <- mapM convertCheckedType instanceArguments
+  axiomArguments <- familyAxiomArguments info instanceArguments
   fields <- mapM (freshBinder "_field") fieldTypes
   let familyCoercion = CoSym (CoAxiom (familyAxiomName info) axiomArguments)
   body <-
@@ -3328,6 +3331,17 @@ familyInstanceArguments info familyType =
               (Map.lookup (tvUnique tyVar) substitution)
         )
         (dfiiTyVars info)
+
+-- | The type arguments of the family axiom and the representation axiom
+-- of one instance. A kind-polymorphic instance, such as
+-- @Vector (Const a b)@ with @b :: k@, binds the kind variables of its
+-- representation type constructor before its own type variables. The
+-- conversion of the representation type application infers those kind
+-- arguments, so the axiom takes all the arguments of that application.
+familyAxiomArguments :: DataFamilyInstanceInfo -> [TcType] -> ValueM [Type]
+familyAxiomArguments info instanceArguments = do
+  representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+  pure (typeApplicationArguments representationType)
 
 familyAxiomName :: DataFamilyInstanceInfo -> Name
 familyAxiomName info =

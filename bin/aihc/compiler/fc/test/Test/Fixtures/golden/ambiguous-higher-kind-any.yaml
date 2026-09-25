@@ -1,0 +1,93 @@
+extensions:
+  - KindSignatures
+modules:
+  - |
+    module Test where
+    import GHC.Types (Type)
+    data Box (v :: Type -> Type) a = Box a
+    re :: Box u a -> Box v a
+    re (Box x) = Box x
+    useRe :: Box v a -> Box w a
+    useRe b = re (re b)
+    data Tag (v :: Type -> Type) = Tag
+    data Flag = Flag
+    (tag, flag) = (Tag, Flag)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tAny :: ∀(k : 3.sType). k;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    2.tTuple2 :: ∀(a1 : 3.sType) (a2 : 3.sType). 3.sType;
+    3.sType :: 3.sType;
+    2.c(,) :: ∀(a1 : 3.sType) (a2 : 3.sType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tBox (v : 3.sType 3.→ 3.sType) (a : 3.sType) :: 3.sType {
+      pub 1.cBox :: ∀(v : 3.sType 3.→ 3.sType) (a : 3.sType). a 3.→ 1.tBox v a
+  }
+
+  pub type 1.tTag (v : 3.sType 3.→ 3.sType) :: 3.sType {
+      pub 1.cTag :: ∀(v : 3.sType 3.→ 3.sType). 1.tTag v
+  }
+
+  pub type 1.tFlag :: 3.sType {
+      pub 1.cFlag :: 1.tFlag
+  }
+
+  pub val 1.vre :: ∀(u : 3.sType 3.→ 3.sType) (a : 3.sType) (v : 3.sType 3.→ 3.sType). 1.tBox u a 3.→ 1.tBox v a
+   = Λ(u : 3.sType 3.→ 3.sType).
+    Λ(a : 3.sType).
+      Λ(v : 3.sType 3.→ 3.sType).
+        λ(x : 1.tBox u a).
+          case x as (_scrut : 1.tBox u a) return (1.tBox v a) of {
+              1.cBox (x{1} : a) →
+                  1.cBox @v @a x{1}
+          }
+
+  pub val 1.vuseRe :: ∀(v : 3.sType 3.→ 3.sType) (a : 3.sType) (w : 3.sType 3.→ 3.sType). 1.tBox v a 3.→ 1.tBox w a
+   = Λ(v : 3.sType 3.→ 3.sType).
+    Λ(a : 3.sType).
+      Λ(w : 3.sType 3.→ 3.sType).
+        λ(x : 1.tBox v a).
+          1.vre @(3.tAny (3.tTYPE (3.cBoxedRep 3.cLifted) 3.→ 3.tTYPE (3.cBoxedRep 3.cLifted))) @a @w (1.vre @v @a @(3.tAny (3.tTYPE (3.cBoxedRep 3.cLifted) 3.→ 3.tTYPE (3.cBoxedRep 3.cLifted))) x)
+
+  val 1.v$pat$tag$flag :: ∀(a : 3.sType 3.→ 3.sType). 2.tTuple2 (1.tTag a) 1.tFlag
+   = Λ(a : 3.sType 3.→ 3.sType).
+    2.c(,) @(1.tTag a) @1.tFlag (1.cTag @a) 1.cFlag
+
+  val 1.v$patsel$tag :: ∀(a : 3.sType 3.→ 3.sType). 2.tTuple2 (1.tTag a) 1.tFlag 3.→ 1.tTag a
+   = Λ(a : 3.sType 3.→ 3.sType).
+    λ(_pat_rhs : 2.tTuple2 (1.tTag a) 1.tFlag).
+      case _pat_rhs as (_do_scrut : 2.tTuple2 (1.tTag a) 1.tFlag) return (1.tTag a) of {
+          2.c(,) (tag : 1.tTag a) (flag : 1.tFlag) →
+              tag
+      }
+
+  pub val 1.vtag :: ∀(a : 3.sType 3.→ 3.sType). 1.tTag a
+   = Λ(a : 3.sType 3.→ 3.sType).
+    1.v$patsel$tag @a (1.v$pat$tag$flag @a)
+
+  val 1.v$patsel$flag :: ∀(a : 3.sType 3.→ 3.sType). 2.tTuple2 (1.tTag a) 1.tFlag 3.→ 1.tFlag
+   = Λ(a : 3.sType 3.→ 3.sType).
+    λ(_pat_rhs : 2.tTuple2 (1.tTag a) 1.tFlag).
+      case _pat_rhs as (_do_scrut : 2.tTuple2 (1.tTag a) 1.tFlag) return (1.tFlag) of {
+          2.c(,) (tag : 1.tTag a) (flag : 1.tFlag) →
+              flag
+      }
+
+  pub val 1.vflag :: 1.tFlag
+   = 1.v$patsel$flag @(3.tAny (3.tTYPE (3.cBoxedRep 3.cLifted) 3.→ 3.tTYPE (3.cBoxedRep 3.cLifted))) (1.v$pat$tag$flag @(3.tAny (3.tTYPE (3.cBoxedRep 3.cLifted) 3.→ 3.tTYPE (3.cBoxedRep 3.cLifted))))
+status: pass
+reason: A type variable of kind Type -> Type that nothing determines gets the type Any at that kind,
+  in an expression and in a pattern binding, and the lint accepts it.

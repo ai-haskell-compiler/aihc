@@ -8,6 +8,7 @@ module Aihc.Tc.Generalize
     generalizeIgnoring,
     generalizeAndCommit,
     generalizeAndCommitIgnoring,
+    generalizeAndCommitWithInterior,
     generalizeGroupAndCommitIgnoring,
     environmentMetaVars,
     collectMetaVars,
@@ -47,13 +48,28 @@ generalizeAndCommit = generalizeAndCommitIgnoring Set.empty
 -- the outer environment that should block generalization.
 generalizeIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
 generalizeIgnoring ignoredKeys ty preds =
-  fst <$> generalizeIgnoringWithSubst ignoredKeys ty preds
+  fst <$> generalizeIgnoringWithSubst ignoredKeys [] ty preds
 
 -- | Generalize while ignoring selected binders, then write the generalized
 -- substitutions back to the meta store.
 generalizeAndCommitIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
 generalizeAndCommitIgnoring ignoredKeys ty preds = do
-  (scheme, subst) <- generalizeIgnoringWithSubst ignoredKeys ty preds
+  (scheme, subst) <- generalizeIgnoringWithSubst ignoredKeys [] ty preds
+  forM_ subst (uncurry writeMetaTv)
+  pure scheme
+
+-- | Generalize a monotype, and also quantify the meta-variables of some
+-- interior types that the monotype does not mention. Then write the
+-- substitution back to the meta store.
+--
+-- A rewrite rule needs this. An occurrence inside a side of a rule can
+-- have a type variable that the type of the rule does not mention, for
+-- example the intermediate type of @re (re s)@. The rule must match at
+-- each such type, so the type variable becomes a type binder of the rule.
+-- The type variables of the monotype come first in the scheme.
+generalizeAndCommitWithInterior :: [TcType] -> TcType -> [Pred] -> TcM TypeScheme
+generalizeAndCommitWithInterior interior ty preds = do
+  (scheme, subst) <- generalizeIgnoringWithSubst Set.empty interior ty preds
   forM_ subst (uncurry writeMetaTv)
   pure scheme
 
@@ -85,15 +101,17 @@ generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
   where
     zonkBinding (ty, preds) = (,) <$> zonkType ty <*> mapM zonkPred preds
 
-generalizeIgnoringWithSubst :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
-generalizeIgnoringWithSubst ignoredKeys ty preds = do
+generalizeIgnoringWithSubst :: Set.Set TcTermKey -> [TcType] -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
+generalizeIgnoringWithSubst ignoredKeys interior ty preds = do
   envMetaVars <- environmentMetaVars ignoredKeys
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
-  defaultRuntimeRepMetas envMetaVars ty' preds'
+  interior' <- mapM zonkType interior
+  defaultRuntimeRepMetas envMetaVars (foldr TcFunTy ty' interior') preds'
   ty'' <- zonkType ty'
   preds'' <- mapM zonkPred preds'
-  let freeMetaVars = collectMetaVars ty'' ++ concatMap predMetaVars preds''
+  interior'' <- mapM zonkType interior'
+  let freeMetaVars = collectMetaVars ty'' ++ concatMap predMetaVars preds'' ++ concatMap collectMetaVars interior''
       uniqueFreeMetaVars = nubOrd freeMetaVars
       uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
   -- Only a quantified meta-variable needs a fixed kind now. A meta-variable

@@ -1,0 +1,47 @@
+extensions: []
+modules:
+- |
+  module Test where
+  data Box v a = Box a | Wrap (v a)
+  data Tag p a = Tag a
+  re :: Box u a -> Box v a
+  re b = re b
+  retag :: Tag p a -> Tag q a
+  retag t = retag t
+  {-# RULES
+  "re/re" forall s. re (re s) = s
+  "retag/retag" forall t. retag (retag t) = t
+    #-}
+annotated:
+- |-
+  module Test where
+  data Box v a = Box a | Wrap (v a)
+       │         │       └─ type: ∀ v a. v a → Box v a
+       │         └─ type: ∀ v a. a → Box v a
+       └─ type: (Type → Type) → Type → Type
+  data Tag p a = Tag a
+       │         └─ type: ∀ p a. a → Tag p a
+       └─ type: Type → Type → Type
+  re :: Box u a -> Box v a
+  re b = re b
+  │  │   └─ type: Box u a → Box v a; type-args: u, a, v
+  │  └─ type: Box u a
+  └─ type: ∀ u a v. Box u a → Box v a
+  retag :: Tag p a -> Tag q a
+  retag t = retag t
+  │     │   └─ type: Tag p a → Tag q a; type-args: p, a, q
+  │     └─ type: Tag p a
+  └─ type: ∀ p a q. Tag p a → Tag q a
+  {-# RULES
+  "re/re" forall s. re (re s) = s
+  │              │  │   └─ type: Box a b → Box c b; type-args: a, b, c
+  │              │  └─ type: Box c b → Box a b; type-args: c, b, a
+  │              └─ type: Box a b
+  └─ type: ∀ a b c. Box a b → Box a b
+  "retag/retag" forall t. retag (retag t) = t
+  │                    │  │      └─ type: Tag a b → Tag c b; type-args: a, b, c
+  │                    │  └─ type: Tag c b → Tag a b; type-args: c, b, a
+  │                    └─ type: Tag a b
+  └─ type: ∀ a b c. Tag a b → Tag a b
+    #-}
+status: pass

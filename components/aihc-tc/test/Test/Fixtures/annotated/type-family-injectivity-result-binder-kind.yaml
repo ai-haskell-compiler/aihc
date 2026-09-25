@@ -1,0 +1,146 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, MultiParamTypeClasses, PolyKinds, TypeFamilies, TypeFamilyDependencies #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Arr a = Arr a
+       │       └─ type: ∀ a. a → Arr a
+       └─ type: Type → Type
+  data MArr s a = MArr a
+       │          └─ type: ∀ k0 s a. a → MArr s a
+       └─ type: k0 → Type → Type
+  data Token s = Token
+       │         └─ type: ∀ k0 s. Token s
+       └─ type: k0 → Type
+
+  type family Mutable (v :: Type -> Type) = (mv :: Type -> Type -> Type) | mv -> v
+              └─ type: (Type → Type) → Type → Type → Type
+
+  type instance Mutable Arr = MArr
+
+  class MVector (mv :: Type -> Type -> Type) a where
+  └─ class methods: newM ∷ ∀ mv a s. (MVector mv a) ⇒ a → mv s a
+    newM :: a -> mv s a
+
+  class MVector (Mutable v) a => Vector v a where
+  └─ class methods: freeze ∷ ∀ v a s. (Vector v a) ⇒ Mutable v s a → Token s → v a
+    freeze :: Mutable v s a -> Token s -> v a
+
+  instance MVector MArr a where
+  └─ $fMVectorMArra ∷ ∀ a. () ⇒ MVector MArr a
+    newM x = MArr x
+    │    │   └─ type: a → MArr s a; type-args: Type, s, a
+    │    └─ type: a
+    └─ newM ∷ ∀ s. a → MArr s a
+
+  instance Vector Arr a where
+  └─ $fVectorArra ∷ ∀ a. () ⇒ Vector Arr a [superclasses: $fMVectorMArra @a]
+    freeze (MArr x) _ = Arr x
+    │       │    │  │   └─ type: a → Arr a; type-args: a
+    │       │    │  └─ type: Token s
+    │       │    └─ type: a
+    │       └─ type: MArr s a
+    └─ freeze ∷ ∀ s. Mutable Arr s a → Token s → Arr a
+
+  fromMutable :: Vector v a => Mutable v s a -> v a
+  fromMutable m = freeze m Token
+  │           │   │        └─ type: Token s; type-args: Type, s
+  │           │   └─ type: Mutable v s a → Token s → v a; type-args: v, a, s; evidence: given Vector v a
+  │           └─ type: Mutable v s a
+  └─ type: ∀ v a s. (Vector v a) ⇒ Mutable v s a → v a
+
+  roundTrip :: a -> Arr a
+  roundTrip x = freeze (newM x) Token
+  │         │   │       │       └─ type: Token (); type-args: Type, ()
+  │         │   │       └─ type: a → Mutable Arr () a; type-args: Mutable Arr, a, (); evidence: $fMVectorMArra @a
+  │         │   └─ type: Mutable Arr () a → Token () → Arr a; type-args: Arr, a, (); evidence: $fVectorArra @a
+  │         └─ type: a
+  └─ type: ∀ a. a → Arr a
+
+  type family Plain a = r | r -> a
+              └─ type: Type → Type
+  type instance Plain (Arr ()) = MArr () ()
+
+  type family Closed (v :: Type -> Type) = (mv :: Type -> Type -> Type) | mv -> v where
+              └─ type: (Type → Type) → Type → Type → Type
+    Closed Arr = MArr
+
+  closedNew :: a -> Closed Arr s a
+  closedNew x = MArr x
+  │         │   └─ type: a → MArr s a; type-args: Type, s, a
+  │         └─ type: a
+  └─ type: ∀ a s. a → Closed Arr s a
+
+  class Store (v :: Type -> Type) where
+  └─ class methods: thaw ∷ ∀ v a s. (Store v) ⇒ v a → Frozen v s a
+    type Frozen v = (mv :: Type -> Type -> Type) | mv -> v
+         └─ type: (Type → Type) → Type → Type → Type
+    thaw :: v a -> Frozen v s a
+
+  instance Store Arr where
+  └─ $fStoreArr ∷ () ⇒ Store Arr [associated types: Frozen Arr = MArr]
+    type Frozen Arr = MArr
+    thaw (Arr x) = MArr x
+    │     │   │    └─ type: a → MArr s a; type-args: Type, s, a
+    │     │   └─ type: a
+    │     └─ type: Arr a
+    └─ thaw ∷ ∀ a s. Arr a → Frozen Arr s a
+status: pass
+reason: The kind on the named result binder of a type family gives the result kind of the family. Open, closed, and associated families use it.
+extensions:
+- KindSignatures
+- MultiParamTypeClasses
+- PolyKinds
+- TypeFamilies
+- TypeFamilyDependencies
+modules:
+- |
+  {-# LANGUAGE KindSignatures, MultiParamTypeClasses, PolyKinds, TypeFamilies, TypeFamilyDependencies #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Arr a = Arr a
+  data MArr s a = MArr a
+  data Token s = Token
+
+  type family Mutable (v :: Type -> Type) = (mv :: Type -> Type -> Type) | mv -> v
+
+  type instance Mutable Arr = MArr
+
+  class MVector (mv :: Type -> Type -> Type) a where
+    newM :: a -> mv s a
+
+  class MVector (Mutable v) a => Vector v a where
+    freeze :: Mutable v s a -> Token s -> v a
+
+  instance MVector MArr a where
+    newM x = MArr x
+
+  instance Vector Arr a where
+    freeze (MArr x) _ = Arr x
+
+  fromMutable :: Vector v a => Mutable v s a -> v a
+  fromMutable m = freeze m Token
+
+  roundTrip :: a -> Arr a
+  roundTrip x = freeze (newM x) Token
+
+  type family Plain a = r | r -> a
+  type instance Plain (Arr ()) = MArr () ()
+
+  type family Closed (v :: Type -> Type) = (mv :: Type -> Type -> Type) | mv -> v where
+    Closed Arr = MArr
+
+  closedNew :: a -> Closed Arr s a
+  closedNew x = MArr x
+
+  class Store (v :: Type -> Type) where
+    type Frozen v = (mv :: Type -> Type -> Type) | mv -> v
+    thaw :: v a -> Frozen v s a
+
+  instance Store Arr where
+    type Frozen Arr = MArr
+    thaw (Arr x) = MArr x

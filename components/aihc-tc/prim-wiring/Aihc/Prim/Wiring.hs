@@ -90,6 +90,7 @@ primTcWiring prim =
       tcWiringCharTyCon = types ResolutionNamespaceType "Char" 0,
       tcWiringNaturalTyCon = tyCon ResolutionNamespaceType "GHC.Prim.Natural" "Natural" 0,
       tcWiringSymbolTyCon = types ResolutionNamespaceType "Symbol" 0,
+      tcWiringAnyTyCon = types ResolutionNamespaceType "Any" 0,
       tcWiringEqualityTyCon = types ResolutionNamespaceType "~" 2,
       tcWiringCoercibleTyCon = types ResolutionNamespaceType "Coercible" 2,
       tcWiringImplicitParamTyCon = \name ->

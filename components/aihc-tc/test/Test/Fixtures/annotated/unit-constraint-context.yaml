@@ -1,0 +1,95 @@
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, ExistentialQuantification, KindSignatures #-}
+  module Test where
+  import GHC.Types (Constraint)
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
+    c :: a -> a
+  class () => D a where
+  └─ class methods: d ∷ ∀ a. (D a) ⇒ a → a
+    d :: a -> a
+  data T = T
+       │   └─ type: T
+       └─ type: Type
+  instance () => C T where
+  └─ $fCT ∷ () ⇒ C T
+    c x = x
+    │ └─ type: T
+    └─ c ∷ T → T
+  instance (()) => D T where
+  └─ $fDT ∷ () ⇒ D T
+    d x = x
+    │ └─ type: T
+    └─ d ∷ T → T
+  plain :: () => a -> a
+  plain x = x
+  │     └─ type: a
+  └─ type: ∀ a. a → a
+  nested :: ((), C a) => a -> a
+  nested x = c x
+  │      │   └─ type: a → a; type-args: a; evidence: given C a
+  │      └─ type: a
+  └─ type: ∀ a. (C a) ⇒ a → a
+  data Box a = () => Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  type NoC = (() :: Constraint)
+       └─ type: GHC.Types.Constraint
+  type NoCOf a = (() :: Constraint)
+       └─ type: Type → GHC.Types.Constraint
+  synonym :: NoC => a -> a
+  synonym x = x
+  │       └─ type: a
+  └─ type: ∀ a. a → a
+  synonymOf :: NoCOf a => a -> a
+  synonymOf x = x
+  │         └─ type: a
+  └─ type: ∀ a. a → a
+  use :: T
+  use = case Box T of
+  │     │    └─ type: T → Box T; type-args: T
+  │     └─ type: T
+  └─ type: T
+    Box x -> nested (plain (synonym (synonymOf (d x))))
+    │   │    │       │      │        │          └─ type: T → T; type-args: T; evidence: $fDT
+    │   │    │       │      │        └─ type: T → T; type-args: T
+    │   │    │       │      └─ type: T → T; type-args: T
+    │   │    │       └─ type: T → T; type-args: T
+    │   │    └─ type: T → T; type-args: T; evidence: $fCT
+    │   └─ type: T
+    └─ type: Box T
+extensions:
+- ConstraintKinds
+- ExistentialQuantification
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, ExistentialQuantification, KindSignatures #-}
+  module Test where
+  import GHC.Types (Constraint)
+  class C a where
+    c :: a -> a
+  class () => D a where
+    d :: a -> a
+  data T = T
+  instance () => C T where
+    c x = x
+  instance (()) => D T where
+    d x = x
+  plain :: () => a -> a
+  plain x = x
+  nested :: ((), C a) => a -> a
+  nested x = c x
+  data Box a = () => Box a
+  type NoC = (() :: Constraint)
+  type NoCOf a = (() :: Constraint)
+  synonym :: NoC => a -> a
+  synonym x = x
+  synonymOf :: NoCOf a => a -> a
+  synonymOf x = x
+  use :: T
+  use = case Box T of
+    Box x -> nested (plain (synonym (synonymOf (d x))))
+status: pass
+reason: The empty constraint @()@ gives no predicate in a class context, an instance context, a signature context, a data constructor context, a tuple constraint, and a constraint synonym.
