@@ -2272,10 +2272,16 @@ firstFamilyPattern matches = do
 -- | A data-family pattern matches the representation type. Cast the
 -- scrutinee with the family axiom. A newtype instance also casts with the
 -- representation axiom, and then binds the field.
+--
+-- The instance arguments come from the type of the pattern, not from the
+-- type of the scrutinee. The type checker gives the constructor result type
+-- to the pattern. The scrutinee type can be a type family application, for
+-- example @Mutable Vector s ()@, that reduces to the instance type.
 desugarFamilyPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr
 desugarFamilyPatterns resultType fallback argument remaining argumentTypes works representative info = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
-  instanceArguments <- familyInstanceArguments info scrutineeType
+  instanceType <- requiredPatternType representative
+  instanceArguments <- familyInstanceArguments info instanceType
   axiomArguments <- mapM convertCheckedType instanceArguments
   let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
       scrutinee = ExVar (binderName argument)
