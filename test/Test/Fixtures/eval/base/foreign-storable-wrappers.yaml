@@ -1,0 +1,88 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative (Const (..))
+    import Data.Complex (Complex (..))
+    import Data.Functor.Identity (Identity (..))
+    import Data.Ord (Down (..))
+    import Data.Ratio (Ratio, (%))
+    import Data.Word (Word8)
+    import Foreign.Marshal.Alloc (allocaBytes)
+    import Foreign.Marshal.Utils (with)
+    import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, WordPtr (..), castPtr, castPtrToFunPtr, nullPtr, plusPtr)
+    import Foreign.Storable (Storable (..))
+    import GHC.Fingerprint.Type (Fingerprint (..))
+    import GHC.Stable (StablePtr, castPtrToStablePtr, castStablePtrToPtr)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    sizeChecks :: [Bool]
+    sizeChecks =
+      [ sizeOf (undefined :: FunPtr ()) == 8
+      , sizeOf (undefined :: StablePtr ()) == 8
+      , sizeOf (undefined :: IntPtr) == 8
+      , sizeOf (undefined :: WordPtr) == 8
+      , sizeOf (undefined :: Ratio Int) == 16
+      , sizeOf (undefined :: Complex Double) == 16
+      , alignment (undefined :: Complex Double) == 8
+      , sizeOf (undefined :: Identity Int) == 8
+      , sizeOf (undefined :: Const Int Bool) == 8
+      , sizeOf (undefined :: Down Int) == 8
+      , sizeOf (undefined :: Fingerprint) == 16
+      , alignment (undefined :: Fingerprint) == 8
+      ]
+
+    roundTrips :: IO [Bool]
+    roundTrips = do
+      let address = plusPtr nullPtr 4096 :: Ptr ()
+      function <- with (castPtrToFunPtr address :: FunPtr ()) peek
+      stable <- with (castPtrToStablePtr address :: StablePtr ()) peek
+      IntPtr signed <- with (IntPtr (-5)) peek
+      WordPtr unsigned <- with (WordPtr 5) peek
+      ratio <- with (6 % 4 :: Ratio Int) peek
+      real :+ imaginary <- with (2 :+ 3 :: Complex Double) peek
+      Identity identity <- with (Identity (7 :: Int)) peek
+      Const constant <- with (Const 8 :: Const Int Bool) peek
+      Down down <- with (Down (9 :: Int)) peek
+      Fingerprint high low <- with (Fingerprint 258 772) peek
+      return
+        [ function == castPtrToFunPtr address
+        , castStablePtrToPtr stable == address
+        , signed == -5
+        , unsigned == 5
+        , ratio == 3 % 2
+        , real == 2 && imaginary == 3
+        , identity == 7
+        , constant == 8
+        , down == 9
+        , high == 258 && low == 772
+        ]
+
+    -- GHC stores a Fingerprint as two big-endian words.
+    fingerprintBytes :: IO Bool
+    fingerprintBytes =
+      allocaBytes 16 $ \base -> do
+        poke base (Fingerprint 258 772)
+        let bytes = castPtr base :: Ptr Word8
+        highLast <- peekElemOff bytes 7
+        highPrevious <- peekElemOff bytes 6
+        lowLast <- peekElemOff bytes 15
+        lowPrevious <- peekElemOff bytes 14
+        return (highLast == 2 && highPrevious == 1 && lowLast == 4 && lowPrevious == 3)
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (value : values) = value && allTrue values
+
+    checks :: Bool
+    checks =
+      allTrue sizeChecks
+        && allTrue (unsafePerformIO roundTrips)
+        && unsafePerformIO fingerprintBytes
+output: |
+  True
+expression: |
+  checks
+status: pass
+reason: the Storable instances of GHC for FunPtr, StablePtr, IntPtr, WordPtr, Ratio, Complex, Identity, Const, Down and Fingerprint store their values like GHC

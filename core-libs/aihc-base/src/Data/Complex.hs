@@ -13,6 +13,8 @@ where
 
 import Data.Foldable (Foldable (..))
 import Data.Functor.Classes (Eq1 (..))
+import Foreign.Ptr (castPtr)
+import Foreign.Storable (Storable (..))
 import Prelude
 
 infix 6 :+
@@ -201,3 +203,17 @@ complexSquareRootWithSign imaginary resultReal resultImaginary =
     :+ case imaginary < 0 of
       True -> negate resultImaginary
       False -> resultImaginary
+
+-- | A complex number is stored as its real part and then its imaginary part.
+instance (Storable a) => Storable (Complex a) where
+  sizeOf value = 2 * sizeOf (realPart value)
+  alignment value = alignment (realPart value)
+  peek address = do
+    let parts = castPtr address
+    real <- peek parts
+    imaginary <- peekElemOff parts 1
+    return (real :+ imaginary)
+  poke address (real :+ imaginary) = do
+    let parts = castPtr address
+    poke parts real
+    pokeElemOff parts 1 imaginary

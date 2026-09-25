@@ -9,13 +9,14 @@ module Data.Ord
   )
 where
 
+import Foreign.Storable (Storable)
 import GHC.Read (expectP, parens, readListDefault, readListPrecDefault)
 import GHC.Read.Lex (Lexeme (..))
 import Text.ParserCombinators.ReadPrec (prec, step)
 import Prelude
 
 newtype Down a = Down {getDown :: a}
-  deriving newtype (Eq, Bounded, Enum)
+  deriving newtype (Eq, Bounded, Enum, Storable)
 
 instance (Ord a) => Ord (Down a) where
   compare (Down left) (Down right) = compare right left

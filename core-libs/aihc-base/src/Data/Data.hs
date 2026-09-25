@@ -47,11 +47,11 @@ class (Typeable a) => Data a where
   toConstr :: a -> Constr
   dataTypeOf :: a -> DataType
 
-  -- The casts carry no Typeable context: Typeable is not kind polymorphic
-  -- here, and 'gcast1' and 'gcast2' need none.
-  dataCast1 :: (forall d. (Data d) => c (t d)) -> Maybe (c a)
+  -- An instance for a unary or binary type constructor gives these casts
+  -- with 'gcast1' or 'gcast2'.
+  dataCast1 :: (Typeable t) => (forall d. (Data d) => c (t d)) -> Maybe (c a)
   dataCast1 _ = Nothing
-  dataCast2 :: (forall d e. (Data d, Data e) => c (t d e)) -> Maybe (c a)
+  dataCast2 :: (Typeable t) => (forall d e. (Data d, Data e) => c (t d e)) -> Maybe (c a)
   dataCast2 _ = Nothing
 
   -- The generic maps below are GHC's defaults, each written with 'gfoldl'.
@@ -186,6 +186,7 @@ instance (Data a) => Data [a] where
     2 -> k (k (z (:)))
     _ -> errorWithoutStackTrace "Data.Data.gunfold(List)"
   dataTypeOf _ = listDataType
+  dataCast1 f = gcast1 f
 
 nilConstr :: Constr
 nilConstr = mkConstr listDataType "[]" [] Prefix
@@ -255,6 +256,7 @@ instance (Data a, Data b) => Data (a, b) where
     _ -> errorWithoutStackTrace "Data.Data.gunfold((,))"
   toConstr _ = pairConstr
   dataTypeOf _ = pairDataType
+  dataCast2 f = gcast2 f
 
 pairConstr :: Constr
 pairConstr = mkConstr (mkNoRepType "Prelude.(,)") "(,)" [] Infix
