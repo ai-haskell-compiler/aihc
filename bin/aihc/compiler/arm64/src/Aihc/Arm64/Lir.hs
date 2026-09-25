@@ -49,6 +49,7 @@ import Aihc.Native.Emit qualified as Emit
 import Aihc.Native.Lir hiding (cArgumentMoves)
 import Aihc.Native.Lir qualified as Native
 import Aihc.Native.MachO (writeArm64MachO)
+import Control.Applicative ((<|>))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
@@ -277,6 +278,8 @@ instructionEffect instruction =
     ArmCbz _ _ -> Writes []
     ArmCbnz _ _ -> Writes []
     ArmCmp _ _ -> Writes []
+    ArmCmn _ _ -> Writes []
+    ArmTst _ _ -> Writes []
     ArmFcmp {} -> Writes []
     ArmAdr destination _ -> writes [destination]
     ArmAdrp destination _ -> writes [destination]
@@ -378,7 +381,7 @@ canonicalizeRegister ty register =
 adjustStack :: (Arm64Register -> Arm64Register -> Arm64Value -> Arm64Instruction) -> Int -> [Arm64Statement]
 adjustStack operation bytes
   | bytes == 0 = []
-  | bytes < 4096 = [arm64Instruction (operation SP SP (Arm64ImmediateValue (fromIntegral bytes)))]
+  | addSubImmediate (toInteger bytes) = [arm64Instruction (operation SP SP (Arm64ImmediateValue (fromIntegral bytes)))]
   | otherwise = [immediate scratchExtra bytes, arm64Instruction (operation SP SP (Arm64RegisterValue scratchExtra))]
 
 leaveFrame :: Ctx Arm64Register -> Int -> [Arm64Statement]
@@ -417,15 +420,23 @@ literalInto ty register literal =
     (_, LitNull) -> [arm64Instruction (ArmMov register (Arm64RegisterValue XZR))]
     (_, LitSymbol symbol) -> address register (lirSymbol symbol)
 
-smallImmediate :: Type -> Operand -> Maybe Integer
-smallImmediate ty operand =
+-- | The bits of an integer constant operand, zero-extended from its type.
+constantBits :: Type -> Operand -> Maybe Integer
+constantBits ty operand =
   case operand of
-    OperandLiteral (LitInt value)
-      | not (isFloatType ty),
-        let canonical = if typeBits ty < 64 then canonicalInteger ty value else value,
-        canonical >= 0 && canonical < 4096 ->
-          Just canonical
+    OperandLiteral (LitInt value) | not (isFloatType ty) -> Just (canonicalInteger ty value)
     _ -> Nothing
+
+-- | An add or a sub of the constant bits in the given width, as one
+-- instruction. The flag tells to use the opposite operation with the
+-- negated constant: @add x, #-7@ is @sub x, #7@.
+addSubConstant :: Int -> Integer -> Maybe (Bool, Integer)
+addSubConstant width bits
+  | addSubImmediate bits = Just (False, bits)
+  | addSubImmediate negated = Just (True, negated)
+  | otherwise = Nothing
+  where
+    negated = 2 ^ width - bits
 
 canonicalInteger :: Type -> Integer -> Integer
 canonicalInteger ty value
@@ -488,14 +499,22 @@ conditionTest ctx fused condition =
 
 compareWith :: Ctx Arm64Register -> Type -> Bool -> Arm64Register -> Operand -> [Arm64Statement]
 compareWith ctx ty signed left right =
-  case smallImmediate ty right of
-    Just value
-      | not signed || typeBits ty >= 64 || value < 2 ^ (typeBits ty - 1) ->
-          [arm64Instruction (ArmCmp left (Arm64ImmediateValue value))]
-    _ ->
+  case constantBits ty right >>= compareConstant of
+    Just (register, negated, value) ->
+      [arm64Instruction ((if negated then ArmCmn else ArmCmp) register (Arm64ImmediateValue value))]
+    Nothing ->
       let (loads, register) = operandIn' ctx 0 ty scratchRight right
           (extend, rightRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
        in loads <> extend <> [arm64Instruction (ArmCmp left (Arm64RegisterValue rightRegister))]
+  where
+    bits = typeBits ty
+    -- A signed narrow compare reads the left operand sign-extended, so the
+    -- constant is sign-extended too. Otherwise the left operand is
+    -- zero-extended, and a 32-bit compare can also use the 32-bit form.
+    compareConstant constant
+      | signed && bits < 64 && constant >= 2 ^ (bits - 1) = inWidth left 64 (constant - 2 ^ bits + 2 ^ (64 :: Int))
+      | otherwise = inWidth left 64 constant <|> (if bits == 32 && not signed then inWidth (wordRegister left) 32 constant else Nothing)
+    inWidth register width constant = (\(negated, value) -> (register, negated, value)) <$> addSubConstant width constant
 
 branchUnless, branchWhen :: Test -> Name -> Arm64Statement
 branchUnless test label =
@@ -512,12 +531,8 @@ branchWhen test label =
 arm64Binary :: Ctx Arm64Register -> BinaryOp -> Type -> Arm64Register -> Arm64Register -> Operand -> M [Arm64Statement]
 arm64Binary ctx op ty dst a right =
   case op of
-    Add ->
-      let (loads, b) = rightValue ty right
-       in pure (loads <> narrow ty dst [arm64Instruction (ArmAdd dst a b)])
-    Sub ->
-      let (loads, b) = rightValue ty right
-       in pure (loads <> narrow ty dst [arm64Instruction (ArmSub dst a b)])
+    Add -> pure (addSub ArmAdd ArmSub)
+    Sub -> pure (addSub ArmSub ArmAdd)
     Mul ->
       let (loads, b) = rightRegister ty right
        in pure (loads <> narrow ty dst [arm64Instruction (ArmMul dst a b)])
@@ -533,8 +548,7 @@ arm64Binary ctx op ty dst a right =
             <> extendLeft
             <> extendRight
             <> [ arm64Instruction (ArmCbz b' zero),
-                 immediate scratchExtra (-1 :: Integer),
-                 arm64Instruction (ArmCmp b' (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmCmn b' (Arm64ImmediateValue 1)),
                  arm64Instruction (ArmBCond ArmNe skip),
                  immediate scratchExtra (minimumSigned ty),
                  arm64Instruction (ArmCmp a' (Arm64RegisterValue scratchExtra)),
@@ -563,36 +577,50 @@ arm64Binary ctx op ty dst a right =
       zero <- trapLabel "integer division by zero"
       let (loads, b) = rightRegister ty right
       pure (loads <> [arm64Instruction (ArmCbz b zero), arm64Instruction (ArmUdiv scratchExtra a b), arm64Instruction (ArmMsub dst scratchExtra b a)])
-    And ->
-      let (loads, b) = rightRegister ty right
-       in pure (loads <> [arm64Instruction (ArmAnd dst a b)])
-    Or ->
-      let (loads, b) = rightRegister ty right
-       in pure (loads <> [arm64Instruction (ArmOrr dst a (Arm64RegisterValue b))])
-    Xor ->
-      let (loads, b) = rightRegister ty right
-       in pure (loads <> [arm64Instruction (ArmEor dst a b)])
+    And -> pure (logical ArmAnd)
+    Or -> pure (logical ArmOrr)
+    Xor -> pure (logical ArmEor)
     Shl ->
-      let (loads, b) = rightRegister ty right
-          (mask, b') = shiftCount ty b
-       in pure (loads <> mask <> narrow ty dst [arm64Instruction (ArmLsl dst a (Arm64RegisterShift b'))])
+      let (loads, count) = shiftOperand
+       in pure (loads <> narrow ty dst [arm64Instruction (ArmLsl dst a count)])
     ShrS ->
-      let (loads, b) = rightRegister ty right
+      let (loads, count) = shiftOperand
           (extendLeft, a') = signExtendInto ty scratchLeft a
-          (mask, b') = shiftCount ty b
-       in pure (loads <> extendLeft <> mask <> narrow ty dst [arm64Instruction (ArmAsr dst a' (Arm64RegisterShift b'))])
+       in pure (loads <> extendLeft <> narrow ty dst [arm64Instruction (ArmAsr dst a' count)])
     ShrU ->
-      let (loads, b) = rightRegister ty right
-          (mask, b') = shiftCount ty b
-       in pure (loads <> mask <> [arm64Instruction (ArmLsr dst a (Arm64RegisterShift b'))])
+      let (loads, count) = shiftOperand
+       in pure (loads <> [arm64Instruction (ArmLsr dst a count)])
   where
-    rightValue operandTy operand =
-      case smallImmediate operandTy operand of
-        Just value -> ([], Arm64ImmediateValue value)
-        Nothing ->
-          let (loads, b) = operandIn' ctx 0 operandTy scratchRight operand
-           in (loads, Arm64RegisterValue b)
     rightRegister operandTy = operandIn' ctx 0 operandTy scratchRight
+    -- A shift count is taken modulo the width of the type.
+    shiftOperand =
+      case constantBits ty right of
+        Just bits -> ([], Arm64ImmediateShift (fromInteger (bits `mod` toInteger (typeBits ty))))
+        Nothing ->
+          let (loads, b) = rightRegister ty right
+              (mask, b') = shiftCount ty b
+           in (loads <> mask, Arm64RegisterShift b')
+    -- The result is narrowed, so the constant only counts modulo the width
+    -- of the type.
+    addSub operation opposite =
+      case constantBits ty right >>= addSubConstant (typeBits ty) of
+        Just (negated, value) ->
+          narrow ty dst [arm64Instruction ((if negated then opposite else operation) dst a (Arm64ImmediateValue value))]
+        Nothing ->
+          let (loads, b) = rightRegister ty right
+           in loads <> narrow ty dst [arm64Instruction (operation dst a (Arm64RegisterValue b))]
+    -- A narrow value is zero-extended, and the 32-bit form keeps it so.
+    logical operation =
+      case constantBits ty right of
+        Just bits
+          | typeBits ty <= 32,
+            Just _ <- logicalImmediate 32 bits ->
+              [arm64Instruction (operation (wordRegister dst) (wordRegister a) (Arm64ImmediateValue bits))]
+          | Just _ <- logicalImmediate 64 bits ->
+              [arm64Instruction (operation dst a (Arm64ImmediateValue bits))]
+        _ ->
+          let (loads, b) = rightRegister ty right
+           in loads <> [arm64Instruction (operation dst a (Arm64RegisterValue b))]
     shiftCount operandTy b
       | typeBits operandTy == 64 = ([], b)
       | otherwise = ([arm64Instruction (ArmAndMask scratchRight b (log2 (toInteger (typeBits operandTy))))], scratchRight)
@@ -613,8 +641,7 @@ bitCount op ty dst a =
             : [arm64Instruction (ArmSub dst dst (Arm64ImmediateValue (toInteger (64 - bits)))) | bits < 64]
         Ctz
           | bits < 64 ->
-              [ immediate scratchExtra (2 ^ bits :: Integer),
-                arm64Instruction (ArmOrr dst a (Arm64RegisterValue scratchExtra)),
+              [ arm64Instruction (ArmOrr dst a (Arm64ImmediateValue (2 ^ bits))),
                 arm64Instruction (ArmRbit dst dst),
                 arm64Instruction (ArmClz dst dst)
               ]
@@ -743,19 +770,21 @@ effectiveAddress ctx base offset ty =
   let (loads, register) = operandIn' ctx 0 Ptr scratchRight base
    in if fitsScaled offset ty
         then (loads, register)
-        else (loads <> [immediate scratchExtra offset, arm64Instruction (ArmAdd scratchRight register (Arm64RegisterValue scratchExtra))], scratchRight)
+        else case addSubConstant 64 (offset `mod` 2 ^ (64 :: Int)) of
+          Just (negated, value) -> (loads <> [arm64Instruction ((if negated then ArmSub else ArmAdd) scratchRight register (Arm64ImmediateValue value))], scratchRight)
+          Nothing -> (loads <> [immediate scratchExtra offset, arm64Instruction (ArmAdd scratchRight register (Arm64RegisterValue scratchExtra))], scratchRight)
 
 arm64PtrAdd :: Ctx Arm64Register -> Arm64Register -> Operand -> Arm64Register -> [Arm64Statement]
 arm64PtrAdd ctx a offset dst =
-  case smallImmediate I64 offset of
-    Just value -> [arm64Instruction (ArmAdd dst a (Arm64ImmediateValue value))]
+  case constantBits I64 offset >>= addSubConstant 64 of
+    Just (negated, value) -> [arm64Instruction ((if negated then ArmSub else ArmAdd) dst a (Arm64ImmediateValue value))]
     Nothing ->
       let (loads', b) = operandIn' ctx 0 I64 scratchRight offset
        in loads' <> [arm64Instruction (ArmAdd dst a (Arm64RegisterValue b))]
 
 arm64StackAddr :: Arm64Register -> Int -> [Arm64Statement]
 arm64StackAddr dst offset
-  | offset < 4096 = [arm64Instruction (ArmAdd dst SP (Arm64ImmediateValue (fromIntegral offset)))]
+  | addSubImmediate (toInteger offset) = [arm64Instruction (ArmAdd dst SP (Arm64ImmediateValue (fromIntegral offset)))]
   | otherwise = [immediate scratchExtra offset, arm64Instruction (ArmAdd dst SP (Arm64RegisterValue scratchExtra))]
 
 data CArgumentLocation
