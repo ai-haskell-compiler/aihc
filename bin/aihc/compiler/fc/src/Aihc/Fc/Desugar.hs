@@ -768,13 +768,17 @@ convertDataFamilyInst env package moduleName' bindings info = do
   result <- convertKind bindersEnv representationKind
   familyType <- convertType bindersEnv (dfiiFamilyType info)
   let representationType = foldl TyApp (TyCon representationName) (map (TyVar . binderName) binders)
+      -- A data family is generative, as in GHC. The instance axiom is
+      -- representational, thus type equality does not reduce a data family
+      -- application. A type family equation for another type constructor
+      -- is then apart from it. A cast uses the axiom explicitly.
       familyAxiom =
         DeclAxiom
           AxiomDecl
             { axiomVis = Private,
               axiomName = Name (dfiiAxiomName info) SortAxiom (OriginTop package moduleName'),
               axiomBinders = binders,
-              axiomRole = Nominal,
+              axiomRole = Representational,
               axiomLeft = familyType,
               axiomRight = representationType
             }

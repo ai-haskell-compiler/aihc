@@ -59,7 +59,7 @@ expected: |-
 
   axiom 1.$ax$R$F$FBool : 1.t$R$F$FBool ~R 3.tInt
 
-  axiom 1.$ax$F$FBool : 1.tF 3.tBool ~N 1.t$R$F$FBool
+  axiom 1.$ax$F$FBool : 1.tF 3.tBool ~R 1.t$R$F$FBool
 
   pub type 1.tVec (s : 3.sType) (a : 3.sType) :: 3.sType {
       pub 1.cVec :: ∀(s : 3.sType) (a : 3.sType). a 3.→ 1.tVec s a
@@ -75,7 +75,7 @@ expected: |-
 
   axiom 1.$ax$R$MV$MVWrap (s : 3.sType) (a : 3.sType) : 1.t$R$MV$MVWrap s a ~R 1.tVec s a
 
-  axiom 1.$ax$MV$MVWrap (s : 3.sType) (a : 3.sType) : 1.tMV s (1.tWrap a) ~N 1.t$R$MV$MVWrap s a
+  axiom 1.$ax$MV$MVWrap (s : 3.sType) (a : 3.sType) : 1.tMV s (1.tWrap a) ~R 1.t$R$MV$MVWrap s a
 
   pub type 1.t$Dict$Len (v : 3.sType 3.→ 3.sType 3.→ 3.sType) (a : 3.sType) :: 3.sType {
       pub 1.c$Dict$Len :: ∀(v : 3.sType 3.→ 3.sType 3.→ 3.sType) (a : 3.sType). (∀(s : 3.sType). v s a 3.→ 3.tInt) 3.→ 1.t$Dict$Len v a

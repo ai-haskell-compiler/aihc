@@ -33,6 +33,6 @@ expected: |-
 
   axiom 1.$ax$R$Wrapped$WrappedUnit : 1.t$R$Wrapped$WrappedUnit ~R 1.tUnit
 
-  axiom 1.$ax$Wrapped$WrappedUnit : 1.tWrapped 1.tUnit ~N 1.t$R$Wrapped$WrappedUnit
+  axiom 1.$ax$Wrapped$WrappedUnit : 1.tWrapped 1.tUnit ~R 1.t$R$Wrapped$WrappedUnit
 status: pass
 reason: A newtype family instance is an empty representation type plus two axioms.
