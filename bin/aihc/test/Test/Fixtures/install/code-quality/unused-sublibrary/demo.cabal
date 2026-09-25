@@ -1,0 +1,31 @@
+cabal-version: 3.0
+name: unused-sublibrary
+version: 0.1.0.0
+
+library
+  exposed-modules: Public
+  hs-source-dirs: src
+  build-depends:
+    aihc-prim,
+    unused-sublibrary:helpers,
+
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude
+
+library helpers
+  exposed-modules: Helper
+  hs-source-dirs: helpers
+  build-depends: aihc-prim
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude
+
+library extras
+  visibility: public
+  exposed-modules: Extra
+  hs-source-dirs: extras
+  build-depends:
+    aihc-no-such-package,
+    aihc-prim,
+
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude
