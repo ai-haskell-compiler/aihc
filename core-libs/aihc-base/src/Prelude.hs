@@ -507,6 +507,42 @@ instance (Ord a, Ord b, Ord c) => Ord (a, b, c) where
   max = maxBy compareTriple
   min = minBy compareTriple
 
+instance (Ord a, Ord b, Ord c, Ord d) => Ord (a, b, c, d) where
+  compare = compareQuadruple
+  left < right = lessBy compareQuadruple left right
+  left <= right = lessOrEqualBy compareQuadruple left right
+  left > right = greaterBy compareQuadruple left right
+  left >= right = greaterOrEqualBy compareQuadruple left right
+  max = maxBy compareQuadruple
+  min = minBy compareQuadruple
+
+instance (Ord a, Ord b, Ord c, Ord d, Ord e) => Ord (a, b, c, d, e) where
+  compare = compareQuintuple
+  left < right = lessBy compareQuintuple left right
+  left <= right = lessOrEqualBy compareQuintuple left right
+  left > right = greaterBy compareQuintuple left right
+  left >= right = greaterOrEqualBy compareQuintuple left right
+  max = maxBy compareQuintuple
+  min = minBy compareQuintuple
+
+instance (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f) => Ord (a, b, c, d, e, f) where
+  compare = compareSextuple
+  left < right = lessBy compareSextuple left right
+  left <= right = lessOrEqualBy compareSextuple left right
+  left > right = greaterBy compareSextuple left right
+  left >= right = greaterOrEqualBy compareSextuple left right
+  max = maxBy compareSextuple
+  min = minBy compareSextuple
+
+instance (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f, Ord g) => Ord (a, b, c, d, e, f, g) where
+  compare = compareSeptuple
+  left < right = lessBy compareSeptuple left right
+  left <= right = lessOrEqualBy compareSeptuple left right
+  left > right = greaterBy compareSeptuple left right
+  left >= right = greaterOrEqualBy compareSeptuple left right
+  max = maxBy compareSeptuple
+  min = minBy compareSeptuple
+
 compareList :: (Ord a) => [a] -> [a] -> Ordering
 compareList [] [] = EQ
 compareList [] (_ : _) = LT
@@ -543,6 +579,47 @@ compareTriple (leftA, leftB, leftC) (rightA, rightB, rightC) =
         EQ -> compare leftC rightC
         result -> result
     result -> result
+
+infixr 9 `thenCompare`
+
+-- | Use the second comparison only when the first one is 'EQ'.
+thenCompare :: Ordering -> Ordering -> Ordering
+thenCompare EQ next = next
+thenCompare result _ = result
+
+compareQuadruple :: (Ord a, Ord b, Ord c, Ord d) => (a, b, c, d) -> (a, b, c, d) -> Ordering
+compareQuadruple (leftA, leftB, leftC, leftD) (rightA, rightB, rightC, rightD) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+
+compareQuintuple :: (Ord a, Ord b, Ord c, Ord d, Ord e) => (a, b, c, d, e) -> (a, b, c, d, e) -> Ordering
+compareQuintuple (leftA, leftB, leftC, leftD, leftE) (rightA, rightB, rightC, rightD, rightE) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+    `thenCompare` compare leftE rightE
+
+compareSextuple :: (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f) => (a, b, c, d, e, f) -> (a, b, c, d, e, f) -> Ordering
+compareSextuple (leftA, leftB, leftC, leftD, leftE, leftF) (rightA, rightB, rightC, rightD, rightE, rightF) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+    `thenCompare` compare leftE rightE
+    `thenCompare` compare leftF rightF
+
+compareSeptuple :: (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f, Ord g) => (a, b, c, d, e, f, g) -> (a, b, c, d, e, f, g) -> Ordering
+compareSeptuple (leftA, leftB, leftC, leftD, leftE, leftF, leftG) (rightA, rightB, rightC, rightD, rightE, rightF, rightG) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+    `thenCompare` compare leftE rightE
+    `thenCompare` compare leftF rightF
+    `thenCompare` compare leftG rightG
 
 lessBy :: (a -> a -> Ordering) -> a -> a -> Bool
 lessBy cmp x y =
@@ -611,6 +688,66 @@ instance (Show a, Show b, Show c) => Show (a, b, c) where
       . shows second
       . showChar ','
       . shows third
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d) => Show (a, b, c, d) where
+  showsPrec _ (first, second, third, fourth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e) => Show (a, b, c, d, e) where
+  showsPrec _ (first, second, third, fourth, fifth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f) => Show (a, b, c, d, e, f) where
+  showsPrec _ (first, second, third, fourth, fifth, sixth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ','
+      . shows sixth
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g) => Show (a, b, c, d, e, f, g) where
+  showsPrec _ (first, second, third, fourth, fifth, sixth, seventh) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ','
+      . shows sixth
+      . showChar ','
+      . shows seventh
       . showChar ')'
 
 showLitString :: String -> ShowS
