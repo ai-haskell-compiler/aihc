@@ -1,7 +1,7 @@
 ; expect: 42, 1, 1, 0x10000
 ; An info table in the layout of the "Info tables" section: five word-sized
 ; fields, one of them a code field with the fixed entry signature, followed
-; by four byte fields.
+; by five byte fields. The last byte field is needs_eval.
 
 data @bitmap align 1 = { bytes "\x01\x00" }
 data @info align 8 = {
@@ -13,7 +13,8 @@ data @info align 8 = {
   i8 2,
   i8 0,
   i8 0,
-  i8 3
+  i8 3,
+  i8 1
 }
 data mut @result align 8 = { i64 0 }
 
@@ -42,11 +43,14 @@ entry:
   %next = load ptr [@info + 2 words] align 1 word
   %count = load i8 [@info + 5 words] align 1
   %kind = load i8 [@info + 5 words + 3] align 1
+  %needsEval = load i8 [@info + 5 words + 4] align 1
   %countIsTwo = eq i8 %count, 2
   %kindIsThree = eq i8 %kind, 3
+  %needsEvalIsOne = eq i8 %needsEval, 1
   %entryIsEntry = eq code %enter, @entry
   %both = and i1 %none, %entryIsEntry
-  %counts = and i1 %countIsTwo, %kindIsThree
+  %countAndKind = and i1 %countIsTwo, %kindIsThree
+  %counts = and i1 %countAndKind, %needsEvalIsOne
   %all = and i1 %both, %counts
   return %r, %all, %pointer, %bitmap
 }

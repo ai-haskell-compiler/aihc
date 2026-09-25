@@ -33,6 +33,15 @@ enum {
 };
 typedef uint8_t AihcObjectKind;
 
+/* The values of the needs_eval byte of an info table. Compiled code goes to
+   its ready branch when the byte is zero. It follows an indirection itself,
+   and it gives a thunk or a blackhole to aihc_lir_eval. */
+enum {
+  AIHC_NEEDS_EVAL_NONE = 0,
+  AIHC_NEEDS_EVAL_ENTER = 1,
+  AIHC_NEEDS_EVAL_FOLLOW = 2,
+};
+
 typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
 typedef struct AihcTransaction AihcTransaction;
@@ -105,7 +114,7 @@ struct AihcSrt {
   uintptr_t entries[];
 };
 
-/* Five word-wide fields followed by four byte-wide ones, so Lir addresses
+/* Five word-wide fields followed by five byte-wide ones, so Lir addresses
    word field k at offset k words and byte field j at offset 5 words + j on
    every target. See the "Info tables" section of docs/lir.md. */
 struct AihcInfo {
@@ -135,6 +144,14 @@ struct AihcInfo {
      backend-independent so the runtime can unwind them uniformly. */
   AihcFrameKind frame_kind;
   AihcObjectKind object_kind;
+  /* Nonzero for an object that is not a value: AIHC_NEEDS_EVAL_FOLLOW for
+     an indirection, and AIHC_NEEDS_EVAL_ENTER for a thunk or a blackhole.
+     AIHC_NEEDS_EVAL_NONE for every other kind. The inline evaluation check
+     of compiled code reads only this byte. A thunk under evaluation keeps
+     its thunk table, and an update changes the header to the indirection
+     table. Thus the table always gives the correct value. On 64-bit targets
+     the byte uses padding, so the table stays 48 bytes. */
+  uint8_t needs_eval;
 };
 
 struct AihcValue {
