@@ -57,13 +57,13 @@ expected: |-
   pub type 1.tVector (a : 2.sType) :: 2.sType @N {}
 
   type 1.t$R$MVector$MVUnit (s : 2.sType) :: 2.sType {
-      1.cMVUnit :: ∀(s : 2.sType). 1.tUnit 2.→ 1.t$R$MVector$MVUnit s
+      pub 1.cMVUnit :: ∀(s : 2.sType). 1.tUnit 2.→ 1.t$R$MVector$MVUnit s
   }
 
   axiom 1.$ax$MVector$MVUnit (s : 2.sType) : 1.tMVector s 1.tUnit ~R 1.t$R$MVector$MVUnit s
 
   type 1.t$R$Vector$VUnit :: 2.sType {
-      1.cVUnit :: 1.tUnit 2.→ 1.t$R$Vector$VUnit
+      pub 1.cVUnit :: 1.tUnit 2.→ 1.t$R$Vector$VUnit
   }
 
   axiom 1.$ax$Vector$VUnit : 1.tVector 1.tUnit ~R 1.t$R$Vector$VUnit
