@@ -935,7 +935,7 @@ wideHelpers = [unsignedHelper, signedHelper]
           functionParameters = [(a, I64), (b, I64)],
           functionResults = [I64, I64],
           functionConvention = AihcConvention,
-          functionBlocks = [Block (Label "entry") [] instructions (Return [var "low", var "result_high"])]
+          functionBlocks = [Block (Label "entry") [] instructions (Return [var "low", var "result_high"]) False]
         }
     unsignedHelper = helper "aihc_lir_wasm_mul_wide_u64" (limbs <> [op "result_high" (Binary Add I64 (var "high") (int 0))])
     signedHelper =

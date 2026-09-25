@@ -1,0 +1,32 @@
+; A heap check with a collection on a cold path. A value that lives across
+; the collection keeps the register of the convention when the moves that
+; register spares outweigh a save and a restore around the call. The cold
+; block saves the values: in pairs to the frame where the backend stores
+; two registers at once, and otherwise in a preserved register that nothing
+; holds at the call. On AArch64 a save costs half as much, so every value
+; keeps its register and the fast path has no move. On AMD64 %x and %k
+; stay in preserved registers, which the collection keeps.
+extern func @collect(ptr, i64) cc c
+extern func @next(ptr, ptr, ptr, ptr)
+
+func @reserve(%machine: ptr, %x: ptr, %k: ptr) {
+entry:
+  %heap = load ptr [%machine + 24] align 8
+  %end = load ptr [%machine + 32] align 8
+  %heap_word = ptr.to_int %heap
+  %end_word = ptr.to_int %end
+  %room = sub i64 %end_word, %heap_word
+  %fits = ge.u i64 %room, 16
+  br %fits, reserved, collect
+
+cold collect:
+  call @collect(%machine, 2)
+  jump reserved
+
+reserved:
+  %object = load ptr [%machine + 24] align 8
+  %after = ptr.add %object, 16
+  store ptr %after, [%machine + 24] align 8
+  store ptr %k, [%object + 8] align 8
+  tailcall @next(%machine, %x, %k, %object)
+}

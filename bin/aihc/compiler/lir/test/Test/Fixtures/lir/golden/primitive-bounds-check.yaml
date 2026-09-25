@@ -30,7 +30,7 @@ expected: |
     %heap_fits_10 = ge.u i64 %heap_room_words_9, %result_3
     br %heap_fits_10, gc_reserved_12(%$cps_return_1), gc_collect_11
 
-  gc_collect_11:
+  cold gc_collect_11:
     store ptr %$cps_return_1, [%roots_2] align 8
     call @aihc_heap_collect(%machine_0, %result_3, 1, %roots_2, null)
     %$cps_return$gc_14 = load ptr [%roots_2] align 8
@@ -43,7 +43,7 @@ expected: |
     %invalid_18 = ge.u i64 4, %limit_17
     br %invalid_18, out_of_bounds_19, inside_20
 
-  out_of_bounds_19:
+  cold out_of_bounds_19:
     call @aihc_byte_array_bounds_fail()
     trap "byte array access is out of bounds"
 

@@ -34,7 +34,7 @@ expected: |
     %heap_fits_10 = ge.u i64 %heap_room_9, 16
     br %heap_fits_10, gc_reserved_12(%$cps_return_3), gc_collect_11
 
-  gc_collect_11:
+  cold gc_collect_11:
     store ptr %$cps_return_3, [%roots_4] align 8
     call @aihc_heap_collect(%machine_2, 2, 1, %roots_4, null)
     %$cps_return$gc_14 = load ptr [%roots_4] align 8
@@ -59,7 +59,7 @@ expected: |
     store ptr %stack_18, [%machine_2 + 40] align 1 word
     jump stack_pushed_26(%frame_17)
 
-  stack_grow_25:
+  cold stack_grow_25:
     %result_27 = call @aihc_stack_grow(%machine_2, 3)
     jump stack_pushed_26(%result_27)
 
@@ -81,7 +81,7 @@ expected: |
     %heap_fits_39 = ge.u i64 %heap_room_38, 24
     br %heap_fits_39, gc_reserved_41(%$cps_return_30, %first_31), gc_collect_40
 
-  gc_collect_40:
+  cold gc_collect_40:
     store ptr %$cps_return_30, [%roots_33] align 8
     store ptr %first_31, [%roots_33 + 8] align 8
     call @aihc_heap_collect(%machine_29, 3, 2, %roots_33, null)

@@ -379,9 +379,17 @@ work there.
 ## Functions and blocks
 
 ```text
-block ::= label ("(" parameters ")")? ":" instruction* terminator
+block ::= "cold"? label ("(" parameters ")")? ":" instruction* terminator
 instruction ::= (value ("," value)* "=")? operation
 ```
+
+The `cold` modifier marks a slow path that runs rarely, for example a
+collection. It does not change what the block does. A call in a cold block is
+a cold call, and the register allocator treats it differently (see
+[Register allocation](#register-allocation)). The lowering marks the blocks
+that call `aihc_heap_collect`, `aihc_stack_grow`, and the report of a failed
+bounds check. An inline function spliced into a cold block is cold in all of
+its blocks.
 
 Every value is defined once. A use of a value is valid when its definition
 dominates the use. A block parameter is defined at the start of the block.
@@ -848,13 +856,33 @@ call and costs nothing to use. A preserved register survives a C call,
 because the C callee saves it, and is clobbered by an aihc call, because an
 aihc function saves nothing. So a value that lives across a C call takes a
 preserved register, a value that lives across an aihc call goes to a frame
-slot, and everything else takes whatever is free. That is the whole of the
-interaction between calls and registers: no interval is ever split, and no
-register is ever pre-colored. Under the C convention a preserved register
+slot, and everything else takes whatever is free. No interval is ever split,
+and no register is ever pre-colored. Under the C convention a preserved register
 costs the function a save and a restore, so there a value takes one only once
 the function touches it more often than it has exits plus the one save, with
 a touch inside a loop counting for a power of ten per enclosing loop. Under
 the aihc convention a preserved register is free.
+
+A cold call does not restrict the registers of the values that live across
+it. So a value keeps the register that the fast path wants, and the cold
+block saves the value around the call. The allocation gives each cold call a
+list of saves: the register of each value that is live after the call and
+that the call clobbers, and the place that keeps the value during the call.
+The live-out sets give this list exactly, so a value that is dead at the call
+costs no save. The backend saves the values before the argument moves and
+restores them after it moves the results. A backend that stores and loads
+two registers with one instruction keeps the values in one area of the frame,
+in pairs, and only the odd value out goes to a register. Another backend
+keeps each value in a preserved register when the call is a C call, nothing
+holds the register at the call, and the register costs nothing more. Else,
+the value goes to the frame. A save and a restore cost code, so a hint gives
+a volatile register to a value that lives across a cold call only when the
+hint spares enough moves: the convention sites and the partners that name
+the register must be at least one and a half times the instructions that
+the saves cost. A save and a restore cost two moves, or one instruction when
+the backend pairs them. A value that
+lives across a cold call and takes no hint prefers a preserved register,
+because then it needs no save.
 
 A hint is a register the scan tries first. Parameters, call arguments, call
 results, and returned values are hinted with the register the convention

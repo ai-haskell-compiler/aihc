@@ -222,7 +222,12 @@ data Block = Block
   { blockLabel :: !Label,
     blockParameters :: ![(Var, Type)],
     blockInstructions :: ![Instruction],
-    blockTerminator :: !Terminator
+    blockTerminator :: !Terminator,
+    -- | Whether the block is a slow path that runs rarely. A call in a cold
+    -- block is a cold call: the register allocator keeps the values that
+    -- live across it in the registers the fast path wants, and saves them
+    -- around the call.
+    blockCold :: !Bool
   }
   deriving (Eq, Show)
 

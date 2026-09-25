@@ -163,7 +163,8 @@ prettyAddend addend
 
 prettyBlock :: Block -> Doc ann
 prettyBlock block =
-  prettyLabel (blockLabel block)
+  (if blockCold block then "cold " else mempty)
+    <> prettyLabel (blockLabel block)
     <> parameters
     <> ":"
     <> hardline

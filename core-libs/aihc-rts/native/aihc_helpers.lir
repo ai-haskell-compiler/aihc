@@ -45,7 +45,7 @@ fits:
   store ptr %end, [%machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
   return %frame
 
-grow:
+cold grow:
   %grown = call @aihc_stack_grow(%machine, %words)
   return %grown
 }
@@ -99,7 +99,7 @@ blackhole:
   %heap_fits = ge.u i64 %heap_room, @AIHC_EVAL_WAITER_BYTES
   br %heap_fits, block(%current, %continuation), collect
 
-collect:
+cold collect:
   %current_word = ptr.to_int %current
   store i64 %current_word, [%roots] align 8
   %continuation_word = ptr.to_int %continuation

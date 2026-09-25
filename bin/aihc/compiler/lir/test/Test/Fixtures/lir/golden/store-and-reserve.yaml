@@ -19,7 +19,7 @@ expected: |
     %heap_fits_8 = ge.u i64 %heap_room_7, 16
     br %heap_fits_8, gc_reserved_10(%$cps_return_1), gc_collect_9
 
-  gc_collect_9:
+  cold gc_collect_9:
     store ptr %$cps_return_1, [%roots_2] align 8
     call @aihc_heap_collect(%machine_0, 2, 1, %roots_2, null)
     %$cps_return$gc_12 = load ptr [%roots_2] align 8

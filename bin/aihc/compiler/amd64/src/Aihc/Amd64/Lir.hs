@@ -176,6 +176,8 @@ amd64Backend =
       nbReturn = returnInstruction,
       nbLoadSlot = loadSlot,
       nbStoreSlot = storeSlot,
+      nbStoreSlots = map (uncurry storeSlot),
+      nbLoadSlots = map (uncurry loadSlot),
       nbMove = move,
       nbLiteralInto = literalInto,
       nbStoreSlotImmediate = storeSlotImmediate,
@@ -308,7 +310,8 @@ registersFor convention scratch =
       registersPreserved = preservedRegisters,
       registersPreservedCost = convention == CConvention,
       registersArgument = carrier argumentRegisters,
-      registersResult = carrier resultRegisters
+      registersResult = carrier resultRegisters,
+      registersPairedSaves = False
     }
   where
     carrier registers index
