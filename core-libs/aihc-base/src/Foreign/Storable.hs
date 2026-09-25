@@ -6,9 +6,11 @@ module Foreign.Storable
   )
 where
 
+import GHC.Base (Monad (..))
 import GHC.Err (undefined)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
+import GHC.Internal.Classes (Eq (..))
 import GHC.Num (Num (..))
 import GHC.Prim
   ( chr#,
@@ -46,8 +48,10 @@ import GHC.Prim
     writeWord8OffAddrAsDouble#,
     writeWord8OffAddrAsFloat#,
   )
-import GHC.Ptr (Ptr (..), plusPtr)
-import GHC.Types (Char (..), Double (..), Float (..))
+import GHC.Ptr (FunPtr (..), Ptr (..), castPtr, plusPtr)
+import GHC.Real (Integral, Ratio, denominator, numerator, (%))
+import GHC.Stable (StablePtr, castPtrToStablePtr, castStablePtrToPtr)
+import GHC.Types (Bool (..), Char (..), Double (..), Float (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 class Storable a where
@@ -304,3 +308,69 @@ instance Storable (Ptr a) where
           case writeAddrOffAddr# address index value state of
             nextState -> (# nextState, () #)
       )
+
+-- | A function pointer is stored as its machine address, like 'Ptr'.
+instance Storable (FunPtr a) where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readAddrOffAddr# address index state of
+            (# readState, value #) -> (# readState, FunPtr value #)
+      )
+  pokeElemOff (Ptr address) (I# index) (FunPtr value) =
+    IO
+      ( \state ->
+          case writeAddrOffAddr# address index value state of
+            nextState -> (# nextState, () #)
+      )
+
+-- | A stable pointer is stored as the address that 'castStablePtrToPtr'
+-- gives.
+instance Storable (StablePtr a) where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff address index =
+    peekElemOff (castPtr address) index >>= \pointer -> return (castPtrToStablePtr pointer)
+  pokeElemOff address index value =
+    pokeElemOff (castPtr address) index (castStablePtrToPtr value)
+
+-- | GHC stores a 'Bool' as a C @int@: four bytes, zero for 'False' and one
+-- for 'True'. Each value other than zero reads back as 'True'.
+instance Storable Bool where
+  sizeOf _ = 4
+  alignment _ = 4
+  peekElemOff address index =
+    peekElemOff (castPtr address) index >>= \value -> return (value /= (0 :: Int32))
+  pokeElemOff address index value =
+    pokeElemOff (castPtr address) index (boolToInt32 value)
+
+boolToInt32 :: Bool -> Int32
+boolToInt32 False = 0
+boolToInt32 True = 1
+
+-- | The unit type takes no bytes.
+instance Storable () where
+  sizeOf _ = 0
+  alignment _ = 1
+  peek _ = return ()
+  poke _ _ = return ()
+
+-- | A ratio is stored as its numerator and then its denominator. A read
+-- reduces the ratio with '%', as GHC does.
+instance (Storable a, Integral a) => Storable (Ratio a) where
+  sizeOf value = 2 * sizeOf (ratioComponent value)
+  alignment value = alignment (ratioComponent value)
+  peek address = do
+    let components = castPtr address
+    top <- peek components
+    bottom <- peekElemOff components 1
+    return (top % bottom)
+  poke address value = do
+    let components = castPtr address
+    poke components (numerator value)
+    pokeElemOff components 1 (denominator value)
+
+ratioComponent :: Ratio a -> a
+ratioComponent _ = undefined

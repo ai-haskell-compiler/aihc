@@ -2,6 +2,9 @@
 
 module GHC.Fingerprint.Type (Fingerprint (..)) where
 
+import Data.Bits (shiftL, shiftR, (.|.))
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.Storable (Storable (..))
 import GHC.Internal.Char (Char (C#))
 import GHC.Prim
   ( Int#,
@@ -16,7 +19,7 @@ import GHC.Prim
     word2Int#,
     word64ToWord#,
   )
-import GHC.Word (Word64 (W64#))
+import GHC.Word (Word64 (W64#), Word8)
 import Prelude
 
 data Fingerprint = Fingerprint {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
@@ -94,3 +97,30 @@ hexDigitValue digit =
   case ltWord# digit (int2Word# 10#) of
     0# -> C# (chr# (word2Int# (plusWord# digit (int2Word# 87#))))
     _ -> C# (chr# (word2Int# (plusWord# digit (int2Word# 48#))))
+
+-- | A fingerprint is stored as its two words, each in big-endian byte order,
+-- as GHC does.
+instance Storable Fingerprint where
+  sizeOf _ = 16
+  alignment _ = 8
+  peek address = do
+    high <- peekWord64 (castPtr address) 8 0
+    low <- peekWord64 (castPtr address `plusPtr` 8) 8 0
+    return (Fingerprint high low)
+  poke address (Fingerprint high low) = do
+    pokeWord64 (castPtr address) 8 high
+    pokeWord64 (castPtr address `plusPtr` 8) 8 low
+
+-- | Read a big-endian word of the given number of bytes onto an accumulator.
+peekWord64 :: Ptr Word8 -> Int -> Word64 -> IO Word64
+peekWord64 _ 0 accumulator = return accumulator
+peekWord64 address count accumulator = do
+  byte <- peek address
+  peekWord64 (address `plusPtr` 1) (count - 1) ((accumulator `shiftL` 8) .|. fromIntegral byte)
+
+-- | Write the given number of low bytes of a word in big-endian order.
+pokeWord64 :: Ptr Word8 -> Int -> Word64 -> IO ()
+pokeWord64 _ 0 _ = return ()
+pokeWord64 address count value = do
+  pokeElemOff address (count - 1) (fromIntegral value)
+  pokeWord64 address (count - 1) (value `shiftR` 8)
