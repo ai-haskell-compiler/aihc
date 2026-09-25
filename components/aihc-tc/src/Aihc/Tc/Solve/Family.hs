@@ -13,6 +13,7 @@ module Aihc.Tc.Solve.Family
     isTypeFamilyApplication,
     unsaturateFamilyApplication,
     familyEquations,
+    occursOutsideFamilies,
   )
 where
 
@@ -95,6 +96,45 @@ isTypeFamilyApplication ty =
         Just info -> tciFlavor info == TypeFamilyTyCon && length arguments == tciArity info
         Nothing -> False
     _ -> pure False
+
+-- | Whether a meta variable occurs in a type outside every saturated type
+-- family application.
+--
+-- The occurs check fails only for such an occurrence. An occurrence in a
+-- family argument does not make the equality insoluble: the application
+-- can reduce and remove it. For example, @m ~ ST (PrimState m)@ holds
+-- when @m@ is @ST s@, because @PrimState (ST s)@ reduces to @s@.
+occursOutsideFamilies :: TcM (Unique -> TcType -> Bool)
+occursOutsideFamilies = do
+  tyCons <- lift $ gets tcsGlobalTyCons
+  let familyArity tyCon =
+        case Map.lookup (tyConKey tyCon) tyCons of
+          Just info | tciFlavor info == TypeFamilyTyCon -> Just (tciArity info)
+          _ -> Nothing
+      occurs u = go
+        where
+          go ty =
+            case ty of
+              TcMetaTv u' -> u == u'
+              TcTyCon tyCon arguments
+                | Just arity <- familyArity tyCon,
+                  length arguments >= arity ->
+                    any go (drop arity arguments)
+                | otherwise -> any go arguments
+              TcFunTy argument result -> go argument || go result
+              TcForAllTy _ body -> go body
+              TcQualTy predicates body -> any goPred predicates || go body
+              TcAppTy function argument -> go function || go argument
+              _ -> False
+          goPred predicate =
+            case predicate of
+              ClassPred _ arguments -> any go arguments
+              EqPred left right -> go left || go right
+              IParamPred _ payload -> go payload
+              IrredPred constraint -> go constraint
+              QuantifiedPred variables antecedents consequent ->
+                any (go . tvKind) variables || any goPred antecedents || goPred consequent
+  pure occurs
 
 -- | Split a type family application with more arguments than the family
 -- arity into an application spine over the saturated family application.

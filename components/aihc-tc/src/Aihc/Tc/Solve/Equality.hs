@@ -15,7 +15,7 @@ import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Congruence (proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (unless)
@@ -120,7 +120,11 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
 -- | Solve a meta-variable equality by binding.
 solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult
 solveMetaEq ct u ty
-  | occursIn u ty = pure (EqError ct)
+  | occursIn u ty = do
+      -- An occurrence in a family argument can disappear when the family
+      -- reduces. The equality waits until then.
+      outside <- occursOutsideFamilies
+      pure (if outside u ty then EqError ct else EqStuck ct)
   -- A meta-variable stands for a monotype. Binding it to a polytype
   -- would let inference guess an impredicative instantiation.
   | isPolyType ty = pure (EqError ct)
