@@ -56,6 +56,8 @@ module Aihc.Tc.Monad
     Closedness (..),
     emptyTcEnv,
     mkWiredTyCon,
+    anyTyConOfWiring,
+    undeterminedTypeOfKind,
     implicitParamType,
     lookupResolvedTerm,
     lookupTermKey,
@@ -139,7 +141,7 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
@@ -377,6 +379,46 @@ mkWiredTyCon tyCon kind = do
       let info = TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon (Scheme [] [] [] kind) DataTyCon Nothing Nothing
       lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert (tyConKey tyCon) info (tcsGlobalTyCons state)}
       pure tyCon
+
+-- | The type that a type variable gets when nothing determines it, at the
+-- kind of that variable.
+--
+-- A variable of kind @Type@ becomes the unit type. GHC uses @Any@ there
+-- too, but the unit type is a data type with a known representation, so
+-- the later stages need no special case for it. A representation becomes
+-- the lifted one, as GHC defaults it. A variable of each other kind, such
+-- as the @v :: Type -> Type@ that a phantom parameter leaves open, becomes
+-- @Any@ at that kind. Its kind argument is invisible, so the place that
+-- the type fills gives the kind.
+undeterminedTypeOfKind :: TcType -> TcM TcType
+undeterminedTypeOfKind kind = do
+  kinds <- getKinds
+  case kind of
+    KType -> do
+      unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
+      pure (TcTyCon unitTyCon [])
+    KRuntimeRep -> pure (liftedRep kinds)
+    _ -> do
+      anyTyCon <- anyTyConOfWiring
+      pure (TcTyCon anyTyCon [])
+
+-- | The type family @Any :: forall k. k@ of the wiring, with its kind
+-- registered on first use. The kind argument is invisible, so the result
+-- has no arguments: a use gets its kind from the place that it fills, as
+-- a use that the source spells does.
+anyTyConOfWiring :: TcM TyCon
+anyTyConOfWiring = do
+  wired <- wiredTyConIdentity tcWiringAnyTyCon
+  maybeInfo <- lookupTyConByIdentity wired
+  case maybeInfo of
+    Just info -> pure (tciTyCon info)
+    Nothing -> do
+      kinds <- getKinds
+      kindVar <- freshSkolemTvOfKind "k" (typeKind kinds)
+      let scheme = Scheme [] [kindVar] [] (TcTyVar kindVar)
+          info = TyConInfo (tyConName wired) (tyConArity wired) wired scheme TypeFamilyTyCon Nothing Nothing
+      lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert (tyConKey wired) info (tcsGlobalTyCons state)}
+      pure wired
 
 -- | Whether a polymorphic binding is known to have no free type variables.
 data Closedness

@@ -80,6 +80,10 @@ data TcWiring = TcWiring
     tcWiringNaturalTyCon :: TyCon,
     -- | The kind of a type-level string literal, @GHC.Types.Symbol@.
     tcWiringSymbolTyCon :: TyCon,
+    -- | The type family @Any :: forall k. k@, which has no equations. The
+    -- type checker gives it to a type variable that nothing determines, at
+    -- the kind of that variable, as GHC does.
+    tcWiringAnyTyCon :: TyCon,
     -- | The nominal equality constraint @~@.
     tcWiringEqualityTyCon :: TyCon,
     -- | The representational equality class @Coercible@.

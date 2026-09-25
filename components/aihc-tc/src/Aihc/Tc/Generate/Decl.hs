@@ -2814,7 +2814,8 @@ tcSingleDeclGroup sigs groupId d =
 -- selector per binder, so each binder records the type variables its
 -- selector abstracts and the type arguments that instantiate the shared
 -- value. A type variable that the binder does not mention is instantiated
--- at the unit type, which is what GHC uses @Any@ for.
+-- at the type that 'undeterminedTypeOfKind' gives: the unit type at kind
+-- @Type@ and @Any@ at each other kind.
 tcTopLevelPatternBind :: Map TcTermKey CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
 tcTopLevelPatternBind sigs groupId d pat rhs = do
   let sp = patternSpan pat <|> peelDeclSpan d
@@ -2869,7 +2870,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
                           <> " does not match the type its pattern binding gives it: "
                           <> renderTcType (schemeToType scheme)
                       )
-            typeArgs <- mapM (patternBindTypeArgument sp name scheme) rhsTyVars
+            typeArgs <- mapM (patternBindTypeArgument scheme) rhsTyVars
             zonkedTy <- zonkType (schemeToType scheme)
             let pending = PendingTcAnnotation (typeSchemeBody scheme) (typeSchemeTyVars scheme) typeArgs 0 [] [] []
             pure ((name, pending), TcBindingResult key (renderBinderName binder) zonkedTy)
@@ -2895,27 +2896,9 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
 
     -- The type argument that instantiates one type variable of the shared
     -- right-hand side for one selector.
-    patternBindTypeArgument sp' name scheme tyVar
+    patternBindTypeArgument scheme tyVar
       | tyVar `elem` typeSchemeTyVars scheme = pure (TcTyVar tyVar)
-      | otherwise = do
-          kinds <- getKinds
-          kind <- zonkType (tvKind tyVar)
-          if kind == typeKind kinds
-            then do
-              unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
-              pure (TcTyCon unitTyCon [])
-            else do
-              emitError sp' $
-                OtherError
-                  ( "a pattern binding cannot generalize over the type variable "
-                      <> T.unpack (tvName tyVar)
-                      <> " of kind "
-                      <> renderTcType kind
-                      <> ", which "
-                      <> T.unpack name
-                      <> " does not mention"
-                  )
-              pure (TcTyVar tyVar)
+      | otherwise = undeterminedTypeOfKind =<< zonkType (tvKind tyVar)
 
 typeSchemeTyVars :: TypeScheme -> [TyVarId]
 typeSchemeTyVars (ForAll tyVars _ _) = tyVars

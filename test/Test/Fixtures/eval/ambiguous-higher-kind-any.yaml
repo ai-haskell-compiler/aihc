@@ -1,0 +1,24 @@
+extensions:
+  - KindSignatures
+modules:
+  - |
+    module Test where
+    import GHC.Types (Type)
+    data Box (v :: Type -> Type) a = Box a
+    data Flag = Flag
+    re :: Box u a -> Box v a
+    re (Box x) = Box x
+    useRe :: Box v a -> Box w a
+    useRe b = re (re b)
+    unBox :: Box v a -> a
+    unBox (Box x) = x
+    data Tag (v :: Type -> Type) = Tag
+    (tag, flag) = (Tag, Flag)
+    result :: (Flag, Flag)
+    result = (unBox (useRe (Box Flag :: Box Maybe Flag)), flag)
+expression: result
+output: |
+  (Flag,Flag)
+status: pass
+reason: A type variable of kind Type -> Type that nothing determines gets the type Any,
+  in an expression and in a pattern binding.

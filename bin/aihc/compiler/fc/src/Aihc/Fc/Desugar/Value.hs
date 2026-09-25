@@ -1627,8 +1627,9 @@ desugarTopValue specs top = do
 -- goes through a hidden function that is generic in every type variable of
 -- the group, because the pattern gives the /other/ binders types that the
 -- value cannot mention. The type checker records on each binder the type
--- arguments that instantiate the group, one per type variable, using the
--- unit type where GHC uses @Any@.
+-- arguments that instantiate the group, one per type variable. The type
+-- checker gives a variable that a binder does not mention the unit type at
+-- kind @Type@ and @Any@ at each other kind.
 desugarTopPatternGroup :: TopPatternGroup -> ValueM [ValDecl]
 desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
   specs <- patternBinderSpecs pattern'
@@ -1682,7 +1683,9 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
         pure (argumentBinder, body)
       selectType <- convertCheckedType (foldr TcForAllTy (TcFunTy rhsBodyType ty) rhsTyVars)
       typeBinders <- convertTypeBinders tyVars
-      convertedArgs <- withTypeVariables tyVars (mapM convertCheckedType typeArgs)
+      -- A type argument can be @Any@, whose kind only the variable that it
+      -- instantiates gives.
+      convertedArgs <- withTypeVariables tyVars (convertCheckedTypeArguments (foldr TcForAllTy rhsBodyType rhsTyVars) typeArgs)
       convertedType <- convertCheckedType (foldr TcForAllTy ty tyVars)
       vis <- termVisibility name
       let instantiate expression = foldl ExTyApp expression convertedArgs
