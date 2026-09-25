@@ -296,8 +296,15 @@ The rewrites are:
 | ------- | --------- |
 | Remove a case alternative | No location of the scrutinee holds its constructor. |
 | Replace `eval x` with `x` | Each location of `x` holds only nodes in weak-head normal form. |
-| Replace `apply f a` with `fetch` and `call` | Each location of `f` holds a closure of one function with one argument left. |
+| Replace a saturated `apply` with `fetch` and `call` | Each location holds the same closure tag, and the argument and result layouts match. |
 | Replace `eval` with `eval-once` | Each thunk that `eval` can enter is single-entry, and its function gives a value in weak-head normal form. |
+
+The pass can join consecutive applications of a known closure into one
+call. Each intermediate partial application must occur only as the next
+callee. The pass preserves logical argument groups, including empty groups
+and groups with several values. It fetches captured fields from the original
+closure. It does not cross an evaluation or effect. An oversaturated call
+keeps the application of its remaining arguments.
 
 A thunk is single-entry when its location is not shared. A location is
 shared when a variable that points at it has two uses, when a shared or an
