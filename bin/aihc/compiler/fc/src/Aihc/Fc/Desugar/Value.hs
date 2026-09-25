@@ -887,6 +887,8 @@ foreignTypeNewtypeDependencies ty = do
         TcTyCon tyCon arguments ->
           [foreignNewtypeDependency dataType | dataType <- newtypes, dtiTyCon dataType == tyCon]
             <> concatMap (go newtypes) arguments
+        -- A bare constructor has no value to marshal.
+        TcKindedTyCon {} -> []
         TcFunTy argument result -> go newtypes argument <> go newtypes result
         TcForAllTy _ body -> go newtypes body
         TcQualTy _ body -> go newtypes body
@@ -4584,6 +4586,10 @@ typeableTypeView ty =
   case ty of
     TcTyCon tyCon arguments ->
       pure (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon, tyConName tyCon, arguments)
+    -- The evidence carries the kind arguments. A bare constructor has no
+    -- visible argument.
+    TcKindedTyCon tyCon _ ->
+      pure (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon, tyConName tyCon, [])
     TcFunTy argument result -> do
       package <- gets (cePrimPackage . vsConvertEnv)
       pure (packageIdText package, "GHC.Types", "(->)", [argument, result])

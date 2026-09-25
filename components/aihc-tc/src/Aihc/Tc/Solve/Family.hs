@@ -223,6 +223,10 @@ couldUnify family = go
           tyCon == targetTyCon
             && length arguments == length targetArguments
             && and (zipWith go arguments targetArguments)
+        -- The kind arguments are kinds, and a kind can still change.
+        (TcKindedTyCon tyCon _, TcKindedTyCon targetTyCon _) -> tyCon == targetTyCon
+        (TcKindedTyCon tyCon _, TcTyCon targetTyCon []) -> tyCon == targetTyCon
+        (TcTyCon tyCon [], TcKindedTyCon targetTyCon _) -> tyCon == targetTyCon
         (TcFunTy argument result, TcFunTy targetArgument targetResult) ->
           go argument targetArgument && go result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->

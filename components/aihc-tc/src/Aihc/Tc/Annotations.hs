@@ -508,6 +508,8 @@ renderTcTypeInModule currentModule = go 0
         arity == length args =
           "(" ++ commaSep (map (go 0) args) ++ ")"
     go _ (TcTyCon tc []) = T.unpack (renderTyConName tc)
+    -- The kind arguments are invisible, as in the source.
+    go _ (TcKindedTyCon tc _) = T.unpack (renderTyConName tc)
     go p (TcTyCon tc args) =
       parenIf (p >= 2) $
         unwords (T.unpack (renderTyConName tc) : map (go 2) args)

@@ -11,7 +11,7 @@ where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
-import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
+import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Congruence (proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -126,10 +126,13 @@ solveMetaEq ct u ty
   | isPolyType ty = pure (EqError ct)
   | otherwise = do
       declaredKind <- readMetaTvKind u
-      solvedKind <- tcTypeKind ty
+      -- A bare poly-kinded constructor keeps the kind of the meta, as in
+      -- 'Aihc.Tc.Unify.unifyMetaTv'.
+      solved <- kindedTyConAt declaredKind ty
+      solvedKind <- tcTypeKind solved
       unifyKindsAt (ctLoc ct) declaredKind solvedKind
-      writeMetaTv u ty
-      bindEvidence (ctEvVar ct) (EvCoercion (Refl ty))
+      writeMetaTv u solved
+      bindEvidence (ctEvVar ct) (EvCoercion (Refl solved))
       pure EqSolved
 
 solveDecomposed :: Ct -> TcType -> [(TcType, TcType)] -> TcM EqResult
@@ -162,6 +165,7 @@ occursIn u = go
     go (TcTyLit _) = False
     go (TcTyVar _) = False
     go (TcTyCon _ args) = any go args
+    go (TcKindedTyCon _ kindArgs) = any go kindArgs
     go (TcFunTy a b) = go a || go b
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body

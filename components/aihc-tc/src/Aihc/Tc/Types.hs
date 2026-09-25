@@ -32,6 +32,8 @@ module Aihc.Tc.Types
     TcKinds (..),
     isEqualityTyCon,
     mkAppTy,
+    kindedTyCon,
+    bareTyCon,
     tyConNamespace,
     mkTyConWithOrigin,
     mkTyConWithNamespace,
@@ -238,6 +240,21 @@ tyConPackageId (TyConInternal _ packageId _ _ _) = packageId
 tyConModuleName :: TyCon -> Text
 tyConModuleName (TyConInternal _ _ moduleName _ _) = moduleName
 
+-- | A bare type constructor with these kind arguments. With no kind
+-- argument, it is the plain constructor.
+kindedTyCon :: TyCon -> [TcType] -> TcType
+kindedTyCon tyCon [] = TcTyCon tyCon []
+kindedTyCon tyCon kindArguments = TcKindedTyCon tyCon kindArguments
+
+-- | The type constructor of a type that is a type constructor with no
+-- visible argument, kinded or not.
+bareTyCon :: TcType -> Maybe TyCon
+bareTyCon ty =
+  case ty of
+    TcTyCon tyCon [] -> Just tyCon
+    TcKindedTyCon tyCon _ -> Just tyCon
+    _ -> Nothing
+
 -- | Apply a type to an argument.
 --
 -- An application of a type constructor stays a constructor application,
@@ -248,6 +265,8 @@ mkAppTy :: TcType -> TcType -> TcType
 mkAppTy function argument =
   case function of
     TcTyCon tyCon arguments -> TcTyCon tyCon (arguments <> [argument])
+    -- An application gets its kind arguments from its visible arguments.
+    TcKindedTyCon tyCon _ -> TcTyCon tyCon [argument]
     TcAppTy TcArrowTy domain -> TcFunTy domain argument
     _ -> TcAppTy function argument
 
@@ -284,6 +303,16 @@ data TcType
     -- literal's sort, which is a wired-in type constructor rather than
     -- anything the literal carries.
     TcTyLit !TyLit
+  | -- | A poly-kinded type constructor with no visible argument, and the
+    -- kind arguments at which the type uses it. The kind arguments are in
+    -- the order of the variables of the kind scheme of the constructor.
+    --
+    -- An application of a type constructor gets its kind arguments from
+    -- the kinds of its visible arguments. A bare constructor has no
+    -- visible arguments: in @Proxy Tagged@ only the use site tells the
+    -- kind of @Tagged@. This form keeps that kind. A constructor whose
+    -- kind scheme has no variables is always 'TcTyCon'.
+    TcKindedTyCon !TyCon ![TcType]
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData TcType where
@@ -297,6 +326,7 @@ instance NFData TcType where
     TcQualTy predicates body -> rnf predicates `seq` rnf body
     TcAppTy function argument -> rnf function `seq` rnf argument
     TcTyLit {} -> ()
+    TcKindedTyCon _ kindArguments -> rnf kindArguments
 
 -- | A type-level literal, by sort. A natural stands at kind
 -- @GHC.Num.Natural.Natural@, a symbol at @GHC.Types.Symbol@ and a
@@ -578,6 +608,14 @@ typeKindInEnv kinds kindEnv = go
               Right
               (Map.lookup (tyConKey tyCon) kindEnv)
           applyArguments scheme arguments
+        TcKindedTyCon tyCon kindArguments -> do
+          scheme <-
+            maybe
+              (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
+              Right
+              (Map.lookup (tyConKey tyCon) kindEnv)
+          let ForAll quantified _ body = scheme
+          Right (applySubst (Map.fromList (zip (map tvUnique quantified) kindArguments)) body)
         TcArrowTy -> Right (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
         TcFunTy {} -> Right (typeKind kinds)
         TcForAllTy _ body -> go body
@@ -650,6 +688,7 @@ applySubst substitution = go
         TcArrowTy -> ty
         TcTyLit {} -> ty
         TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
+        TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon (map go kindArguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy tyVar body ->
           TcForAllTy (setTyVarKind (go (tvKind tyVar)) tyVar) (applySubst (Map.delete (tvUnique tyVar) substitution) body)
@@ -683,6 +722,7 @@ typeMentionsMeta ty =
     TcArrowTy -> False
     TcTyLit {} -> False
     TcTyCon _ arguments -> any typeMentionsMeta arguments
+    TcKindedTyCon _ kindArguments -> any typeMentionsMeta kindArguments
     TcFunTy argument result -> typeMentionsMeta argument || typeMentionsMeta result
     TcForAllTy _ body -> typeMentionsMeta body
     TcQualTy predicates body -> any predicateMentionsMeta predicates || typeMentionsMeta body
@@ -714,6 +754,7 @@ typeMentionsTyVar target ty =
     TcArrowTy -> False
     TcTyLit {} -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
+    TcKindedTyCon _ kindArguments -> any (typeMentionsTyVar target) kindArguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> not (sameTyVar tyVar target) && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
@@ -769,6 +810,8 @@ typeShape ty =
     TcTyVar tyVar -> ShapeTyVar (tvUnique tyVar) (tvName tyVar)
     TcMetaTv unique -> ShapeMetaTv unique
     TcTyCon tyCon arguments -> ShapeTyCon tyCon (map typeShape arguments)
+    -- A shape leaves out kinds, and the kind arguments are kinds.
+    TcKindedTyCon tyCon _ -> ShapeTyCon tyCon []
     TcArrowTy -> ShapeArrowTy
     TcFunTy argument result -> ShapeFunTy (typeShape argument) (typeShape result)
     TcForAllTy tyVar body -> ShapeForAllTy (tvUnique tyVar) (tvName tyVar) (typeShape body)
@@ -806,6 +849,7 @@ kindMentionsUnique target kind =
     TcArrowTy -> False
     TcTyLit {} -> False
     TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
+    TcKindedTyCon _ kindArguments -> any (kindMentionsUnique target) kindArguments
     TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
     TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
     TcQualTy predicates body -> any (predicateMentionsUnique target) predicates || kindMentionsUnique target body

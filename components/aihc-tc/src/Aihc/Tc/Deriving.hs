@@ -357,6 +357,7 @@ tcTypeConstructor :: TcType -> Maybe TyCon
 tcTypeConstructor ty =
   case ty of
     TcTyCon tyCon _ -> Just tyCon
+    TcKindedTyCon tyCon _ -> Just tyCon
     TcAppTy function _ -> tcTypeConstructor function
     _ -> Nothing
 

@@ -164,6 +164,9 @@ collectMetaVars TcArrowTy = []
 collectMetaVars (TcTyLit _) = []
 collectMetaVars (TcTyVar _) = []
 collectMetaVars (TcTyCon _ args) = concatMap collectMetaVars args
+-- The kind arguments are kinds. A kind meta is not quantified: it is
+-- settled with the other kinds when the module is finalized.
+collectMetaVars (TcKindedTyCon _ _) = []
 collectMetaVars (TcFunTy a b) = collectMetaVars a ++ collectMetaVars b
 collectMetaVars (TcForAllTy _ body) = collectMetaVars body
 collectMetaVars (TcQualTy ps body) = concatMap predMetaVars ps ++ collectMetaVars body
@@ -228,6 +231,7 @@ substMetas subst = go
     go ty@(TcTyLit _) = ty
     go (TcTyVar tv) = TcTyVar tv
     go (TcTyCon tc args) = TcTyCon tc (map go args)
+    go (TcKindedTyCon tc kindArgs) = TcKindedTyCon tc (map go kindArgs)
     go (TcFunTy a b) = TcFunTy (go a) (go b)
     go (TcForAllTy tv body) = TcForAllTy tv (go body)
     go (TcQualTy ps body) = TcQualTy (map (substMetasPred subst) ps) (go body)
