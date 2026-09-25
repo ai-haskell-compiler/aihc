@@ -97,7 +97,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameAnns,
   )
 import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
-import Aihc.Resolve.Traverse (annotationList)
+import Aihc.Resolve.Traverse (annotationList, collectAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
     TcAnnotation (..),
@@ -133,7 +133,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -744,6 +744,14 @@ tcRulesDecl decl =
 -- the sides, closed over its type variables and residual constraints, so a
 -- consumer finds the type binders, the dictionary binders and the binder
 -- types in that one type. A rule with a type error keeps its source form.
+--
+-- An occurrence on the left-hand side can have a type that the type of the
+-- rule does not mention. An example is the intermediate type of
+-- @re (re s)@ for @re :: Box u a -> Box v a@. As GHC does, the rule
+-- quantifies such a type variable too, so that the rule matches at each
+-- intermediate type. The matcher finds the type in the type arguments of
+-- the occurrence. A type that only the right-hand side mentions is not
+-- quantified, because a match cannot find it.
 tcRuleDecl :: RuleDecl -> TcM RuleDecl
 tcRuleDecl rule = withAmbientSpan sp $ do
   kinds <- getKinds
@@ -780,7 +788,8 @@ tcRuleDecl rule = withAmbientSpan sp $ do
     if failed
       then pure rule
       else do
-        Scheme inferred specified predicates body <- generalizeAndCommit (ruleTypeOf lhsTy) residualPreds
+        let interior = concatMap pendingTypes (collectAnnotations fromAnnotation lhs')
+        Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds
         let closed = schemeToType (Scheme [] (typeBinders <> inferred <> specified) predicates body)
         binders' <- forM binders $ \(binder, ty) ->
           pure binder {ruleBinderAnns = mkAnnotation (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderAnns binder}
@@ -793,6 +802,9 @@ tcRuleDecl rule = withAmbientSpan sp $ do
             }
   where
     sp = sourceSpanFromAnns (ruleAnns rule)
+
+    pendingTypes pending =
+      pendingTcAnnType pending : pendingTcAnnTypeArgs pending <> pendingTcAnnTermArgTypes pending
 
     withRuleBinders binders action =
       foldr (\(binder, ty) -> extendResolvedTermEnv (ruleBinderName binder) (TcMonoIdBinder ty)) action binders
