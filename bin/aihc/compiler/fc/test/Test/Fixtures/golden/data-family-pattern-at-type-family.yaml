@@ -36,7 +36,7 @@ expected: |-
   pub type 1.tPayload (a : 2.sType) :: 2.sType @N {}
 
   type 1.t$R$Payload$PayloadUnit :: 2.sType {
-      1.cPayloadUnit :: 1.tUnit 2.→ 1.t$R$Payload$PayloadUnit
+      pub 1.cPayloadUnit :: 1.tUnit 2.→ 1.t$R$Payload$PayloadUnit
   }
 
   axiom 1.$ax$Payload$PayloadUnit : 1.tPayload 1.tUnit ~N 1.t$R$Payload$PayloadUnit
