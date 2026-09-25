@@ -2,11 +2,11 @@
 	.p2align 2
 	.globl _enter_direct
 _enter_direct:
-	ldr x8, [x1]
+	ldr x8, [x20]
 	mov x17, #-4
 	and x8, x8, x17
 	ldr x8, [x8]
-	ldr x1, [x1, #8]
+	ldr x20, [x20, #8]
 	mov x14, x8
 	cbz x14, .Llir_trap_0_0
 	br x14
@@ -16,11 +16,11 @@ _enter_direct:
 	.p2align 2
 	.globl _enter_inline
 _enter_inline:
-	ldr x8, [x1]
+	ldr x8, [x20]
 	mov x17, #-4
 	and x8, x8, x17
 	ldr x8, [x8]
-	ldr x1, [x1, #8]
+	ldr x20, [x20, #8]
 	mov x14, x8
 	cbz x14, .Llir_trap_1_0
 	br x14

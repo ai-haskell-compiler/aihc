@@ -349,8 +349,10 @@ or `0`. The fields are, in order:
 | `frame_kind` | `i8` | The continuation frame kind for stack unwinding. |
 | `object_kind` | `i8` | Node, closure, thunk, partial constructor, or a runtime object kind. |
 
-The `backend_entry` field has the signature `(ptr, ptr, ptr, T...) -> ()`
-with the machine, the object, the continuation, and the supplied values. The
+The `backend_entry` field has the signature
+`(ptr, ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()` with the machine, the
+context of the running thread, the object, the continuation, and the
+supplied values. "Lowering from GC-GRIN" describes the context. The
 types `T...` are the Lir types of the supplied values, so a call site with
 `n` supplied values states a signature with `n` value parameters. A
 continuation object ignores the continuation parameter. The function loads
@@ -634,7 +636,8 @@ fixture also passes the linter and the pretty-printer round-trip.
 
 `Aihc.Lir.Lower` produces one Lir module for one GC-GRIN program. Every GRIN
 function becomes a Lir function with the `aihc` convention and no results.
-The first parameter is the machine. The other parameters are the GRIN
+The first parameter is the machine. The next four parameters are the
+context of the running thread. The other parameters are the GRIN
 parameters in order. A GRIN value with a pointer representation or an address
 representation becomes `ptr`. Every other GRIN value becomes `i64`, and a
 float travels as its bit pattern like in the native runtime ABI.
@@ -649,6 +652,52 @@ and `wasip3Target` for WebAssembly. Apple ARM64 preserves the original size
 of narrow C stack arguments. Narrow C register arguments retain their
 extension to 32 bits.
 
+The context of a thread is four `ptr` values:
+
+| Parameter | Meaning |
+| --- | --- |
+| `%hp` | The heap pointer: the first free byte of the current space. |
+| `%hp_limit` | The heap limit: the end of the space the heap pointer runs into. |
+| `%sp` | The stack pointer: the first free byte of the stack of the thread. |
+| `%sp_limit` | The stack limit: the end of the stack chunk that holds the byte before `%sp`. |
+
+Every function that runs Haskell code takes the context after the machine
+and gives it to each function it transfers control to, as it does with a
+continuation. The shared helpers of the runtime units and the generated
+helpers have the same prefix. Thus the context stays in registers from one
+function to the next.
+
+The machine has the fields `heap_next`, `heap_limit`, and `stack_next`.
+They hold a copy of the context only where C code can read it:
+
+- Before a C call that can allocate, collect, or read the stack pointer,
+  the code stores `%hp` in `heap_next` and `%sp` in `stack_next`. After the
+  call, it loads `%hp` and `%hp_limit` again. Such a call is one that takes
+  the machine, and a foreign call that can enter a callback. A C call
+  without the machine cannot see the context, so it has no store and no
+  load. A primitive that the lowering emits inline, such as an arithmetic
+  operation or a comparison, touches neither the machine nor the context.
+- Lir code never changes the heap limit, so it never stores `%hp_limit`.
+  The runtime computes the chunk of a stack pointer when it needs it, so no
+  machine field holds `%sp_limit`.
+- A C call from compiled code never changes the stack pointer of the
+  running thread, so the code does not load `%sp` after one. A callback
+  that a foreign call enters gives the stack back as it found it.
+- The scheduler can select another thread. `aihc_lir_resume` takes only the
+  machine and the resumption, and it loads the context from the machine
+  after the scheduler record is taken. The code before it stores the
+  context before the C call that gave the resumption. The exit function
+  takes only the machine too, and the code that halts stores the context
+  first.
+- Where C code starts Haskell code, it loads the context from the machine:
+  the `main` of the executable, the WASI P3 resumption through
+  `aihc_lir_resume`, and a foreign callback. The stop frame of a callback
+  stores the context before it returns.
+
+A stack chunk has `AIHC_STACK_CHUNK_BYTES` bytes and the same alignment, so
+the end of the chunk of an address is the address with the low bits set,
+plus one. The stack limit is the end of the chunk of the byte before `%sp`.
+
 The lowering keeps the control model of CPS-GRIN:
 
 - A direct call is a `tailcall`.
@@ -658,24 +707,37 @@ The lowering keeps the control model of CPS-GRIN:
   extern C function.
 - A case on a pointer loads the header and the `identity` field and compares
   it with the constructor tables. A case on a scalar is a `switch`.
-- A heap reservation subtracts the heap pointer of the machine from the end of
-  its space and branches on whether the words it wants fit. When they do, the
-  branch is the whole reservation and every root stays in its register. When
-  they do not, the slow block stores the live roots in a `stack.alloc` array,
-  calls `aihc_heap_collect` with the function's static reference table, and
-  reloads the relocated roots. The two paths meet
-  at a block whose parameters carry the roots, so the code after a reservation
-  names the roots the same way whichever path reached it.
-- A store takes its object from that reservation itself: it loads the heap
-  pointer of the machine, advances it by the words of the object, and writes
-  the header and the fields. The runtime exports no allocator.
+- A heap reservation of a fixed size adds its bytes to `%hp` and branches on
+  whether the result is not above `%hp_limit`. A reservation of a dynamic
+  size compares the free words with the words it wants. When they fit, the
+  branch is the whole reservation, and every root and the context stay in
+  their registers. When they do not, the slow block stores the live roots in
+  a `stack.alloc` array, gives the machine the context, calls
+  `aihc_heap_collect` with the function's static reference table, and
+  reloads the relocated roots, `%hp`, and `%hp_limit`. The two paths meet at
+  a block whose parameters carry the roots, `%hp`, and `%hp_limit`, so the
+  code after a reservation names them the same way whichever path reached
+  it.
+- A store takes its object from that reservation itself: the object starts
+  at `%hp`, and `%hp` advances by the words of the object. Then the store
+  writes the header and the fields. Neither step touches memory other than
+  the object. The runtime exports no allocator.
+- A continuation frame goes on the stack of the thread. The push adds the
+  bytes of the frame to `%sp` and branches on whether the result is not
+  above `%sp_limit`. When it is above, `aihc_stack_grow` gives the first
+  frame of the next chunk, and the new limit is the end of that chunk. The
+  runtime function reads neither the heap nor the machine copy of the
+  context, so the push stores nothing in the machine.
+- A continue helper enters a frame: the frame becomes `%sp`, and the end of
+  its chunk becomes `%sp_limit`. That pops the frame and every frame above
+  it.
 - `GrinIfWhnf` loads the object kind and branches without allocation or suspension.
   Thunks, indirections, and blackholes take its slow branch. All other kinds take its ready branch.
   The ready branch calls the continuation function directly with its captures and result.
   The slow branch allocates a continuation frame for the same function.
   Heap reservations stay inside their branches.
 - `aihc_lir_eval` creates an update frame only when it enters a thunk.
-  It reserves three slots for the frame, with the resolved value and continuation as GC roots.
+  It pushes a frame of three slots on the stack, with the resolved value and continuation as fields.
   It marks the thunk with a low header bit and preserves the original info table and payload.
   Info-table loads mask both header tag bits.
   The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
@@ -858,7 +920,9 @@ the aihc convention a preserved register is free.
 
 A hint is a register the scan tries first. Parameters, call arguments, call
 results, and returned values are hinted with the register the convention
-puts them in. The argument of a jump and the block parameter it reaches are
+puts them in. The two conventions can pass arguments in different
+registers, so an argument takes its hint from the convention of its callee,
+and a parameter from the convention of its function. The argument of a jump and the block parameter it reaches are
 partners: each prefers the register the other already has, and failing that
 the register the other was hinted with. Last, a result prefers the register
 of an operand of its own instruction, which is free exactly when the operand
@@ -877,7 +941,10 @@ and the allocator never splits one, so a value that dies and revives inside
 its span keeps its register throughout. That costs registers on a wide
 function and buys independence from the block order: the result is correct
 whatever order the blocks arrive in and whatever the loops look like. The scan
-walks the intervals in order of their start, hands out the first free
+takes the parameters first, in their order, and then walks the other
+intervals in order of their start. Thus a parameter that must move to a
+preserved register cannot take the register that an earlier parameter
+arrives in. The scan hands out the first free
 acceptable register, hints first and then the pool in preference order, and
 when nothing is free sends the acceptable interval that reaches furthest to
 a frame slot.
@@ -914,9 +981,13 @@ rather than as a change of some object bytes. Run the suite with
   destination it lives in is written, a cycle is broken through a scratch
   register, and a value that is already where the convention wants it costs
   nothing.
-- The `aihc` convention passes the first eight arguments in `x0` to `x7` and
-  the rest in a 16-byte aligned block on the stack. The callee pops that
-  block. Results come back in `x0` to `x7`. An aihc function preserves no
+- The `aihc` convention passes 24 arguments in registers: the first five in
+  `x19` to `x23`, the next eight in `x0` to `x7`, the next six in `x8` to
+  `x13`, and the next five in `x24` to `x28`. The rest go in a 16-byte
+  aligned block on the stack. The first five arguments of a lowered
+  function are the machine and the context, and a C call preserves their
+  registers, so they stay in place across a C call. The callee pops the
+  stack block. Results come back in `x0` to `x7`. An aihc function preserves no
   register, so one that calls nothing and spills nothing has no frame: it
   leaves the stack pointer where it found it. A function with a frame saves
   the frame pointer pair and keeps its slots below it. A tail call writes
@@ -955,9 +1026,13 @@ design of the AArch64 backend:
   the register of its left operand, which the allocator arranges when the
   operand dies there, and an addition of an immediate into another register
   is one `lea`.
-- The `aihc` convention passes the first six arguments in `rdi`, `rsi`,
-  `rdx`, `rcx`, `r8`, and `r9` and the rest in a 16-byte aligned block above
-  the return address. The callee pops that block with `ret imm16`. Results
+- The `aihc` convention passes the first eleven arguments in `rbx`, `r12`,
+  `r13`, `r14`, `r15`, `rdi`, `rsi`, `rdx`, `rcx`, `r8`, and `r9` and the
+  rest in a 16-byte aligned block above the return address. The first five
+  arguments of a lowered function are the machine and the context, and a C
+  call preserves their registers, so they stay in place across a C call. A
+  tail call with a stack block uses `rax` after the argument moves, so `rax`
+  carries no argument. The callee pops the block with `ret imm16`. Results
   come back in `rax`, `rdx`, `rcx`, `rsi`, `rdi`, `r8`, `r9`, and `r10`. An
   aihc function that calls nothing and spills nothing has no frame: the
   stack pointer stays on the return address. A tail call writes its

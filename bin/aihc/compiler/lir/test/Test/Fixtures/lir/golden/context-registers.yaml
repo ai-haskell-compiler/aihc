@@ -1,0 +1,108 @@
+program: |
+  primitive +#%1 :: IntRep/2
+  primitive *#%2 :: IntRep/2
+  primitive <#%3 :: IntRep/2
+  primitive newMutVar#%4 :: BoxedRep Unlifted/1
+  constructor Box/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Unlifted]
+
+  $entry -> BoxedRep Lifted =
+    (first%5 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))
+    (sum%6 :: IntRep) <- primitive-call @IntRep +# (2 :: IntRep) (3 :: IntRep)
+    (product%7 :: IntRep) <- primitive-call @IntRep *# (sum%6 :: IntRep) (sum%6 :: IntRep)
+    (less%8 :: IntRep) <- primitive-call @IntRep <# (product%7 :: IntRep) (30 :: IntRep)
+    (cell%9 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMutVar# (first%5 :: BoxedRep Lifted)
+    (second%10 :: BoxedRep Lifted) <- store (CBox (less%8 :: IntRep))
+    store (CPair (second%10 :: BoxedRep Lifted) (cell%9 :: BoxedRep Unlifted))
+expected: |
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+
+  extern func @aihc_mutvar_new(ptr, i64) -> ptr cc c
+
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %$cps_return_5: ptr) {
+  entry:
+    %roots_6 = stack.alloc 16 align 8
+    %heap_end_7 = ptr.add %hp_1, 40
+    %heap_fits_8 = le.u ptr %heap_end_7, %hp_limit_2
+    br %heap_fits_8, gc_reserved_10(%$cps_return_5, %hp_1, %hp_limit_2), gc_collect_9
+
+  gc_collect_9:
+    store ptr %$cps_return_5, [%roots_6] align 8
+    store ptr %hp_1, [%machine_0 + 24] align 1 word
+    store ptr %sp_3, [%machine_0 + 40] align 1 word
+    call @aihc_heap_collect(%machine_0, 5, 1, %roots_6, null)
+    %$cps_return$gc_14 = load ptr [%roots_6] align 8
+    %hp_15 = load ptr [%machine_0 + 24] align 1 word
+    %hp_limit_16 = load ptr [%machine_0 + 32] align 1 word
+    jump gc_reserved_10(%$cps_return$gc_14, %hp_15, %hp_limit_16)
+
+  gc_reserved_10(%$cps_return$gc_11: ptr, %hp_12: ptr, %hp_limit_13: ptr):
+    %hp_17 = ptr.add %hp_12, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_12] align 8
+    store i64 1, [%hp_12 + 8] align 8
+    %result_18 = add i64 2, 3
+    %result_19 = mul i64 %result_18, %result_18
+    %flag_20 = lt.s i64 %result_19, 30
+    %wide_21 = zext i1 %flag_20 to i64
+    %coerced_22 = ptr.to_int %hp_12
+    store ptr %hp_17, [%machine_0 + 24] align 1 word
+    store ptr %sp_3, [%machine_0 + 40] align 1 word
+    %result_23 = call @aihc_mutvar_new(%machine_0, %coerced_22)
+    %hp_24 = load ptr [%machine_0 + 24] align 1 word
+    %hp_limit_25 = load ptr [%machine_0 + 32] align 1 word
+    %heap_end_26 = ptr.add %hp_24, 40
+    %heap_fits_27 = le.u ptr %heap_end_26, %hp_limit_25
+    br %heap_fits_27, gc_reserved_29(%$cps_return$gc_11, %result_23, %hp_24, %hp_limit_25), gc_collect_28
+
+  gc_collect_28:
+    store ptr %$cps_return$gc_11, [%roots_6] align 8
+    store ptr %result_23, [%roots_6 + 8] align 8
+    store ptr %hp_24, [%machine_0 + 24] align 1 word
+    store ptr %sp_3, [%machine_0 + 40] align 1 word
+    call @aihc_heap_collect(%machine_0, 5, 2, %roots_6, null)
+    %$cps_return$gc$gc_34 = load ptr [%roots_6] align 8
+    %cell$gc_35 = load ptr [%roots_6 + 8] align 8
+    %hp_36 = load ptr [%machine_0 + 24] align 1 word
+    %hp_limit_37 = load ptr [%machine_0 + 32] align 1 word
+    jump gc_reserved_29(%$cps_return$gc$gc_34, %cell$gc_35, %hp_36, %hp_limit_37)
+
+  gc_reserved_29(%$cps_return$gc$gc_30: ptr, %cell$gc_31: ptr, %hp_32: ptr, %hp_limit_33: ptr):
+    %hp_38 = ptr.add %hp_32, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_32] align 8
+    store i64 %wide_21, [%hp_32 + 8] align 8
+    %hp_39 = ptr.add %hp_38, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_38] align 8
+    store ptr %hp_32, [%hp_38 + 8] align 8
+    store ptr %cell$gc_31, [%hp_38 + 16] align 8
+    tailcall @aihc_lir_continue_p(%machine_0, %hp_39, %hp_limit_33, %sp_3, %sp_limit_4, %$cps_return$gc$gc_30, %hp_38)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+
+  data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
+
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0 }
+
+  data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3 }
+status: pass
+reason: |
+  The heap pointer, the heap limit, the stack pointer, and the stack limit
+  are parameters of the function, not fields of the machine. The arithmetic
+  and the comparison between the two allocations touch no field of the
+  machine: no load and no store of offset 24, 32, or 40. A store only
+  advances the heap pointer value.
+
+  The machine gets the heap pointer and the stack pointer only before a C
+  call that can read them. Here that is newMutVar#, which allocates, and the
+  collector on the slow path of a reservation. After each of these calls,
+  the heap pointer and the heap limit come back from the machine. The stack
+  pointer and the stack limit do not come back, because no such call changes
+  them. The tail call passes all four values on.
+
+  See "Lowering from GC-GRIN" in docs/lir.md and Context in Aihc.Lir.Lower.

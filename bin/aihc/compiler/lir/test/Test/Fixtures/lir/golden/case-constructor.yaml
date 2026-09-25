@@ -9,33 +9,33 @@ program: |
       data Just (payload%3 :: IntRep) ->
         constant (payload%3 :: IntRep)
 expected: |
-  extern func @aihc_lir_continue_i(ptr, ptr, i64)
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, ptr, i64)
 
   extern func @aihc_no_match() cc c
 
-  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %value_1: ptr, %$cps_return_2: ptr) {
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %value_5: ptr, %$cps_return_6: ptr) {
   entry:
-    %header_word_6 = load i64 [%value_1] align 8
-    %info_word_7 = and i64 %header_word_6, -4
-    %header_8 = ptr.from_int %info_word_7
-    %identity_9 = load ptr [%header_8] align 1 word
-    %matches_10 = eq ptr %identity_9, @aihc_c_aihc_entry_Nothing_0
-    br %matches_10, alt_3, check_11
+    %header_word_10 = load i64 [%value_5] align 8
+    %info_word_11 = and i64 %header_word_10, -4
+    %header_12 = ptr.from_int %info_word_11
+    %identity_13 = load ptr [%header_12] align 1 word
+    %matches_14 = eq ptr %identity_13, @aihc_c_aihc_entry_Nothing_0
+    br %matches_14, alt_7, check_15
 
-  check_11:
-    %matches_12 = eq ptr %identity_9, @aihc_c_aihc_entry_Just_0
-    br %matches_12, alt_4, no_match_5
+  check_15:
+    %matches_16 = eq ptr %identity_13, @aihc_c_aihc_entry_Just_0
+    br %matches_16, alt_8, no_match_9
 
-  no_match_5:
+  no_match_9:
     call @aihc_no_match()
     trap "no matching case alternative"
 
-  alt_3:
-    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, 0)
+  alt_7:
+    tailcall @aihc_lir_continue_i(%machine_0, %hp_1, %hp_limit_2, %sp_3, %sp_limit_4, %$cps_return_6, 0)
 
-  alt_4:
-    %payload_13 = load i64 [%value_1 + 8] align 8
-    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, %payload_13)
+  alt_8:
+    %payload_17 = load i64 [%value_5 + 8] align 8
+    tailcall @aihc_lir_continue_i(%machine_0, %hp_1, %hp_limit_2, %sp_3, %sp_limit_4, %$cps_return_6, %payload_17)
   }
 
   data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }

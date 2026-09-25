@@ -1,0 +1,38 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $sum20 (v0%2 :: IntRep) (v1%3 :: IntRep) (v2%4 :: IntRep) (v3%5 :: IntRep) (v4%6 :: IntRep) (v5%7 :: IntRep) (v6%8 :: IntRep) (v7%9 :: IntRep) (v8%10 :: IntRep) (v9%11 :: IntRep) (v10%12 :: IntRep) (v11%13 :: IntRep) (v12%14 :: IntRep) (v13%15 :: IntRep) (v14%16 :: IntRep) (v15%17 :: IntRep) (v16%18 :: IntRep) (v17%19 :: IntRep) (v18%20 :: IntRep) (v19%21 :: IntRep) -> IntRep =
+    (s1%22 :: IntRep) <- primitive-call @IntRep +# (v0%2 :: IntRep) (v1%3 :: IntRep)
+    (s2%23 :: IntRep) <- primitive-call @IntRep +# (s1%22 :: IntRep) (v2%4 :: IntRep)
+    (s3%24 :: IntRep) <- primitive-call @IntRep +# (s2%23 :: IntRep) (v3%5 :: IntRep)
+    (s4%25 :: IntRep) <- primitive-call @IntRep +# (s3%24 :: IntRep) (v4%6 :: IntRep)
+    (s5%26 :: IntRep) <- primitive-call @IntRep +# (s4%25 :: IntRep) (v5%7 :: IntRep)
+    (s6%27 :: IntRep) <- primitive-call @IntRep +# (s5%26 :: IntRep) (v6%8 :: IntRep)
+    (s7%28 :: IntRep) <- primitive-call @IntRep +# (s6%27 :: IntRep) (v7%9 :: IntRep)
+    (s8%29 :: IntRep) <- primitive-call @IntRep +# (s7%28 :: IntRep) (v8%10 :: IntRep)
+    (s9%30 :: IntRep) <- primitive-call @IntRep +# (s8%29 :: IntRep) (v9%11 :: IntRep)
+    (s10%31 :: IntRep) <- primitive-call @IntRep +# (s9%30 :: IntRep) (v10%12 :: IntRep)
+    (s11%32 :: IntRep) <- primitive-call @IntRep +# (s10%31 :: IntRep) (v11%13 :: IntRep)
+    (s12%33 :: IntRep) <- primitive-call @IntRep +# (s11%32 :: IntRep) (v12%14 :: IntRep)
+    (s13%34 :: IntRep) <- primitive-call @IntRep +# (s12%33 :: IntRep) (v13%15 :: IntRep)
+    (s14%35 :: IntRep) <- primitive-call @IntRep +# (s13%34 :: IntRep) (v14%16 :: IntRep)
+    (s15%36 :: IntRep) <- primitive-call @IntRep +# (s14%35 :: IntRep) (v15%17 :: IntRep)
+    (s16%37 :: IntRep) <- primitive-call @IntRep +# (s15%36 :: IntRep) (v16%18 :: IntRep)
+    (s17%38 :: IntRep) <- primitive-call @IntRep +# (s16%37 :: IntRep) (v17%19 :: IntRep)
+    (s18%39 :: IntRep) <- primitive-call @IntRep +# (s17%38 :: IntRep) (v18%20 :: IntRep)
+    primitive-call @IntRep +# (s18%39 :: IntRep) (v19%21 :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $sum20 (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep) (11 :: IntRep) (12 :: IntRep) (13 :: IntRep) (14 :: IntRep) (15 :: IntRep) (16 :: IntRep) (17 :: IntRep) (18 :: IntRep) (19 :: IntRep) (20 :: IntRep)
+return: "210"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 0
+  linux-amd64: 0
+status: pass
+reason: |
+  A direct call with more arguments than the aihc convention has registers
+  on either target. The machine, the context, twenty values, and the
+  continuation are 26 arguments, and AArch64 passes 24 in registers. The
+  arguments after them go in the stack block, and no heap object is made.

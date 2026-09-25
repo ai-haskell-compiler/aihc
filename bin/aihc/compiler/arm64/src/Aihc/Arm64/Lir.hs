@@ -11,8 +11,12 @@
 -- arguments of a jump are moved to their destinations at once, so a value
 -- the allocator already placed where the convention wants it costs nothing.
 --
--- The @aihc@ calling convention passes the first eight arguments in @x0@ to
--- @x7@ and the rest in a 16-byte aligned block on the stack. The callee pops
+-- The @aihc@ calling convention passes the first 24 arguments in registers:
+-- the first five in @x19@ to @x23@, the next ones in @x0@ to @x13@, and then
+-- @x24@ to @x28@. The rest go in a 16-byte aligned block on the stack. The
+-- first five arguments of a lowered function are the machine and the heap
+-- and stack pointers with their limits. A C call preserves @x19@ to @x23@,
+-- so these values stay in their registers across a C call. The callee pops
 -- that block, so a tail call restores the stack of the caller before it
 -- pushes its own block and the stack does not grow. Results come back in
 -- @x0@ to @x7@. An aihc function preserves no register: every call clobbers
@@ -128,6 +132,7 @@ arm64Backend =
       nbUnsupported = Arm64LirUnsupported,
       nbSymbol = lirSymbol,
       nbArgumentRegisters = argumentRegisters,
+      nbAihcArgumentRegisters = aihcArgumentRegisters,
       nbResultRegisters = argumentRegisters,
       nbPreservedRegisters = preservedRegisters,
       nbScratchLeft = scratchLeft,
@@ -206,6 +211,16 @@ arm64Backend =
 argumentRegisters :: [Arm64Register]
 argumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
 
+-- | The argument registers of the aihc convention. The first five carry the
+-- machine and the heap and stack context of a lowered function. They are
+-- preserved registers, so a C call does not move them.
+aihcArgumentRegisters :: [Arm64Register]
+aihcArgumentRegisters =
+  [X19, X20, X21, X22, X23]
+    <> argumentRegisters
+    <> [X8, X9, X10, X11, X12, X13]
+    <> [X24, X25, X26, X27, X28]
+
 volatileRegisters :: [Arm64Register]
 volatileRegisters = [X8, X9, X10, X11, X12, X13] <> argumentRegisters
 
@@ -224,12 +239,15 @@ registersFor convention =
     { registersVolatile = volatileRegisters,
       registersPreserved = preservedRegisters,
       registersPreservedCost = convention == CConvention,
-      registersArgument = argument,
-      registersResult = argument
+      registersArgument = argument . conventionArguments,
+      registersResult = argument argumentRegisters
     }
   where
-    argument index
-      | index < length argumentRegisters = Just (argumentRegisters !! index)
+    conventionArguments callee = case callee of
+      AihcConvention -> aihcArgumentRegisters
+      CConvention -> argumentRegisters
+    argument registers index
+      | index < length registers = Just (registers !! index)
       | otherwise = Nothing
 
 renderTraps :: [(Text, Int)] -> [Arm64Statement]
@@ -875,12 +893,12 @@ arm64CallWith ctx convention resultTypes parameterTypes branch arguments results
         AihcConvention ->
           concat
             [ loads <> [storeSlot register (8 * position)]
-            | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip types arguments)),
+            | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) (zip types arguments)),
               let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
             ]
             <> parallelMove'
               [ (LocRegister register, Native.displaceSource outgoing (operandSource ctx ty argument))
-              | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
+              | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
               ]
         CConvention -> cArgumentMoves ctx outgoing 0 parameterTypes arguments
       cleanup = case convention of
@@ -947,11 +965,11 @@ arm64TailCall ctx callee convention parameterTypes arguments =
       let outgoing = overflowBytes' (length arguments)
           incoming = ctxIncomingOverflow ctx
           types = parameterTypes <> repeat I64
-          overflow = drop (length argumentRegisters) (zip types arguments)
+          overflow = drop (length aihcArgumentRegisters) (zip types arguments)
           registerMoves displacement =
             parallelMove'
               [ (LocRegister register, Native.displaceSource displacement (operandSource ctx ty argument))
-              | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
+              | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
               ]
           overflowStores displacement base =
             concat

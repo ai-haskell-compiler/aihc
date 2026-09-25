@@ -53,7 +53,7 @@ where
 import Aihc.Lir.Flat
 import Aihc.Lir.Syntax
 import Control.Applicative (Const (..))
-import Control.Monad (when, (>=>))
+import Control.Monad (unless, when, (>=>))
 import Control.Monad.ST (ST, runST)
 import Data.Array.ST (STUArray, readArray, writeArray)
 import Data.Array.Unboxed (Array, UArray, elems, listArray, (!))
@@ -100,8 +100,9 @@ data Registers register = Registers
     -- register back, and it does not under the aihc convention.
     registersPreservedCost :: !Bool,
     -- | The register that carries parameter and argument number @i@ under
-    -- the conventions of the target, when one does.
-    registersArgument :: !(Int -> Maybe register),
+    -- the given convention of the target, when one does. The two
+    -- conventions can use different registers.
+    registersArgument :: !(CallingConvention -> Int -> Maybe register),
     -- | The register that carries result number @i@ of a call and of a
     -- return, when one does.
     registersResult :: !(Int -> Maybe register)
@@ -127,9 +128,14 @@ allocateRegistersFor target signatures function =
     registers = boxedArray (length pool) pool
     -- The pool is small, so a register finds its index by a walk, and a
     -- table then holds the answer for the positions a convention uses.
-    carrier which = memoise (maybe (-1) indexOf . which target)
+    carrier which = memoise (maybe (-1) indexOf . which)
     indexOf register = fromMaybe (-1) (elemIndex register pool)
-    encoded = encodeFunction (carrier registersArgument) (carrier registersResult) signatures function
+    aihcArguments = carrier (registersArgument target AihcConvention)
+    cArguments = carrier (registersArgument target CConvention)
+    arguments convention = case convention of
+      AihcConvention -> aihcArguments
+      CConvention -> cArguments
+    encoded = encodeFunction arguments (carrier (registersResult target)) signatures function
     (assigned, used) =
       runAllocation encoded (length pool) (length (registersVolatile target)) (registersPreservedCost target)
 
@@ -140,7 +146,7 @@ functionIntervals function =
   | value <- [0 .. encValues encoded - 1]
   ]
   where
-    encoded = encodeFunction unhinted unhinted Map.empty function
+    encoded = encodeFunction (const unhinted) unhinted Map.empty function
     unhinted _ = -1
     (starts, ends) = runST (functionSpans encoded)
 
@@ -247,8 +253,9 @@ forJumpPairs encoded act =
 
 -- | Number the function and flatten it, in one walk of the blocks. The
 -- carriers give the pool index the convention puts an argument or a result
--- in, or -1 when it names no register.
-encodeFunction :: (Int -> Int) -> (Int -> Int) -> Map Symbol Signature -> Function -> Encoded
+-- in, or -1 when it names no register. The argument carrier depends on the
+-- convention of the callee, or of the function for its parameters.
+encodeFunction :: (CallingConvention -> Int -> Int) -> (Int -> Int) -> Map Symbol Signature -> Function -> Encoded
 encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
   let blocks = functionBlocks function
       blockCount = length blocks
@@ -300,12 +307,12 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
         openRow readTable
         forOperationOperands (pushRead readTable) operation
         let callee arguments convention = do
-              writeArray conventions number convention
-              hintOperands callHints argumentCarrier arguments
+              writeArray conventions number (conventionOf convention)
+              hintOperands callHints (argumentCarrier convention) arguments
               forEach results (pushHint callHints resultCarrier)
         case operation of
-          Call symbol arguments -> callee arguments (conventionOf (maybe AihcConvention signatureConvention (Map.lookup symbol signatures)))
-          CallIndirect _ arguments signature -> callee arguments (conventionOf (signatureConvention signature))
+          Call symbol arguments -> callee arguments (symbolConvention symbol)
+          CallIndirect _ arguments signature -> callee arguments (signatureConvention signature)
           _ -> pure ()
       goBlock index start block = do
         writeArray blockStart index start
@@ -329,8 +336,8 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
           (terminatorTargets terminator)
         when (restoresRegisters terminator) (addTo exitCount 0 1)
         case terminator of
-          TailCall _ arguments -> hintOperands exitHints argumentCarrier arguments
-          TailCallIndirect _ arguments _ -> hintOperands exitHints argumentCarrier arguments
+          TailCall symbol arguments -> hintOperands exitHints (argumentCarrier (symbolConvention symbol)) arguments
+          TailCallIndirect _ arguments signature -> hintOperands exitHints (argumentCarrier (signatureConvention signature)) arguments
           Return values -> hintOperands exitHints resultCarrier values
           _ -> pure ()
         pure (terminatorPosition + 2)
@@ -339,7 +346,7 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
   forEach (functionParameters function) $ \position (var, _) -> do
     value <- intern var
     writeArray parameters position value
-    pushHintValue callHints argumentCarrier position value
+    pushHintValue callHints (argumentCarrier (functionConvention function)) position value
   _ <- goBlocks 0 1 blocks
   -- The values take their rank in name order.
   known <- readSTRef identifiers
@@ -395,6 +402,7 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
       case callee of
         AihcConvention -> callAihc
         CConvention -> callC
+    symbolConvention symbol = maybe AihcConvention signatureConvention (Map.lookup symbol signatures)
     restoresRegisters terminator =
       case terminator of
         Return _ -> True
@@ -723,15 +731,24 @@ loopDepths encoded = do
 orderByStart :: Encoded -> UArray Int Int -> Rows -> Rows -> ST s (UArray Int Int)
 orderByStart encoded starts hints partners = do
   let positionCount = encPositions encoded
+      parameterCount = lengthOf (encParameters encoded)
       earlier value at
         | at >= rowTo partners value = False
         | otherwise = starts ! rowAt partners at < starts ! value || earlier value (at + 1)
       leads value = rowTo hints value > rowFrom hints value || earlier value (rowFrom partners value)
+  -- The parameters come first, in their order: a parameter that must move
+  -- to a preserved register then cannot take the register an earlier
+  -- parameter arrives in. The other values follow by start.
+  isParameter <- newBools (encValues encoded) False
+  forUpTo parameterCount (\at -> writeArray isParameter (encParameters encoded ! at) True)
   leadCursor <- newInts (positionCount + 1) 0
   restCursor <- newInts (positionCount + 1) 0
   let cursorFor value = if leads value then leadCursor else restCursor
-  forUpTo (encValues encoded) (\value -> addTo (cursorFor value) (starts ! value) 1)
-  total <- newInts 1 0
+      forOthers act = forUpTo (encValues encoded) $ \value -> do
+        parameter <- readArray isParameter value
+        unless parameter (act value)
+  forOthers (\value -> addTo (cursorFor value) (starts ! value) 1)
+  total <- newInts 1 parameterCount
   forUpTo (positionCount + 1) $ \position -> do
     leaders <- readArray leadCursor position
     rest <- readArray restCursor position
@@ -740,7 +757,8 @@ orderByStart encoded starts hints partners = do
     writeArray restCursor position (placed + leaders)
     writeArray total 0 (placed + leaders + rest)
   order <- newInts (encValues encoded) 0
-  forUpTo (encValues encoded) $ \value -> do
+  forUpTo parameterCount (\at -> writeArray order at (encParameters encoded ! at))
+  forOthers $ \value -> do
     at <- readArray (cursorFor value) (starts ! value)
     writeArray (cursorFor value) (starts ! value) (at + 1)
     writeArray order at value
