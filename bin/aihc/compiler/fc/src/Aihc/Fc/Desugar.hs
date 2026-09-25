@@ -1204,6 +1204,7 @@ definitionResolution declaration =
     Syn.DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (Syn.newtypeDeclHead newtypeDeclaration))
     Syn.DeclClass classDeclaration -> nameResolution (binderHeadName (Syn.classDeclHead classDeclaration))
     Syn.DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (Syn.dataFamilyDeclHead familyDeclaration))
+    Syn.DeclTypeFamilyDecl familyDeclaration -> familyHeadResolution (typeFamilyDeclHead familyDeclaration)
     Syn.DeclForeign foreignDecl -> nameResolution (Syn.foreignName foreignDecl)
     Syn.DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
     Syn.DeclPatSyn patSynDeclaration -> nameResolution (Syn.patSynDeclName patSynDeclaration)
@@ -1224,3 +1225,13 @@ patternResolution pattern' =
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
 nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
+
+-- | The resolution of the name at the head of a type family declaration.
+familyHeadResolution :: Syn.Type -> Maybe ResolutionAnnotation
+familyHeadResolution ty =
+  case Syn.peelTypeHead ty of
+    Syn.TCon name _ -> listToMaybe (mapMaybe fromAnnotation (Syn.nameAnns name))
+    Syn.TInfix _ name _ _ -> listToMaybe (mapMaybe fromAnnotation (Syn.nameAnns name))
+    Syn.TApp function _ -> familyHeadResolution function
+    Syn.TTypeApp function _ -> familyHeadResolution function
+    _ -> Nothing

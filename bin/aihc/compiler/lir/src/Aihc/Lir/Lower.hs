@@ -1810,12 +1810,12 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           rightOperand <- word right
           result <- emitValue "result" I64 (Binary op I64 leftOperand rightOperand)
           bind [result]
-      | Just (op, ty) <- lookup name narrowBinaryPrimitives -> do
+      | Just (op, ty, extend) <- lookup name narrowBinaryPrimitives -> do
           leftOperand <- word left
           rightOperand <- word right
           wide <- emitValue "wide" I64 (Binary op I64 leftOperand rightOperand)
           narrow <- emitValue "narrow" ty (Convert Trunc I64 (typedOperand wide) ty)
-          result <- emitValue "result" I64 (Convert ZExt ty (typedOperand narrow) I64)
+          result <- emitValue "result" I64 (Convert extend ty (typedOperand narrow) I64)
           bind [result]
       | Just op <- lookup name comparisonPrimitives -> do
           leftOperand <- word left
@@ -1859,6 +1859,15 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     ("addIntC#", [left, right]) -> signedCarry Add left right
     ("subIntC#", [left, right]) -> signedCarry Sub left right
     ("addWordC#", [left, right]) -> unsignedCarry AddCarry left right
+    -- The carry comes first, as a word.
+    ("plusWord2#", [left, right]) -> do
+      leftOperand <- word left
+      rightOperand <- word right
+      low <- fresh "low"
+      carry <- fresh "carry"
+      emit [low, carry] (Wide AddCarry I64 leftOperand rightOperand)
+      high <- widen (Typed (OperandVar carry) I1)
+      bind [high, Typed (OperandVar low) I64]
     ("subWordC#", [left, right]) -> unsignedCarry SubBorrow left right
     ("timesWord2#", [left, right]) -> do
       leftOperand <- word left
@@ -1963,6 +1972,21 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | Just op <- lookup name bitCountPrimitives -> do
           operand <- word value
           result <- emitValue "count" I64 (Unary op I64 operand)
+          bind [result]
+      | Just (op, bits) <- lookup name narrowBitCountPrimitives -> do
+          operand <- word value
+          -- The bits above the width must not count. A leading count sees
+          -- them as zeros and removes them from the count. A trailing count
+          -- stops at a set bit just above the width.
+          prepared <-
+            if op == Ctz
+              then emitValue "bounded" I64 (Binary Or I64 operand (OperandLiteral (LitInt (2 ^ bits))))
+              else emitValue "masked" I64 (Binary And I64 operand (OperandLiteral (LitInt (2 ^ bits - 1))))
+          count <- emitValue "count" I64 (Unary op I64 (typedOperand prepared))
+          result <-
+            if op == Clz
+              then emitValue "count" I64 (Binary Sub I64 (typedOperand count) (OperandLiteral (LitInt (64 - bits))))
+              else pure count
           bind [result]
       | Just (op, ty) <- lookup name floatUnaryPrimitives -> do
           operand <- floatOperand ty value
@@ -2237,27 +2261,42 @@ binaryPrimitives =
     ("uncheckedShiftRL64#", ShrU)
   ]
 
--- | Binary operations whose result is a sized word. The operation runs at
--- the width of a word and the result keeps only its low bits, which is how
--- a @Word16#@ or @Word32#@ shift wraps. The bitwise operations cannot
--- overflow their width, so for them the truncation only restates the width
--- their operands already have.
-narrowBinaryPrimitives :: [(Text, (BinaryOp, Type))]
+-- | Binary operations whose result is a sized integer. The operation runs
+-- at the width of a word and the result keeps only its low bits, which is
+-- how a @Word16#@ or @Word32#@ shift or a sized addition wraps. The low
+-- bits then widen again: a sized word widens with zeros and a sized int
+-- widens with its sign. The bitwise operations cannot overflow their width,
+-- so for them the truncation only restates the width their operands
+-- already have.
+narrowBinaryPrimitives :: [(Text, (BinaryOp, Type, ConvertOp))]
 narrowBinaryPrimitives =
-  [ ("uncheckedShiftLWord16#", (Shl, I16)),
-    ("uncheckedShiftRLWord16#", (ShrU, I16)),
-    ("uncheckedShiftLWord32#", (Shl, I32)),
-    ("uncheckedShiftRLWord32#", (ShrU, I32)),
-    ("andWord8#", (And, I8)),
-    ("orWord8#", (Or, I8)),
-    ("xorWord8#", (Xor, I8)),
-    ("andWord16#", (And, I16)),
-    ("orWord16#", (Or, I16)),
-    ("xorWord16#", (Xor, I16)),
-    ("andWord32#", (And, I32)),
-    ("orWord32#", (Or, I32)),
-    ("xorWord32#", (Xor, I32))
-  ]
+  [(name, (op, ty, ZExt)) | (name, (op, ty)) <- unsignedPrimitives]
+    <> [(name, (op, ty, SExt)) | (name, (op, ty)) <- signedPrimitives]
+  where
+    unsignedPrimitives =
+      [ ("uncheckedShiftLWord16#", (Shl, I16)),
+        ("uncheckedShiftRLWord16#", (ShrU, I16)),
+        ("uncheckedShiftLWord32#", (Shl, I32)),
+        ("uncheckedShiftRLWord32#", (ShrU, I32)),
+        ("andWord8#", (And, I8)),
+        ("orWord8#", (Or, I8)),
+        ("xorWord8#", (Xor, I8)),
+        ("andWord16#", (And, I16)),
+        ("orWord16#", (Or, I16)),
+        ("xorWord16#", (Xor, I16)),
+        ("andWord32#", (And, I32)),
+        ("orWord32#", (Or, I32)),
+        ("xorWord32#", (Xor, I32))
+      ]
+        <> [ (prefix <> "Word" <> width <> "#", (op, ty))
+           | (width, ty) <- [("8", I8), ("16", I16), ("32", I32)],
+             (prefix, op) <- [("plus", Add), ("sub", Sub), ("times", Mul)]
+           ]
+    signedPrimitives =
+      [ (prefix <> "Int" <> width <> "#", (op, ty))
+      | (width, ty) <- [("8", I8), ("16", I16), ("32", I32)],
+        (prefix, op) <- [("plus", Add), ("sub", Sub), ("times", Mul)]
+      ]
 
 comparisonPrimitives :: [(Text, CompareOp)]
 comparisonPrimitives =
@@ -2526,7 +2565,18 @@ bitCountPrimitives :: [(Text, UnaryOp)]
 bitCountPrimitives =
   [ ("clz#", Clz),
     ("ctz#", Ctz),
-    ("popCnt#", Popcount)
+    ("popCnt#", Popcount),
+    ("clz64#", Clz),
+    ("ctz64#", Ctz),
+    ("popCnt64#", Popcount)
+  ]
+
+-- | The bit counts of the low bits of a @Word#@, with the width in bits.
+narrowBitCountPrimitives :: [(Text, (UnaryOp, Integer))]
+narrowBitCountPrimitives =
+  [ (name <> width <> "#", (op, bits))
+  | (width, bits) <- [("8", 8), ("16", 16), ("32", 32)],
+    (name, op) <- [("clz", Clz), ("ctz", Ctz), ("popCnt", Popcount)]
   ]
 
 byteSwapPrimitives :: [(Text, Integer)]
@@ -2592,6 +2642,8 @@ identityPrimitives =
     "word32ToWord#",
     "word64ToWord#",
     "wordToWord64#",
+    "word64ToInt64#",
+    "int64ToWord64#",
     "word16ToWord#",
     "ord#",
     "chr#",

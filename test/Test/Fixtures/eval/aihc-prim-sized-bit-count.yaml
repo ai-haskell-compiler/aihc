@@ -1,0 +1,41 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim
+    import GHC.Types (Bool(..), isTrue#)
+    import GHC.Word (Word(..))
+
+    counts :: [Word]
+    counts =
+      [ W# (popCnt8# 0xff0f##)
+      , W# (popCnt16# 0xff0f0f##)
+      , W# (popCnt32# 0xff00000001##)
+      , W# (popCnt64# (wordToWord64# 0xff00000001##))
+      , W# (clz8# 0xff01##)
+      , W# (clz8# 0##)
+      , W# (clz16# 0x100##)
+      , W# (clz32# 0x1000000##)
+      , W# (clz64# (wordToWord64# 1##))
+      , W# (ctz8# 0x100##)
+      , W# (ctz8# 0x110##)
+      , W# (ctz16# 0x10000##)
+      , W# (ctz32# 0x80000000##)
+      , W# (ctz64# (wordToWord64# 0##))
+      ]
+
+    result :: Bool
+    result = eq counts [4, 8, 1, 9, 7, 8, 7, 7, 63, 8, 4, 16, 31, 64]
+
+    eq :: [Word] -> [Word] -> Bool
+    eq [] [] = True
+    eq (W# x : xs) (W# y : ys) = if isTrue# (eqWord# x y) then eq xs ys else False
+    eq _ _ = False
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a sized bit count sees only the low bits of its width, and a count of zero gives the width
