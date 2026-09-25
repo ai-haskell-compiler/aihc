@@ -29,6 +29,6 @@ expected: |-
       1.cPayloadB :: ∀(a : 2.sType). 1.t$R$Payload$PayloadA a
   }
 
-  axiom 1.$ax$Payload$PayloadA (a : 2.sType) : 1.tPayload a ~N 1.t$R$Payload$PayloadA a
+  axiom 1.$ax$Payload$PayloadA (a : 2.sType) : 1.tPayload a ~R 1.t$R$Payload$PayloadA a
 status: pass
 reason: Private constructor declarations use uniform separators.

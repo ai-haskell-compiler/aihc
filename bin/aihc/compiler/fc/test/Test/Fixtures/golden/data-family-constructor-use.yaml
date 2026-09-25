@@ -38,7 +38,7 @@ expected: |-
       1.cPayloadUnit :: 1.tUnit 2.→ 1.t$R$Payload$PayloadUnit
   }
 
-  axiom 1.$ax$Payload$PayloadUnit : 1.tPayload 1.tUnit ~N 1.t$R$Payload$PayloadUnit
+  axiom 1.$ax$Payload$PayloadUnit : 1.tPayload 1.tUnit ~R 1.t$R$Payload$PayloadUnit
 
   pub val 1.vbuild :: 1.tUnit 2.→ 1.tPayload 1.tUnit
    = λ(x : 1.tUnit).

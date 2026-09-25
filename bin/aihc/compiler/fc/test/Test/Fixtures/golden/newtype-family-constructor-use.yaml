@@ -38,7 +38,7 @@ expected: |-
 
   axiom 1.$ax$R$Wrapped$WrappedUnit : 1.t$R$Wrapped$WrappedUnit ~R 1.tUnit
 
-  axiom 1.$ax$Wrapped$WrappedUnit : 1.tWrapped 1.tUnit ~N 1.t$R$Wrapped$WrappedUnit
+  axiom 1.$ax$Wrapped$WrappedUnit : 1.tWrapped 1.tUnit ~R 1.t$R$Wrapped$WrappedUnit
 
   pub val 1.vbuild :: 1.tUnit 2.→ 1.tWrapped 1.tUnit
    = λ(x : 1.tUnit).
