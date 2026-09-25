@@ -24,7 +24,9 @@ module GHC.IO.Encoding
     setLocaleEncoding,
     setFileSystemEncoding,
     setForeignEncoding,
+    initLocaleEncoding,
     mkTextEncoding,
+    argvEncoding,
   )
 where
 
@@ -66,6 +68,14 @@ setFileSystemEncoding _ = pure ()
 
 setForeignEncoding :: TextEncoding -> IO ()
 setForeignEncoding _ = pure ()
+
+-- | The locale encoding at program start. The runtime only has UTF-8.
+initLocaleEncoding :: TextEncoding
+initLocaleEncoding = utf8
+
+-- | The encoding of the program arguments.
+argvEncoding :: IO TextEncoding
+argvEncoding = pure utf8
 
 -- | The runtime only has UTF-8, so an encoding built by name carries that
 -- name and nothing else.

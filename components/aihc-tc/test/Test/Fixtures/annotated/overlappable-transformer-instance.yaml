@@ -1,0 +1,68 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
+  module Test where
+  class Monad m where
+  └─ class methods: ret ∷ ∀ m a. (Monad m) ⇒ a → m a
+    ret :: a -> m a
+  class MonadTrans t where
+  └─ class methods: lift ∷ ∀ t m a. (MonadTrans t, Monad m) ⇒ m a → t m a
+    lift :: Monad m => m a -> t m a
+  class Monad m => MonadState s m where
+  └─ class methods: get ∷ ∀ s m. (MonadState s m) ⇒ m s
+    get :: m s
+  data CmdM m a = CmdM (m a) | Result a
+       │          │            └─ type: ∀ m a. a → CmdM m a
+       │          └─ type: ∀ m a. m a → CmdM m a
+       └─ type: (Type → Type) → Type → Type
+  instance Monad m => Monad (CmdM m) where
+  └─ $fMonadCmdMm ∷ ∀ m. (Monad m) ⇒ Monad (CmdM m)
+    ret = Result
+    │     └─ type: a → CmdM m a; type-args: m, a
+    └─ ret ∷ ∀ a. a → CmdM m a
+  instance MonadTrans CmdM where
+  └─ $fMonadTransCmdM ∷ () ⇒ MonadTrans CmdM
+    lift m = CmdM m
+    │    │   └─ type: m a → CmdM m a; type-args: m, a
+    │    └─ type: m a
+    └─ lift ∷ ∀ m a. (Monad m) ⇒ m a → CmdM m a
+  instance {-# OVERLAPPABLE #-} (MonadState s m, MonadTrans t, Monad (t m)) => MonadState s (t m) where
+  └─ $fMonadStatesT ∷ ∀ s m t. (MonadState s m, MonadTrans t, Monad (t m)) ⇒ MonadState s (t m) [superclasses: given Monad t m]
+    get = lift get
+    │     │    └─ type: m s; type-args: s, m; evidence: given MonadState s m
+    │     └─ type: m s → t m s; type-args: t, m, s; evidence: given MonadTrans t, super[0](given MonadState s m)
+    └─ get ∷ t m s
+  data Undo = Undo
+       │      └─ type: Undo
+       └─ type: Type
+  peek :: MonadState Undo m => CmdM m Undo
+  peek = get
+  │      └─ type: CmdM m Undo; type-args: Undo, CmdM m; evidence: $fMonadStatesT @Undo @m @CmdM (given MonadState Undo m, $fMonadTransCmdM, $fMonadCmdMm @m (super[0](given MonadState Undo m)))
+  └─ type: ∀ m. (MonadState Undo m) ⇒ CmdM m Undo
+extensions:
+- MultiParamTypeClasses
+- FlexibleInstances
+- FlexibleContexts
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
+  module Test where
+  class Monad m where
+    ret :: a -> m a
+  class MonadTrans t where
+    lift :: Monad m => m a -> t m a
+  class Monad m => MonadState s m where
+    get :: m s
+  data CmdM m a = CmdM (m a) | Result a
+  instance Monad m => Monad (CmdM m) where
+    ret = Result
+  instance MonadTrans CmdM where
+    lift m = CmdM m
+  instance {-# OVERLAPPABLE #-} (MonadState s m, MonadTrans t, Monad (t m)) => MonadState s (t m) where
+    get = lift get
+  data Undo = Undo
+  peek :: MonadState Undo m => CmdM m Undo
+  peek = get
+status: pass
+reason: An overlappable instance with a variable head application selects a transformer instance.

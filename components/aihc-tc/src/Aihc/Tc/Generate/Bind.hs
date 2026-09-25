@@ -529,12 +529,8 @@ generalizedBinders sigs ignored placeholders residuals binders = do
             Nothing -> do
               ty <- freshMetaTv
               pure (Left (name, TcMonoIdBinder ty))
-            Just ty
-              | key `Set.member` localResidualMonomorphic residuals -> do
-                  ty' <- zonkType ty
-                  pure (Left (name, TcMonoIdBinder ty'))
-              | otherwise ->
-                  pure (Right (name, ty, Map.findWithDefault [] key (localResidualPreds residuals)))
+            Just ty ->
+              pure (Right (name, ty, Map.findWithDefault [] key (localResidualPreds residuals)))
     assemble classified schemes =
       case (classified, schemes) of
         ([], _) -> []
@@ -546,8 +542,6 @@ generalizedBinders sigs ignored placeholders residuals binders = do
 data LocalResiduals = LocalResiduals
   { -- | Predicates that each generalized binder abstracts over.
     localResidualPreds :: Map TcTermKey [Pred],
-    -- | Binders that the monomorphism restriction keeps monomorphic.
-    localResidualMonomorphic :: Set.Set TcTermKey,
     -- | Constraints that the enclosing scope must solve.
     localResidualOuterCts :: [Ct],
     -- | Meta-variables that a retained constraint keeps monomorphic.
@@ -564,9 +558,9 @@ data LocalResiduals = LocalResiduals
 --
 -- A class constraint on a type variable that a function binder generalizes
 -- becomes a dictionary parameter of that binder. The monomorphism
--- restriction keeps a pattern binding or a zero-argument binding
--- monomorphic when a constraint mentions its type. All other constraints
--- go to the enclosing scope.
+-- restriction keeps the constrained type variables of a pattern binding or
+-- a zero-argument binding monomorphic, and its other type variables still
+-- generalize. All other constraints go to the enclosing scope.
 partitionLocalResiduals :: Set.Set TcTermKey -> Map TcTermKey TcType -> [DeclGroup] -> [UnqualifiedName] -> SolveResult -> TcM LocalResiduals
 partitionLocalResiduals binderSet placeholders groups binders solveResult = do
   residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
@@ -588,29 +582,36 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
               ]
           )
       fixedMetaVars = envMetaVars ++ monoMetaVars
-      step (preds, monomorphic, outerCts, givens) ct =
+      generalizableMetas predicate = filter (`notElem` fixedMetaVars) (predMetaVars predicate)
+      ownersOf metas = [key | (key, binderMetas) <- binderInfos, any (`elem` binderMetas) metas]
+      classConstraints = [(generalizable, ownersOf generalizable) | ct <- residualCts, isClassPred (ctPred ct), let generalizable = generalizableMetas (ctPred ct), not (null generalizable)]
+      -- Haskell 2010 rule 1 keeps the constrained type variables of a
+      -- restricted group monomorphic. A binder that shares such a variable
+      -- belongs to the restricted group too, so its constraints also keep
+      -- their variables monomorphic: in @f x = g (m * x)@ with @m =
+      -- fromIntegral (h (f undefined))@, the result variable of @f@ stays
+      -- open because @m@ constrains it. The unconstrained type variables of
+      -- every binder still generalize.
+      restrictedGroup group =
+        let constrained = Set.fromList (concat [metas | (metas, owners) <- classConstraints, any (`Set.member` group) owners])
+            group' = Set.union restricted (Set.fromList (ownersOf (Set.toList constrained)))
+         in if group' == group then (group, constrained) else restrictedGroup group'
+      (restrictedBinders, constrainedMetaVars) = restrictedGroup restricted
+      step (preds, outerCts, givens) ct =
         let predicate = ctPred ct
-            generalizable = filter (`notElem` fixedMetaVars) (predMetaVars predicate)
-            owners = [key | (key, metas) <- binderInfos, any (`elem` metas) generalizable]
-            restrictedOwners = filter (`Set.member` restricted) owners
-            -- Haskell 2010 rule 1 keeps the constrained type variables of a
-            -- restricted group monomorphic. Every binder that shares such a
-            -- variable stays monomorphic, not only the restricted one, so
-            -- one binder of the group cannot generalize a variable that the
-            -- enclosing scope must still fix.
-            sharedOwners = if null restrictedOwners then [] else owners
-         in if null generalizable || null owners || not (null restrictedOwners) || not (isClassPred predicate)
-              then (preds, Set.union (Set.fromList sharedOwners) monomorphic, outerCts ++ [ct], givens)
-              else (foldr (\key -> Map.insertWith (flip (++)) key [predicate]) preds owners, monomorphic, outerCts, givens ++ [ct])
-      (localPreds, monomorphicKeys, outer, givenCts) = foldl step (Map.empty, Set.empty, [], []) residualCts
+            generalizable = generalizableMetas predicate
+            owners = ownersOf generalizable
+         in if null generalizable || null owners || not (isClassPred predicate) || any (`Set.member` restrictedBinders) owners
+              then (preds, outerCts ++ [ct], givens)
+              else (foldr (\key -> Map.insertWith (flip (++)) key [predicate]) preds owners, outerCts, givens ++ [ct])
+      (localPreds, outer, givenCts) = foldl step (Map.empty, [], []) residualCts
   forM_ givenCts $ \ct ->
     bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
   pure
     LocalResiduals
       { localResidualPreds = localPreds,
-        localResidualMonomorphic = monomorphicKeys,
         localResidualOuterCts = outer,
-        localResidualMonoMetas = monoMetaVars
+        localResidualMonoMetas = Set.toList (Set.fromList monoMetaVars <> constrainedMetaVars)
       }
   where
     zonkCtPred ct = do

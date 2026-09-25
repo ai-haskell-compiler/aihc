@@ -1,0 +1,85 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, ExistentialQuantification #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  class Monad m where
+  └─ class methods: ret ∷ ∀ m a. (Monad m) ⇒ a → m a
+    ret :: a -> m a
+  infixr 0 $
+  ($) :: (a -> b) -> a -> b
+  f $ x = f x
+  ││   └─ type: a
+  └─ type: ∀ a b. (a → b) → a → b
+  └─ type: a → b
+  data Ops = Ops
+       │     └─ type: (∀ m a. (Monad m) ⇒ (m GHC.Types.Bool → m a) → m a) → (∀ m. (Monad m) ⇒ Eval m) → Ops
+       └─ type: Type
+    { withEvent :: forall m a. Monad m => (m Bool -> m a) -> m a
+    , evalOp :: forall m. Monad m => Eval m
+    }
+  data Eval m = forall n. Monad n => Eval (forall a. n a -> m a)
+       │        └─ type: ∀ m n. (Monad n) ⇒ (∀ a. n a → m a) → Eval m
+       └─ type: (Type → Type) → Type
+  loop :: Monad n => n Bool -> n Bool
+  loop e = e
+  │    └─ type: n GHC.Types.Bool
+  └─ type: ∀ n. (Monad n) ⇒ n GHC.Types.Bool → n GHC.Types.Bool
+  run :: Monad m => Ops -> m Bool
+  run ops@Ops{evalOp = e} = case e of
+  │   │   └─ type: Ops │    │    └─ type: Eval m; type-args: m; evidence: given Monad m
+  │   │   │            │    └─ type: m GHC.Types.Bool
+  │   │   │            └─ type: ∀ m. (Monad m) ⇒ Eval m
+  │   │   └─ type: ∀ m a. (Monad m) ⇒ (m GHC.Types.Bool → m a) → m a
+  │   └─ type: Ops
+  └─ type: ∀ m. (Monad m) ⇒ Ops → m GHC.Types.Bool
+    Eval eval -> eval $ withEvent ops $ loop
+    │    │       │    │ │             │ └─ type: n GHC.Types.Bool → n GHC.Types.Bool; type-args: n; evidence: given Monad n
+    │    │       │    │ │             └─ type: ((n GHC.Types.Bool → n GHC.Types.Bool) → n GHC.Types.Bool) → (n GHC.Types.Bool → n GHC.Types.Bool) → n GHC.Types.Bool; type-args: n Bool → n Bool, n Bool
+    │    │       │    │ └─ type: (n GHC.Types.Bool → n GHC.Types.Bool) → n GHC.Types.Bool; type-args: n, Bool; evidence: given Monad n
+    │    │       │    └─ type: (n GHC.Types.Bool → m GHC.Types.Bool) → n GHC.Types.Bool → m GHC.Types.Bool; type-args: n Bool, m Bool
+    │    │       └─ type: n GHC.Types.Bool → m GHC.Types.Bool; type-args: Bool
+    │    └─ type: ∀ a. n a → m a
+    └─ type: (∀ a. n a → m a) → Eval m; type-args: m, n; evidence: given Monad n
+  runSelected :: Monad m => Ops -> m Bool
+  runSelected ops = case evalOp ops of
+  │           │     │    └─ type: Eval m; type-args: m; evidence: given Monad m
+  │           │     └─ type: m GHC.Types.Bool
+  │           └─ type: Ops
+  └─ type: ∀ m. (Monad m) ⇒ Ops → m GHC.Types.Bool
+    Eval eval -> eval (withEvent ops loop)
+    │    │       │     │             └─ type: n GHC.Types.Bool → n GHC.Types.Bool; type-args: n; evidence: given Monad n
+    │    │       │     └─ type: (n GHC.Types.Bool → n GHC.Types.Bool) → n GHC.Types.Bool; type-args: n, Bool; evidence: given Monad n
+    │    │       └─ type: n GHC.Types.Bool → m GHC.Types.Bool; type-args: Bool
+    │    └─ type: ∀ a. n a → m a
+    └─ type: (∀ a. n a → m a) → Eval m; type-args: m, n; evidence: given Monad n
+extensions:
+- RankNTypes
+- ExistentialQuantification
+modules:
+- |
+  {-# LANGUAGE RankNTypes, ExistentialQuantification #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  class Monad m where
+    ret :: a -> m a
+  infixr 0 $
+  ($) :: (a -> b) -> a -> b
+  f $ x = f x
+  data Ops = Ops
+    { withEvent :: forall m a. Monad m => (m Bool -> m a) -> m a
+    , evalOp :: forall m. Monad m => Eval m
+    }
+  data Eval m = forall n. Monad n => Eval (forall a. n a -> m a)
+  loop :: Monad n => n Bool -> n Bool
+  loop e = e
+  run :: Monad m => Ops -> m Bool
+  run ops@Ops{evalOp = e} = case e of
+    Eval eval -> eval $ withEvent ops $ loop
+  runSelected :: Monad m => Ops -> m Bool
+  runSelected ops = case evalOp ops of
+    Eval eval -> eval (withEvent ops loop)
+status: pass
+reason: A record pattern and a selector can use rank-N fields of the same
+  record. An application with a polymorphic result is instantiated, as an
+  operand of the application operator and as a case scrutinee.

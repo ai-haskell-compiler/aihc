@@ -4702,6 +4702,11 @@ convertCoercion coercion =
     Ev.NthCo index proof -> unary (CoNth index) proof
     Ev.AppCo function argument -> binary CoApp function argument
     Ev.FunCo domain range -> binary CoFun domain range
+    Ev.ForAllCo tyVar body ->
+      withTypeVariables [tyVar] $ do
+        binder <- convertTypeBinder tyVar
+        (converted, bindings) <- convertCoercion body
+        pure (CoForAll binder converted, bindings)
     Ev.TyConAppCo tyCon types arguments -> do
       env <- gets vsConvertEnv
       kinds <- liftEither (invisibleKindArgs env tyCon types Nothing)

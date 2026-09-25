@@ -113,6 +113,10 @@ data Coercion
     AppCo !Coercion !Coercion
   | -- | Congruence for a function domain and range.
     FunCo !Coercion !Coercion
+  | -- | Congruence under a type quantifier: if @co : t1 ~ t2@, then
+    -- @ForAllCo a co : (forall a. t1) ~ (forall a. t2)@. The variable is in
+    -- scope in the coercion.
+    ForAllCo !TyVarId !Coercion
   | -- | Project a nominal argument. Zero selects the last argument.
     NthCo !Int !Coercion
   | -- | Equality evidence from a dictionary field.

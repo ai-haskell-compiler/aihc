@@ -694,6 +694,9 @@ lintNominalCoercion env proof =
     CoApp function argument -> lintNominalCoercion env function >> lintNominalCoercion env argument
     CoNth _ inner -> lintNominalCoercion env inner
     CoFun domain range -> lintNominalCoercion env domain >> lintNominalCoercion env range
+    CoForAll binder body -> do
+      binderEnv <- bindLocal env binder
+      lintNominalCoercion binderEnv body
     CoTyConApp _ arguments -> mapM_ (lintNominalCoercion env) arguments
     CoAxiom name _ ->
       case Map.lookup name (teAxioms env) of
@@ -749,6 +752,13 @@ coercionEndpoints env coercion =
           let ty = TyFun argumentRep resultRep argument result
           _ <- lintType env ty
           Right ty
+    CoForAll binder body -> do
+      binderEnv <- bindLocal env binder
+      (left, right) <- coercionEndpoints binderEnv body
+      let quantified = TyForAll binder
+      _ <- lintType env (quantified left)
+      _ <- lintType env (quantified right)
+      Right (quantified left, quantified right)
     CoTyConApp name arguments -> do
       header <- case lookupHeaderType env name of
         Nothing -> Left (UnboundName name)

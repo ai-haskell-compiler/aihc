@@ -290,6 +290,7 @@ renderCoercion coercion =
     Trans left right -> "trans (" <> renderCoercion left <> ") (" <> renderCoercion right <> ")"
     AppCo function argument -> "app (" <> renderCoercion function <> ") (" <> renderCoercion argument <> ")"
     FunCo domain range -> "fun (" <> renderCoercion domain <> ") (" <> renderCoercion range <> ")"
+    ForAllCo tyVar body -> "forall " <> T.unpack (tvName tyVar) <> ". (" <> renderCoercion body <> ")"
     NthCo index proof -> "nth[" <> show index <> "](" <> renderCoercion proof <> ")"
     EvidenceCo _ evidence -> renderEvTerm evidence
     TyConAppCo tyCon _ args -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)

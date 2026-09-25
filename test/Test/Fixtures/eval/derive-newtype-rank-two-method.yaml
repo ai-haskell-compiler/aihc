@@ -1,0 +1,24 @@
+extensions:
+- GeneralizedNewtypeDeriving
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, RankNTypes #-}
+  module Test where
+  class Masking m where
+    mask :: ((forall a. m a -> m a) -> m b) -> m b
+  newtype Id a = Id a
+  unId :: Id a -> a
+  unId (Id a) = a
+  instance Masking Id where
+    mask action = action (\x -> x)
+  newtype Wrap a = Wrap (Id a) deriving Masking
+  unWrap :: Wrap a -> Id a
+  unWrap (Wrap x) = x
+  result :: Bool
+  result = unId (unWrap (mask (\restore -> restore (Wrap (Id True)))))
+expression: result
+output: 'True'
+status: pass
+reason: newtype deriving coerces a method whose argument quantifies a type
+  variable, as the argument of mask does

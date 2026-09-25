@@ -31,6 +31,10 @@ matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =
   matchOne subst (a, targetA) >>= \subst' -> matchOne subst' (b, targetB)
 matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
   matchOne subst (f, targetF) >>= \subst' -> matchOne subst' (a, targetA)
+-- A pattern application @t m@ matches a saturated constructor application
+-- @CmdM m@: the head takes all arguments but the last one.
+matchOne subst (TcAppTy f a, TcTyCon targetTc targetArgs@(_ : _)) =
+  matchOne subst (f, TcTyCon targetTc (init targetArgs)) >>= \subst' -> matchOne subst' (a, last targetArgs)
 matchOne subst (patternTy, targetTy)
   | patternTy == targetTy = Just subst
   | otherwise = Nothing

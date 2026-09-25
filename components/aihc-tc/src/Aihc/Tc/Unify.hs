@@ -78,8 +78,19 @@ unifyTypesAt loc t1 t2 = do
 unifyCollecting :: Maybe SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind [(TcType, TcType)])
 unifyCollecting _ (TcMetaTv u1) (TcMetaTv u2)
   | u1 == u2 = pure (Right [])
-unifyCollecting loc (TcMetaTv u) ty = fmap (const []) <$> unifyMetaTv loc u ty
-unifyCollecting loc ty (TcMetaTv u) = fmap (const []) <$> unifyMetaTv loc u ty
+-- A decomposition does not zonk its parts, so an earlier pair of the same
+-- decomposition can have solved the meta variable. The solution is then
+-- unified, and it is never written over.
+unifyCollecting loc (TcMetaTv u) ty = do
+  solution <- readMetaTv u
+  case solution of
+    Just solved -> unifyCollecting loc solved ty
+    Nothing -> fmap (const []) <$> unifyMetaTv loc u ty
+unifyCollecting loc ty (TcMetaTv u) = do
+  solution <- readMetaTv u
+  case solution of
+    Just solved -> unifyCollecting loc ty solved
+    Nothing -> fmap (const []) <$> unifyMetaTv loc u ty
 unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
   -- One variable whose two occurrences carry different kinds (a given
   -- kind refinement rewrites the kinds of occurrences) is still one

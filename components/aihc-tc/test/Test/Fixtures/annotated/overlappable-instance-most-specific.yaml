@@ -1,0 +1,85 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
+  module Test where
+  class Monad m where
+  └─ class methods: ret ∷ ∀ m a. (Monad m) ⇒ a → m a
+    ret :: a -> m a
+  class MonadTrans t where
+  └─ class methods: lift ∷ ∀ t m a. (MonadTrans t, Monad m) ⇒ m a → t m a
+    lift :: Monad m => m a -> t m a
+  class Monad m => MonadState s m where
+  └─ class methods: get ∷ ∀ s m. (MonadState s m) ⇒ m s
+    get :: m s
+  data StateT s m a = StateT (s -> m a)
+       │              └─ type: ∀ s m a. (s → m a) → StateT s m a
+       └─ type: Type → (Type → Type) → Type → Type
+  instance Monad m => Monad (StateT s m) where
+  └─ $fMonadStateTsm ∷ ∀ m s. (Monad m) ⇒ Monad (StateT s m)
+    ret x = StateT (\_ -> ret x)
+    │   │   │       │││    └─ type: a → m a; type-args: m, a; evidence: given Monad m
+    │   │   │       │└─ type: s
+    │   │   │       │└─ type: s
+    │   │   │       └─ type: s → m a
+    │   │   └─ type: (s → m a) → StateT s m a; type-args: s, m, a
+    │   └─ type: a
+    └─ ret ∷ ∀ a. a → StateT s m a
+  instance MonadTrans (StateT s) where
+  └─ $fMonadTransStateTs ∷ ∀ s. () ⇒ MonadTrans (StateT s)
+    lift m = StateT (\_ -> m)
+    │    │   │       │└─ type: s
+    │    │   │       │└─ type: s
+    │    │   │       └─ type: s → m a
+    │    │   └─ type: (s → m a) → StateT s m a; type-args: s, m, a
+    │    └─ type: m a
+    └─ lift ∷ ∀ m a. (Monad m) ⇒ m a → StateT s m a
+  instance Monad m => MonadState s (StateT s m) where
+  └─ $fMonadStatesStateTsm ∷ ∀ m s. (Monad m) ⇒ MonadState s (StateT s m) [superclasses: $fMonadStateTsm @m @s (given Monad m)]
+    get = StateT (\s -> ret s)
+    │     │       ││    └─ type: s → m s; type-args: m, s; evidence: given Monad m
+    │     │       │└─ type: s
+    │     │       └─ type: s → m s
+    │     └─ type: (s → m s) → StateT s m s; type-args: s, m, s
+    └─ get ∷ StateT s m s
+  instance {-# OVERLAPPABLE #-} (MonadState s m, MonadTrans t, Monad (t m)) => MonadState s (t m) where
+  └─ $fMonadStatesT ∷ ∀ s m t. (MonadState s m, MonadTrans t, Monad (t m)) ⇒ MonadState s (t m) [superclasses: given Monad t m]
+    get = lift get
+    │     │    └─ type: m s; type-args: s, m; evidence: given MonadState s m
+    │     └─ type: m s → t m s; type-args: t, m, s; evidence: given MonadTrans t, super[0](given MonadState s m)
+    └─ get ∷ t m s
+  data Undo = Undo
+       │      └─ type: Undo
+       └─ type: Type
+  current :: MonadState Undo m => StateT Undo m Undo
+  current = get
+  │         └─ type: StateT Undo m Undo; type-args: Undo, StateT Undo m; evidence: $fMonadStatesStateTsm @m @Undo (super[0](given MonadState Undo m))
+  └─ type: ∀ m. (MonadState Undo m) ⇒ StateT Undo m Undo
+extensions:
+- MultiParamTypeClasses
+- FlexibleInstances
+- FlexibleContexts
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
+  module Test where
+  class Monad m where
+    ret :: a -> m a
+  class MonadTrans t where
+    lift :: Monad m => m a -> t m a
+  class Monad m => MonadState s m where
+    get :: m s
+  data StateT s m a = StateT (s -> m a)
+  instance Monad m => Monad (StateT s m) where
+    ret x = StateT (\_ -> ret x)
+  instance MonadTrans (StateT s) where
+    lift m = StateT (\_ -> m)
+  instance Monad m => MonadState s (StateT s m) where
+    get = StateT (\s -> ret s)
+  instance {-# OVERLAPPABLE #-} (MonadState s m, MonadTrans t, Monad (t m)) => MonadState s (t m) where
+    get = lift get
+  data Undo = Undo
+  current :: MonadState Undo m => StateT Undo m Undo
+  current = get
+status: pass
+reason: The most specific matching instance wins over an overlappable instance that comes first.

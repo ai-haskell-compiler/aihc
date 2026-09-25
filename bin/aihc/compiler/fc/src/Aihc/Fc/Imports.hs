@@ -275,6 +275,7 @@ coercionReferences coercion =
     CoApp function argument -> coercionReferences function <> coercionReferences argument
     CoNth _ proof -> coercionReferences proof
     CoFun domain range -> coercionReferences domain <> coercionReferences range
+    CoForAll binder body -> binderReferences binder <> coercionReferences body
     CoTyConApp name arguments -> nameReference name <> foldMap coercionReferences arguments
     CoAxiom name arguments -> nameReference name <> foldMap typeReferences arguments
 
