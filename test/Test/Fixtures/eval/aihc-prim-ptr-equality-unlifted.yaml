@@ -1,0 +1,25 @@
+extensions: [MagicHash, UnboxedTuples]
+modules:
+  - |
+    module Test where
+    import GHC.Exts (MutableByteArray#, RealWorld, isTrue#, newByteArray#, reallyUnsafePtrEquality#, realWorld#)
+
+    sameArray :: MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> Bool
+    sameArray x y = isTrue# (reallyUnsafePtrEquality# x y)
+
+    mixed :: MutableByteArray# RealWorld -> Bool
+    mixed x = isTrue# (reallyUnsafePtrEquality# x ())
+
+    checks :: Bool
+    checks = case newByteArray# 8# realWorld# of
+      (# s1, a #) -> case newByteArray# 8# s1 of
+        (# _, b #) -> and
+          [ sameArray a a
+          , not (sameArray a b)
+          , not (mixed a)
+          ]
+output: |
+  True
+expression: checks
+status: pass
+reason: reallyUnsafePtrEquality# accepts unlifted boxed arguments and mixed levities
