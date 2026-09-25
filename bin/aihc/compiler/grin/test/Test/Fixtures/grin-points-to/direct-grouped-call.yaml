@@ -1,0 +1,29 @@
+program: |
+  pub global entry = (P$entry/1)
+
+  $mixed (a :: IntRep) (b :: IntRep) (c :: IntRep) (d :: IntRep) -> IntRep =
+    constant (d :: IntRep)
+
+  $entry (unused :: BoxedRep Lifted) -> IntRep =
+    function :: BoxedRep Lifted <-
+      store (P$mixed/[[IntRep], [IntRep, IntRep], [], [IntRep]])
+    partial :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function :: BoxedRep Lifted) (1 :: IntRep) ((2 :: IntRep) (3 :: IntRep))
+    apply @IntRep (partial :: BoxedRep Lifted) () (4 :: IntRep)
+expected: |-
+  pub global entry = (P$entry/1)
+
+  $mixed (a :: IntRep) (b :: IntRep) (c :: IntRep) (d :: IntRep) -> IntRep =
+    constant (d :: IntRep)
+
+  $entry (unused :: BoxedRep Lifted) -> IntRep =
+    function :: BoxedRep Lifted <-
+      store (P$mixed/[[IntRep], [IntRep, IntRep], [], [IntRep]])
+    call @IntRep $mixed (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep)
+rewrites:
+  dead-alternatives: 0
+  evals-of-values: 0
+  direct-calls: 1
+  single-entry-evals: 0
+status: pass
+reason: A direct call preserves logical argument groups, empty groups, and the unboxed result layout.

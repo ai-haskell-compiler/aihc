@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data N = Z | S N
+    data Pair = Pair N N
+    wide seed =
+      let loop n a b c d e f g h = case n of
+            Z -> Pair seed h
+            S rest -> loop rest b c d e f g h a
+      in loop (S (S Z)) Z (S Z) (S (S Z)) Z Z Z Z Z
+    result = wide (S Z)
+expression: result
+output: "Pair (S Z) (S Z)"
+status: pass
+reason: A recursive function retains its captured value across calls with nine logical arguments.
