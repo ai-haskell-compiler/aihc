@@ -4511,11 +4511,18 @@ typeFamilyInjectivePositions familyDecl =
         ]
     _ -> Nothing
 
+-- | The declared result kind of a type family. A named result binder
+-- gives its kind the same way as a plain result signature:
+-- @type family F a = (r :: K) | r -> a@ has the result kind @K@.
+-- A result binder without a kind gives no result kind, as a family
+-- without a result signature does.
 typeFamilyResultKindType :: TypeFamilyDecl -> Maybe Type
 typeFamilyResultKindType familyDecl =
   case typeFamilyDeclResultSig familyDecl of
     Just (TypeFamilyKindSig ty) -> Just ty
-    _ -> Nothing
+    Just (TypeFamilyTyVarSig binder) -> tyVarBinderKind binder
+    Just (TypeFamilyInjectiveSig binder _) -> tyVarBinderKind binder
+    Nothing -> Nothing
 
 registerClosedTypeFamilyEquations :: (Text, Text) -> TypeFamilyDecl -> TcM [TcBindingResult]
 registerClosedTypeFamilyEquations origin familyDecl =
