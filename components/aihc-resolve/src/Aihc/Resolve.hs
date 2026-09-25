@@ -108,6 +108,7 @@ import Aihc.Parser.Syntax
     peelGuardQualifierAnn,
     peelLiteralAnn,
     peelPatternAnn,
+    qualifyName,
     recordFieldName,
     recordFieldValue,
     renderUnqualifiedName,
@@ -683,24 +684,33 @@ instanceHeadClass ty =
         ]
     _ -> Nothing
 
--- | A method binding in an instance names a method of the class. The
--- class may be in scope only under a qualifier, so the lookup goes
--- through the scopes that export the class rather than the plain term
--- scope.
+-- | A method binding or a method signature in an instance names a method
+-- of the class. The lookup goes through the methods of the class and not
+-- through the term scope, as GHC does. Thus the method name does not have
+-- to be in scope. For example, the import list can name only the class,
+-- or the class can be in scope only under a qualifier. A binder that is
+-- not a method of the class is an error. If the class of the instance
+-- head is not known, the term scope resolves the binder.
 instanceMethodDefinition :: Maybe (Text, ResolvedName) -> Scope -> TermDefinition
 instanceMethodDefinition headClass scope name =
-  case (headClass, lookupTerm rendered scope) of
-    (Just (className, resolvedClass), ResolvedError _)
-      | found : _ <- classMethods className resolvedClass -> Just found
-    (_, resolved) -> Just resolved
+  case headClass of
+    Just (className, resolvedClass@(ResolvedTopLevel classPackage classModule _))
+      | methodLists@(_ : _) <- classMethodLists className resolvedClass ->
+          Just
+            ( if any (rendered `elem`) methodLists
+                then ResolvedTopLevel classPackage classModule (qualifyName Nothing name)
+                else ResolvedError ("not a method of the class " <> T.unpack className)
+            )
+    _ -> Just (lookupTerm rendered scope)
   where
     rendered = renderUnqualifiedName name
-    classMethods className resolvedClass =
-      [ resolved
+    -- A class and its methods have the same defining module, so the
+    -- resolved method name comes from the resolved class name.
+    classMethodLists className resolvedClass =
+      [ methods
       | candidate <- scope : Map.elems (scopeQualifiedModules scope),
         lookupType className candidate == resolvedClass,
-        rendered `elem` Map.findWithDefault [] className (scopeMethods candidate),
-        resolved@ResolvedTopLevel {} <- [lookupTerm rendered candidate]
+        Just methods <- [Map.lookup className (scopeMethods candidate)]
       ]
 
 -- | The scope that resolves the family name of an associated type instance
@@ -743,7 +753,11 @@ resolveInstanceDeclItem headClass instanceDeclItem =
     InstanceItemBind valueDecl -> do
       scope <- currentScope
       InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (instanceMethodDefinition headClass scope) valueDecl)
-    InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
+    InstanceItemTypeSig names ty -> do
+      scope <- currentScope
+      sp <- currentSpan
+      names' <- mapM (resolveTermDefinitionAt sp (instanceMethodDefinition headClass scope)) names
+      InstanceItemTypeSig names' <$> resolveType ty
     InstanceItemFixity {} -> pure instanceDeclItem
     InstanceItemTypeFamilyInst familyInst -> do
       scope <- currentScope
