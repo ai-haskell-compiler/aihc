@@ -1,0 +1,17 @@
+extensions: []
+modules:
+- |
+  module Test where
+  halves :: (Integral a, Bounded a) => [a]
+  halves = [f 2, f 4]
+   where
+    f x = fromIntegral (m `div` x)
+    m = fromIntegral (maxBound `asTypeOf` f undefined)
+  result :: Bool
+  result = halves == [maxBound `div` 2, maxBound `div` 4 :: Int]
+expression: result
+output: 'True'
+status: pass
+reason: a restricted binding and a function that use each other share their
+  constrained type variables, so neither generalizes them, and the enclosing
+  signature gives the constraints

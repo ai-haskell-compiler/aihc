@@ -1,0 +1,83 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  class Monad m where
+  └─ class methods: ret ∷ ∀ m a. (Monad m) ⇒ a → m a
+    ret :: a -> m a
+  newtype Wrap m a = Wrap (m a)
+          │          └─ type: ∀ m a. m a → Wrap m a
+          └─ type: (Type → Type) → Type → Type
+  unWrap :: Wrap m a -> m a
+  unWrap (Wrap x) = x
+  │       │    └─ type: m a
+  │       └─ type: Wrap m a
+  └─ type: ∀ m a. Wrap m a → m a
+  apply :: (forall a. Wrap m a -> m a) -> Wrap m b -> m b
+  apply f w = f w
+  │     │ │   └─ type: Wrap m b → m b; type-args: b
+  │     │ └─ type: Wrap m b
+  │     └─ type: ∀ a. Wrap m a → m a
+  └─ type: ∀ m b. (∀ a. Wrap m a → m a) → Wrap m b → m b
+  run :: Monad m => Wrap m b -> m b
+  run w = apply eval w
+  │   │   └─ type: (∀ a. Wrap m a → m a) → Wrap m b → m b; type-args: m, b
+  │   │   └─ type: ∀ a. Wrap m a → m a
+  │   │   └─ type: Wrap m a → m a; type-args: m, a
+  │   └─ type: Wrap m b
+  └─ type: ∀ m b. (Monad m) ⇒ Wrap m b → m b
+    where
+      eval = unWrap
+      │      └─ type: Wrap a b → a b; type-args: a, b
+      └─ type: ∀ a b. Wrap a b → a b
+  runConstrained :: Monad m => Wrap m b -> m b
+  runConstrained w = apply eval w
+  │              │   └─ type: (∀ a. Wrap m a → m a) → Wrap m b → m b; type-args: m, b
+  │              │   └─ type: ∀ a. Wrap m a → m a
+  │              │   └─ type: Wrap m a → m a; type-args: a
+  │              └─ type: Wrap m b
+  └─ type: ∀ m b. (Monad m) ⇒ Wrap m b → m b
+    where
+      eval = pass . unWrap
+      │      │    │ └─ type: Wrap m a → m a; type-args: m, a
+      │      │    └─ type: (m a → m a) → (Wrap m a → m a) → Wrap m a → m a; type-args: m a, m a, Wrap m a
+      │      └─ type: m a → m a; type-args: m, a; evidence: given Monad m
+      └─ type: ∀ a. Wrap m a → m a
+      pass :: Monad m => m a -> m a
+      pass x = x
+      │    └─ type: m a
+      └─ type: ∀ m a. (Monad m) ⇒ m a → m a
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (f . g) x = f (g x)
+  ││   │  └─ type: a
+  ││   └─ type: a → b
+  │└─ type: b → c
+  └─ type: ∀ b c a. (b → c) → (a → b) → a → c
+extensions: [RankNTypes]
+modules:
+- |
+  {-# LANGUAGE RankNTypes #-}
+  module Test where
+  class Monad m where
+    ret :: a -> m a
+  newtype Wrap m a = Wrap (m a)
+  unWrap :: Wrap m a -> m a
+  unWrap (Wrap x) = x
+  apply :: (forall a. Wrap m a -> m a) -> Wrap m b -> m b
+  apply f w = f w
+  run :: Monad m => Wrap m b -> m b
+  run w = apply eval w
+    where
+      eval = unWrap
+  runConstrained :: Monad m => Wrap m b -> m b
+  runConstrained w = apply eval w
+    where
+      eval = pass . unWrap
+      pass :: Monad m => m a -> m a
+      pass x = x
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (f . g) x = f (g x)
+status: pass
+reason: The monomorphism restriction keeps only the constrained type variables
+  of a binding without arguments monomorphic. Its other type variables
+  generalize, so the binding can be a quantified argument.

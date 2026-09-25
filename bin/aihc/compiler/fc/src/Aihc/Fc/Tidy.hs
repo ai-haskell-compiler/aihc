@@ -196,6 +196,9 @@ tidyCoercion env coercion =
     CoApp function argument -> CoApp (tidyCoercion env function) (tidyCoercion env argument)
     CoNth index proof -> CoNth index (tidyCoercion env proof)
     CoFun domain range -> CoFun (tidyCoercion env domain) (tidyCoercion env range)
+    CoForAll binder body ->
+      let (binder', bodyEnv) = tidyBinder env binder
+       in CoForAll binder' (tidyCoercion bodyEnv body)
     CoTyConApp name arguments ->
       CoTyConApp (tidyUse env name) (map (tidyCoercion env) arguments)
     CoAxiom name arguments ->

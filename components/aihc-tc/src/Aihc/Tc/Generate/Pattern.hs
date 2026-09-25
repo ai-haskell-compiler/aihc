@@ -803,12 +803,11 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
             | null predicateGivens && null skolems =
                 annotatePendingPatternAt (patternOwnSpan originalPat <|> sp) (pendingAnnotation conResTy [] [] []) rebuiltPattern
             | otherwise =
-                PAnn
-                  ( mkAnnotation
-                      ( (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) [])
-                          { pendingTcAnnTypeBinders = skolems
-                          }
-                      )
+                annotatePendingPatternAt
+                  (patternOwnSpan originalPat <|> sp)
+                  ( (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) [])
+                      { pendingTcAnnTypeBinders = skolems
+                      }
                   )
                   rebuiltPattern
       pure
@@ -841,12 +840,11 @@ checkPatSynPattern sp originalPat conName info scheme subPats scrutTy = do
   providedGivens <- mapM (constructorGiven sp conName) providedPreds
   let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
       annotatedPattern =
-        PAnn
-          ( mkAnnotation
-              ( (pendingAnnotation conTy typeArgs (map ctEvVar requiredCts <> map ctEvVar providedGivens) [])
-                  { pendingTcAnnTypeBinders = skolems
-                  }
-              )
+        annotatePendingPatternAt
+          (patternOwnSpan originalPat <|> sp)
+          ( (pendingAnnotation conTy typeArgs (map ctEvVar requiredCts <> map ctEvVar providedGivens) [])
+              { pendingTcAnnTypeBinders = skolems
+              }
           )
           rebuiltPattern
   pure

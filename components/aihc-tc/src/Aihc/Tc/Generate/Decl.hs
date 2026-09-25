@@ -139,7 +139,8 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, isEmptyContext, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, isEmptyContext, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -200,7 +201,8 @@ tbName = termKeyName . tbKey
 data UserSig = UserSig
   { userSigName :: !Text,
     userSigType :: !Type,
-    userSigSpan :: !(Maybe SourceSpan)
+    userSigSpan :: !(Maybe SourceSpan),
+    userSigIsPatSyn :: !Bool
   }
   deriving (Show)
 
@@ -2510,30 +2512,6 @@ defaultMethodName methodName = "$dm" <> T.concatMap encodeCharacter methodName
       | isAlphaNum character || character `elem` ("_$#'" :: String) = T.singleton character
       | otherwise = "$" <> T.pack (show (ord character)) <> "$"
 
-matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
-matchTypes patterns targets
-  | length patterns /= length targets = Nothing
-  | otherwise = foldM matchOne Map.empty (zip patterns targets)
-
-matchOne :: Map Unique TcType -> (TcType, TcType) -> Maybe (Map Unique TcType)
-matchOne subst (TcTyVar tv, target) =
-  case Map.lookup (tvUnique tv) subst of
-    Nothing -> Just (Map.insert (tvUnique tv) target subst)
-    Just existing
-      | existing == target -> Just subst
-      | otherwise -> Nothing
-matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
-  | tc == targetTc,
-    length args == length targetArgs =
-      foldM matchOne subst (zip args targetArgs)
-matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =
-  matchOne subst (a, targetA) >>= \subst' -> matchOne subst' (b, targetB)
-matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
-  matchOne subst (f, targetF) >>= \subst' -> matchOne subst' (a, targetA)
-matchOne subst (patternTy, targetTy)
-  | patternTy == targetTy = Just subst
-  | otherwise = Nothing
-
 -- | Collect type signatures from a list of declarations.
 collectUserSigs :: [Decl] -> TcM (Map TcTermKey UserSig)
 collectUserSigs decls = do
@@ -2543,30 +2521,34 @@ collectUserSigs decls = do
     insertSignature collected (key, signature)
       | Map.member key collected = abortTc ("duplicate source signature key: " <> show key)
       | otherwise = pure (Map.insert key signature collected)
-    extractSig ambient (DeclTypeSig names ty) =
-      mapM
-        ( \n -> do
-            key <- resolvedUnqualifiedTermKey n
-            let name = unqualifiedNameText n
-                sigSp = ambient <|> unqualifiedNameSpan n <|> typeSpan ty
-            pure (key, UserSig name ty sigSp)
-        )
-        names
+    extractSig ambient (DeclTypeSig names ty) = typeSigs False ambient names ty
     extractSig ambient (DeclForeign foreignDecl)
       | isForeignImport foreignDecl =
           do
             key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
             let name = unqualifiedNameText (foreignName foreignDecl)
                 sigSp = ambient <|> unqualifiedNameSpan (foreignName foreignDecl) <|> typeSpan (foreignType foreignDecl)
-            pure [(key, UserSig name (foreignType foreignDecl) sigSp)]
+            pure [(key, UserSig name (foreignType foreignDecl) sigSp False)]
     extractSig ambient (DeclAnn ann inner) =
       extractSig (fromAnnotation @SourceSpan ann <|> ambient) inner
-    extractSig ambient (DeclPatSynSig names ty) = extractSig ambient (DeclTypeSig names ty)
+    extractSig ambient (DeclPatSynSig names ty) = typeSigs True ambient names ty
     extractSig _ _ = pure []
+    typeSigs isPatSyn ambient names ty =
+      mapM
+        ( \n -> do
+            key <- resolvedUnqualifiedTermKey n
+            let name = unqualifiedNameText n
+                sigSp = ambient <|> unqualifiedNameSpan n <|> typeSpan ty
+            pure (key, UserSig name ty sigSp isPatSyn)
+        )
+        names
 
 checkUserSig :: UserSig -> TcM CheckedSig
 checkUserSig userSig = do
-  scheme <- sigToScheme (userSigType userSig)
+  scheme <-
+    if userSigIsPatSyn userSig
+      then patSynSigToScheme (userSigType userSig)
+      else sigToScheme (userSigType userSig)
   pure
     CheckedSig
       { checkedSigName = userSigName userSig,
