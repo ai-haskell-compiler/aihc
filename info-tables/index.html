@@ -686,11 +686,16 @@ They use the common <code>AihcInfo</code> layout from the native run-time system
 <td><code>object_kind</code></td>
 <td>Identifies a node, closure, thunk, partial constructor, or special run-time object.</td>
 </tr>
+<tr>
+<td><code>needs_eval</code></td>
+<td>Is <code>1</code> for a thunk and a blackhole, <code>2</code> for an indirection, and <code>0</code> for a value.</td>
+</tr>
 </tbody>
 </table>
 <p>The garbage collector uses <code>field_count</code> and <code>field_is_pointer</code> to find managed pointers.
 The application code uses <code>remaining_arity</code> and <code>next</code> to apply one source argument.
-The evaluation code uses <code>object_kind</code> and <code>backend_entry</code> to enter an object.
+The inline evaluation check uses only <code>needs_eval</code> to find a value or an indirection.
+The run-time evaluation code uses <code>object_kind</code> and <code>backend_entry</code> to enter an object.
 Exception code uses <code>frame_kind</code> to identify continuation frames.</p>
 <p>One source argument can use more than one machine field.
 For this reason, two adjacent tables can have field counts that differ by more than one.
@@ -770,13 +775,20 @@ Its table has the following logical values:</p>
 <td><code>object_kind</code></td>
 <td>Thunk.</td>
 </tr>
+<tr>
+<td><code>needs_eval</code></td>
+<td><code>1</code></td>
+</tr>
 </tbody>
 </table>
 <p>The pointer map depends on the run-time representation of <code>x</code> and <code>y</code>.
 For example, a lifted value has a pointer byte of <code>1</code>.
 An <code>Int#</code> value has a pointer byte of <code>0</code>.</p>
-<p>When code evaluates <code>total</code>, it reads the thunk kind from the table.
-It then uses the backend entry to call the generated function.
+<p>When code evaluates <code>total</code>, it reads the <code>needs_eval</code> byte from the table.
+The byte is <code>1</code>, so the code calls the run-time evaluation code.
+After the update, the object is an indirection and the byte is <code>2</code>.
+The code then follows the indirection to the result without a call.
+That code reads the thunk kind and uses the backend entry to call the generated function.
 The run-time system sets the thunk state to blackhole during evaluation.
 After evaluation, the run-time system changes the thunk into an indirection to the result.</p>
 <h2 id="constructor-example">Constructor example<a class="headerlink" href="#constructor-example" title="Permanent link">&para;</a></h2>
@@ -867,8 +879,8 @@ It emits only the constructor tables that the current compilation unit requires.
 Linked constructor table names keep constructor identities equal across compilation units.</p>
 <h3 id="webassembly">WebAssembly<a class="headerlink" href="#webassembly" title="Permanent link">&para;</a></h3>
 <p>The WebAssembly backend emits the same fields in WebAssembly assembly data.
-Its pointers are 32 bits and its counts and kind values are one byte each.
-Thus, its table is 24 bytes instead of the 48-byte table on 64-bit native targets.</p>
+Its pointers are 32 bits and its counts, kind values, and flags are one byte each.
+Thus, its table is 28 bytes instead of the 48-byte table on 64-bit native targets.</p>
 <p>WebAssembly calls require a compatible function type.
 Its run-time adapter converts <code>backend_entry</code> to the required function type.
 The adapter then transfers control through the WebAssembly trampoline.</p>
