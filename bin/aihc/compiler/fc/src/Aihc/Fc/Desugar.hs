@@ -825,9 +825,12 @@ convertFamilyConstructor bindersEnv bindings package moduleName' representationT
   constructorType <- lookupBindingType bindings package moduleName' constructorName
   converted <- convertType bindersEnv constructorType
   replaced <- replaceResultType converted representationType
+  -- A module that uses a data instance builds and matches its constructor
+  -- by name, so the constructor stays public, as the tables of the instance
+  -- must be.
   pure
     ConDecl
-      { conVis = Private,
+      { conVis = Pub,
         conName = Name constructorName SortDataConstructor (OriginTop package moduleName'),
         conType = replaced,
         conRepresentation = HeapConstructor,

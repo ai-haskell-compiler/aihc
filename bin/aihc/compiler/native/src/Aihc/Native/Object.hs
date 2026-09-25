@@ -62,10 +62,12 @@ import Data.Map.Strict qualified as Map
 import Data.Primitive.ByteArray (ByteArray (..), MutableByteArray, copyByteArray, newPinnedByteArray, readByteArray, unsafeFreezeByteArray, writeByteArray)
 import Data.Primitive.MutVar (MutVar, modifyMutVar', newMutVar, readMutVar, writeMutVar)
 import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, setPrimArray, writePrimArray)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector.Generic.Mutable qualified as MG
 import Data.Vector.Mutable qualified as MV
+import Data.Vector.Unboxed qualified as U
 import Data.Vector.Unboxed.Mutable qualified as MU
 import Data.Word (Word32, Word64, Word8)
 
@@ -697,37 +699,47 @@ fitsSigned bits value = value >= negate (1 `shiftL` (bits - 1)) && value < (1 `s
 -- Layout
 
 -- | Resolve every fixup left, patching the ones this object can fill in and
--- turning the rest into relocations, and choose the symbols. Only a name
--- that the linker needs becomes a symbol: a global one, or one that a
--- relocation names. A label that this object resolves on its own, such as a
--- branch target inside one function, needs no symbol. A name that this
--- object defines and does not export is read by nothing: only the
--- relocations beside it name it, and they name it by position. The text it
--- was given upstream is dead weight, and generated code has one such name
--- per entry function, per info table, and per enter stub, which is most of
--- the string table of a library object. Those are numbered instead. An
--- exported or undefined name keeps its text, because that is what another
--- object matches against.
+-- turning the rest into relocations, and choose the symbols.
+--
+-- Each defined symbol starts an atom: the function, the table, or the
+-- constant that the symbol names, up to the next symbol of its section. A
+-- linker keeps or discards an object one atom at a time, so it can remove a
+-- function that nothing reaches. A reference from one atom to another is
+-- therefore always a relocation, also when this object could patch it: the
+-- linker can move the target or remove an atom between them. A label that
+-- is private to one function, such as a branch target, starts no atom and
+-- needs no symbol.
+--
+-- A name that this object defines and does not export is read by nothing:
+-- only the relocations beside it name it, and they name it by position. The
+-- text it was given upstream is dead weight, and generated code has one
+-- such name per entry function, per info table, and per enter stub, which
+-- is most of the string table of a library object. Those are numbered
+-- instead, with the prefix @l@. A Mach-O linker reads that prefix as a name
+-- private to the object and does not copy it to the executable. The ELF
+-- writer writes no such names. An exported or undefined name keeps its
+-- text, because that is what another object matches against.
 layoutObject :: Object s -> ST s (Either ObjectError Image)
 layoutObject object = do
   order <- reverse <$> readMutVar (objectOrder object)
   sections <- readMutVar (objectSections object)
   symbolCount <- readPrimArray (objectSymbolCount object) 0
   names <- listArray (0, symbolCount - 1) . reverse <$> readMutVar (objectSymbolNames object)
+  starts <- atomStarts object symbolCount
   relocated <- MU.replicate symbolCount False
-  resolved <- resolveSections object (names !) relocated [sections Map.! role | role <- order]
+  resolved <- resolveSections object (names !) starts relocated [sections Map.! role | role <- order]
   case resolved of
     Left err -> pure (Left err)
     Right sectionRelocations -> do
       ids <- Map.toAscList <$> readMutVar (objectSymbolIds object)
       candidates <- mapM (\named@(_, identifier) -> (,) named <$> readSymbol identifier) ids
-      needed <- filterM (\((_, identifier), row) -> if symbolRowGlobal row then pure True else MU.unsafeRead relocated identifier) candidates
       let defined row = symbolRowSection row /= undefinedSection
-          privateLabels =
+      needed <- filterM (\((_, identifier), row) -> if symbolRowGlobal row || defined row then pure True else MU.unsafeRead relocated identifier) candidates
+      let privateLabels =
             IntMap.fromList
               ( zip
                   [identifier | ((_, identifier), row) <- needed, not (symbolRowGlobal row), defined row]
-                  [".L" <> T.pack (show index) | index <- [0 :: Int ..]]
+                  ["l" <> T.pack (show index) | index <- [0 :: Int ..]]
               )
           emitted (name, identifier) = IntMap.findWithDefault name identifier privateLabels
           ordered = sortOn fst [(emitted named, (named, row)) | (named, row) <- needed]
@@ -771,10 +783,32 @@ data SymbolRow = SymbolRow
     symbolRowGlobal :: !Bool
   }
 
+-- | The start offset of each atom, in ascending order, for each section
+-- role. An atom starts at each defined symbol.
+atomStarts :: Object s -> Int -> ST s (Map Int8 (U.Vector Int))
+atomStarts object symbolCount = do
+  rows <-
+    mapM
+      (\identifier -> (,) <$> readColumn (objectSymbolSections object) identifier <*> readColumn (objectSymbolOffsets object) identifier)
+      [0 .. symbolCount - 1]
+  pure (Map.map (U.fromList . Set.toAscList) (Map.fromListWith Set.union [(role, Set.singleton offset) | (role, offset) <- rows, role /= undefinedSection]))
+
+-- | The atom that holds an offset: the number of atom starts at or before
+-- it.
+atomOf :: U.Vector Int -> Int -> Int
+atomOf starts offset = go 0 (U.length starts)
+  where
+    go low high
+      | low >= high = low
+      | U.unsafeIndex starts middle <= offset = go (middle + 1) high
+      | otherwise = go low middle
+      where
+        middle = (low + high) `div` 2
+
 -- | The relocations of every section, in offset order, after patching the
 -- fixups the object resolves itself.
-resolveSections :: Object s -> (Int -> Text) -> MU.MVector s Bool -> [Section s] -> ST s (Either ObjectError [(Section s, [(Word64, FixupKind, Int, Int64)])])
-resolveSections object nameOf relocated = go []
+resolveSections :: Object s -> (Int -> Text) -> Map Int8 (U.Vector Int) -> MU.MVector s Bool -> [Section s] -> ST s (Either ObjectError [(Section s, [(Word64, FixupKind, Int, Int64)])])
+resolveSections object nameOf starts relocated = go []
   where
     go done sections =
       case sections of
@@ -796,11 +830,13 @@ resolveSections object nameOf relocated = go []
                 let identifier = fixupRowTarget fixup
                 definedIn <- readColumn (objectSymbolSections object) identifier
                 global <- readColumn (objectSymbolGlobals object) identifier
-                let sameSection = fromIntegral definedIn == fromEnum (sectionRole section)
-                if canResolve (fixupRowKind fixup) && not global && sameSection
-                  then do
-                    target <- readColumn (objectSymbolOffsets object) identifier
-                    fmap (const Nothing) <$> patchLocal section (nameOf identifier) target fixup
+                target <- readColumn (objectSymbolOffsets object) identifier
+                let role = fromIntegral (fromEnum (sectionRole section)) :: Int8
+                    sameSection = definedIn == role
+                    atoms = Map.findWithDefault U.empty role starts
+                    sameAtom = atomOf atoms (fixupRowOffset fixup) == atomOf atoms target
+                if canResolve (fixupRowKind fixup) && not global && sameSection && sameAtom
+                  then fmap (const Nothing) <$> patchLocal section (nameOf identifier) target fixup
                   else do
                     MU.unsafeWrite relocated identifier True
                     pure (Right (Just (fromIntegral (fixupRowOffset fixup), fixupRowKind fixup, identifier, fixupRowAddend fixup)))
