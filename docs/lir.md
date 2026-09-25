@@ -521,7 +521,7 @@ therefore wrong wherever it runs, and caught only by the interpreter.
 | `load T address align A` | `T` | Read a `T` from the address. Traps when the address is not mapped. Traps when the address is not a multiple of `A`. |
 | `store T %v, address align A` | none | Write `%v` to the address. Traps when the address is not mapped, is read-only, or is not a multiple of `A`. |
 | `ptr.add %p, %i` | `ptr` | Add an `i64` to a pointer. The addition wraps at the target word size. |
-| `stack.alloc N align A` | `ptr` | Reserve `N` bytes of stack memory. The memory is zero. It lives until the function returns. Only the entry block may contain this operation. |
+| `stack.alloc N align A` | `ptr` | Reserve `N` bytes of stack memory. The contents are undefined until the function writes them. The memory lives until the function returns. Only the entry block may contain this operation. |
 
 `A` is a power of two, in bytes or in target words. `T` is `i1` only for `load` and `store` of one byte. `T`
 may be `code`. Loading a `code` value from bytes that are not the address of a
@@ -990,7 +990,17 @@ rather than as a change of some object bytes. Run the suite with
   stack block. Results come back in `x0` to `x7`. An aihc function preserves no
   register, so one that calls nothing and spills nothing has no frame: it
   leaves the stack pointer where it found it. A function with a frame saves
-  the frame pointer pair and keeps its slots below it. A tail call writes
+  the frame pointer pair and keeps its slots below it. An aihc function
+  that spills nothing has no frame for its full body. Each block that makes
+  a call has its own frame: one `stp` at the start of the block saves the
+  frame pointer pair and reserves the stack allocations above it, and one
+  `ldp` before the terminator removes them. Thus, the path that does not
+  call, which is usually the hot path, has no frame setup. The block frame
+  does not change `x29`, which still points to a valid frame record. An
+  instruction that uses a stack allocation must be in a block that calls,
+  and a terminator must not use one. Otherwise, the function keeps a frame
+  for its full body. The backend does not set a stack allocation to zero.
+  A tail call writes
   its outgoing block in place of the incoming one when it is no larger,
   moves the stack pointer down to make room when it is larger and there is
   no frame, and otherwise builds the block below the frame and copies it up
@@ -1035,7 +1045,12 @@ design of the AArch64 backend:
   carries no argument. The callee pops the block with `ret imm16`. Results
   come back in `rax`, `rdx`, `rcx`, `rsi`, `rdi`, `r8`, `r9`, and `r10`. An
   aihc function that calls nothing and spills nothing has no frame: the
-  stack pointer stays on the return address. A tail call writes its
+  stack pointer stays on the return address. An aihc function that spills
+  nothing has a frame only in the blocks that make a call, as on AArch64.
+  The return address is already on the stack, so that frame is one `sub`
+  and one `add` of the stack pointer. It holds the stack allocations and
+  aligns the stack for the call.
+  A tail call writes its
   outgoing block in place above the frame and moves the return address up
   when the block is no larger than the incoming one, moves the return
   address down to make room when it is larger and there is no frame, and

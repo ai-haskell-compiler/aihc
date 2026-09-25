@@ -1,0 +1,47 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE PolyKinds #-}
+    module Test where
+
+    import Data.Data
+    import Data.Kind (Type)
+
+    -- The kind of Tagged is forall k. k -> Type -> Type.
+    newtype Tagged s b = Tagged b
+
+    -- A bare poly-kinded type constructor as a type argument. Nothing
+    -- tells the kind of Tagged here.
+    bareProxy :: Bool
+    bareProxy = const True (Proxy :: Proxy Tagged)
+
+    -- Typeable evidence for a bare poly-kinded type constructor at kind
+    -- Type -> Type -> Type.
+    taggedRep :: TypeRep
+    taggedRep = typeRep (Proxy :: Proxy (Tagged :: Type -> Type -> Type))
+
+    sameConstructor :: Bool
+    sameConstructor = taggedRep == typeRep (Proxy :: Proxy (Tagged :: Type -> Type -> Type))
+
+    -- The constructor of an applied type is the bare type constructor.
+    appliedConstructor :: Bool
+    appliedConstructor =
+      typeRepTyCon (typeRep (Proxy :: Proxy (Tagged Bool Int))) == typeRepTyCon taggedRep
+
+    differentFromEither :: Bool
+    differentFromEither = not (taggedRep == typeRep (Proxy :: Proxy Either))
+
+    -- A context gives the kind of the constructor.
+    constructorRep :: forall (t :: Type -> Type -> Type). (Typeable t) => Proxy t -> TypeRep
+    constructorRep = typeRep
+
+    fromContext :: Bool
+    fromContext = constructorRep (Proxy :: Proxy Tagged) == taggedRep
+
+    results :: Bool
+    results = bareProxy && sameConstructor && appliedConstructor && differentFromEither && fromContext
+output: "True"
+expression: results
+status: pass
+reason: a bare poly-kinded type constructor keeps the kind at which it is used, so FC converts it and the solver gives its Typeable evidence

@@ -2,6 +2,7 @@
 module Aihc.Fc.Imports
   ( axiomReferences,
     declReferences,
+    exprReferences,
     emptyImports,
     importsForProgramLookup,
     pruneImports,

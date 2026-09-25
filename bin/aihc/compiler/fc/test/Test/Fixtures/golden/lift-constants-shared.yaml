@@ -1,0 +1,47 @@
+extensions: []
+modules:
+- |
+  module Test where
+  data Box a = Box a
+  first :: () -> Box ()
+  first _ = Box ()
+  second :: () -> Box ()
+  second _ = Box ()
+passes:
+- lift-constants
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.tUnit :: 3.sType;
+    2.c() :: 2.tUnit;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tBox (a : 3.sType) :: 3.sType {
+      pub 1.cBox :: ∀(a : 3.sType). a 3.→ 1.tBox a
+  }
+
+  pub val 1.vfirst :: 2.tUnit 3.→ 1.tBox 2.tUnit
+   = λ(x : 2.tUnit).
+    1.vfirst$constant$0
+
+  pub val 1.vsecond :: 2.tUnit 3.→ 1.tBox 2.tUnit
+   = λ(x : 2.tUnit).
+    1.vfirst$constant$0
+
+  val 1.vfirst$constant$0 noinline :: 1.tBox 2.tUnit
+   = 1.cBox @2.tUnit 2.c()
+status: pass
+reason: Two closed constructor expressions share one private constant.

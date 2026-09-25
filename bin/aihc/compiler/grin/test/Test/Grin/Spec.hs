@@ -373,7 +373,8 @@ evaluateGrin mode environment output name program =
         (_, Left problem) -> pure (Left (EvalFixture.EvaluationError problem))
         (root : _, Right _) -> do
           let merged = Fc.pruneProgram [root] (Fc.mergePrograms [EvalFixture.evalEnvironmentProgram (grinEvalFrontend environment), prepared])
-          case lowerProgram merged of
+              (lifted, _) = Fc.runPasses (Just [root]) [Fc.PassLiftConstants] merged
+          case lowerProgram lifted of
             Left problem -> pure (Left (EvalFixture.EvaluationError problem))
             Right lowered -> do
               let binding = bindingName name lowered

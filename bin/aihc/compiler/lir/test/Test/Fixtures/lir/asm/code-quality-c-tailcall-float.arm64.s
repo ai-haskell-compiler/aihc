@@ -65,7 +65,6 @@ _indirect:
 	.p2align 2
 _main:
 	stp x29, x30, [sp, #-16]!
-	mov x29, sp
 	ldr x16, =0x4000000000000000
 	fmov d0, x16
 	mov x0, #42
@@ -81,10 +80,9 @@ _main:
 	bl _indirect
 	fmov x0, s0
 	and x0, x0, #0xffffffff
+	ldp x29, x30, [sp], #16
 	mov x1, x0
 	mov x0, x19
-	mov sp, x29
-	ldp x29, x30, [sp], #16
 	ret
 	.text
 	.p2align 2

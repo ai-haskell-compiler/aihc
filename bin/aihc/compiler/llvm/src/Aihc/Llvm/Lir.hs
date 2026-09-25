@@ -96,7 +96,6 @@ preamble =
   [ "; Lir module compiled by Aihc.Llvm.Lir.",
     "declare i64 @write(i32, ptr, i64)",
     "declare void @_exit(i32) noreturn",
-    "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)",
     "declare float @llvm.fabs.f32(float)",
     "declare double @llvm.fabs.f64(double)",
     "declare float @llvm.sqrt.f32(float)",
@@ -652,7 +651,6 @@ compileInstruction ctx (Instruction results operation) =
       case results of
         [var] -> do
           emit (renderVar var <> " = alloca [" <> tshow size <> " x i8], align " <> tshow (alignmentInBytes wordBytes alignment))
-          emit ("call void @llvm.memset.p0.i64(ptr " <> renderVar var <> ", i8 0, i64 " <> tshow size <> ", i1 false)")
         _ -> unsupported "stack.alloc result count"
     GlobalGet symbol -> single ("load " <> renderType (globalTypeOf symbol) <> ", ptr " <> renderSymbol symbol)
     GlobalSet symbol value -> emit ("store " <> typed (globalTypeOf symbol) value <> ", ptr " <> renderSymbol symbol)

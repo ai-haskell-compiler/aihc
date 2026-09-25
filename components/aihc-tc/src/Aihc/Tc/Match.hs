@@ -27,6 +27,15 @@ matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
   | tc == targetTc,
     length args == length targetArgs =
       foldM matchOne subst (zip args targetArgs)
+matchOne subst (TcKindedTyCon tc kindArgs, TcKindedTyCon targetTc targetKindArgs)
+  | tc == targetTc,
+    length kindArgs == length targetKindArgs =
+      foldM matchOne subst (zip kindArgs targetKindArgs)
+-- A bare constructor that no use site kinded agrees with every kinding.
+matchOne subst (TcKindedTyCon tc _, TcTyCon targetTc [])
+  | tc == targetTc = Just subst
+matchOne subst (TcTyCon tc [], TcKindedTyCon targetTc _)
+  | tc == targetTc = Just subst
 matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =
   matchOne subst (a, targetA) >>= \subst' -> matchOne subst' (b, targetB)
 matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =

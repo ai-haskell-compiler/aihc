@@ -1,0 +1,22 @@
+; expect: -7952596333999229032, 1, -63, 591751040, -28, 2623536934927580646, 0, 1311768467463790323
+; reason: A constant shift count is an immediate of the shift. The count
+; is taken modulo the width of the type.
+
+data @inputs align 8 = { i64 1311768467463790323, i64 -1000, i32 305419896, i8 144 }
+
+func @main() -> (i64, i64, i64, i32, i8, i64, i32, i64) {
+entry:
+  %x = load i64 [@inputs] align 8
+  %n = load i64 [@inputs + 8] align 8
+  %w = load i32 [@inputs + 16] align 4
+  %b = load i8 [@inputs + 20] align 1
+  %left = shl i64 %x, 3
+  %right = shr.u i64 %x, 60
+  %arithmetic = shr.s i64 %n, 4
+  %narrow = shl i32 %w, 4
+  %signed = shr.s i8 %b, 2
+  %wrapped = shl i64 %x, 65
+  %top = shr.u i32 %w, 31
+  %none = shr.u i64 %x, 0
+  return %left, %right, %arithmetic, %narrow, %signed, %wrapped, %top, %none
+}
