@@ -1,0 +1,44 @@
+extensions: [InstanceSigs]
+modules:
+- |
+  module Cls where
+  class Shape a where
+    measure :: a -> a
+    (<+) :: a -> a -> a
+- |
+  module Main where
+  import Cls (Shape)
+  data Box = Box
+  instance Shape Box where
+    measure :: Box -> Box
+    measure value = value
+    (<+) = \left _ -> left
+annotated:
+- |-
+  module Cls where
+  class Shape a where
+        └─ t Cls
+    measure :: a -> a
+    └─ v Cls
+    (<+) :: a -> a -> a
+     └─ v Cls
+- |-
+  module Main where
+  import Cls (Shape)
+  data Box = Box
+       │     └─ v Main
+       └─ t Main
+  instance Shape Box where
+           │     └─ t Main
+           └─ t Cls
+    measure :: Box -> Box
+    └─ v Cls   │      └─ t Main
+               └─ t Main
+    measure value = value
+    │       └─ v 0  └─ v 0
+    └─ v Cls
+    (<+) = \left _ -> left
+     │      └─ v 0    └─ v 0
+     └─ v Cls
+status: pass
+reason: An instance method binding names a method of the class even when the import list does not bring the method into scope

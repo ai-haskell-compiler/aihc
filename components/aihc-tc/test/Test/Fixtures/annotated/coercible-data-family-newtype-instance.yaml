@@ -1,0 +1,127 @@
+annotated:
+- |-
+  module Hidden (G, hide) where
+  import GHC.Types (Bool (..), Int)
+  data family G a
+              └─ type: Type → Type
+  newtype instance G Bool = GBool Int
+                            └─ type: GHC.Types.Int → G GHC.Types.Bool
+  hide :: Int -> G Bool
+  hide = GBool
+  └─ type: GHC.Types.Int → G GHC.Types.Bool
+- |-
+  {-# LANGUAGE TypeFamilies, TypeApplications, ScopedTypeVariables, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Bool (..), Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  import Hidden (G)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  data family F a
+              └─ type: Type → Type
+  newtype instance F Bool = FBool Int
+                            └─ type: GHC.Types.Int → F GHC.Types.Bool
+  toF :: Int -> F Bool
+  toF = coerce
+  │     └─ type: GHC.Types.Int → F GHC.Types.Bool; type-args: Int, F Bool; evidence: coercible @Int @F Bool
+  └─ type: GHC.Types.Int → F GHC.Types.Bool
+  fromF :: F Bool -> Int
+  fromF = coerce
+  │       └─ type: F GHC.Types.Bool → GHC.Types.Int; type-args: F Bool, Int; evidence: coercible @F Bool @Int
+  └─ type: F GHC.Types.Bool → GHC.Types.Int
+  mapF :: (Int -> Int) -> F Bool -> F Bool
+  mapF f = coerce f
+  │    │   └─ type: (GHC.Types.Int → GHC.Types.Int) → F GHC.Types.Bool → F GHC.Types.Bool; type-args: Int → Int, F Bool → F Bool; evidence: coercible @Int → Int @F Bool → F Bool
+  │    └─ type: GHC.Types.Int → GHC.Types.Int
+  └─ type: (GHC.Types.Int → GHC.Types.Int) → F GHC.Types.Bool → F GHC.Types.Bool
+  hidden :: Int -> G Bool
+  hidden = coerce
+           └─ error: unsolved constraint Coercible Int G Bool
+  data Vec s a = Vec a
+       │         └─ type: ∀ s a. a → Vec s a
+       └─ type: Type → Type → Type
+  data family MV s a
+              └─ type: Type → Type → Type
+  newtype Wrap a = Wrap a
+          │        └─ type: ∀ a. a → Wrap a
+          └─ type: Type → Type
+  newtype Both a b = Both b
+          │          └─ type: ∀ a b. b → Both a b
+          └─ type: Type → Type → Type
+  newtype instance MV s (Wrap a) = MVWrap (Vec s a)
+                                   └─ type: ∀ s a. Vec s a → MV s (Wrap a)
+  newtype instance MV s (Both a b) = MVBoth (MV s b)
+                                     └─ type: ∀ s a b. MV s b → MV s (Both a b)
+  class Len v a where
+  └─ class methods: len ∷ ∀ v a s. (Len v a) ⇒ v s a → Int
+    len :: v s a -> Int
+  instance Len Vec a where
+  └─ $fLenVeca ∷ ∀ a. () ⇒ Len Vec a
+    len _ = I# 0#
+    │   │      └─ type: GHC.Prim.Int#
+    │   └─ type: Vec s a
+    └─ len ∷ ∀ s. Vec s a → Int
+  instance Len MV (Wrap a) where
+  └─ $fLenMVWrapa ∷ ∀ a. () ⇒ Len MV (Wrap a)
+    len = coerce (len @Vec @a)
+    │     │       └─ type: Vec s a → GHC.Types.Int; type-args: Vec, a, s; evidence: $fLenVeca @a
+    │     └─ type: (Vec s a → GHC.Types.Int) → MV s (Wrap a) → GHC.Types.Int; type-args: Vec s a → Int, MV s (Wrap a) → Int; evidence: coercible @Vec s a → Int @MV s (Wrap a) → Int
+    └─ len ∷ ∀ s. MV s (Wrap a) → Int
+  instance Len MV b => Len MV (Both a b) where
+  └─ $fLenMVBothab ∷ ∀ b a. (Len MV b) ⇒ Len MV (Both a b)
+    len = coerce (len @MV @b)
+    │     │       └─ type: MV s b → GHC.Types.Int; type-args: MV, b, s; evidence: given Len MV b
+    │     └─ type: (MV s b → GHC.Types.Int) → MV s (Both a b) → GHC.Types.Int; type-args: MV s b → Int, MV s (Both a b) → Int; evidence: coercible @MV s b → Int @MV s (Both a b) → Int
+    └─ len ∷ ∀ s. MV s (Both a b) → Int
+extensions:
+- TypeFamilies
+- TypeApplications
+- ScopedTypeVariables
+- MultiParamTypeClasses
+- FlexibleContexts
+- MagicHash
+modules:
+- |
+  module Hidden (G, hide) where
+  import GHC.Types (Bool (..), Int)
+  data family G a
+  newtype instance G Bool = GBool Int
+  hide :: Int -> G Bool
+  hide = GBool
+- |
+  {-# LANGUAGE TypeFamilies, TypeApplications, ScopedTypeVariables, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Bool (..), Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  import Hidden (G)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data family F a
+  newtype instance F Bool = FBool Int
+  toF :: Int -> F Bool
+  toF = coerce
+  fromF :: F Bool -> Int
+  fromF = coerce
+  mapF :: (Int -> Int) -> F Bool -> F Bool
+  mapF f = coerce f
+  hidden :: Int -> G Bool
+  hidden = coerce
+  data Vec s a = Vec a
+  data family MV s a
+  newtype Wrap a = Wrap a
+  newtype Both a b = Both b
+  newtype instance MV s (Wrap a) = MVWrap (Vec s a)
+  newtype instance MV s (Both a b) = MVBoth (MV s b)
+  class Len v a where
+    len :: v s a -> Int
+  instance Len Vec a where
+    len _ = I# 0#
+  instance Len MV (Wrap a) where
+    len = coerce (len @Vec @a)
+  instance Len MV b => Len MV (Both a b) where
+    len = coerce (len @MV @b)
+reason: Coercible unwraps a newtype instance of a data family when its constructor
+  is in scope, also through a function type and with an ambiguous type variable
+status: pass

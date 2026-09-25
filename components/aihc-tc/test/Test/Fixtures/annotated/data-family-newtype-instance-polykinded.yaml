@@ -1,0 +1,119 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, TypeFamilies, KindSignatures, FlexibleInstances, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Bool (..), Type)
+  newtype Const a (b :: k) = Const a
+          │                  └─ type: ∀ k0 a b. a → Const a b
+          └─ type: Type → k0 → Type
+  newtype Alt (f :: k -> Type) (a :: k) = Alt (f a)
+          │                               └─ type: ∀ k0 f a. f a → Alt f a
+          └─ type: (k0 → Type) → k0 → Type
+  newtype Compose (f :: k -> Type) (g :: k1 -> k) (a :: k1) = Compose (f (g a))
+          └─ type: (k0 → Type) → (k1 → k0) → k1 → Type        └─ type: ∀ k0 k1 f g a. f (g a) → Compose f g a
+  data family Vector a
+              └─ type: Type → Type
+  data instance Vector Bool = VBool Bool
+                              └─ type: GHC.Types.Bool → Vector GHC.Types.Bool
+  class Unbox a where
+  └─ class methods: size ∷ ∀ a. (Unbox a) ⇒ Vector a → Bool, copy ∷ ∀ a. (Unbox a) ⇒ Vector a → Vector a
+    size :: Vector a -> Bool
+    copy :: Vector a -> Vector a
+  instance Unbox Bool where
+  └─ $fUnboxBool ∷ () ⇒ Unbox Bool
+    size (VBool b) = b
+    │     │     └─ type: GHC.Types.Bool
+    │     └─ type: Vector GHC.Types.Bool
+    └─ size ∷ Vector Bool → Bool
+    copy v = v
+    │    └─ type: Vector GHC.Types.Bool
+    └─ copy ∷ Vector Bool → Vector Bool
+  newtype instance Vector (Const a b) = V_Const (Vector a)
+                                        └─ type: ∀ k0 a b. Vector a → Vector (Const a b)
+  instance Unbox a => Unbox (Const a b) where
+  └─ $fUnboxConstab ∷ ∀ a k0 b. (Unbox a) ⇒ Unbox (Const a b)
+    size (V_Const v) = size v
+    │     │       │    └─ type: Vector a → GHC.Types.Bool; type-args: a; evidence: given Unbox a
+    │     │       └─ type: Vector a
+    │     └─ type: Vector (Const a b)
+    └─ size ∷ Vector (Const a b) → Bool
+    copy (V_Const v) = V_Const (copy v)
+    │     │       │    │        └─ type: Vector a → Vector a; type-args: a; evidence: given Unbox a
+    │     │       │    └─ type: Vector a → Vector (Const a b); type-args: k0, a, b
+    │     │       └─ type: Vector a
+    │     └─ type: Vector (Const a b)
+    └─ copy ∷ Vector (Const a b) → Vector (Const a b)
+  newtype instance Vector (Alt f a) = V_Alt (Vector (f a))
+                                      └─ type: ∀ k0 f a. Vector (f a) → Vector (Alt f a)
+  instance Unbox (f a) => Unbox (Alt f a) where
+  └─ $fUnboxAltfa ∷ ∀ k0 f a. (Unbox (f a)) ⇒ Unbox (Alt f a)
+    size (V_Alt v) = size v
+    │     │     │    └─ type: Vector (f a) → GHC.Types.Bool; type-args: f a; evidence: given Unbox f a
+    │     │     └─ type: Vector (f a)
+    │     └─ type: Vector (Alt f a)
+    └─ size ∷ Vector (Alt f a) → Bool
+    copy (V_Alt v) = V_Alt (copy v)
+    │     │     │    │      └─ type: Vector (f a) → Vector (f a); type-args: f a; evidence: given Unbox f a
+    │     │     │    └─ type: Vector (f a) → Vector (Alt f a); type-args: k0, f, a
+    │     │     └─ type: Vector (f a)
+    │     └─ type: Vector (Alt f a)
+    └─ copy ∷ Vector (Alt f a) → Vector (Alt f a)
+  newtype instance Vector (Compose f g a) = V_Compose (Vector (f (g a)))
+                                            └─ type: ∀ k0 k1 f g a. Vector (f (g a)) → Vector (Compose f g a)
+  instance Unbox (f (g a)) => Unbox (Compose f g a) where
+  └─ $fUnboxComposefga ∷ ∀ k0 k1 f g a. (Unbox (f (g a))) ⇒ Unbox (Compose f g a)
+    size (V_Compose v) = size v
+    │     │         │    └─ type: Vector (f (g a)) → GHC.Types.Bool; type-args: f (g a); evidence: given Unbox f (g a)
+    │     │         └─ type: Vector (f (g a))
+    │     └─ type: Vector (Compose f g a)
+    └─ size ∷ Vector (Compose f g a) → Bool
+    copy (V_Compose v) = V_Compose (copy v)
+    │     │         │    │          └─ type: Vector (f (g a)) → Vector (f (g a)); type-args: f (g a); evidence: given Unbox f (g a)
+    │     │         │    └─ type: Vector (f (g a)) → Vector (Compose f g a); type-args: k0, k1, f, g, a
+    │     │         └─ type: Vector (f (g a))
+    │     └─ type: Vector (Compose f g a)
+    └─ copy ∷ Vector (Compose f g a) → Vector (Compose f g a)
+  wrap :: Vector a -> Vector (Const a b)
+  wrap v = V_Const v
+  │    │   └─ type: Vector a → Vector (Const a b); type-args: k0, a, b
+  │    └─ type: Vector a
+  └─ type: ∀ k0 a b. Vector a → Vector (Const a b)
+extensions:
+- FlexibleContexts
+- FlexibleInstances
+- KindSignatures
+- PolyKinds
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE PolyKinds, TypeFamilies, KindSignatures, FlexibleInstances, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Bool (..), Type)
+  newtype Const a (b :: k) = Const a
+  newtype Alt (f :: k -> Type) (a :: k) = Alt (f a)
+  newtype Compose (f :: k -> Type) (g :: k1 -> k) (a :: k1) = Compose (f (g a))
+  data family Vector a
+  data instance Vector Bool = VBool Bool
+  class Unbox a where
+    size :: Vector a -> Bool
+    copy :: Vector a -> Vector a
+  instance Unbox Bool where
+    size (VBool b) = b
+    copy v = v
+  newtype instance Vector (Const a b) = V_Const (Vector a)
+  instance Unbox a => Unbox (Const a b) where
+    size (V_Const v) = size v
+    copy (V_Const v) = V_Const (copy v)
+  newtype instance Vector (Alt f a) = V_Alt (Vector (f a))
+  instance Unbox (f a) => Unbox (Alt f a) where
+    size (V_Alt v) = size v
+    copy (V_Alt v) = V_Alt (copy v)
+  newtype instance Vector (Compose f g a) = V_Compose (Vector (f (g a)))
+  instance Unbox (f (g a)) => Unbox (Compose f g a) where
+    size (V_Compose v) = size v
+    copy (V_Compose v) = V_Compose (copy v)
+  wrap :: Vector a -> Vector (Const a b)
+  wrap v = V_Const v
+reason: the kind variables of a newtype instance head of a data family are generalized,
+  as the kind variables of a class instance head are
+status: pass

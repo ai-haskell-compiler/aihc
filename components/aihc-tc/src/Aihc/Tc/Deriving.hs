@@ -46,7 +46,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback, isAutomaticTypeableClass)
 import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
@@ -268,7 +268,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
           | otherwise -> do
               kinds <- getKinds
               checkedHead <- zipWithM (checkSurfaceType tvEnv) headArguments (map tvKind (ciTyVars classInfo))
-              checkedContext <- mapM (surfacePredToPred tvEnv) (standaloneDerivingContext derivingDecl)
+              checkedContext <- surfaceContextToPreds tvEnv (standaloneDerivingContext derivingDecl)
               let targetKind = maybe (typeKind kinds) (tvKind . snd) (unsnoc (ciTyVars classInfo))
               targetFlavor <- standaloneTargetFlavor checkedHead
               checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
@@ -357,6 +357,7 @@ tcTypeConstructor :: TcType -> Maybe TyCon
 tcTypeConstructor ty =
   case ty of
     TcTyCon tyCon _ -> Just tyCon
+    TcKindedTyCon tyCon _ -> Just tyCon
     TcAppTy function _ -> tcTypeConstructor function
     _ -> Nothing
 

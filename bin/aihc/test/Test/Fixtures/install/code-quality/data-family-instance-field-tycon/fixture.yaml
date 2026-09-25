@@ -1,0 +1,2 @@
+status: pass
+reason: The interface of a module with a newtype instance of a data family must hold the type constructors of the instance fields.

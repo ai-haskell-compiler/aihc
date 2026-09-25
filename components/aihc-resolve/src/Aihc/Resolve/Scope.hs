@@ -412,7 +412,9 @@ topLevelScope importedFields package modu =
       let DeclExports termNames typeNames constructors recordFields methods associatedTypes fixities = declExportedNames visibleFields decl
           scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
           scope'' = List.foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
-          scope''' = scope'' {scopeConstructors = constructors `Map.union` scopeConstructors scope''}
+          -- Each data instance of a data family adds constructors to the
+          -- entry of the family, so keep the constructors of all instances.
+          scope''' = scope'' {scopeConstructors = Map.unionWith (<>) (scopeConstructors scope'') constructors}
           scope'''' = scope''' {scopeRecordFields = recordFields `Map.union` scopeRecordFields scope'''}
           scope''''' = scope'''' {scopeMethods = methods `Map.union` scopeMethods scope''''}
           scope'''''' = scope''''' {scopeAssociatedTypes = associatedTypes `Map.union` scopeAssociatedTypes scope'''''}
@@ -881,13 +883,25 @@ unionScope left right =
   Scope
     { scopeTerms = scopeTerms left `Map.union` scopeTerms right,
       scopeTypes = scopeTypes left `Map.union` scopeTypes right,
-      scopeConstructors = scopeConstructors left `Map.union` scopeConstructors right,
+      scopeConstructors = Map.unionWithKey sameTypeConstructors (scopeConstructors left) (scopeConstructors right),
       scopeRecordFields = scopeRecordFields left `Map.union` scopeRecordFields right,
       scopeMethods = scopeMethods left `Map.union` scopeMethods right,
       scopeAssociatedTypes = scopeAssociatedTypes left `Map.union` scopeAssociatedTypes right,
       scopeFixities = scopeFixities left `Map.union` scopeFixities right,
       scopeQualifiedModules = scopeQualifiedModules left `Map.union` scopeQualifiedModules right
     }
+  where
+    -- Two scopes can have constructors for the same data family, for
+    -- example from two modules that each declare a data instance. A module
+    -- that declares a data instance of an imported family has constructors
+    -- for the family but no type entry for it. If the two type entries are
+    -- different types, the left scope shadows the right scope. Otherwise,
+    -- keep the constructors of both scopes.
+    sameTypeConstructors name leftConstructors rightConstructors =
+      case (Map.lookup name (scopeTypes left), Map.lookup name (scopeTypes right)) of
+        (Just leftType, Just rightType)
+          | leftType /= rightType -> leftConstructors
+        _ -> List.nub (leftConstructors <> rightConstructors)
 
 insertTerm :: Text -> ResolvedName -> Scope -> Scope
 insertTerm name resolved scope = scope {scopeTerms = Map.insert name resolved (scopeTerms scope)}

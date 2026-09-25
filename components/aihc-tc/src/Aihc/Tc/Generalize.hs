@@ -8,6 +8,7 @@ module Aihc.Tc.Generalize
     generalizeIgnoring,
     generalizeAndCommit,
     generalizeAndCommitIgnoring,
+    generalizeAndCommitWithInterior,
     generalizeGroupAndCommitIgnoring,
     environmentMetaVars,
     collectMetaVars,
@@ -47,13 +48,28 @@ generalizeAndCommit = generalizeAndCommitIgnoring Set.empty
 -- the outer environment that should block generalization.
 generalizeIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
 generalizeIgnoring ignoredKeys ty preds =
-  fst <$> generalizeIgnoringWithSubst ignoredKeys ty preds
+  fst <$> generalizeIgnoringWithSubst ignoredKeys [] ty preds
 
 -- | Generalize while ignoring selected binders, then write the generalized
 -- substitutions back to the meta store.
 generalizeAndCommitIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
 generalizeAndCommitIgnoring ignoredKeys ty preds = do
-  (scheme, subst) <- generalizeIgnoringWithSubst ignoredKeys ty preds
+  (scheme, subst) <- generalizeIgnoringWithSubst ignoredKeys [] ty preds
+  forM_ subst (uncurry writeMetaTv)
+  pure scheme
+
+-- | Generalize a monotype, and also quantify the meta-variables of some
+-- interior types that the monotype does not mention. Then write the
+-- substitution back to the meta store.
+--
+-- A rewrite rule needs this. An occurrence inside a side of a rule can
+-- have a type variable that the type of the rule does not mention, for
+-- example the intermediate type of @re (re s)@. The rule must match at
+-- each such type, so the type variable becomes a type binder of the rule.
+-- The type variables of the monotype come first in the scheme.
+generalizeAndCommitWithInterior :: [TcType] -> TcType -> [Pred] -> TcM TypeScheme
+generalizeAndCommitWithInterior interior ty preds = do
+  (scheme, subst) <- generalizeIgnoringWithSubst Set.empty interior ty preds
   forM_ subst (uncurry writeMetaTv)
   pure scheme
 
@@ -85,15 +101,17 @@ generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
   where
     zonkBinding (ty, preds) = (,) <$> zonkType ty <*> mapM zonkPred preds
 
-generalizeIgnoringWithSubst :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
-generalizeIgnoringWithSubst ignoredKeys ty preds = do
+generalizeIgnoringWithSubst :: Set.Set TcTermKey -> [TcType] -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
+generalizeIgnoringWithSubst ignoredKeys interior ty preds = do
   envMetaVars <- environmentMetaVars ignoredKeys
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
-  defaultRuntimeRepMetas envMetaVars ty' preds'
+  interior' <- mapM zonkType interior
+  defaultRuntimeRepMetas envMetaVars (foldr TcFunTy ty' interior') preds'
   ty'' <- zonkType ty'
   preds'' <- mapM zonkPred preds'
-  let freeMetaVars = collectMetaVars ty'' ++ concatMap predMetaVars preds''
+  interior'' <- mapM zonkType interior'
+  let freeMetaVars = collectMetaVars ty'' ++ concatMap predMetaVars preds'' ++ concatMap collectMetaVars interior''
       uniqueFreeMetaVars = nubOrd freeMetaVars
       uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
   -- Only a quantified meta-variable needs a fixed kind now. A meta-variable
@@ -164,6 +182,9 @@ collectMetaVars TcArrowTy = []
 collectMetaVars (TcTyLit _) = []
 collectMetaVars (TcTyVar _) = []
 collectMetaVars (TcTyCon _ args) = concatMap collectMetaVars args
+-- The kind arguments are kinds. A kind meta is not quantified: it is
+-- settled with the other kinds when the module is finalized.
+collectMetaVars (TcKindedTyCon _ _) = []
 collectMetaVars (TcFunTy a b) = collectMetaVars a ++ collectMetaVars b
 collectMetaVars (TcForAllTy _ body) = collectMetaVars body
 collectMetaVars (TcQualTy ps body) = concatMap predMetaVars ps ++ collectMetaVars body
@@ -228,6 +249,7 @@ substMetas subst = go
     go ty@(TcTyLit _) = ty
     go (TcTyVar tv) = TcTyVar tv
     go (TcTyCon tc args) = TcTyCon tc (map go args)
+    go (TcKindedTyCon tc kindArgs) = TcKindedTyCon tc (map go kindArgs)
     go (TcFunTy a b) = TcFunTy (go a) (go b)
     go (TcForAllTy tv body) = TcForAllTy tv (go body)
     go (TcQualTy ps body) = TcQualTy (map (substMetasPred subst) ps) (go body)

@@ -11,7 +11,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
+import Aihc.Tc.Kind (kindedTyConAt, refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
@@ -149,9 +149,13 @@ unifyMetaTv loc u ty = do
       | isPolyType ty' -> pure $ Left $ UnificationError (TcMetaTv u) ty' (UnifyOrigin Nothing) Nothing
       | otherwise -> do
           declaredKind <- readMetaTvKind u
-          solvedKind <- tcTypeKind ty'
+          -- A bare poly-kinded constructor keeps the kind of the meta.
+          -- Decomposing @t a b ~ Tagged s b@ solves @t@ with @Tagged@, and
+          -- only the kind of @t@ tells the kind of that @Tagged@.
+          solved <- kindedTyConAt declaredKind ty'
+          solvedKind <- tcTypeKind solved
           unifyKindsAt loc declaredKind solvedKind
-          writeMetaTv u ty'
+          writeMetaTv u solved
           pure (Right [])
 
 -- | Check whether a meta-variable occurs in a type (occurs check).
@@ -163,6 +167,7 @@ occursIn u = go
     go (TcTyLit _) = False
     go (TcTyVar _) = False
     go (TcTyCon _ args) = any go args
+    go (TcKindedTyCon _ kindArgs) = any go kindArgs
     go (TcFunTy a b) = go a || go b
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body

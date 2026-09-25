@@ -111,6 +111,7 @@ dataFamilyInstanceInfoTyCons info =
   Set.insert (dfiiRepresentationTyCon info)
     . typeTyConsInto (dfiiFamilyType info)
     . each tyVarTyCons (dfiiTyVars info)
+    . each dataConInfoTyCons (dfiiConstructors info)
 
 typeFamilyInstanceInfoTyCons :: Collect TypeFamilyInstanceInfo
 typeFamilyInstanceInfoTyCons info =
@@ -151,6 +152,7 @@ typeTyConsInto ty = case ty of
   TcArrowTy -> id
   TcTyLit {} -> id
   TcTyCon tyCon arguments -> Set.insert tyCon . each typeTyConsInto arguments
+  TcKindedTyCon tyCon kindArguments -> Set.insert tyCon . each typeTyConsInto kindArguments
   TcFunTy argument result -> typeTyConsInto argument . typeTyConsInto result
   TcForAllTy variable body -> tyVarTyCons variable . typeTyConsInto body
   TcQualTy predicates body -> each predTyCons predicates . typeTyConsInto body

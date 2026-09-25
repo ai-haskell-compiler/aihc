@@ -35,16 +35,24 @@ solveCoercible = go [] False
       argument <- go visited True a c
       result <- go visited True b d
       pure (argument && result)
-    shapes visited _ (TcTyCon left args) (TcTyCon right args')
+    shapes visited nested leftType@(TcTyCon left args) rightType@(TcTyCon right args')
       | left == right,
         length args == length args' = do
-          and
-            <$> sequence
-              [ do
-                  representational <- representationParameter [] left index
-                  if representational then go visited True argument argument' else nominal argument argument'
-              | (index, (argument, argument')) <- zip [0 ..] (zip args args')
-              ]
+          -- A data family has nominal parameters, but two of its
+          -- applications can still have the same representation through
+          -- a newtype instance. Unwrap such an instance first.
+          family <- isDataFamily left
+          unwrapped <- if family then unwrapEither leftType rightType else pure Nothing
+          case unwrapped of
+            Just (leftInner, rightInner) -> go visited nested leftInner rightInner
+            Nothing ->
+              and
+                <$> sequence
+                  [ do
+                      representational <- representationParameter [] left index
+                      if representational then go visited True argument argument' else nominal argument argument'
+                  | (index, (argument, argument')) <- zip [0 ..] (zip args args')
+                  ]
     shapes visited nested left right = do
       leftRepresentation <- representation left
       rightRepresentation <- representation right
@@ -74,8 +82,48 @@ solveCoercible = go [] False
                     then Just (applySubst (Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)) (dcfiType field))
                     else Nothing
                 )
-        _ -> pure Nothing
+        _ -> familyInstanceRepresentation constructor arguments
     representation _ = pure Nothing
+    unwrapEither left right = do
+      leftRepresentation <- representation left
+      case leftRepresentation of
+        Just inner -> pure (Just (inner, right))
+        Nothing -> fmap (left,) <$> representation right
+
+-- | The representation of a data family application that matches a newtype
+-- instance. As for an ordinary newtype, the instance constructor must be in
+-- scope. The FC desugarer casts with the axioms of the instance.
+familyInstanceRepresentation :: TyCon -> [TcType] -> TcM (Maybe TcType)
+familyInstanceRepresentation constructor arguments = do
+  family <- isDataFamily constructor
+  if not family
+    then pure Nothing
+    else do
+      instances <- getDataFamilyInstances
+      let target = TcTyCon constructor arguments
+          candidates =
+            [ (con, applySubst substitution (dcfiType field))
+            | familyInstance <- instances,
+              dfiiIsNewtype familyInstance,
+              TcTyCon familyTyCon _ <- [dfiiFamilyType familyInstance],
+              familyTyCon == constructor,
+              [con] <- [dfiiConstructors familyInstance],
+              null (dciExTyVars con),
+              null (dciTheta con),
+              [field] <- [dciFields con],
+              Just substitution <- [matchTypes [dciResTy con] [target]]
+            ]
+      case candidates of
+        [(con, inner)] -> do
+          let (package, moduleName') = dciOrigin con
+          visible <- isTermVisible (TcTermGlobal package moduleName' (dciName con))
+          pure (if visible then Just inner else Nothing)
+        _ -> pure Nothing
+
+isDataFamily :: TyCon -> TcM Bool
+isDataFamily constructor = do
+  info <- lookupTyConByIdentity constructor
+  pure (fmap tciFlavor info == Just DataFamilyTyCon)
 
 -- | Representational equality is symmetric and transitive, so a wanted also
 -- follows from a chain of @Coercible@ givens. The evidence carries no proof
@@ -139,6 +187,7 @@ representationPosition visited variable ty = case ty of
   TcMetaTv _ -> pure False
   TcArrowTy -> pure False
   TcTyLit {} -> pure False
+  TcKindedTyCon {} -> pure True
   TcFunTy argument result -> do
     left <- representationPosition visited variable argument
     right <- representationPosition visited variable result
@@ -168,6 +217,7 @@ mentions variable = elem (tvUnique variable) . variables
       TcArrowTy -> []
       TcTyLit {} -> []
       TcTyCon _ arguments -> concatMap variables arguments
+      TcKindedTyCon _ kindArguments -> concatMap variables kindArguments
       TcFunTy argument result -> variables argument <> variables result
       TcAppTy function argument -> variables function <> variables argument
       TcForAllTy binder body -> variables (tvKind binder) <> filter (/= tvUnique binder) (variables body)

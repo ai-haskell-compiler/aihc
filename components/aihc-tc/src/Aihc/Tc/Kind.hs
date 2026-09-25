@@ -18,17 +18,20 @@ module Aihc.Tc.Kind
     sigToScheme,
     patSynSigToScheme,
     hasWildcardType,
-    isEmptyContext,
+    flattenSurfaceContext,
+    isUnitConstraintType,
     splitSigma,
     explicitForallNames,
     scopedSigTyVars,
     standaloneKindSigToScheme,
-    surfacePredToPred,
+    surfaceContextToPreds,
     takeVisibleArgumentKinds,
     tyConKindFromParams,
     tyConKindFromParamsWith,
     runtimeRepOrLifted,
     tcTypeKind,
+    kindedTyConAt,
+    kindedTyConUse,
     refineGivenTyVarKinds,
     unifyKinds,
     unifyKindsAt,
@@ -116,7 +119,7 @@ signatureScheme floatResult ty = do
             | param <- explicitParams
             ]
   checkedBody <- checkRuntimeType tvEnv body
-  preds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
+  preds <- surfaceContextToPreds tvEnv context
   let (floatedTvs, floatedPreds, tcTy)
         | floatResult = floatResultQuantifiers checkedBody
         | otherwise = ([], [], checkedBody)
@@ -173,16 +176,37 @@ scopedSigTyVars explicitNames tyVars =
       tvName tyVar `elem` explicitNames
     ]
 
--- | The empty context @() =>@. A pattern synonym signature uses it for an
--- empty required context before a provided context.
-isEmptyContext :: Type -> Bool
-isEmptyContext ty =
-  case ty of
-    TAnn _ inner -> isEmptyContext inner
-    TParen inner -> isEmptyContext inner
-    TTuple _ _ [] -> True
-    TCon name _ -> nameText name == "()"
+-- | The items of a written context, without the empty constraint @()@.
+-- @()@ is the empty constraint tuple and gives no predicate. The parser
+-- can give it as a unit tuple item or as the unit type constructor, for
+-- example in @() =>@, @(()) =>@, and in the pattern synonym form
+-- @() => provided =>@. A constraint tuple item, as in @((), Eq a) =>@,
+-- gives its components.
+flattenSurfaceContext :: [Type] -> [Type]
+flattenSurfaceContext = concatMap flattenItem
+  where
+    flattenItem ty =
+      case ty of
+        TAnn _ inner -> flattenItem inner
+        TParen inner -> flattenItem inner
+        TTuple Boxed Unpromoted items -> concatMap flattenItem items
+        TCon name _ | nameText name == "()" -> []
+        _ -> [ty]
+
+-- | Whether a checked constraint is the empty constraint tuple @()@.
+-- A constraint synonym such as @type NoC = (() :: Constraint)@ expands to it.
+isUnitConstraintType :: TcType -> TcM Bool
+isUnitConstraintType ty = do
+  wiring <- getWiring
+  pure $ case ty of
+    TcTyCon tyCon [] -> tyCon == tcWiringConstraintTupleTyCon wiring
     _ -> False
+
+-- | The predicates of a written context. The empty constraint @()@ gives
+-- no predicate, also when a constraint synonym expands to it.
+surfaceContextToPreds :: TvKindEnv -> [Type] -> TcM [Pred]
+surfaceContextToPreds tvEnv context =
+  concat <$> mapM (surfacePredToPreds tvEnv) (flattenSurfaceContext context)
 
 standaloneKindSigToScheme :: Type -> TcM TypeScheme
 standaloneKindSigToScheme ty = do
@@ -320,7 +344,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       expected <- kindFromSurfaceType tvEnv kindTy
       checkSurfaceType tvEnv inner expected >>= \innerTy -> pure (innerTy, expected)
     TContext preds inner -> do
-      predicates <- mapM (surfacePredToPred tvEnv) preds
+      predicates <- surfaceContextToPreds tvEnv preds
       (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
       pure (TcQualTy predicates innerType, innerKind)
     TWildcard -> do
@@ -429,8 +453,8 @@ convertResolvedConstructorApplication tvEnv resolution arguments = do
   case maybeInfo of
     Nothing -> inferUnknownType
     Just info -> do
-      constructorKind <- instantiateTyConKind info
-      applySurfaceTypeArguments tvEnv (TcTyCon (tciTyCon info) [], constructorKind) arguments
+      constructorUse <- kindedTyConUse info
+      applySurfaceTypeArguments tvEnv constructorUse arguments
 
 applySurfaceTypeArguments :: TvKindEnv -> (TcType, TcType) -> [Type] -> TcM (TcType, TcType)
 applySurfaceTypeArguments tvEnv = foldM (applyOneArgument tvEnv)
@@ -563,6 +587,9 @@ expandTcTypeSynonyms expanding ty = do
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
     TcTyLit {} -> pure ty
+    -- A synonym is never poly-kinded in this form: it is expanded where
+    -- it is written.
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM (expandTcTypeSynonyms expanding) kindArguments
     TcTyCon tyCon arguments -> do
       expandedArguments <- mapM (expandTcTypeSynonyms expanding) arguments
       maybeInfo <- lookupTyConByIdentity tyCon
@@ -626,13 +653,37 @@ inferTypeConstructor name = do
     Just info
       | isWired constraintTyCon' info ->
           knownType tcWiringConstraintTyCon
-    Just info -> do
-      kind <- instantiateTyConKind info
-      pure (TcTyCon (tciTyCon info) [], kind)
+    Just info -> kindedTyConUse info
     Nothing
       | nameText name == tyConName typeTyCon' -> knownType tcWiringTypeTyCon
       | nameText name == tyConName constraintTyCon' -> knownType tcWiringConstraintTyCon
       | otherwise -> inferUnknownType
+
+-- | A use of a type constructor with no visible argument yet, and its kind.
+-- The kind scheme is instantiated with fresh metas, and a poly-kinded
+-- constructor keeps them as its kind arguments. Unification solves them,
+-- so the type keeps the kind at which the use site uses the constructor.
+kindedTyConUse :: TyConInfo -> TcM (TcType, TcType)
+kindedTyConUse info = do
+  instantiation <- instantiateWithArgs (tciKindScheme info)
+  pure (kindedTyCon (tciTyCon info) (instTypeArgs instantiation), instType instantiation)
+
+-- | Give a bare type constructor the kind arguments of a use. A type
+-- constructor with a visible argument, or with no kind variable, keeps its
+-- form.
+kindedTyConAt :: TcType -> TcType -> TcM TcType
+kindedTyConAt useKind ty =
+  case ty of
+    TcTyCon tyCon [] -> do
+      maybeInfo <- lookupTyConByIdentity tyCon
+      case maybeInfo of
+        Just info
+          | ForAll (_ : _) _ _ <- tciKindScheme info -> do
+              (kinded, kind) <- kindedTyConUse info
+              unifyKinds useKind kind
+              pure kinded
+        _ -> pure ty
+    _ -> pure ty
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = do
@@ -786,6 +837,15 @@ unifyKindsAt sp expected actual = do
       | left == right,
         length leftArguments == length rightArguments ->
           zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
+    (TcKindedTyCon left leftArguments, TcKindedTyCon right rightArguments)
+      | left == right,
+        length leftArguments == length rightArguments ->
+          zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
+    -- A bare constructor that no use site kinded agrees with every kinding.
+    (TcKindedTyCon left _, TcTyCon right [])
+      | left == right -> pure ()
+    (TcTyCon left [], TcKindedTyCon right _)
+      | left == right -> pure ()
     (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
       unifyKindsAt sp leftArgument rightArgument >> unifyKindsAt sp leftResult rightResult
     (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
@@ -885,6 +945,7 @@ isGroundKind ty =
     -- A literal names one type and mentions nothing, so it is ground.
     TcTyLit {} -> True
     TcTyCon _ arguments -> all isGroundKind arguments
+    TcKindedTyCon _ kindArguments -> all isGroundKind kindArguments
     TcFunTy argument result -> isGroundKind argument && isGroundKind result
     TcForAllTy {} -> False
     TcQualTy _ body -> isGroundKind body
@@ -930,6 +991,7 @@ kindNeedsZonkIn state = goKind
             length arguments >= length (tsiParams synonym) ->
               True
           | otherwise -> any goKind arguments
+        TcKindedTyCon _ kindArguments -> any goKind kindArguments
         TcFunTy argument result -> goKind argument || goKind result
         TcForAllTy tyVar body -> goKind (tvKind tyVar) || goKind body
         TcQualTy predicates body -> any goPred predicates || goKind body
@@ -973,6 +1035,7 @@ rebuildZonkedKind kind =
             length arguments >= length (tsiParams synonym) ->
               rebuildZonkedKind =<< expandTcTypeSynonyms Set.empty (TcTyCon tyCon' arguments)
         _ -> TcTyCon tyCon' <$> mapM rebuildZonkedKind arguments
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM rebuildZonkedKind kindArguments
     TcFunTy argument result -> TcFunTy <$> rebuildZonkedKind argument <*> rebuildZonkedKind result
     TcForAllTy tyVar body -> do
       kind' <- rebuildZonkedKind (tvKind tyVar)
@@ -1066,6 +1129,7 @@ settleKindMetas defer kind =
           writeMetaTv levity (TcTyCon (kindsDataCon kinds "Lifted" 0) [])
           pure (liftedRep kinds)
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM recur arguments
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM recur kindArguments
     TcFunTy argument result -> TcFunTy <$> recur argument <*> recur result
     TcForAllTy tyVar body -> do
       kind' <- recur (tvKind tyVar)
@@ -1097,6 +1161,7 @@ kindMentionsMeta kind =
     TcTyLit {} -> False
     TcTyVar tyVar -> kindMentionsMeta (tvKind tyVar)
     TcTyCon _ arguments -> any kindMentionsMeta arguments
+    TcKindedTyCon _ kindArguments -> any kindMentionsMeta kindArguments
     TcFunTy argument result -> kindMentionsMeta argument || kindMentionsMeta result
     TcForAllTy tyVar body -> kindMentionsMeta (tvKind tyVar) || kindMentionsMeta body
     TcQualTy predicates body -> any predicateMentions predicates || kindMentionsMeta body
@@ -1127,6 +1192,7 @@ occursInKind needle kind =
     TcMetaTv unique -> unique == needle
     TcTyVar tyVar -> occursInKind needle (tvKind tyVar)
     TcTyCon _ arguments -> any (occursInKind needle) arguments
+    TcKindedTyCon _ kindArguments -> any (occursInKind needle) kindArguments
     TcFunTy argument result -> occursInKind needle argument || occursInKind needle result
     TcForAllTy tyVar body -> occursInKind needle (tvKind tyVar) || occursInKind needle body
     TcQualTy predicates body -> any occursInPred predicates || occursInKind needle body
@@ -1155,6 +1221,13 @@ tcTypeKind ty =
       kinds <- getKinds
       pure (tyLitKind kinds literal)
     TcMetaTv unique -> readMetaTvKind unique >>= zonkKind
+    TcKindedTyCon tyCon kindArguments -> do
+      maybeInfo <- lookupTyConByIdentity tyCon
+      case maybeInfo of
+        Just info -> do
+          let ForAll variables _ body = tciKindScheme info
+          zonkKind (applySubst (Map.fromList (zip (map tvUnique variables) kindArguments)) body)
+        Nothing -> tcTypeKind (TcTyCon tyCon [])
     TcTyCon tyCon arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
       initialKind <-
@@ -1254,8 +1327,11 @@ splitForalls ty =
        in (forallTelescopeBinders telescope <> binders, body)
     _ -> ([], ty)
 
-surfacePredToPred :: TvKindEnv -> Type -> TcM Pred
-surfacePredToPred tvEnv ty = do
+-- | The predicates of one context item. The empty constraint @()@ gives
+-- no predicate. A quantified constraint with the conclusion @()@ is always
+-- true, so it also gives no predicate.
+surfacePredToPreds :: TvKindEnv -> Type -> TcM [Pred]
+surfacePredToPreds tvEnv ty = do
   let (binders, qualifiedBody) = splitForalls (peelTypeHead ty)
       (antecedentTypes, consequentType) = splitContext (peelTypeHead qualifiedBody)
   if null binders && null antecedentTypes
@@ -1268,19 +1344,20 @@ surfacePredToPred tvEnv ty = do
                 [ (paramName param, (paramTyVar param, paramKind param))
                 | param <- params
                 ]
-      antecedents <- mapM (surfaceAtomicPredToPred quantifiedEnv) antecedentTypes
-      consequent <- surfaceAtomicPredToPred quantifiedEnv consequentType
-      pure (QuantifiedPred (map paramTyVar params) antecedents consequent)
+      antecedents <- surfaceContextToPreds quantifiedEnv antecedentTypes
+      consequents <- concat <$> mapM (surfaceAtomicPredToPred quantifiedEnv) (flattenSurfaceContext [consequentType])
+      pure [QuantifiedPred (map paramTyVar params) antecedents consequent | consequent <- consequents]
 
-surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM Pred
+surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM [Pred]
 surfaceAtomicPredToPred tvEnv ty =
   case peelTypeHead ty of
     TImplicitParam name payload -> do
       kinds <- getKinds
-      IParamPred name <$> checkSurfaceType tvEnv payload (typeKind kinds)
+      payloadType <- checkSurfaceType tvEnv payload (typeKind kinds)
+      pure [IParamPred name payloadType]
     _ -> surfaceClassPredToPred tvEnv ty
 
-surfaceClassPredToPred :: TvKindEnv -> Type -> TcM Pred
+surfaceClassPredToPred :: TvKindEnv -> Type -> TcM [Pred]
 surfaceClassPredToPred tvEnv ty = do
   kinds <- getKinds
   case instanceHeadName (peelTypeHead ty) of
@@ -1296,8 +1373,10 @@ surfaceClassPredToPred tvEnv ty = do
               -- whether its head is a class or a family, so a
               -- family-headed one is reclassified as irreducible here.
               (expanded, _) <- convertSurfaceTypeWithKinds tvEnv ty
+              isUnit <- isUnitConstraintType expanded
               case constraintTypeToPred kinds expanded of
-                Just predicate -> normalizeFamilyPred predicate
+                _ | isUnit -> pure []
+                Just predicate -> pure <$> normalizeFamilyPred predicate
                 Nothing -> do
                   emitError Nothing (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
                   abortTc "invalid constraint synonym expansion"
@@ -1307,18 +1386,18 @@ surfaceClassPredToPred tvEnv ty = do
               (leftType, leftKind) <- convertSurfaceTypeWithKinds tvEnv left
               (rightType, rightKind) <- convertSurfaceTypeWithKinds tvEnv right
               when (tciTyCon classInfo == kindsEqualityTyCon kinds) (unifyKinds leftKind rightKind)
-              pure (EqPred leftType rightType)
+              pure [EqPred leftType rightType]
         Just classInfo
           | tciFlavor classInfo == TypeFamilyTyCon -> do
               -- A constraint whose head is a type family names no class yet.
               -- It is kept whole and reclassified once the family reduces.
               constraint <- checkSurfaceType tvEnv ty (constraintKind kinds)
-              pure (IrredPred constraint)
+              pure [IrredPred constraint]
         Just classInfo -> do
           classKind <- predicateClassKind classInfo
           let argKinds = takeClassArgKinds kinds (length headArgs) classKind
           args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
-          pure (ClassPred (tciTyCon classInfo) args)
+          pure [ClassPred (tciTyCon classInfo) args]
         Nothing -> do
           emitError Nothing (OtherError ("unknown class predicate: " <> T.unpack classNameText))
           abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)

@@ -87,9 +87,10 @@ programStaticObjects program =
     declaredNames = Set.fromList (map grinGlobalName (grinGlobals program))
     -- The shared object of a nullary constructor stands for a value of that
     -- constructor wherever one is named, including in another unit that
-    -- builds one, so it follows the constructor rather than a declaration.
+    -- builds one, so it follows the visibility of the constructor rather
+    -- than of a declaration.
     implicitConstructors =
-      [ (name, GrinNode (GrinConstructor name 0) [], GrinPub)
+      [ (name, GrinNode (GrinConstructor name 0) [], grinConstructorVis constructor)
       | constructor <- grinConstructors program,
         let name = grinConstructorName constructor,
         null (grinConstructorLayouts constructor),

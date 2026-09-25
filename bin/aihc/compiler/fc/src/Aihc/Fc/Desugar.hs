@@ -754,12 +754,17 @@ dropKindParams _ kind = kind
 
 convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> Map.Map TcTermKey TcBindingResult -> DataFamilyInstanceInfo -> Either String [Decl]
 convertDataFamilyInst env package moduleName' bindings info = do
-  let tyVars = dfiiTyVars info
-      bindersEnv = withTyVars tyVars env
+  let visibleTyVars = dfiiTyVars info
       representationTyCon = dfiiRepresentationTyCon info
       representationName = tyConNameFc env representationTyCon
+  -- A kind-polymorphic instance, such as @Vector (Const a b)@ with
+  -- @b :: k@, quantifies the kind variables of its representation type
+  -- constructor. They come first, as they do for a newtype declaration.
+  kindVars <- extraKindVars env representationTyCon visibleTyVars
+  let tyVars = kindVars <> visibleTyVars
+      bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  representationKind <- typeKindInEnv bindersEnv (TcTyCon representationTyCon (map TcTyVar tyVars))
+  representationKind <- typeKindInEnv bindersEnv (TcTyCon representationTyCon (map TcTyVar visibleTyVars))
   result <- convertKind bindersEnv representationKind
   familyType <- convertType bindersEnv (dfiiFamilyType info)
   let representationType = foldl TyApp (TyCon representationName) (map (TyVar . binderName) binders)
@@ -825,9 +830,12 @@ convertFamilyConstructor bindersEnv bindings package moduleName' representationT
   constructorType <- lookupBindingType bindings package moduleName' constructorName
   converted <- convertType bindersEnv constructorType
   replaced <- replaceResultType converted representationType
+  -- A module that uses a data instance builds and matches its constructor
+  -- by name, so the constructor stays public, as the tables of the instance
+  -- must be.
   pure
     ConDecl
-      { conVis = Private,
+      { conVis = Pub,
         conName = Name constructorName SortDataConstructor (OriginTop package moduleName'),
         conType = replaced,
         conRepresentation = HeapConstructor,

@@ -137,7 +137,8 @@ wasip3Target = LowerTarget {lowerWordSize = 4, lowerHost = Wasip3Host, lowerPack
 
 data LowerOptions = LowerOptions
   { lowerUnitKind :: !UnitKind,
-    -- | Export every function symbol. Test harnesses use the symbols.
+    -- | Export every function symbol and every constructor table. Test
+    -- harnesses use the symbols.
     lowerExposeFunctions :: !Bool,
     lowerTarget :: !LowerTarget,
     -- | Check the index of every array primitive against the length, as
@@ -416,6 +417,13 @@ lowerEnvironment options gcProgram =
       [ (grinConstructorName constructor, grinConstructorLayouts constructor)
       | constructor <- grinConstructors program
       ]
+    -- Only another unit that can name a constructor needs its tables by
+    -- name. A whole program makes every constructor private.
+    constructorLinkage =
+      Map.fromList
+        [ (grinConstructorName constructor, if grinConstructorVis constructor == GrinPub || lowerExposeFunctions options then Export else Internal)
+        | constructor <- grinConstructors program
+        ]
     -- The program that declares a constructor defines its info tables even
     -- when it builds no node of its own: another module that builds one has
     -- only this program to link its node against.
@@ -439,7 +447,7 @@ lowerEnvironment options gcProgram =
       [ ( key,
           RuntimeInfo
             { infoSymbol = symbol,
-              infoLinkage = Export,
+              infoLinkage = Map.findWithDefault Export name constructorLinkage,
               infoIdentity = DataSymbol (constructorInfoSymbol name 0) 0,
               -- Both tables describe the saturated slots. A partial object
               -- has filled a prefix of them.

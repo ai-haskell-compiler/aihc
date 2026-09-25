@@ -42,7 +42,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.PackagePlan (PackagePlan, PlanRequest (..), PlannedPackages (..), canonicalPackageName, planPackages)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -691,7 +691,7 @@ linkExecutable target output cxxStdLib objects archives = do
   -- The runtime takes the functions of the Floating class from libm. Recent
   -- platforms carry it inside libc, and -lm is how the older ones that keep
   -- it apart still resolve them.
-  runTool compiler (arguments <> objects <> archives <> ["-lm"] <> cxxArguments <> ["-o", output])
+  runTool compiler (arguments <> executableLinkArguments target <> objects <> archives <> ["-lm"] <> cxxArguments <> ["-o", output])
 
 -- | Encode the linked core module as a component. The component model has no
 -- way to describe a WASI preview 1 import, so a runtime unit that reaches a

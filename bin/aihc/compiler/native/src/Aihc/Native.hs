@@ -11,7 +11,9 @@ module Aihc.Native
     backendArchiver,
     backendCompiler,
     cxxStandardLibraryArguments,
+    executableLinkArguments,
     handwrittenCArguments,
+    handwrittenCOverrideArguments,
     buildAddrLiteralPool,
     defaultOptimizationLevel,
     runtimeOptimizationLevel,
@@ -302,6 +304,13 @@ optimizationArgument level = "-O" <> renderOptimizationLevel level
 handwrittenCArguments :: OptimizationLevel -> [String]
 handwrittenCArguments level = [optimizationArgument level]
 
+-- | Arguments that follow the options of a package, so that they take
+-- precedence over them. A package can set its own level in @cc-options@,
+-- as the runtime does with @-O2@. A build at @-Os@ asks for small code in
+-- the whole program, so its level replaces the level of the package.
+handwrittenCOverrideArguments :: OptimizationLevel -> [String]
+handwrittenCOverrideArguments level = [optimizationArgument level | level == Os]
+
 -- | Select the compiler driver and target arguments.
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
@@ -312,7 +321,7 @@ backendCompiler target =
     -- containers spent 32.7 s of a 39.8 s install in Clang at -O2, against
     -- 8.1 s through the in-house arm64 backend. Handwritten C is a separate
     -- case; see handwrittenCArguments.
-    Llvm -> pure ("clang", ["-Wno-override-module"])
+    Llvm -> pure ("clang", ["-Wno-override-module"] <> (if System.os == "darwin" then [] else elfSectionArguments))
     Wasm32Wasip3 -> do
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
       pure
@@ -333,7 +342,36 @@ backendCompiler target =
       pure (compiler, ["--target=" <> nativeTargetTriple target] <> maybe [] (\root -> ["-isysroot", root]) sdk)
     LinuxAmd64 -> nativeCompiler
   where
-    nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
+    -- An ELF linker removes unreachable code one section at a time, so
+    -- Clang puts each function and each variable in its own section. A
+    -- Mach-O object is divided at its symbols instead.
+    nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target] <> elfSectionArguments)
+
+-- | The Clang arguments that give each function and each variable its own
+-- ELF section.
+elfSectionArguments :: [String]
+elfSectionArguments = ["-ffunction-sections", "-fdata-sections"]
+
+-- | The link arguments of an executable. The linker removes the functions
+-- and the data that nothing reaches from the entry. On macOS, the
+-- executable also exports no symbol: nothing loads it as a library, so the
+-- export trie is dead weight. An ELF executable exports no symbol unless
+-- the link asks for it.
+--
+-- The WebAssembly linker removes unreachable functions without an
+-- argument, and exports only what the link names.
+executableLinkArguments :: NativeTarget -> [String]
+executableLinkArguments target =
+  case target of
+    AppleArm64 -> appleArguments
+    LinuxAmd64 -> elfArguments
+    Llvm
+      | System.os == "darwin" -> appleArguments
+      | otherwise -> elfArguments
+    Wasm32Wasip3 -> []
+  where
+    appleArguments = ["-Wl,-dead_strip", "-Wl,-no_exported_symbols"]
+    elfArguments = ["-Wl,--gc-sections"]
 
 -- | The link arguments that add the C++ standard library of a target, for a
 -- program that links a package with @cxx-sources@. The C driver links only
