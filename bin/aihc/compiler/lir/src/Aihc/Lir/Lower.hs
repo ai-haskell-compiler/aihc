@@ -943,7 +943,7 @@ lowerEnterStub stub enter = do
   let values = stored <> [Typed (OperandVar var) ty | (var, ty) <- supplied] <> [Typed (OperandVar continuation) Ptr | enterPassesContinuation enter]
       parameters = enterTargetParameters enter
   when (length parameters /= length values) $
-    failWith (LowerUnsupportedExpression ("enter stub arity mismatch for " <> unSymbol (enterTarget enter)))
+    failWith (LowerUnsupportedExpression ("enter stub arity mismatch for " <> unSymbol (enterTarget enter) <> T.pack (": " <> show (length parameters) <> " parameters, " <> show (length (enterStored enter)) <> " stored, " <> show (length (enterSupplied enter)) <> " supplied, continuation " <> show (enterPassesContinuation enter))))
   arguments <- zipWithM coerce parameters values
   terminate (TailCall (enterTarget enter) (OperandVar machine : arguments))
   finishFunction stub Internal ((machine, Ptr) : (object, Ptr) : (continuation, Ptr) : supplied) [] AihcConvention
