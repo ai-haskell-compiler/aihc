@@ -110,8 +110,8 @@ solveNormalizedDict visited givens ct
                       pure DictSolved
                     else pure (DictStuck ct)
                 ("Typeable", [ty]) -> tryTypeable className ty
-                ("KnownNat", [ty]) -> tryTypeLit "KnownNat" isNatLiteral ty
-                ("KnownSymbol", [ty]) -> tryTypeLit "KnownSymbol" isSymbolLiteral ty
+                ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
+                ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
                 _ -> do
                   instances <- getClassInstances className
                   result <- tryInstances (ctPred ct : visited) className args' (mostSpecificInstances args' instances)
@@ -172,31 +172,52 @@ solveNormalizedDict visited givens ct
     -- predicate along the congruence of the given coercions.
     solveThroughGivenEqualities visited' zonkedGivens className args = do
       outerGivens <- mapM zonkPred =<< getGivenPredicates
-      ruleSets <- givenRewriteRuleSets (zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens)
-      tryRuleSets visited' zonkedGivens className args ruleSets
+      let allGivens = zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens
+      ruleSets <- givenRewriteRuleSets allGivens
+      tryRuleSets visited' zonkedGivens allGivens className args ruleSets
 
-    tryRuleSets _ _ _ _ [] = pure (DictStuck ct)
-    tryRuleSets visited' zonkedGivens className args (rules : rest) = do
+    tryRuleSets _ _ _ _ _ [] = pure (DictStuck ct)
+    tryRuleSets visited' zonkedGivens allGivens className args (rules : rest) = do
       let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) args)
-      if null rules || and (zipWith sameType rewrittenArgs args)
-        then tryRuleSets visited' zonkedGivens className args rest
-        else do
-          saved <- lift get
-          rewrittenEvidence <- freshEvVar
-          let rewritten = ClassPred className rewrittenArgs
-          result <- solveDictWithGivensVisited visited' zonkedGivens (ct {ctPred = rewritten, ctEvVar = rewrittenEvidence})
-          case result of
-            DictStuck _ -> do
-              -- A failed alternative must not change another alternative's types or evidence.
-              lift (put saved)
-              tryRuleSets visited' zonkedGivens className args rest
-            DictSolved -> do
-              inner <- lookupEvidence rewrittenEvidence
-              case inner of
-                Nothing -> pure (DictStuck ct)
-                Just evidence -> do
-                  bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions)))
-                  pure DictSolved
+      -- The rules rewrite the givens as well as the wanted: with the
+      -- given @d ~ Maybe x@ a wanted @C (Maybe x)@ names no @d@, but the
+      -- given @C d@ rewrites to @C (Maybe x)@ and solves it. The given
+      -- dictionary is cast along the congruence of the rules.
+      case rewrittenGivenMatches rules allGivens className args of
+        (given, givenArgs, givenCoercions) : _ -> do
+          bindEvidence (ctEvVar ct) (EvCast (EvGiven given) (TyConAppCo className givenArgs givenCoercions))
+          pure DictSolved
+        [] ->
+          if null rules || and (zipWith sameType rewrittenArgs args)
+            then tryRuleSets visited' zonkedGivens allGivens className args rest
+            else tryRewrittenWanted visited' zonkedGivens allGivens className args rest rewrittenArgs coercions
+
+    rewrittenGivenMatches rules allGivens className args =
+      [ (given, givenArgs, givenCoercions)
+      | given@(ClassPred givenClass givenArgs) <- allGivens,
+        givenClass == className,
+        not (and (zipWith sameType givenArgs args)),
+        let (rewrittenGivenArgs, givenCoercions) = unzip (map (rewriteWithRules rules) givenArgs),
+        and (zipWith sameType rewrittenGivenArgs args)
+      ]
+
+    tryRewrittenWanted visited' zonkedGivens allGivens className args rest rewrittenArgs coercions = do
+      saved <- lift get
+      rewrittenEvidence <- freshEvVar
+      let rewritten = ClassPred className rewrittenArgs
+      result <- solveDictWithGivensVisited visited' zonkedGivens (ct {ctPred = rewritten, ctEvVar = rewrittenEvidence})
+      case result of
+        DictStuck _ -> do
+          -- A failed alternative must not change another alternative's types or evidence.
+          lift (put saved)
+          tryRuleSets visited' zonkedGivens allGivens className args rest
+        DictSolved -> do
+          inner <- lookupEvidence rewrittenEvidence
+          case inner of
+            Nothing -> pure (DictStuck ct)
+            Just evidence -> do
+              bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions)))
+              pure DictSolved
 
     firstGivenOrSuperclass _ _ [] = pure Nothing
     firstGivenOrSuperclass visited' target (given : rest)
@@ -287,6 +308,14 @@ solveNormalizedDict visited givens ct
           case result of
             DictSolved -> lookupEvidence ev
             DictStuck _ -> pure Nothing
+
+    -- A literal argument builds the dictionary. Otherwise a given
+    -- equality can still rewrite the argument to one a given names.
+    tryTypeLitOrGivens visited' zonkedGivens className args classNameText matchesSort ty = do
+      result <- tryTypeLit classNameText matchesSort ty
+      case result of
+        DictSolved -> pure DictSolved
+        DictStuck _ -> solveThroughGivenEqualities visited' zonkedGivens className args
 
     -- A @KnownNat@ or @KnownSymbol@ constraint is solved when its argument
     -- is a literal of the matching sort. The dictionary carries the

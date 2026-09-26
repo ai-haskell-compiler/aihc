@@ -1,0 +1,54 @@
+annotated:
+- |-
+  {-# LANGUAGE ScopedTypeVariables, TypeFamilies, GADTs, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ Proxy a → Bool
+    c :: Proxy a -> Bool
+  data Proxy a = Proxy
+       │         └─ type: ∀ a. Proxy a
+       └─ type: Type → Type
+  useC :: forall a. C a => Proxy a -> Bool
+  useC p = c p
+  │    │   └─ type: Proxy a → GHC.Types.Bool; type-args: a; evidence: given C a
+  │    └─ type: Proxy a
+  └─ type: ∀ a. (C a) ⇒ Proxy a → GHC.Types.Bool
+  f :: forall x d. (C d, Maybe x ~ d) => Proxy x -> Bool
+  f _ = useC (Proxy :: Proxy d)
+  │ │   │     └─ type: Proxy (Maybe x); type-args: Maybe x
+  │ │   └─ type: Proxy (Maybe x) → GHC.Types.Bool; type-args: Maybe x; evidence: cast(given C d, C sym (given Maybe x ~ d))
+  │ └─ type: Proxy x
+  └─ type: ∀ x d. (C d, (Maybe x) ~ d) ⇒ Proxy x → GHC.Types.Bool
+  g :: forall x d. (C d, d ~ Maybe x) => Proxy x -> Bool
+  g _ = useC (Proxy :: Proxy d)
+  │ │   │     └─ type: Proxy (Maybe x); type-args: Maybe x
+  │ │   └─ type: Proxy (Maybe x) → GHC.Types.Bool; type-args: Maybe x; evidence: cast(given C d, C given d ~ Maybe x)
+  │ └─ type: Proxy x
+  └─ type: ∀ x d. (C d, d ~ (Maybe x)) ⇒ Proxy x → GHC.Types.Bool
+extensions:
+- ScopedTypeVariables
+- TypeFamilies
+- GADTs
+- FlexibleContexts
+modules:
+- |
+  {-# LANGUAGE ScopedTypeVariables, TypeFamilies, GADTs, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  data Maybe a = Nothing | Just a
+  class C a where
+    c :: Proxy a -> Bool
+  data Proxy a = Proxy
+  useC :: forall a. C a => Proxy a -> Bool
+  useC p = c p
+  f :: forall x d. (C d, Maybe x ~ d) => Proxy x -> Bool
+  f _ = useC (Proxy :: Proxy d)
+  g :: forall x d. (C d, d ~ Maybe x) => Proxy x -> Bool
+  g _ = useC (Proxy :: Proxy d)
+status: pass
+reason: a given equality between a constructor application and a rigid variable does not stop the given dictionary of that variable from solving its wanted

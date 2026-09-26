@@ -1,0 +1,57 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, KindSignatures, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications, TypeFamilies, TypeOperators, GADTs, FlexibleContexts #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint, Type)
+  type KnownNat :: Natural -> Constraint
+  class KnownNat n where
+  └─ class methods: natSing ∷ ∀ n. (KnownNat n) ⇒ Natural
+    natSing :: Natural
+  type family Sub (a :: Natural) (b :: Natural) :: Natural
+              └─ type: GHC.Prim.Natural.Natural → GHC.Prim.Natural.Natural → GHC.Prim.Natural.Natural
+  natVal :: forall n proxy. KnownNat n => proxy n -> Natural
+  natVal _ = natSing @n
+  │      │   └─ type: GHC.Prim.Natural.Natural; type-args: n; evidence: given KnownNat n
+  │      └─ type: proxy n
+  └─ type: ∀ n proxy. (KnownNat n) ⇒ proxy n → GHC.Prim.Natural.Natural
+  data Proxy (a :: k) = Proxy
+       │                └─ type: ∀ k a. Proxy a
+       └─ type: k → Type
+  newtype ListN (n :: Natural) a = ListN [a]
+          │                        └─ type: ∀ n a. [a] → ListN n a
+          └─ type: GHC.Prim.Natural.Natural → Type → Type
+  drop :: forall a d (m :: Natural) (n :: Natural). (KnownNat d, d ~ Sub n m) => ListN n a -> Natural
+  drop _ = natVal (Proxy :: Proxy d)
+  │    │   │       └─ type: Proxy d; type-args: Natural, d
+  │    │   └─ type: Proxy d → GHC.Prim.Natural.Natural; type-args: d, Proxy; evidence: given KnownNat d
+  │    └─ type: ListN n a
+  └─ type: ∀ a d m n. (KnownNat d, d ~ (Sub n m)) ⇒ ListN n a → GHC.Prim.Natural.Natural
+extensions:
+- DataKinds
+- KindSignatures
+- ScopedTypeVariables
+- StandaloneKindSignatures
+- TypeApplications
+- TypeFamilies
+- TypeOperators
+- GADTs
+- FlexibleContexts
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications, TypeFamilies, TypeOperators, GADTs, FlexibleContexts #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint, Type)
+  type KnownNat :: Natural -> Constraint
+  class KnownNat n where
+    natSing :: Natural
+  type family Sub (a :: Natural) (b :: Natural) :: Natural
+  natVal :: forall n proxy. KnownNat n => proxy n -> Natural
+  natVal _ = natSing @n
+  data Proxy (a :: k) = Proxy
+  newtype ListN (n :: Natural) a = ListN [a]
+  drop :: forall a d (m :: Natural) (n :: Natural). (KnownNat d, d ~ Sub n m) => ListN n a -> Natural
+  drop _ = natVal (Proxy :: Proxy d)
+status: pass
+reason: a given equality between a rigid variable and a family application does not stop the given dictionary of that variable from solving its wanted

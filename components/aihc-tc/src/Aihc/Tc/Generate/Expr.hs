@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateFunCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -350,7 +350,10 @@ inferMonoTypeSig sp inner tyAnn sigTy = do
           ev
           (SigOrigin sp)
           sp
-  pure (ETypeSig inner' tyAnn, sigTy, cts <> [sigCt])
+  -- A given equality can be what proves the signature, and then FC needs
+  -- the cast the proof carries. The annotation is dropped again when the
+  -- proof is reflexivity.
+  pure (annotateSigCast sigTy ev (ETypeSig inner' tyAnn), sigTy, cts <> [sigCt])
 
 -- | An overloaded integer literal is @fromInteger (n :: Integer)@.
 --
