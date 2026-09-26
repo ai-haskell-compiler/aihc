@@ -1,0 +1,59 @@
+extensions:
+  - AllowAmbiguousTypes
+  - ConstraintKinds
+  - DataKinds
+  - KindSignatures
+  - ScopedTypeVariables
+  - TypeApplications
+  - TypeFamilies
+  - TypeOperators
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE AllowAmbiguousTypes, ConstraintKinds, DataKinds, KindSignatures, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators, UndecidableInstances #-}
+    module Test where
+
+    import Data.Kind (Constraint)
+    import Data.Proxy (Proxy (..))
+    import Data.Type.Bool (If)
+    import Data.Word (Word8)
+    import GHC.TypeLits (ErrorMessage (..), KnownNat, Nat, TypeError, natVal, type (<=?))
+
+    type family NatNumMaxBound ty :: Nat
+    type instance NatNumMaxBound Word8 = 255
+
+    type family NatInBoundOf ty (n :: Nat) :: Bool where
+      NatInBoundOf Integer n = 'True
+      NatInBoundOf ty n = n <=? NatNumMaxBound ty
+
+    -- The family reduces to an equality at a literal and stays stuck at a
+    -- variable, where the given of the same shape discharges the wanted.
+    type family NatWithinBound ty (n :: Nat) :: Constraint where
+      NatWithinBound ty n =
+        If
+          (NatInBoundOf ty n)
+          (() ~ ())
+          (TypeError ('Text "Natural " ':<>: 'ShowType n ':<>: 'Text " is out of bounds for " ':<>: 'ShowType ty))
+
+    natValWord8 :: forall n. (KnownNat n, NatWithinBound Word8 n) => Word8
+    natValWord8 = fromInteger (natVal (Proxy :: Proxy n))
+
+    newtype Zn8 (n :: Nat) = Zn8 Word8
+
+    instance (KnownNat n, NatWithinBound Word8 n) => Show (Zn8 n) where
+      show (Zn8 w) = show w ++ " mod " ++ show (natValWord8 @n)
+
+    zn8 :: forall n. (KnownNat n, NatWithinBound Word8 n) => Word8 -> Zn8 n
+    zn8 w = Zn8 (w `mod` natValWord8 @n)
+
+    describe :: forall n. (KnownNat n, NatWithinBound Word8 n) => Word8 -> String
+    describe w = show (zn8 @n w)
+
+    result :: String
+    result = describe @200 250 ++ ", " ++ show (natValWord8 @7)
+output: |
+  "50 mod 200, 7"
+expression: |
+  result
+status: xfail
+reason: the type checker proves the constraint at a literal by reflexivity and discharges it from the given at a variable, but System FC gives an equality the kind TYPE (TupleRep '[]) and not Constraint, so the family equation does not lint, and GRIN gives the stuck-family dictionary binder a pointer layout while the coercion argument has no components
