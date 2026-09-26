@@ -231,7 +231,7 @@ import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
-import System.Process (CreateProcess (cwd, env), proc, readCreateProcessWithExitCode, readProcess)
+import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
   { -- | The package directory: in the store for an immutable package, in
@@ -2978,8 +2978,8 @@ preprocessPackage config versions root storePath configureScript headerHash cInf
               -- The tool keeps its scratch files next to the output, and
               -- an @#include "..."@ in the source resolves against the
               -- source's own directory through the -I passed above.
-              inherited <- getEnvironment
-              runToolIn (takeDirectory output) inherited executable arguments
+              environment <- preprocessorEnvironment
+              runToolIn (takeDirectory output) environment executable arguments
               BS8.writeFile stampPath (BS8.pack inputsHash)
           pure file {HackageCabal.fileInfoPath = output, HackageCabal.fileInfoPreprocessor = Nothing}
 
@@ -3059,8 +3059,16 @@ preprocessorExecutable preprocessor = do
 preprocessorIdentity :: FilePath -> IO String
 preprocessorIdentity executable = do
   path <- canonicalizePath executable
-  version <- readProcess executable ["--version"] ""
+  environment <- preprocessorEnvironment
+  version <- readCreateProcess (proc executable ["--version"]) {env = Just environment} ""
   pure (stableHash [BS8.pack path, BS8.pack version])
+
+-- | The environment a preprocessor runs in: that of aihc, without the RTS
+-- options meant for aihc itself. hsc2hs is a GHC program too, and one that
+-- is not built with @-threaded@, so a @GHCRTS=-N@ that aihc is given would
+-- stop it at start-up before it reads its arguments.
+preprocessorEnvironment :: IO [(String, String)]
+preprocessorEnvironment = filter ((/= "GHCRTS") . fst) <$> getEnvironment
 
 -- | The name autoconf gives the machine an aihc target's code runs on, in
 -- autoconf's vocabulary the host, for the @--host@ argument of a configure

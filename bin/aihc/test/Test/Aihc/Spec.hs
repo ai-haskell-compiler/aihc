@@ -44,7 +44,7 @@ import System.Directory
     removeDirectoryRecursive,
     removeFile,
   )
-import System.Environment (lookupEnv)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, openTempFile)
@@ -427,6 +427,10 @@ data InstallFixture = InstallFixture
     installFixtureImmutable :: Bool,
     installFixtureNoCode :: Bool,
     installFixtureReinstall :: Bool,
+    -- | Variables set in the environment of the test process while the
+    -- package installs, for a fixture about what the tools aihc runs
+    -- inherit.
+    installFixtureEnvironment :: [(String, String)],
     -- | The package depends on base, so it gets the seeded store that holds
     -- aihc-base. The other fixtures get the smaller store, which is faster
     -- to copy.
@@ -445,6 +449,7 @@ instance FromJSON InstallFixture where
           <*> obj .:? "immutable" .!= False
           <*> obj .:? "no-code" .!= True
           <*> obj .:? "check-reinstall" .!= False
+          <*> (Map.toList <$> obj .:? "environment" .!= Map.empty)
           <*> obj .:? "needs-base" .!= False
       else fail "install fixtures require pass status"
 
@@ -465,7 +470,7 @@ testInstallFixtures getPrimStore getCoreStore = do
               { installImmutable = installFixtureImmutable fixture,
                 installNoCode = installFixtureNoCode fixture
               }
-      outcome <- try $ do
+      outcome <- try $ withEnvironment (installFixtureEnvironment fixture) $ do
         first <- install options
         if installFixtureReinstall fixture
           then install options {installReinstall = True}
@@ -482,6 +487,15 @@ testInstallFixtures getPrimStore getCoreStore = do
               let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
               forM_ expected $ \constructor ->
                 assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
+
+-- | Run an action with the variables set in the process environment, and
+-- put back what each held before.
+withEnvironment :: [(String, String)] -> IO a -> IO a
+withEnvironment variables action =
+  bracket
+    (mapM (\(name, value) -> (,) name <$> lookupEnv name <* setEnv name value) variables)
+    (mapM_ (\(name, previous) -> maybe (unsetEnv name) (setEnv name) previous))
+    (const action)
 
 test_parsePackageTarget :: Assertion
 test_parsePackageTarget = do
