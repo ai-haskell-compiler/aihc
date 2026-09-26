@@ -205,7 +205,7 @@ parseFcFixture path value = do
         casePasses = passes
       }
 
--- | A @passes@ entry: @eta@, @simplify@, @lift-constants@, or @inline@ with a
+-- | A @passes@ entry: @eta@, @demand@, @simplify@, @lift-constants@, or @inline@ with a
 -- policy. The policy is @shrink@, @grow@, or an object that names one of
 -- the two under @policy@ and overrides its knobs: @callee-limit@,
 -- @site-limit@, @discount@, @value-growth@, @value-slack@, and the
@@ -215,6 +215,7 @@ parsePass value =
   case value of
     Y.String "lift-constants" -> pure PassLiftConstants
     Y.String "eta" -> pure PassEtaExpand
+    Y.String "demand" -> pure PassDemand
     Y.String "simplify" -> pure (PassSimplify 0)
     Y.Object obj | Just simplify <- KeyMap.lookup "simplify" obj -> do
       phase <- Y.parseJSON simplify

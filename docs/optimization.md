@@ -61,6 +61,7 @@ after each pass under `--lint`.
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
+| `PassDemand` | Demand analysis, then a case for every strict let and every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
@@ -72,15 +73,19 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, inline `shrinkPolicy` [2], inline `growPolicy` [1], eta expand, simplify [0], lift constants |
+| `-O1` | eta expand, inline `shrinkPolicy` [2], demand, inline `growPolicy` [1], eta expand, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, inline `shrinkPolicy` [2], eta expand, simplify [0], lift constants |
+| `-Os` | eta expand, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
 
 `-Os` is a prefix of `-O2`: the growing phase of `-O2` starts from the
-program that `-Os` would have produced. Eta expansion runs before the
+program that `-Os` would have produced. The demand pass runs after the
+shrinking inliner, so that the calls it sees are the calls that remain
+after the dictionary selections and the aliases are gone, and before the
+growing inliner, so that the cases it makes are in the program the
+growing inliner copies. Eta expansion runs before the
 inliner so that a value it turns into a function is a saturated call, and
 after it because a call of a class method hides the arity of the method until
 the selection is inlined. The final simplifying walk reduces the applications
@@ -117,6 +122,68 @@ their evaluated results for longer.
 
 The report gives the number of new constants and the number of replaced
 sites. The constants have private names and a `NOINLINE` annotation.
+
+## Demand analysis
+
+`PassDemand` is `Aihc.Fc.Demand`. It finds, for every function, which
+parameters the body evaluates on every path, and uses that in two
+rewrites:
+
+- A let whose body evaluates the binder becomes a case on the right-hand
+  side, with the binder as the case binder. The right-hand side runs
+  before the body instead of in a thunk that the body enters.
+- A saturated call evaluates each argument the callee is strict in before
+  the call. The argument becomes a case whose default alternative makes
+  the call with the case binder. An argument that is already a value, a
+  variable, a constructor application or a partial application of a known
+  function, or that has an unlifted type, is left alone.
+
+Both rewrites are equalities of values: when the function or the body is
+strict, the result is undefined exactly when the argument is, so the case
+changes the order of evaluation and the number of thunks and nothing
+else.
+
+The analysis gives every function a signature with one demand, `Strict`
+or `Lazy`, per manifest lambda. A variable evaluates itself. A lambda
+evaluates nothing. A case evaluates its scrutinee and what every one of
+its alternatives evaluates. A let evaluates its right-hand side when its
+body evaluates the binder or when the binder is unlifted. A saturated
+call of a function with a signature evaluates the arguments the signature
+calls strict, and any other call evaluates only its head. A primitive
+call evaluates its arguments of unlifted type.
+
+Top-level values get signatures in dependency order. A recursive group
+gets a fixpoint that starts from the guess that every parameter is strict
+and weakens the guess until it holds. The guess is what makes an
+accumulating loop strict in its accumulator: the base case returns it and
+the recursive case passes it to a call the guess already calls strict. A
+base case that drops the accumulator weakens the guess to lazy. Local
+functions get signatures the same way, in the scope of their let or
+recursive group.
+
+The signatures live nowhere. The pass computes them, writes the strict
+lets and strict arguments into the program as cases, and drops them, the
+way the arity pass writes arity into the lambdas. A fact in the syntax
+cannot go stale under the other passes, and the golden fixtures pin it
+with nothing else to check. A per-module build that wants the demands of
+imported values is part of "-O1 in import order" below: it will read them
+from the interface as import facts, not from an annotation on the value.
+
+The pass needs the type of the scrutinee and of the result for each case
+it makes. No expression carries its type, so the walk carries the type of
+the expression it is in down from the declared type of the value, and
+reads the types of arguments off the type of the head of a call. Where a
+type is unknown the rewrite does not happen.
+
+The report gives the number of top-level values with a strict parameter,
+the number of lets that became cases, and the number of arguments that
+are evaluated before their call. The fixtures are the
+`demand-*.yaml` files under `compiler/fc/test/Test/Fixtures/golden`.
+
+Not done: divergence, so a branch that calls `error` evaluates nothing
+and makes its function lazy in what the other branches evaluate; and
+demands on the fields of a constructor, which is what a worker/wrapper
+split needs. Both are steps on the same lattice.
 
 ## The inliner
 
