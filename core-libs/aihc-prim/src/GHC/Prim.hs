@@ -169,6 +169,7 @@ module GHC.Prim
     newPinnedByteArray#,
     noDuplicate#,
     not#,
+    notI#,
     ord#,
     or#,
     orWord8#,
@@ -176,6 +177,9 @@ module GHC.Prim
     orWord32#,
     plusWord#,
     popCnt#,
+    bitReverse#,
+    pdep#,
+    pext#,
     quotRemWord#,
     quotRemWord2#,
     quotWord#,
@@ -745,6 +749,8 @@ foreign import prim xorWord32# :: Word32# -> Word32# -> Word32#
 
 foreign import prim not# :: Word# -> Word#
 
+foreign import prim notI# :: Int# -> Int#
+
 foreign import prim uncheckedShiftL# :: Word# -> Int# -> Word#
 
 foreign import prim uncheckedShiftRL# :: Word# -> Int# -> Word#
@@ -992,6 +998,12 @@ foreign import prim (**##) :: Double# -> Double# -> Double#
 foreign import prim ctz# :: Word# -> Word#
 
 foreign import prim popCnt# :: Word# -> Word#
+
+foreign import prim bitReverse# :: Word# -> Word#
+
+foreign import prim pdep# :: Word# -> Word# -> Word#
+
+foreign import prim pext# :: Word# -> Word# -> Word#
 
 foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
 

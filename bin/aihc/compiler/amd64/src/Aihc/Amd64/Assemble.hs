@@ -3,6 +3,7 @@ module Aihc.Amd64.Assemble
   ( Amd64Statement (..),
     Amd64Instruction (..),
     Amd64BitCountOp (..),
+    Amd64Bmi2Op (..),
     Amd64Register (..),
     Amd64Memory (..),
     Amd64Address (..),
@@ -35,7 +36,7 @@ where
 import Aihc.Native.Elf (writeAmd64Elf)
 import Aihc.Native.Object
 import Control.Monad.ST (ST)
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -174,6 +175,10 @@ data Amd64SseOp
 data Amd64BitCountOp = AmdPopcnt | AmdLzcnt | AmdTzcnt
   deriving (Eq, Show)
 
+-- | The BMI2 parallel bit operations.
+data Amd64Bmi2Op = AmdPdep | AmdPext
+  deriving (Eq, Show)
+
 data Amd64Instruction
   = AmdRet
   | AmdUd2
@@ -250,6 +255,10 @@ data Amd64Instruction
     -- LZCNT, and BMI1; the AMD64 target is modern hardware, and a host
     -- without them uses the LLVM backend.
     AmdBitCount !Amd64BitCountOp !Amd64Register !Amd64Rm
+  | -- | @pdep@ or @pext@: the destination, the source, and the mask, all
+    -- 64-bit registers or all 32-bit registers. The 32-bit form zero-extends
+    -- its result. They need BMI2, which the hardware this backend targets has.
+    AmdBmi2 !Amd64Bmi2Op !Amd64Register !Amd64Register !Amd64Register
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
 assembleElf statements = assembleObject id writeAmd64Elf (`applyStatements` statements)
@@ -452,6 +461,30 @@ encodeInstruction instruction =
     AmdCvtsi2s double xmm source -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2a] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
     AmdCvtts2si double destination xmm -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2c] (registerNumber (registerInfo destination)) (RegisterOperand (xmmRegister xmm)) False []
     AmdBitCount op destination source -> bytes [0xf3] <> encodeRegisterSource True [0x0f, bitCountOpcode op] destination source
+    AmdBmi2 op destination source mask -> encodeVex3 (bmi2Prefix op) 0xf5 destination source mask
+
+-- | The @VEX.LZ.pp.0F38.W@ encoding of a three-operand BMI2 instruction:
+-- the two-byte escape @C4@, the inverted @R@, @X@, and @B@ bits with the
+-- @0F38@ map, the width bit with the inverted second source and the prefix
+-- code, the opcode, and a register-direct ModRM.
+encodeVex3 :: Word8 -> Word8 -> Amd64Register -> Amd64Register -> Amd64Register -> [Item]
+encodeVex3 prefixCode opcode destination source mask =
+  let width64 = registerWidth (registerInfo destination) == 64
+      destinationNumber = registerNumber (registerInfo destination)
+      sourceNumber = registerNumber (registerInfo source)
+      maskNumber = registerNumber (registerInfo mask)
+      inverted flag = if flag then 0 else 1
+      byte1 = inverted (destinationNumber >= 8) `shiftL` 7 .|. 1 `shiftL` 6 .|. inverted (maskNumber >= 8) `shiftL` 5 .|. 0x02
+      byte2 = (if width64 then 0x80 else 0) .|. (complement sourceNumber .&. 0xf) `shiftL` 3 .|. prefixCode
+      modrm = 0xc0 .|. (destinationNumber .&. 7) `shiftL` 3 .|. maskNumber .&. 7
+   in bytes [0xc4, byte1, byte2, opcode, modrm]
+
+-- | The implied prefix of a BMI2 operation: @F2@ for @pdep@, @F3@ for @pext@.
+bmi2Prefix :: Amd64Bmi2Op -> Word8
+bmi2Prefix op =
+  case op of
+    AmdPdep -> 0x3
+    AmdPext -> 0x2
 
 xmmRegister :: Int -> Register
 xmmRegister number = Register (fromIntegral number) 128

@@ -1,0 +1,46 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Family (Vector) where
+    data family Vector a
+  - |
+    module Provider (Bit, V.Vector (BitVec), V.Vector (..)) where
+    import qualified Family as V
+    data Bit = Bit
+    newtype instance V.Vector Bit = BitVec Bit
+  - |
+    module Consumer where
+    import Provider (Bit, Vector (BitVec))
+    unwrap :: Vector Bit -> Bit
+    unwrap (BitVec bit) = bit
+annotated:
+  - |-
+    module Consumer where
+    import Provider (Bit, Vector (BitVec))
+    unwrap :: Vector Bit -> Bit
+    │         │      │      └─ t Provider
+    │         │      └─ t Provider
+    │         └─ t Family
+    └─ v Consumer
+    unwrap (BitVec bit) = bit
+    │       │      └─ v 0 └─ v 0
+    │       └─ v Provider
+    └─ v Consumer
+  - |-
+    module Family (Vector) where
+    data family Vector a
+                └─ t Family
+  - |-
+    module Provider (Bit, V.Vector (BitVec), V.Vector (..)) where
+    import qualified Family as V
+    data Bit = Bit
+         │     └─ v Provider
+         └─ t Provider
+    newtype instance V.Vector Bit = BitVec Bit
+                     │        │     │      └─ t Provider
+                     │        │     └─ v Provider
+                     │        └─ t Provider
+                     └─ t Family
+reason: a bundled export item names the family through a qualifier and the constructor of a local data instance
+status: pass

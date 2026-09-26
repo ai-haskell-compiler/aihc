@@ -25,13 +25,16 @@ module Aihc.Fc.Fold
     foldForeignCall,
     hasLiteralPrimitiveCall,
     isCheapPrimitive,
+    depositBits,
+    extractBits,
+    reverseBits,
   )
 where
 
 import Aihc.Fc.Name (nameText)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv, reduceType)
-import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
+import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, setBit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.Char qualified as Char
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -104,6 +107,11 @@ table =
         | (name, operation) <- [("quotWord#", quot), ("remWord#", rem)]
         ],
         [("not#", ([Just wordRep], unary wordRep (Just . complement)))],
+        [("notI#", ([Just intRep], unary intRep (Just . complement)))],
+        [("bitReverse#", ([Just wordRep], unary wordRep (Just . reverseBits)))],
+        [ (name, ([Just wordRep, Just wordRep], wordBinary operation))
+        | (name, operation) <- [("pdep#", depositBits), ("pext#", extractBits)]
+        ],
         [("negateInt#", ([Just intRep], unary intRep (Just . negate)))],
         [ (name, ([Just wordRep, Just intRep], shift wordRep 64 operation))
         | (name, operation) <- [("uncheckedShiftL#", shiftL), ("uncheckedShiftRL#", shiftR)]
@@ -217,6 +225,31 @@ table =
     sizedTrailingZeros bits value = min bits (countTrailingZeros (lowBits bits value))
     lowBits :: Int -> Word64 -> Word64
     lowBits bits value = if bits == 64 then value else value .&. (shiftL 1 bits - 1)
+
+-- | The 64 bits of a word in the opposite order, the @bitReverse#@
+-- primitive.
+reverseBits :: Integer -> Integer
+reverseBits value = foldl (\accumulated index -> shiftL accumulated 1 .|. (shiftR value index .&. 1)) 0 [0 .. 63]
+
+-- | The low bits of the source scattered to the set bits of the mask, the
+-- @pdep#@ primitive.
+depositBits :: Integer -> Integer -> Integer
+depositBits source mask = go 0 0 [index | index <- [0 .. 63], testBit mask index]
+  where
+    go result _ [] = result
+    go result sourceIndex (index : rest)
+      | testBit source sourceIndex = go (setBit result index) (sourceIndex + 1) rest
+      | otherwise = go result (sourceIndex + 1) rest
+
+-- | The set bits of the mask gathered into the low bits, the @pext#@
+-- primitive.
+extractBits :: Integer -> Integer -> Integer
+extractBits source mask = go 0 0 [index | index <- [0 .. 63], testBit mask index]
+  where
+    go result _ [] = result
+    go result resultIndex (index : rest)
+      | testBit source index = go (setBit result resultIndex) (resultIndex + 1) rest
+      | otherwise = go result (resultIndex + 1) rest
 
 compareInts :: Integer -> Integer -> Integer
 compareInts left right =
