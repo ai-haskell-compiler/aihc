@@ -273,10 +273,15 @@ data PendingTcAnnotation = PendingTcAnnotation
   }
   deriving (Eq, Show)
 
+-- | One dictionary that a binding takes or holds. The predicate is the
+-- one the type checker solved with: the type alone does not say whether
+-- its head is a class or a stuck type family, and the desugarer needs to
+-- know, because a stuck constraint takes its kind from the context.
 data TcDictBinderAnnotation = TcDictBinderAnnotation
   { tcDictBinderClassName :: !Text,
     tcDictBinderArgs :: ![TcType],
-    tcDictBinderType :: !TcType
+    tcDictBinderType :: !TcType,
+    tcDictBinderPred :: !Pred
   }
   deriving (Eq, Show)
 
