@@ -1,4 +1,0 @@
-status: pass
-reason: A TypeError in an instance context gets its Constraint kind argument from the predicate, so the dictionary binder survives FC. Code generation is on because only the value desugarer converts the binder.
-needs-base: true
-no-code: false
