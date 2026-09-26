@@ -43,7 +43,7 @@ import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (elemIndex, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -127,6 +127,19 @@ solveNormalizedDict visited givens ct
           kinds <- getKinds
           reclassified <- irreduciblePred kinds reduced
           case reclassified of
+            Just equality@(EqPred left right) -> do
+              -- A family that reduces to an equality, as @NatWithinBound
+              -- Word64 3@ reduces to @() ~ ()@, demands that equality. The
+              -- constraint itself is a lifted value of kind Constraint, so
+              -- once the equality is proved its evidence is the empty
+              -- dictionary of the class @~@, not the erased coercion.
+              proof <- freshEvVar
+              result <- withGivenPredicates givens (solveEquality ct {ctPred = equality, ctEvVar = proof})
+              case result of
+                EqSolved -> do
+                  bindEvidence (ctEvVar ct) (EvCoercible (kindsEqualityTyCon kinds) left right)
+                  pure DictSolved
+                _ -> pure (DictStuck ct {ctPred = IrredPred reduced})
             Just solvable ->
               solveDictWithGivensVisited (ctPred ct : visited) givens ct {ctPred = solvable}
             Nothing -> do
@@ -198,15 +211,41 @@ solveNormalizedDict visited givens ct
                   bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions)))
                   pure DictSolved
 
-    firstGivenOrSuperclass _ _ [] = pure Nothing
-    firstGivenOrSuperclass visited' target (given : rest)
+    -- A given that does not match as written is compared in the normal
+    -- form the wanted has: its families reduced. The given @NatWithinBound
+    -- Word64 n@ reduces to the same stuck @If@ application as a wanted at
+    -- the same rigid @n@, and only then are the two equal. The evidence
+    -- names the given as written, because that is the dictionary the
+    -- desugarer binds.
+    firstGivenOrSuperclass visited' target givens' = do
+      asWritten <- firstGivenOrSuperclassAsWritten visited' target givens'
+      case asWritten of
+        Just evidence -> pure (Just evidence)
+        Nothing -> do
+          normalized <- mapM normalizeGiven givens'
+          pure $ case [given | (given, normalizedGiven) <- zip givens' normalized, normalizedGiven == target] of
+            given : _ -> Just (EvGiven given)
+            [] -> Nothing
+
+    normalizeGiven given = do
+      reduced <- reducePredFamilies given
+      normalized <- normalizeFamilyPred reduced
+      case normalized of
+        IrredPred constraint -> do
+          kinds <- getKinds
+          reclassified <- irreduciblePred kinds constraint
+          pure (fromMaybe normalized reclassified)
+        _ -> pure normalized
+
+    firstGivenOrSuperclassAsWritten _ _ [] = pure Nothing
+    firstGivenOrSuperclassAsWritten visited' target (given : rest)
       | target == given = pure (Just (EvGiven given))
       | otherwise = do
           quantified <- useQuantifiedEvidence visited' target (EvGiven given) given
           projected <- superclassEvidence [] visited' target (EvGiven given) given
           case quantified <|> projected of
             Just evidence -> pure (Just evidence)
-            Nothing -> firstGivenOrSuperclass visited' target rest
+            Nothing -> firstGivenOrSuperclassAsWritten visited' target rest
 
     superclassEvidence classVisited solveVisited target sourceEvidence sourcePredicate =
       case sourcePredicate of
