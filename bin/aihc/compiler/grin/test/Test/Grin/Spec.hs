@@ -4,7 +4,7 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinConstructorDecl (..), GrinGlobal (..), GrinLintError (..), GrinProgram (..), GrinVis (..), InterpretError (..), PointsToRewrites (..), ProgramStreams (..), analyzePointsTo, finishGrinProgram, interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram, rewriteWithPointsTo)
+import Aihc.Grin (GrinConstructorDecl (..), GrinGlobal (..), GrinLintError (..), GrinProgram (..), GrinVis (..), InterpretError (..), PointsToRewrites (..), ProgramStreams (..), analyzePointsTo, analyzePointsToWith, finishGrinProgram, interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram, rewriteWithPointsTo, widenLimit)
 import Aihc.Grin.Cps (toCpsGrin)
 import Aihc.Grin.Dce (sweptGrinProgram)
 import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
@@ -15,7 +15,7 @@ import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
 import Control.Exception (evaluate)
-import Data.Aeson ((.:), (.:?))
+import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.List (sort)
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -183,11 +183,11 @@ checkPointsToFixture path = do
     Right value ->
       case parseEither parseFixture value of
         Left problem -> assertFailure problem
-        Right (source, expectation) ->
+        Right (source, limit, expectation) ->
           case GrinParser.parseProgram source of
             Left problem -> assertFailure (GrinParser.renderParseError problem)
             Right program ->
-              case (analyzePointsTo program, expectation) of
+              case (analyzePointsToWith limit program, expectation) of
                 (Nothing, Nothing) -> pure ()
                 (Nothing, Just _) -> assertFailure "the analysis refused the program"
                 (Just _, Nothing) -> assertFailure "the analysis accepted a program that the fixture expects it to refuse"
@@ -206,10 +206,13 @@ checkPointsToFixture path = do
                     then pure ()
                     else assertFailure ("rewrite counts: expected " <> show expectedRewrites <> ", actual " <> show counts)
   where
+    -- @widen-limit@ sets the most locations a set node holds before the
+    -- solver widens it, so that a small program shows the widening.
     parseFixture = withObject "GRIN points-to fixture" $ \object -> do
       source <- object .: "program"
       status <- object .: "status"
       reason <- object .: "reason"
+      limit <- object .:? "widen-limit" .!= widenLimit
       analysis <- object .:? "analysis"
       expectation <-
         case analysis of
@@ -232,7 +235,7 @@ checkPointsToFixture path = do
                 rewrites
             pure (Just (expected :: Text, counts :: [Int]))
       if status == ("pass" :: Text) && not (T.null reason)
-        then pure (source :: Text, expectation)
+        then pure (source :: Text, limit :: Int, expectation)
         else fail "invalid GRIN points-to fixture status"
 
 -- | Make the binding the one public global of a whole program, drop what it
