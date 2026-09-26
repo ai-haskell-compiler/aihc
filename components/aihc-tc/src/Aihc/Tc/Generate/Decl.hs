@@ -243,6 +243,7 @@ definitionResolution declaration =
     DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
     DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
     DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (dataFamilyDeclHead familyDeclaration))
+    DeclTypeFamilyDecl familyDeclaration -> nameResolution =<< typeFamilyHeadName (typeFamilyDeclHead familyDeclaration)
     DeclForeign foreignDeclaration -> nameResolution (foreignName foreignDeclaration)
     DeclTypeSyn typeSynDeclaration -> nameResolution (binderHeadName (typeSynHead typeSynDeclaration))
     DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))

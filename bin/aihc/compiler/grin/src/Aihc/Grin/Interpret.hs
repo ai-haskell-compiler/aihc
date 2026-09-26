@@ -1113,6 +1113,35 @@ evalPrimitive "quotRemWord2#" [high, low, divisor] = do
 evalPrimitive "and#" [left, right] = evalWordPrimitive "and#" (.&.) left right
 evalPrimitive "or#" [left, right] = evalWordPrimitive "or#" (.|.) left right
 evalPrimitive "xor#" [left, right] = evalWordPrimitive "xor#" xor left right
+evalPrimitive "plusWord2#" [left, right] = do
+  leftWord <- expectWordPrimitiveArgument "plusWord2#" left
+  rightWord <- expectWordPrimitiveArgument "plusWord2#" right
+  let exactResult = leftWord + rightWord
+  pure [wordRuntimeValue (if exactResult >= wordModulus then 1 else 0), wordRuntimeValue exactResult]
+evalPrimitive "plusWord8#" [left, right] = evalSizedWordArithmetic "plusWord8#" Word8Rep 8 (+) left right
+evalPrimitive "subWord8#" [left, right] = evalSizedWordArithmetic "subWord8#" Word8Rep 8 (-) left right
+evalPrimitive "timesWord8#" [left, right] = evalSizedWordArithmetic "timesWord8#" Word8Rep 8 (*) left right
+evalPrimitive "plusWord16#" [left, right] = evalSizedWordArithmetic "plusWord16#" Word16Rep 16 (+) left right
+evalPrimitive "subWord16#" [left, right] = evalSizedWordArithmetic "subWord16#" Word16Rep 16 (-) left right
+evalPrimitive "timesWord16#" [left, right] = evalSizedWordArithmetic "timesWord16#" Word16Rep 16 (*) left right
+evalPrimitive "plusWord32#" [left, right] = evalSizedWordArithmetic "plusWord32#" Word32Rep 32 (+) left right
+evalPrimitive "subWord32#" [left, right] = evalSizedWordArithmetic "subWord32#" Word32Rep 32 (-) left right
+evalPrimitive "timesWord32#" [left, right] = evalSizedWordArithmetic "timesWord32#" Word32Rep 32 (*) left right
+evalPrimitive "plusInt8#" [left, right] = evalSizedIntArithmetic "plusInt8#" Int8Rep 8 (+) left right
+evalPrimitive "subInt8#" [left, right] = evalSizedIntArithmetic "subInt8#" Int8Rep 8 (-) left right
+evalPrimitive "timesInt8#" [left, right] = evalSizedIntArithmetic "timesInt8#" Int8Rep 8 (*) left right
+evalPrimitive "plusInt16#" [left, right] = evalSizedIntArithmetic "plusInt16#" Int16Rep 16 (+) left right
+evalPrimitive "subInt16#" [left, right] = evalSizedIntArithmetic "subInt16#" Int16Rep 16 (-) left right
+evalPrimitive "timesInt16#" [left, right] = evalSizedIntArithmetic "timesInt16#" Int16Rep 16 (*) left right
+evalPrimitive "plusInt32#" [left, right] = evalSizedIntArithmetic "plusInt32#" Int32Rep 32 (+) left right
+evalPrimitive "subInt32#" [left, right] = evalSizedIntArithmetic "subInt32#" Int32Rep 32 (-) left right
+evalPrimitive "timesInt32#" [left, right] = evalSizedIntArithmetic "timesInt32#" Int32Rep 32 (*) left right
+evalPrimitive "word64ToInt64#" [value] = do
+  word <- expectRuntimeRepPrimitiveArgument "word64ToInt64#" Word64Rep value
+  pure [RuntimeLit (GrinLitInt Int64Rep (normalizeInt word))]
+evalPrimitive "int64ToWord64#" [value] = do
+  int <- expectRuntimeRepPrimitiveArgument "int64ToWord64#" Int64Rep value
+  pure [RuntimeLit (GrinLitInt Word64Rep (normalizeWord int))]
 evalPrimitive "andWord8#" [left, right] = evalSizedWordPrimitive "andWord8#" Word8Rep (.&.) left right
 evalPrimitive "orWord8#" [left, right] = evalSizedWordPrimitive "orWord8#" Word8Rep (.|.) left right
 evalPrimitive "xorWord8#" [left, right] = evalSizedWordPrimitive "xorWord8#" Word8Rep xor left right
@@ -1258,6 +1287,18 @@ evalPrimitive "<##" [left, right] = evalDoubleComparison "<##" (<) left right
 evalPrimitive "==##" [left, right] = evalDoubleComparison "==##" (==) left right
 evalPrimitive "ctz#" [value] = evalWordCount "ctz#" countTrailingZeros value
 evalPrimitive "popCnt#" [value] = evalWordCount "popCnt#" popCount value
+evalPrimitive "popCnt8#" [value] = evalSizedWordCount "popCnt8#" WordRep 8 sizedPopCount value
+evalPrimitive "popCnt16#" [value] = evalSizedWordCount "popCnt16#" WordRep 16 sizedPopCount value
+evalPrimitive "popCnt32#" [value] = evalSizedWordCount "popCnt32#" WordRep 32 sizedPopCount value
+evalPrimitive "popCnt64#" [value] = evalSizedWordCount "popCnt64#" Word64Rep 64 sizedPopCount value
+evalPrimitive "clz8#" [value] = evalSizedWordCount "clz8#" WordRep 8 sizedLeadingZeros value
+evalPrimitive "clz16#" [value] = evalSizedWordCount "clz16#" WordRep 16 sizedLeadingZeros value
+evalPrimitive "clz32#" [value] = evalSizedWordCount "clz32#" WordRep 32 sizedLeadingZeros value
+evalPrimitive "clz64#" [value] = evalSizedWordCount "clz64#" Word64Rep 64 sizedLeadingZeros value
+evalPrimitive "ctz8#" [value] = evalSizedWordCount "ctz8#" WordRep 8 sizedTrailingZeros value
+evalPrimitive "ctz16#" [value] = evalSizedWordCount "ctz16#" WordRep 16 sizedTrailingZeros value
+evalPrimitive "ctz32#" [value] = evalSizedWordCount "ctz32#" WordRep 32 sizedTrailingZeros value
+evalPrimitive "ctz64#" [value] = evalSizedWordCount "ctz64#" Word64Rep 64 sizedTrailingZeros value
 evalPrimitive "byteSwap16#" [value] = evalByteSwap "byteSwap16#" WordRep 2 value
 evalPrimitive "byteSwap32#" [value] = evalByteSwap "byteSwap32#" WordRep 4 value
 evalPrimitive "byteSwap64#" [value] = evalByteSwap "byteSwap64#" Word64Rep 8 value
@@ -2141,6 +2182,28 @@ evalSizedWordPrimitive name rep operation left right = do
   rightWord <- expectRuntimeRepPrimitiveArgument name rep right
   pure [RuntimeLit (GrinLitInt rep (operation leftWord rightWord))]
 
+-- | Arithmetic on a pair of sized words. The result keeps only the bits of
+-- its width, which is how a sized addition wraps.
+evalSizedWordArithmetic ::
+  Text -> GrinRep -> Int -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedWordArithmetic name rep bits operation left right = do
+  leftWord <- expectRuntimeRepPrimitiveArgument name rep left
+  rightWord <- expectRuntimeRepPrimitiveArgument name rep right
+  pure [RuntimeLit (GrinLitInt rep (operation leftWord rightWord .&. (shiftL 1 bits - 1)))]
+
+-- | Arithmetic on a pair of sized ints. The result keeps only the bits of
+-- its width and gets the sign of its top bit, which is how a sized addition
+-- wraps.
+evalSizedIntArithmetic ::
+  Text -> GrinRep -> Int -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedIntArithmetic name rep bits operation left right = do
+  leftInt <- expectRuntimeRepPrimitiveArgument name rep left
+  rightInt <- expectRuntimeRepPrimitiveArgument name rep right
+  let modulus = shiftL 1 bits
+      low = operation leftInt rightInt .&. (modulus - 1)
+      signed = if low >= shiftL 1 (bits - 1) then low - modulus else low
+  pure [RuntimeLit (GrinLitInt rep signed)]
+
 -- | A shift of a sized word. The result keeps only the bits of its width,
 -- which is how a left shift of a 'Word16#' or 'Word32#' wraps.
 evalSizedWordShift ::
@@ -2228,6 +2291,25 @@ evalWordCount :: Text -> (Word64 -> Int) -> RuntimeValue -> EvalM [RuntimeValue]
 evalWordCount name operation value = do
   word <- expectWordPrimitiveArgument name value
   pure [wordRuntimeValue (toInteger (operation (fromInteger word)))]
+
+-- | A bit count of the low @bits@ bits of a word. The argument is a
+-- @Word#@ for the widths below 64 and a @Word64#@ for width 64.
+evalSizedWordCount :: Text -> GrinRep -> Int -> (Int -> Word64 -> Int) -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedWordCount name rep bits operation value = do
+  word <- normalizeWord <$> expectRuntimeRepPrimitiveArgument name rep value
+  pure [wordRuntimeValue (toInteger (operation bits (fromInteger word)))]
+
+sizedPopCount :: Int -> Word64 -> Int
+sizedPopCount bits value = popCount (lowBits bits value)
+
+sizedLeadingZeros :: Int -> Word64 -> Int
+sizedLeadingZeros bits value = countLeadingZeros (lowBits bits value) - (64 - bits)
+
+sizedTrailingZeros :: Int -> Word64 -> Int
+sizedTrailingZeros bits value = min bits (countTrailingZeros (lowBits bits value))
+
+lowBits :: Int -> Word64 -> Word64
+lowBits bits value = if bits == 64 then value else value .&. (shiftL 1 bits - 1)
 
 wordRuntimeValue :: Integer -> RuntimeValue
 wordRuntimeValue = RuntimeLit . GrinLitInt WordRep . normalizeWord

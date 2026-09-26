@@ -255,10 +255,33 @@ exportedScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
 exportedScope package exports extensions modu =
   case moduleExports modu of
     Nothing -> ownScope
-    Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
+    Just specs -> withSeparatelyExportedMethods (List.foldl' unionScope emptyScope (map exportSpecScope specs))
   where
     (ownScope, imported) = ownAndImportedScopes package exports extensions modu
     availableScope = ownScope `unionScope` imported
+
+    -- A class item without members exports the class alone, but a
+    -- separate item can export a method of it. The method stays a method
+    -- of the class: an import item @C(..)@ names it (Haskell 2010 5.3.1),
+    -- and an instance of the class can bind it.
+    withSeparatelyExportedMethods scope =
+      scope {scopeMethods = Map.unionWith (\bundled separate -> List.nub (bundled <> separate)) (scopeMethods scope) separateMethods}
+      where
+        separateMethods =
+          Map.fromList
+            [ (className, exportedMethods)
+            | (className, resolvedClass) <- Map.toList (scopeTypes scope),
+              candidate <- availableScope : Map.elems (scopeQualifiedModules availableScope),
+              lookupType className candidate == resolvedClass,
+              Just methods <- [Map.lookup className (scopeMethods candidate)],
+              let exportedMethods =
+                    [ method
+                    | method <- methods,
+                      Just resolvedMethod <- [Map.lookup method (scopeTerms candidate)],
+                      Map.lookup method (scopeTerms scope) == Just resolvedMethod
+                    ],
+              not (null exportedMethods)
+            ]
 
     exportSpecScope spec =
       case spec of
