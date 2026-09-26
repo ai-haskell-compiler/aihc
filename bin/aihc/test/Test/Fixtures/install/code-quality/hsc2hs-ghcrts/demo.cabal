@@ -1,0 +1,11 @@
+cabal-version: 3.0
+name: demo
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Demo
+  hs-source-dirs: src
+  include-dirs: include
+  build-tool-depends: hsc2hs:hsc2hs
+  default-language: Haskell2010

@@ -1,0 +1,10 @@
+status: pass
+reason: |
+  hsc2hs runs with the RTS options of aihc removed from its environment.
+  The Nix apps and checks give aihc GHCRTS=-N. hsc2hs is a GHC program that
+  is not built with -threaded, so it stops at start-up when it inherits that
+  variable, and every package with a .hsc source fails to install.
+environment:
+  GHCRTS: -N
+expect-type-constructors:
+  - [Demo, [Answer]]
