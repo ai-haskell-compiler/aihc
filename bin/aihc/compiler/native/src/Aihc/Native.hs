@@ -709,7 +709,9 @@ nativeRuntimePrimitiveCalls =
     call "acoshFloat#" "acoshf" [GrinForeignFloat] GrinForeignFloat,
     call "atanhFloat#" "atanhf" [GrinForeignFloat] GrinForeignFloat,
     call "powerFloat#" "powf" [GrinForeignFloat, GrinForeignFloat] GrinForeignFloat,
-    procedure "setByteArray#" "aihc_byte_array_set" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    procedure "setByteArray#" "aihc_byte_array_set" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "pdep#" "aihc_bits_deposit" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "pext#" "aihc_bits_extract" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
   ]
   where
     call = runtimeCall False 1

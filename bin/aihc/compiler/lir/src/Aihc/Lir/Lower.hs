@@ -1852,6 +1852,15 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       operand <- word value
       result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
       bind [result]
+    ("notI#", [value]) -> do
+      operand <- word value
+      result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
+      bind [result]
+    -- A bit reversal is a byte swap that continues down to single bits.
+    ("bitReverse#", [value]) -> do
+      operand <- word value
+      result <- foldM swapStage operand [32, 16, 8, 4, 2, 1]
+      bind [Typed result I64]
     ("negateInt#", [value]) -> do
       operand <- word value
       result <- emitValue "result" I64 (Binary Sub I64 (OperandLiteral (LitInt 0)) operand)
@@ -2232,8 +2241,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       flag <- widen (Typed (OperandVar carry) I1)
       bind [Typed (OperandVar result) I64, flag]
 
--- | The mask of one stage of a 64-bit byte swap. The mask keeps every other
--- block of @stage@ bits.
+-- | The mask of one stage of a 64-bit byte or bit swap. The mask keeps every
+-- other block of @stage@ bits.
 byteSwapMask :: Integer -> Integer
 byteSwapMask stage = sum [(2 ^ stage - 1) * 2 ^ (2 * stage * block) | block <- [0 .. 64 `div` (2 * stage) - 1]]
 

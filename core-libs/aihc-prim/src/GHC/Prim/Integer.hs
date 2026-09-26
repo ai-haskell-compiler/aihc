@@ -10,6 +10,7 @@ module GHC.Prim.Integer
     integerAnd,
     integerBit#,
     integerComplement,
+    integerFromMagnitude#,
     integerFromTwoWords#,
     integerFromWord#,
     integerLog2#,

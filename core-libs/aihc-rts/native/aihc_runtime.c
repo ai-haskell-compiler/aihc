@@ -2101,6 +2101,34 @@ uint64_t aihc_stm_active(AihcMachine *machine) {
   return machine->current_thread->transaction != NULL;
 }
 
+uint64_t aihc_bits_deposit(uint64_t source, uint64_t mask) {
+  uint64_t result = 0;
+  uint64_t bit = 1;
+  while (mask != 0) {
+    uint64_t lowest = mask & (0 - mask);
+    if (source & bit) {
+      result |= lowest;
+    }
+    mask ^= lowest;
+    bit <<= 1;
+  }
+  return result;
+}
+
+uint64_t aihc_bits_extract(uint64_t source, uint64_t mask) {
+  uint64_t result = 0;
+  uint64_t bit = 1;
+  while (mask != 0) {
+    uint64_t lowest = mask & (0 - mask);
+    if (source & lowest) {
+      result |= bit;
+    }
+    mask ^= lowest;
+    bit <<= 1;
+  }
+  return result;
+}
+
 uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
                          AihcSlot value) {
   AihcTransaction *transaction = machine->current_thread->transaction;

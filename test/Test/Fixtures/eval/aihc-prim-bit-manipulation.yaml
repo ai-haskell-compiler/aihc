@@ -1,0 +1,27 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (notI# 5#))
+        (I# (word2Int# (bitReverse# 1##)))
+        (I# (word2Int# (bitReverse# 0x8000000000000001##)))
+        (I# (word2Int# (bitReverse# 0x0123456789abcdef##)))
+        (I# (word2Int# (pdep# 0b1011## 0xf0f0##)))
+        (I# (word2Int# (pext# 0xa0b0## 0xf0f0##)))
+        (I# (word2Int# (pext# 0xffffffffffffffff## 0x8000000000000001##)))
+output: |
+  Results (I# -6) (I# -9223372036854775808) (I# -9223372036854775807) (I# -597899502893742976) (I# 176) (I# 171) (I# 3)
+expression: |
+  results
+status: pass
+reason: notI# complements an Int#, bitReverse# mirrors the 64 bits, pdep# scatters the low bits of the source into the mask positions, and pext# gathers the mask positions into the low bits

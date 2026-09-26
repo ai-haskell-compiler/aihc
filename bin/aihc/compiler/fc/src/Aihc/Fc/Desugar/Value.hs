@@ -894,8 +894,9 @@ foreignTypeNewtypeDependencies ty = do
         TcAppTy function argument -> go newtypes function <> go newtypes argument
 
 -- | The constructors a foreign value marshals through, outermost first.  A
--- unary constructor continues to its field type; the nullary constructor of
--- a unit result ends the chain.
+-- unary constructor continues to its field type; a nullary constructor, of a
+-- unit result or of an enumeration such as @Bool@, has no field, so the
+-- constructors after it belong to the same type.
 foreignMarshalDependencies :: TcForeignMarshal -> ValueM [ForeignImportDependency]
 foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeignConstructors marshal)
   where
@@ -905,19 +906,18 @@ foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeign
       constructors <- Map.findWithDefault [] constructorName <$> gets vsConstructorInfos
       case [(dataType, constructor, fieldType) | dataType <- newtypes, constructor <- dtiConstructors dataType, dciName constructor == constructorName, Just fieldType <- [foreignConstructorField sourceType constructor]] of
         [(dataType, _, fieldType)] ->
-          (foreignNewtypeDependency dataType :) <$> continue constructorName fieldType rest
+          (foreignNewtypeDependency dataType :) <$> continue sourceType fieldType rest
         [] ->
           case [(constructor, fieldType) | constructor <- constructors, Just fieldType <- [foreignConstructorField sourceType constructor]] of
             [(constructor, fieldType)] ->
               let (package, moduleName) = dciOrigin constructor
                   dependency = ForeignConstructor (Name constructorName SortDataConstructor (OriginTop package moduleName))
-               in (dependency :) <$> continue constructorName fieldType rest
+               in (dependency :) <$> continue sourceType fieldType rest
             [] -> failValue ("missing checked foreign constructor " <> T.unpack constructorName)
             _ -> failValue ("ambiguous checked foreign constructor " <> T.unpack constructorName)
         _ -> failValue ("ambiguous checked foreign newtype constructor " <> T.unpack constructorName)
     continue _ (Just fieldType) rest = go fieldType rest
-    continue _ Nothing [] = pure []
-    continue constructorName Nothing _ = failValue ("checked foreign constructor " <> T.unpack constructorName <> " has no field to marshal through")
+    continue sourceType Nothing rest = go sourceType rest
 
 -- | The field type of a unary constructor at the source type, or 'Nothing'
 -- inside for a nullary constructor.
@@ -3584,35 +3584,66 @@ desugarListCompPattern resultType binder ty pattern' success failure =
 
 desugarListCompConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompConstructorPattern resultType binder pattern' success failure = do
+  maybeFamily <- doPatternFamily pattern'
   maybeNewtype <- doPatternNewtype pattern'
-  case maybeNewtype of
-    Just dataType -> desugarListCompNewtypePattern resultType binder pattern' dataType success failure
-    Nothing -> do
-      let children = patternChildren pattern'
-          predicates = patternGivenPredicates pattern'
-          typeVariables = patternTypeVariables pattern'
-      withTypeVariables typeVariables $ do
-        typeBinders <- convertTypeBinders typeVariables
-        fieldTypes <- patternFieldTypes pattern' children
-        fields <- zipWithM freshPatternBinder children fieldTypes
-        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-        constructor <- patternConstructor pattern'
-        resultType' <- convertCheckedType resultType
-        caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
-        body <-
-          withAlternativeScope
-            (not (null typeBinders))
-            (zipWith Dictionary predicates dictionaries)
-            (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-        pure
-          ( ExCase
-              (ExVar (binderName binder))
-              caseBinder
-              resultType'
-              [ Alt constructor typeBinders (dictionaries <> fields) body,
-                Alt AltDefault [] [] failure
-              ]
-          )
+  case (maybeFamily, maybeNewtype) of
+    (Just info, _) -> desugarListCompFamilyPattern resultType binder pattern' info success failure
+    (_, Just dataType) -> desugarListCompNewtypePattern resultType binder pattern' dataType success failure
+    _ -> desugarListCompDataPattern resultType binder pattern' success failure
+
+-- | A data-family pattern in a list comprehension generator, cast as in
+-- 'desugarDoFamilyPattern'.
+desugarListCompFamilyPattern :: TcType -> Binder -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompFamilyPattern resultType binder pattern' info success failure = do
+  instanceType <- requiredPatternType pattern'
+  instanceArguments <- familyInstanceArguments info instanceType
+  axiomArguments <- familyAxiomArguments info instanceArguments
+  let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
+      scrutinee = ExVar (binderName binder)
+  if dfiiIsNewtype info
+    then do
+      child <-
+        case patternChildren pattern' of
+          [fieldPattern] -> pure fieldPattern
+          _ -> failValue ("newtype family list comprehension pattern does not have one field: " <> T.unpack (dfiiFamilyName info))
+      childType <- requiredPatternType child
+      field <- freshPatternBinder child childType
+      let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
+      body <- desugarListCompPattern resultType field childType child success failure
+      pure (ExLet (Bind field unwrapped) body)
+    else do
+      representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+      representation <- freshBinderFromType "_list_comp_family" representationType
+      body <- desugarListCompDataPattern resultType representation pattern' success failure
+      pure (ExLet (Bind representation (ExCast scrutinee familyCoercion)) body)
+
+desugarListCompDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompDataPattern resultType binder pattern' success failure = do
+  let children = patternChildren pattern'
+      predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fieldTypes <- patternFieldTypes pattern' children
+    fields <- zipWithM freshPatternBinder children fieldTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    constructor <- patternConstructor pattern'
+    resultType' <- convertCheckedType resultType
+    caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+    pure
+      ( ExCase
+          (ExVar (binderName binder))
+          caseBinder
+          resultType'
+          [ Alt constructor typeBinders (dictionaries <> fields) body,
+            Alt AltDefault [] [] failure
+          ]
+      )
 
 desugarListCompChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompChildPatterns resultType children success failure =
@@ -3925,28 +3956,60 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
 
 desugarDoConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoConstructorPattern resultType binder pattern' success failure = do
+  maybeFamily <- doPatternFamily pattern'
   maybeNewtype <- doPatternNewtype pattern'
-  case maybeNewtype of
-    Just dataType -> desugarDoNewtypePattern resultType binder pattern' dataType success failure
-    Nothing -> do
-      let children = patternChildren pattern'
-          predicates = patternGivenPredicates pattern'
-      let typeVariables = patternTypeVariables pattern'
-      withTypeVariables typeVariables $ do
-        typeBinders <- convertTypeBinders typeVariables
-        fieldTypes <- patternFieldTypes pattern' children
-        fields <- zipWithM freshPatternBinder children fieldTypes
-        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-        constructor <- patternConstructor pattern'
-        resultType' <- convertCheckedType resultType
-        caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
-        body <-
-          withAlternativeScope
-            (not (null typeBinders))
-            (zipWith Dictionary predicates dictionaries)
-            (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-        let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
-        pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
+  case (maybeFamily, maybeNewtype) of
+    (Just info, _) -> desugarDoFamilyPattern resultType binder pattern' info success failure
+    (_, Just dataType) -> desugarDoNewtypePattern resultType binder pattern' dataType success failure
+    _ -> desugarDoDataPattern resultType binder pattern' success failure
+
+-- | A data-family pattern in a @do@ bind matches the representation type,
+-- as in 'desugarFamilyPatterns': cast the bound value with the family
+-- axiom, and for a newtype instance also with the representation axiom.
+desugarDoFamilyPattern :: TcType -> Binder -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoFamilyPattern resultType binder pattern' info success failure = do
+  instanceType <- requiredPatternType pattern'
+  instanceArguments <- familyInstanceArguments info instanceType
+  axiomArguments <- familyAxiomArguments info instanceArguments
+  let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
+      scrutinee = ExVar (binderName binder)
+  if dfiiIsNewtype info
+    then do
+      child <-
+        case patternChildren pattern' of
+          [fieldPattern] -> pure fieldPattern
+          _ -> failValue ("newtype family do pattern does not have one field: " <> T.unpack (dfiiFamilyName info))
+      childType <- requiredPatternType child
+      field <- freshPatternBinder child childType
+      let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
+      body <- desugarPatternWithFailure resultType field childType child success failure
+      pure (ExLet (Bind field unwrapped) body)
+    else do
+      representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+      representation <- freshBinderFromType "_do_family" representationType
+      body <- desugarDoDataPattern resultType representation pattern' success failure
+      pure (ExLet (Bind representation (ExCast scrutinee familyCoercion)) body)
+
+desugarDoDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoDataPattern resultType binder pattern' success failure = do
+  let children = patternChildren pattern'
+      predicates = patternGivenPredicates pattern'
+  let typeVariables = patternTypeVariables pattern'
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fieldTypes <- patternFieldTypes pattern' children
+    fields <- zipWithM freshPatternBinder children fieldTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    constructor <- patternConstructor pattern'
+    resultType' <- convertCheckedType resultType
+    caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+    let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
+    pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success failure =
@@ -3954,6 +4017,12 @@ desugarDoChildPatterns resultType children success failure =
     [] -> success
     (binder, ty, pattern') : rest ->
       desugarPatternWithFailure resultType binder ty pattern' (desugarDoChildPatterns resultType rest success failure) failure
+
+doPatternFamily :: Syn.Pattern -> ValueM (Maybe DataFamilyInstanceInfo)
+doPatternFamily pattern' =
+  case patternConstructorSourceName pattern' of
+    Just name -> familyConstructorData name
+    Nothing -> pure Nothing
 
 doPatternNewtype :: Syn.Pattern -> ValueM (Maybe DataTypeInfo)
 doPatternNewtype pattern' = do
