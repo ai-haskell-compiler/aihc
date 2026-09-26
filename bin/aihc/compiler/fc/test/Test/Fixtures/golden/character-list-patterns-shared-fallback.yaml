@@ -9,8 +9,8 @@ modules:
     data Colour = Red | Green | Unknown [Char]
 
     readColour :: [Char] -> Colour
-    readColour "red" = Red
-    readColour "green" = Green
+    readColour ['r', 'e', 'd'] = Red
+    readColour ['g', 'r', 'e', 'e', 'n'] = Green
     readColour name = Unknown name
 expected: |-
   scope 1 = "" Test
@@ -168,4 +168,4 @@ expected: |-
                 _fail
         }
 status: pass
-reason: The final variable equation after string literal equations is compiled once, bound as the shared failure, and each default alternative names it.
+reason: The final variable equation after character list equations is compiled once, bound as the shared failure, and each default alternative names it.
