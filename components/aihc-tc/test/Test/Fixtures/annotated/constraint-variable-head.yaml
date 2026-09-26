@@ -1,0 +1,34 @@
+extensions:
+- ConstraintKinds
+- FlexibleContexts
+- FlexibleInstances
+- KindSignatures
+- MultiParamTypeClasses
+- RankNTypes
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, FlexibleContexts, FlexibleInstances, KindSignatures, MultiParamTypeClasses, RankNTypes, UndecidableInstances #-}
+  module Test where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..), Constraint, Type)
+  data Proxy (q :: Type -> Constraint) = Proxy
+  newtype Wrap p = Wrap p
+  data Pair f g = Pair f g
+  class GDeciding q t where
+    gdeciding :: p q -> (forall b. q b => b -> Bool) -> t -> Bool
+  instance q p => GDeciding q (Wrap p) where
+    gdeciding _ q (Wrap x) = q x
+  instance (GDeciding q f, GDeciding q g) => GDeciding q (Pair f g) where
+    gdeciding p q (Pair x y) = gdeciding p q x && gdeciding p q y
+  useEq :: Pair (Wrap Bool) (Wrap Bool) -> Bool
+  useEq = gdeciding (Proxy :: Proxy Eq) (\b -> b == b)
+  instance Eq Bool where
+    True == True = True
+    False == False = True
+    _ == _ = False
+  (&&) :: Bool -> Bool -> Bool
+  True && b = b
+  False && _ = False
+status: pass
+reason: a constraint whose head is a type variable is an irreducible predicate that a given of the same shape, or an instantiation to a class, solves
