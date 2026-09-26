@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Control.Applicative (ZipList (..))
+    import Data.Foldable (toList)
+
+    check :: Bool
+    check = toList (ZipList [1, 2, 3]) == [1, 2, 3]
+
+    checkInferred = toList (ZipList [1, 2, 3]) == [1, 2, 3]
+output: |
+  (True,True)
+expression: |
+  (check, checkInferred)
+status: pass
+reason: Defaulting reduces the Eq [t0] wanted through the list instance to Eq t0 before it picks Integer for t0

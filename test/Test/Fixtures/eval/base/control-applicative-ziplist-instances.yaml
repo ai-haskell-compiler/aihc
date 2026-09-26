@@ -1,0 +1,36 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Control.Applicative (Alternative (..), ZipList (..))
+    import Data.Foldable (toList)
+    import Data.Traversable (traverse)
+
+    short :: ZipList Int
+    short = ZipList [1, 2]
+
+    long :: ZipList Int
+    long = ZipList [10, 20, 30]
+
+    equal :: Bool
+    equal = short == ZipList [1, 2] && short /= long
+
+    ordered :: Bool
+    ordered = short < long && compare long short == GT
+
+    folded :: Bool
+    folded = toList long == [10, 20, 30] && sum long == 60
+
+    traversed :: Bool
+    traversed =
+      fmap getZipList (traverse (\x -> if x > 0 then Just (x * 2) else Nothing) long) == Just [20, 40, 60]
+        && traverse (\x -> if x > 15 then Just x else Nothing) long == Nothing
+
+    alternated :: Bool
+    alternated = getZipList (short <|> long) == [1, 2, 30] && getZipList (empty <|> short) == [1, 2]
+output: |
+  (True,(True,(True,(True,True))))
+expression: |
+  (equal, (ordered, (folded, (traversed, alternated))))
+status: pass
+reason: ZipList has the Eq, Ord, Foldable, Traversable, and Alternative instances of GHC
