@@ -1,0 +1,96 @@
+extensions:
+- ConstraintKinds
+- FlexibleContexts
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, FlexibleContexts, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  import GHC.Classes ((&&))
+  class Named a where
+    named :: a -> Bool
+  class Sized a where
+    sized :: a -> Bool
+  -- A constraint synonym whose right-hand side is a tuple of
+  -- two class constraints.
+  type Valid a = (Named a, Sized a)
+  newtype Box a = Box a
+  -- Used in a signature: both components are givens in the body.
+  valid :: Valid a => a -> Bool
+  valid x = named x && sized x
+  -- Used in an instance context: both components are givens in the
+  -- methods, and the synonym itself is a wanted.
+  instance Valid a => Named (Box a) where
+    named (Box x) = valid x
+  instance Valid a => Sized (Box a) where
+    sized (Box x) = sized x
+  data S = S
+  instance Named S where
+    named _ = True
+  instance Sized S where
+    sized _ = False
+  result :: Bool
+  result = valid (Box S)
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, FlexibleContexts, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  import GHC.Classes ((&&))
+  class Named a where
+  └─ class methods: named ∷ ∀ a. (Named a) ⇒ a → Bool
+    named :: a -> Bool
+  class Sized a where
+  └─ class methods: sized ∷ ∀ a. (Sized a) ⇒ a → Bool
+    sized :: a -> Bool
+  -- A constraint synonym whose right-hand side is a tuple of
+  -- two class constraints.
+  type Valid a = (Named a, Sized a)
+       └─ type: Type → GHC.Types.Constraint
+  newtype Box a = Box a
+          │       └─ type: ∀ a. a → Box a
+          └─ type: Type → Type
+  -- Used in a signature: both components are givens in the body.
+  valid :: Valid a => a -> Bool
+  valid x = named x && sized x
+  │     │   │          └─ type: a → GHC.Types.Bool; type-args: a; evidence: given Sized a
+  │     │   └─ type: a → GHC.Types.Bool; type-args: a; evidence: given Named a
+  │     └─ type: a
+  └─ type: ∀ a. (Named a, Sized a) ⇒ a → GHC.Types.Bool
+  -- Used in an instance context: both components are givens in the
+  -- methods, and the synonym itself is a wanted.
+  instance Valid a => Named (Box a) where
+  └─ $fNamedBoxa ∷ ∀ a. (Named a, Sized a) ⇒ Named (Box a)
+    named (Box x) = valid x
+    │      │   │    └─ type: a → GHC.Types.Bool; type-args: a; evidence: given Named a, given Sized a
+    │      │   └─ type: a
+    │      └─ type: Box a
+    └─ named ∷ Box a → Bool
+  instance Valid a => Sized (Box a) where
+  └─ $fSizedBoxa ∷ ∀ a. (Named a, Sized a) ⇒ Sized (Box a)
+    sized (Box x) = sized x
+    │      │   │    └─ type: a → GHC.Types.Bool; type-args: a; evidence: given Sized a
+    │      │   └─ type: a
+    │      └─ type: Box a
+    └─ sized ∷ Box a → Bool
+  data S = S
+       │   └─ type: S
+       └─ type: Type
+  instance Named S where
+  └─ $fNamedS ∷ () ⇒ Named S
+    named _ = True
+    │     └─ type: S
+    └─ named ∷ S → Bool
+  instance Sized S where
+  └─ $fSizedS ∷ () ⇒ Sized S
+    sized _ = False
+    │     └─ type: S
+    └─ sized ∷ S → Bool
+  result :: Bool
+  result = valid (Box S)
+  │        │      └─ type: S → Box S; type-args: S
+  │        └─ type: Box S → GHC.Types.Bool; type-args: Box S; evidence: $fNamedBoxa @S ($fNamedS, $fSizedS), $fSizedBoxa @S ($fNamedS, $fSizedS)
+  └─ type: GHC.Types.Bool
+status: pass
+reason: a constraint synonym whose right-hand side is a constraint tuple expands into its components in a signature and in an instance context

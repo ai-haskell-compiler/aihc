@@ -1,0 +1,140 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- PolyKinds
+- ScopedTypeVariables
+- StandaloneKindSignatures
+- TypeApplications
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, StandaloneKindSignatures, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  -- The shape of base's Data.Type.Ord: the compiler computes Compare on
+  -- literals because the module has this name.
+  module Data.Type.Ord (Compare, OrdCond, type (<=), type (<=?)) where
+  import GHC.Types (Bool (..), Constraint, Ordering (..))
+  type Compare :: k -> k -> Ordering
+  type family Compare a b
+  type OrdCond :: Ordering -> k -> k -> k -> k
+  type family OrdCond o lt eq gt where
+    OrdCond 'LT lt _ _ = lt
+    OrdCond 'EQ _ eq _ = eq
+    OrdCond 'GT _ _ gt = gt
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+    Assert 'True c = ()
+    Assert b c = c
+  -- The stand-in for base's @TypeError@: a family of a declared kind.
+  type Failed :: k -> k -> Constraint
+  type family Failed x y
+  type (<=?) :: k -> k -> Bool
+  type (<=?) x y = OrdCond (Compare x y) 'True 'True 'False
+  type (<=) :: k -> k -> Constraint
+  type (<=) x y = Assert (x <=? y) (Failed x y)
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, PolyKinds, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint)
+  import Data.Type.Ord (type (<=))
+  type KnownNat :: Natural -> Constraint
+  class KnownNat n where
+    natSing :: Natural
+  natVal :: forall n proxy. KnownNat n => proxy n -> Natural
+  natVal _ = natSing @n
+  data Proxy t = Proxy
+  -- The shape of basement's @type SizeValid n = (KnownNat n, 1 <= n)@:
+  -- a constraint tuple with a class component and a component that is
+  -- itself a constraint synonym for a stuck family application.
+  type SizeValid n = (KnownNat n, 1 <= n)
+  newtype Bits (n :: Natural) = Bits Natural
+  class Wide a where
+    width :: a -> Natural
+  allOne :: forall n. SizeValid n => Bits n
+  allOne = Bits (natVal (Proxy @n))
+  instance SizeValid n => Wide (Bits n) where
+    width _ = natVal (Proxy @n)
+  result :: Natural
+  result = width (allOne :: Bits 8)
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, StandaloneKindSignatures, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  -- The shape of base's Data.Type.Ord: the compiler computes Compare on
+  -- literals because the module has this name.
+  module Data.Type.Ord (Compare, OrdCond, type (<=), type (<=?)) where
+  import GHC.Types (Bool (..), Constraint, Ordering (..))
+  type Compare :: k -> k -> Ordering
+  type family Compare a b
+              └─ type: k → k → GHC.Types.Ordering
+  type OrdCond :: Ordering -> k -> k -> k -> k
+  type family OrdCond o lt eq gt where
+              └─ type: GHC.Types.Ordering → k → k → k → k
+    OrdCond 'LT lt _ _ = lt
+    OrdCond 'EQ _ eq _ = eq
+    OrdCond 'GT _ _ gt = gt
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+              └─ type: GHC.Types.Bool → GHC.Types.Constraint → GHC.Types.Constraint
+    Assert 'True c = ()
+    Assert b c = c
+  -- The stand-in for base's @TypeError@: a family of a declared kind.
+  type Failed :: k -> k -> Constraint
+  type family Failed x y
+              └─ type: k → k → GHC.Types.Constraint
+  type (<=?) :: k -> k -> Bool
+  type (<=?) x y = OrdCond (Compare x y) 'True 'True 'False
+        └─ type: k → k → GHC.Types.Bool
+  type (<=) :: k -> k -> Constraint
+  type (<=) x y = Assert (x <=? y) (Failed x y)
+        └─ type: k → k → GHC.Types.Constraint
+- |-
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, PolyKinds, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint)
+  import Data.Type.Ord (type (<=))
+  type KnownNat :: Natural -> Constraint
+  class KnownNat n where
+  └─ class methods: natSing ∷ ∀ n. (KnownNat n) ⇒ Natural
+    natSing :: Natural
+  natVal :: forall n proxy. KnownNat n => proxy n -> Natural
+  natVal _ = natSing @n
+  │      │   └─ type: GHC.Prim.Natural.Natural; type-args: n; evidence: given KnownNat n
+  │      └─ type: proxy n
+  └─ type: ∀ n proxy. (KnownNat n) ⇒ proxy n → GHC.Prim.Natural.Natural
+  data Proxy t = Proxy
+       │         └─ type: ∀ k0 t. Proxy t
+       └─ type: k0 → Type
+  -- The shape of basement's @type SizeValid n = (KnownNat n, 1 <= n)@:
+  -- a constraint tuple with a class component and a component that is
+  -- itself a constraint synonym for a stuck family application.
+  type SizeValid n = (KnownNat n, 1 <= n)
+       └─ type: GHC.Prim.Natural.Natural → GHC.Types.Constraint
+  newtype Bits (n :: Natural) = Bits Natural
+          │                     └─ type: ∀ n. GHC.Prim.Natural.Natural → Bits n
+          └─ type: GHC.Prim.Natural.Natural → Type
+  class Wide a where
+  └─ class methods: width ∷ ∀ a. (Wide a) ⇒ a → Natural
+    width :: a -> Natural
+  allOne :: forall n. SizeValid n => Bits n
+  allOne = Bits (natVal (Proxy @n))
+  │        │     │       └─ type: Proxy n; type-args: Natural, n
+  │        │     └─ type: Proxy n → GHC.Prim.Natural.Natural; type-args: n, Proxy; evidence: given KnownNat n
+  │        └─ type: GHC.Prim.Natural.Natural → Bits n; type-args: n
+  └─ type: ∀ n. (KnownNat n, Data.Type.Ord.Assert (Data.Type.Ord.OrdCond (Data.Type.Ord.Compare 1 n) 'GHC.Types.True 'GHC.Types.True 'GHC.Types.False) (Data.Type.Ord.Failed 1 n)) ⇒ Bits n
+  instance SizeValid n => Wide (Bits n) where
+  └─ $fWideBitsn ∷ ∀ n. (KnownNat n, Assert (OrdCond (Compare 1 n) 'True 'True 'False) (Failed 1 n)) ⇒ Wide (Bits n)
+    width _ = natVal (Proxy @n)
+    │     │   │       └─ type: Proxy n; type-args: Natural, n
+    │     │   └─ type: Proxy n → GHC.Prim.Natural.Natural; type-args: n, Proxy; evidence: given KnownNat n
+    │     └─ type: Bits n
+    └─ width ∷ Bits n → Natural
+  result :: Natural
+  result = width (allOne :: Bits 8)
+  │        │      └─ type: Bits 8; type-args: 8; evidence: knownliteral @8 8, $fCTuple0
+  │        └─ type: Bits 8 → GHC.Prim.Natural.Natural; type-args: Bits 8; evidence: $fWideBitsn @8 (knownliteral @8 8, $fCTuple0)
+  └─ type: GHC.Prim.Natural.Natural
+status: pass
+reason: a constraint synonym whose tuple has a class component and a stuck family component gives both as givens and solves both at a concrete argument

@@ -109,6 +109,9 @@ module Aihc.Tc.Types
     kindMentionsUnique,
     Pred (..),
     constraintTypeToPred,
+    constraintTypeToPreds,
+    flattenConstraintType,
+    isConstraintTupleTyCon,
     collectForAllTypes,
     collectTypeApplications,
     isImplicitParamTyConName,
@@ -422,6 +425,33 @@ instance NFData Pred where
     IParamPred _ payload -> rnf payload
     IrredPred constraint -> rnf constraint
 
+-- | The predicates of a constraint-kinded type. A constraint tuple, as a
+-- constraint synonym such as @type C a = (Eq a, Show a)@ expands to,
+-- gives the predicates of its components, and the empty constraint tuple
+-- @()@ gives none. Any other constraint gives one predicate.
+constraintTypeToPreds :: TcKinds -> TcType -> Maybe [Pred]
+constraintTypeToPreds kinds ty =
+  case ty of
+    TcTyCon tyCon components
+      | isConstraintTupleTyCon kinds tyCon ->
+          concat <$> mapM (constraintTypeToPreds kinds) components
+    _ -> pure <$> constraintTypeToPred kinds ty
+
+-- | The components of a constraint-kinded type: those of a constraint
+-- tuple, recursively, and none for the empty constraint tuple.
+flattenConstraintType :: TcKinds -> TcType -> [TcType]
+flattenConstraintType kinds ty =
+  case ty of
+    TcTyCon tyCon components
+      | isConstraintTupleTyCon kinds tyCon ->
+          concatMap (flattenConstraintType kinds) components
+    _ -> [ty]
+
+-- | Whether a type constructor is a constraint tuple of its arity.
+isConstraintTupleTyCon :: TcKinds -> TyCon -> Bool
+isConstraintTupleTyCon kinds tyCon =
+  tyCon == kindsConstraintTupleTyCon kinds (tyConArity tyCon)
+
 -- | Convert a constraint-kinded type to a predicate.
 constraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
 constraintTypeToPred kinds ty =
@@ -494,6 +524,8 @@ data TcKinds = TcKinds
     kindsDataCon :: Text -> Int -> TyCon,
     -- | The nominal equality constraint @~@.
     kindsEqualityTyCon :: TyCon,
+    -- | The constraint tuple of one arity; see 'constraintTypeToPreds'.
+    kindsConstraintTupleTyCon :: Int -> TyCon,
     -- | The type constructor that 'TcArrowTy' denotes. Nothing inside the
     -- type checker needs it -- an arrow is recognised by its form -- but a
     -- partially applied arrow that leaves for the desugarer has to be

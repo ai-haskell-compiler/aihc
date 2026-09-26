@@ -19,7 +19,6 @@ module Aihc.Tc.Kind
     patSynSigToScheme,
     hasWildcardType,
     flattenSurfaceContext,
-    isUnitConstraintType,
     splitSigma,
     explicitForallNames,
     scopedSigTyVars,
@@ -193,14 +192,16 @@ flattenSurfaceContext = concatMap flattenItem
         TCon name _ | nameText name == "()" -> []
         _ -> [ty]
 
--- | Whether a checked constraint is the empty constraint tuple @()@.
--- A constraint synonym such as @type NoC = (() :: Constraint)@ expands to it.
-isUnitConstraintType :: TcType -> TcM Bool
-isUnitConstraintType ty = do
+-- | The constraint tuple of some constraints, and its kind @Constraint@.
+-- The empty one is what @()@ denotes at kind @Constraint@.
+constraintTupleType :: [TcType] -> TcM (TcType, TcType)
+constraintTupleType components = do
+  kinds <- getKinds
   wiring <- getWiring
-  pure $ case ty of
-    TcTyCon tyCon [] -> tyCon == tcWiringConstraintTupleTyCon wiring
-    _ -> False
+  let arity = length components
+      tupleKind = foldr KFun (constraintKind kinds) (replicate arity (constraintKind kinds))
+  tyCon <- mkWiredTyCon (tcWiringConstraintTupleTyCon wiring arity) tupleKind
+  pure (TcTyCon tyCon components, constraintKind kinds)
 
 -- | The predicates of a written context. The empty constraint @()@ gives
 -- no predicate, also when a constraint synonym expands to it.
@@ -242,16 +243,16 @@ prenexKindForalls kind =
 checkSurfaceType :: TvKindEnv -> Type -> TcType -> TcM TcType
 checkSurfaceType tvEnv ty expected = do
   -- @()@ is the unit type at kind 'Type' and the empty constraint tuple at
-  -- kind 'Constraint'. Only the expected kind tells them apart, so a boxed
-  -- tuple checked against 'Constraint' is converted here rather than in
-  -- 'convertTupleType', which has no expectation to consult.
+  -- kind 'Constraint', and @(c1, c2)@ is a pair or a constraint tuple.
+  -- Only the expected kind tells them apart, so a boxed tuple checked
+  -- against 'Constraint' is converted here; 'convertTupleType' has no
+  -- expectation to consult and reads the kinds of the components instead.
   kinds <- getKinds
   expected' <- zonkKind expected
   case peelTypeHead ty of
-    TTuple Boxed _ [] | expected' == constraintKind kinds -> do
-      wiring <- getWiring
-      tyCon <- mkWiredTyCon (tcWiringConstraintTupleTyCon wiring) (constraintKind kinds)
-      pure (TcTyCon tyCon [])
+    TTuple Boxed _ items | expected' == constraintKind kinds -> do
+      components <- mapM (\item -> checkSurfaceType tvEnv item (constraintKind kinds)) items
+      fst <$> constraintTupleType components
     -- A wildcard stands for a type of whatever kind is expected. Converting
     -- it without the expectation would give it a fresh @TYPE rep@ instead,
     -- which is wrong wherever the expected kind is not a kind of values:
@@ -433,12 +434,48 @@ unboxedSumType types = do
   pure (TcTyCon constructor types)
 
 convertTupleType :: TvKindEnv -> TupleFlavor -> [Type] -> TcM (TcType, TcType)
-convertTupleType tvEnv flavor arguments = do
+convertTupleType tvEnv flavor arguments =
+  case flavor of
+    Boxed | not (null arguments) -> convertBoxedTupleType tvEnv arguments
+    _ -> convertDataTupleType tvEnv flavor arguments
+
+-- | A boxed tuple with no expected kind is a pair of types or a tuple of
+-- constraints, as in @type C a = (Eq a, Show a)@. The kinds of the
+-- components decide: when each of them is a constraint the tuple is a
+-- constraint tuple, and otherwise each component has to be a type.
+convertBoxedTupleType :: TvKindEnv -> [Type] -> TcM (TcType, TcType)
+convertBoxedTupleType tvEnv arguments = do
+  kinds <- getKinds
+  converted <- mapM convertComponent arguments
+  componentKinds <- mapM (zonkKind . snd) converted
+  if all (== constraintKind kinds) componentKinds
+    then constraintTupleType (map fst converted)
+    else do
+      zipWithM_ (\argument kind -> unifyKindsAt (surfaceTypeSpan argument) (typeKind kinds) kind) arguments componentKinds
+      dataTupleType Boxed (map fst converted)
+  where
+    -- A wildcard component stands for a type; converting it without an
+    -- expectation would give it an open representation.
+    convertComponent argument
+      | isWildcardArgument argument = do
+          kinds <- getKinds
+          component <- checkSurfaceType tvEnv argument (typeKind kinds)
+          pure (component, typeKind kinds)
+      | otherwise = convertSurfaceTypeWithKinds tvEnv argument
+
+convertDataTupleType :: TvKindEnv -> TupleFlavor -> [Type] -> TcM (TcType, TcType)
+convertDataTupleType tvEnv flavor arguments = do
   kinds <- getKinds
   argumentTypes <-
     case flavor of
       Boxed -> mapM (\argument -> checkSurfaceType tvEnv argument (typeKind kinds)) arguments
       Unboxed -> mapM (checkRuntimeType tvEnv) arguments
+  dataTupleType flavor argumentTypes
+
+-- | The tuple data type of one flavor over converted component types.
+dataTupleType :: TupleFlavor -> [TcType] -> TcM (TcType, TcType)
+dataTupleType flavor argumentTypes = do
+  kinds <- getKinds
   argumentKinds <- mapM tcTypeKind argumentTypes
   let argumentReps = map (runtimeRepOrLifted kinds) argumentKinds
       arity = length argumentTypes
@@ -1376,17 +1413,16 @@ surfaceClassPredToPred tvEnv ty = do
       case maybeClassInfo of
         Just classInfo
           | Just {} <- tciTypeSynonym classInfo -> do
-              -- A constraint synonym expands to one constraint. The
-              -- expansion is rebuilt from a type, which does not know
-              -- whether its head is a class or a family, so a
-              -- family-headed one is reclassified as irreducible here.
+              -- A constraint synonym expands to a constraint, or to a
+              -- tuple of them. The expansion is rebuilt from a type,
+              -- which does not know whether its head is a class or a
+              -- family, so a family-headed one is reclassified as
+              -- irreducible here.
               (expanded, _) <- convertSurfaceTypeWithKinds tvEnv ty
-              isUnit <- isUnitConstraintType expanded
-              case constraintTypeToPred kinds expanded of
-                _ | isUnit -> pure []
-                Just predicate -> pure <$> normalizeFamilyPred predicate
+              case constraintTypeToPreds kinds expanded of
+                Just predicates -> mapM normalizeFamilyPred predicates
                 Nothing -> do
-                  emitError Nothing (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
+                  emitError Nothing (OtherError ("constraint synonym does not expand to constraints: " <> T.unpack classNameText))
                   abortTc "invalid constraint synonym expansion"
         Just classInfo
           | isEqualityTyCon kinds (tciTyCon classInfo),
