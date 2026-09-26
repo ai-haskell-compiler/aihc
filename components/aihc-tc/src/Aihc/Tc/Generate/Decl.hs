@@ -5408,7 +5408,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
-  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy (matchRhs match)))
+  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy (matchRhs match)))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) <|> sp

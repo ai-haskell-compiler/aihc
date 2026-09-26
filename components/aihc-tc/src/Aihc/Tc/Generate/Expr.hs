@@ -467,7 +467,7 @@ inferLambda :: Maybe SourceSpan -> [Pattern] -> Expr -> TcM (Expr, TcType, [Ct])
 inferLambda sp pats body = do
   argTys <- mapM (const freshMetaTv) pats
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
-  (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
+  (body', bodyTy, bodyCts) <- withPatternScope patCheck (inferExpr body)
   remainingCts <- solvePatternBranch sp patCheck bodyTy bodyCts
   let funTy = foldr TcFunTy bodyTy argTys
       pats' = zipWith (annotateLambdaPattern (pcBindings patCheck)) argTys (pcPatterns patCheck)
@@ -536,7 +536,7 @@ checkLambda expected sp patterns body = do
     Just (argumentTypes, resultType) -> do
       patternCheck <- checkFunctionPatterns sp (zip patterns argumentTypes)
       (body', bodyType, bodyConstraints) <-
-        withPatternBindings (pcBindings patternCheck) (checkExpr resultType body)
+        withPatternScope patternCheck (checkExpr resultType body)
       constraints <- solvePatternBranch sp patternCheck bodyType bodyConstraints
       let functionType = foldr TcFunTy bodyType argumentTypes
           patterns' = zipWith (annotateLambdaPattern (pcBindings patternCheck)) argumentTypes (pcPatterns patternCheck)
@@ -665,7 +665,7 @@ inferCaseAlts sp scrutTy resTy alternatives = do
       let altSp = sourceSpanFromAnns altAnns
           branchSp = (<|>) altSp sp
       patCheck <- checkPattern branchSp pat scrutTy
-      (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy rhs))
+      (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy rhs))
       resultEv <- freshEvVar
       let rhsSp = rhsExprSpan rhs <|> branchSp
           resultCt =
@@ -694,7 +694,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy rhs))
+  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy rhs))
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
@@ -1427,7 +1427,7 @@ inferListComp sp body quals = do
           ev <- freshEvVar
           let srcSp = exprSpan src <|> ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType listTyCon' elemTy)) ev (AppOrigin srcSp) srcSp
-          (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals listTyCon' ambient rest action)
+          (rest', body', bodyTy, bodyCts) <- withPatternScope patCheck (inferCompQuals listTyCon' ambient rest action)
           remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
           pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
         CompGuard guard -> do
@@ -1517,7 +1517,7 @@ inferDoStmt expected ambient stmt rest =
       (action', actionTy, actionCts) <- inferExprAt ambient action
       patCheck <- checkPattern ambient pat itemTy
       (rest', resultTy, restCts) <-
-        withPatternBindings (pcBindings patCheck) (inferDoStmtsWith expected ambient rest)
+        withPatternScope patCheck (inferDoStmtsWith expected ambient rest)
       actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
@@ -1567,7 +1567,7 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
       patCheck <- checkPattern ambient pat itemTy
       (rest', restTy, restCts) <-
         withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
-          withPatternBindings (pcBindings patCheck) (inferDoStmtsWith (Just restExpected) ambient rest)
+          withPatternScope patCheck (inferDoStmtsWith (Just restExpected) ambient rest)
       resultEquality <- wantedDoEq ambient restTy restExpected
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
           stmt' = annotateDoStmtCast bindTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action')))

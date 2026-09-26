@@ -111,6 +111,8 @@ module Aihc.Tc.Monad
     withScopedTyVars,
     withImpliedScopedTyVars,
     getScopedTyVars,
+    withTyVarTypes,
+    getTyVarTypes,
     withGivenPredicates,
     getGivenPredicates,
     addInstance,
@@ -233,6 +235,11 @@ data TcEnv = TcEnv
     -- them over the bodies it covers.
     tcEnvGivenPredicates :: ![Pred],
     tcEnvScopedTyVars :: !(Map Text (TyVarId, TcType)),
+    -- | The scoped type variables that stand for a type and not for
+    -- themselves, by unique. A pattern signature binds a type variable
+    -- that is not in scope to the type it matches: the variable is a meta
+    -- variable that unification solves.
+    tcEnvTyVarTypes :: !(Map Unique TcType),
     -- | The span of the declaration being checked. A diagnostic that is
     -- emitted without a span of its own, as the checks of internal types
     -- do, reports here instead of nowhere.
@@ -449,6 +456,7 @@ emptyTcEnv config =
       tcEnvComponentTyCons = Set.empty,
       tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty,
+      tcEnvTyVarTypes = Map.empty,
       tcEnvAmbientSpan = Nothing,
       tcEnvVisibleTerms = Set.empty
     }
@@ -1106,6 +1114,17 @@ getGivenPredicates = asks tcEnvGivenPredicates
 -- | The lexically scoped type variables that are in scope.
 getScopedTyVars :: TcM (Map Text (TyVarId, TcType))
 getScopedTyVars = asks tcEnvScopedTyVars
+
+-- | Run an action with scoped type variables that stand for types. A use
+-- of such a variable converts to its type.
+withTyVarTypes :: Map Unique TcType -> TcM a -> TcM a
+withTyVarTypes bound action
+  | Map.null bound = action
+  | otherwise = local (\env -> env {tcEnvTyVarTypes = bound `Map.union` tcEnvTyVarTypes env}) action
+
+-- | The scoped type variables that stand for types, by unique.
+getTyVarTypes :: TcM (Map Unique TcType)
+getTyVarTypes = asks tcEnvTyVarTypes
 
 tcMonoLocalBinds :: TcM Bool
 tcMonoLocalBinds = asks tcEnvMonoLocalBinds
