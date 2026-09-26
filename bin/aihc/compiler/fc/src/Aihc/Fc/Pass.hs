@@ -20,6 +20,7 @@ where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.ConstantLift (liftConstants)
+import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
@@ -41,6 +42,10 @@ data Pass
     PassSimplify !Int
   | -- | Share closed constructor expressions through private constants.
     PassLiftConstants
+  | -- | Demand analysis, then a case for every strict let, and with
+    -- 'StrictLetsAndArguments' for every strict argument of a saturated
+    -- call. @Aihc.Fc.Demand@.
+    PassDemand !DemandRewrites
   deriving (Eq, Show)
 
 -- | The phase a pass runs in. Phases count down as GHC's do, from 2 to
@@ -50,6 +55,7 @@ passPhase pass =
   case pass of
     PassLiftConstants -> Nothing
     PassEtaExpand -> Nothing
+    PassDemand _ -> Nothing
     PassInline _ _ phase -> Just phase
     PassSimplify phase -> Just phase
 
@@ -67,6 +73,8 @@ passName :: Pass -> Text
 passName pass =
   case pass of
     PassLiftConstants -> "lift constants"
+    PassDemand StrictLetsOnly -> "demand"
+    PassDemand StrictLetsAndArguments -> "demand arguments"
     PassEtaExpand -> "eta expand"
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
     PassSimplify phase -> "simplify [" <> T.pack (show phase) <> "]"
@@ -84,6 +92,16 @@ runPass roots pass program =
                 reportBefore = programSize program,
                 reportAfter = programSize lifted,
                 reportDetail = count constants "constants" <> ", " <> count sites "sites"
+              }
+          )
+    PassDemand rewrites ->
+      let (rewritten, report) = demandProgram rewrites program
+       in ( rewritten,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize program,
+                reportAfter = programSize rewritten,
+                reportDetail = count (reportStrictValues report) "strict values" <> ", " <> count (reportStrictLets report) "strict lets" <> ", " <> count (reportStrictArguments report) "strict arguments"
               }
           )
     PassEtaExpand ->

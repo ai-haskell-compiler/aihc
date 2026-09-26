@@ -12,8 +12,11 @@ module Aihc.Fc
     pruneProgram,
     inlineProgram,
     etaExpandProgram,
+    demandProgram,
     simplifyProgram,
     EtaReport (..),
+    DemandReport (..),
+    DemandRewrites (..),
     InlineConfig (..),
     InlinePolicy (..),
     shrinkPolicy,
@@ -40,6 +43,7 @@ module Aihc.Fc
 where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
+import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)

@@ -1041,13 +1041,22 @@ caseOfCaseRaw env scrutinee binder resultType alternatives
     -- The case binder is a parameter of every join point: each copy of
     -- the small case binds it under a fresh name, and the call passes
     -- that name.
+    --
+    -- The join point takes fresh parameters. Its body is simplified where
+    -- the call lands, inside an alternative of the scrutinee, and a
+    -- binder of that alternative may carry the same name as the case
+    -- binder or an alternative binder: the two were siblings in the
+    -- tidied program. The environment is keyed by name and assumes that
+    -- no binder shadows another, so a parameter under the old name would
+    -- take the value that the inner binder holds.
     joinPoint alternative
       | isTrivial (altRhs alternative) || not (null (altTypeBinders alternative)) = pure (Nothing, alternative)
       | otherwise = do
           name <- freshLocal (binderName binder)
           let binders = binder : altBinders alternative
               call = rebuildSpine (ExVar name) (map (Right . ExVar . binderName) binders)
-          pure (Just (name, foldr ExLam (altRhs alternative) binders), alternative {altRhs = call})
+          body <- freshenExpr (foldr ExLam (altRhs alternative) binders)
+          pure (Just (name, body), alternative {altRhs = call})
 
 -- | Push a small case, whose alternatives call join points, into the
 -- tails of a simplified expression. A tail that is a case takes the
