@@ -67,6 +67,7 @@ library
     Aihc.Tc.Solve.FunDep
     Aihc.Tc.Solve.InertSet
     Aihc.Tc.Solve.Injective
+    Aihc.Tc.Solve.Interact
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy
     Aihc.Tc.Unify
