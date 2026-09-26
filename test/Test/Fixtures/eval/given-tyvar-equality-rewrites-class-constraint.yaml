@@ -1,0 +1,52 @@
+extensions:
+- TypeFamilies
+- MultiParamTypeClasses
+- FunctionalDependencies
+- FlexibleInstances
+- FlexibleContexts
+- DefaultSignatures
+modules:
+- |
+  module Test where
+  import Data.IORef
+
+  class HasGetter t a | t -> a where
+    get :: t -> IO a
+
+  class HasSetter t a | t -> a where
+    set :: t -> a -> IO ()
+
+  class HasSetter t b => HasUpdate t a b | t -> a b where
+    update :: t -> (a -> b) -> IO ()
+    default update :: (a ~ b, HasGetter t a) => t -> (a -> b) -> IO ()
+    update = defaultUpdate
+
+  defaultUpdate :: (a ~ b, HasGetter t a, HasSetter t a) => t -> (a -> b) -> IO ()
+  defaultUpdate r f = do
+    a <- get r
+    set r (f a)
+
+  instance HasGetter (IORef a) a where
+    get = readIORef
+
+  instance HasSetter (IORef a) a where
+    set = writeIORef
+
+  instance HasUpdate (IORef a) a a
+
+  result :: IO Int
+  result = do
+    r <- newIORef (20 :: Int)
+    update r (+ 22)
+    get r
+expression: result
+output: |
+  I# 42
+status: pass
+reason: |
+  A given equality between two type variables rewrites a class constraint.
+  The wanted HasSetter t b matches the given HasSetter t a through a ~ b.
+  The wanted HasSetter t a matches the superclass HasSetter t b through a ~ b.
+
+evaluators:
+- grin

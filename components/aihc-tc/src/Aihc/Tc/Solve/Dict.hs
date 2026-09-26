@@ -468,10 +468,20 @@ typeableArguments ty =
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
 
--- | The given equalities that rewrite a type family application, oriented
--- from the family application to the other side. A given whose two sides
--- are both family applications rewrites nothing. The coercion proves
--- @from ~ to@.
+-- | The given equalities that rewrite a type in a wanted, with the coercion
+-- that proves @from ~ to@.
+--
+-- A given with a type family application on one side is oriented from the
+-- family application to the other side. A given whose two sides are both
+-- family applications rewrites nothing.
+--
+-- A given between two type variables, or between a type variable and a
+-- type that is not a family application, rewrites the variable. Both
+-- directions are rules because a wanted can mention either side: with
+-- @a ~ b@ the wanted @HasSetter t a@ becomes @HasSetter t b@, which a
+-- superclass gives, and the wanted @HasSetter t b@ becomes @HasSetter t a@,
+-- which a given gives. The rewrite does not loop: 'rewriteWithRules'
+-- rewrites each position once, and the visited list stops the solver.
 familyRewriteRules :: [Pred] -> TcM [(TcType, TcType, Coercion)]
 familyRewriteRules givens = do
   equalities <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
@@ -483,7 +493,13 @@ familyRewriteRules givens = do
       pure $ case (leftIsFamily, rightIsFamily) of
         (True, False) -> [(left, right, proof)]
         (False, True) -> [(right, left, Sym proof)]
-        _ -> []
+        (True, True) -> []
+        (False, False) ->
+          [(left, right, proof) | isTyVar left, not (sameType left right)]
+            <> [(right, left, Sym proof) | isTyVar right, not (sameType left right)]
+    isTyVar ty = case ty of
+      TcTyVar {} -> True
+      _ -> False
 
 -- | Rewrite every occurrence of a rule's left side, outermost first, and
 -- prove the result equal to the original by congruence. Types under a
