@@ -14,6 +14,7 @@ module Aihc.Tc.Solve.Dict
     isCallStackPred,
     reportUnsolvedDict,
     classFieldTypes,
+    mostSpecificInstances,
   )
 where
 

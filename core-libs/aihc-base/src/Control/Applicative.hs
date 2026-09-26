@@ -21,6 +21,7 @@ where
 import Control.Arrow (Arrow (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
 import Foreign.Storable (Storable (..))
+import GHC.List (drop)
 import GHC.Ptr (castPtr)
 import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Traversable (..), const, (++), (<$>))
 
@@ -95,7 +96,7 @@ instance (Arrow a) => Applicative (WrappedArrow a b) where
     WrapArrow ((functions &&& values) >>> arr (\(function, value) -> function value))
 
 newtype ZipList a = ZipList {getZipList :: [a]}
-  deriving newtype (Functor)
+  deriving newtype (Eq, Ord, Functor)
 
 instance Foldable ZipList where
   foldr step initial (ZipList values) = foldr step initial values
@@ -108,6 +109,13 @@ instance Traversable ZipList where
 instance Applicative ZipList where
   pure value = ZipList (repeatZipList value)
   ZipList functions <*> ZipList values = ZipList (applyZipList functions values)
+
+-- | The empty list is the identity. The alternative appends the part of
+-- the second list that goes past the first one, so the length of the
+-- result is the longer length.
+instance Alternative ZipList where
+  empty = ZipList []
+  ZipList left <|> ZipList right = ZipList (left ++ drop (length left) right)
 
 class (Applicative f) => Alternative f where
   empty :: f a
