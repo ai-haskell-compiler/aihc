@@ -50,6 +50,7 @@ import GHC.Prim
     (>#),
   )
 import GHC.Prim.Enum (Bounded (..), Enum (..))
+import GHC.Tuple (Solo (..))
 import GHC.Types (Ordering (..), VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
@@ -102,6 +103,10 @@ instance Enum () where
 
 unitCycle :: [()]
 unitCycle = () : unitCycle
+
+instance (Bounded a) => Bounded (Solo a) where
+  minBound = MkSolo minBound
+  maxBound = MkSolo maxBound
 
 instance Bounded Bool where
   minBound = False

@@ -146,6 +146,32 @@ let
       ];
     }
     {
+      name = "data-default";
+      version = "0.8.0.2";
+      hash = "sha256-u3ida68KfdhGpHs4LiStuv49lsffxypf15dYYIHYcd4=";
+      dependencies = [
+        {
+          name = "array";
+          version = "0.5.8.0";
+          hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+          revision = {
+            number = 2;
+            hash = "sha256-zLz7SYAd4SjK+EBLy62ZzVXMsbZZB7tTkQ2j1h7Aw5s=";
+          };
+        }
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
+        }
+        {
+          name = "containers";
+          version = "0.8";
+          hash = "sha256-zCP93Ma5w+FZO/OyqHgISrQXzHKipfxzeTAQ6ST1tRo=";
+        }
+      ];
+    }
+    {
       name = "binary";
       version = "0.8.9.3";
       hash = "sha256-bbZd+kxUyizC0ojW0FIBmkyC9asBClfJNPfuE99EtDc=";

@@ -28,6 +28,7 @@ import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, (+#))
+import GHC.Tuple (Solo (..))
 
 class Foldable (t :: Type -> Type) where
   fold :: (Monoid m) => t m -> m
@@ -171,6 +172,12 @@ instance Foldable (Either e) where
 instance Foldable ((,) e) where
   foldr f initial (_, value) = f value initial
   foldl f initial (_, value) = f initial value
+  null _ = False
+
+instance Foldable Solo where
+  foldr f initial (MkSolo value) = f value initial
+  foldl f initial (MkSolo value) = f initial value
+  toList (MkSolo value) = [value]
   null _ = False
 
 instance Foldable Proxy where

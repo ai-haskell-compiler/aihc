@@ -34,6 +34,7 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | deepseq | 1.5.2.0 |
 | array | 0.5.8.0 |
 | containers | 0.8 |
+| data-default | 0.8.0.2 |
 | bytestring | 0.12.2.0 |
 | binary | 0.8.9.3 |
 | transformers | 0.6.3.0 |
