@@ -3876,13 +3876,13 @@ desugarDo resultType statements =
           desugarLocalDecls declarations (pure resultType) (desugarDo resultType rest)
         Syn.DoBind pattern' action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
-          bind <- desugarResolvedOccurrence annotation resolution
+          bind <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
           continuation <- desugarDoPatternContinuation resultType annotation pattern' rest
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
-          method <- desugarResolvedOccurrence annotation resolution
+          method <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
           continuation <- desugarDo resultType rest
           pure (ExApp (ExApp method action') continuation)
@@ -4057,6 +4057,24 @@ directPatternBindings pattern' binder ty =
       innerResult <- directPatternBindings inner binder ty
       pure ((outer <>) <$> innerResult)
     _ -> pure Nothing
+
+-- | The sequencing method of a @do@ statement, cast onto the type the
+-- statement uses it at when a given equality made it fit. The statement has
+-- no expression node for the method, so the cast is a statement annotation.
+desugarDoMethod :: Syn.DoStmt Syn.Expr -> TcAnnotation -> ResolutionAnnotation -> ValueM Expr
+desugarDoMethod statement annotation resolution = do
+  method <- desugarResolvedOccurrence annotation resolution
+  case doMethodCast statement of
+    Just proof -> withCoercion proof (pure . ExCast method)
+    Nothing -> pure method
+
+doMethodCast :: Syn.DoStmt body -> Maybe Ev.Coercion
+doMethodCast statement =
+  case statement of
+    Syn.DoAnn annotation inner
+      | Just (TcCastAnnotation proof) <- Syn.fromAnnotation annotation -> Just proof
+      | otherwise -> doMethodCast inner
+    _ -> Nothing
 
 peelDoStatement :: Syn.DoStmt body -> Syn.DoStmt body
 peelDoStatement statement =
