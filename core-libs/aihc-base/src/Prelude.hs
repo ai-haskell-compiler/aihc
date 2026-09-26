@@ -157,6 +157,7 @@ where
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
+import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, map, ($), (++), (.))
 import GHC.Base qualified
@@ -199,7 +200,7 @@ import GHC.Real
     (^^),
   )
 import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
-import GHC.Tuple ()
+import GHC.Tuple (Solo (..))
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
 
@@ -489,6 +490,15 @@ instance (Ord a, Ord b) => Ord (Either a b) where
   max = maxBy compareEither
   min = minBy compareEither
 
+instance (Ord a) => Ord (Solo a) where
+  compare = compareSolo
+  left < right = lessBy compareSolo left right
+  left <= right = lessOrEqualBy compareSolo left right
+  left > right = greaterBy compareSolo left right
+  left >= right = greaterOrEqualBy compareSolo left right
+  max = maxBy compareSolo
+  min = minBy compareSolo
+
 instance (Ord a, Ord b) => Ord (a, b) where
   compare = comparePair
   left < right = lessBy comparePair left right
@@ -564,6 +574,9 @@ compareEither (Left x) (Left y) = compare x y
 compareEither (Left _) (Right _) = LT
 compareEither (Right _) (Left _) = GT
 compareEither (Right x) (Right y) = compare x y
+
+compareSolo :: (Ord a) => Solo a -> Solo a -> Ordering
+compareSolo (MkSolo left) (MkSolo right) = compare left right
 
 comparePair :: (Ord a, Ord b) => (a, b) -> (a, b) -> Ordering
 comparePair (leftA, leftB) (rightA, rightB) =
@@ -675,6 +688,13 @@ instance (Show a, Show b) => Show (Either a b) where
     showParen (precedence > 10) (showString "Left " . showsPrec 11 value)
   showsPrec precedence (Right value) =
     showParen (precedence > 10) (showString "Right " . showsPrec 11 value)
+
+instance (Show a) => Show (Solo a) where
+  showsPrec precedence (MkSolo value) =
+    showParen (precedence > 10) (showString "MkSolo " . showsPrec 11 value)
+
+instance Show (Proxy s) where
+  showsPrec _ _ = showString "Proxy"
 
 instance (Show a, Show b) => Show (a, b) where
   showsPrec _ (first, second) =
@@ -911,6 +931,29 @@ instance Functor (Either e) where
 
 instance Functor ((,) a) where
   fmap f (first, second) = (first, f second)
+
+instance Functor Solo where
+  fmap f (MkSolo value) = MkSolo (f value)
+
+instance Applicative Solo where
+  pure = MkSolo
+  MkSolo f <*> MkSolo value = MkSolo (f value)
+
+instance Monad Solo where
+  MkSolo value >>= next = next value
+
+instance Traversable Solo where
+  traverse f (MkSolo value) = fmap MkSolo (f value)
+
+instance Applicative Proxy where
+  pure _ = Proxy
+  _ <*> _ = Proxy
+
+instance Monad Proxy where
+  _ >>= _ = Proxy
+
+instance Traversable Proxy where
+  traverse _ _ = pure Proxy
 
 instance (Monoid a) => Applicative ((,) a) where
   pure value = (mempty, value)
