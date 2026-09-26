@@ -23,6 +23,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
+import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
@@ -31,7 +32,7 @@ import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.Solve.Worklist
-import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique, mkAppTy)
+import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (when)
 
@@ -246,31 +247,6 @@ canonicalizeGiven ct = case ctPred ct of
           case children of
             Just pairs -> concat <$> mapM (uncurry decomposeEq) pairs
             Nothing -> pure [(t1, t2)]
-
--- | Apply a list of given equalities as a substitution to a type.
--- Each given @(lhs, rhs)@ rewrites occurrences of @lhs@ with @rhs@.
-applyGivenSubst :: [(TcType, TcType)] -> TcType -> TcType
-applyGivenSubst givens ty = foldr applyOne ty givens
-  where
-    applyOne (lhs, rhs) t
-      | t == lhs = rhs
-      | otherwise =
-          case t of
-            TcTyCon tc args -> TcTyCon tc (map (applyOne (lhs, rhs)) args)
-            TcFunTy a b -> TcFunTy (applyOne (lhs, rhs) a) (applyOne (lhs, rhs) b)
-            TcAppTy f a -> mkAppTy (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)
-            TcForAllTy tv body -> TcForAllTy tv (applyOne (lhs, rhs) body)
-            TcQualTy predicates body ->
-              TcQualTy (map (applyOnePred (lhs, rhs)) predicates) (applyOne (lhs, rhs) body)
-            _ -> t
-    applyOnePred equality predicate =
-      case predicate of
-        ClassPred className arguments -> ClassPred className (map (applyOne equality) arguments)
-        EqPred left right -> EqPred (applyOne equality left) (applyOne equality right)
-        IParamPred name payload -> IParamPred name (applyOne equality payload)
-        IrredPred constraint -> IrredPred (applyOne equality constraint)
-        QuantifiedPred variables antecedents consequent ->
-          QuantifiedPred variables (map (applyOnePred equality) antecedents) (applyOnePred equality consequent)
 
 -- | Attempt to solve a wanted constraint using given equalities.
 -- Equality evidence must prove the original endpoints.
