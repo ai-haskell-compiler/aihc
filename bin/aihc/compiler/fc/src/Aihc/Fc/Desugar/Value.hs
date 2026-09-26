@@ -2074,8 +2074,7 @@ desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals)
           compile (current <> matchBinderLocals extra) rest
       | isOverloadedLiteralPattern pattern' = do
           test <- desugarOverloadedLiteralPatternTest (ExVar (binderName argument)) pattern'
-          testType <- requiredPatternMethodResultType "==" pattern'
-          testBinder <- freshBinder "_case_guard" testType
+          testBinder <- literalTestBinder "_case_guard" pattern'
           resultType' <- convertCheckedType resultType
           trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
           falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
@@ -2117,9 +2116,20 @@ overloadedPatternFailure resultType arguments = do
       pure (ExCase (ExVar (binderName argument)) failureBinder resultType' [])
     [] -> failValue "overloaded literal match has no argument"
 
--- | The test of an overloaded literal pattern. The literal converts with
+-- | The binder of the result of a literal test. An overloaded literal
+-- compares with the equality method of its type, and a plain string literal
+-- compares with @eqString@, which gives a @Bool@.
+literalTestBinder :: Text -> Syn.Pattern -> ValueM Binder
+literalTestBinder hint pattern' =
+  case overloadedPatternValue pattern' of
+    Just (PlainString _, _) -> do
+      boolName <- primitiveName "GHC.Types" "Bool" SortTypeConstructor
+      freshBinderFromType hint (TyCon boolName)
+    _ -> freshBinder hint =<< requiredPatternMethodResultType "==" pattern'
+
+-- | The test of a literal pattern. An overloaded literal converts with
 -- fromInteger, fromRational or fromString, and the equality method compares
--- it with the scrutinee.
+-- it with the scrutinee. A plain string literal compares with @eqString@.
 desugarOverloadedLiteralPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
 desugarOverloadedLiteralPatternTest scrutinee pattern' = do
   (value, negative) <-
@@ -2127,20 +2137,26 @@ desugarOverloadedLiteralPatternTest scrutinee pattern' = do
       (failValue ("invalid overloaded literal pattern: " <> take 80 (show pattern')))
       pure
       (overloadedPatternValue pattern')
-  positive <-
-    case value of
-      OverloadedInteger integer ->
-        ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
-      OverloadedRational rational ->
-        ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
-      OverloadedString string ->
-        ExApp <$> desugarPatternMethod "fromString" pattern' <*> desugarStringValue string
-  patternValue <-
-    if negative
-      then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
-      else pure positive
-  equality <- desugarPatternMethod "==" pattern'
-  pure (ExApp (ExApp equality scrutinee) patternValue)
+  case value of
+    PlainString string -> do
+      eqString <- primitiveName "GHC.Prim.String" "eqString" SortValue
+      literal <- desugarStringValue string
+      pure (ExApp (ExApp (ExVar eqString) scrutinee) literal)
+    _ -> do
+      positive <-
+        case value of
+          OverloadedInteger integer ->
+            ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
+          OverloadedRational rational ->
+            ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
+          OverloadedString string ->
+            ExApp <$> desugarPatternMethod "fromString" pattern' <*> desugarStringValue string
+      patternValue <-
+        if negative
+          then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
+          else pure positive
+      equality <- desugarPatternMethod "==" pattern'
+      pure (ExApp (ExApp equality scrutinee) patternValue)
 
 desugarPatternMethod :: Text -> Syn.Pattern -> ValueM Expr
 desugarPatternMethod name pattern' = do
@@ -2181,11 +2197,16 @@ patternOccurrence target = go Nothing
         Syn.PTypeSig inner _ -> go currentType inner
         _ -> Nothing
 
--- | The value of an overloaded literal pattern.
+-- | The value of a literal pattern that compares with an equality test.
 data OverloadedLiteral
   = OverloadedInteger Integer
   | OverloadedRational Rational
   | OverloadedString Text
+  | -- | A string literal of two or more characters without
+    -- OverloadedStrings. It compares with @eqString@, as in GHC, and not
+    -- character by character: one test per equation makes much less code
+    -- than a match on each character of each literal.
+    PlainString Text
 
 isOverloadedLiteralPattern :: Syn.Pattern -> Bool
 isOverloadedLiteralPattern = isJust . overloadedPatternValue
@@ -2195,8 +2216,9 @@ overloadedPatternValue :: Syn.Pattern -> Maybe (OverloadedLiteral, Bool)
 overloadedPatternValue pattern' = go pattern'
   where
     -- OverloadedStrings converts a string pattern with fromString. Without
-    -- the extension the resolver leaves the pattern alone and its characters
-    -- match one by one.
+    -- the extension the resolver leaves the pattern alone. A literal of two
+    -- or more characters then compares with eqString, and a shorter one
+    -- matches as the list of its characters, as in GHC.
     overloadedString = isJust (patternOccurrence "fromString" pattern')
     go inner' =
       case inner' of
@@ -2215,7 +2237,9 @@ overloadedLiteralValue overloadedString literal =
   case Syn.peelLiteralAnn literal of
     Syn.LitInt value Syn.TInteger _ -> Just (OverloadedInteger value)
     Syn.LitFloat value Syn.TFractional _ -> Just (OverloadedRational value)
-    Syn.LitString value _ | overloadedString -> Just (OverloadedString value)
+    Syn.LitString value _
+      | overloadedString -> Just (OverloadedString value)
+      | T.compareLength value 2 /= LT -> Just (PlainString value)
     _ -> Nothing
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
@@ -3890,8 +3914,7 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
           -- An overloaded literal compares with the equality
           -- method of its type, as in a function equation.
           test <- desugarOverloadedLiteralPatternTest (ExVar (binderName binder)) pattern'
-          testType <- requiredPatternMethodResultType "==" pattern'
-          testBinder <- freshBinder "_literal_guard" testType
+          testBinder <- literalTestBinder "_literal_guard" pattern'
           resultType' <- convertCheckedType resultType
           trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
           falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
