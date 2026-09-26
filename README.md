@@ -16,16 +16,16 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `770/5013` (`15.36%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
+| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `776/5013` (`15.48%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
 | aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `2111/10061` (`20.98%`) ●○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
-| Self-compile       | <!-- AUTO-GENERATED: START self-hosting-progress --> `47/118` (`39.83%`) ●○○○○ <!-- AUTO-GENERATED: END self-hosting-progress --> |
+| Self-compile       | <!-- AUTO-GENERATED: START self-hosting-progress --> `69/118` (`58.47%`) ●●○○○ <!-- AUTO-GENERATED: END self-hosting-progress --> |
 | &nbsp; | &nbsp; |
-| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `644/649` (`99.22%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
+| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `656/661` (`99.24%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `118/118` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 47 install, 13 fail, 58 wait for a dependency</summary>
+<summary>Self-compile packages: 69 install, 14 fail, 35 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -36,7 +36,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | assoc | 1.1.1 | ✅ installs |
 | atomic-counter | 0.1.2.4 | ✅ installs |
 | base-orphans | 0.9.4 | ✅ installs |
-| basement | 0.0.16 | ❌ fails (readCreateProcess: /nix/store/4jmqqwmv1gp4aipw0facwcxjdi283dcf-hsc2hs-0.68.10/bin/hsc2hs "--version" (exit 1): failed) |
+| basement | 0.0.16 | ❌ fails (kind mismatch: expected Constraint, got Type) |
 | byteorder | 1.0.4 | ✅ installs |
 | character-ps | 0.1 | ✅ installs |
 | colour | 2.3.7 | ✅ installs |
@@ -50,14 +50,14 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | binary | 0.8.9.3 | ✅ installs |
 | cereal | 0.5.8.3 | ✅ installs |
 | cryptohash-sha256 | 0.11.102.1 | ✅ installs |
-| data-default | 0.8.0.2 | ❌ fails (unsolved constraint Monoid (Proxy a)) |
-| data-default-class | 0.2.0.0 | ⏸️ needs `data-default` |
+| data-default | 0.8.0.2 | ✅ installs |
+| data-default-class | 0.2.0.0 | ✅ installs |
 | dlist | 1.0 | ✅ installs |
 | ghc-bignum | 1.3 | ✅ installs |
 | hourglass | 0.2.12 | ✅ installs |
 | integer-gmp | 1.1 | ❌ fails (module ‘GHC.Num.Primitives’ not found) |
 | integer-logarithms | 1.0.5 | ✅ installs |
-| libffi | 0.2.1 | ❌ fails (readCreateProcess: /nix/store/4jmqqwmv1gp4aipw0facwcxjdi283dcf-hsc2hs-0.68.10/bin/hsc2hs "--version" (exit 1): failed) |
+| libffi | 0.2.1 | ❌ fails ('ffi.h' file not found) |
 | memory | 0.18.0 | ⏸️ needs `basement` |
 | asn1-types | 0.3.4 | ⏸️ needs `memory` |
 | asn1-encoding | 0.9.6 | ⏸️ needs `asn1-types` |
@@ -76,79 +76,79 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | prettyprinter | 1.7.2 | ✅ installs |
 | prettyprinter-ansi-terminal | 1.1.4 | ✅ installs |
 | th-abstraction | 0.7.2.0 | ✅ installs |
-| th-compat | 0.1.7 | ❌ fails (kind mismatch: expected r, got r) |
-| time | 1.14 | ❌ fails (readCreateProcess: /nix/store/4jmqqwmv1gp4aipw0facwcxjdi283dcf-hsc2hs-0.68.10/bin/hsc2hs "--version" (exit 1): failed) |
-| cookie | 0.5.1 | ⏸️ needs `data-default-class`, `time` |
+| th-compat | 0.1.7 | ✅ installs |
+| time | 1.14 | ✅ installs |
+| cookie | 0.5.1 | ✅ installs |
 | transformers | 0.6.3.0 | ✅ installs |
-| StateVar | 1.2.2 | ❌ fails (unsolved constraint HasSetter t a) |
-| contravariant | 1.5.6 | ⏸️ needs `StateVar` |
+| StateVar | 1.2.2 | ✅ installs |
+| contravariant | 1.5.6 | ❌ fails (unsolved constraint Contravariant (Alt f)) |
 | crypton-x509 | 1.7.7 | ⏸️ needs `asn1-encoding`, `asn1-parse`, `asn1-types`, `crypton`, `memory`, `pem` |
 | distributive | 0.6.3 | ✅ installs |
-| indexed-traversable | 0.1.5 | ❌ fails (not exported: term name ‘build’) |
-| comonad | 5.0.10 | ⏸️ needs `indexed-traversable` |
+| indexed-traversable | 0.1.5 | ✅ installs |
+| comonad | 5.0.10 | ❌ fails (FC generation failed: Data.Functor.Composition: kind still has a meta variable) |
 | bifunctors | 5.6.3 | ⏸️ needs `comonad` |
 | mtl | 2.3.2 | ✅ installs |
 | exceptions | 0.10.12 | ✅ installs |
 | filepath | 1.4.301.0 | ✅ installs |
 | aihc-cpp | 2.0.0.0 | ✅ installs |
 | os-string | 2.0.11 | ✅ installs |
-| hashable | 1.5.1.0 | ❌ fails (Lir backend failed: LlvmLirLintErrors [LintError {lintErrorSymbol = Just (Symbol {unSymbol = "hashable__m1__d5__d1__d0_D) |
-| case-insensitive | 1.2.1.0 | ⏸️ needs `hashable` |
-| data-fix | 0.3.4 | ⏸️ needs `hashable` |
-| http-types | 0.12.6 | ⏸️ needs `case-insensitive` |
+| hashable | 1.5.1.0 | ✅ installs |
+| case-insensitive | 1.2.1.0 | ✅ installs |
+| data-fix | 0.3.4 | ❌ fails (unsolved constraint Eq (f (Fix f))) |
+| http-types | 0.12.6 | ✅ installs |
 | parsec | 3.1.18.0 | ✅ installs |
-| network-uri | 2.6.4.2 | ⏸️ needs `th-compat` |
+| network-uri | 2.6.4.2 | ❌ fails (FC generation failed: Network.URI: unsupported System FC pattern literal: LitString "" "\"\"") |
 | primitive | 0.9.1.0 | ✅ installs |
 | integer-conversion | 0.1.1 | ✅ installs |
 | random | 1.3.1 | ✅ installs |
 | QuickCheck | 2.18.0.0 | ✅ installs |
-| scientific | 0.3.8.1 | ⏸️ needs `hashable` |
-| megaparsec | 9.8.3 | ⏸️ needs `case-insensitive`, `scientific` |
-| aihc-parser | 4.0.0.0 | ⏸️ needs `megaparsec` |
-| aihc-resolve | 0.1.0.0 | ⏸️ needs `aihc-parser` |
-| aihc-tc | 0.1.0.0 | ⏸️ needs `aihc-parser`, `aihc-resolve` |
-| text-short | 0.1.6.1 | ⏸️ needs `hashable` |
-| these | 1.2.1 | ⏸️ needs `hashable` |
-| strict | 0.5.1 | ⏸️ needs `hashable`, `these` |
-| time-compat | 1.9.9 | ⏸️ needs `hashable`, `time` |
-| text-iso8601 | 0.1.1.2 | ⏸️ needs `time`, `time-compat` |
-| transformers-compat | 0.7.2 | ❌ fails (unbound term name ‘<=##’) |
-| unix | 2.8.8.0 | ⏸️ needs `time` |
+| scientific | 0.3.8.1 | ✅ installs |
+| megaparsec | 9.8.3 | ✅ installs |
+| aihc-parser | 4.0.0.0 | ✅ installs |
+| aihc-resolve | 0.1.0.0 | ❌ fails (unbound term name ‘DeclRules’) |
+| aihc-tc | 0.1.0.0 | ⏸️ needs `aihc-resolve` |
+| text-short | 0.1.6.1 | ❌ fails (not exported: term name ‘assert’) |
+| these | 1.2.1 | ✅ installs |
+| strict | 0.5.1 | ✅ installs |
+| time-compat | 1.9.9 | ✅ installs |
+| text-iso8601 | 0.1.1.2 | ✅ installs |
+| transformers-compat | 0.7.2 | ✅ installs |
+| unix | 2.8.8.0 | ❌ fails (invalid redefinition of function 'write') |
 | directory-ospath-streaming | 0.3 | ⏸️ needs `unix` |
 | file-io | 0.1.6 | ⏸️ needs `unix` |
-| directory | 1.3.10.1 | ⏸️ needs `file-io`, `time`, `unix` |
-| Cabal-syntax | 3.16.1.0 | ⏸️ needs `directory`, `time` |
+| directory | 1.3.10.1 | ⏸️ needs `file-io`, `unix` |
+| Cabal-syntax | 3.16.1.0 | ⏸️ needs `directory` |
 | crypton-x509-store | 1.6.14 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `directory`, `pem`, `unix` |
 | network | 3.2.9.0 | ⏸️ needs `directory` |
 | crypton-socks | 0.6.2 | ⏸️ needs `network` |
 | iproute | 1.7.15 | ⏸️ needs `network` |
-| crypton-x509-validation | 1.6.14 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `crypton-x509-store`, `data-default`, `iproute`, `memory`, `pem` |
+| crypton-x509-validation | 1.6.14 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `crypton-x509-store`, `iproute`, `memory`, `pem` |
 | process | 1.6.30.0 | ⏸️ needs `directory`, `unix` |
-| Cabal | 3.16.1.0 | ⏸️ needs `Cabal-syntax`, `directory`, `process`, `time`, `unix` |
+| Cabal | 3.16.1.0 | ⏸️ needs `Cabal-syntax`, `directory`, `process`, `unix` |
 | crypton-x509-system | 1.6.8 | ⏸️ needs `crypton-x509`, `crypton-x509-store`, `directory`, `pem`, `process` |
 | haskeline | 0.8.5.0 | ⏸️ needs `directory`, `process`, `terminfo`, `unix` |
-| optparse-applicative | 0.18.1.0 | ⏸️ needs `process`, `transformers-compat` |
-| tar | 0.6.4.0 | ⏸️ needs `directory`, `directory-ospath-streaming`, `file-io`, `time` |
-| unix-time | 0.5.0 | ❌ fails (readCreateProcess: /nix/store/4jmqqwmv1gp4aipw0facwcxjdi283dcf-hsc2hs-0.68.10/bin/hsc2hs "--version" (exit 1): failed) |
-| unordered-containers | 0.2.21 | ⏸️ needs `hashable` |
-| async | 2.2.6 | ⏸️ needs `hashable`, `unordered-containers` |
-| semigroupoids | 6.0.2 | ⏸️ needs `bifunctors`, `comonad`, `contravariant`, `hashable`, `transformers-compat`, `unordered-containers` |
-| tls | 1.9.0 | ⏸️ needs `asn1-encoding`, `asn1-types`, `async`, `crypton`, `crypton-x509`, `crypton-x509-store`, `crypton-x509-validation`, `data-default-class`, `memory`, `network`, `unix-time` |
-| crypton-connection | 0.4.5 | ⏸️ needs `crypton-socks`, `crypton-x509-store`, `crypton-x509-system`, `data-default`, `network`, `tls` |
-| uuid-types | 1.0.6.1 | ⏸️ needs `hashable` |
+| optparse-applicative | 0.18.1.0 | ⏸️ needs `process` |
+| tar | 0.6.4.0 | ⏸️ needs `directory`, `directory-ospath-streaming`, `file-io` |
+| unix-time | 0.5.0 | ✅ installs |
+| unordered-containers | 0.2.21 | ✅ installs |
+| async | 2.2.6 | ✅ installs |
+| semigroupoids | 6.0.2 | ⏸️ needs `bifunctors`, `comonad`, `contravariant` |
+| tls | 1.9.0 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `crypton-x509-store`, `crypton-x509-validation`, `memory`, `network` |
+| crypton-connection | 0.4.5 | ⏸️ needs `crypton-socks`, `crypton-x509-store`, `crypton-x509-system`, `network`, `tls` |
+| uuid-types | 1.0.6.1 | ❌ fails (FC generation failed: Data.UUID.Types.Internal.Builder: application head is not a checked function: TcTyCon (TyConIntern) |
 | vector-stream | 0.1.0.1 | ✅ installs |
 | vector | 0.13.2.0 | ✅ installs |
-| indexed-traversable-instances | 0.1.2.1 | ⏸️ needs `indexed-traversable`, `unordered-containers` |
-| semialign | 1.4 | ⏸️ needs `hashable`, `indexed-traversable`, `indexed-traversable-instances`, `semigroupoids`, `these`, `unordered-containers` |
-| witherable | 0.5 | ⏸️ needs `hashable`, `indexed-traversable`, `indexed-traversable-instances`, `unordered-containers` |
-| aeson | 2.2.5.1 | ⏸️ needs `data-fix`, `hashable`, `indexed-traversable`, `network-uri`, `scientific`, `semialign`, `strict`, `text-iso8601`, `text-short`, `these`, `time`, `time-compat`, `unordered-containers`, `uuid-types`, `witherable` |
-| zlib | 0.7.1.1 | ❌ fails (readCreateProcess: /nix/store/4jmqqwmv1gp4aipw0facwcxjdi283dcf-hsc2hs-0.68.10/bin/hsc2hs "--version" (exit 1): failed) |
-| streaming-commons | 0.2.3.1 | ⏸️ needs `async`, `directory`, `network`, `process`, `unix`, `zlib` |
-| http-client | 0.7.19 | ⏸️ needs `async`, `case-insensitive`, `cookie`, `http-types`, `iproute`, `network`, `network-uri`, `streaming-commons`, `time` |
-| http-client-tls | 0.3.6.4 | ⏸️ needs `case-insensitive`, `crypton`, `crypton-connection`, `data-default`, `http-client`, `http-types`, `memory`, `network`, `network-uri`, `tls` |
-| aihc-hackage | 0.1.0.0 | ⏸️ needs `Cabal`, `Cabal-syntax`, `directory`, `http-client`, `http-client-tls`, `http-types`, `tar`, `time`, `zlib` |
-| aihc-package-plan | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `aihc-parser`, `directory`, `time` |
-| aihc | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `aihc-package-plan`, `aihc-parser`, `aihc-resolve`, `aihc-tc`, `async`, `directory`, `haskeline`, `libffi`, `megaparsec`, `optparse-applicative`, `process`, `unix` |
+| indexed-traversable-instances | 0.1.2.1 | ✅ installs |
+| semialign | 1.4 | ⏸️ needs `semigroupoids` |
+| witherable | 0.5 | ❌ fails (not exported: term name ‘bool’) |
+| aeson | 2.2.5.1 | ⏸️ needs `data-fix`, `network-uri`, `semialign`, `text-short`, `uuid-types`, `witherable` |
+| zlib | 0.7.1.1 | ❌ fails ('zlib.h' file not found) |
+| streaming-commons | 0.2.3.1 | ⏸️ needs `directory`, `network`, `process`, `unix`, `zlib` |
+| http-client | 0.7.19 | ⏸️ needs `iproute`, `network`, `network-uri`, `streaming-commons` |
+| http-client-tls | 0.3.6.4 | ⏸️ needs `crypton`, `crypton-connection`, `http-client`, `memory`, `network`, `network-uri`, `tls` |
+| aihc-hackage | 0.1.0.0 | ⏸️ needs `Cabal`, `Cabal-syntax`, `directory`, `http-client`, `http-client-tls`, `tar`, `zlib` |
+| aihc-package-plan | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `directory` |
+| aihc | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `aihc-package-plan`, `aihc-resolve`, `aihc-tc`, `directory`, `haskeline`, `libffi`, `optparse-applicative`, `process`, `unix` |
 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->
