@@ -91,7 +91,7 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | random | 1.3.1 | hackage:0 | bytestring, deepseq, mtl, splitmix, transformers |
 | QuickCheck | 2.18.0.0 | hackage:0 | containers, deepseq, random, splitmix, transformers |
 | scientific | 0.3.8.1 | hackage:0 | binary, bytestring, containers, deepseq, hashable, integer-logarithms, primitive, text |
-| megaparsec | 9.8.2 | hackage:0 | array, bytestring, case-insensitive, containers, deepseq, mtl, parser-combinators, scientific, text, transformers |
+| megaparsec | 9.8.3 | hackage:0 | array, bytestring, case-insensitive, containers, deepseq, mtl, parser-combinators, scientific, text, transformers |
 | aihc-parser | 4.0.0.0 | hackage:0 | bytestring, containers, deepseq, megaparsec, prettyprinter, text |
 | aihc-resolve | 0.1.0.0 | local:components/aihc-resolve | aihc-parser, containers, deepseq, text |
 | aihc-tc | 0.1.0.0 | local:components/aihc-tc | aihc-parser, aihc-resolve, containers, deepseq, text, transformers |
@@ -130,7 +130,7 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | semialign | 1.4 | hackage:0 | containers, hashable, indexed-traversable, indexed-traversable-instances, semigroupoids, tagged, these, unordered-containers, vector |
 | witherable | 0.5 | hackage:2 | base-orphans, containers, hashable, indexed-traversable, indexed-traversable-instances, transformers, unordered-containers, vector |
 | aeson | 2.2.5.1 | hackage:0 | OneTuple, QuickCheck, bytestring, character-ps, containers, data-fix, deepseq, dlist, exceptions, hashable, indexed-traversable, integer-conversion, integer-logarithms, network-uri, primitive, scientific, semialign, strict, tagged, text, text-iso8601, text-short, th-abstraction, these, time, time-compat, unordered-containers, uuid-types, vector, witherable |
-| zlib | 0.7.1.1 | hackage:0 | bytestring |
+| zlib | 0.7.1.1 | hackage:1 | bytestring |
 | streaming-commons | 0.2.3.1 | hackage:0 | array, async, bytestring, directory, network, process, random, stm, text, transformers, unix, zlib |
 | http-client | 0.7.19 | hackage:0 | array, async, base64-bytestring, blaze-builder, bytestring, case-insensitive, containers, cookie, deepseq, exceptions, filepath, http-types, iproute, mime-types, network, network-uri, random, stm, streaming-commons, text, time, transformers |
 | http-client-tls | 0.3.6.4 | hackage:3 | bytestring, case-insensitive, containers, crypton, crypton-connection, data-default, exceptions, http-client, http-types, memory, network, network-uri, text, tls, transformers |
