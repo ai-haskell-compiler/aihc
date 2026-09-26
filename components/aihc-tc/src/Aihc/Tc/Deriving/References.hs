@@ -27,8 +27,10 @@ module Aihc.Tc.Deriving.References
     ReferencePackage (..),
     DerivingReferences (..),
     GenericReferences (..),
+    UnliftedFieldReferences (..),
     StockClassLocation (..),
     referenceIdentity,
+    unliftedFieldReferenceList,
     stockClassLocationMatches,
     derivingReferenceList,
     genericTermReferences,
@@ -112,6 +114,9 @@ data DerivingReferences = DerivingReferences
     -- | The primitive @Int#@ type, which types the precedence literals of
     -- derived @Show@ instances.
     derivingIntPrimType :: !DerivingReference,
+    -- | The unlifted field types that a derived @Eq@ or @Ord@ compares
+    -- with primitive operators, because no instance exists at them.
+    derivingUnliftedFields :: ![UnliftedFieldReferences],
     -- | The @(>=)@ method of @Ord@, compared on @Int@ precedences.
     derivingGreaterOrEqual :: !DerivingReference,
     -- | The list constructor @(:)@, which derived @Show@ renders through.
@@ -181,6 +186,25 @@ data DerivingReferences = DerivingReferences
     derivingRecognizedClasses :: ![(Text, Text)]
   }
   deriving (Eq, Show)
+
+-- | The names that compare one unlifted field type. A class has no
+-- instance at an unlifted type, so a derived @Eq@ or @Ord@ compares such a
+-- field with the primitive operators of its type, as GHC does for @Int#@,
+-- @Word#@, @Char#@, @Double#@, @Float#@, and @Addr#@. The operators return
+-- an @Int#@ that is @0#@ for false.
+data UnliftedFieldReferences = UnliftedFieldReferences
+  { -- | The primitive type, such as @Addr#@.
+    unliftedFieldType :: !DerivingReference,
+    -- | The equality operator of the type, such as @eqAddr#@.
+    unliftedFieldEq :: !DerivingReference,
+    -- | The less-than operator of the type, such as @ltAddr#@.
+    unliftedFieldLt :: !DerivingReference
+  }
+  deriving (Eq, Show)
+
+-- | Every name of one 'UnliftedFieldReferences'.
+unliftedFieldReferenceList :: UnliftedFieldReferences -> [DerivingReference]
+unliftedFieldReferenceList field = [unliftedFieldType field, unliftedFieldEq field, unliftedFieldLt field]
 
 -- | The names of @GHC.Generics@ that a derived @Generic@ instance mentions.
 --
@@ -340,4 +364,5 @@ derivingReferenceList references =
     derivingLiftDataConName references,
     derivingLiftCodeCoerce references
   ]
+    <> concatMap unliftedFieldReferenceList (derivingUnliftedFields references)
     <> genericReferenceList (derivingGeneric references)

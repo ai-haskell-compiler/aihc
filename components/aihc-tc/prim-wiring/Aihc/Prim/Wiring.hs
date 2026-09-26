@@ -36,6 +36,7 @@ import Aihc.Tc
     TcConfig,
     TcWiring (..),
     TyCon,
+    UnliftedFieldReferences (..),
     mkTcConfig,
     mkTyConWithNamespace,
   )
@@ -167,7 +168,15 @@ primDerivingReferences prim =
       derivingEQ = term "GHC.Types" NameConId "EQ",
       derivingGT = term "GHC.Types" NameConId "GT",
       derivingIntCon = term "GHC.Types" NameConId "I#",
-      derivingIntPrimType = DerivingReference ReferencePrimPackage "GHC.Prim" "Int#" NameConId ResolutionNamespaceType,
+      derivingIntPrimType = primType "Int#",
+      derivingUnliftedFields =
+        [ unliftedField "Int#" NameVarSym "==#" "<#",
+          unliftedField "Word#" NameVarId "eqWord#" "ltWord#",
+          unliftedField "Char#" NameVarId "eqChar#" "ltChar#",
+          unliftedField "Double#" NameVarSym "==##" "<##",
+          unliftedField "Float#" NameVarId "eqFloat#" "ltFloat#",
+          unliftedField "Addr#" NameVarId "eqAddr#" "ltAddr#"
+        ],
       derivingGreaterOrEqual = term "GHC.Classes" NameVarSym ">=",
       derivingCons = term "GHC.Types" NameConSym ":",
       derivingBind = term "GHC.Prim.Base" NameVarSym ">>=",
@@ -200,6 +209,12 @@ primDerivingReferences prim =
     thSyntaxModule = "GHC.Internal.TH.Syntax"
     term moduleName nameType name =
       DerivingReference ReferencePrimPackage moduleName name nameType ResolutionNamespaceTerm
+    primType name =
+      DerivingReference ReferencePrimPackage "GHC.Prim" name NameConId ResolutionNamespaceType
+    -- The two comparison operators of one unlifted type share a spelling
+    -- style: both symbolic, or both alphanumeric.
+    unliftedField typeName nameType equal less =
+      UnliftedFieldReferences (primType typeName) (term "GHC.Prim" nameType equal) (term "GHC.Prim" nameType less)
     -- The Template Haskell helpers live beside the Lift class, in a package
     -- whose identity this table cannot name.
     classTerm moduleName nameType name =
