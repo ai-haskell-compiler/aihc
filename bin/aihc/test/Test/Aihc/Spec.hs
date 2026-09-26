@@ -86,6 +86,7 @@ tests =
               testCase "parses the optimization level" test_buildModuleOptimizationOption,
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
+              testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
@@ -877,6 +878,23 @@ test_buildExecutables getStore =
       assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
     bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
     assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArchives bundle))
+
+-- | Two dependencies can each hold a module of one name, as @filepath@ and
+-- @os-string@ both hold @System.OsString.Internal.Types@. The facts of both
+-- modules reach the type checker, so the executable derives one instance
+-- for each of the two types and the lint finds one definition of each.
+test_buildSharedModuleName :: IO SeedStore -> Assertion
+test_buildSharedModuleName getStore =
+  withBuildPackageSandbox getStore "aihc-build-shared-module-name" $ \_ buildRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/shared-module-name"
+    workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/workspace"
+    let binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget options) </> "bin"
+    outputs <- build options {buildInput = fixtureRoot, buildWorkspace = Just workspace, buildLint = True}
+    assertEqual "built executables" [binDirectory </> "shared"] outputs
+    (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> "shared") [] ""
+    assertEqual "shared exit status" ExitSuccess status
+    assertEqual "shared stdout" "2\n21\n" stdout
+    assertEqual "shared stderr" "" stderr
 
 -- A package with @cxx-sources@ compiles them as C++ with its
 -- @cxx-options@, records in its manifest that its objects need the C++
