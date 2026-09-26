@@ -278,9 +278,9 @@ data InstalledPackage = InstalledPackage
     installedImmutable :: !Bool,
     installedManifest :: !PackageManifest,
     installedExports :: !ModuleExports,
-    installedTypes :: !(Map.Map Text TcInterface),
-    installedScopeHashes :: !(Map.Map Text Text),
-    installedTypeHashes :: !(Map.Map Text Text),
+    installedTypes :: !(ByModule TcInterface),
+    installedScopeHashes :: !(ByModule Text),
+    installedTypeHashes :: !(ByModule Text),
     installedInstanceDigest :: !Text,
     installedInstanceFacts :: !TcInterface,
     installedInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
@@ -290,6 +290,46 @@ data InstalledPackage = InstalledPackage
 instance NFData InstalledPackage
 
 type InstanceProvider = (PackageId, Text)
+
+-- | A fact of each module of several packages, by module name and then by
+-- package. Two packages can each hold a module of one name, as @filepath@
+-- and @os-string@ both hold @System.OsString.Internal.Types@, so a map by
+-- module name alone would keep the fact of one package only.
+type ByModule value = Map.Map Text (Map.Map Package value)
+
+byModuleFromList :: [(ModuleKey, value)] -> ByModule value
+byModuleFromList entries =
+  Map.fromListWith
+    Map.union
+    [(name, Map.singleton package value) | (ModuleKey package name, value) <- entries]
+
+-- | The facts of the modules of one package.
+ownModules :: Package -> Map.Map Text value -> ByModule value
+ownModules package = Map.map (Map.singleton package)
+
+-- | Left-biased, as 'Map.union' is: where two maps hold a fact for the same
+-- module of the same package, the left one wins.
+byModuleUnions :: [ByModule value] -> ByModule value
+byModuleUnions = Map.unionsWith Map.union
+
+-- | The fact of the module of that name in each package that holds one.
+byModuleLookupName :: Text -> ByModule value -> [(Package, value)]
+byModuleLookupName name = maybe [] Map.toList . Map.lookup name
+
+byModuleFilter :: (ModuleKey -> Bool) -> ByModule value -> ByModule value
+byModuleFilter keep =
+  Map.filter (not . Map.null)
+    . Map.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name)))
+
+-- | The stamp inputs of a unit for the digests of the modules it imports
+-- from outside itself, one for each package that holds such a module.
+dependencyInputs :: Text -> [Text] -> [Text] -> ByModule Text -> [(Text, Text)]
+dependencyInputs label unitNames dependencyNames digests =
+  [ (label <> packageIdText (packageId package) <> ":" <> name, digest)
+  | name <- dependencyNames,
+    name `notElem` unitNames,
+    (package, digest) <- byModuleLookupName name digests
+  ]
 
 data ModuleOutputPaths = ModuleOutputPaths
   { outputFcPath :: !FilePath,
@@ -346,14 +386,14 @@ data SourceUnit = SourceUnit
 
 data ResolveUnitResult = ResolveUnitResult
   { resolveUnitExports :: !ModuleExports,
-    resolveUnitScopeHashes :: !(Map.Map Text Text),
+    resolveUnitScopeHashes :: !(ByModule Text),
     resolveUnitErrors :: ![ResolveError],
     resolveUnitSuccess :: !Bool
   }
 
 data TypeUnitResult = TypeUnitResult
-  { typeUnitTypes :: !(Map.Map Text TcInterface),
-    typeUnitHashes :: !(Map.Map Text Text),
+  { typeUnitTypes :: !(ByModule TcInterface),
+    typeUnitHashes :: !(ByModule Text),
     typeUnitOwnInstanceInterface :: !TcInterface,
     -- | The digest of the instance facts of the unit. The facts artifact
     -- carries the facts digests of the dependencies, so this digest changes
@@ -446,9 +486,9 @@ data ModuleCompileResult = ModuleCompileResult
 data CompiledPackageModules = CompiledPackageModules
   { compiledSources :: ![SourceModule],
     compiledExports :: !ModuleExports,
-    compiledTypes :: !(Map.Map Text TcInterface),
-    compiledScopeHashes :: !(Map.Map Text Text),
-    compiledTypeHashes :: !(Map.Map Text Text),
+    compiledTypes :: !(ByModule TcInterface),
+    compiledScopeHashes :: !(ByModule Text),
+    compiledTypeHashes :: !(ByModule Text),
     compiledInstanceDigest :: !Text,
     compiledInstanceFacts :: !TcInterface,
     compiledInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
@@ -482,9 +522,9 @@ data PackageTaskContext = PackageTaskContext
     taskPrimIdentity :: !PackageId,
     taskPackageRoot :: !FilePath,
     taskDependencyExports :: !ModuleExports,
-    taskDependencyScopeHashes :: !(Map.Map Text Text),
-    taskDependencyTypes :: !(Map.Map Text TcInterface),
-    taskDependencyTypeHashes :: !(Map.Map Text Text),
+    taskDependencyScopeHashes :: !(ByModule Text),
+    taskDependencyTypes :: !(ByModule TcInterface),
+    taskDependencyTypeHashes :: !(ByModule Text),
     -- | The instance digest of each dependency package, with the modules
     -- it exposes. A unit that imports one of the modules takes the digest
     -- as an input, because the instances the package supplies come from
@@ -868,10 +908,8 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
           }
   writePackageManifest (packageManifestPath storePath) manifest
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd)
-      ownExports =
-        filterModuleExports
-          (\moduleKey -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
-          allExports
+      exposedModule moduleKey = moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames
+      ownExports = filterModuleExports exposedModule allExports
   pure
     InstalledPackage
       { installedResult = InstallResult storePath (Set.toAscList written) (Set.toAscList reused),
@@ -881,9 +919,9 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
         installedImmutable = immutable,
         installedManifest = manifest,
         installedExports = ownExports,
-        installedTypes = Map.restrictKeys allTypes exposedNames,
-        installedScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
-        installedTypeHashes = Map.restrictKeys allTypeHashes exposedNames,
+        installedTypes = byModuleFilter exposedModule allTypes,
+        installedScopeHashes = byModuleFilter exposedModule allScopeHashes,
+        installedTypeHashes = byModuleFilter exposedModule allTypeHashes,
         installedInstanceDigest = compiledInstanceDigest compiled,
         installedInstanceFacts = compiledInstanceFacts compiled,
         installedInstanceProviders = Map.restrictKeys (compiledInstanceProviders compiled) exposedNames
@@ -970,15 +1008,15 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   setupStart <- getMonotonicTimeNSec
   loadedDependencies <- evaluate . force =<< loadRequiredDependencies parsed dependencies
   let dependencyExports = mconcat (map installedExports loadedDependencies)
-      dependencyTypes = LazyMap.unions (map installedTypes loadedDependencies)
-      dependencyScopeHashes = Map.unions (map installedScopeHashes loadedDependencies)
-      dependencyTypeHashes = LazyMap.unions (map installedTypeHashes loadedDependencies)
+      dependencyTypes = byModuleUnions (map installedTypes loadedDependencies)
+      dependencyScopeHashes = byModuleUnions (map installedScopeHashes loadedDependencies)
+      dependencyTypeHashes = byModuleUnions (map installedTypeHashes loadedDependencies)
       dependencyPackages =
         [ (installedName dependency, installedInstanceDigest dependency, Map.keysSet (installedTypeHashes dependency))
         | dependency <- loadedDependencies
         ]
       dependencyInstanceFacts = mergeTcInterfaces (configMergeCheck config) (map installedInstanceFacts loadedDependencies)
-      dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
+      dependencyInstanceProviders = Map.unionsWith Set.union (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
   _ <-
     evaluate
@@ -1045,13 +1083,13 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   frontendFailure <- renderFrontendFailure (excerptSourceLoader (compileHeaderDirectory config) packageRoot versions files) parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
   let localExports = mconcat (map resolveUnitExports resolveResults)
-      localScopeHashes = Map.unions (map resolveUnitScopeHashes resolveResults)
-      localTypes = Map.unions (map typeUnitTypes typeResults)
-      localTypeHashes = Map.unions (map typeUnitHashes typeResults)
+      localScopeHashes = byModuleUnions (map resolveUnitScopeHashes resolveResults)
+      localTypes = byModuleUnions (map typeUnitTypes typeResults)
+      localTypeHashes = byModuleUnions (map typeUnitHashes typeResults)
       allExports = localExports <> dependencyExports
-      allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
-      allTypes = localTypes `LazyMap.union` dependencyTypes
-      allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
+      allScopeHashes = byModuleUnions [localScopeHashes, dependencyScopeHashes]
+      allTypes = byModuleUnions [localTypes, dependencyTypes]
+      allTypeHashes = byModuleUnions [localTypeHashes, dependencyTypeHashes]
       packageInstanceInterface = mergeTcInterfaces (configMergeCheck config) (dependencyInstanceFacts : map typeUnitOwnInstanceInterface typeResults)
       instanceProviders =
         Map.fromList
@@ -1069,8 +1107,8 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
           Map.fromList
             [ (sourceName source, ModuleDigests scopeDigest typeDigest)
             | source <- parsed,
-              Just scopeDigest <- [Map.lookup (sourceName source) localScopeHashes],
-              Just typeDigest <- [Map.lookup (sourceName source) localTypeHashes]
+              Just scopeDigest <- [lookup resolvePackage (byModuleLookupName (sourceName source) localScopeHashes)],
+              Just typeDigest <- [lookup resolvePackage (byModuleLookupName (sourceName source) localTypeHashes)]
             ],
         packageDigestsInstances = instanceDigest
       }
@@ -1345,10 +1383,10 @@ loadInstalledPackage requirements immutable storePath = do
       interfaces = [interface | (_, _, interface) <- entries]
       package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
       exports = moduleExportsFromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
-      types = LazyMap.fromList (zip [name | (name, _, _) <- entries] interfaces)
+      types = byModuleFromList (zip [ModuleKey package name | (name, _, _) <- entries] interfaces)
       exposed = Map.restrictKeys (packageDigestsModules digests) (Set.fromList (packageManifestModules manifest))
-      scopeHashes = Map.map moduleScopeDigest exposed
-      typeHashes = Map.map moduleTypeDigest exposed
+      scopeHashes = ownModules package (Map.map moduleScopeDigest exposed)
+      typeHashes = ownModules package (Map.map moduleTypeDigest exposed)
   pure
     InstalledPackage
       { installedResult = InstallResult storePath [] (packageManifestModules manifest),
@@ -1802,8 +1840,8 @@ runResolveUnit context runtimes runtime = do
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
       availableExports = mconcat (map resolveUnitExports dependencyResults) <> dependencyExports
-      availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResults) `Map.union` dependencyScopeHashes
-      scopeInputs = [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableScopeHashes]]
+      availableScopeHashes = byModuleUnions (map resolveUnitScopeHashes dependencyResults ++ [dependencyScopeHashes])
+      scopeInputs = dependencyInputs "scope:" unitNames dependencyNames availableScopeHashes
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
       inputs = sortOn fst (sourceHashes <> scopeInputs)
       resolvePath source = sourceModuleDirectory source </> "resolve.cbor"
@@ -1823,7 +1861,7 @@ runResolveUnit context runtimes runtime = do
       pure
         ( ResolveUnitResult
             { resolveUnitExports = unitExports,
-              resolveUnitScopeHashes = scopeHashes,
+              resolveUnitScopeHashes = ownModules resolvePackage scopeHashes,
               resolveUnitErrors = [],
               resolveUnitSuccess = True
             },
@@ -1847,7 +1885,7 @@ runResolveUnit context runtimes runtime = do
       pure
         ( ResolveUnitResult
             { resolveUnitExports = unitExports,
-              resolveUnitScopeHashes = scopeHashes,
+              resolveUnitScopeHashes = ownModules resolvePackage scopeHashes,
               resolveUnitErrors = errors,
               resolveUnitSuccess = success
             },
@@ -1906,15 +1944,13 @@ runTypeUnit context runtimes runtime = do
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
-      availableTypes = LazyMap.unions (map typeUnitTypes dependencyResults) `LazyMap.union` dependencyTypes
-      availableTypeHashes = LazyMap.unions (map typeUnitHashes dependencyResults) `LazyMap.union` dependencyTypeHashes
+      availableTypes = byModuleUnions (map typeUnitTypes dependencyResults ++ [dependencyTypes])
+      availableTypeHashes = byModuleUnions (map typeUnitHashes dependencyResults ++ [dependencyTypeHashes])
       availableExports = mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports
-      availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResolveResults) `Map.union` dependencyScopeHashes
+      availableScopeHashes = byModuleUnions (map resolveUnitScopeHashes dependencyResolveResults ++ [dependencyScopeHashes])
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
-      scopeInputs =
-        [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableScopeHashes]]
-      typeInputs =
-        [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableTypeHashes]]
+      scopeInputs = dependencyInputs "scope:" unitNames dependencyNames availableScopeHashes
+      typeInputs = dependencyInputs "type:" unitNames dependencyNames availableTypeHashes
       -- The instances a unit sees come from every unit below it and from
       -- the dependency packages that supply an imported module. A facts
       -- digest covers the facts of the units below the one it names.
@@ -1954,6 +1990,10 @@ runTypeUnit context runtimes runtime = do
         mergeTcInterfaces
           TrustMergedFacts
           (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
+      -- Every package that holds an imported module contributes its
+      -- interface: the keys of the facts carry the package, so the
+      -- interfaces of two packages with a module of one name do not
+      -- collide.
       importedTypes =
         mergeTcInterfaces
           (configMergeCheck config)
@@ -1961,7 +2001,7 @@ runTypeUnit context runtimes runtime = do
               : [ interface
                 | name <- dependencyNames,
                   name `notElem` unitNames,
-                  Just interface <- [Map.lookup name availableTypes]
+                  (_, interface) <- byModuleLookupName name availableTypes
                 ]
           )
       checkUnit = do
@@ -2025,8 +2065,8 @@ runTypeUnit context runtimes runtime = do
         putTMVar
           (runtimeTypeResult runtime)
           TypeUnitResult
-            { typeUnitTypes = Map.fromList (zip unitNames interfaces),
-              typeUnitHashes = unitStampTypes recorded,
+            { typeUnitTypes = ownModules resolvePackage (Map.fromList (zip unitNames interfaces)),
+              typeUnitHashes = ownModules resolvePackage (unitStampTypes recorded),
               typeUnitOwnInstanceInterface = ownFacts,
               typeUnitFactsDigest = unitStampFacts recorded,
               typeUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
@@ -2100,8 +2140,8 @@ runTypeUnit context runtimes runtime = do
       typeResult <-
         evaluate
           TypeUnitResult
-            { typeUnitTypes = Map.fromList (zip unitNames unitTypes),
-              typeUnitHashes = ownTypeHashes,
+            { typeUnitTypes = ownModules resolvePackage (Map.fromList (zip unitNames unitTypes)),
+              typeUnitHashes = ownModules resolvePackage ownTypeHashes,
               typeUnitOwnInstanceInterface = ownInstanceInterface,
               typeUnitFactsDigest = factsDigest,
               typeUnitInstanceInterface = completeInstanceInterface,
