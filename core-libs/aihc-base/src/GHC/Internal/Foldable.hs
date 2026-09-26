@@ -181,10 +181,15 @@ instance Foldable Solo where
   null _ = False
 
 instance Foldable Proxy where
+  foldMap _ _ = mempty
   foldr _ initial _ = initial
   foldl _ initial _ = initial
   toList _ = []
   null _ = True
+  length _ = 0
+  elem _ _ = False
+  sum _ = 0
+  product _ = 1
 
 instance Foldable NonEmpty where
   foldr f initial (value :| values) = f value (foldr f initial values)
