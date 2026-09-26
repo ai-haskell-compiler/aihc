@@ -341,7 +341,15 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TList _ [arg] ->
       convertListType tvEnv arg
     TKindSig inner kindTy -> do
-      expected <- kindFromSurfaceType tvEnv kindTy
+      -- A type constructor kind keeps its foralls in prenex position (see
+      -- 'standaloneKindSigToScheme'), so a kind annotation with a forall to
+      -- the right of an arrow, such as @Code :: ((Type -> Type) -> forall
+      -- r. TYPE r -> Type)@, is checked in the same shape: its nested
+      -- binders are hoisted and instantiated before the inner type is
+      -- checked against it.
+      annotated <- kindFromSurfaceType tvEnv kindTy
+      let (nestedTyVars, annotated') = prenexKindForalls annotated
+      (expected, _) <- instantiate (specifiedScheme nestedTyVars [] annotated')
       checkSurfaceType tvEnv inner expected >>= \innerTy -> pure (innerTy, expected)
     TContext preds inner -> do
       predicates <- surfaceContextToPreds tvEnv preds

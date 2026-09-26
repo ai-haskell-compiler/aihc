@@ -13,7 +13,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Congruence (proveGivenEquality)
+import Aihc.Tc.Solve.Congruence (applyGivenSubst, givenEqualities, proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
@@ -51,7 +51,41 @@ solveEquality :: Ct -> TcM EqResult
 solveEquality ct = do
   givens <- getGivenPredicates
   proved <- solveGivenEquality givens ct
-  if proved then pure EqSolved else solveWithoutGivens ct
+  if proved then pure EqSolved else solveRewrittenByGivens givens ct
+
+-- | A wanted that still holds a meta variable cannot be proved from the
+-- givens as it stands: with the given @texp ~ TExp a@, the wanted
+-- @TExp t0 ~ texp@ is only provable once @t0@ is @a@. Rewriting the
+-- wanted through the givens that fix a rigid variable gives
+-- @TExp t0 ~ TExp a@, whose solution binds @t0@. The evidence for the
+-- original wanted then comes from the givens, so the rewritten copy is
+-- solved under an evidence variable that nothing reads.
+solveRewrittenByGivens :: [Pred] -> Ct -> TcM EqResult
+solveRewrittenByGivens givens ct = case ctPred ct of
+  EqPred left right | not (null givens) -> do
+    left' <- zonkType left
+    right' <- zonkType right
+    equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) givens
+    let substitution = concatMap orient equalities
+        rewrittenLeft = applyGivenSubst substitution left'
+        rewrittenRight = applyGivenSubst substitution right'
+    if null substitution || (sameType rewrittenLeft left' && sameType rewrittenRight right')
+      then solveWithoutGivens ct
+      else do
+        scratch <- freshEvVar
+        result <- solveWithoutGivens ct {ctPred = EqPred rewrittenLeft rewrittenRight, ctEvVar = scratch}
+        case result of
+          EqSolved -> do
+            proved <- solveGivenEquality givens ct
+            pure (if proved then EqSolved else EqError ct)
+          EqStuck _ -> pure (EqStuck ct)
+          EqError _ -> pure (EqError ct)
+  _ -> solveWithoutGivens ct
+  where
+    orient (a, b, _)
+      | TcTyVar tyVar <- a, not (typeMentionsTyVar tyVar b) = [(a, b)]
+      | TcTyVar tyVar <- b, not (typeMentionsTyVar tyVar a) = [(b, a)]
+      | otherwise = []
 
 solveWithoutGivens :: Ct -> TcM EqResult
 solveWithoutGivens ct = case ctPred ct of

@@ -2418,7 +2418,14 @@ methodExpectedScheme classInfo headTys methodName =
           let classKinds = map tvKind (ciTyVars classInfo)
               kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
               subst = receiverSubst <> kindSubst
-              unsubstituted = filter (\tyVar -> not (Map.member (tvUnique tyVar) subst))
+              -- A binder that stays quantified can still mention a class
+              -- kind variable in its kind: @p :: k -> Type@ in
+              -- @class HasResolution (a :: k) where resolution :: p a -> Integer@.
+              unsubstituted tyVars =
+                [ setTyVarKind (applySubst subst (tvKind tyVar)) tyVar
+                | tyVar <- tyVars,
+                  not (Map.member (tvUnique tyVar) subst)
+                ]
           pure
             ( Scheme
                 (unsubstituted inferred)
@@ -3900,11 +3907,10 @@ registerClassDecl origin classDecl = do
   let classBinder = binderHeadName (classDeclHead classDecl)
       className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
-  poly <- isImplicitlyKindPolymorphicClass origin className
-  kindParams <-
-    if poly
-      then implicitBinderKindParams params
-      else pure []
+  -- A kind variable that only a binder annotation mentions, as @r@ in
+  -- @class IsCode q (a :: TYPE r) c@, is a kind parameter of the class,
+  -- the same as for a data declaration ('dataDeclParamInfos').
+  kindParams <- implicitBinderKindParams params
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   paramInfos <- makeParamEnvWith kindEnv params
   let paramTyVars = map paramTyVar paramInfos
@@ -4093,20 +4099,6 @@ typeArguments ty =
     TcTyCon _ args -> args
     TcAppTy function argument -> typeArguments function <> [argument]
     _ -> []
-
--- | Whether the parameters of a class take implicit kind parameters: the
--- Template Haskell @Lift@ class that the wiring names, and the nominal
--- equality constraint. A class is identified by its module and its name;
--- the origin package carries a version that the wiring does not know.
-isImplicitlyKindPolymorphicClass :: (Text, Text) -> Text -> TcM Bool
-isImplicitlyKindPolymorphicClass (_, moduleName') className = do
-  wiring <- getWiring
-  let equality = tcWiringEqualityTyCon wiring
-  pure
-    ( (moduleName', className) == tcWiringLiftClass wiring
-        || (moduleName', className) `elem` [("Type.Reflection", "Typeable"), ("Type.Reflection.Internal", "Typeable")]
-        || (moduleName' == tyConModuleName equality && className `elem` [tyConName equality, "~~"])
-    )
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
@@ -4985,8 +4977,16 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
           let params = tsiParams synonym
               tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
-          (_, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
+          (body, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind
+          -- The stored body must name the kind variables of the synonym's
+          -- own kind scheme, so that each expansion instantiates them
+          -- afresh. A kind annotation in the body leaves kind metas
+          -- behind ('TKindSig'); the declared kind has just fixed them, so
+          -- this conversion replaces the one 'registerTypeSynonymBody'
+          -- stored for the forward references of the group.
+          body' <- zonkType body
+          replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body'})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 checkTypeSynonymBody _ = pure ()
 

@@ -1,0 +1,35 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  data Proxy (a :: k) = Proxy
+       │                └─ type: ∀ k a. Proxy a
+       └─ type: k → Type
+  data E0
+       └─ type: Type
+  class HasResolution (a :: k) where
+  └─ class methods: resolution ∷ ∀ k a p. (HasResolution a) ⇒ p a → Bool
+    resolution :: p a -> Bool
+  instance HasResolution E0 where
+  └─ $fHasResolutionE0 ∷ () ⇒ HasResolution E0
+    resolution _ = True
+    │          └─ type: p E0
+    └─ resolution ∷ ∀ p. p E0 → Bool
+  
+extensions:
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  data Proxy (a :: k) = Proxy
+  data E0
+  class HasResolution (a :: k) where
+    resolution :: p a -> Bool
+  instance HasResolution E0 where
+    resolution _ = True
+reason: a class kind variable is a class parameter, and an instance at a fixed kind substitutes it in the kind of a method binder such as p
+status: pass
