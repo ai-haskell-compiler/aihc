@@ -2612,11 +2612,17 @@ floatUnaryPrimitives =
 floatComparisonPrimitives :: [(Text, (CompareOp, Type))]
 floatComparisonPrimitives =
   [ ("gtFloat#", (FGt, F32)),
+    ("geFloat#", (FGe, F32)),
     ("ltFloat#", (FLt, F32)),
+    ("leFloat#", (FLe, F32)),
     ("eqFloat#", (Eq, F32)),
+    ("neFloat#", (Ne, F32)),
     (">##", (FGt, F64)),
+    (">=##", (FGe, F64)),
     ("<##", (FLt, F64)),
-    ("==##", (Eq, F64))
+    ("<=##", (FLe, F64)),
+    ("==##", (Eq, F64)),
+    ("/=##", (Ne, F64))
   ]
 
 intToFloatPrimitives :: [(Text, Type)]

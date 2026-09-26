@@ -1223,6 +1223,9 @@ evalPrimitive "float2Int#" [value] = do
 evalPrimitive "gtFloat#" [left, right] = evalFloatComparison "gtFloat#" (>) left right
 evalPrimitive "ltFloat#" [left, right] = evalFloatComparison "ltFloat#" (<) left right
 evalPrimitive "eqFloat#" [left, right] = evalFloatComparison "eqFloat#" (==) left right
+evalPrimitive "geFloat#" [left, right] = evalFloatComparison "geFloat#" (>=) left right
+evalPrimitive "leFloat#" [left, right] = evalFloatComparison "leFloat#" (<=) left right
+evalPrimitive "neFloat#" [left, right] = evalFloatComparison "neFloat#" (/=) left right
 evalPrimitive "+##" [left, right] = evalDoubleBinary "+##" (+) left right
 evalPrimitive "-##" [left, right] = evalDoubleBinary "-##" (-) left right
 evalPrimitive "*##" [left, right] = evalDoubleBinary "*##" (*) left right
@@ -1285,6 +1288,9 @@ evalPrimitive "castWord64ToDouble#" [value] =
 evalPrimitive ">##" [left, right] = evalDoubleComparison ">##" (>) left right
 evalPrimitive "<##" [left, right] = evalDoubleComparison "<##" (<) left right
 evalPrimitive "==##" [left, right] = evalDoubleComparison "==##" (==) left right
+evalPrimitive ">=##" [left, right] = evalDoubleComparison ">=##" (>=) left right
+evalPrimitive "<=##" [left, right] = evalDoubleComparison "<=##" (<=) left right
+evalPrimitive "/=##" [left, right] = evalDoubleComparison "/=##" (/=) left right
 evalPrimitive "ctz#" [value] = evalWordCount "ctz#" countTrailingZeros value
 evalPrimitive "popCnt#" [value] = evalWordCount "popCnt#" popCount value
 evalPrimitive "popCnt8#" [value] = evalSizedWordCount "popCnt8#" WordRep 8 sizedPopCount value

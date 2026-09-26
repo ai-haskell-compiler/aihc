@@ -425,8 +425,11 @@ module GHC.Prim
     int2Float#,
     float2Int#,
     gtFloat#,
+    geFloat#,
     ltFloat#,
+    leFloat#,
     eqFloat#,
+    neFloat#,
     (+##),
     (-##),
     (*##),
@@ -452,8 +455,11 @@ module GHC.Prim
     int2Double#,
     double2Int#,
     (>##),
+    (>=##),
     (<##),
+    (<=##),
     (==##),
+    (/=##),
     ctz#,
     eqWord#,
     geWord#,
@@ -913,9 +919,15 @@ foreign import prim float2Int# :: Float# -> Int#
 
 foreign import prim gtFloat# :: Float# -> Float# -> Int#
 
+foreign import prim geFloat# :: Float# -> Float# -> Int#
+
 foreign import prim ltFloat# :: Float# -> Float# -> Int#
 
+foreign import prim leFloat# :: Float# -> Float# -> Int#
+
 foreign import prim eqFloat# :: Float# -> Float# -> Int#
+
+foreign import prim neFloat# :: Float# -> Float# -> Int#
 
 foreign import prim (+##) :: Double# -> Double# -> Double#
 
@@ -933,9 +945,15 @@ foreign import prim double2Int# :: Double# -> Int#
 
 foreign import prim (>##) :: Double# -> Double# -> Int#
 
+foreign import prim (>=##) :: Double# -> Double# -> Int#
+
 foreign import prim (<##) :: Double# -> Double# -> Int#
 
+foreign import prim (<=##) :: Double# -> Double# -> Int#
+
 foreign import prim (==##) :: Double# -> Double# -> Int#
+
+foreign import prim (/=##) :: Double# -> Double# -> Int#
 
 foreign import prim sqrtDouble# :: Double# -> Double#
 
