@@ -1,0 +1,40 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word8)
+    import Prelude
+
+    -- byteorder derives Show, Read and Ord for a constructor whose field is a
+    -- 4-tuple. base gives these classes tuple instances up to 15 fields.
+    data ByteOrder
+      = BigEndian
+      | Mixed (Word8, Word8, Word8, Word8)
+      deriving (Eq, Show, Read, Ord)
+
+    main :: IO ()
+    main = do
+      print (Mixed (1, 2, 3, 4))
+      print (read "Mixed (4,3,2,1)" :: ByteOrder)
+      print (compare (Mixed (1, 2, 3, 4)) (Mixed (1, 2, 3, 5)))
+      print (Mixed (2, 1, 1, 1) > Mixed (1, 9, 9, 9))
+      print (max BigEndian (Mixed (0, 0, 0, 0)))
+      print (1 :: Int, 'a', "b", True, 2.5 :: Double)
+      print (read "(1,'a',\"b\",True,2.5,5)" :: (Int, Char, String, Bool, Double, Int))
+      print (compare (1 :: Int, 2 :: Int, 3 :: Int, 4 :: Int, 5 :: Int, 6 :: Int, 7 :: Int) (1, 2, 3, 4, 5, 6, 8))
+      print (read " ( 1 , 2 , 3 , 4 , 5 , 6 , 7 ) " :: (Int, Int, Int, Int, Int, Int, Int))
+expression: main
+stdout: |
+  Mixed (1,2,3,4)
+  Mixed (4,3,2,1)
+  LT
+  True
+  Mixed (0,0,0,0)
+  (1,'a',"b",True,2.5)
+  (1,'a',"b",True,2.5,5)
+  LT
+  (1,2,3,4,5,6,7)
+output: |
+  ()
+status: pass
+reason: Show, Read and Ord have instances for tuples with four to seven fields
