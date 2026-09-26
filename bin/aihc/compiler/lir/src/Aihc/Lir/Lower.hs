@@ -2267,7 +2267,9 @@ binaryPrimitives =
     ("uncheckedIShiftRA#", ShrS),
     ("uncheckedIShiftRL#", ShrU),
     ("uncheckedShiftL64#", Shl),
-    ("uncheckedShiftRL64#", ShrU)
+    ("uncheckedShiftRL64#", ShrU),
+    ("pdep#", Pdep),
+    ("pext#", Pext)
   ]
 
 -- | Binary operations whose result is a sized integer. The operation runs

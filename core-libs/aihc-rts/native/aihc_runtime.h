@@ -404,9 +404,6 @@ uint64_t aihc_stm_begin(AihcMachine *machine);
 uint64_t aihc_stm_commit(AihcMachine *machine);
 uint64_t aihc_stm_abort(AihcMachine *machine);
 uint64_t aihc_stm_active(AihcMachine *machine);
-/* Parallel bit deposit and extract, the pdep# and pext# primitives. */
-uint64_t aihc_bits_deposit(uint64_t source, uint64_t mask);
-uint64_t aihc_bits_extract(uint64_t source, uint64_t mask);
 uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
                          AihcSlot value);
 

@@ -270,6 +270,12 @@ data BinaryOp
   | Shl
   | ShrS
   | ShrU
+  | -- | Parallel bit deposit: the low bits of the left operand move to the
+    -- set bits of the right operand, the mask, in order.
+    Pdep
+  | -- | Parallel bit extract: the bits of the left operand at the set bits
+    -- of the mask gather into the low bits of the result, in order.
+    Pext
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | The bit-count operations. Each counts bits of an @iN@ value and gives an
