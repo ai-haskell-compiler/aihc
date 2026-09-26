@@ -3,16 +3,22 @@
 -- | Lower GC-GRIN to Lir.
 --
 -- Every GRIN function becomes a Lir function with the @aihc@ convention. The
--- first parameter is the machine. A pointer representation becomes @ptr@, an
+-- first parameter is the machine. The next four parameters are the context
+-- of the running thread: the heap pointer, the heap limit, the stack
+-- pointer, and the stack limit. A pointer representation becomes @ptr@, an
 -- address becomes @ptr@, and every other scalar becomes @i64@. Floats travel
 -- as their bit patterns, like in the native runtime ABI.
 --
 -- Control transfer is explicit: a CPS transfer is a @tailcall@, a runtime
 -- helper is a @call@ of an extern C function, and dynamic entries go through
 -- the @backend_entry@ field of an info table. That field has the signature
--- @(ptr, ptr, ptr, T...) -> ()@ with the machine, the object, the
--- continuation, and the supplied values. The runtime defines fixed helpers
--- and common argument shapes. Other shapes remain in the module.
+-- @(ptr, ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()@ with the machine, the
+-- context, the object, the continuation, and the supplied values. The
+-- runtime defines fixed helpers and common argument shapes. Other shapes
+-- remain in the module.
+--
+-- The context lives in values, not in the machine. The machine holds a copy
+-- only around a C call that can read or change it. See 'Context'.
 module Aihc.Lir.Lower
   ( LowerError (..),
     LowerOptions (..),
@@ -30,6 +36,11 @@ module Aihc.Lir.Lower
     -- * Building blocks for harnesses
     LowerM,
     Typed (..),
+    Context (..),
+    contextOperands,
+    freshContext,
+    loadContext,
+    storeContext,
     ContinuationSpec (..),
     runLower,
     lowerUnitItems,
@@ -349,8 +360,42 @@ data LowerState = LowerState
     -- | Items of the current conversion action. The consumer drains this list.
     stateItemsRev :: ![Item],
     stateBlocksRev :: ![Block],
-    stateOpen :: !(Maybe OpenBlock)
+    stateOpen :: !(Maybe OpenBlock),
+    -- | The context of the code under construction, when it has one.
+    stateContext :: !(Maybe Context)
   }
+
+-- | The heap and stack context of the running thread. Every function of the
+-- aihc convention that runs Haskell code receives it after the machine, and
+-- gives it to each function it transfers control to. Thus the register
+-- allocator keeps it in registers.
+--
+-- The machine holds a copy of the heap pointer and the stack pointer only
+-- while a C function can read them: the code stores them before such a
+-- call. Lir code never changes the heap limit, and C code computes the stack
+-- limit when it needs it, so the code does not store the two limits. After a
+-- C call that can allocate or collect, the code loads the heap pointer and
+-- the heap limit again. The stack pointer changes only at a push and at the
+-- entry of a frame, and a C call made from compiled code does not change it.
+--
+-- A stack chunk is 'stackChunkBytes' long and has that alignment, so the
+-- stack limit is the end of the chunk that holds the last pushed byte. A
+-- push fits when the new stack pointer is not above the limit.
+data Context = Context
+  { contextHeap :: !Operand,
+    contextHeapLimit :: !Operand,
+    contextStack :: !Operand,
+    contextStackLimit :: !Operand
+  }
+  deriving (Eq, Show)
+
+-- | The context values in the order of the parameters.
+contextOperands :: Context -> [Operand]
+contextOperands context = [contextHeap context, contextHeapLimit context, contextStack context, contextStackLimit context]
+
+-- | The types of the context parameters.
+contextTypes :: [Type]
+contextTypes = [Ptr, Ptr, Ptr, Ptr]
 
 type LowerM = StateT LowerState (Either LowerError)
 
@@ -375,10 +420,11 @@ initialLowerState options gcProgram =
       stateHelpers = Set.empty,
       stateBitmaps = Map.empty,
       stateDefined = Set.empty,
-      stateSignatures = Map.fromList [(functionSymbol (grinFunctionName function), Signature (Ptr : map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) [] AihcConvention) | function <- grinFunctions (gcGrinProgram gcProgram)],
+      stateSignatures = Map.fromList [(functionSymbol (grinFunctionName function), Signature (Ptr : contextTypes <> map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) [] AihcConvention) | function <- grinFunctions (gcGrinProgram gcProgram)],
       stateItemsRev = [],
       stateBlocksRev = [],
-      stateOpen = Nothing
+      stateOpen = Nothing,
+      stateContext = Nothing
     }
 
 externItems :: LowerState -> [Item]
@@ -568,23 +614,27 @@ requireHelper helper = do
       modify' $ \state -> state {stateHelpers = Set.insert helper (stateHelpers state), stateSignatures = Map.insert symbol (helperSignature helper) (stateSignatures state)}
   pure symbol
 
+-- | A helper that runs Haskell code takes the machine and the context first.
+-- The resumption of the scheduler and the exit function take only the
+-- machine: the machine holds the context there.
 helperSignature :: Helper -> Signature
 helperSignature helper = case helper of
-  HelperEval -> signature [Ptr, Ptr, Ptr] []
-  HelperEvalSingleEntry -> signature [Ptr, Ptr, Ptr] []
+  HelperEval -> running [Ptr, Ptr]
+  HelperEvalSingleEntry -> running [Ptr, Ptr]
   HelperResume -> signature [Ptr, Ptr] []
-  HelperContinue shape -> signature (Ptr : Ptr : shape) []
-  HelperApply groups -> signature (Ptr : Ptr : Ptr : concat groups) []
+  HelperContinue shape -> running (Ptr : shape)
+  HelperApply groups -> running (Ptr : Ptr : concat groups)
   -- The frame stores its parent and the values of the groups. The applied
   -- function arrives after them.
-  HelperApplyFrame groups -> signature (Ptr : Ptr : concat groups <> [Ptr]) []
+  HelperApplyFrame groups -> running (Ptr : concat groups <> [Ptr])
   HelperExit -> signature [Ptr] []
-  HelperContinueSlot -> signature [Ptr, Ptr, I64] []
-  HelperApplySlot -> signature [Ptr, Ptr, Ptr, I64] []
+  HelperContinueSlot -> running [Ptr, I64]
+  HelperApplySlot -> running [Ptr, Ptr, I64]
   HelperQuotRem2 -> signature [I64, I64, I64] [I64, I64]
-  HelperCStringLength -> signature [Ptr] [I64]
+  HelperCStringLength -> Signature [Ptr] [I64] CConvention
   where
     signature parameters results = Signature parameters results AihcConvention
+    running parameters = signature (Ptr : contextTypes <> parameters) []
 
 -- | The runtime Lir unit defines these fixed signatures.
 sharedHelperSignature :: Helper -> Maybe Signature
@@ -746,8 +796,8 @@ machineHeapLimitOffset :: LowerTarget -> Integer
 machineHeapLimitOffset target = machineHeapNextOffset target + toInteger (lowerWordSize target)
 
 -- | The first free byte of the stack of the running thread, the field after
--- the end of the space. A continuation frame is pushed there, and entering a
--- frame sets it to the address of the frame.
+-- the end of the space. The field holds the stack pointer only while a C
+-- call can read it. See 'Context'.
 machineStackNextOffset :: LowerTarget -> Integer
 machineStackNextOffset target = machineHeapLimitOffset target + toInteger (lowerWordSize target)
 
@@ -755,6 +805,99 @@ machineStackNextOffset target = machineHeapLimitOffset target + toInteger (lower
 -- @aihc_runtime_internal.h@.
 stackChunkBytes :: Integer
 stackChunkBytes = 4096
+
+-- | The bytes of the header of a stack chunk. The first frame of a chunk
+-- follows it.
+stackChunkHeaderBytes :: Integer
+stackChunkHeaderBytes = 32
+
+-- Context
+
+-- | Fresh parameters for a context.
+freshContext :: LowerM (Context, [(Var, Type)])
+freshContext = do
+  vars <- mapM fresh ["hp", "hp_limit", "sp", "sp_limit"]
+  case map OperandVar vars of
+    [heap, heapLimit, stack, stackLimit] -> pure (Context heap heapLimit stack stackLimit, zip vars contextTypes)
+    _ -> failWith (LowerUnsupportedExpression "internal: context arity")
+
+-- | The context of the code under construction.
+currentContext :: LowerM Context
+currentContext = gets stateContext >>= maybe (failWith (LowerUnsupportedExpression "internal: code without a context")) pure
+
+setContext :: Context -> LowerM ()
+setContext context = modify' (\state -> state {stateContext = Just context})
+
+-- | Compile one branch. The next branch starts with the context this branch
+-- started with.
+branchWith :: LowerM value -> LowerM value
+branchWith action = do
+  context <- gets stateContext
+  result <- action
+  modify' (\state -> state {stateContext = context})
+  pure result
+
+-- | Give the machine the heap pointer and the stack pointer before a C call
+-- that can read them.
+storeContext :: Operand -> Context -> LowerM ()
+storeContext machine context = do
+  target <- targetM
+  emit [] (Store Ptr (contextHeap context) (byteAddress machine (machineHeapNextOffset target)) (wordAlignment 1))
+  emit [] (Store Ptr (contextStack context) (byteAddress machine (machineStackNextOffset target)) (wordAlignment 1))
+
+-- | Load the heap pointer and the heap limit of the machine after a C call
+-- that can allocate or collect.
+loadHeapContext :: Operand -> Context -> LowerM Context
+loadHeapContext machine context = do
+  target <- targetM
+  heap <- emitValue "hp" Ptr (Load Ptr (byteAddress machine (machineHeapNextOffset target)) (wordAlignment 1))
+  heapLimit <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress machine (machineHeapLimitOffset target)) (wordAlignment 1))
+  pure context {contextHeap = typedOperand heap, contextHeapLimit = typedOperand heapLimit}
+
+-- | Load the whole context of the machine, where C code gives control to
+-- Haskell code.
+loadContext :: Operand -> LowerM Context
+loadContext machine = do
+  target <- targetM
+  stack <- emitValue "sp" Ptr (Load Ptr (byteAddress machine (machineStackNextOffset target)) (wordAlignment 1))
+  -- The stack pointer can be the end of a full chunk, so the limit comes
+  -- from the byte before it.
+  below <- emitValue "sp_below" Ptr (PtrAdd (typedOperand stack) (OperandLiteral (LitInt (-1))))
+  stackLimit <- chunkEnd (typedOperand below)
+  loadHeapContext machine (Context (OperandLiteral LitNull) (OperandLiteral LitNull) (typedOperand stack) stackLimit)
+
+-- | The end of the stack chunk that holds an address.
+chunkEnd :: Operand -> LowerM Operand
+chunkEnd address = do
+  word <- emitValue "chunk_word" I64 (PtrToInt address)
+  last' <- emitValue "chunk_last" I64 (Binary Or I64 (typedOperand word) (OperandLiteral (LitInt (stackChunkBytes - 1))))
+  end <- emitValue "chunk_end" I64 (Binary Add I64 (typedOperand last') (OperandLiteral (LitInt 1)))
+  typedOperand <$> emitValue "sp_limit" Ptr (PtrFromInt (typedOperand end))
+
+-- | Store the context of the code under construction to the machine.
+syncMachine :: FunctionCtx -> LowerM ()
+syncMachine ctx = currentContext >>= storeContext (ctxMachine ctx)
+
+-- | Load the heap pointer and the heap limit into the context of the code
+-- under construction.
+reloadHeap :: FunctionCtx -> LowerM ()
+reloadHeap ctx = currentContext >>= loadHeapContext (ctxMachine ctx) >>= setContext
+
+-- | A C call that can allocate, collect, or read the stack pointer. The
+-- machine gets the context before the call, and the heap pointer and the
+-- heap limit come back after it. A C call without the machine cannot see
+-- the context, so it needs neither step.
+callSynced :: FunctionCtx -> Text -> [Type] -> [Type] -> [Operand] -> LowerM Operand
+callSynced ctx name parameters results arguments = do
+  syncMachine ctx
+  result <- callRuntime name parameters results arguments
+  reloadHeap ctx
+  pure result
+
+-- | The machine and the context, the first arguments of each transfer to
+-- Haskell code.
+runningArguments :: FunctionCtx -> LowerM [Operand]
+runningArguments ctx = (ctxMachine ctx :) . contextOperands <$> currentContext
 
 -- Coercion
 
@@ -892,7 +1035,7 @@ enterFunction :: Symbol -> RuntimeEnter -> LowerM Symbol
 enterFunction info enter =
   case sharedEnterSymbol enter of
     Just symbol -> do
-      let signature = Signature ([Ptr, Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
+      let signature = Signature (Ptr : contextTypes <> [Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
       modify' (\state -> state {stateExterns = Map.insert symbol signature (stateExterns state)})
       pure symbol
     Nothing -> do
@@ -934,6 +1077,7 @@ sharedEnterMaxSupplied = 4
 lowerEnterStub :: Symbol -> RuntimeEnter -> LowerM ()
 lowerEnterStub stub enter = do
   machine <- fresh "machine"
+  (context, contextParameters) <- freshContext
   object <- fresh "object"
   continuation <- fresh "continuation"
   supplied <- forM (enterSupplied enter) $ \ty -> (,ty) <$> fresh "supplied"
@@ -945,8 +1089,8 @@ lowerEnterStub stub enter = do
   when (length parameters /= length values) $
     failWith (LowerUnsupportedExpression ("enter stub arity mismatch for " <> unSymbol (enterTarget enter)))
   arguments <- zipWithM coerce parameters values
-  terminate (TailCall (enterTarget enter) (OperandVar machine : arguments))
-  finishFunction stub Internal ((machine, Ptr) : (object, Ptr) : (continuation, Ptr) : supplied) [] AihcConvention
+  terminate (TailCall (enterTarget enter) (OperandVar machine : contextOperands context <> arguments))
+  finishFunction stub Internal ((machine, Ptr) : contextParameters <> [(object, Ptr), (continuation, Ptr)] <> supplied) [] AihcConvention
 
 -- | A continuation object kind for an entry or a harness: the unapplied and
 -- the applied info table, and the stub that enters the target function with
@@ -1102,6 +1246,8 @@ type ValueEnv = Map GrinVar Typed
 lowerFunction :: LowerEnv -> GrinFunction -> LowerM ()
 lowerFunction env function = do
   machine <- fresh "machine"
+  (context, contextParameters) <- freshContext
+  setContext context
   parameters <- forM (grinFunctionParameters function) $ \var -> do
     lirVar <- fresh (varBase var)
     pure (var, lirVar, repType (grinVarRuntimeRep var))
@@ -1116,10 +1262,11 @@ lowerFunction env function = do
   let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
+  modify' (\state -> state {stateContext = Nothing})
   finishFunction
     (functionSymbol (grinFunctionName function))
     (if lowerExposeFunctions (envOptions env) then Export else Internal)
-    ((machine, Ptr) : [(lirVar, ty) | (_, lirVar, ty) <- parameters])
+    ((machine, Ptr) : contextParameters <> [(lirVar, ty) | (_, lirVar, ty) <- parameters])
     []
     AihcConvention
 
@@ -1181,14 +1328,16 @@ compileExpr ctx env expression =
       eval <- requireHelper $ case update of
         EvalUpdate -> HelperEval
         EvalSingleEntry -> HelperEvalSingleEntry
-      terminate (TailCall eval [ctxMachine ctx, valueOperand, continuationOperand])
+      running <- runningArguments ctx
+      terminate (TailCall eval (running <> [valueOperand, continuationOperand]))
     GrinCall _ name arguments -> do
       target <- functionTarget (ctxEnv ctx) name
       parameters <- maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionParameters (ctxEnv ctx)))
       when (length parameters /= length arguments) $ failWith (LowerUnsupportedExpression ("call arity mismatch for " <> unFunctionName name))
       values <- mapM (materialize ctx env) arguments
       operands <- zipWithM coerce parameters values
-      terminate (TailCall target (ctxMachine ctx : operands))
+      running <- runningArguments ctx
+      terminate (TailCall target (running <> operands))
     GrinCpsPrimitiveCall runtimeRep name arguments continuation -> compileCpsPrimitive ctx env runtimeRep name arguments continuation
     GrinCpsApply _ function groups continuation -> do
       when (null groups || length groups > grinApplyGroupLimit) $
@@ -1197,7 +1346,8 @@ compileExpr ctx env expression =
       continuationOperand <- pointerValue ctx env continuation
       values <- mapM (mapM (materialize ctx env)) groups
       apply <- requireHelper (HelperApply (map (map typedType) values))
-      terminate (TailCall apply (ctxMachine ctx : functionOperand : continuationOperand : map typedOperand (concat values)))
+      running <- runningArguments ctx
+      terminate (TailCall apply (running <> (functionOperand : continuationOperand : map typedOperand (concat values))))
     GrinContinue continuation values -> do
       continuationOperand <- pointerValue ctx env continuation
       typedValues <- mapM (materialize ctx env) values
@@ -1205,9 +1355,12 @@ compileExpr ctx env expression =
     GrinCpsRaise exception continuation -> do
       exceptionOperand <- pointerValue ctx env exception
       continuationOperand <- pointerValue ctx env continuation
+      syncMachine ctx
       resume <- callRuntime "aihc_raise" [Ptr, Ptr, Ptr] [Ptr] [ctxMachine ctx, exceptionOperand, continuationOperand]
       resumeTransfer ctx resume
+    -- The exit function and the statistics read the context of the machine.
     GrinHalt _ -> do
+      syncMachine ctx
       entry <- callRuntime "aihc_halt" [Ptr] [Code] [ctxMachine ctx]
       terminate (TailCallIndirect entry [ctxMachine ctx] (Signature [Ptr] [] AihcConvention))
     -- A POSIX process exits at once. A WASI P3 component records the
@@ -1215,6 +1368,7 @@ compileExpr ctx env expression =
     GrinExit status -> do
       statusOperand <- materialize ctx env status >>= coerce I64
       target <- targetM
+      syncMachine ctx
       case lowerHost target of
         PosixHost -> do
           _ <- callRuntime "aihc_exit_process" [I64] [] [statusOperand]
@@ -1262,9 +1416,9 @@ compileExpr ctx env expression =
           next <- loadSlot "next" Ptr (OperandVar current) 8
           terminate (Jump (Target checkLabel [typedOperand next]))
       beginBlock readyLabel []
-      compileExpr ctx env' ready
+      branchWith (compileExpr ctx env' ready)
       beginBlock slowLabel []
-      compileExpr ctx env' slow
+      branchWith (compileExpr ctx env' slow)
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
@@ -1301,8 +1455,12 @@ callRuntime name parameters results arguments = do
 continueTransfer :: FunctionCtx -> Operand -> [Typed] -> LowerM ()
 continueTransfer ctx continuation values = do
   continue <- requireHelper (HelperContinue (map typedType values))
-  terminate (TailCall continue (ctxMachine ctx : continuation : map typedOperand values))
+  running <- runningArguments ctx
+  terminate (TailCall continue (running <> (continuation : map typedOperand values)))
 
+-- | Give control to the scheduler. The C call that selected the resumption
+-- had the context of the machine, and the resumption loads the context of
+-- the thread it runs.
 resumeTransfer :: FunctionCtx -> Operand -> LowerM ()
 resumeTransfer ctx resume = do
   helper <- requireHelper HelperResume
@@ -1323,9 +1481,11 @@ compileCpsPrimitive ctx env runtimeRep name arguments continuation =
       -- function's static reference table: the only code that runs after the
       -- call is the transfer below, which passes heap objects and touches no
       -- static object of this function. Keep it that way.
+      syncMachine ctx
       result <- callRuntime symbol callParameters [resultType] callArguments
       case nativeCpsCallTransfer runtimeCall of
         NativeCpsEnterContinuation -> do
+          reloadHeap ctx
           let resultRep = case runtimeRepComponents runtimeRep of
                 rep : _ -> rep
                 [] -> IntRep
@@ -1394,6 +1554,8 @@ compileBinding ctx env vars expression =
       pure (Map.fromList fields `Map.union` env)
     _ -> failWith (LowerUnsupportedExpression "non-direct expression remained in a CPS bind")
   where
+    -- An update neither allocates nor reads the stack pointer, so the
+    -- machine does not need the context for it.
     update symbol passMachine pointer value = do
       pointerOperand <- pointerValue ctx env pointer
       valueTyped <- materialize ctx env value
@@ -1404,12 +1566,14 @@ compileBinding ctx env vars expression =
     bindResults = bindVars env vars
 
 -- | Take the words of a reservation from the current space. The fast path is
--- the compare of the bump pointer against the end of the space and the branch
--- alone: it keeps every root in the register it already sits in, so a
--- safepoint that does not collect costs the same whatever is live across it.
--- Only the slow path spills the roots to the root array, calls the collector,
--- and reloads the roots it moved. The two paths meet at a block whose
--- parameters carry the roots, which are the relocated names the body uses.
+-- the compare of the heap pointer against the heap limit and the branch
+-- alone: it keeps every root and the context in the registers they already
+-- sit in, so a safepoint that does not collect costs the same whatever is
+-- live across it. Only the slow path spills the roots to the root array,
+-- gives the machine the context, calls the collector, and reloads the roots
+-- it moved and the heap context. The two paths meet at a block whose
+-- parameters carry the roots and the heap context, which are the names the
+-- body uses.
 reserveHeap ::
   FunctionCtx ->
   ValueEnv ->
@@ -1421,18 +1585,19 @@ reserveHeap ::
   Operand ->
   LowerM ValueEnv
 reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
-  target <- targetM
-  next <- loadMachinePointer "heap" (machineHeapNextOffset target)
-  limit <- loadMachinePointer "heap_end" (machineHeapLimitOffset target)
-  nextWord <- emitValue "heap_word" I64 (PtrToInt (typedOperand next))
-  limitWord <- emitValue "heap_end_word" I64 (PtrToInt (typedOperand limit))
-  -- The bump pointer never passes the end of the space, so this subtraction
-  -- does not wrap and the free bytes are exact.
-  room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
+  context <- currentContext
   fits <- case requiredWords of
-    GrinLitValue (GrinLitInt _ requested) ->
-      emitValue "heap_fits" I1 (Compare GeU I64 (typedOperand room) (OperandLiteral (LitInt (8 * requested))))
+    -- A fixed size is small, so the end of the reservation cannot wrap, and
+    -- the reservation fits when that end is not above the heap limit.
+    GrinLitValue (GrinLitInt _ requested) -> do
+      end <- emitValue "heap_end" Ptr (PtrAdd (contextHeap context) (OperandLiteral (LitInt (8 * requested))))
+      emitValue "heap_fits" I1 (Compare LeU Ptr (typedOperand end) (contextHeapLimit context))
     _ -> do
+      nextWord <- emitValue "heap_word" I64 (PtrToInt (contextHeap context))
+      limitWord <- emitValue "heap_end_word" I64 (PtrToInt (contextHeapLimit context))
+      -- The heap pointer never passes the heap limit, so this subtraction
+      -- does not wrap and the free bytes are exact.
+      room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
       -- A dynamic size brings the room down to words rather than the words up
       -- to bytes: a reservation the address space cannot hold then fails the
       -- compare instead of wrapping past it into the unchecked store behind.
@@ -1443,7 +1608,10 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   parameters <- forM vars $ \var -> do
     parameter <- fresh (varBase var)
     pure (var, parameter)
-  terminate (Branch (typedOperand fits) (Target reserved rootOperands) (Target collect []))
+  heap <- fresh "hp"
+  heapLimit <- fresh "hp_limit"
+  let heapArguments current = [contextHeap current, contextHeapLimit current]
+  terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
   beginBlock collect []
   forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
     storeSlot Ptr root array (toInteger (8 * index))
@@ -1451,15 +1619,15 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   -- than a second reservation that would repeat it. The function's table
   -- travels as an argument: this is the only place a collection runs on
   -- behalf of a running compiled function.
+  storeContext (ctxMachine ctx) context
   _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array, ctxSrt ctx]
   relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
     loadSlot (varBase var) Ptr array (toInteger (8 * index))
-  terminate (Jump (Target reserved (map typedOperand relocated)))
-  beginBlock reserved [(parameter, Ptr) | (_, parameter) <- parameters]
+  collected <- loadHeapContext (ctxMachine ctx) context
+  terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
+  beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr), (heapLimit, Ptr)])
+  setContext context {contextHeap = OperandVar heap, contextHeapLimit = OperandVar heapLimit}
   pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
-  where
-    loadMachinePointer base offset =
-      emitValue base Ptr (Load Ptr (byteAddress (ctxMachine ctx) offset) (wordAlignment 1))
 
 -- | Bind the result variables of a direct expression, converting each value
 -- to the representation of its variable.
@@ -1481,7 +1649,7 @@ allocateNode ctx node = do
   object <-
     if isFrameNode (ctxEnv ctx) node
       then pushFrame (ctxMachine ctx) (nodeWords node)
-      else bumpAllocate (ctxMachine ctx) (nodeWords node)
+      else bumpAllocate (nodeWords node)
   storeSlot Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
   -- The shared info table of an unsaturated constructor does not say how wide
   -- this stage is, so the object records the count itself.
@@ -1489,17 +1657,15 @@ allocateNode ctx node = do
     storeSlot I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) (typedOperand object) 8
   pure object
 
--- | Take the given words from heap that a reservation has already made: load
--- the bump pointer of the machine, advance it, and give back the object. The
--- caller writes the header and every field, so nothing zeroes the slots.
-bumpAllocate :: Operand -> Int -> LowerM Typed
-bumpAllocate machine words' = do
-  target <- targetM
-  let address = byteAddress machine (machineHeapNextOffset target)
-  object <- emitValue "object" Ptr (Load Ptr address (wordAlignment 1))
-  next <- emitValue "heap" Ptr (PtrAdd (typedOperand object) (OperandLiteral (LitInt (8 * toInteger words'))))
-  emit [] (Store Ptr (typedOperand next) address (wordAlignment 1))
-  pure object
+-- | Take the given words from heap that a reservation has already made: the
+-- object starts at the heap pointer, and the heap pointer advances past it.
+-- The caller writes the header and every field, so nothing zeroes the slots.
+bumpAllocate :: Int -> LowerM Typed
+bumpAllocate words' = do
+  context <- currentContext
+  next <- emitValue "hp" Ptr (PtrAdd (contextHeap context) (OperandLiteral (LitInt (8 * toInteger words'))))
+  setContext context {contextHeap = typedOperand next}
+  pure (Typed (contextHeap context) Ptr)
 
 -- | Whether a node is a continuation frame: a closure of a function that the
 -- CPS pass made a continuation.
@@ -1510,35 +1676,40 @@ isFrameNode env node =
     _ -> False
 
 -- | Push the given words on the stack of the running thread and give back
--- the frame. The frame fits in the current chunk when its last byte and the
--- byte before the stack pointer are in the same chunk. Otherwise the runtime
--- continues the stack in the next chunk. Neither path collects, so no root
--- moves. The caller writes the header and every field.
+-- the frame. The frame fits in the current chunk when the new stack pointer
+-- is not above the stack limit. Otherwise the runtime continues the stack in
+-- the next chunk, and the stack limit becomes the end of that chunk. Neither
+-- path collects, so no root moves, and neither path reads the machine copy
+-- of the context. The caller writes the header and every field.
 pushFrame :: Operand -> Int -> LowerM Typed
 pushFrame machine words' = do
-  target <- targetM
-  let address = byteAddress machine (machineStackNextOffset target)
-      bytes = 8 * toInteger words'
-  frame <- emitValue "frame" Ptr (Load Ptr address (wordAlignment 1))
-  end <- emitValue "stack" Ptr (PtrAdd (typedOperand frame) (OperandLiteral (LitInt bytes)))
-  frameWord <- emitValue "frame_word" I64 (PtrToInt (typedOperand frame))
-  before <- emitValue "stack_before" I64 (Binary Sub I64 (typedOperand frameWord) (OperandLiteral (LitInt 1)))
-  lastByte <- emitValue "stack_last" I64 (Binary Add I64 (typedOperand frameWord) (OperandLiteral (LitInt (bytes - 1))))
-  differ <- emitValue "stack_differ" I64 (Binary Xor I64 (typedOperand before) (typedOperand lastByte))
-  fits <- emitValue "stack_fits" I1 (Compare LtU I64 (typedOperand differ) (OperandLiteral (LitInt stackChunkBytes)))
-  fitsLabel <- freshLabel "stack_fits"
+  context <- currentContext
+  (frame, stack, stackLimit) <- pushStackFrame machine (contextStack context) (contextStackLimit context) words'
+  setContext context {contextStack = stack, contextStackLimit = stackLimit}
+  pure (Typed frame Ptr)
+
+-- | Push a frame on a stack with the given stack pointer and stack limit.
+-- Give back the frame, the new stack pointer, and the new stack limit.
+pushStackFrame :: Operand -> Operand -> Operand -> Int -> LowerM (Operand, Operand, Operand)
+pushStackFrame machine stack stackLimit words' = do
+  let bytes = 8 * toInteger words'
+  end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt bytes)))
+  fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) stackLimit)
   growLabel <- freshLabel "stack_grow"
   pushedLabel <- freshLabel "stack_pushed"
-  terminate (Branch (typedOperand fits) (Target fitsLabel []) (Target growLabel []))
-  beginBlock fitsLabel []
-  emit [] (Store Ptr (typedOperand end) address (wordAlignment 1))
-  terminate (Jump (Target pushedLabel [typedOperand frame]))
+  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit]) (Target growLabel []))
   beginBlock growLabel []
-  grown <- callRuntime "aihc_stack_grow" [Ptr, I64] [Ptr] [machine, OperandLiteral (LitInt (toInteger words'))]
-  terminate (Jump (Target pushedLabel [grown]))
+  grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64] [Ptr] [machine, stack, OperandLiteral (LitInt (toInteger words'))]
+  grownEnd <- emitValue "sp" Ptr (PtrAdd grown (OperandLiteral (LitInt bytes)))
+  -- The runtime gives the first frame of a chunk, so the rest of the chunk
+  -- follows the frame.
+  grownLimit <- emitValue "sp_limit" Ptr (PtrAdd grown (OperandLiteral (LitInt (stackChunkBytes - stackChunkHeaderBytes))))
+  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownLimit]))
   pushed <- fresh "frame"
-  beginBlock pushedLabel [(pushed, Ptr)]
-  pure (Typed (OperandVar pushed) Ptr)
+  pushedStack <- fresh "sp"
+  pushedLimit <- fresh "sp_limit"
+  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedLimit, Ptr)]
+  pure (OperandVar pushed, OperandVar pushedStack, OperandVar pushedLimit)
 
 -- | An unsaturated constructor spends field zero on its applied count, so its
 -- payload starts one slot later than every other object's.
@@ -1597,6 +1768,8 @@ compileForeignCall ctx env foreignCall arguments =
     GrinForeignUnsafeFunction -> compileCCall ctx env False foreignCall arguments
     GrinForeignDynamic -> compileCCall ctx env False foreignCall arguments
     GrinForeignUnsafeDynamic -> compileCCall ctx env False foreignCall arguments
+    -- A callback registration neither allocates nor reads the stack
+    -- pointer.
     GrinForeignWrapper _ -> case arguments of
       [closure] -> do
         operand <- pointerValue ctx env closure
@@ -1623,6 +1796,10 @@ protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
       _ -> failWith (LowerUnsupportedExpression "foreign call has no root array")
     mapM_ (\(index, (_, value)) -> storeSlot Ptr (typedOperand value) array (8 * index)) (zip [0 ..] roots)
     frame <- maybe (failWith (LowerUnsupportedExpression "foreign call has no stack frame")) pure (ctxForeignFrame ctx)
+    -- A callback runs Haskell code on the stack of this thread, above the
+    -- stack pointer, and it can allocate and collect. It gives the stack
+    -- back as it found it, so only the heap context comes back.
+    syncMachine ctx
     _ <-
       callRuntime
         "aihc_foreign_enter"
@@ -1631,6 +1808,7 @@ protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
         [ctxMachine ctx, frame, array, OperandLiteral (LitInt (toInteger (length roots))), ctxSrt ctx, OperandLiteral (LitInt (if allowed then 1 else 0))]
     results <- compileForeignCall ctx env call arguments
     _ <- callRuntime "aihc_foreign_leave" [Ptr, Ptr] [] [ctxMachine ctx, frame]
+    reloadHeap ctx
     relocated <- mapM (\(index, (var, _)) -> (var,) <$> loadSlot "foreign_root" Ptr array (8 * index)) (zip [0 ..] roots)
     pure (results, Map.fromList relocated `Map.union` env)
 
@@ -1660,17 +1838,21 @@ lowerCallbackPool call signature = do
       entries = [Symbol (pool <> "_" <> T.pack (show index)) | index <- [0 .. callbackPoolSize - 1]]
   emitItem (ItemData (DataItem (Symbol pool) Internal True (toInteger (lowerWordSize target)) (concatMap (\entry -> [DataCode (Just entry), DataNull, DataNull, DataNull]) entries)))
   continuationInfoItems (ContinuationSpec info (Symbol (pool <> "_applied_info")) stop [] resultTypes ContinuationFrameStop)
+  -- The stop frame gives the context back to the machine: the foreign call
+  -- that ran the callback loads the heap context from there.
   do
     machine <- fresh "machine"
+    (context, contextParameters) <- freshContext
     values <- mapM (\ty -> (,ty) <$> fresh "result") resultTypes
     beginBlock (Label "entry") []
     result <- case values of
       [(value, ty)] -> coerce I64 (Typed (OperandVar value) ty)
       [] -> pure (OperandLiteral (LitInt 0))
       _ -> failWith (LowerUnsupportedExpression "a callback has too many results")
+    storeContext (OperandVar machine) context
     _ <- callRuntime "aihc_callback_return" [Ptr, I64] [] [OperandVar machine, result]
     terminate (Return [])
-    finishFunction stop Internal ((machine, Ptr) : values) [] AihcConvention
+    finishFunction stop Internal ((machine, Ptr) : contextParameters <> values) [] AihcConvention
   forM_ entries $ \entry -> do
     arguments <- mapM (\ty -> (,ty) <$> fresh "argument") parameters
     beginBlock (Label "entry") []
@@ -1681,7 +1863,8 @@ lowerCallbackPool call signature = do
     continuation <- callRuntime "aihc_callback_continuation" [Ptr] [Ptr] [frame]
     converted <- zipWithM (\foreignTy (value, ty) -> extendForeignResult foreignTy (Typed (OperandVar value) ty)) (grinForeignArgumentTypes signature) arguments
     apply <- requireHelper (HelperApply [rawTypes])
-    emit [] (Call apply (machine : closure : continuation : map typedOperand converted))
+    context <- loadContext machine
+    emit [] (Call apply (machine : contextOperands context <> (closure : continuation : map typedOperand converted)))
     result <- callRuntime "aihc_callback_leave" [Ptr] [I64] [frame]
     returned <- mapM (\ty -> coerce ty (Typed result I64)) results
     terminate (Return returned)
@@ -1718,10 +1901,18 @@ compileCCall ctx env passMachine foreignCall arguments = do
             [resultType] -> typedOperand <$> emitValue "dynamic_result" resultType (CallIndirect code rest (Signature (drop 1 parameters) results CConvention))
             _ -> failWith (LowerUnsupportedExpression "a dynamic call has too many results")
         _ -> failWith (LowerUnsupportedExpression "a dynamic call requires a function pointer")
-      else callRuntime (grinForeignCallSymbol foreignCall) parameters results ([ctxMachine ctx | passMachine] <> operands)
+      else
+        if passMachine && grinForeignCallSymbol foreignCall `Set.notMember` contextFreeRuntimeCalls
+          then callSynced ctx (grinForeignCallSymbol foreignCall) parameters results (ctxMachine ctx : operands)
+          else callRuntime (grinForeignCallSymbol foreignCall) parameters results ([ctxMachine ctx | passMachine] <> operands)
   case results of
     [result] -> (: []) <$> extendForeignResult (grinForeignResultType signature) (Typed resultOperand result)
     _ -> pure []
+
+-- | The runtime calls that take the machine but neither allocate nor read
+-- the stack pointer. The machine does not need the context for them.
+contextFreeRuntimeCalls :: Set Text
+contextFreeRuntimeCalls = Set.fromList ["aihc_my_thread_id"]
 
 -- | The Lir signature of a C runtime or foreign function.
 runtimeCallSignature :: Bool -> GrinForeignSignature -> ([Type], [Type])
@@ -2654,7 +2845,7 @@ compileCase ctx env scrutinee binder alternatives = do
     beginBlock fallback []
     _ <- callRuntime "aihc_no_match" [] [] []
     terminate (Trap "no matching case alternative")
-  forM_ targets $ \(alternative, label) -> do
+  forM_ targets $ \(alternative, label) -> branchWith $ do
     beginBlock label []
     env'' <- bindAlternative alternative typed env'
     compileExpr ctx env'' (grinAltRhs alternative)
@@ -2766,19 +2957,23 @@ entryItems _ = do
   -- with the final continuation.
   do
     machine <- fresh "machine"
+    (context, contextParameters) <- freshContext
     final <- fresh "final"
     result <- fresh "result"
     beginBlock (Label "entry") []
     apply <- requireHelper (HelperApply [[]])
-    terminate (TailCall apply [OperandVar machine, OperandVar result, OperandVar final])
-    finishFunction topTarget Internal [(machine, Ptr), (final, Ptr), (result, Ptr)] [] AihcConvention
+    terminate (TailCall apply (OperandVar machine : contextOperands context <> [OperandVar result, OperandVar final]))
+    finishFunction topTarget Internal ((machine, Ptr) : contextParameters <> [(final, Ptr), (result, Ptr)]) [] AihcConvention
+  -- The exit function and the statistics read the context of the machine.
   do
     machine <- fresh "machine"
+    (context, contextParameters) <- freshContext
     value <- fresh "value"
     beginBlock (Label "entry") []
+    storeContext (OperandVar machine) context
     entry <- callRuntime "aihc_halt" [Ptr] [Code] [OperandVar machine]
     terminate (TailCallIndirect entry [OperandVar machine] (Signature [Ptr] [] AihcConvention))
-    finishFunction finalTarget Internal [(machine, Ptr), (value, Ptr)] [] AihcConvention
+    finishFunction finalTarget Internal ((machine, Ptr) : contextParameters <> [(value, Ptr)]) [] AihcConvention
   threadDoneContinuation threadDoneTarget
   where
     finalTarget = Symbol "aihc_lir_final_continuation"
@@ -2806,12 +3001,14 @@ startMachine = do
   emit [] (Store Code (OperandLiteral (LitSymbol exit)) (byteAddress machine machineExitCodeOffset) (wordAlignment 1))
   emit [] (Store I64 (OperandLiteral (LitInt 0)) (byteAddress (OperandLiteral (LitSymbol finishedSymbol)) 0) (byteAlignment 8))
   eval <- requireHelper HelperEval
-  emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), top])
+  context <- loadContext machine
+  emit [] (Call eval (machine : contextOperands context <> [OperandLiteral (LitSymbol entryGlobal), top]))
   pure machine
 
 -- | One continuation of an entry, pushed on the stack of the running
 -- thread: an info-table pointer and the captured slots the caller fills.
--- Exported for harnesses that build their own entry.
+-- The push goes through the machine, so it comes before the code loads the
+-- context. Exported for harnesses that build their own entry.
 allocateContinuation :: Operand -> Symbol -> Int -> LowerM Operand
 allocateContinuation machine info words' = do
   object <- callRuntime "aihc_stack_push" [Ptr, I64] [Ptr] [machine, OperandLiteral (LitInt (toInteger words'))]
@@ -2823,12 +3020,14 @@ allocateContinuation machine info words' = do
 threadDoneContinuation :: Symbol -> LowerM ()
 threadDoneContinuation target = do
   machine <- fresh "machine"
+  (context, contextParameters) <- freshContext
   value <- fresh "value"
   beginBlock (Label "entry") []
+  storeContext (OperandVar machine) context
   resume <- callRuntime "aihc_thread_done" [Ptr] [Ptr] [OperandVar machine]
   helper <- requireHelper HelperResume
   terminate (TailCall helper [OperandVar machine, resume])
-  finishFunction target Internal [(machine, Ptr), (value, Ptr)] [] AihcConvention
+  finishFunction target Internal ((machine, Ptr) : contextParameters <> [(value, Ptr)]) [] AihcConvention
 
 -- Helpers
 
@@ -2856,6 +3055,7 @@ generateHelper env helper =
       finishFunction symbol Internal [(machine, Ptr)] [] AihcConvention
     HelperContinue shape -> do
       machine <- fresh "machine"
+      (context, contextParameters) <- freshContext
       continuation <- fresh "continuation"
       values <- forM shape $ \ty -> (,ty) <$> fresh "value"
       beginBlock (Label "entry") []
@@ -2873,21 +3073,26 @@ generateHelper env helper =
       next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "enter") []
-      -- Entering a frame pops it and every frame above it.
-      target <- targetM
-      emit [] (Store Ptr (OperandVar current) (byteAddress (OperandVar machine) (machineStackNextOffset target)) (wordAlignment 1))
+      -- Entering a frame pops it and every frame above it: the frame is
+      -- the new stack pointer, and its chunk gives the stack limit. The
+      -- stack pointer is a value of its own, so the frame can stay in the
+      -- register of the object argument and only the copy moves.
+      stack <- emitValue "sp" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 0)))
+      stackLimit <- chunkEnd (OperandVar current)
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
+      let entered = context {contextStack = typedOperand stack, contextStackLimit = stackLimit}
       terminate
         ( TailCallIndirect
             (typedOperand entry)
-            (OperandVar machine : OperandVar current : OperandLiteral LitNull : [OperandVar var | (var, _) <- values])
-            (Signature (Ptr : Ptr : Ptr : shape) [] AihcConvention)
+            (OperandVar machine : contextOperands entered <> (OperandVar current : OperandLiteral LitNull : [OperandVar var | (var, _) <- values]))
+            (Signature (Ptr : contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
         )
-      finishFunction symbol Internal ((machine, Ptr) : (continuation, Ptr) : values) [] AihcConvention
+      finishFunction symbol Internal ((machine, Ptr) : contextParameters <> ((continuation, Ptr) : values)) [] AihcConvention
     HelperApply [shape] -> do
       target <- targetM
       let word = toInteger (lowerWordSize target)
       machine <- fresh "machine"
+      (context, contextParameters) <- freshContext
       function <- fresh "function"
       continuation <- fresh "continuation"
       values <- forM shape $ \ty -> (,ty) <$> fresh "value"
@@ -2915,19 +3120,14 @@ generateHelper env helper =
       terminate
         ( TailCallIndirect
             (typedOperand entry)
-            (OperandVar machine : OperandVar current : OperandVar continuation : [OperandVar var | (var, _) <- values])
-            (Signature (Ptr : Ptr : Ptr : shape) [] AihcConvention)
+            (OperandVar machine : contextOperands context <> (OperandVar current : OperandVar continuation : [OperandVar var | (var, _) <- values]))
+            (Signature (Ptr : contextTypes <> (Ptr : Ptr : shape)) [] AihcConvention)
         )
       beginBlock (Label "slow") []
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
         storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
-      -- The continuation slot is a C pointer variable, not a heap slot.
-      emit [] (Store Ptr (OperandVar continuation) (byteAddress continuationSlot 0) (wordAlignment 1))
-      applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt 1), OperandLiteral (LitInt (toInteger (length shape))), arguments, continuationSlot]
-      adjusted <- emitValue "adjusted" Ptr (Load Ptr (byteAddress continuationSlot 0) (wordAlignment 1))
-      continue <- requireHelper (HelperContinue [Ptr])
-      terminate (TailCall continue [OperandVar machine, typedOperand adjusted, applied])
-      finishFunction symbol Internal ((machine, Ptr) : (function, Ptr) : (continuation, Ptr) : values) [] AihcConvention
+      applySlow machine context current continuation continuationSlot arguments 1 (length shape)
+      finishFunction symbol Internal ((machine, Ptr) : contextParameters <> ((function, Ptr) : (continuation, Ptr) : values)) [] AihcConvention
     -- Several groups, as the eval/apply model of GHC does it. A closure
     -- whose remaining arity equals the group count takes every value in its
     -- entry. A closure that takes k < n groups gets the first k groups, and
@@ -2939,6 +3139,7 @@ generateHelper env helper =
       let word = toInteger (lowerWordSize target)
           count = length groups
       machine <- fresh "machine"
+      (context, contextParameters) <- freshContext
       function <- fresh "function"
       continuation <- fresh "continuation"
       valueGroups <- forM groups (mapM (\ty -> (,ty) <$> fresh "value"))
@@ -2975,61 +3176,73 @@ generateHelper env helper =
       terminate
         ( TailCallIndirect
             (typedOperand entry)
-            (OperandVar machine : OperandVar current : OperandVar continuation : [OperandVar var | (var, _) <- values])
-            (Signature (Ptr : Ptr : Ptr : concat groups) [] AihcConvention)
+            (OperandVar machine : contextOperands context <> (OperandVar current : OperandVar continuation : [OperandVar var | (var, _) <- values]))
+            (Signature (Ptr : contextTypes <> (Ptr : Ptr : concat groups)) [] AihcConvention)
         )
       forM_ [1 .. count - 1] $ \taken -> do
         beginBlock (overLabel taken) []
         let (supplied, held) = splitAt taken valueGroups
-        applyOverSaturated machine (OperandVar current) (OperandVar continuation) header supplied held
+        applyOverSaturated machine context (OperandVar current) (OperandVar continuation) header supplied held
       beginBlock (Label "slow") []
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
         storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
-      -- The continuation slot is a C pointer variable, not a heap slot.
-      emit [] (Store Ptr (OperandVar continuation) (byteAddress continuationSlot 0) (wordAlignment 1))
-      applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt (toInteger count)), OperandLiteral (LitInt (toInteger (length values))), arguments, continuationSlot]
-      adjusted <- emitValue "adjusted" Ptr (Load Ptr (byteAddress continuationSlot 0) (wordAlignment 1))
-      continue <- requireHelper (HelperContinue [Ptr])
-      terminate (TailCall continue [OperandVar machine, typedOperand adjusted, applied])
-      finishFunction symbol Internal ((machine, Ptr) : (function, Ptr) : (continuation, Ptr) : values) [] AihcConvention
+      applySlow machine context current continuation continuationSlot arguments count (length values)
+      finishFunction symbol Internal ((machine, Ptr) : contextParameters <> ((function, Ptr) : (continuation, Ptr) : values)) [] AihcConvention
     -- The frame applies the function that arrives to the groups it holds,
     -- with the parent as the continuation.
     HelperApplyFrame groups -> do
       continuationInfoItems (ContinuationSpec (applyFrameInfoSymbol groups) (applyFrameAppliedInfoSymbol groups) symbol (Ptr : concat groups) [Ptr] ContinuationFrameNormal)
       machine <- fresh "machine"
+      (context, contextParameters) <- freshContext
       parent <- fresh "parent"
       values <- forM (concat groups) $ \ty -> (,ty) <$> fresh "value"
       applied <- fresh "applied"
       beginBlock (Label "entry") []
       apply <- requireHelper (HelperApply groups)
-      terminate (TailCall apply (OperandVar machine : OperandVar applied : OperandVar parent : [OperandVar var | (var, _) <- values]))
-      finishFunction symbol Internal ((machine, Ptr) : (parent, Ptr) : values <> [(applied, Ptr)]) [] AihcConvention
+      terminate (TailCall apply (OperandVar machine : contextOperands context <> (OperandVar applied : OperandVar parent : [OperandVar var | (var, _) <- values])))
+      finishFunction symbol Internal ((machine, Ptr) : contextParameters <> ((parent, Ptr) : values <> [(applied, Ptr)])) [] AihcConvention
     _ -> failWith (LowerUnsupportedExpression "internal: shared helper requested a local definition")
   where
     symbol = helperSymbol helper
     loadHeader object = typedOperand <$> loadObjectInfo object
     overLabel taken = Label ("over_" <> T.pack (show taken))
 
+-- | The slow path of an apply helper: the runtime applies the function to
+-- the values in the argument array, and the result goes to the continuation
+-- the runtime leaves in the continuation slot. The runtime can allocate and
+-- collect, so the machine gets the context first.
+applySlow :: Var -> Context -> Var -> Var -> Operand -> Operand -> Int -> Int -> LowerM ()
+applySlow machine context current continuation continuationSlot arguments groups count = do
+  -- The continuation slot is a C pointer variable, not a heap slot.
+  emit [] (Store Ptr (OperandVar continuation) (byteAddress continuationSlot 0) (wordAlignment 1))
+  storeContext (OperandVar machine) context
+  applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt (toInteger groups)), OperandLiteral (LitInt (toInteger count)), arguments, continuationSlot]
+  collected <- loadHeapContext (OperandVar machine) context
+  adjusted <- emitValue "adjusted" Ptr (Load Ptr (byteAddress continuationSlot 0) (wordAlignment 1))
+  continue <- requireHelper (HelperContinue [Ptr])
+  terminate (TailCall continue (OperandVar machine : contextOperands collected <> [typedOperand adjusted, applied]))
+
 -- | The block of an apply helper for a closure that takes fewer groups than
 -- the application supplies. It pushes a frame that holds the other groups
 -- on the stack of the thread, then enters the closure with the groups it
 -- takes. A push does not collect, so no value moves.
-applyOverSaturated :: Var -> Operand -> Operand -> Operand -> [[(Var, Type)]] -> [[(Var, Type)]] -> LowerM ()
-applyOverSaturated machine function continuation header supplied held = do
+applyOverSaturated :: Var -> Context -> Operand -> Operand -> Operand -> [[(Var, Type)]] -> [[(Var, Type)]] -> LowerM ()
+applyOverSaturated machine context function continuation header supplied held = do
   let heldTypes = map (map snd) held
       heldValues = concat held
   _ <- requireHelper (HelperApplyFrame heldTypes)
-  frame <- pushFrame (OperandVar machine) (2 + length heldValues)
-  storeSlot Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) (typedOperand frame) 0
-  storeSlot Ptr continuation (typedOperand frame) 8
+  (frame, stack, stackLimit) <- pushStackFrame (OperandVar machine) (contextStack context) (contextStackLimit context) (2 + length heldValues)
+  storeSlot Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) frame 0
+  storeSlot Ptr continuation frame 8
   forM_ (zip [0 :: Int ..] heldValues) $ \(index, (var, ty)) ->
-    storeSlot ty (OperandVar var) (typedOperand frame) (toInteger (8 * (index + 2)))
+    storeSlot ty (OperandVar var) frame (toInteger (8 * (index + 2)))
   entry <- loadInfoCode "entry" header infoBackendEntryIndex
+  let pushed = context {contextStack = stack, contextStackLimit = stackLimit}
   terminate
     ( TailCallIndirect
         (typedOperand entry)
-        (OperandVar machine : function : typedOperand frame : [OperandVar var | (var, _) <- concat supplied])
-        (Signature (Ptr : Ptr : Ptr : map snd (concat supplied)) [] AihcConvention)
+        (OperandVar machine : contextOperands pushed <> (function : frame : [OperandVar var | (var, _) <- concat supplied]))
+        (Signature (Ptr : contextTypes <> (Ptr : Ptr : map snd (concat supplied))) [] AihcConvention)
     )
 
 -- | The word fields of an info table precede its byte fields. See the

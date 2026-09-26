@@ -182,13 +182,21 @@ struct AihcMachine {
   AihcSlot *globals;
   uint64_t global_count;
   AihcEntry exit_code;
+  /* Compiled code keeps the heap pointer and the heap limit in registers.
+     heap_next is a copy that compiled code stores before a call that can
+     allocate, collect, or read it, and loads again after the call. Only
+     runtime functions change heap_limit, so compiled code loads it again
+     after such a call and never stores it. */
   uint8_t *heap_next;
   uint8_t *heap_limit;
   /* The first free byte of the stack of the running thread. Continuation
      frames live in stack chunks, not in the managed heap. Compiled code
-     pushes a frame here, and the continue helpers set this field to the
-     address of the frame they enter. That pops the frame and every frame
-     above it. See aihc_stack_push. */
+     keeps the stack pointer in a register: it pushes a frame there, and the
+     continue helpers set it to the address of the frame they enter. That
+     pops the frame and every frame above it. This field is a copy that
+     compiled code stores before a call that can read it. A runtime function
+     that selects the stack of a thread writes this field, and compiled code
+     loads it again. See aihc_stack_push. */
   uint8_t *stack_next;
   uint8_t *heap_start;
   uint8_t *other_space;

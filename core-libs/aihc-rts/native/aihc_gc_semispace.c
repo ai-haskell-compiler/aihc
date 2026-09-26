@@ -308,21 +308,20 @@ void aihc_stack_release(AihcMachine *machine, AihcStack *stack) {
   free(stack);
 }
 
-AihcValue *aihc_stack_grow(AihcMachine *machine, uint64_t words) {
+AihcValue *aihc_stack_grow(AihcMachine *machine, uint8_t *stack_next,
+                           uint64_t words) {
   if (words > (AIHC_STACK_CHUNK_BYTES - AIHC_STACK_CHUNK_HEADER_BYTES) /
                   sizeof(AihcSlot)) {
     aihc_fail("continuation frame exceeds a stack chunk");
   }
-  AihcStackChunk *current = aihc_stack_chunk_of(machine->stack_next - 1);
+  AihcStackChunk *current = aihc_stack_chunk_of(stack_next - 1);
   AihcStackChunk *next = current->above;
   if (next == NULL) {
     next = aihc_stack_chunk_new(machine, current->stack);
     next->below = current;
     current->above = next;
   }
-  uint8_t *frame = aihc_stack_chunk_frames(next);
-  machine->stack_next = frame + words * sizeof(AihcSlot);
-  return (AihcValue *)frame;
+  return (AihcValue *)aihc_stack_chunk_frames(next);
 }
 
 AihcValue *aihc_stack_push(AihcMachine *machine, uint64_t words) {
@@ -332,7 +331,7 @@ AihcValue *aihc_stack_push(AihcMachine *machine, uint64_t words) {
   }
   uintptr_t last = (uintptr_t)frame + words * sizeof(AihcSlot) - 1;
   if ((((uintptr_t)frame - 1) ^ last) >= AIHC_STACK_CHUNK_BYTES) {
-    return aihc_stack_grow(machine, words);
+    frame = (uint8_t *)aihc_stack_grow(machine, frame, words);
   }
   machine->stack_next = frame + words * sizeof(AihcSlot);
   return (AihcValue *)frame;

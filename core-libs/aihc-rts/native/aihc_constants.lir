@@ -20,6 +20,8 @@ const @AIHC_INFO_NEEDS_EVAL_OFFSET = 5 words + 4
 const @AIHC_INFO_BYTES = 5 words + 8
 
 ; AihcMachine fields used by evaluation. C assertions check these offsets.
+; The heap pointer and the stack pointer of the machine are a copy of the
+; context. The code stores them only before a C call that reads them.
 const @AIHC_MACHINE_HEAP_NEXT_OFFSET = 1 word + 16
 const @AIHC_MACHINE_HEAP_LIMIT_OFFSET = 2 words + 16
 const @AIHC_MACHINE_STACK_NEXT_OFFSET = 3 words + 16
@@ -82,6 +84,13 @@ const @AIHC_UPDATE_FRAME_BYTES = @AIHC_UPDATE_FRAME_WORDS * 8
 
 ; Thread stacks are linked lists of chunks. A chunk has this size and this
 ; alignment, so the chunk of a frame is its address with the low bits
-; cleared. A push fits in the current chunk when its last byte and the byte
-; before the stack pointer have the same high bits.
+; cleared, and the end of the chunk is its address with the low bits set,
+; plus one. The stack limit of the running thread is the end of the chunk
+; of the stack pointer, so a push fits in the current chunk when the new
+; stack pointer is not above the stack limit.
 const @AIHC_STACK_CHUNK_BYTES = 4096
+const @AIHC_STACK_CHUNK_LAST = @AIHC_STACK_CHUNK_BYTES - 1
+; The frames of a chunk follow its header. aihc_stack_grow gives the first
+; frame of a chunk, so the chunk ends this many bytes after that frame.
+const @AIHC_STACK_CHUNK_HEADER_BYTES = 32
+const @AIHC_STACK_CHUNK_FRAME_BYTES = @AIHC_STACK_CHUNK_BYTES - @AIHC_STACK_CHUNK_HEADER_BYTES

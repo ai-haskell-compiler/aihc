@@ -1,14 +1,14 @@
 	.text
 	.p2align 4
 count:
-	test rdi, rdi
+	test rbx, rbx
 	jne .Llir_0_1
-	mov rdi, rsi
+	mov rbx, r12
 	jmp .Llir_0_2
 .Llir_0_1:
-	lea r9, [rdi - 1]
-	add rsi, rdi
-	mov rdi, r9
+	lea r9, [rbx - 1]
+	add r12, rbx
+	mov rbx, r9
 	jmp count
 .Llir_0_2:
 	jmp done

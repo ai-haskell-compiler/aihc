@@ -86,20 +86,31 @@ Thus the chunk of an address is the address with the low 12 bits cleared.
 A chunk starts with a 32-byte header: the owner stack and the chunks below and above.
 The frames of a chunk follow the header.
 
-The machine field `stack_next` is the first free byte of the stack of the running thread.
-A push writes the frame at `stack_next` and increases it.
-The frame fits when its last byte and the byte before `stack_next` are in the same chunk.
+The stack pointer is the first free byte of the stack of the running thread.
+The stack limit is the end of the chunk that holds the byte before the stack pointer.
+Compiled code keeps both values in registers and passes them to each function that it transfers control to.
+Refer to "Lowering from GC-GRIN" in [lir.md](lir.md).
+A push writes the frame at the stack pointer and increases it.
+The frame fits when the new stack pointer is not above the stack limit.
 If the frame does not fit, `aihc_stack_grow` puts it at the start of the next chunk.
+Then the stack limit is the end of that chunk.
 A new chunk comes from the C allocator, so a push never collects.
 A frame keeps the address of its parent in field zero, in any chunk.
 Thus a chunk boundary needs no link frame.
 The largest frame has 256 words, so a frame always fits in an empty chunk.
 
-A continue helper sets `stack_next` to the address of the frame that it enters.
+A continue helper sets the stack pointer to the address of the frame that it enters.
 This pops the frame and every frame above it.
-An application resume sets `stack_next` to the first byte after its continuation.
+The stack limit becomes the end of the chunk of that frame.
+An application resume sets the stack pointer to the first byte after its continuation.
 These two rules are correct because code always pushes a frame directly above its current continuation.
 The current continuation is thus always the topmost live frame.
+
+The machine field `stack_next` holds a copy of the stack pointer.
+Compiled code stores the stack pointer there before a runtime call that can read it, such as a collection or a scheduler operation.
+The scheduler writes `stack_next` when it selects a thread, and `aihc_lir_resume` loads the stack pointer from there.
+The runtime pushes the frames of the list below through `stack_next` while no compiled code runs.
+The machine fields `heap_next` and `heap_limit` are the same kind of copy of the heap pointer and the heap limit.
 
 The frame layouts do not change, because each frame has its info table.
 The collector finds a live frame through a pointer to it.
@@ -192,8 +203,8 @@ A thunk under evaluation retains its original info table and payload.
 The Lir lowering gives each closure stage with a remaining arity from one to
 four an apply entry, the `backend_entry` of the info table. The entry takes
 the values of all remaining argument groups of the stage. Apply sites pass
-the machine, the closure, the continuation, and the supplied values in the
-`aihc` convention and tail-call that entry. The entry loads captured fields
+the machine, the context of the thread, the closure, the continuation, and
+the supplied values in the `aihc` convention and tail-call that entry. The entry loads captured fields
 directly from the closure, takes the supplied values as parameters, and
 tail-calls the target function. A stage whose fields and supplied values are
 all pointers shares one of the runtime's enter functions, which reaches the
