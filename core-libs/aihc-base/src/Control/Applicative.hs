@@ -22,7 +22,7 @@ import Control.Arrow (Arrow (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
 import Foreign.Storable (Storable (..))
 import GHC.Ptr (castPtr)
-import Prelude (Applicative (..), Eq (..), Functor (..), Maybe (..), Monad (..), Ord (..), const, (++), (<$>))
+import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Traversable (..), const, (++), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
@@ -59,6 +59,12 @@ instance (Ord a) => Ord (Const a b) where
 instance Functor (Const a) where
   fmap _ (Const value) = Const value
 
+instance Foldable (Const a) where
+  foldr _ initial _ = initial
+
+instance Traversable (Const a) where
+  traverse _ (Const value) = pure (Const value)
+
 instance (Monoid a) => Applicative (Const a) where
   pure _ = Const mempty
   Const left <*> Const right = Const (left `mappend` right)
@@ -90,6 +96,14 @@ instance (Arrow a) => Applicative (WrappedArrow a b) where
 
 newtype ZipList a = ZipList {getZipList :: [a]}
   deriving newtype (Functor)
+
+instance Foldable ZipList where
+  foldr step initial (ZipList values) = foldr step initial values
+  length (ZipList values) = length values
+  null (ZipList values) = null values
+
+instance Traversable ZipList where
+  traverse function (ZipList values) = ZipList <$> traverse function values
 
 instance Applicative ZipList where
   pure value = ZipList (repeatZipList value)

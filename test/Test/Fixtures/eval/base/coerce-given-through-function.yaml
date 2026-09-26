@@ -1,0 +1,27 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.Coerce (Coercible, coerce)
+
+    newtype Age = Age Int
+
+    -- | The given @Coercible b c@ must lift through the function result.
+    (#.) :: Coercible b c => (b -> c) -> (a -> b) -> (a -> c)
+    _ #. x = coerce x
+
+    (#..) :: Coercible b c => (b -> c) -> (i -> a -> b) -> (i -> a -> c)
+    _ #.. x = coerce x
+
+    unAge :: Age -> Int
+    unAge (Age n) = n
+
+    plusAge :: Int -> Int -> Age
+    plusAge a b = Age (a + b)
+
+    result :: Bool
+    result = (unAge #. Age) 4 == 4 && (unAge #.. plusAge) 1 2 == 3
+expression: result
+output: 'True'
+status: pass
+reason: a Coercible given solves a wanted whose function type differs only in that pair

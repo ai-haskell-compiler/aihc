@@ -9,7 +9,8 @@ module GHC.Internal.Traversable
 where
 
 import Data.Kind (Type)
-import GHC.Base (Applicative, Functor (..), Monad, id, (.))
+import Data.Proxy (Proxy (..))
+import GHC.Base (Applicative (..), Functor (..), Monad, id, (.))
 import GHC.Internal.Foldable (Foldable)
 
 class (Functor t, Foldable t) => Traversable (t :: Type -> Type) where
@@ -22,3 +23,9 @@ class (Functor t, Foldable t) => Traversable (t :: Type -> Type) where
   sequenceA = traverse id
   mapM = traverse
   sequence = sequenceA
+
+instance Traversable Proxy where
+  traverse _ _ = pure Proxy
+  sequenceA _ = pure Proxy
+  mapM _ _ = pure Proxy
+  sequence _ = pure Proxy

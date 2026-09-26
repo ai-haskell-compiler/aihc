@@ -71,12 +71,14 @@ import Data.Void (Void)
 import GHC.Prim (Addr#, Char#, Double#, Float#, Int#, Word#)
 import GHC.Ptr (Ptr)
 import Prelude
-  ( Bool (..),
+  ( Applicative (..),
+    Bool (..),
     Char,
     Double,
     Either (..),
     Eq (..),
     Float,
+    Foldable (..),
     Functor (..),
     Int,
     Maybe (..),
@@ -85,7 +87,10 @@ import Prelude
     Read,
     Show (..),
     String,
+    Traversable (..),
     Word,
+    flip,
+    (<$>),
   )
 
 -- * Representation types
@@ -457,3 +462,63 @@ instance (Functor f, Functor g) => Functor (f :*: g) where
 
 instance (Functor f, Functor g) => Functor (f :.: g) where
   fmap f (Comp1 values) = Comp1 (fmap (fmap f) values)
+
+-- * Foldable instances
+
+instance Foldable V1 where
+  foldr _ _ v = case v of {}
+
+instance Foldable U1 where
+  foldr _ initial _ = initial
+
+instance Foldable Par1 where
+  foldr f initial (Par1 value) = f value initial
+
+instance (Foldable f) => Foldable (Rec1 f) where
+  foldr f initial (Rec1 values) = foldr f initial values
+
+instance Foldable (K1 i c) where
+  foldr _ initial _ = initial
+
+instance (Foldable f) => Foldable (M1 i c f) where
+  foldr f initial (M1 values) = foldr f initial values
+
+instance (Foldable f, Foldable g) => Foldable (f :+: g) where
+  foldr f initial (L1 values) = foldr f initial values
+  foldr f initial (R1 values) = foldr f initial values
+
+instance (Foldable f, Foldable g) => Foldable (f :*: g) where
+  foldr f initial (left :*: right) = foldr f (foldr f initial right) left
+
+instance (Foldable f, Foldable g) => Foldable (f :.: g) where
+  foldr f initial (Comp1 values) = foldr (flip (foldr f)) initial values
+
+-- * Traversable instances
+
+instance Traversable V1 where
+  traverse _ v = case v of {}
+
+instance Traversable U1 where
+  traverse _ _ = pure U1
+
+instance Traversable Par1 where
+  traverse f (Par1 value) = fmap Par1 (f value)
+
+instance (Traversable f) => Traversable (Rec1 f) where
+  traverse f (Rec1 values) = fmap Rec1 (traverse f values)
+
+instance Traversable (K1 i c) where
+  traverse _ (K1 value) = pure (K1 value)
+
+instance (Traversable f) => Traversable (M1 i c f) where
+  traverse f (M1 values) = fmap M1 (traverse f values)
+
+instance (Traversable f, Traversable g) => Traversable (f :+: g) where
+  traverse f (L1 values) = fmap L1 (traverse f values)
+  traverse f (R1 values) = fmap R1 (traverse f values)
+
+instance (Traversable f, Traversable g) => Traversable (f :*: g) where
+  traverse f (left :*: right) = (:*:) <$> traverse f left <*> traverse f right
+
+instance (Traversable f, Traversable g) => Traversable (f :.: g) where
+  traverse f (Comp1 values) = fmap Comp1 (traverse (traverse f) values)

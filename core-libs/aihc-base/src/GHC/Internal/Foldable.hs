@@ -19,6 +19,7 @@ where
 import Data.Bool (Bool (..), (&&), (||))
 import Data.Either (Either (..))
 import Data.Kind (Type)
+import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Maybe (..), id, seq, (++), (.))
 import GHC.Base qualified
@@ -171,6 +172,17 @@ instance Foldable ((,) e) where
   foldr f initial (_, value) = f value initial
   foldl f initial (_, value) = f initial value
   null _ = False
+
+instance Foldable Proxy where
+  foldMap _ _ = mempty
+  foldr _ initial _ = initial
+  foldl _ initial _ = initial
+  toList _ = []
+  null _ = True
+  length _ = 0
+  elem _ _ = False
+  sum _ = 0
+  product _ = 1
 
 instance Foldable NonEmpty where
   foldr f initial (value :| values) = f value (foldr f initial values)
