@@ -211,7 +211,8 @@ testWrapper resultTypes =
                   : [ Instruction [] (Store ty (OperandVar var) (byteAddress (OperandVar (Var "out")) (8 * index)) (byteAlignment 1))
                     | (index, var, ty) <- zip3 [0 ..] results resultTypes
                     ],
-              blockTerminator = Return [OperandLiteral (LitInt (toInteger (length resultTypes)))]
+              blockTerminator = Return [OperandLiteral (LitInt (toInteger (length resultTypes)))],
+              blockCold = False
             }
         ]
     }

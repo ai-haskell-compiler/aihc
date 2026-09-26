@@ -1,0 +1,47 @@
+; expect: 28, 163, 28, 0
+
+; A value that lives across a call in a cold block keeps the register that
+; the fast path gives it. The cold block saves the value before the call
+; and restores it after the call. The C call clobbers the volatile
+; registers and the aihc call clobbers all registers, so each save must
+; keep its value. The first call of @work takes the cold block and the
+; second call does not.
+extern func @labs(i64) -> i64 cc c
+
+func @spread(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64) -> i64 {
+entry:
+  %ab = add i64 %a, %b
+  %cd = add i64 %c, %d
+  %ef = add i64 %e, %f
+  %gh = add i64 %g, %h
+  %abcd = add i64 %ab, %cd
+  %efgh = add i64 %ef, %gh
+  %sum = add i64 %abcd, %efgh
+  return %sum
+}
+
+func @work(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %slow: i1) -> (i64, i64) {
+entry:
+  br %slow, collect, resume(0)
+
+cold collect:
+  %m = call @labs(-100)
+  %n = call @spread(%m, 9, 9, 9, 9, 9, 9, 9)
+  jump resume(%n)
+
+resume(%extra: i64):
+  %ab = add i64 %a, %b
+  %cd = add i64 %c, %d
+  %ef = add i64 %e, %f
+  %abcd = add i64 %ab, %cd
+  %efg = add i64 %ef, %g
+  %total = add i64 %abcd, %efg
+  return %total, %extra
+}
+
+func @main() -> (i64, i64, i64, i64) {
+entry:
+  %t, %x = call @work(1, 2, 3, 4, 5, 6, 7, 1)
+  %u, %y = call @work(1, 2, 3, 4, 5, 6, 7, 0)
+  return %t, %x, %u, %y
+}

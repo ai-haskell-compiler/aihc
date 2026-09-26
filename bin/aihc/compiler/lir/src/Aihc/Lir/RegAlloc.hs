@@ -10,9 +10,19 @@
 -- call, because the C callee saves it, and is clobbered by an aihc call,
 -- because an aihc function saves nothing. So a value that lives across a C
 -- call takes a preserved register, a value that lives across an aihc call
--- goes to a frame slot, and everything else takes whatever is free. That is
--- the whole of the interaction between calls and registers: no interval is
--- ever split, and no register is ever pre-colored.
+-- goes to a frame slot, and everything else takes whatever is free. No
+-- interval is ever split, and no register is ever pre-colored.
+--
+-- A call in a cold block is the exception. It is a slow path, such as a
+-- collection, and the fast path around it should not pay for it. So a cold
+-- call does not restrict the registers of the values that live across it.
+-- Instead, the allocation tells the backend what to save around the call:
+-- the register of each value that is live after the call and that the call
+-- clobbers, and the place that keeps the value during the call. That place
+-- is a preserved register that nothing holds at the call, when the call
+-- preserves it and it costs nothing, and otherwise a frame slot. A value
+-- that lives across a cold call and has no hint of its own prefers a
+-- preserved register, because it then needs no save at all.
 --
 -- The intervals are conservative. A value gets one contiguous interval from
 -- the lowest to the highest position at which it is live, with no holes and
@@ -60,12 +70,15 @@ import Control.Monad.ST (ST, runST)
 import Data.Array.ST (STUArray, readArray, writeArray)
 import Data.Array.Unboxed (Array, UArray, elems, listArray, (!))
 import Data.Array.Unsafe (unsafeFreeze)
+import Data.Bits (complement, countTrailingZeros, shiftL, (.&.))
 import Data.Foldable (traverse_)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
 import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.STRef (newSTRef, readSTRef, writeSTRef)
+import Data.STRef (modifySTRef', newSTRef, readSTRef, writeSTRef)
 
 -- | Where every value of one function lives.
 data Allocation register = Allocation
@@ -76,7 +89,14 @@ data Allocation register = Allocation
     allocationSpills :: ![Var],
     -- | The registers the allocator handed out, in pool order. The backend
     -- saves the preserved ones among them when its convention asks for it.
-    allocationUsed :: ![register]
+    allocationUsed :: ![register],
+    -- | What each cold call saves, by the number of the call among the
+    -- instructions of the function in block order: the register of each
+    -- value that lives across the call and that the call clobbers, with
+    -- the register that keeps the value during the call, or 'Nothing' for a
+    -- frame slot. The backend copies the values there before the call, and
+    -- back after it has placed the results.
+    allocationColdSaves :: !(IntMap [(register, Maybe register)])
   }
   deriving (Eq, Show)
 
@@ -106,7 +126,11 @@ data Registers register = Registers
     registersArgument :: !(Int -> Maybe register),
     -- | The register that carries result number @i@ of a call and of a
     -- return, when one does.
-    registersResult :: !(Int -> Maybe register)
+    registersResult :: !(Int -> Maybe register),
+    -- | Whether the backend stores and loads two registers with one
+    -- instruction. Then a cold call keeps what it saves in the frame, two
+    -- values at a time, and a save costs half as much as two moves.
+    registersPairedSaves :: !Bool
   }
 
 -- | Assign the registers of the target to the values of the function. The
@@ -122,7 +146,12 @@ allocateRegistersFor target signatures function =
             register >= 0
           ],
       allocationSpills = [encNames encoded ! value | value <- elems (encDefinitions encoded), assigned ! value < 0],
-      allocationUsed = [register | (index, register) <- zip [0 ..] pool, used ! index]
+      allocationUsed = [register | (index, register) <- zip [0 ..] pool, used ! index],
+      allocationColdSaves =
+        IntMap.fromList
+          [ (number, [(registers ! register, if keeper < 0 then Nothing else Just (registers ! keeper)) | (register, keeper) <- saves])
+          | (number, saves) <- callSaves
+          ]
     }
   where
     pool = registersVolatile target <> registersPreserved target
@@ -132,8 +161,8 @@ allocateRegistersFor target signatures function =
     carrier which = memoise (maybe (-1) indexOf . which target)
     indexOf register = fromMaybe (-1) (elemIndex register pool)
     encoded = encodeFunction (carrier registersArgument) (carrier registersResult) signatures function
-    (assigned, used) =
-      runAllocation encoded (length pool) (length (registersVolatile target)) (registersPreservedCost target)
+    (assigned, used, callSaves) =
+      runAllocation encoded (length pool) (length (registersVolatile target)) (registersPreservedCost target) (registersPairedSaves target)
 
 -- | The live interval of every value of the function, in name order.
 functionIntervals :: Function -> [Interval]
@@ -144,7 +173,7 @@ functionIntervals function =
   where
     encoded = encodeFunction unhinted unhinted Map.empty function
     unhinted _ = -1
-    (starts, ends) = runST (functionSpans encoded)
+    (starts, ends) = runST (functionSpans encoded >>= \(starts', ends', _) -> pure (starts', ends'))
 
 -- | The answer of a function on the first positions, in a table.
 memoise :: (Int -> Int) -> Int -> Int
@@ -181,8 +210,8 @@ data Encoded = Encoded
     -- | The instructions of block @i@ are the numbers from
     -- @encBlockInstructions ! i@ up to @encBlockInstructions ! (i + 1)@.
     encBlockInstructions :: !(UArray Int Int),
-    -- | The convention of the callee of a call: 'callNone', 'callAihc', or
-    -- 'callC'.
+    -- | The convention of the callee of a call: 'callNone', 'callAihc',
+    -- 'callC', 'callColdAihc', or 'callColdC'.
     encInstructionCall :: !(UArray Int Int),
     -- | One row for each block.
     encBlockParameters :: !Rows,
@@ -204,10 +233,17 @@ data Encoded = Encoded
     encExitHints :: !(UArray Int Int)
   }
 
-callNone, callAihc, callC :: Int
+-- | A cold call is a call in a cold block.
+callNone, callAihc, callC, callColdAihc, callColdC :: Int
 callNone = 0
 callAihc = 1
 callC = 2
+callColdAihc = 3
+callColdC = 4
+
+{-# INLINE isColdCall #-}
+isColdCall :: Int -> Bool
+isColdCall convention = convention >= callColdAihc
 
 -- | Run an action on every block, and on every instruction of one block.
 forBlocks :: Encoded -> (Int -> ST s ()) -> ST s ()
@@ -295,14 +331,14 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
           case operand of
             OperandVar var -> pushHint buffer carrier position var
             OperandLiteral _ -> pure ()
-      goInstruction first offset (Instruction results operation) = do
+      goInstruction cold first offset (Instruction results operation) = do
         let number = first + offset
         openRow resultTable
         traverse_ (intern >=> pushValue resultTable) results
         openRow readTable
         forOperationOperands (pushRead readTable) operation
         let callee arguments convention = do
-              writeArray conventions number convention
+              writeArray conventions number (if cold then coldConvention convention else convention)
               hintOperands callHints argumentCarrier arguments
               forEach results (pushHint callHints resultCarrier)
         case operation of
@@ -314,7 +350,7 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
         openRow parameterTable
         traverse_ (\(var, _) -> intern var >>= pushValue parameterTable) (blockParameters block)
         first <- readArray blockRanges index
-        forEach (blockInstructions block) (goInstruction first)
+        forEach (blockInstructions block) (goInstruction (blockCold block) first)
         writeArray blockRanges (index + 1) (first + length (blockInstructions block))
         let terminator = blockTerminator block
             terminatorPosition = start + 1 + length (blockInstructions block)
@@ -397,6 +433,7 @@ encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
       case callee of
         AihcConvention -> callAihc
         CConvention -> callC
+    coldConvention convention = if convention == callAihc then callColdAihc else callColdC
     restoresRegisters terminator =
       case terminator of
         Return _ -> True
@@ -417,7 +454,8 @@ pushHintValue buffer carrier position value =
 -- every block it is live into, and at the end of every block it is live out
 -- of. The interval spans the lowest to the highest of those positions, which
 -- covers every point at which the value is live whatever the block order.
-functionSpans :: Encoded -> ST s (UArray Int Int, UArray Int Int)
+-- The live-in and the live-out sets come back too.
+functionSpans :: Encoded -> ST s (UArray Int Int, UArray Int Int, Maybe (Bits s, Bits s))
 functionSpans encoded = do
   starts <- newInts (encValues encoded) maxBound
   ends <- newInts (encValues encoded) minBound
@@ -441,7 +479,7 @@ functionSpans encoded = do
       Just (liveIn, liveOut) -> do
         forBits liveIn index (touch start)
         forBits liveOut index (touch (encBlockTerminator encoded ! index + 1))
-  (,) <$> freezeInts starts <*> freezeInts ends
+  (,,) <$> freezeInts starts <*> freezeInts ends <*> pure live
 
 -- | The values that are live at the start and at the end of each block.
 --
@@ -499,21 +537,24 @@ reachNone = 2
 
 -- | Walk the intervals in order of their start and hand out registers, by
 -- pool index. The result gives the pool index of every value, or -1 when the
--- value stays in a frame slot, and the registers the scan handed out.
+-- value stays in a frame slot, the registers the scan handed out, and the
+-- saves of the cold calls (see 'coldSaves').
 --
 -- An interval that outlives another may take its register once that one has
 -- expired. A hint of the value that is free is taken first, then the
 -- register of a partner already placed, then a hint of a partner, then the
 -- register of an operand that just died, then the first free register of
--- the pool. When nothing acceptable is free, the acceptable interval that
--- reaches furthest goes to a frame slot; it is the one whose register would
--- sit idle the longest.
-runAllocation :: Encoded -> Int -> Int -> Bool -> (UArray Int Int, UArray Int Bool)
-runAllocation encoded poolSize volatileCount preservedCost = runST $ do
+-- the pool. A value that lives across a cold call looks at the preserved
+-- registers before the operand and the rest of the pool. When nothing
+-- acceptable is free, the acceptable interval that reaches furthest goes to
+-- a frame slot; it is the one whose register would sit idle the longest.
+runAllocation :: Encoded -> Int -> Int -> Bool -> Bool -> (UArray Int Int, UArray Int Bool, [(Int, [(Int, Int)])])
+runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $ do
   let valueCount = encValues encoded
-  (starts, ends) <- functionSpans encoded
-  aihcCalls <- callsBefore encoded callAihc
-  cCalls <- callsBefore encoded callC
+  (starts, ends, live) <- functionSpans encoded
+  aihcCalls <- callsBefore encoded (== callAihc)
+  cCalls <- callsBefore encoded (== callC)
+  coldCalls <- callsBefore encoded isColdCall
   earns <- earnedRegisters encoded preservedCost
   hints <- buildRows valueCount (forHints encoded)
   partners <- buildRows valueCount (\act -> forJumpPairs encoded act >> forJumpPairs encoded (flip act))
@@ -596,7 +637,29 @@ runAllocation encoded poolSize volatileCount preservedCost = runST $ do
             | otherwise = do
                 register <- pick (rowAt rows at)
                 ok <- usable value register
-                if ok then pure register else go (at + 1)
+                worth <- if ok then pays value register else pure False
+                if worth then pure register else go (at + 1)
+      -- Whether a hint pays for itself. A volatile register of a value that
+      -- lives across cold calls costs a save and a restore at each of them,
+      -- so a hint takes one only when it spares enough moves elsewhere: at
+      -- the sites the convention names it for, and at the jumps to and from
+      -- its partners. Not every such site would have cost a move, so the
+      -- sites must be at least one and a half times the instructions that
+      -- the saves cost: two moves, or one instruction when the backend
+      -- pairs them. This factor gave the smallest examples.
+      pays value register
+        | register >= volatileCount || not (crosses coldCalls (starts ! value) (ends ! value)) = pure True
+        | otherwise = do
+            let crossings = coldCalls ! (ends ! value) - coldCalls ! (starts ! value + 1)
+                own = countRow hints value register
+            placed <- countPlaced value register
+            let partnerHints = sumRow partners value (\partner -> countRow hints partner register)
+            pure (2 * (own + placed + partnerHints) >= 3 * (if pairedSaves then 1 else 2) * crossings)
+      countPlaced value register = go (rowFrom partners value) 0
+        where
+          go at total
+            | at >= rowTo partners value = pure total
+            | otherwise = readArray assigned (rowAt partners at) >>= \other -> go (at + 1) (if other == register then total + 1 else total)
       firstFree value register
         | register >= poolSize = pure (-1)
         | otherwise = usable value register >>= \ok -> if ok then pure register else firstFree value (register + 1)
@@ -604,6 +667,10 @@ runAllocation encoded poolSize volatileCount preservedCost = runST $ do
         searchRow hints value pure value
           `orElse` searchRow partners value (readArray assigned) value
           `orElse` searchRow partners value (\partner -> searchRow hints partner pure value) value
+          `orElse` ( if crosses coldCalls (starts ! value) (ends ! value)
+                       then firstFree value volatileCount
+                       else pure (-1)
+                   )
           `orElse` searchRow (encReads encoded) (encDefiner encoded ! value) (readArray assigned) value
           `orElse` firstFree value 0
       -- The furthest-reaching acceptable interval loses its register. The
@@ -629,7 +696,108 @@ runAllocation encoded poolSize volatileCount preservedCost = runST $ do
     expire (starts ! value)
     register <- preferred value
     if register >= 0 then activate value register else spill value
-  (,) <$> freezeInts assigned <*> unsafeFreeze used
+  saves <- coldSaves encoded poolSize volatileCount preservedCost pairedSaves starts ends order live assigned used
+  (,,) <$> freezeInts assigned <*> unsafeFreeze used <*> pure saves
+
+-- | The saves of every cold call, by the number of the call: the pool index
+-- of each value that lives across the call in a register the call clobbers,
+-- with the pool index of the register that keeps it during the call, or -1
+-- for a frame slot.
+--
+-- The values come from the live-out sets and a walk back through the block,
+-- so a save is exact where the interval is not: a value whose interval only
+-- spans the call is dead there, and its register may go. A preserved
+-- register keeps a value when the call is a C call, no interval holds the
+-- register at the call, and the register costs the function nothing more:
+-- the convention does not charge for it, or the function saves it already.
+coldSaves :: Encoded -> Int -> Int -> Bool -> Bool -> UArray Int Int -> UArray Int Int -> UArray Int Int -> Maybe (Bits s, Bits s) -> STUArray s Int Int -> STUArray s Int Bool -> ST s [(Int, [(Int, Int)])]
+coldSaves encoded poolSize volatileCount preservedCost pairedSaves starts ends order live assigned used
+  | not (any isColdCall (elems (encInstructionCall encoded))) = pure []
+  | otherwise = do
+      let valueCount = encValues encoded
+          -- A mask holds the preserved registers, one bit each.
+          keepers = min 62 (poolSize - volatileCount)
+      -- The preserved registers free at each cold call, found by a sweep
+      -- over the intervals in order of their start. Each register remembers
+      -- the furthest end of the intervals it has held so far.
+      free <- newInts (lengthOf (encInstructionCall encoded)) 0
+      reach <- newInts poolSize minBound
+      cursor <- newInts 1 0
+      forBlocks encoded $ \index ->
+        forBlockInstructions encoded index $ \number position ->
+          when (isColdCall (encInstructionCall encoded ! number)) $ do
+            let admit = do
+                  at <- readArray cursor 0
+                  when (at < valueCount && starts ! (order ! at) <= position) $ do
+                    let value = order ! at
+                    register <- readArray assigned value
+                    when (register >= 0) (readArray reach register >>= writeArray reach register . max (ends ! value))
+                    writeArray cursor 0 (at + 1)
+                    admit
+            admit
+            forUpTo keepers $ \bit -> do
+              let register = volatileCount + bit
+              held <- (>= position) <$> readArray reach register
+              saved <- if preservedCost then readArray used register else pure True
+              when (not held && saved) (addTo free number (1 `shiftL` bit))
+      -- The values live after each cold call, from a walk back through
+      -- every block that has one.
+      scratch <- newBits 1 valueCount
+      result <- newSTRef []
+      forBlocks encoded $ \index -> do
+        let first = encBlockInstructions encoded ! index
+            end = encBlockInstructions encoded ! (index + 1)
+        when (any (isColdCall . (encInstructionCall encoded !)) [first .. end - 1]) $ do
+          clearRow scratch 0
+          traverse_ (\(_, liveOut) -> replaceRow scratch 0 liveOut index) live
+          forRow (encTerminatorReads encoded) index (setBit scratch 0)
+          forDownFrom (end - 1) first $ \number -> do
+            forRow (encResults encoded) number (clearBit scratch 0)
+            let convention = encInstructionCall encoded ! number
+            when (isColdCall convention) $ do
+              clobbered <- newSTRef []
+              forBits scratch 0 $ \value -> do
+                register <- readArray assigned value
+                when (register >= 0 && (convention == callColdAihc || register < volatileCount)) $
+                  modifySTRef' clobbered (register :)
+              registers <- reverse <$> readSTRef clobbered
+              -- Paired saves go to the frame two at a time, so only the
+              -- odd one out takes a register, which may spare the frame a
+              -- slot.
+              let count = length registers
+                  allowed
+                    | pairedSaves = count `mod` 2
+                    | otherwise = count
+              mask <- if convention == callColdC then readArray free number else pure 0
+              let place _ _ [] = pure []
+                  place left bits (register : rest)
+                    | left > 0 && bits /= 0 = do
+                        let bit = countTrailingZeros bits
+                        writeArray used (volatileCount + bit) True
+                        ((register, volatileCount + bit) :) <$> place (left - 1) (bits .&. complement (1 `shiftL` bit)) rest
+                    | otherwise = ((register, -1) :) <$> place left bits rest
+              pairs <- place allowed mask registers
+              when (count > 0) (modifySTRef' result ((number, pairs) :))
+            forRow (encReads encoded) number (setBit scratch 0)
+      readSTRef result
+
+-- | How many entries of a row equal a number.
+{-# INLINE countRow #-}
+countRow :: Rows -> Int -> Int -> Int
+countRow rows index number = go (rowFrom rows index) 0
+  where
+    go at total
+      | at >= rowTo rows index = total
+      | otherwise = go (at + 1) (if rowAt rows at == number then total + 1 else total)
+
+-- | The sum of a function over the entries of a row.
+{-# INLINE sumRow #-}
+sumRow :: Rows -> Int -> (Int -> Int) -> Int
+sumRow rows index count = go (rowFrom rows index) 0
+  where
+    go at total
+      | at >= rowTo rows index = total
+      | otherwise = go (at + 1) (total + count (rowAt rows at))
 
 -- | Whether a call sits inside an interval. A call at the start of the
 -- interval defines it and a call at its end consumes it.
@@ -642,13 +810,15 @@ crosses calls start end = end > start + 1 && calls ! end > calls ! (start + 1)
 orElse :: ST s Int -> ST s Int -> ST s Int
 orElse first second = first >>= \register -> if register >= 0 then pure register else second
 
--- | How many calls of one convention come before each position.
-callsBefore :: Encoded -> Int -> ST s (UArray Int Int)
-callsBefore encoded convention = do
+-- | How many calls of the conventions a test accepts come before each
+-- position.
+{-# INLINE callsBefore #-}
+callsBefore :: Encoded -> (Int -> Bool) -> ST s (UArray Int Int)
+callsBefore encoded accepts = do
   counts <- newInts (encPositions encoded + 2) 0
   forBlocks encoded $ \index ->
     forBlockInstructions encoded index $ \number position ->
-      when (encInstructionCall encoded ! number == convention) (addTo counts (position + 1) 1)
+      when (accepts (encInstructionCall encoded ! number)) (addTo counts (position + 1) 1)
   scanSums counts (encPositions encoded + 1)
   freezeInts counts
 

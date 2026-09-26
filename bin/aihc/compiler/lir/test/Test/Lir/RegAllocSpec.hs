@@ -39,7 +39,8 @@ pool count =
       registersPreserved = take count ["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"],
       registersPreservedCost = True,
       registersArgument = const Nothing,
-      registersResult = const Nothing
+      registersResult = const Nothing,
+      registersPairedSaves = False
     }
 
 -- | Allocate with a preserved pool and no signatures.
@@ -56,7 +57,8 @@ target preservedCost =
       registersPreserved = ["s0", "s1"],
       registersPreservedCost = preservedCost,
       registersArgument = carrier arguments,
-      registersResult = carrier results
+      registersResult = carrier results,
+      registersPairedSaves = False
     }
   where
     arguments = ["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"]

@@ -61,6 +61,7 @@ import Data.ByteString qualified as BS
 import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
+import Data.List (zip4)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
@@ -145,6 +146,10 @@ data NativeBackend statement register error = NativeBackend
     nbReturn :: Ctx register -> [statement],
     nbLoadSlot :: register -> Int -> statement,
     nbStoreSlot :: register -> Int -> statement,
+    -- | Store registers at frame slots, and load them, in the order given.
+    -- A backend can join two slots that are next to each other.
+    nbStoreSlots :: [(register, Int)] -> [statement],
+    nbLoadSlots :: [(register, Int)] -> [statement],
     nbMove :: register -> register -> [statement],
     nbLiteralInto :: Type -> register -> Literal -> [statement],
     nbStoreSlotImmediate :: Int -> Integer -> Maybe statement,
@@ -188,6 +193,9 @@ data Layout register = Layout
   { layoutRegisters :: !(Map Var register),
     layoutSlots :: !(Map Var Int),
     layoutSaved :: ![(register, Int)],
+    -- | What each cold call saves, by the number of the call in the
+    -- function: a register and the place that keeps it during the call.
+    layoutColdSaves :: !(IntMap.IntMap [(register, Location register)]),
     layoutAllocs :: !(Map Var (Int, Int)),
     layoutSize :: Int,
     layoutFramed :: Bool,
@@ -498,12 +506,15 @@ compileFunctionTo backend output signatures index function state =
       (ctx, prefix) <- native (prepareFunction backend signatures index function)
       emitStatements prefix
       let blocks = functionBlocks function
-      forM_ (zip3 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing])) $ \(entry, block, next) -> do
+          -- The number of the first instruction of each block.
+          firsts = scanl (+) 0 (map (length . blockInstructions) blocks)
+      forM_ (zip4 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing]) firsts) $ \(entry, block, next, first) -> do
         let (instructions, fused) = fuseCompare backend ctx (blockInstructions block) (blockTerminator block)
             framed = hasBlockFrame ctx (blockLabel block)
         emitStatements [nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry]
         when framed $ emitStatements (enterBlockFrame backend ctx entry block)
-        forM_ instructions $ \instruction -> native (compileInstruction backend ctx instruction) >>= emitStatements
+        forM_ (zip [first ..] instructions) $ \(number, instruction) ->
+          native (coldCallSaves backend ctx number <$> compileInstruction backend ctx instruction) >>= emitStatements
         when framed $ emitStatements (nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)))
         native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
       native (functionTrapTrampolines backend) >>= emitStatements
@@ -593,7 +604,15 @@ functionLayout backend signatures function = do
             | callsAihc -> nbPreservedRegisters backend
             | otherwise -> [register | register <- allocationUsed allocation, register `elem` nbPreservedRegisters backend]
       slots = Map.fromList (zip (allocationSpills allocation) [0, 8 ..])
-      slotsEnd = 8 * Map.size slots
+      -- The cold calls share one area of the frame. Each call puts what it
+      -- saves there in order, so that the slots are next to each other. A
+      -- block frame starts the area where its stack allocations would start.
+      coldArea = maximum (0 : [length [() | (_, Nothing) <- saves] | saves <- IntMap.elems (allocationColdSaves allocation)])
+      coldBase
+        | isJust blockFrames = nbBlockFrameBase backend
+        | otherwise = 8 * Map.size slots
+      coldSaves = IntMap.map (placeColdSaves coldBase) (allocationColdSaves allocation)
+      slotsEnd = 8 * (Map.size slots + coldArea)
       saved = zip savedRegisters [slotsEnd, slotsEnd + 8 ..]
       allocations = [(var, size, alignmentInBytes wordBytes alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
       tailCallFrame = nbTailCallFrame backend signatures function
@@ -605,7 +624,7 @@ functionLayout backend signatures function = do
             blockFrameLabels (Set.fromList [var | (var, _, _) <- allocations]) blocks
         | otherwise = Nothing
       allocsStart
-        | isJust blockFrames = nbBlockFrameBase backend
+        | isJust blockFrames = coldBase + 8 * coldArea
         | otherwise = slotsEnd + 8 * length saved
   allocs <- placeAllocations backend allocsStart allocations
   let end = case Map.elems allocs of
@@ -620,6 +639,7 @@ functionLayout backend signatures function = do
       { layoutRegisters = allocationRegisters allocation,
         layoutSlots = slots,
         layoutSaved = saved,
+        layoutColdSaves = coldSaves,
         layoutAllocs = allocs,
         layoutSize = size,
         layoutFramed = isNothing blockFrames && (size > 0 || not (null calls) || tailCallFrame),
@@ -955,6 +975,31 @@ calleeSignature ctx callee =
         Just signature -> (signatureConvention signature, signatureResults signature, signatureParameters signature)
         Nothing -> (AihcConvention, [], [])
     Right signature -> (signatureConvention signature, signatureResults signature, signatureParameters signature)
+
+-- | Give the saves of one cold call that go to the frame the slots of the
+-- area from an offset on, in order.
+placeColdSaves :: Int -> [(register, Maybe register)] -> [(register, Location register)]
+placeColdSaves = go
+  where
+    go _ [] = []
+    go next ((register, Just keeper) : rest) = (register, LocRegister keeper) : go next rest
+    go next ((register, Nothing) : rest) = (register, LocSlot next) : go (next + 8) rest
+
+-- | Put the saves of a cold call around its statements. The saves come
+-- first, before the argument moves overwrite anything. The values come back
+-- last, after the results have left the result registers, which a value
+-- may have occupied. A value goes to its own register or slot, so the
+-- moves are independent of one another.
+coldCallSaves :: (Eq register) => NativeBackend statement register error -> Ctx register -> Int -> [statement] -> [statement]
+coldCallSaves backend ctx number statements =
+  case IntMap.lookup number (layoutColdSaves (ctxLayout ctx)) of
+    Nothing -> statements
+    Just saves ->
+      concat [nbMove backend keeper register | (register, LocRegister keeper) <- saves]
+        <> nbStoreSlots backend [(register, offset) | (register, LocSlot offset) <- saves]
+        <> statements
+        <> concat [nbMove backend register keeper | (register, LocRegister keeper) <- saves]
+        <> nbLoadSlots backend [(register, offset) | (register, LocSlot offset) <- saves]
 
 compileInstruction :: (Eq register) => NativeBackend statement register error -> Ctx register -> Instruction -> NativeM error [statement]
 compileInstruction backend ctx (Instruction results operation) =
