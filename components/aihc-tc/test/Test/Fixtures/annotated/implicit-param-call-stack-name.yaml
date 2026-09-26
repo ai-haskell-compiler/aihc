@@ -1,0 +1,56 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  data SrcLoc = SrcLoc
+       │        └─ type: SrcLoc
+       └─ type: Type
+  data CallStack = EmptyCallStack | PushCallStack Int SrcLoc CallStack
+       │           │                └─ type: Int → SrcLoc → CallStack → CallStack
+       │           └─ type: CallStack
+       └─ type: Type
+  type HasCallStack = (?callStack :: CallStack)
+       └─ type: GHC.Types.Constraint
+  renamed :: HasCallStack => Int -> CallStack
+  renamed _ = ?callstack
+  │       │   └─ type: CallStack; evidence: emptyCallStack
+  │       └─ type: Int
+  └─ type: (?callStack ∷ CallStack) ⇒ Int → CallStack
+  caller :: HasCallStack => CallStack
+  caller = renamed Int
+  │        └─ type: Int → CallStack; evidence: push(renamed@10:10, given ?callStack ∷ CallStack)
+  └─ type: (?callStack ∷ CallStack) ⇒ CallStack
+  lowerGiven :: (?callstack :: CallStack) => CallStack
+  lowerGiven = renamed Int
+  │            └─ type: Int → CallStack; evidence: push(renamed@12:14, emptyCallStack)
+  └─ type: (?callstack ∷ CallStack) ⇒ CallStack
+  bound :: Int -> Int
+  bound x = let ?foo = x in ?foo
+  │     │       │           └─ type: Int; evidence: given ?foo ∷ Int
+  │     │       └─ type: Int
+  │     └─ type: Int
+  └─ type: Int → Int
+extensions:
+- ImplicitParams
+- ConstraintKinds
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+  data SrcLoc = SrcLoc
+  data CallStack = EmptyCallStack | PushCallStack Int SrcLoc CallStack
+  type HasCallStack = (?callStack :: CallStack)
+  renamed :: HasCallStack => Int -> CallStack
+  renamed _ = ?callstack
+  caller :: HasCallStack => CallStack
+  caller = renamed Int
+  lowerGiven :: (?callstack :: CallStack) => CallStack
+  lowerGiven = renamed Int
+  bound :: Int -> Int
+  bound x = let ?foo = x in ?foo
+reason: an implicit parameter of type CallStack is a call stack whatever its name, and a plain implicit parameter is not
+status: pass
