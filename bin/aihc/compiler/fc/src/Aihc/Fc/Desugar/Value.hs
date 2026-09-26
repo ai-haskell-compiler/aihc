@@ -4320,7 +4320,9 @@ desugarEvidence evidence =
       evidenceArguments <- mapM desugarEvidence subEvidence
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
     Ev.EvCoercible constructor left right -> do
-      arguments <- mapM convertCheckedType [left, right]
+      -- The class can be kind-polymorphic, as @~@ is, so the constructor
+      -- takes the kind arguments before the two types.
+      arguments <- convertTyConApplicationArguments constructor [left, right]
       pure (foldl ExTyApp (ExVar (classDictConName constructor)) arguments)
     Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do

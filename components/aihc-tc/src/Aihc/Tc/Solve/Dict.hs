@@ -127,13 +127,18 @@ solveNormalizedDict visited givens ct
           kinds <- getKinds
           reclassified <- irreduciblePred kinds reduced
           case reclassified of
-            Just equality@EqPred {} -> do
+            Just equality@(EqPred left right) -> do
               -- A family that reduces to an equality, as @NatWithinBound
               -- Word64 3@ reduces to @() ~ ()@, demands that equality. The
-              -- coercion that proves it is the evidence of the constraint.
-              result <- withGivenPredicates givens (solveEquality ct {ctPred = equality})
+              -- constraint itself is a lifted value of kind Constraint, so
+              -- once the equality is proved its evidence is the empty
+              -- dictionary of the class @~@, not the erased coercion.
+              proof <- freshEvVar
+              result <- withGivenPredicates givens (solveEquality ct {ctPred = equality, ctEvVar = proof})
               case result of
-                EqSolved -> pure DictSolved
+                EqSolved -> do
+                  bindEvidence (ctEvVar ct) (EvCoercible (kindsEqualityTyCon kinds) left right)
+                  pure DictSolved
                 _ -> pure (DictStuck ct {ctPred = IrredPred reduced})
             Just solvable ->
               solveDictWithGivensVisited (ctPred ct : visited) givens ct {ctPred = solvable}

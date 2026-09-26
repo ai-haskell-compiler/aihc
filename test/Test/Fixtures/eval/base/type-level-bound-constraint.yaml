@@ -49,11 +49,11 @@ modules:
     describe :: forall n. (KnownNat n, NatWithinBound Word8 n) => Word8 -> String
     describe w = show (zn8 @n w)
 
-    result :: String
-    result = describe @200 250 ++ ", " ++ show (natValWord8 @7)
+    result :: Bool
+    result = describe @200 250 ++ ", " ++ show (natValWord8 @7) == "50 mod 200, 7"
 output: |
-  "50 mod 200, 7"
+  True
 expression: |
   result
-status: xfail
-reason: the type checker proves the constraint at a literal by reflexivity and discharges it from the given at a variable, but System FC gives an equality the kind TYPE (TupleRep '[]) and not Constraint, so the family equation does not lint, and GRIN gives the stuck-family dictionary binder a pointer layout while the coercion argument has no components
+status: pass
+reason: a constraint-kinded family that reduces to an equality at a literal is proved and its evidence is the dictionary of the class (~), and at a variable the given of the same reduced shape discharges the wanted and an instance context

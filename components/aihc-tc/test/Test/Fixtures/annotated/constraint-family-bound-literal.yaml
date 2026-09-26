@@ -66,7 +66,7 @@ annotated:
   └─ type: ∀ n. (KnownNat n, NatWithinBound Word64 n) ⇒ Word64
   three :: Word64
   three = natValWord64 @3
-  │       └─ type: Word64; type-args: 3; evidence: knownliteral @3 3, refl ()
+  │       └─ type: Word64; type-args: 3; evidence: knownliteral @3 3, coercible @() @()
   └─ type: Word64
 extensions:
 - AllowAmbiguousTypes
@@ -133,4 +133,4 @@ modules:
   three :: Word64
   three = natValWord64 @3
 status: pass
-reason: a constraint-kinded family application at a literal reduces to an equality between two equal types, which the solver proves by reflexivity
+reason: a constraint-kinded family application at a literal reduces to an equality between two equal types, which the solver proves, and the evidence is the empty dictionary of the class (~)
