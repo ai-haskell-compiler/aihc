@@ -21,9 +21,7 @@ where
 import Control.Arrow (Arrow (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
 import Foreign.Storable (Storable (..))
-import GHC.Internal.Foldable (Foldable (..))
-import GHC.Internal.Traversable (Traversable (..))
-import GHC.List (drop, length)
+import GHC.List (drop)
 import GHC.Ptr (castPtr)
 import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Traversable (..), const, (++), (<$>))
 
@@ -98,10 +96,7 @@ instance (Arrow a) => Applicative (WrappedArrow a b) where
     WrapArrow ((functions &&& values) >>> arr (\(function, value) -> function value))
 
 newtype ZipList a = ZipList {getZipList :: [a]}
-  deriving newtype (Eq, Ord, Functor, Foldable)
-
-instance Traversable ZipList where
-  traverse f (ZipList values) = fmap ZipList (traverse f values)
+  deriving newtype (Eq, Ord, Functor)
 
 instance Foldable ZipList where
   foldr step initial (ZipList values) = foldr step initial values
