@@ -4479,7 +4479,21 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
       (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
       forM_ paramInfos $ \param ->
         forM_ (Map.lookup (paramName param) sharedKinds) (`unifyKinds` paramKind param)
-      inferredKind <- tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
+      -- A closed family without a standalone kind signature takes the kinds
+      -- it does not write from its equations, as in GHC: @type family F ty n
+      -- where F ty n = n <=? Bound ty@ has the result kind 'Bool' and gives
+      -- @n@ the kind of @Bound ty@. Its result kind starts as a meta, and
+      -- nothing here defaults its metas: the equations settle them when the
+      -- declaration group is registered, and 'defaultGlobalKindMetas' closes
+      -- what the equations leave open. An open family has no equations to
+      -- read, so it defaults to 'Type' here, as in GHC.
+      let inferFromEquations = isClosedFamily && isNothing maybeKindScheme
+      inferredKind <-
+        if inferFromEquations && isNothing (typeFamilyResultKindType familyDecl)
+          then do
+            resultKind <- freshKindMeta
+            pure (foldr (KFun . paramKind) resultKind paramInfos)
+          else tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
       familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
       let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
       storeTyConInfo
@@ -4496,14 +4510,17 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
             tciTypeSynonym = Nothing,
             tciInjectivity = typeFamilyInjectivePositions familyDecl
           }
-      if Map.null sharedKinds
-        then void (defaultKindMetas declaredKind)
-        else do
-          -- Only the class parameters stay open; the class registration
-          -- settles them once its methods have been seen.
-          forM_ paramInfos $ \param ->
-            unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
-          void (defaultKindMetas (typeResultKind arity declaredKind))
+      unless inferFromEquations $
+        if Map.null sharedKinds
+          then void (defaultKindMetas declaredKind)
+          else do
+            -- Only the class parameters stay open; the class registration
+            -- settles them once its methods have been seen.
+            forM_ paramInfos $ \param ->
+              unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
+            void (defaultKindMetas (typeResultKind arity declaredKind))
+  where
+    isClosedFamily = isJust (typeFamilyDeclEquations familyDecl)
 
 -- | The argument positions that an injectivity annotation says the result
 -- determines. @type family F a b = r | r -> a@ gives @Just [0]@.
