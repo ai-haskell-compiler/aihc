@@ -1,0 +1,67 @@
+---
+extensions: [TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Box a = Box a
+  data Int = Int
+  type family Rep a :: Type -> Type
+  type instance Rep Int = Box
+  type family Swap (r :: Type -> Type) :: Type -> Type
+  type instance Swap Box = Box
+  type Swapped a = Swap (Rep a)
+
+  unbox :: Swapped Int a -> a
+  unbox (Box x) = x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tBox (a : 2.sType) :: 2.sType {
+      pub 1.cBox :: ∀(a : 2.sType). a 2.→ 1.tBox a
+  }
+
+  pub type 1.tInt :: 2.sType {
+      pub 1.cInt :: 1.tInt
+  }
+
+  pub type 1.tRep (a : 2.sType) :: 2.sType 2.→ 2.sType @N {}
+
+  axiom 1.$ax$Rep$Int : 1.tRep 1.tInt ~N 1.tBox
+
+  pub type 1.tSwap (r : 2.sType 2.→ 2.sType) :: 2.sType 2.→ 2.sType @N {}
+
+  axiom 1.$ax$Swap$Box : 1.tSwap 1.tBox ~N 1.tBox
+
+  pub type 1.sSwapped (a : 2.sType) :: ∀(eta0 : 2.sType). 2.sType =
+   1.tSwap (1.tRep a)
+
+  pub val 1.vunbox :: ∀(a : 2.sType). 1.tSwap (1.tRep 1.tInt) a 2.→ a
+   = Λ(a : 2.sType).
+    λ(x : 1.tSwap (1.tRep 1.tInt) a).
+      case x as (_scrut : 1.tSwap (1.tRep 1.tInt) a) return (a) of {
+          1.cBox (x{1} : a) →
+              x{1}
+      }
+
+status: pass
+reason: An eta-reduced synonym whose body is a family application has a
+  declared kind with pi-binders and a body kind with an arrow. Both spell the
+  same kind function, so the synonym lints.
