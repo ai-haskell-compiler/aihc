@@ -547,7 +547,7 @@ data Proxy# (a :: k)
 
 foreign import prim proxy# :: forall k (a :: k). Proxy# a
 
-foreign import prim reallyUnsafePtrEquality# :: a -> b -> Int#
+foreign import prim reallyUnsafePtrEquality# :: forall {l :: Levity} {k :: Levity} (a :: TYPE ('BoxedRep l)) (b :: TYPE ('BoxedRep k)). a -> b -> Int#
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 
