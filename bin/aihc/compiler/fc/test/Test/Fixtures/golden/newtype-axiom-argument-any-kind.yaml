@@ -1,0 +1,91 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+modules:
+  - |
+    module Test where
+    import GHC.Types (Type)
+    data Nat = Z | S Nat
+    newtype ListN (n :: Nat) a = ListN { unListN :: [a] }
+    newtype Tagged (v :: Type -> Type) a = Tagged { unTagged :: a }
+    retag :: ListN n a -> ListN m a
+    retag xs = ListN (unListN xs)
+    rewrap :: Tagged u a -> Tagged v a
+    rewrap (Tagged x) = Tagged x
+    useRewrap :: Tagged u a -> Tagged w a
+    useRewrap t = rewrap (rewrap t)
+    inner :: ListN n a -> [a]
+    inner xs = unListN (ListN (unListN xs))
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tAny :: ∀(k : 2.sType). k;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.t[] :: ∀(a : 2.sType). 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tNat :: 2.sType {
+      pub 1.cZ :: 1.tNat;
+      pub 1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  pub type 1.tListN (n : 1.tNat) (a : 2.sType) :: 2.sType {}
+
+  axiom 1.$ax$ListN (n : 1.tNat) (a : 2.sType) : 1.tListN n a ~R 2.t[] a
+
+  pub type 1.tTagged (v : 2.sType 2.→ 2.sType) (a : 2.sType) :: 2.sType {}
+
+  axiom 1.$ax$Tagged (v : 2.sType 2.→ 2.sType) (a : 2.sType) : 1.tTagged v a ~R a
+
+  pub val 1.vunListN :: ∀(n : 1.tNat) (a : 2.sType). 1.tListN n a 2.→ 2.t[] a
+   = Λ(n : 1.tNat).
+    Λ(a : 2.sType).
+      λ($record : 1.tListN n a).
+        $record ▷ axiom-co 1.$ax$ListN @n @a
+
+  pub val 1.vunTagged :: ∀(v : 2.sType 2.→ 2.sType) (a : 2.sType). 1.tTagged v a 2.→ a
+   = Λ(v : 2.sType 2.→ 2.sType).
+    Λ(a : 2.sType).
+      λ($record : 1.tTagged v a).
+        $record ▷ axiom-co 1.$ax$Tagged @v @a
+
+  pub val 1.vretag :: ∀(n : 1.tNat) (a : 2.sType) (m : 1.tNat). 1.tListN n a 2.→ 1.tListN m a
+   = Λ(n : 1.tNat).
+    Λ(a : 2.sType).
+      Λ(m : 1.tNat).
+        λ(x : 1.tListN n a).
+          (1.vunListN @n @a x) ▷ sym (axiom-co 1.$ax$ListN @m @a)
+
+  pub val 1.vrewrap :: ∀(u : 2.sType 2.→ 2.sType) (a : 2.sType) (v : 2.sType 2.→ 2.sType). 1.tTagged u a 2.→ 1.tTagged v a
+   = Λ(u : 2.sType 2.→ 2.sType).
+    Λ(a : 2.sType).
+      Λ(v : 2.sType 2.→ 2.sType).
+        λ(x : 1.tTagged u a).
+          (x ▷ axiom-co 1.$ax$Tagged @u @a) ▷ sym (axiom-co 1.$ax$Tagged @v @a)
+
+  pub val 1.vuseRewrap :: ∀(u : 2.sType 2.→ 2.sType) (a : 2.sType) (w : 2.sType 2.→ 2.sType). 1.tTagged u a 2.→ 1.tTagged w a
+   = Λ(u : 2.sType 2.→ 2.sType).
+    Λ(a : 2.sType).
+      Λ(w : 2.sType 2.→ 2.sType).
+        λ(x : 1.tTagged u a).
+          1.vrewrap @(2.tAny (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.tTYPE (2.cBoxedRep 2.cLifted))) @a @w (1.vrewrap @u @a @(2.tAny (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.tTYPE (2.cBoxedRep 2.cLifted))) x)
+
+  pub val 1.vinner :: ∀(n : 1.tNat) (a : 2.sType). 1.tListN n a 2.→ 2.t[] a
+   = Λ(n : 1.tNat).
+    Λ(a : 2.sType).
+      λ(x : 1.tListN n a).
+        1.vunListN @(2.tAny 1.tNat) @a ((1.vunListN @n @a x) ▷ sym (axiom-co 1.$ax$ListN @(2.tAny 1.tNat) @a))
+status: pass
+reason: A newtype parameter of a kind other than Type that nothing determines becomes Any at
+  that kind in the wrap coercion, as it does in a type application, and the lint accepts it.
