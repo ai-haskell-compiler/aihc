@@ -60,6 +60,7 @@
 -- the type is unknown, no rewrite happens.
 module Aihc.Fc.Demand
   ( DemandReport (..),
+    DemandRewrites (..),
     demandProgram,
     Demand (..),
     Signature (..),
@@ -102,6 +103,18 @@ newtype Signature = Signature {signatureDemands :: [Demand]}
 
 type Signatures = Map Name Signature
 
+-- | Which rewrites the pass makes. The strict-argument rewrite turns a
+-- chain of thunks into a chain of calls, and each call keeps every
+-- variable that is live after it in a continuation frame. Where the
+-- callee is not inlined and many variables are live, as in a block
+-- function of a hash with sixty words of schedule, the frames cost more
+-- than the thunks did. The plans keep it off until the inliner copies
+-- such callees.
+data DemandRewrites
+  = StrictLetsOnly
+  | StrictLetsAndArguments
+  deriving (Eq, Show)
+
 -- | What the pass did.
 data DemandReport = DemandReport
   { -- | Top-level values with at least one strict parameter.
@@ -115,14 +128,14 @@ data DemandReport = DemandReport
 
 -- | Find the signatures of every value, then evaluate every strict let and
 -- every strict argument of a saturated call up front.
-demandProgram :: Program -> (Program, DemandReport)
-demandProgram program =
+demandProgram :: DemandRewrites -> Program -> (Program, DemandReport)
+demandProgram rewrites program =
   case primPackageFromScopes (programScopes program) of
     Nothing -> (program, DemandReport 0 0 0)
     Just primPackage ->
       let types = typeEnvFromProgram primPackage program
           signatures = topLevelSignatures types (programDecls program)
-          env = Env {envTypes = types, envSignatures = signatures}
+          env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites}
           supply = maxLocalUnique program + 1
           (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
           strictValues = length [() | signature <- Map.elems signatures, Strict `elem` signatureDemands signature]
@@ -136,7 +149,8 @@ data Env = Env
   { envTypes :: !TypeEnv,
     -- | The signatures of the top-level values and of the local functions
     -- in scope.
-    envSignatures :: !Signatures
+    envSignatures :: !Signatures,
+    envRewrites :: !DemandRewrites
   }
 
 extendType :: Env -> Binder -> Env
@@ -159,9 +173,9 @@ topLevelSignatures types decls = List.foldl' addComponent Map.empty (stronglyCon
     addComponent current component =
       case component of
         AcyclicSCC declaration ->
-          Map.insert (valName declaration) (lambdaSignature (Env types current) (valBody declaration)) current
+          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly) (valBody declaration)) current
         CyclicSCC members ->
-          fixSignatures (Env types current) [(valName declaration, valBody declaration) | declaration <- members]
+          fixSignatures (Env types current StrictLetsOnly) [(valName declaration, valBody declaration) | declaration <- members]
 
 -- | The signature of a function body: one demand per lambda it exposes.
 lambdaSignature :: Env -> Expr -> Signature
@@ -347,7 +361,8 @@ walkArguments env result = go
           (arguments, sets, wraps) <- go rest
           case (demand, argumentType, result) of
             (Strict, Just argumentTy, Just _)
-              | isLiftedType (envTypes env) argumentTy,
+              | envRewrites env == StrictLetsAndArguments,
+                isLiftedType (envTypes env) argumentTy,
                 not (isValueLike env argument') -> do
                   name <- freshName
                   let binder = Binder name argumentTy

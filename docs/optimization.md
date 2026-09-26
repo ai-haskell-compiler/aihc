@@ -61,7 +61,7 @@ after each pass under `--lint`.
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
-| `PassDemand` | Demand analysis, then a case for every strict let and every strict argument of a saturated call. `Aihc.Fc.Demand`. |
+| `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
@@ -175,10 +175,26 @@ the expression it is in down from the declared type of the value, and
 reads the types of arguments off the type of the head of a call. Where a
 type is unknown the rewrite does not happen.
 
+The plans run the pass with `StrictLetsOnly`. The strict-argument rewrite
+is measured, not switched on. On the `sha-digest` benchmark at `-O2` it
+took the allocation from 214 MB to 150 MB, and the run time from 60 ms to
+90 ms, with a binary 61% larger. The block function of SHA-256 calls
+`step256` sixty-four times, and the inliner does not copy the callee, so
+each call became a non-tail call whose continuation frame holds the
+remaining words of the message schedule: sixty-eight continuations with
+up to seventy-two parameters each, where a thunk held three fields. The
+rewrite pays where the callee is inlined, because the cases then reduce
+by case of known constructor to straight-line code, and where few
+variables are live across the call. It goes into the plans when the
+inliner copies such callees, or when the rewrite counts the live
+variables at the site.
+
 The report gives the number of top-level values with a strict parameter,
 the number of lets that became cases, and the number of arguments that
 are evaluated before their call. The fixtures are the
-`demand-*.yaml` files under `compiler/fc/test/Test/Fixtures/golden`.
+`demand-*.yaml` files under `compiler/fc/test/Test/Fixtures/golden`; a
+`demand` entry in `passes:` runs both rewrites and `demand: lets` the
+strict lets alone.
 
 Not done: divergence, so a branch that calls `error` evaluates nothing
 and makes its function lazy in what the other branches evaluate; and

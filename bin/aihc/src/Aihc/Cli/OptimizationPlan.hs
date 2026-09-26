@@ -59,7 +59,7 @@ optimizationPlan lto level =
     -- The phases count down as GHC's do: the shrinking inliner is phase
     -- 2, the growing one phase 1 and the final walk phase 0, so a rule
     -- with a phase control fires where its author expects.
-    shrink = [Fc.PassEtaExpand, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand]
+    shrink = [Fc.PassEtaExpand, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
     grow = [Fc.PassInline Fc.growPolicy rounds 1] <> finish
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4
