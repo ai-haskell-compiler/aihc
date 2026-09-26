@@ -61,7 +61,7 @@ data LowerState = LowerState
     -- | The top-level value that lowering works on. Each function that this
     -- value needs takes its name from this name.
     lowerCurrentValue :: !Text,
-    lowerUsedFunctions :: !(Set FunctionName),
+    lowerUsedFunctions :: !FunctionNames,
     lowerFunctionsRev :: ![GrinFunction],
     -- | The primitives that the module calls, by name.
     lowerPrimitives :: !(Map Text (GrinVar, Int)),
@@ -99,7 +99,7 @@ lowerProgram program = do
       globals = globalNameTable types
       constructorArities = constructorArityTable types
       baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
-      initialState = LowerState (-1000000000) "" Set.empty [] Map.empty Map.empty Map.empty Map.empty
+      initialState = LowerState (-1000000000) "" (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
@@ -1929,8 +1929,8 @@ freshVar hint representation = do
 freshFunction :: Text -> LowerM FunctionName
 freshFunction hint = do
   state <- get
-  let candidate = unusedFunctionName ("$" <> qualifiedHint (lowerCurrentValue state) hint) (lowerUsedFunctions state)
-  modify' (\current -> current {lowerUsedFunctions = Set.insert candidate (lowerUsedFunctions current)})
+  let (candidate, names) = claimFunctionName ("$" <> qualifiedHint (lowerCurrentValue state) hint) (lowerUsedFunctions state)
+  modify' (\current -> current {lowerUsedFunctions = names})
   pure candidate
 
 -- | Put the value name in front of the hint. A hint that already starts with

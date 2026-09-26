@@ -149,9 +149,11 @@ maximumPieces = 16000
 splitSections :: Image -> [BL.ByteString] -> [Piece]
 splitSections image payloads =
   concat
-    [ zipWith3 (piece section) bounds (drop 1 bounds <> [imageSectionSize section]) (slices bytes bounds)
+    [ zipWith3 (piece section relocations) bounds ends (slices bytes bounds)
     | (section, bytes) <- zip (imageSections image) payloads,
       let bounds = boundaries section
+          ends = drop 1 bounds <> [imageSectionSize section]
+          relocations = relocationsByPiece (zip bounds ends) (imageSectionRelocations section)
     ]
   where
     starts =
@@ -168,7 +170,7 @@ splitSections image payloads =
       [ BL.take (fromIntegral (end - start)) (BL.drop (fromIntegral start) bytes)
       | (start, end) <- zip bounds (drop 1 bounds <> [fromIntegral (BL.length bytes)])
       ]
-    piece section start end bytes =
+    piece section relocations start end bytes =
       let (name, sectionType, flags) = sectionKind (imageSectionRole section)
           alignment = imageSectionAlignment section
        in Piece
@@ -180,8 +182,25 @@ splitSections image payloads =
               pieceStart = start,
               pieceSize = end - start,
               pieceBytes = bytes,
-              pieceRelocations = [relocation | relocation <- imageSectionRelocations section, relocationOffset relocation >= start, relocationOffset relocation < end]
+              pieceRelocations = Map.findWithDefault [] start relocations
             }
+
+-- | The relocations of each piece, by the start of the piece, in the order
+-- that the section gives them. A relocation outside every piece belongs to
+-- none. Each relocation looks up its piece, so an object with many pieces
+-- and many relocations does not compare every pair.
+relocationsByPiece :: [(Word64, Word64)] -> [Relocation] -> Map Word64 [Relocation]
+relocationsByPiece ranges relocations =
+  Map.map reverse $
+    Map.fromListWith
+      (<>)
+      [ (start, [relocation])
+      | relocation <- relocations,
+        Just (start, end) <- [Map.lookupLE (relocationOffset relocation) rangeEnds],
+        relocationOffset relocation < end
+      ]
+  where
+    rangeEnds = Map.fromList ranges
 
 data PlacedPiece = PlacedPiece
   { placedPiece :: !Piece,

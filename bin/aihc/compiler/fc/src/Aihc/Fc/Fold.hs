@@ -123,7 +123,11 @@ table =
         ],
         [ (prefix <> "Word" <> width <> "#", ([Just rep, Just rep], sizedBinary rep operation))
         | (width, rep) <- [("8", word8Rep), ("16", word16Rep), ("32", word32Rep)],
-          (prefix, operation) <- [("and", (.&.)), ("or", (.|.)), ("xor", xor)]
+          (prefix, operation) <- [("and", (.&.)), ("or", (.|.)), ("xor", xor), ("plus", (+)), ("sub", (-)), ("times", (*))]
+        ],
+        [ (prefix <> "Int" <> width <> "#", ([Just rep, Just rep], sizedBinary rep operation))
+        | (width, rep) <- [("8", int8Rep), ("16", int16Rep), ("32", int32Rep)],
+          (prefix, operation) <- [("plus", (+)), ("sub", (-)), ("times", (*))]
         ],
         [ (name, ([Just wordRep, Just wordRep], comparison operation))
         | (name, operation) <- [("eqWord#", (==)), ("neWord#", (/=)), ("ltWord#", (<)), ("leWord#", (<=)), ("gtWord#", (>)), ("geWord#", (>=))]
@@ -157,11 +161,17 @@ table =
               ("word8ToWord#", word8Rep, wordRep),
               ("word16ToWord#", word16Rep, wordRep),
               ("word32ToWord#", word32Rep, wordRep),
-              ("word64ToWord#", word64Rep, wordRep)
+              ("word64ToWord#", word64Rep, wordRep),
+              ("word64ToInt64#", word64Rep, int64Rep),
+              ("int64ToWord64#", int64Rep, word64Rep)
             ]
         ],
         [ (name, ([Just wordRep], unary wordRep (Just . toInteger . operation . word64)))
         | (name, operation) <- [("popCnt#", popCount), ("clz#", countLeadingZeros), ("ctz#", countTrailingZeros)]
+        ],
+        [ (name <> width <> "#", ([Just rep], unary wordRep (Just . toInteger . operation bits . word64 . normalize "WordRep")))
+        | (width, bits, rep) <- [("8", 8, wordRep), ("16", 16, wordRep), ("32", 32, wordRep), ("64", 64, word64Rep)],
+          (name, operation) <- [("popCnt", sizedPopCount), ("clz", sizedLeadingZeros), ("ctz", sizedTrailingZeros)]
         ]
       ]
   where
@@ -198,6 +208,15 @@ table =
     fromBool operation left right = if operation left right then 1 else 0
     word64 :: Integer -> Word64
     word64 = fromInteger
+    -- The bit counts of the low @bits@ bits of a word.
+    sizedPopCount :: Int -> Word64 -> Int
+    sizedPopCount bits value = popCount (lowBits bits value)
+    sizedLeadingZeros :: Int -> Word64 -> Int
+    sizedLeadingZeros bits value = countLeadingZeros (lowBits bits value) - (64 - bits)
+    sizedTrailingZeros :: Int -> Word64 -> Int
+    sizedTrailingZeros bits value = min bits (countTrailingZeros (lowBits bits value))
+    lowBits :: Int -> Word64 -> Word64
+    lowBits bits value = if bits == 64 then value else value .&. (shiftL 1 bits - 1)
 
 compareInts :: Integer -> Integer -> Integer
 compareInts left right =

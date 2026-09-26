@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 28
-- Supported: 28
+- Total Extensions: 29
+- Supported: 29
 - In Progress: 0
 
 ## Extension Status
@@ -20,6 +20,7 @@
 | ExtendedLiterals          |   🟢    | 1/1           |
 | GADTs                     |   🟢    | 11/11         |
 | ImplicitParams            |   🟢    | 2/2           |
+| InstanceSigs              |   🟢    | 1/1           |
 | LambdaCase                |   🟢    | 3/3           |
 | MagicHash                 |   🟢    | 11/11         |
 | MultiParamTypeClasses     |   🟢    | 10/10         |
@@ -33,7 +34,7 @@
 | StandaloneDeriving        |   🟢    | 1/1           |
 | StandaloneKindSignatures  |   🟢    | 1/1           |
 | TemplateHaskellQuotes     |   🟢    | 1/1           |
-| TypeFamilies              |   🟢    | 5/5           |
+| TypeFamilies              |   🟢    | 6/6           |
 | TypeOperators             |   🟢    | 10/10         |
 | UnboxedSums               |   🟢    | 1/1           |
 | UnboxedTuples             |   🟢    | 1/1           |

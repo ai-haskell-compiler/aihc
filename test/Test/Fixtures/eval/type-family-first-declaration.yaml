@@ -1,0 +1,26 @@
+extensions:
+  - DataKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds #-}
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+
+    import GHC.Types (Bool (..))
+
+    type family Pick (flag :: Bool) where
+      Pick 'True = Yes
+      Pick 'False = No
+
+    data Yes = Yes
+    data No = No
+
+    picked :: Pick 'True
+    picked = Yes
+output: |
+  Yes
+expression: |
+  picked
+status: pass
+reason: a module whose first declaration is a type family keeps its package identity through the desugarer
