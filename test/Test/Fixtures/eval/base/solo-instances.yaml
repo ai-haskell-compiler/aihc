@@ -1,0 +1,43 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Foldable (toList)
+    import Data.Tuple (Solo (MkSolo), getSolo)
+
+    functorSolo :: Bool
+    functorSolo = fmap (+ 1) (MkSolo 1) == MkSolo (2 :: Int)
+
+    applicativeSolo :: Bool
+    applicativeSolo = (pure 3 :: Solo Int) == MkSolo 3 && (MkSolo (* 2) <*> MkSolo 4) == MkSolo (8 :: Int)
+
+    monadSolo :: Bool
+    monadSolo = (MkSolo 5 >>= (\n -> MkSolo (n + 1))) == MkSolo (6 :: Int)
+
+    monoidSolo :: Bool
+    monoidSolo = (mempty :: Solo [Int]) == MkSolo [] && (MkSolo [1] <> MkSolo [2]) == MkSolo [1, 2 :: Int]
+
+    foldableSolo :: Bool
+    foldableSolo = toList (MkSolo 'a') == "a" && sum (MkSolo (7 :: Int)) == 7
+
+    traversableSolo :: Bool
+    traversableSolo = traverse Just (MkSolo 'b') == Just (MkSolo 'b')
+
+    ordSolo :: Bool
+    ordSolo = compare (MkSolo 1) (MkSolo (2 :: Int)) == LT && MkSolo 2 > MkSolo (1 :: Int) && max (MkSolo 1) (MkSolo (2 :: Int)) == MkSolo 2
+
+    showSolo :: Bool
+    showSolo = show (MkSolo (1 :: Int)) == "MkSolo 1" && show (Just (MkSolo 'c')) == "Just (MkSolo 'c')"
+
+    boundedSolo :: Bool
+    boundedSolo = getSolo (minBound :: Solo Bool) == False && getSolo (maxBound :: Solo Bool) == True
+
+    answer :: Bool
+    answer = functorSolo && applicativeSolo && monadSolo && monoidSolo && foldableSolo && traversableSolo && ordSolo && showSolo && boundedSolo
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: Solo has the Functor, Applicative, Monad, Semigroup, Monoid, Foldable, Traversable, Ord, Show, and Bounded instances of base

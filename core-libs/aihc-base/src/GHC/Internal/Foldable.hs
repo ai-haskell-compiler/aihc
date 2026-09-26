@@ -19,6 +19,7 @@ where
 import Data.Bool (Bool (..), (&&), (||))
 import Data.Either (Either (..))
 import Data.Kind (Type)
+import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Maybe (..), id, seq, (++), (.))
 import GHC.Base qualified
@@ -27,6 +28,7 @@ import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, (+#))
+import GHC.Tuple (Solo (..))
 
 class Foldable (t :: Type -> Type) where
   fold :: (Monoid m) => t m -> m
@@ -171,6 +173,18 @@ instance Foldable ((,) e) where
   foldr f initial (_, value) = f value initial
   foldl f initial (_, value) = f initial value
   null _ = False
+
+instance Foldable Solo where
+  foldr f initial (MkSolo value) = f value initial
+  foldl f initial (MkSolo value) = f initial value
+  toList (MkSolo value) = [value]
+  null _ = False
+
+instance Foldable Proxy where
+  foldr _ initial _ = initial
+  foldl _ initial _ = initial
+  toList _ = []
+  null _ = True
 
 instance Foldable NonEmpty where
   foldr f initial (value :| values) = f value (foldr f initial values)
