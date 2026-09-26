@@ -422,6 +422,8 @@ condition never traps.
 | `clz iN %a` | `iN` | The number of leading zero bits. `N` when `%a` is zero. |
 | `ctz iN %a` | `iN` | The number of trailing zero bits. `N` when `%a` is zero. |
 | `popcount iN %a` | `iN` | The number of one bits. |
+| `pdep iN %a, %b` | `iN` | Parallel bit deposit. The low bits of `%a` move to the set bits of the mask `%b`, in order. |
+| `pext iN %a, %b` | `iN` | Parallel bit extract. The bits of `%a` at the set bits of the mask `%b` gather into the low bits, in order. |
 | `mul.wide.s iN %a, %b` | `iN, iN` | Signed full multiplication. The results are the low and the high half. |
 | `mul.wide.u iN %a, %b` | `iN, iN` | Unsigned full multiplication. The results are the low and the high half. |
 | `add.carry iN %a, %b` | `iN, i1` | Wrapping addition and the unsigned carry. |
@@ -954,6 +956,10 @@ rather than as a change of some object bytes. Run the suite with
 - `clz` and `ctz` are `clz` and `rbit` followed by `clz`. AArch64 has no
   population count of a general register, so `popcount` goes through the
   vector unit with `cnt` and `addv`, which the base architecture requires.
+- `pdep` and `pext` are loops over the set bits of the mask, since the base
+  architecture has no scalar bit deposit or extract. A deposit walks the
+  mask from its lowest set bit; an extract walks it from its highest set
+  bit, which `clz` finds.
 - A trap writes its message and a newline to the standard error stream and
   exits with status one.
 
@@ -992,8 +998,9 @@ design of the AArch64 backend:
   eight float arguments and one result. A float travels as its bit pattern
   and moves through `xmm0` at the boundary. A C function saves the preserved
   registers it uses, and all of them when it calls an aihc function.
-- `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`. This
-  backend targets modern hardware and assumes SSE4.2, LZCNT, and BMI1; a host
+- `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`, and
+  `pdep` and `pext` are the BMI2 instructions of the same name. This backend
+  targets modern hardware and assumes SSE4.2, LZCNT, BMI1, and BMI2; a host
   without them uses the LLVM backend.
 - A trap writes its message and a newline to the standard error stream and
   exits with status one.
@@ -1017,6 +1024,8 @@ design of the AArch64 backend:
 - The operations that trap check their operands and branch to a block that
   writes the message to the standard error stream and exits with status
   one.
+- `pdep` and `pext` call internal functions of the module that loop over
+  the set bits of the mask, since LLVM has no portable intrinsic for them.
 
 ### WebAssembly
 
@@ -1026,6 +1035,9 @@ Clang assembles:
 - Every value is a local. The narrow integer types, `ptr`, and `code` are
   `i32`; `i64`, `f32`, and `f64` are themselves. A `code` value is an index
   into the function table.
+- `pdep` and `pext` call helper functions that the backend adds to the
+  module, as Lir loops over the set bits of the mask, since WebAssembly has
+  no bit deposit or extract.
 - A function is one loop with one nested block per Lir block and a
   `br_table` on the current block index. A jump assigns the parameters of the
   target and continues the loop.

@@ -282,6 +282,14 @@ cmpIntArray = cmpArray
 instance Functor (Array i) where
   fmap = amap
 
+instance Foldable (Array i) where
+  foldr step initial array' = foldr step initial (elems array')
+  length = numElements
+  null array' = numElements array' == 0
+
+instance (Ix i) => Traversable (Array i) where
+  traverse function array' = fmap (listArray (bounds array')) (traverse function (elems array'))
+
 instance (Ix i, Eq e) => Eq (Array i e) where
   (==) = eqArray
 

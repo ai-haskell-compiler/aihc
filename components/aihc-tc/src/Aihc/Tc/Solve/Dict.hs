@@ -100,7 +100,7 @@ solveNormalizedDict visited givens ct
                       | null (ciMethods classInfo),
                         null (ciSuperClassTypes classInfo),
                         null (ciKindTyVars classInfo) -> do
-                          direct <- solveCoercible left right
+                          direct <- solveCoercible className givens' left right
                           if direct
                             then pure True
                             else solveCoercibleFromGivens className givens' left right

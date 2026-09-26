@@ -56,7 +56,7 @@ compileLirModule :: Module -> Either WasmLirError Text
 compileLirModule lirModule =
   case prepared of
     Right _ -> do
-      let items = userItems <> [ItemFunction helper | usesWideMultiply, helper <- wideHelpers]
+      let items = userItems <> [ItemFunction helper | usesWideMultiply, helper <- wideHelpers] <> [ItemFunction helper | usesBitScatter, helper <- bitScatterHelpers]
           ctx = moduleContext items
       (functions, final) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) initialState
       let traps = Map.toAscList (moduleTraps final)
@@ -84,6 +84,14 @@ compileLirModule lirModule =
           block <- functionBlocks function,
           Instruction _ (Wide op I64 _ _) <- blockInstructions block,
           op `elem` [MulWideU, MulWideS]
+        ]
+    usesBitScatter =
+      or
+        [ True
+        | ItemFunction function <- userItems,
+          block <- functionBlocks function,
+          Instruction _ (Binary op _ _ _) <- blockInstructions block,
+          op `elem` [Pdep, Pext]
         ]
     initialState = ModuleState {moduleTraps = Map.empty, moduleUsesStack = False}
 
@@ -577,6 +585,19 @@ compileInstruction fn (Instruction results operation) =
           signedOperands ty left right
           emit (p <> ".rem_s") >> narrow ty >> single
         RemU -> zeroCheck ty right >> operands ty left right >> emit (p <> ".rem_u") >> single
+        -- WebAssembly has no bit deposit or extract. Both call a helper on
+        -- 64-bit operands; a narrow mask keeps the result in the width.
+        Pdep -> bitScatterCall "aihc_lir_wasm_pdep64"
+        Pext -> bitScatterCall "aihc_lir_wasm_pext64"
+      where
+        bitScatterCall helper = do
+          push fn ty left
+          unless (is64 ty) (emit "i64.extend_i32_u")
+          push fn ty right
+          unless (is64 ty) (emit "i64.extend_i32_u")
+          emit ("call\t" <> linkedName Internal (Symbol helper))
+          unless (is64 ty) (emit "i32.wrap_i64")
+          single
     Wide op ty left right ->
       case results of
         [first, second] ->
@@ -939,6 +960,72 @@ wideHelpers = [unsignedHelper, signedHelper]
                  op "high_a" (Binary Sub I64 (var "high") (var "a_correction")),
                  op "result_high" (Binary Sub I64 (var "high_a") (var "b_correction"))
                ]
+        )
+
+-- Bit deposit and extract helpers
+
+-- | The parallel bit deposit and extract of 64-bit values, as Lir loops
+-- over the set bits of the mask. The deposit walks the mask from its
+-- lowest set bit and takes the source bits from the low end. The extract
+-- walks the mask from its highest set bit, which a leading-zero count
+-- finds, and shifts each source bit into the result from the low end.
+bitScatterHelpers :: [Function]
+bitScatterHelpers = [depositHelper, extractHelper]
+  where
+    var = OperandVar . Var
+    int = OperandLiteral . LitInt
+    op name = Instruction [Var name]
+    loop = Label "loop"
+    entry = Block (Label "entry") [] [] (Jump (Target loop [var "a", var "b", int 0]))
+    test =
+      Block
+        loop
+        [(Var "source", I64), (Var "mask", I64), (Var "result", I64)]
+        [op "done" (Compare Eq I64 (var "mask") (int 0))]
+        (Branch (var "done") (Target (Label "exit") [var "result"]) (Target (Label "body") []))
+    exit = Block (Label "exit") [(Var "value", I64)] [] (Return [var "value"])
+    helper name body =
+      Function
+        { functionName = Symbol name,
+          functionLinkage = Internal,
+          functionParameters = [(Var "a", I64), (Var "b", I64)],
+          functionResults = [I64],
+          functionConvention = AihcConvention,
+          functionBlocks = [entry, test, body, exit]
+        }
+    depositHelper =
+      helper
+        "aihc_lir_wasm_pdep64"
+        ( Block
+            (Label "body")
+            []
+            [ op "negated" (Binary Sub I64 (int 0) (var "mask")),
+              op "lowest" (Binary And I64 (var "mask") (var "negated")),
+              op "rest" (Binary Xor I64 (var "mask") (var "lowest")),
+              op "bit" (Binary And I64 (var "source") (int 1)),
+              op "keep" (Binary Sub I64 (int 0) (var "bit")),
+              op "placed" (Binary And I64 (var "lowest") (var "keep")),
+              op "next" (Binary Or I64 (var "result") (var "placed")),
+              op "shifted" (Binary ShrU I64 (var "source") (int 1))
+            ]
+            (Jump (Target loop [var "shifted", var "rest", var "next"]))
+        )
+    extractHelper =
+      helper
+        "aihc_lir_wasm_pext64"
+        ( Block
+            (Label "body")
+            []
+            [ op "leading" (Unary Clz I64 (var "mask")),
+              op "aligned_mask" (Binary Shl I64 (var "mask") (var "leading")),
+              op "aligned_source" (Binary Shl I64 (var "source") (var "leading")),
+              op "grown" (Binary Shl I64 (var "result") (int 1)),
+              op "top" (Binary ShrU I64 (var "aligned_source") (int 63)),
+              op "next" (Binary Or I64 (var "grown") (var "top")),
+              op "rest" (Binary Shl I64 (var "aligned_mask") (int 1)),
+              op "shifted" (Binary Shl I64 (var "aligned_source") (int 1))
+            ]
+            (Jump (Target loop [var "shifted", var "rest", var "next"]))
         )
 
 tshow :: (Show value) => value -> Text

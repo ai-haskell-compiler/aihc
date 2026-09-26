@@ -1772,6 +1772,13 @@ resolveForeignValueType sourceType = do
               | otherwise -> do
                   mDataType <- lookupDataType tyCon
                   case mDataType of
+                    -- A Bool is an HsBool, which GHC declares as a C int of
+                    -- the word width: False is 0, True is 1, and a nonzero
+                    -- result is True. The constructors carry the two tags.
+                    Just dataType
+                      | isBoolTyCon tyCon,
+                        constructorNames@[_, _] <- map dciName (dtiConstructors dataType) ->
+                          Right <$> primitiveMarshal sourceType (reverse constructors <> constructorNames) "Int#" TcForeignInt cType
                     Just dataType
                       | [constructor] <- dtiConstructors dataType,
                         null (dciExTyVars constructor),
@@ -1788,6 +1795,7 @@ resolveForeignValueType sourceType = do
       | ty == sourceType = pure (Left (renderTcType ty))
       | otherwise = pure (Left (renderTcType ty <> " in " <> renderTcType sourceType))
     maximumUnwrapDepth = 64
+    isBoolTyCon tyCon = tyConName tyCon == "Bool" && tyConModuleName tyCon == "GHC.Types" && tyConArity tyCon == 0
     byteArrayMarshal ty =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,

@@ -388,6 +388,7 @@ instructionEffect instruction =
     AmdMovdFromXmm destination _ -> writes [destination]
     AmdCvtts2si _ destination _ -> writes [destination]
     AmdBitCount _ destination _ -> writes [destination]
+    AmdBmi2 _ destination _ _ -> writes [destination]
   where
     writes registers
       | RSP `elem` registers = Forgets
@@ -689,7 +690,15 @@ amd64Binary ctx op ty dst a right =
     Shl -> pure (shift ty dst (move dst a) AmdShl AmdShlImmediate right)
     ShrS -> pure (shift ty dst (signExtendTo dst ty a) AmdSar AmdSarImmediate right)
     ShrU -> pure (shift ty dst (move dst a) AmdShr AmdShrImmediate right)
+    -- A narrow mask has no set bit above its width, so the result of the
+    -- 32-bit form is canonical.
+    Pdep -> pure (bmi2 AmdPdep)
+    Pext -> pure (bmi2 AmdPext)
   where
+    bmi2 operation =
+      let (loads, b) = rightRegister ty right
+          width register = if typeBits ty == 64 then register else dwordRegister register
+       in loads <> [amd64Instruction (AmdBmi2 operation (width dst) (width a) (width b))]
     rightValue operandTy operand =
       case smallImmediate operandTy operand of
         Just value -> ([], RightImmediate value)

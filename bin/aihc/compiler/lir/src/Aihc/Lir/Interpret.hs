@@ -17,7 +17,7 @@ import Aihc.Lir.Syntax
 import Control.Monad (foldM, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, gets, modify', put)
-import Data.Bits (popCount, shiftL, shiftR, testBit, xor, (.&.), (.|.))
+import Data.Bits (bit, popCount, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -536,8 +536,30 @@ binary op ty a b =
     Shl -> pure (mask ty (a `shiftL` count))
     ShrS -> pure (fromIntegerBits ty (signed ty a `shiftR` count))
     ShrU -> pure (a `shiftR` count)
+    Pdep -> pure (depositBits a b)
+    Pext -> pure (extractBits a b)
   where
     count = fromIntegral (b `mod` fromIntegral (typeBits ty))
+
+-- | The low bits of the source, scattered to the set bits of the mask. A
+-- narrow mask has no set bit above its width, so the result is canonical.
+depositBits :: Word64 -> Word64 -> Word64
+depositBits source selector = go 0 0 [index | index <- [0 .. 63], testBit selector index]
+  where
+    go result _ [] = result
+    go result sourceIndex (index : rest)
+      | testBit source sourceIndex = go (result .|. bit index) (sourceIndex + 1) rest
+      | otherwise = go result (sourceIndex + 1) rest
+
+-- | The bits of the source at the set bits of the mask, gathered into the
+-- low bits.
+extractBits :: Word64 -> Word64 -> Word64
+extractBits source selector = go 0 0 [index | index <- [0 .. 63], testBit selector index]
+  where
+    go result _ [] = result
+    go result resultIndex (index : rest)
+      | testBit source index = go (result .|. bit resultIndex) (resultIndex + 1) rest
+      | otherwise = go result (resultIndex + 1) rest
 
 -- | The bit-count operations. A narrow value is canonical in its low bits,
 -- so counting leading zeros starts at the width of the type.

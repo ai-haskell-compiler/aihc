@@ -5,8 +5,8 @@
 - Total Extensions: 63
 - Supported: 48
 - In Progress: 15
-- Fixtures (eval): 627
-- Fixtures (fc): 261
+- Fixtures (eval): 632
+- Fixtures (fc): 262
 
 ## Extension Status
 
@@ -17,7 +17,7 @@
 | BlockArguments             |   🟢    | 2/2           |
 | CApiFFI                    |   🟢    | 5/5           |
 | ConstraintKinds            |   🟢    | 3/3           |
-| DataKinds                  |   🟡    | 20/21         |
+| DataKinds                  |   🟡    | 22/23         |
 | DefaultSignatures          |   🟢    | 8/8           |
 | DeriveAnyClass             |   🟢    | 6/6           |
 | DeriveDataTypeable         |   🟢    | 1/1           |
@@ -33,8 +33,8 @@
 | ExplicitForAll             |   🟢    | 13/13         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedLiterals           |   🟢    | 13/13         |
-| FlexibleContexts           |   🟢    | 10/10         |
-| FlexibleInstances          |   🟡    | 41/43         |
+| FlexibleContexts           |   🟢    | 11/11         |
+| FlexibleInstances          |   🟡    | 42/44         |
 | ForeignFunctionInterface   |   🟢    | 42/42         |
 | FunctionalDependencies     |   🔴    | 18/22         |
 | GADTs                      |   🟢    | 99/99         |
@@ -44,7 +44,7 @@
 | ImportQualifiedPost        |   🟢    | 7/7           |
 | InstanceSigs               |   🟢    | 3/3           |
 | InterruptibleFFI           |   🟢    | 1/1           |
-| KindSignatures             |   🟢    | 42/42         |
+| KindSignatures             |   🟢    | 43/43         |
 | LambdaCase                 |   🟢    | 6/6           |
 | MagicHash                  |   🟡    | 222/223       |
 | MultiParamTypeClasses      |   🔴    | 34/38         |
@@ -67,11 +67,11 @@
 | StarIsType                 |   🟢    | 2/2           |
 | TemplateHaskellQuotes      |   🟢    | 1/1           |
 | TypeApplications           |   🟢    | 9/9           |
-| TypeFamilies               |   🟡    | 38/40         |
+| TypeFamilies               |   🟡    | 39/41         |
 | TypeFamilyDependencies     |   🟢    | 1/1           |
-| TypeOperators              |   🟢    | 103/103       |
+| TypeOperators              |   🟢    | 104/104       |
 | UnboxedSums                |   🟢    | 9/9           |
 | UnboxedTuples              |   🟡    | 83/84         |
-| UndecidableInstances       |   🔴    | 6/9           |
+| UndecidableInstances       |   🔴    | 7/10          |
 | UnliftedFFITypes           |   🟢    | 2/2           |
 | ViewPatterns               |   🟢    | 9/9           |

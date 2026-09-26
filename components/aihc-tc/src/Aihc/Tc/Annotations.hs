@@ -14,6 +14,7 @@ module Aihc.Tc.Annotations
     annotateRhsCast,
     annotateExprCast,
     annotateFunCast,
+    annotateDoStmtCast,
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignSafety (..),
@@ -58,6 +59,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Decl (..),
+    DoStmt (..),
     Expr (..),
     Match,
     Rhs (..),
@@ -112,6 +114,15 @@ annotateExprCast ty evidence =
 annotateFunCast :: TcType -> EvVar -> Expr -> Expr
 annotateFunCast ty evidence =
   EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | Cast the sequencing method of a @do@ statement onto the type the
+-- statement uses it at. The method is equated as
+-- @method ~ (action -> continuation -> block)@, so the proof runs forwards
+-- for the method. The desugarer applies the cast to the method occurrence,
+-- because the statement has no expression node for it.
+annotateDoStmtCast :: TcType -> EvVar -> DoStmt body -> DoStmt body
+annotateDoStmtCast ty evidence =
+  DoAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Annotation attached to AST nodes by the type checker.
 --

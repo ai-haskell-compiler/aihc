@@ -1,0 +1,12 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import GHC.List (build)
+
+    countdown :: Int -> [Int]
+    countdown n = build (\c z -> let go k = if k <= 0 then z else c k (go (k - 1)) in go n)
+expression: countdown 3 == [3, 2, 1]
+output: 'True'
+status: pass
+reason: GHC.List exports build as base 4.17 does

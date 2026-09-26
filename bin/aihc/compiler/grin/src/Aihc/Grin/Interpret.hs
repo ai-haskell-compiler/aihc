@@ -11,6 +11,7 @@ module Aihc.Grin.Interpret
   )
 where
 
+import Aihc.Fc.Fold (depositBits, extractBits, reverseBits)
 import Aihc.Grin.Syntax
 import Control.Concurrent qualified as Host
 import Control.Exception (SomeException, bracket, displayException, mask_, onException, try)
@@ -1154,6 +1155,14 @@ evalPrimitive "xorWord32#" [left, right] = evalSizedWordPrimitive "xorWord32#" W
 evalPrimitive "not#" [value] = do
   word <- expectWordPrimitiveArgument "not#" value
   pure [wordRuntimeValue (complement word)]
+evalPrimitive "notI#" [value] = do
+  int <- expectIntPrimitiveArgument "notI#" value
+  pure [intRuntimeValue (complement int)]
+evalPrimitive "bitReverse#" [value] = do
+  word <- expectWordPrimitiveArgument "bitReverse#" value
+  pure [wordRuntimeValue (reverseBits word)]
+evalPrimitive "pdep#" [source, mask] = evalWordPrimitive "pdep#" depositBits source mask
+evalPrimitive "pext#" [source, mask] = evalWordPrimitive "pext#" extractBits source mask
 evalPrimitive "uncheckedShiftL#" [value, amount] = evalWordShift "uncheckedShiftL#" shiftL value amount
 evalPrimitive "uncheckedShiftRL#" [value, amount] = evalWordShift "uncheckedShiftRL#" shiftR value amount
 evalPrimitive "uncheckedIShiftL#" [value, amount] = evalIntShift "uncheckedIShiftL#" shiftL value amount

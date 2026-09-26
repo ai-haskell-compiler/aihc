@@ -1,0 +1,171 @@
+---
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (Char)
+
+    data Colour = Red | Green | Unknown [Char]
+
+    readColour :: [Char] -> Colour
+    readColour ['r', 'e', 'd'] = Red
+    readColour ['g', 'r', 'e', 'e', 'n'] = Green
+    readColour name = Unknown name
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tChar :: 3.sType;
+    2.tChar# :: 3.tTYPE 3.cWordRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cC# :: FUN @3.cWordRep @3.sLiftedRep 2.tChar# 3.tChar;
+    3.cLifted :: 3.tLevity;
+    3.cWordRep :: 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tColour :: 3.sType {
+      pub 1.cRed :: 1.tColour;
+      pub 1.cGreen :: 1.tColour;
+      pub 1.cUnknown :: 3.t[] 3.tChar 3.→ 1.tColour
+  }
+
+  pub val 1.vreadColour :: 3.t[] 3.tChar 3.→ 1.tColour
+   = λ(x : 3.t[] 3.tChar).
+    let {
+        _fail : 1.tColour =
+            1.cUnknown x
+    } in
+        case x as (_scrut : 3.t[] 3.tChar) return (1.tColour) of {
+            3.c: (_pat : 3.tChar) (_pat{1} : 3.t[] 3.tChar) →
+                case _pat as (_scrut{1} : 3.tChar) return (1.tColour) of {
+                    3.cC# (_pat{2} : 2.tChar#) →
+                        case _pat{2} as (_scrut{2} : 2.tChar#) return (1.tColour) of {
+                            'r'#3.cWordRep →
+                                case _pat{1} as (_scrut{3} : 3.t[] 3.tChar) return (1.tColour) of {
+                                    3.c: (_pat{3} : 3.tChar) (_pat{4} : 3.t[] 3.tChar) →
+                                        case _pat{3} as (_scrut{4} : 3.tChar) return (1.tColour) of {
+                                            3.cC# (_pat{5} : 2.tChar#) →
+                                                case _pat{5} as (_scrut{5} : 2.tChar#) return (1.tColour) of {
+                                                    'e'#3.cWordRep →
+                                                        case _pat{4} as (_scrut{6} : 3.t[] 3.tChar) return (1.tColour) of {
+                                                            3.c: (_pat{6} : 3.tChar) (_pat{7} : 3.t[] 3.tChar) →
+                                                                case _pat{6} as (_scrut{7} : 3.tChar) return (1.tColour) of {
+                                                                    3.cC# (_pat{8} : 2.tChar#) →
+                                                                        case _pat{8} as (_scrut{8} : 2.tChar#) return (1.tColour) of {
+                                                                            'd'#3.cWordRep →
+                                                                                case _pat{7} as (_scrut{9} : 3.t[] 3.tChar) return (1.tColour) of {
+                                                                                    3.c[] →
+                                                                                        1.cRed;
+                                                                                    _ →
+                                                                                        _fail
+                                                                                };
+                                                                            _ →
+                                                                                _fail
+                                                                        };
+                                                                    _ →
+                                                                        _fail
+                                                                };
+                                                            _ →
+                                                                _fail
+                                                        };
+                                                    _ →
+                                                        _fail
+                                                };
+                                            _ →
+                                                _fail
+                                        };
+                                    _ →
+                                        _fail
+                                };
+                            'g'#3.cWordRep →
+                                case _pat{1} as (_scrut{3} : 3.t[] 3.tChar) return (1.tColour) of {
+                                    3.c: (_pat{3} : 3.tChar) (_pat{4} : 3.t[] 3.tChar) →
+                                        case _pat{3} as (_scrut{4} : 3.tChar) return (1.tColour) of {
+                                            3.cC# (_pat{5} : 2.tChar#) →
+                                                case _pat{5} as (_scrut{5} : 2.tChar#) return (1.tColour) of {
+                                                    'r'#3.cWordRep →
+                                                        case _pat{4} as (_scrut{6} : 3.t[] 3.tChar) return (1.tColour) of {
+                                                            3.c: (_pat{6} : 3.tChar) (_pat{7} : 3.t[] 3.tChar) →
+                                                                case _pat{6} as (_scrut{7} : 3.tChar) return (1.tColour) of {
+                                                                    3.cC# (_pat{8} : 2.tChar#) →
+                                                                        case _pat{8} as (_scrut{8} : 2.tChar#) return (1.tColour) of {
+                                                                            'e'#3.cWordRep →
+                                                                                case _pat{7} as (_scrut{9} : 3.t[] 3.tChar) return (1.tColour) of {
+                                                                                    3.c: (_pat{9} : 3.tChar) (_pat{10} : 3.t[] 3.tChar) →
+                                                                                        case _pat{9} as (_scrut{10} : 3.tChar) return (1.tColour) of {
+                                                                                            3.cC# (_pat{11} : 2.tChar#) →
+                                                                                                case _pat{11} as (_scrut{11} : 2.tChar#) return (1.tColour) of {
+                                                                                                    'e'#3.cWordRep →
+                                                                                                        case _pat{10} as (_scrut{12} : 3.t[] 3.tChar) return (1.tColour) of {
+                                                                                                            3.c: (_pat{12} : 3.tChar) (_pat{13} : 3.t[] 3.tChar) →
+                                                                                                                case _pat{12} as (_scrut{13} : 3.tChar) return (1.tColour) of {
+                                                                                                                    3.cC# (_pat{14} : 2.tChar#) →
+                                                                                                                        case _pat{14} as (_scrut{14} : 2.tChar#) return (1.tColour) of {
+                                                                                                                            'n'#3.cWordRep →
+                                                                                                                                case _pat{13} as (_scrut{15} : 3.t[] 3.tChar) return (1.tColour) of {
+                                                                                                                                    3.c[] →
+                                                                                                                                        1.cGreen;
+                                                                                                                                    _ →
+                                                                                                                                        _fail
+                                                                                                                                };
+                                                                                                                            _ →
+                                                                                                                                _fail
+                                                                                                                        };
+                                                                                                                    _ →
+                                                                                                                        _fail
+                                                                                                                };
+                                                                                                            _ →
+                                                                                                                _fail
+                                                                                                        };
+                                                                                                    _ →
+                                                                                                        _fail
+                                                                                                };
+                                                                                            _ →
+                                                                                                _fail
+                                                                                        };
+                                                                                    _ →
+                                                                                        _fail
+                                                                                };
+                                                                            _ →
+                                                                                _fail
+                                                                        };
+                                                                    _ →
+                                                                        _fail
+                                                                };
+                                                            _ →
+                                                                _fail
+                                                        };
+                                                    _ →
+                                                        _fail
+                                                };
+                                            _ →
+                                                _fail
+                                        };
+                                    _ →
+                                        _fail
+                                };
+                            _ →
+                                _fail
+                        };
+                    _ →
+                        _fail
+                };
+            _ →
+                _fail
+        }
+status: pass
+reason: The final variable equation after character list equations is compiled once, bound as the shared failure, and each default alternative names it.

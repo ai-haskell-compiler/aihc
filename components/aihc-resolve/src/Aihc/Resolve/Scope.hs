@@ -293,10 +293,10 @@ exportedScope package exports extensions modu =
         ExportAbs _ (Just namespace) name
           | isTermNamespace namespace -> selectTerm (nameText name) (exportSource name)
         ExportAbs _ _ name -> selectType (nameText name) (exportSource name)
-        ExportAll _ _ name -> selectTypeWithMembers (nameText name) (exportSource name) (allTypeMembers (nameText name) (exportSource name))
-        ExportWith _ _ name members -> selectTypeWithMembers (nameText name) (exportSource name) (map exportBundledMemberName members)
+        ExportAll _ _ name -> selectTypeWithMembers (nameText name) (bundledMemberScope name) (allTypeMembers (nameText name) (bundledMemberScope name))
+        ExportWith _ _ name members -> selectTypeWithMembers (nameText name) (bundledMemberScope name) (map exportBundledMemberName members)
         ExportWithAll _ _ name _ members ->
-          selectTypeWithMembers (nameText name) (exportSource name) (map exportBundledMemberName members <> allTypeMembers (nameText name) (exportSource name))
+          selectTypeWithMembers (nameText name) (bundledMemberScope name) (map exportBundledMemberName members <> allTypeMembers (nameText name) (bundledMemberScope name))
 
     -- @module X@ re-exports every name that the module has in scope both
     -- unqualified and qualified by @X@, where both spellings name the same
@@ -317,6 +317,18 @@ exportedScope package exports extensions modu =
         Just qualifier
           | qualifier == moduleKey modu -> availableScope
           | otherwise -> Map.findWithDefault availableScope qualifier (scopeQualifiedModules availableScope)
+
+    -- The members that a type item bundles are entities of the type, not
+    -- of the qualifier. A data instance of an imported family binds its
+    -- constructors in this module, so @U.Vector (BitVec)@ names the family
+    -- through the qualifier and the constructor unqualified. The scope of
+    -- the qualifier comes first, so the type resolves as in 'exportSource'.
+    bundledMemberScope name =
+      case nameQualifier name of
+        Nothing -> availableScope
+        Just qualifier
+          | qualifier == moduleKey modu -> availableScope
+          | otherwise -> exportSource name `unionScope` availableScope
 
 -- | The part of a qualified scope that a @module X@ export item names: the
 -- entries that the unqualified scope resolves to the same entity. A name
