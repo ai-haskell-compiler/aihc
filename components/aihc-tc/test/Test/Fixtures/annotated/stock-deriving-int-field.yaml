@@ -1,0 +1,45 @@
+annotated:
+- |-
+  {-# LANGUAGE MagicHash #-}
+  module Main where
+  import GHC.Classes (Eq, Ord)
+  import GHC.Prim (Int#)
+  data T = T Int#
+  │    │   └─ type: GHC.Prim.Int# → T
+  │    └─ type: Type
+  └─ deriving plans: stock Eq T [context: ()] [methods: ==, /=], stock Ord T [context: ()] [methods: compare, <, <=, >, >=, max, min]
+    deriving (Eq, Ord)
+              │││││││││   └─ $fOrdT ∷ () ⇒ Ord T [superclasses: $fEqT]
+              │││││││││   └─ type: T
+              │││││││││   └─ compare ∷ T → T → Ordering
+              │││││││││   └─ type: T
+              │││││││││   └─ type: GHC.Prim.Int#
+              │││││││││   └─ type: GHC.Types.Ordering
+              │││││││││   └─ type: GHC.Prim.Int#
+              │││││││││   └─ type: GHC.Types.Ordering
+              │││││││││   └─ type: GHC.Prim.Int#
+              │││││││││   └─ type: GHC.Prim.Int#
+              │││││││││   └─ type: GHC.Prim.Int#
+              │││││││││   └─ type: GHC.Prim.Int#
+              └─ $fEqT ∷ () ⇒ Eq T
+              └─ type: T
+              └─ == ∷ T → T → Bool
+              └─ type: T
+              └─ type: GHC.Prim.Int#
+              └─ type: GHC.Types.Bool
+              └─ type: GHC.Prim.Int#
+              └─ type: GHC.Prim.Int#
+              └─ type: GHC.Prim.Int#
+extensions:
+- MagicHash
+modules:
+- |
+  {-# LANGUAGE MagicHash #-}
+  module Main where
+  import GHC.Classes (Eq, Ord)
+  import GHC.Prim (Int#)
+  data T = T Int#
+    deriving (Eq, Ord)
+reason: stock Eq and Ord deriving compare an Int# field with the primitive
+  operators ==# and <#, so the inferred context is empty
+status: pass
