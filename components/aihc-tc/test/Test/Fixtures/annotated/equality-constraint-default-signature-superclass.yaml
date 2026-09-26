@@ -1,0 +1,37 @@
+extensions:
+- DefaultSignatures
+- FlexibleContexts
+- FunctionalDependencies
+- GADTs
+- MultiParamTypeClasses
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, FlexibleContexts, FunctionalDependencies, GADTs, MultiParamTypeClasses, TypeOperators, NoImplicitPrelude #-}
+  module Test where
+  data Unit = Unit
+  class HasGetter t a | t -> a where
+    get :: t -> a
+  class HasSetter t a | t -> a where
+    set :: t -> a -> Unit
+  class HasSetter t b => HasUpdate t a b | t -> a b where
+    update :: t -> (a -> b) -> Unit
+    default update :: (a ~ b, HasGetter t a) => t -> (a -> b) -> Unit
+    update = defaultUpdate
+  defaultUpdate :: (a ~ b, HasGetter t a, HasSetter t a) => t -> (a -> b) -> Unit
+  defaultUpdate r f = set r (f (get r))
+  data Var a = Var a
+  instance HasGetter (Var a) a where
+    get (Var x) = x
+  instance HasSetter (Var a) a where
+    set _ _ = Unit
+  instance HasUpdate (Var a) a a where
+    update = defaultUpdate
+  data Cell a = Cell a
+  instance HasGetter (Cell a) a where
+    get (Cell x) = x
+  instance HasSetter (Cell a) a where
+    set _ _ = Unit
+  instance HasUpdate (Cell a) a a
+status: pass
+reason: A given equality between two rigid type variables lets a superclass given solve a class wanted from a default signature.
