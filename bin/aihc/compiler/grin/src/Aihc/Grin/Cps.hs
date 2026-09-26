@@ -81,7 +81,7 @@ data CpsGrinError
 
 data CpsState = CpsState
   { cpsNextVarUnique :: !Int,
-    cpsUsedFunctionNames :: !(Set FunctionName),
+    cpsUsedFunctionNames :: !FunctionNames,
     cpsGeneratedFunctionsRev :: ![GrinFunction],
     cpsContinuationFramesState :: !(Map FunctionName ContinuationFrameKind),
     cpsComputationContinuations :: !(Map FunctionName GrinVar)
@@ -111,7 +111,7 @@ toCpsGrin sourceProgram = do
     initialState =
       CpsState
         { cpsNextVarUnique = 1 + maximumProgramVarUnique program,
-          cpsUsedFunctionNames = Set.fromList (map grinFunctionName sourceFunctions),
+          cpsUsedFunctionNames = functionNamesFrom (Set.fromList (map grinFunctionName sourceFunctions)),
           cpsGeneratedFunctionsRev = [],
           cpsContinuationFramesState = Map.empty,
           cpsComputationContinuations = Map.empty
@@ -530,8 +530,8 @@ freshContinuationName parent =
 freshFunctionName :: T.Text -> CpsM FunctionName
 freshFunctionName base = do
   state <- get
-  let candidate = unusedFunctionName base (cpsUsedFunctionNames state)
-  put state {cpsUsedFunctionNames = Set.insert candidate (cpsUsedFunctionNames state)}
+  let (candidate, names) = claimFunctionName base (cpsUsedFunctionNames state)
+  put state {cpsUsedFunctionNames = names}
   pure candidate
 
 freshVar :: T.Text -> GrinRep -> CpsM GrinVar
