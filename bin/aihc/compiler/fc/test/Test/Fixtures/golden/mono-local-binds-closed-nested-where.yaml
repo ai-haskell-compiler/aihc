@@ -1,0 +1,115 @@
+extensions:
+- TypeFamilies
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  {-# LANGUAGE RankNTypes #-}
+  module Test (run) where
+  import GHC.Types (Int)
+
+  newtype ST s a = ST a
+  data Ref s = Ref
+  data Unit = Unit
+
+  unST :: ST s a -> a
+  unST (ST a) = a
+
+  runST :: (forall s. ST s a) -> a
+  runST st = unST st
+
+  newRef :: ST s (Ref s)
+  newRef = ST Ref
+
+  bind :: ST s a -> (a -> ST s b) -> ST s b
+  bind (ST a) f = f a
+
+  write :: Ref s -> a -> ST s Unit
+  write _ _ = ST Unit
+
+  run :: Int -> Unit
+  run n = runST (newRef `bind` \r -> go r n)
+    where
+      go r = loop
+        where
+          loop k = write r k
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.sType;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.tUnit :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tST (s : 3.sType) (a : 3.sType) :: 3.sType {}
+
+  axiom 1.$ax$ST (s : 3.sType) (a : 3.sType) : 1.tST s a ~R a
+
+  type 1.tRef (s : 3.sType) :: 3.sType {
+      1.cRef :: ∀(s : 3.sType). 1.tRef s
+  }
+
+  type 1.tUnit :: 3.sType {
+      1.cUnit :: 1.tUnit
+  }
+
+  val 1.vunST :: ∀(s : 3.sType) (a : 3.sType). 1.tST s a 3.→ a
+   = Λ(s : 3.sType).
+    Λ(a : 3.sType).
+      λ(x : 1.tST s a).
+        x ▷ axiom-co 1.$ax$ST @s @a
+
+  val 1.vrunST :: ∀(a : 3.sType). (∀(s : 3.sType). 1.tST s a) 3.→ a
+   = Λ(a : 3.sType).
+    λ(x : ∀(s : 3.sType). 1.tST s a).
+      1.vunST @2.tUnit @a (x @2.tUnit)
+
+  val 1.vnewRef :: ∀(s : 3.sType). 1.tST s (1.tRef s)
+   = Λ(s : 3.sType).
+    (1.cRef @s) ▷ sym (axiom-co 1.$ax$ST @s @(1.tRef s))
+
+  val 1.vbind :: ∀(s : 3.sType) (a : 3.sType) (b : 3.sType). 1.tST s a 3.→ (a 3.→ 1.tST s b) 3.→ 1.tST s b
+   = Λ(s : 3.sType).
+    Λ(a : 3.sType).
+      Λ(b : 3.sType).
+        λ(x : 1.tST s a).
+          λ(y : a 3.→ 1.tST s b).
+            y (x ▷ axiom-co 1.$ax$ST @s @a)
+
+  val 1.vwrite :: ∀(s : 3.sType) (a : 3.sType). 1.tRef s 3.→ a 3.→ 1.tST s 1.tUnit
+   = Λ(s : 3.sType).
+    Λ(a : 3.sType).
+      λ(x : 1.tRef s).
+        λ(y : a).
+          1.cUnit ▷ sym (axiom-co 1.$ax$ST @s @1.tUnit)
+
+  pub val 1.vrun :: 3.tInt 3.→ 1.tUnit
+   = λ(x : 3.tInt).
+    let {
+        go : ∀(a : 3.sType) (b : 3.sType). 1.tRef a 3.→ b 3.→ 1.tST a 1.tUnit =
+            Λ(a : 3.sType).
+              Λ(b : 3.sType).
+                λ(x{1} : 1.tRef a).
+                  λ(x{2} : b).
+                    1.vwrite @a @b x{1} x{2}
+    } in
+        1.vrunST @1.tUnit (Λ(s : 3.sType).
+          1.vbind @s @(1.tRef s) @1.tUnit (1.vnewRef @s) (λ(r : 1.tRef s).
+            go @s @3.tInt r x))
+status: pass
+reason: a where-bound helper with a nested where block is closed, so it
+  generalizes over the state variable under MonoLocalBinds. The helper then
+  gets a type lambda, and the state variable of the rank-2 argument does not
+  escape into the type of the helper.

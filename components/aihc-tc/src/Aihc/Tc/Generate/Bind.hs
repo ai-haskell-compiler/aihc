@@ -1040,17 +1040,22 @@ freeVarsPattern pat =
     PView viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner
     _ -> pure Set.empty
 
+-- | The free variables of a right-hand side. The binders of its where block
+-- scope over the body and the block, so they are not free.
 freeVarsRhs :: Rhs Expr -> TcM (Set.Set TcTermKey)
 freeVarsRhs rhs =
   case rhs of
-    UnguardedRhs _ expr maybeDecls -> do
-      exprVars <- freeVarsExpr expr
-      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
-      pure (exprVars <> declVars)
-    GuardedRhss _ alternatives maybeDecls -> do
-      altVars <- Set.unions <$> mapM freeVarsGuardedRhs alternatives
-      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
-      pure (altVars <> declVars)
+    UnguardedRhs _ expr maybeDecls -> withWhereDecls maybeDecls (freeVarsExpr expr)
+    GuardedRhss _ alternatives maybeDecls -> withWhereDecls maybeDecls (Set.unions <$> mapM freeVarsGuardedRhs alternatives)
+  where
+    withWhereDecls maybeDecls bodyVars =
+      case maybeDecls of
+        Nothing -> bodyVars
+        Just decls -> do
+          vars <- bodyVars
+          declVars <- freeVarsDecls decls
+          localBinders <- declBinderKeys decls
+          pure (Set.difference (vars <> declVars) localBinders)
 
 freeVarsGuardedRhs :: GuardedRhs Expr -> TcM (Set.Set TcTermKey)
 freeVarsGuardedRhs alternative =
