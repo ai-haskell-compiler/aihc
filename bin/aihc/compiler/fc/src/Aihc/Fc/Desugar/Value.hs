@@ -1833,7 +1833,36 @@ desugarMatchColumns resultType fallback binders@(argument : arguments) argumentT
           case (maybeFamily, maybeNewtype) of
             (Just (pattern', info), _) -> desugarFamilyPatterns resultType fallback argument arguments argumentTypes works pattern' info
             (_, Just (pattern', dataType)) -> desugarNewtypePatterns resultType fallback argument arguments argumentTypes works pattern' dataType
-            _ -> desugarDataPatterns resultType fallback argument arguments argumentTypes works
+            _
+              -- Rows whose first pattern matches anything, after the last
+              -- constructor row, are the failure of the constructor rows.
+              -- When a constructor row can fail after its constructor
+              -- matches, every alternative at every depth of the match
+              -- would compile them again: a function of string literal
+              -- equations and a final variable equation copied that
+              -- equation once for each character of each literal. Compile
+              -- them once and share them. Otherwise they occur once, in the
+              -- default alternative, where they can use the case binder.
+              | (constructorWorks@(_ : _), defaultWorks@(_ : _)) <- splitTrailingDefaults works,
+                any rowCanFailAfterConstructor constructorWorks -> do
+                  failure <- desugarMatchArguments resultType fallback binders argumentTypes defaultWorks
+                  shareFailure resultType (Just failure) $ \shared ->
+                    desugarDataPatterns resultType shared argument arguments argumentTypes constructorWorks
+              | otherwise -> desugarDataPatterns resultType fallback argument arguments argumentTypes works
+
+-- | Whether a row can still fail after its first constructor matches.
+rowCanFailAfterConstructor :: MatchWork -> Bool
+rowCanFailAfterConstructor (match, _) =
+  case Syn.matchPats match of
+    first : rest -> not (all patternIsIrrefutable (patternChildren first <> rest))
+    [] -> False
+
+-- | The rows before and after the last row whose first pattern is not a
+-- default pattern.
+splitTrailingDefaults :: [MatchWork] -> ([MatchWork], [MatchWork])
+splitTrailingDefaults works =
+  let (defaultsReversed, restReversed) = span (firstPatternIsDefault . fst) (reverse works)
+   in (reverse restReversed, reverse defaultsReversed)
 
 -- | Compile a row whose first pattern is a view pattern. The view function
 -- is applied to the argument and the result is matched against the inner
