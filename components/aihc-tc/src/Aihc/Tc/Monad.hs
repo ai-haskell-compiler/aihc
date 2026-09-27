@@ -50,6 +50,7 @@ module Aihc.Tc.Monad
     lookupWiredTerm,
     boolType,
     charType,
+    stringType,
     listTyConOfWiring,
     TcEnv (..),
     TcBinder (..),
@@ -357,6 +358,13 @@ charType = do
   kinds <- getKinds
   tyCon <- wiredTyCon tcWiringCharTyCon (typeKind kinds)
   pure (TcTyCon tyCon [])
+
+-- | The @[Char]@ type that a string literal has without OverloadedStrings.
+stringType :: TcM TcType
+stringType = do
+  listTyCon <- listTyConOfWiring
+  elementType <- charType
+  pure (TcTyCon listTyCon [elementType])
 
 -- | The list type constructor, for a list literal or a comprehension.
 listTyConOfWiring :: TcM TyCon

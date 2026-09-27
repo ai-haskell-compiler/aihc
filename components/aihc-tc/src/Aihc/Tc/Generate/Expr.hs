@@ -128,7 +128,7 @@ inferExprAt ambient expr = case expr of
   ECharHash {} ->
     abortTc "primitive character literal is missing its resolver type annotation"
   EString _ _ ->
-    literalResult expr stringTyCon
+    literalResult expr stringType
   EStringHash {} ->
     abortTc "primitive string literal is missing its resolver type annotation"
   ELambdaPats pats body ->
@@ -1662,9 +1662,3 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
-
-stringTyCon :: TcM TcType
-stringTyCon = do
-  listTyCon <- resolvedListTyCon
-  elementType <- charType
-  pure (TcTyCon listTyCon [elementType])

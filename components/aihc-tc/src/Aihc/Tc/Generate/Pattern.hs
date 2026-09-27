@@ -529,9 +529,7 @@ plainLiteralPatternType :: Literal -> TcM (Maybe TcType)
 plainLiteralPatternType literal =
   case peelLiteralAnn literal of
     LitChar {} -> Just <$> charType
-    LitString {} -> do
-      listTyCon <- listTyConOfWiring
-      Just . TcTyCon listTyCon . (: []) <$> charType
+    LitString {} -> Just <$> stringType
     _ -> pure Nothing
 
 -- | The check of a literal pattern that needs its resolver annotations.
