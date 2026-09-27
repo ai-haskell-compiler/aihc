@@ -74,7 +74,6 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     defaultMethodWorkerScheme,
-    isEqualityTyCon,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -321,8 +320,7 @@ headerIndex convertEnv interface =
         [ [ (classDictTypeName (ciTyCon info), HeaderClass info),
             (classDictConName (ciTyCon info), HeaderClass info)
           ]
-        | info <- tcInterfaceClasses interface,
-          not (isEqualityTyCon (ceKinds convertEnv) (ciTyCon info))
+        | info <- tcInterfaceClasses interface
         ]
     dataConFacts =
       [ (Name (dciName constructor) SortDataConstructor (OriginTop package moduleName'), HeaderDataCon constructor)
@@ -507,11 +505,11 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           convertSynonym env info
         Syn.DeclClass classDecl -> do
           info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
-          -- Nominal equality uses coercions instead of a class dictionary.
-          classDecls <-
-            if isEqualityTyCon (ceKinds env) (ciTyCon info)
-              then pure []
-              else (: []) <$> convertClass env info
+          -- Nominal equality in a context is a coercion, not a dictionary.
+          -- Its dictionary type still exists: it is what @a ~ b@ denotes
+          -- inside a type, such as the right-hand side of a
+          -- constraint-kinded family equation.
+          classDecls <- (: []) <$> convertClass env info
           -- Each associated type family of the class is an empty family
           -- type, the same as a top-level family declaration.
           families <-
@@ -872,7 +870,7 @@ convertTypeFamilyEquation env info = do
       TcAxiomKey package moduleName' axiomName = typeFamilyAxiomKey info
   binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
   left <- convertType bindersEnv (tfiiLeft info)
-  right <- convertType bindersEnv (tfiiRight info)
+  right <- convertNestedType bindersEnv (tfiiRight info)
   pure
     ( DeclAxiom
         AxiomDecl
