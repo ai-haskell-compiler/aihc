@@ -31,6 +31,7 @@ import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Injective (improveInjectivity)
+import Aihc.Tc.Solve.Interact (improveSharedFamilyApplications)
 import Aihc.Tc.Solve.Worklist
 import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -108,11 +109,20 @@ drained inerts
       if null progressed
         then do
           givens <- getGivenPredicates
-          improved <- improveInjectivity givens (map ctPred stuck)
+          improved <- improveStuckEqualities givens (map ctPred stuck)
           if improved
             then solveLoop (foldr addEq emptyWorkList stuck) inerts {inertEqs = []}
             else pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
         else solveLoop (foldr addEq emptyWorkList progressed) inerts {inertEqs = stuck}
+
+-- | Improve the stuck equalities from the injectivity annotations of the
+-- families they mention, and from the family applications they share.
+improveStuckEqualities :: [Pred] -> [Pred] -> TcM Bool
+improveStuckEqualities givens stuck = do
+  improved <- improveInjectivity givens stuck
+  if improved
+    then pure True
+    else improveSharedFamilyApplications stuck
 
 -- | Separate constraints that changed after a meta variable received a solution.
 partitionProgress :: [Ct] -> TcM ([Ct], [Ct])
@@ -214,7 +224,7 @@ solveImplicationEqualities skolems predicates equalities constraints = do
     else do
       -- The givens of the branch can name a family application that an
       -- injectivity annotation then reads back into a family argument.
-      improved <- improveInjectivity predicates (map ctPred remaining)
+      improved <- improveStuckEqualities predicates (map ctPred remaining)
       if improved
         then solveImplicationEqualities skolems predicates equalities remaining
         else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining

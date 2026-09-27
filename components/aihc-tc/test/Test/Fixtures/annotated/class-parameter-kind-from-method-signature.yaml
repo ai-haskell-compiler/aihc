@@ -1,0 +1,40 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Compose where
+  newtype Compose f g a = Compose { getCompose :: f (g a) }
+          │               └─ type: ∀ k0 k1 f g a. f (g a) → Compose f g a
+          └─ type: (k0 → Type) → (k1 → k0) → k1 → Type
+- |-
+  module Test where
+  import Compose
+  class Composition o where
+  └─ class methods: decompose ∷ ∀ o f g x. (Composition o) ⇒ o f g x → f (g x), compose ∷ ∀ o f g x. (Composition o) ⇒ f (g x) → o f g x
+    decompose :: o f g x -> f (g x)
+    compose :: f (g x) -> o f g x
+  instance Composition Compose where
+  └─ $fCompositionCompose ∷ () ⇒ Composition Compose
+    decompose = getCompose
+    │           └─ type: Compose.Compose f g x → f (g x); type-args: Type, Type, f, g, x
+    └─ decompose ∷ ∀ f g x. Compose f g x → f (g x)
+    compose = Compose
+    │         └─ type: f (g x) → Compose.Compose f g x; type-args: Type, Type, f, g, x
+    └─ compose ∷ ∀ f g x. f (g x) → Compose f g x
+extensions:
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Compose where
+  newtype Compose f g a = Compose { getCompose :: f (g a) }
+- |
+  module Test where
+  import Compose
+  class Composition o where
+    decompose :: o f g x -> f (g x)
+    compose :: f (g x) -> o f g x
+  instance Composition Compose where
+    decompose = getCompose
+    compose = Compose
+reason: a class parameter without a kind signature gets its kind from the method signatures, and an instance at a poly-kinded type constructor instantiates its kind variables to Type
+status: pass

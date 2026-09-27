@@ -13,6 +13,7 @@ import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Dce (sweptGrinProgram)
+import Aihc.Grin.Lint (GrinLintError (..), lintNodeArities)
 import Aihc.Grin.Simplify (simplifyGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Grin.Tidy (tidyGrinProgram)
@@ -22,6 +23,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -126,10 +128,24 @@ lowerProgram program = do
 -- again folds the copy binds it leaves behind. Sweeping between the two
 -- drops what simplification orphaned, so the rest of the pipeline never
 -- sees it and 'tidyGrinProgram' renumbers only what survives.
+--
+-- The finished program must build each thunk and closure node with the
+-- fields its function takes. The full lint is opt-in, but this check is
+-- cheap and always on: a node with a field too few is otherwise found
+-- only by a backend, as an entry stub whose arity does not match.
 finishGrinProgram :: GrinProgram -> Either String GrinProgram
 finishGrinProgram program = do
   swept <- sweptGrinProgram (simplifyGrinProgram (normalizeGrinProgram program))
-  pure (tidyGrinProgram (normalizeGrinProgram swept))
+  let finished = tidyGrinProgram (normalizeGrinProgram swept)
+  case lintNodeArities finished of
+    [] -> pure finished
+    errors -> Left ("GRIN node arity check failed: " <> List.intercalate "; " (map renderNodeArityError errors))
+  where
+    renderNodeArityError err =
+      case err of
+        GrinLintFunctionArity functionName expected actual ->
+          "a node of " <> T.unpack (unFunctionName functionName) <> " supplies " <> show actual <> " values, its function takes " <> show expected
+        other -> show other
 
 lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
 lowerDecl env declaration =
@@ -549,6 +565,29 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
       | isJust (widthAdapter (grinValueRuntimeRep value) expectedRep) =
           adaptForeignWidth (grinValueRuntimeRep value) expectedRep value $ \converted ->
             go (converted : values) rest
+      -- A Bool argument is the index of its constructor: False is 0 and
+      -- True is 1.
+      | isLiftedRuntimeRep (grinValueRuntimeRep value),
+        Just (falseTag, trueTag) <- findBoolConstructors env axioms constructors sourceType = do
+          evaluated <- freshVar "foreign_box" liftedGrinRep
+          caseBinder <- freshVar "foreign_box_case" liftedGrinRep
+          index <- freshVar "foreign_index" expectedRep
+          body <- go (GrinVarValue index : values) rest
+          let literal = GrinConstant . pure . GrinLitValue . GrinLitInt expectedRep
+          pure
+            ( GrinBind
+                [evaluated]
+                (GrinEval EvalUpdate liftedGrinRep value)
+                ( GrinBind
+                    [index]
+                    ( GrinCase
+                        (GrinVarValue evaluated)
+                        caseBinder
+                        [GrinAlt (GrinDataAlt falseTag) [] (literal 0), GrinAlt (GrinDataAlt trueTag) [] (literal 1)]
+                    )
+                    body
+                )
+            )
       | isLiftedRuntimeRep (grinValueRuntimeRep value) = do
           (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType expectedRep
           evaluated <- freshVar "foreign_box" liftedGrinRep
@@ -584,6 +623,23 @@ adaptForeignResult env axioms constructors sourceType sourceRep foreignRep forei
       result <- freshVar "foreign_result" foreignRep
       body <- adaptForeignWidth foreignRep sourceRep (GrinVarValue result) (pure . GrinConstant . (: []))
       pure (GrinBind [result] foreignExpression body)
+  -- A Bool result is False for 0 and True for every other value, as GHC
+  -- reads an HsBool.
+  | isLiftedRuntimeRep sourceRep,
+    Just (falseTag, trueTag) <- findBoolConstructors env axioms constructors sourceType = do
+      result <- freshVar "foreign_result" foreignRep
+      caseBinder <- freshVar "foreign_result_case" foreignRep
+      let store tag = GrinStore (GrinNode (GrinConstructor tag 0) [])
+      pure
+        ( GrinBind
+            [result]
+            foreignExpression
+            ( GrinCase
+                (GrinVarValue result)
+                caseBinder
+                [GrinAlt (GrinLitAlt (GrinLitInt foreignRep 0)) [] (store falseTag), GrinAlt GrinDefaultAlt [] (store trueTag)]
+            )
+        )
   | isLiftedRuntimeRep sourceRep = do
       (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType foreignRep
       result <- freshVar "foreign_result" foreignRep
@@ -608,6 +664,22 @@ findUnaryConstructor env axioms constructors resultType expectedRep =
                 Right fieldRep
                   | adaptableReps fieldRep expectedRep -> Just (constructorTag name, fieldRep)
                 _ -> Nothing
+            _ -> Nothing
+
+-- | The two nullary constructors of a @Bool@ value, in declaration order,
+-- when the foreign dependencies name them for the type.
+findBoolConstructors :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> Maybe (Text, Text)
+findBoolConstructors env axioms constructors sourceType =
+  case mapMaybe matchConstructor (foreignConstructorEntries env constructors) of
+    [falseTag, trueTag] -> Just (falseTag, trueTag)
+    _ -> Nothing
+  where
+    matchConstructor (name, constructorType)
+      | Fc.nameSort name /= Fc.SortDataConstructor = Nothing
+      | otherwise = do
+          fieldTypes <- instantiateConstructorFields env axioms constructorType sourceType
+          case fieldTypes of
+            [] -> Just (constructorTag name)
             _ -> Nothing
 
 -- | The constructor of a type with no fields, such as the unit constructor.

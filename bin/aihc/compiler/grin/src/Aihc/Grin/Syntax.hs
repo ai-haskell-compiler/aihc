@@ -55,6 +55,7 @@ module Aihc.Grin.Syntax
     grinNodeGlobalReferences,
     grinExprFunctionNames,
     grinNodeFunctionNames,
+    grinExprNodes,
     grinExprConstructorTags,
     grinNodeConstructorTags,
     grinValueRuntimeRep,
@@ -625,6 +626,22 @@ grinExprFunctionNames = exprNames
         GrinStoreRecUnchecked bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
         GrinIfWhnf _ ready slow -> exprNames ready <> exprNames slow
         GrinCase _ _ alternatives -> concatMap (exprNames . grinAltRhs) alternatives
+        _ -> []
+
+-- | The nodes one expression builds: the node of every store, and the
+-- nodes of every recursive group.
+grinExprNodes :: GrinExpr -> [GrinNode]
+grinExprNodes = exprNodes
+  where
+    exprNodes expression =
+      case expression of
+        GrinBind _ valueExpression body -> exprNodes valueExpression <> exprNodes body
+        GrinStore node -> [node]
+        GrinStoreUnchecked node -> [node]
+        GrinStoreRec bindings body -> map snd bindings <> exprNodes body
+        GrinStoreRecUnchecked bindings body -> map snd bindings <> exprNodes body
+        GrinIfWhnf _ ready slow -> exprNodes ready <> exprNodes slow
+        GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
         _ -> []
 
 -- | The constructors one node names.

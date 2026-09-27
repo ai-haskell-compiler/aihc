@@ -642,7 +642,11 @@ inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
 inferTypeVariable tvEnv name =
   let n = unqualifiedNameText name
    in case Map.lookup n tvEnv of
-        Just (tv, kind) -> pure (TcTyVar tv, kind)
+        Just (tv, kind) -> do
+          -- A variable that a pattern signature bound stands for the type
+          -- the signature matched.
+          bound <- getTyVarTypes
+          pure (Map.findWithDefault (TcTyVar tv) (tvUnique tv) bound, kind)
         Nothing -> inferUnknownType
 
 inferTypeConstructor :: Name -> TcM (TcType, TcType)
@@ -833,6 +837,22 @@ unifyKindsAt sp expected actual = do
   expected' <- zonkKind expected >>= refineGivenKind
   actual' <- zonkKind actual >>= refineGivenKind
   case (expected', actual') of
+    -- Two open kinds become one variable, and the unique that survives
+    -- decides which settling rule reaches it. A tracked kind meta is one
+    -- a declaration allocated, and the declaration's defaulting pass
+    -- settles it. An untracked one is a kind argument of a use site, as
+    -- when an instance head instantiates the kind variables of a
+    -- poly-kinded constructor, and only a walk over that use settles it.
+    -- Keep the tracked meta as the representative: the declaration then
+    -- settles the kind, and the use site follows through the solution.
+    -- Otherwise a class parameter kind can point at a use-site meta that
+    -- no pass defaults, and the open kind reaches System FC.
+    (TcMetaTv left, TcMetaTv right) -> do
+      leftTracked <- isTrackedKindMeta left
+      rightTracked <- isTrackedKindMeta right
+      if leftTracked && not rightTracked
+        then bindKindMetaAt sp right expected'
+        else bindKindMetaAt sp left actual'
     (TcMetaTv unique, kind) -> bindKindMetaAt sp unique kind
     (kind, TcMetaTv unique) -> bindKindMetaAt sp unique kind
     (TcTyVar left, TcTyVar right)
@@ -1409,9 +1429,25 @@ surfaceClassPredToPred tvEnv ty = do
         Nothing -> do
           emitError Nothing (OtherError ("unknown class predicate: " <> T.unpack classNameText))
           abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)
+    Nothing
+      | TVar {} <- typeHeadOf ty -> do
+          -- A constraint whose head is a type variable, as in
+          -- @q p => GDeciding q (K1 i p)@, names no class until the
+          -- variable is instantiated. It is kept whole like a family
+          -- application; the solver reclassifies it once the head is a
+          -- class.
+          constraint <- checkSurfaceType tvEnv ty (constraintKind kinds)
+          pure [IrredPred constraint]
     Nothing -> do
       emitError Nothing (OtherError ("invalid class predicate: " <> show ty))
       abortTc "invalid checked class predicate"
+  where
+    typeHeadOf headType =
+      case peelTypeHead headType of
+        TApp function _ -> typeHeadOf function
+        TParen inner -> typeHeadOf inner
+        TAnn _ inner -> typeHeadOf inner
+        other -> other
 
 classPredicateArgKinds :: Name -> Int -> TcM [TcType]
 classPredicateArgKinds className argCount = do

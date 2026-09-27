@@ -1,0 +1,24 @@
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Types (Bool (..))
+
+    foreign import ccall unsafe "labs" c_labs_flag :: Bool -> Int
+
+    foreign import ccall unsafe "labs" c_labs_test :: Int -> Bool
+
+    data Results = Results Int Int Bool Bool
+
+    results :: Results
+    results = Results (c_labs_flag True) (c_labs_flag False) (c_labs_test (I# (-5#))) (c_labs_test (I# 0#))
+output: |
+  Results (I# 1) (I# 0) True False
+expression: |
+  results
+status: pass
+reason: a Bool marshals as an HsBool, which is a C int of the word width, False as 0 and a nonzero result as True

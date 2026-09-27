@@ -1,0 +1,15 @@
+program: |
+  constructor Nothing []
+
+  pub global entry = (P$entry/[[BoxedRep Lifted]])
+
+  $describe (location :: BoxedRep Lifted) (errno :: BoxedRep Lifted) (handle :: BoxedRep Lifted) (name :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (location :: BoxedRep Lifted)
+
+  $entry (errno :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (missing :: BoxedRep Lifted) <- store (F$describe (errno :: BoxedRep Lifted) global-ref Nothing global-ref Nothing)
+    (partial :: BoxedRep Lifted) <- store (P$describe/[[BoxedRep Lifted]] (errno :: BoxedRep Lifted) global-ref Nothing)
+    eval @(BoxedRep Lifted) (missing :: BoxedRep Lifted)
+error: node-arity
+status: pass
+reason: A thunk node supplies every parameter of its function, and a closure node supplies the parameters that its remaining arguments do not. Both nodes here supply one value too few, so the lint reports each of them, and finishGrinProgram rejects the program before a backend reads the nodes.

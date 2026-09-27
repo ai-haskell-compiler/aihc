@@ -16,16 +16,16 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `776/5013` (`15.48%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
+| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `780/5013` (`15.56%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
 | aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `2111/10061` (`20.98%`) ●○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
-| Self-compile       | <!-- AUTO-GENERATED: START self-hosting-progress --> `69/118` (`58.47%`) ●●○○○ <!-- AUTO-GENERATED: END self-hosting-progress --> |
+| Self-compile       | <!-- AUTO-GENERATED: START self-hosting-progress --> `70/118` (`59.32%`) ●●○○○ <!-- AUTO-GENERATED: END self-hosting-progress --> |
 | &nbsp; | &nbsp; |
-| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `656/661` (`99.24%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `118/118` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `660/665` (`99.24%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `119/119` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 69 install, 14 fail, 35 wait for a dependency</summary>
+<summary>Self-compile packages: 70 install, 13 fail, 35 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -81,7 +81,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | cookie | 0.5.1 | ✅ installs |
 | transformers | 0.6.3.0 | ✅ installs |
 | StateVar | 1.2.2 | ✅ installs |
-| contravariant | 1.5.6 | ❌ fails (unsolved constraint Contravariant (Alt f)) |
+| contravariant | 1.5.6 | ✅ installs |
 | crypton-x509 | 1.7.7 | ⏸️ needs `asn1-encoding`, `asn1-parse`, `asn1-types`, `crypton`, `memory`, `pem` |
 | distributive | 0.6.3 | ✅ installs |
 | indexed-traversable | 0.1.5 | ✅ installs |
@@ -132,7 +132,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | unix-time | 0.5.0 | ✅ installs |
 | unordered-containers | 0.2.21 | ✅ installs |
 | async | 2.2.6 | ✅ installs |
-| semigroupoids | 6.0.2 | ⏸️ needs `bifunctors`, `comonad`, `contravariant` |
+| semigroupoids | 6.0.2 | ⏸️ needs `bifunctors`, `comonad` |
 | tls | 1.9.0 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `crypton-x509-store`, `crypton-x509-validation`, `memory`, `network` |
 | crypton-connection | 0.4.5 | ⏸️ needs `crypton-socks`, `crypton-x509-store`, `crypton-x509-system`, `network`, `tls` |
 | uuid-types | 1.0.6.1 | ❌ fails (FC generation failed: Data.UUID.Types.Internal.Builder: application head is not a checked function: TcTyCon (TyConIntern) |

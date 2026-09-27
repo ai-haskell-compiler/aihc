@@ -14,6 +14,7 @@ module Aihc.Tc.Solve.Dict
     isCallStackPred,
     reportUnsolvedDict,
     classFieldTypes,
+    mostSpecificInstances,
   )
 where
 
@@ -31,13 +32,13 @@ import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSk
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, normalizeFamilyPred, reducePredFamilies, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, foldM_, (<=<))
+import Control.Monad (foldM, foldM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (elemIndex, sortOn)
@@ -84,7 +85,7 @@ solveNormalizedDict visited givens ct
         ClassPred className args -> do
           args' <- mapM (reduceTypeFamilies <=< zonkType) args
           coercibleClass <- isCoercibleClass className
-          givens' <- mapM zonkPred givens
+          givens' <- mapM zonkGivenPred givens
           givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
           case givenEvidence of
             Just evidence -> do
@@ -124,8 +125,7 @@ solveNormalizedDict visited givens ct
           -- the empty constraint tuple -- and the ordinary machinery solves
           -- it and builds its dictionary.
           reduced <- reduceTypeFamilies =<< zonkType constraint
-          kinds <- getKinds
-          reclassified <- irreduciblePred kinds reduced
+          reclassified <- irreduciblePred reduced
           case reclassified of
             Just equality@(EqPred left right) -> do
               -- A family that reduces to an equality, as @NatWithinBound
@@ -148,7 +148,7 @@ solveNormalizedDict visited givens ct
               -- superclass of @SeedGen g@, and an instance for @SeedGen
               -- (StateGen g)@ owes it for @SeedSize (StateGen g)@, which
               -- reduces to the given's.
-              givens' <- mapM zonkPred givens
+              givens' <- mapM zonkGivenPred givens
               evidence <- firstGivenOrSuperclass (ctPred ct : visited) (IrredPred reduced) givens'
               case evidence of
                 Just given -> do
@@ -159,7 +159,7 @@ solveNormalizedDict visited givens ct
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
           payload' <- zonkType payload
-          givens' <- mapM zonkPred givens
+          givens' <- mapM zonkGivenPred givens
           -- The innermost binding of the name wins. Givens are outermost first.
           case [given | given@(IParamPred givenName _) <- reverse givens', givenName == name] of
             given@(IParamPred _ givenPayload) : _ -> do
@@ -184,7 +184,7 @@ solveNormalizedDict visited givens ct
     -- evidence for the rewritten wanted is cast back to the original
     -- predicate along the congruence of the given coercions.
     solveThroughGivenEqualities visited' zonkedGivens className args = do
-      outerGivens <- mapM zonkPred =<< getGivenPredicates
+      outerGivens <- mapM zonkGivenPred =<< getGivenPredicates
       ruleSets <- givenRewriteRuleSets (zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens)
       tryRuleSets visited' zonkedGivens className args ruleSets
 
@@ -597,13 +597,17 @@ implicitParamEvidence ct name payload parent =
     _ -> parent
 
 -- | The package and module of the @CallStack@ type when the implicit
--- parameter is @?callStack :: CallStack@.
+-- parameter has the type @CallStack@.
+--
+-- The type alone makes an implicit parameter a call stack. Like GHC, the
+-- solver accepts a name other than @?callStack@, such as @?callstack@. A
+-- given solves only a wanted with the same name, so a wanted with another
+-- name gets the empty call stack.
 callStackOrigin :: Text -> TcType -> Maybe (Text, Text)
-callStackOrigin name payload =
+callStackOrigin _name payload =
   case payload of
     TcTyCon tyCon []
-      | name == "?callStack",
-        tyConName tyCon == "CallStack" ->
+      | tyConName tyCon == "CallStack" ->
           Just (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon)
     _ -> Nothing
 
@@ -836,11 +840,9 @@ matchKinds = go (Map.empty, [])
           | patternKind == targetKind -> Just (substitution, metas)
           | otherwise -> Nothing
 
--- | The predicate a reduced constraint denotes, when it is no longer headed
--- by a type family. 'Nothing' keeps it irreducible.
-irreduciblePred :: TcKinds -> TcType -> TcM (Maybe Pred)
-irreduciblePred kinds ty = do
-  stillStuck <- isTypeFamilyApplication ty
-  if stillStuck
-    then pure Nothing
-    else pure (constraintTypeToPred kinds ty)
+-- | Zonk a given, and reclassify an irreducible one whose head is now a
+-- class. A given @q b@ from a rank-2 argument @forall b. q b => f b@ is
+-- irreducible when the class variable @q@ is a meta variable; once @q@ is
+-- @Eq@, the given has to compare equal to the wanted @Eq b@.
+zonkGivenPred :: Pred -> TcM Pred
+zonkGivenPred = zonkPred >=> reclassifyIrreduciblePred
