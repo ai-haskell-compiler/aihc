@@ -61,6 +61,7 @@ after each pass under `--lint`.
 | `PassInline policy rounds phase` | The inliner under a policy, for at most that many rounds, in a phase. `Aihc.Fc.Inline`. |
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
+| `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
@@ -72,15 +73,19 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, inline `shrinkPolicy` [2], inline `growPolicy` [1], eta expand, simplify [0], lift constants |
+| `-O1` | eta expand, inline `shrinkPolicy` [2], demand, inline `growPolicy` [1], eta expand, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, inline `shrinkPolicy` [2], eta expand, simplify [0], lift constants |
+| `-Os` | eta expand, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
 
 `-Os` is a prefix of `-O2`: the growing phase of `-O2` starts from the
-program that `-Os` would have produced. Eta expansion runs before the
+program that `-Os` would have produced. The demand pass runs after the
+shrinking inliner, so that the calls it sees are the calls that remain
+after the dictionary selections and the aliases are gone, and before the
+growing inliner, so that the cases it makes are in the program the
+growing inliner copies. Eta expansion runs before the
 inliner so that a value it turns into a function is a saturated call, and
 after it because a call of a class method hides the arity of the method until
 the selection is inlined. The final simplifying walk reduces the applications
@@ -118,6 +123,84 @@ their evaluated results for longer.
 The report gives the number of new constants and the number of replaced
 sites. The constants have private names and a `NOINLINE` annotation.
 
+## Demand analysis
+
+`PassDemand` is `Aihc.Fc.Demand`. It finds, for every function, which
+parameters the body evaluates on every path, and uses that in two
+rewrites:
+
+- A let whose body evaluates the binder becomes a case on the right-hand
+  side, with the binder as the case binder. The right-hand side runs
+  before the body instead of in a thunk that the body enters.
+- A saturated call evaluates each argument the callee is strict in before
+  the call. The argument becomes a case whose default alternative makes
+  the call with the case binder. An argument that is already a value, a
+  variable, a constructor application or a partial application of a known
+  function, or that has an unlifted type, is left alone.
+
+Both rewrites are equalities of values: when the function or the body is
+strict, the result is undefined exactly when the argument is, so the case
+changes the order of evaluation and the number of thunks and nothing
+else.
+
+The analysis gives every function a signature with one demand, `Strict`
+or `Lazy`, per manifest lambda. A variable evaluates itself. A lambda
+evaluates nothing. A case evaluates its scrutinee and what every one of
+its alternatives evaluates. A let evaluates its right-hand side when its
+body evaluates the binder or when the binder is unlifted. A saturated
+call of a function with a signature evaluates the arguments the signature
+calls strict, and any other call evaluates only its head. A primitive
+call evaluates its arguments of unlifted type.
+
+Top-level values get signatures in dependency order. A recursive group
+gets a fixpoint that starts from the guess that every parameter is strict
+and weakens the guess until it holds. The guess is what makes an
+accumulating loop strict in its accumulator: the base case returns it and
+the recursive case passes it to a call the guess already calls strict. A
+base case that drops the accumulator weakens the guess to lazy. Local
+functions get signatures the same way, in the scope of their let or
+recursive group.
+
+The signatures live nowhere. The pass computes them, writes the strict
+lets and strict arguments into the program as cases, and drops them, the
+way the arity pass writes arity into the lambdas. A fact in the syntax
+cannot go stale under the other passes, and the golden fixtures pin it
+with nothing else to check. A per-module build that wants the demands of
+imported values is part of "-O1 in import order" below: it will read them
+from the interface as import facts, not from an annotation on the value.
+
+The pass needs the type of the scrutinee and of the result for each case
+it makes. No expression carries its type, so the walk carries the type of
+the expression it is in down from the declared type of the value, and
+reads the types of arguments off the type of the head of a call. Where a
+type is unknown the rewrite does not happen.
+
+The plans run the pass with `StrictLetsOnly`. The strict-argument rewrite
+is measured, not switched on. On the `sha-digest` benchmark at `-O2` it
+took the allocation from 214 MB to 150 MB, and the run time from 60 ms to
+90 ms, with a binary 61% larger. The block function of SHA-256 calls
+`step256` sixty-four times, and the inliner does not copy the callee, so
+each call became a non-tail call whose continuation frame holds the
+remaining words of the message schedule: sixty-eight continuations with
+up to seventy-two parameters each, where a thunk held three fields. The
+rewrite pays where the callee is inlined, because the cases then reduce
+by case of known constructor to straight-line code, and where few
+variables are live across the call. It goes into the plans when the
+inliner copies such callees, or when the rewrite counts the live
+variables at the site.
+
+The report gives the number of top-level values with a strict parameter,
+the number of lets that became cases, and the number of arguments that
+are evaluated before their call. The fixtures are the
+`demand-*.yaml` files under `compiler/fc/test/Test/Fixtures/golden`; a
+`demand` entry in `passes:` runs both rewrites and `demand: lets` the
+strict lets alone.
+
+Not done: divergence, so a branch that calls `error` evaluates nothing
+and makes its function lazy in what the other branches evaluate; and
+demands on the fields of a constructor, which is what a worker/wrapper
+split needs. Both are steps on the same lattice.
+
 ## The inliner
 
 The inliner follows the non-recursive inliner of MLton. It walks the values
@@ -143,10 +226,10 @@ dump of the program.
 | `policyFunctionArgumentDiscount` | What a site earns for each argument that names a function the callee applies. The saving is a closure not allocated and a call made direct, which no size of the result shows. |
 | `policyValueGrowth` | How far one top-level value may grow in the pass, as a percentage of its size when the pass began. |
 | `policyValueSlack` | Nodes every value may grow by in the pass, whatever its size, so that a small value can still take one useful copy. |
-| `policyTakeRequested` | Whether an `INLINE` value within the callee limit is copied at every site that the site rule admits, whatever the growth and the allowance of the value. |
+| `policyRequestedSiteLimit` | The largest growth a site of an `INLINE` value within the callee limit may cause without a charge to the allowance of the value it lands in. A larger requested copy is decided like a measured site. |
 
-`shrinkPolicy` sets the callee limit to 80, every other limit to zero, and
-does not take requested sites.
+`shrinkPolicy` sets the callee limit to 80 and every other limit to zero, so
+a requested copy goes free only when the program does not grow.
 The callee limit reduces work on large copies that the site rule would reject.
 A removable value bypasses this limit when its copies together replace it.
 `growPolicy` is the speed policy. Its numbers are in the code.
@@ -169,12 +252,20 @@ value's size.
 
 Why these rules bound the program without a global counter: every accepted
 site adds at most the callee limit, every value grows at most to its own
-multiple, an exempt copy never grows the program, a requested copy is a
-small `INLINE` value at a call that was already in the body, recursive groups are never
-copied into themselves, and the round count is fixed. Total growth is
-bounded by construction. There is no program budget and no backstop: a
-program that grows more than expected is a mis-tuned knob, found by reading
-the pass reports, not by bisecting a limit.
+multiple, an exempt copy never grows the program, a requested copy that is
+free of the allowance adds at most the requested site limit in place of a
+call of at least two nodes, recursive groups are never copied into
+themselves, and the round count is fixed. Total growth is bounded by
+construction. There is no program budget and no backstop: a program that
+grows more than expected is a mis-tuned knob, found by reading the pass
+reports, not by bisecting a limit.
+
+The requested site limit is what keeps the bound real. A requested copy
+that was free whatever its growth had no bound: the `text` package marks
+`==` on `Text` `INLINE`, a parser compared text at eighteen thousand sites,
+and each copy of `==` inside a copy of another `INLINE` value went free as
+well. The growing inliner made that program six times larger, and the
+compile ran out of memory at two gigabytes.
 
 ### What is deliberately not a rule
 
@@ -252,7 +343,7 @@ reads it per phase, with the activation read as a rule's is:
 
 | Pragma | In the phases the activation names | In the other phases |
 | ------ | ---------------------------------- | ------------------- |
-| `INLINE` | a candidate whatever its size; copied at each admitted site when the policy takes requested sites and the value is within the callee limit; otherwise the site policy decides each copy | never copied |
+| `INLINE` | a candidate whatever its size; within the callee limit, copied at each admitted site whose growth is within the requested site limit, whatever the allowance; otherwise the site policy decides each copy | never copied |
 | `INLINABLE` | the usual policy | never copied |
 | `NOINLINE` | the usual policy | never copied |
 | none | the usual policy | the usual policy |
@@ -261,15 +352,16 @@ A plain `NOINLINE` names no phase, so the value is never copied (the text form
 leaves its `[~]` unsaid); a plain `INLINE` names every phase.
 
 GHC copies an `INLINE` value at every saturated call whatever the growth.
-`growPolicy` does the same for an `INLINE` value within the callee limit.
-Such a site does not charge the allowance of the value it lands in, so the
-other sites of that value keep their room. The sites inside the copy still
-charge it. The core libraries mark the small wrappers `INLINE`: `(.)`,
-`thenIO`, `bindIO`, `returnIO`, and the `Monad IO` methods. Without the
-pragma, a large value such as `bufWrite` used its allowance before it
-reached them, and `>>` and `(.)` stayed calls and partial applications.
+`growPolicy` does the same for an `INLINE` value within the callee limit
+when the copy costs at most the requested site limit, ten nodes. Such a
+site does not charge the allowance of the value it lands in, so the other
+sites of that value keep their room. The sites inside the copy still charge
+it. The core libraries mark the small wrappers `INLINE`: `(.)`, `thenIO`,
+`bindIO`, `returnIO`, and the `Monad IO` methods. Without the pragma, a
+large value such as `bufWrite` used its allowance before it reached them,
+and `>>` and `(.)` stayed calls and partial applications.
 
-Two things differ from GHC:
+Three things differ from GHC:
 
 - The site rule decides which sites are admitted. A call that gives every
   parameter is admitted, and so is a partial call with an interesting
@@ -279,8 +371,12 @@ Two things differ from GHC:
   each copy. The `text` package marks large functions `INLINE`, and
   honouring them GHC's way made its example two and a half times larger at
   `-O2`.
+- A copy of a small `INLINE` value that grows the site by more than the
+  requested site limit charges the allowance like a measured copy. The
+  growth of a site counts the free copies inside it, so a chain of
+  `INLINE` values stops where it grows past the limit.
 
-`shrinkPolicy` does not take requested sites, so it keeps its invariant
+`shrinkPolicy` sets the requested site limit to zero, so it keeps its invariant
 below, and an `INLINE` value that it rejects stays a call. This is what lets a rule beat the inliner to a
 call: `NOINLINE [1] f` keeps `f` a call through phase 2, where a rule on
 `f` fires, and lets the growing inliner copy it afterwards. `CONLIKE` is
@@ -295,9 +391,11 @@ GRIN of a whole program, after lowering and before the CPS conversion.
 `planGrinPointsTo`, and it prints one report line under `--verbose`.
 
 The analysis finds the heap locations that each pointer variable can point
-at. A location is a `store`, a binding of a `store-rec`, an `apply` that
-makes a partial application, a global, or the shared object of a nullary
-constructor. The analysis also finds the nodes of each location and the
+at. A location is a `store`, a binding of a `store-rec`, one shape of
+partial application that an `apply` site makes, a global, or the shared
+object of a nullary constructor. Each location holds one node, from its
+creation, so no trigger has to see a location a second time. The analysis
+also finds the node of each location and the
 locations of each field. Two locations stand for objects that the program
 cannot see: one that can be a thunk, and one in weak-head normal form. A
 value that a primitive, a foreign call, `catch#`, or the runtime gives is
@@ -308,8 +406,16 @@ The solver is sequential. A variable, a parameter, a result, and a field
 are each a set node. A copy is an edge. `eval`, `apply`, `case`, and `fetch`
 are triggers on the set node of their operand. The worklist gives each set
 node only its new locations (difference propagation). The solver does not
-merge cycles. The analysis refuses a program that has an explicit `update`,
-because an update can change a value node into an indirection.
+merge cycles. A set node that gathers more than `widenLimit` locations
+(1024) is widened: its set becomes the unknown location, the locations it
+held escape, and a location that reaches it afterwards escapes too. The
+rewrites need every location of a variable, so a variable that can point
+at that many places gave them nothing, and the sets of such variables,
+copied along every edge, held the memory of a large whole program: a
+parser that passes closures through continuations ran the compiler out of
+memory at two gigabytes before the limit existed. The analysis refuses a
+program that has an explicit `update`, because an update can change a
+value node into an indirection.
 
 The rewrites are:
 
@@ -344,8 +450,9 @@ simplification, the sweep, and the renumbering that lowering gives it.
 
 The report line gives the time of the analysis and of the rewrites, the
 number of solver iterations (set nodes that the worklist gave new
-locations), the numbers of variables, set nodes, locations, shared locations
-and single-entry thunks, and the number of rewrites of each kind.
+locations), the numbers of variables, set nodes, locations, shared
+locations, single-entry thunks and widened set nodes, and the number of
+rewrites of each kind.
 
 The fixtures are in `compiler/grin/test/Test/Fixtures/grin-points-to`. The
 shared evaluation fixtures also run as whole programs with the rewrites, in

@@ -1,0 +1,65 @@
+annotated:
+- |-
+  {-# LANGUAGE ScopedTypeVariables #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Proxy a = Proxy
+       │         └─ type: ∀ a. Proxy a
+       └─ type: Type → Type
+  class Sized a where
+  └─ class methods: sizeOf ∷ ∀ a. (Sized a) ⇒ Proxy a → Nat
+    sizeOf :: Proxy a -> Nat
+  data Arr a = Arr Nat
+       │       └─ type: ∀ a. Nat → Arr a
+       └─ type: Type → Type
+  replace :: Sized a => Arr a -> Arr a -> Arr a
+  replace (needle :: Arr a) haystack = loop haystack
+  │        └─ type: Arr a   └─ type: Arr a
+  └─ type: ∀ a. (Sized a) ⇒ Arr a → Arr a → Arr a
+    where
+      loop :: Arr a -> Arr a
+      loop (Arr n) = Arr (sizeOf (Proxy :: Proxy a))
+      │     │   │    │    │       └─ type: Proxy a; type-args: a
+      │     │   │    │    └─ type: Proxy a → Nat; type-args: a; evidence: given Sized a
+      │     │   │    └─ type: Nat → Arr a; type-args: a
+      │     │   └─ type: Nat
+      │     └─ type: Arr a
+      └─ type: Arr a → Arr a
+  nested :: Sized a => Arr a -> Nat
+  nested arr = (\(inner :: Arr b) -> sizeOf (Proxy :: Proxy b)) arr
+  │      │      │ └─ type: Arr a     │       └─ type: Proxy a; type-args: a
+  │      │      └─ type: Arr a → Nat └─ type: Proxy a → Nat; type-args: a; evidence: given Sized a
+  │      └─ type: Arr a
+  └─ type: ∀ a. (Sized a) ⇒ Arr a → Nat
+  both :: Sized a => Arr a -> Arr a -> Nat
+  both (x :: Arr b) (y :: Arr b) = sizeOf (Proxy :: Proxy b)
+  │     │            └─ type: Arr a│       └─ type: Proxy a; type-args: a
+  │     └─ type: Arr a             └─ type: Proxy a → Nat; type-args: a; evidence: given Sized a
+  └─ type: ∀ a. (Sized a) ⇒ Arr a → Arr a → Nat
+extensions:
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE ScopedTypeVariables #-}
+  module Test where
+  data Nat = Z | S Nat
+  data Proxy a = Proxy
+  class Sized a where
+    sizeOf :: Proxy a -> Nat
+  data Arr a = Arr Nat
+  replace :: Sized a => Arr a -> Arr a -> Arr a
+  replace (needle :: Arr a) haystack = loop haystack
+    where
+      loop :: Arr a -> Arr a
+      loop (Arr n) = Arr (sizeOf (Proxy :: Proxy a))
+  nested :: Sized a => Arr a -> Nat
+  nested arr = (\(inner :: Arr b) -> sizeOf (Proxy :: Proxy b)) arr
+  both :: Sized a => Arr a -> Arr a -> Nat
+  both (x :: Arr b) (y :: Arr b) = sizeOf (Proxy :: Proxy b)
+reason: a pattern signature type variable that is not in scope binds the
+  argument type, so a where-bound signature and the class given see the same
+  variable
+status: pass

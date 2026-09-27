@@ -112,6 +112,60 @@ preamble =
         ]
       | ty <- ["i8", "i16", "i32", "i64"]
       ]
+    <> bitScatterHelpers
+
+-- | The parallel bit deposit and extract of 64-bit values as loops over
+-- the set bits of the mask, since LLVM has no portable intrinsic for them.
+-- The deposit walks the mask from its lowest set bit and takes the source
+-- bits from the low end. The extract walks the mask from its highest set
+-- bit and shifts each source bit into the result from the low end.
+bitScatterHelpers :: [Text]
+bitScatterHelpers =
+  [ "define internal i64 @aihc_lir_pdep64(i64 %a, i64 %b) {",
+    "entry:",
+    "  br label %loop",
+    "loop:",
+    "  %source = phi i64 [ %a, %entry ], [ %shifted, %body ]",
+    "  %mask = phi i64 [ %b, %entry ], [ %rest, %body ]",
+    "  %result = phi i64 [ 0, %entry ], [ %next, %body ]",
+    "  %done = icmp eq i64 %mask, 0",
+    "  br i1 %done, label %exit, label %body",
+    "body:",
+    "  %negated = sub i64 0, %mask",
+    "  %lowest = and i64 %mask, %negated",
+    "  %rest = xor i64 %mask, %lowest",
+    "  %bit = and i64 %source, 1",
+    "  %keep = sub i64 0, %bit",
+    "  %placed = and i64 %lowest, %keep",
+    "  %next = or i64 %result, %placed",
+    "  %shifted = lshr i64 %source, 1",
+    "  br label %loop",
+    "exit:",
+    "  ret i64 %result",
+    "}",
+    "define internal i64 @aihc_lir_pext64(i64 %a, i64 %b) {",
+    "entry:",
+    "  br label %loop",
+    "loop:",
+    "  %source = phi i64 [ %a, %entry ], [ %shifted, %body ]",
+    "  %mask = phi i64 [ %b, %entry ], [ %rest, %body ]",
+    "  %result = phi i64 [ 0, %entry ], [ %next, %body ]",
+    "  %done = icmp eq i64 %mask, 0",
+    "  br i1 %done, label %exit, label %body",
+    "body:",
+    "  %leading = call i64 @llvm.ctlz.i64(i64 %mask, i1 false)",
+    "  %aligned_mask = shl i64 %mask, %leading",
+    "  %aligned_source = shl i64 %source, %leading",
+    "  %grown = shl i64 %result, 1",
+    "  %top = lshr i64 %aligned_source, 63",
+    "  %next = or i64 %grown, %top",
+    "  %rest = shl i64 %aligned_mask, 1",
+    "  %shifted = shl i64 %aligned_source, 1",
+    "  br label %loop",
+    "exit:",
+    "  ret i64 %result",
+    "}"
+  ]
 
 declareExtern :: ExternFunction -> [Text]
 declareExtern external =
@@ -586,6 +640,8 @@ compileInstruction ctx (Instruction results operation) =
         RemU -> do
           divisionChecks ty a b
           single ("urem " <> llvmType <> " " <> a <> ", " <> b)
+        Pdep -> bitScatter "@aihc_lir_pdep64" ty a b
+        Pext -> bitScatter "@aihc_lir_pext64" ty a b
     Unary op ty value ->
       case op of
         Clz -> single ("call " <> renderType ty <> " @llvm.ctlz." <> renderType ty <> "(" <> typed ty value <> ", i1 false)")
@@ -665,6 +721,19 @@ compileInstruction ctx (Instruction results operation) =
       case results of
         [var] -> emit (renderVar var <> " = " <> body)
         _ -> unsupported "instruction result count"
+    -- The bit deposit and extract helpers take 64-bit operands. A narrow
+    -- mask keeps the result in the width of the type.
+    bitScatter helper ty a b
+      | ty == I64 = single ("call i64 " <> helper <> "(i64 " <> a <> ", i64 " <> b <> ")")
+      | otherwise = do
+          let llvmType = renderType ty
+          wideA <- fresh
+          wideB <- fresh
+          wideResult <- fresh
+          emit (wideA <> " = zext " <> llvmType <> " " <> a <> " to i64")
+          emit (wideB <> " = zext " <> llvmType <> " " <> b <> " to i64")
+          emit (wideResult <> " = call i64 " <> helper <> "(i64 " <> wideA <> ", i64 " <> wideB <> ")")
+          single ("trunc i64 " <> wideResult <> " to " <> llvmType)
 
     globalTypeOf symbol = Map.findWithDefault I64 symbol (ctxGlobals ctx)
 

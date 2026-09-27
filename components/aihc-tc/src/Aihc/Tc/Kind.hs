@@ -679,7 +679,11 @@ inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
 inferTypeVariable tvEnv name =
   let n = unqualifiedNameText name
    in case Map.lookup n tvEnv of
-        Just (tv, kind) -> pure (TcTyVar tv, kind)
+        Just (tv, kind) -> do
+          -- A variable that a pattern signature bound stands for the type
+          -- the signature matched.
+          bound <- getTyVarTypes
+          pure (Map.findWithDefault (TcTyVar tv) (tvUnique tv) bound, kind)
         Nothing -> inferUnknownType
 
 inferTypeConstructor :: Name -> TcM (TcType, TcType)
@@ -1445,9 +1449,25 @@ surfaceClassPredToPred tvEnv ty = do
         Nothing -> do
           emitError Nothing (OtherError ("unknown class predicate: " <> T.unpack classNameText))
           abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)
+    Nothing
+      | TVar {} <- typeHeadOf ty -> do
+          -- A constraint whose head is a type variable, as in
+          -- @q p => GDeciding q (K1 i p)@, names no class until the
+          -- variable is instantiated. It is kept whole like a family
+          -- application; the solver reclassifies it once the head is a
+          -- class.
+          constraint <- checkSurfaceType tvEnv ty (constraintKind kinds)
+          pure [IrredPred constraint]
     Nothing -> do
       emitError Nothing (OtherError ("invalid class predicate: " <> show ty))
       abortTc "invalid checked class predicate"
+  where
+    typeHeadOf headType =
+      case peelTypeHead headType of
+        TApp function _ -> typeHeadOf function
+        TParen inner -> typeHeadOf inner
+        TAnn _ inner -> typeHeadOf inner
+        other -> other
 
 classPredicateArgKinds :: Name -> Int -> TcM [TcType]
 classPredicateArgKinds className argCount = do

@@ -598,6 +598,58 @@ arm64Binary ctx op ty dst a right =
       zero <- trapLabel "integer division by zero"
       let (loads, b) = rightRegister ty right
       pure (loads <> [arm64Instruction (ArmCbz b zero), arm64Instruction (ArmUdiv scratchExtra a b), arm64Instruction (ArmMsub dst scratchExtra b a)])
+    -- AArch64 has no scalar bit deposit or extract, so both are loops over
+    -- the set bits of the mask. The operands move to the scratch registers
+    -- first, since the destination can be one of them. A deposit walks the
+    -- mask from its lowest set bit and takes the source bits from the low
+    -- end. An extract walks the mask from its highest set bit, which a
+    -- leading-zero count finds, and shifts each source bit into the result
+    -- from the low end. A narrow mask keeps the result canonical.
+    Pdep -> do
+      loop <- freshLabel "pdep"
+      done <- freshLabel "pdep_done"
+      let (loads, b) = rightRegister ty right
+      pure
+        ( loads
+            <> move scratchLeft a
+            <> move scratchRight b
+            <> [ immediate dst (0 :: Int),
+                 Arm64Label loop,
+                 arm64Instruction (ArmCbz scratchRight done),
+                 arm64Instruction (ArmSub scratchExtra XZR (Arm64RegisterValue scratchRight)),
+                 arm64Instruction (ArmAnd scratchExtra scratchRight (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmEor scratchRight scratchRight (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmTst scratchLeft (Arm64ImmediateValue 1)),
+                 arm64Instruction (ArmCsel scratchExtra scratchExtra XZR ArmNe),
+                 arm64Instruction (ArmOrr dst dst (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmLsr scratchLeft scratchLeft (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmB loop),
+                 Arm64Label done
+               ]
+        )
+    Pext -> do
+      loop <- freshLabel "pext"
+      done <- freshLabel "pext_done"
+      let (loads, b) = rightRegister ty right
+      pure
+        ( loads
+            <> move scratchLeft a
+            <> move scratchRight b
+            <> [ immediate dst (0 :: Int),
+                 Arm64Label loop,
+                 arm64Instruction (ArmCbz scratchRight done),
+                 arm64Instruction (ArmClz scratchExtra scratchRight),
+                 arm64Instruction (ArmLsl scratchRight scratchRight (Arm64RegisterShift scratchExtra)),
+                 arm64Instruction (ArmLsl scratchLeft scratchLeft (Arm64RegisterShift scratchExtra)),
+                 arm64Instruction (ArmLsl dst dst (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmLsr scratchExtra scratchLeft (Arm64ImmediateShift 63)),
+                 arm64Instruction (ArmOrr dst dst (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmLsl scratchRight scratchRight (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmLsl scratchLeft scratchLeft (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmB loop),
+                 Arm64Label done
+               ]
+        )
     And -> pure (logical ArmAnd)
     Or -> pure (logical ArmOrr)
     Xor -> pure (logical ArmEor)

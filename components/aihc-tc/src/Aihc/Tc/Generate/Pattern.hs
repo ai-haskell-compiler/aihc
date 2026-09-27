@@ -4,6 +4,7 @@
 -- | Shared type-checking support for term patterns.
 module Aihc.Tc.Generate.Pattern
   ( PatternCheck (..),
+    PatternTyVar (..),
     annotatePatternBindings,
     reannotatePatternBinders,
     checkPattern,
@@ -12,6 +13,7 @@ module Aihc.Tc.Generate.Pattern
     checkedPattern,
     patternBinderNames,
     withPatternBindings,
+    withPatternScope,
   )
 where
 
@@ -44,7 +46,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
 import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, runtimeRepOrLifted, tcTypeKind, unboxedSumType)
+import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, runtimeRepOrLifted, tcTypeKind, unboxedSumType)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
@@ -92,7 +94,19 @@ data PatternCheck = PatternCheck
     pcWantedCts :: ![Ct],
     pcGivenCts :: ![Ct],
     pcSkolems :: ![TyVarId],
+    -- | The type variables that pattern signatures bind. They scope over
+    -- the patterns that follow and over the body.
+    pcTyVars :: ![PatternTyVar],
     pcPatterns :: ![Pattern]
+  }
+  deriving (Show)
+
+-- | A type variable that a pattern signature binds, as in @(x :: Arr a)@
+-- when @a@ is not in scope. Its uses stand for 'ptvType', a meta variable
+-- that the signature equality unifies with the type the signature matched.
+data PatternTyVar = PatternTyVar
+  { ptvTyVar :: !TyVarId,
+    ptvType :: !TcType
   }
   deriving (Show)
 
@@ -103,11 +117,12 @@ instance Semigroup PatternCheck where
         pcWantedCts = pcWantedCts left <> pcWantedCts right,
         pcGivenCts = pcGivenCts left <> pcGivenCts right,
         pcSkolems = pcSkolems left <> pcSkolems right,
+        pcTyVars = pcTyVars left <> pcTyVars right,
         pcPatterns = pcPatterns left <> pcPatterns right
       }
 
 instance Monoid PatternCheck where
-  mempty = PatternCheck [] [] [] [] []
+  mempty = PatternCheck [] [] [] [] [] []
 
 checkFunctionPatterns :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkFunctionPatterns sp arguments = do
@@ -149,7 +164,7 @@ checkPatterns sp = go mempty
   where
     go done [] = pure done
     go done ((pat, ty) : rest) = do
-      check <- withEarlierPatternBindings (pcBindings done) (checkPattern sp pat ty)
+      check <- withPatternTyVars (pcTyVars done) (withEarlierPatternBindings (pcBindings done) (checkPattern sp pat ty))
       go (done <> check) rest
 
 -- | Bring the binders of the patterns checked so far into scope for the
@@ -382,18 +397,47 @@ checkPatternCore sp pat scrutTy =
 -- against it, so the binders the sub-pattern introduces get the type the
 -- signature gives them. A wanted equality ties the signature to the
 -- scrutinee.
+--
+-- A type variable of the signature that is not in scope is bound here, as
+-- in GHC: it stands for the type the signature matches, and it scopes over
+-- the patterns that follow and over the body. With @replace (needle ::
+-- Arr a) = ...@ under a signature without @forall@, the @a@ of a
+-- where-bound signature is this @a@, and the equality with the argument
+-- type makes it the @a@ of the outer signature.
 checkTypeSigPattern :: Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
 checkTypeSigPattern sp inner tyAnn scrutTy = do
   kinds <- getKinds
   scoped <- getScopedTyVars
-  sigTy <- checkSurfaceType scoped tyAnn (typeKind kinds)
-  eqCt <- wantedEq sp scrutTy sigTy
-  innerCheck <- checkPattern sp inner sigTy
-  pure
-    innerCheck
-      { pcWantedCts = eqCt : pcWantedCts innerCheck,
-        pcPatterns = [PTypeSig (checkedPattern innerCheck) tyAnn]
-      }
+  boundTyVars <- mapM bindPatternTyVar (filter (`Map.notMember` scoped) (freeTypeVars tyAnn))
+  withPatternTyVars boundTyVars $ do
+    scoped' <- getScopedTyVars
+    sigTy <- checkSurfaceType scoped' tyAnn (typeKind kinds)
+    eqCt <- wantedEq sp scrutTy sigTy
+    innerCheck <- checkPattern sp inner sigTy
+    pure
+      innerCheck
+        { pcWantedCts = eqCt : pcWantedCts innerCheck,
+          pcTyVars = boundTyVars <> pcTyVars innerCheck,
+          pcPatterns = [PTypeSig (checkedPattern innerCheck) tyAnn]
+        }
+
+-- | A fresh type variable for a pattern signature to bind, and the meta
+-- variable it stands for.
+bindPatternTyVar :: Text -> TcM PatternTyVar
+bindPatternTyVar name = do
+  kind <- freshKindMeta
+  ty <- freshMetaTvOfKind kind
+  unique <- freshUnique
+  pure PatternTyVar {ptvTyVar = mkTyVarId name unique kind, ptvType = ty}
+
+-- | Bring the type variables that pattern signatures bound into scope.
+withPatternTyVars :: [PatternTyVar] -> TcM a -> TcM a
+withPatternTyVars [] action = action
+withPatternTyVars tyVars action =
+  withScopedTyVars scope (withTyVarTypes bound action)
+  where
+    scope = Map.fromList [(tvName tyVar, (tyVar, tvKind tyVar)) | PatternTyVar tyVar _ <- tyVars]
+    bound = Map.fromList [(tvUnique tyVar, ty) | PatternTyVar tyVar ty <- tyVars]
 
 checkTuplePattern :: Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
 checkTuplePattern sp flavor items scrutTy = do
@@ -627,6 +671,7 @@ checkOverloadedLiteralPattern sp pat conversion literalTy isNegative scrutTy = d
         pcWantedCts = conversionCts <> negateCts <> eqCts,
         pcGivenCts = [],
         pcSkolems = [],
+        pcTyVars = [],
         pcPatterns = [pat']
       }
 
@@ -980,6 +1025,12 @@ withPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
   extendResolvedTermEnv name (TcMonoIdBinder ty) (withPatternBindings rest action)
+
+-- | Run the body of a match in the scope of its checked patterns: their
+-- term binders and the type variables their signatures bound.
+withPatternScope :: PatternCheck -> TcM a -> TcM a
+withPatternScope patCheck action =
+  withPatternTyVars (pcTyVars patCheck) (withPatternBindings (pcBindings patCheck) action)
 
 patternNameText :: Name -> Text
 patternNameText name =

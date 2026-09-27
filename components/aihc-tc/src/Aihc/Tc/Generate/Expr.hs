@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateFunCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -467,7 +467,7 @@ inferLambda :: Maybe SourceSpan -> [Pattern] -> Expr -> TcM (Expr, TcType, [Ct])
 inferLambda sp pats body = do
   argTys <- mapM (const freshMetaTv) pats
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
-  (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
+  (body', bodyTy, bodyCts) <- withPatternScope patCheck (inferExpr body)
   remainingCts <- solvePatternBranch sp patCheck bodyTy bodyCts
   let funTy = foldr TcFunTy bodyTy argTys
       pats' = zipWith (annotateLambdaPattern (pcBindings patCheck)) argTys (pcPatterns patCheck)
@@ -536,7 +536,7 @@ checkLambda expected sp patterns body = do
     Just (argumentTypes, resultType) -> do
       patternCheck <- checkFunctionPatterns sp (zip patterns argumentTypes)
       (body', bodyType, bodyConstraints) <-
-        withPatternBindings (pcBindings patternCheck) (checkExpr resultType body)
+        withPatternScope patternCheck (checkExpr resultType body)
       constraints <- solvePatternBranch sp patternCheck bodyType bodyConstraints
       let functionType = foldr TcFunTy bodyType argumentTypes
           patterns' = zipWith (annotateLambdaPattern (pcBindings patternCheck)) argumentTypes (pcPatterns patternCheck)
@@ -665,7 +665,7 @@ inferCaseAlts sp scrutTy resTy alternatives = do
       let altSp = sourceSpanFromAnns altAnns
           branchSp = (<|>) altSp sp
       patCheck <- checkPattern branchSp pat scrutTy
-      (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy rhs))
+      (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy rhs))
       resultEv <- freshEvVar
       let rhsSp = rhsExprSpan rhs <|> branchSp
           resultCt =
@@ -694,7 +694,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy rhs))
+  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy rhs))
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
@@ -741,12 +741,16 @@ collectSpine = go []
         _ -> (SpineHeadExpr expr, frames)
 
 -- | Whether an argument's type is known without inferring it: the
--- argument is a variable, or an application of a variable. The quick
--- look reads such an argument before any argument is checked.
+-- argument is a variable, an application of a variable, or an expression
+-- with a type signature. The quick look reads such an argument before any
+-- argument is checked, so a later rank-2 argument sees the instantiation
+-- it fixes: in @gdeciding (Proxy :: Proxy Eq) (\b -> b == b)@ the given
+-- @q b@ of the lambda is @Eq b@ only after the signature fixes @q@.
 isGuardedArgument :: Expr -> Bool
 isGuardedArgument expr =
   case expr of
     EVar {} -> True
+    ETypeSig {} -> True
     EApp fun _ -> isGuardedArgument fun
     ETypeApp fun _ -> isGuardedArgument fun
     EInfix {} -> True
@@ -1427,7 +1431,7 @@ inferListComp sp body quals = do
           ev <- freshEvVar
           let srcSp = exprSpan src <|> ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType listTyCon' elemTy)) ev (AppOrigin srcSp) srcSp
-          (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals listTyCon' ambient rest action)
+          (rest', body', bodyTy, bodyCts) <- withPatternScope patCheck (inferCompQuals listTyCon' ambient rest action)
           remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
           pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
         CompGuard guard -> do
@@ -1517,7 +1521,7 @@ inferDoStmt expected ambient stmt rest =
       (action', actionTy, actionCts) <- inferExprAt ambient action
       patCheck <- checkPattern ambient pat itemTy
       (rest', resultTy, restCts) <-
-        withPatternBindings (pcBindings patCheck) (inferDoStmtsWith expected ambient rest)
+        withPatternScope patCheck (inferDoStmtsWith expected ambient rest)
       actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
@@ -1562,15 +1566,15 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
       blockTy <- maybe freshMetaTv pure expected
       (action', actionTy, actionCts) <- inferExprAt ambient action
       let bindTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy restExpected) blockTy)
-      (pending, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
+      (pending, methodEv, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
       prepareScrutinee (actionCts <> methodCts)
       patCheck <- checkPattern ambient pat itemTy
       (rest', restTy, restCts) <-
         withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
-          withPatternBindings (pcBindings patCheck) (inferDoStmtsWith (Just restExpected) ambient rest)
+          withPatternScope patCheck (inferDoStmtsWith (Just restExpected) ambient rest)
       resultEquality <- wantedDoEq ambient restTy restExpected
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
-          stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action'))
+          stmt' = annotateDoStmtCast bindTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action')))
       remainingCts <- solvePatternBranch ambient patCheck restExpected (restCts <> [resultEquality])
       pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts)
     DoExpr action -> do
@@ -1578,11 +1582,11 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
       blockTy <- maybe freshMetaTv pure expected
       (action', actionTy, actionCts) <- inferExprAt ambient action
       let thenTy = TcFunTy actionTy (TcFunTy restExpected blockTy)
-      (pending, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
+      (pending, methodEv, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
       prepareScrutinee (actionCts <> methodCts)
       (rest', restTy, restCts) <- inferDoStmtsWith (Just restExpected) ambient rest
       resultEquality <- wantedDoEq ambient restTy restExpected
-      let stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action'))
+      let stmt' = annotateDoStmtCast thenTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action')))
       pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts <> [resultEquality])
     _ -> do
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
@@ -1601,14 +1605,17 @@ resolvedLiteralCts sp literalResolution argumentTy = do
       ev <- freshEvVar
       pure [mkWantedCt (EqPred argumentTy (TcTyCon (tciTyCon info) [])) ev (LitOrigin sp) sp]
 
--- | Instantiate the method that sequences a do statement and equate it with the expected type.
-inferDoMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcType -> TcM (PendingTcAnnotation, [Ct])
+-- | Instantiate the method that sequences a do statement and equate it with
+-- the expected type. The evidence of that equality is the cast the
+-- desugarer puts on the method: a given equality can be what makes the
+-- method fit the statement.
+inferDoMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcType -> TcM (PendingTcAnnotation, EvVar, [Ct])
 inferDoMethod sp methodName resolution expectedTy = do
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
   ev <- freshEvVar
   let methodEq = mkWantedCt (EqPred methodTy expectedTy) ev (OccurrenceOf methodName) sp
       pending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
-  pure (pending, methodCts <> [methodEq])
+  pure (pending, ev, methodCts <> [methodEq])
 
 wantedDoEq :: Maybe SourceSpan -> TcType -> TcType -> TcM Ct
 wantedDoEq sp actual expected = do

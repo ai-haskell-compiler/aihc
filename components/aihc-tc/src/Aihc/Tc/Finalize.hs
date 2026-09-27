@@ -33,6 +33,7 @@ import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo 
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, typeKind)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
@@ -52,13 +53,18 @@ finalizeAnnotationTc ann =
     Just (PendingTcCastAnnotation ty ev direction) -> do
       evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
       case evidence of
-        EvCoercion (Refl _) -> pure (mkAnnotation ())
+        EvCoercion (Refl _) -> do
+          target <- zonkType ty
+          pure $ case firstMetaType target of
+            Nothing -> mkAnnotation (TcCastAnnotation Nothing target)
+            Just {} -> mkAnnotation ()
         EvCoercion proof -> do
           let oriented = case direction of
                 CastToRight -> proof
                 CastToLeft -> symmetric proof
-          rejectMeta "cast annotation" (firstMetaCoercion oriented)
-          pure (mkAnnotation (TcCastAnnotation oriented))
+          target <- zonkType ty
+          rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
+          pure (mkAnnotation (TcCastAnnotation (Just oriented) target))
         EvVarTerm _ -> pure (mkAnnotation ())
         _ -> abortTc "a result cast requires equality evidence"
     Nothing -> finalizeOtherAnnotationTc ann
@@ -194,7 +200,7 @@ finalizeType :: TcType -> TcM TcType
 finalizeType = zonkType >=> defaultTypeKinds
 
 finalizePred :: Pred -> TcM Pred
-finalizePred = zonkPred >=> defaultPredKinds
+finalizePred = zonkPred >=> reclassifyIrreduciblePred >=> defaultPredKinds
 
 zonkCoercion :: Coercion -> TcM Coercion
 zonkCoercion coercion =
