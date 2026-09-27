@@ -18,6 +18,7 @@ import Control.Exception (evaluate)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.List (sort)
+import Data.List qualified as List
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -105,6 +106,16 @@ checkLintFixture path = do
                   | all isInvalidForward problems -> pure ()
                 ("apply-group-count", problems@(_ : _))
                   | all isApplyGroupCount problems -> pure ()
+                -- A node with the wrong field count fails the lint, and it
+                -- fails 'finishGrinProgram' too, which every lowered
+                -- program passes through whether or not the lint runs.
+                ("node-arity", problems@(_ : _))
+                  | all isFunctionArity problems ->
+                      case finishGrinProgram program of
+                        Left problem
+                          | "GRIN node arity check failed" `List.isPrefixOf` problem -> pure ()
+                          | otherwise -> assertFailure ("finishGrinProgram failed for another reason: " <> problem)
+                        Right _ -> assertFailure "finishGrinProgram accepted a node with the wrong field count"
                 (_, problems) -> assertFailure ("expected " <> T.unpack expected <> ", got " <> show problems)
   where
     parseFixture = withObject "GRIN lint fixture" $ \object -> do
@@ -112,11 +123,13 @@ checkLintFixture path = do
       status <- object .: "status"
       expected <- object .: "error"
       reason <- object .: "reason"
-      if status == ("pass" :: Text) && expected `elem` ["none", "result-layout", "invalid-forward", "apply-group-count"] && not (T.null reason)
+      if status == ("pass" :: Text) && expected `elem` ["none", "result-layout", "invalid-forward", "apply-group-count", "node-arity"] && not (T.null reason)
         then pure (source, expected)
         else fail "invalid GRIN lint fixture status or error"
     isApplyGroupCount GrinLintApplyGroupCount {} = True
     isApplyGroupCount _ = False
+    isFunctionArity GrinLintFunctionArity {} = True
+    isFunctionArity _ = False
     isResultLayout GrinLintResultLayout {} = True
     isResultLayout _ = False
     isInvalidForward GrinLintInvalidForward = True
