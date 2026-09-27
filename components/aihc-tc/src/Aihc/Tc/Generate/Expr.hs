@@ -741,12 +741,16 @@ collectSpine = go []
         _ -> (SpineHeadExpr expr, frames)
 
 -- | Whether an argument's type is known without inferring it: the
--- argument is a variable, or an application of a variable. The quick
--- look reads such an argument before any argument is checked.
+-- argument is a variable, an application of a variable, or an expression
+-- with a type signature. The quick look reads such an argument before any
+-- argument is checked, so a later rank-2 argument sees the instantiation
+-- it fixes: in @gdeciding (Proxy :: Proxy Eq) (\b -> b == b)@ the given
+-- @q b@ of the lambda is @Eq b@ only after the signature fixes @q@.
 isGuardedArgument :: Expr -> Bool
 isGuardedArgument expr =
   case expr of
     EVar {} -> True
+    ETypeSig {} -> True
     EApp fun _ -> isGuardedArgument fun
     ETypeApp fun _ -> isGuardedArgument fun
     EInfix {} -> True

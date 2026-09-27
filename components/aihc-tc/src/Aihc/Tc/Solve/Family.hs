@@ -9,6 +9,8 @@ module Aihc.Tc.Solve.Family
   ( reduceTypeFamilies,
     reducePredFamilies,
     normalizeFamilyPred,
+    irreduciblePred,
+    reclassifyIrreduciblePred,
     isTypeFamilyTyCon,
     isTypeFamilyApplication,
     unsaturateFamilyApplication,
@@ -78,6 +80,30 @@ normalizeFamilyPred predicate = do
             QuantifiedPred variables (map normalize antecedents) (normalize consequent)
           _ -> predicate'
   pure (normalize predicate)
+
+-- | The ordinary predicate that a stuck constraint type has become, if
+-- any. A saturated family application is still stuck. A class
+-- application is a class predicate: the head was a type family that
+-- reduced, or a class variable that an instantiation solved.
+irreduciblePred :: TcType -> TcM (Maybe Pred)
+irreduciblePred ty = do
+  stillStuck <- isTypeFamilyApplication ty
+  if stillStuck
+    then pure Nothing
+    else do
+      kinds <- getKinds
+      pure (constraintTypeToPred kinds ty)
+
+-- | Reclassify an irreducible predicate whose constraint type is now an
+-- ordinary predicate. The solver compares a wanted and a given
+-- structurally, and the desugarer keys a given dictionary by its
+-- predicate, so @q b@ with @q@ solved to @Eq@ must be the same predicate
+-- as @Eq b@ on both sides.
+reclassifyIrreduciblePred :: Pred -> TcM Pred
+reclassifyIrreduciblePred predicate =
+  case predicate of
+    IrredPred constraint -> fromMaybe predicate <$> irreduciblePred constraint
+    _ -> pure predicate
 
 -- | Whether a type constructor is a type family.
 isTypeFamilyTyCon :: TcM (TyCon -> Bool)

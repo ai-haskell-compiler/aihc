@@ -65,6 +65,8 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | integer-logarithms | 1.0.5 |
 | scientific | 0.3.8.1 |
 | megaparsec | 9.8.2 |
+| StateVar | 1.2.2 |
+| contravariant | 1.5.6 |
 
 ## Running it locally
 
