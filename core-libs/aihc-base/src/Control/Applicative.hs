@@ -18,7 +18,7 @@ module Control.Applicative
   )
 where
 
-import Control.Arrow (Arrow (..), (>>>))
+import Control.Arrow (Arrow (..), Kleisli (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
 import Foreign.Storable (Storable (..))
 import GHC.List (drop)
@@ -142,6 +142,12 @@ applyZipList (f : functions) (value : values) = f value : applyZipList functions
 instance Alternative [] where
   empty = []
   (<|>) = (++)
+
+-- GHC declares this instance beside 'Kleisli'. 'Control.Arrow' cannot
+-- import this module, so the instance lives beside the class.
+instance (Alternative m) => Alternative (Kleisli m a) where
+  empty = Kleisli (const empty)
+  Kleisli f <|> Kleisli g = Kleisli (\x -> f x <|> g x)
 
 instance Alternative Maybe where
   empty = Nothing

@@ -40,6 +40,7 @@ module Control.Monad
 where
 
 import Control.Applicative (Alternative (..))
+import Control.Arrow (ArrowPlus (..), ArrowZero (..), Kleisli (..))
 import Control.Monad.Fail (MonadFail (..))
 import Data.Functor (void)
 import Prelude
@@ -51,6 +52,7 @@ import Prelude
     Monad (..),
     Num (..),
     Ord (..),
+    const,
     flip,
     foldr,
     id,
@@ -107,6 +109,16 @@ class (Alternative m, Monad m) => MonadPlus m where
 instance MonadPlus []
 
 instance MonadPlus Maybe
+
+-- GHC declares these instances beside 'Kleisli'. 'Control.Arrow' cannot
+-- import this module, so they live beside 'MonadPlus'.
+instance (MonadPlus m) => MonadPlus (Kleisli m a)
+
+instance (MonadPlus m) => ArrowZero (Kleisli m) where
+  zeroArrow = Kleisli (const mzero)
+
+instance (MonadPlus m) => ArrowPlus (Kleisli m) where
+  Kleisli f <+> Kleisli g = Kleisli (\x -> f x `mplus` g x)
 
 (>=>) :: (Monad m) => (a -> m b) -> (b -> m c) -> a -> m c
 (>=>) first second value = first value >>= second
