@@ -328,7 +328,7 @@ checkPatternCore sp pat scrutTy =
       | isPrimitiveLiteral lit ->
           abortTc "primitive literal pattern is missing its resolver type annotation"
       | otherwise -> do
-          maybeLiteralTy <- charLiteralPatternType lit
+          maybeLiteralTy <- plainLiteralPatternType lit
           case maybeLiteralTy of
             Just literalTy -> do
               eqCt <- wantedEq sp scrutTy literalTy
@@ -521,10 +521,12 @@ checkedPattern check =
     [pat] -> pat
     _ -> error "checkedPattern: expected exactly one checked pattern"
 
-charLiteralPatternType :: Literal -> TcM (Maybe TcType)
-charLiteralPatternType literal =
+-- | The type of a Char or String literal pattern without OverloadedStrings.
+plainLiteralPatternType :: Literal -> TcM (Maybe TcType)
+plainLiteralPatternType literal =
   case peelLiteralAnn literal of
     LitChar {} -> Just <$> charType
+    LitString {} -> Just <$> stringType
     _ -> pure Nothing
 
 -- | The check of a literal pattern that needs its resolver annotations.
