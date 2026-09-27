@@ -521,7 +521,10 @@ checkedPattern check =
     [pat] -> pat
     _ -> error "checkedPattern: expected exactly one checked pattern"
 
--- | The type of a Char or String literal pattern without OverloadedStrings.
+-- | The type of a plain character or string literal pattern.
+--
+-- A string pattern without OverloadedStrings has the type [Char]. The scrutinee
+-- must get this type also when the function has no signature.
 plainLiteralPatternType :: Literal -> TcM (Maybe TcType)
 plainLiteralPatternType literal =
   case peelLiteralAnn literal of

@@ -1,0 +1,72 @@
+extensions:
+- AllowAmbiguousTypes
+- ConstraintKinds
+- DataKinds
+- KindSignatures
+- PolyKinds
+- ScopedTypeVariables
+- StandaloneKindSignatures
+- TypeApplications
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, StandaloneKindSignatures, TypeFamilies #-}
+  module Data.Type.Ord where
+  import GHC.Types (Ordering (..))
+  type Compare :: k -> k -> Ordering
+  type family Compare a b
+  type OrdCond :: Ordering -> k -> k -> k -> k
+  type family OrdCond o lt eq gt where
+    OrdCond 'LT lt _ _ = lt
+    OrdCond 'EQ _ eq _ = eq
+    OrdCond 'GT _ _ gt = gt
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, StandaloneKindSignatures, TypeFamilies #-}
+  module Data.Type.Bool where
+  import GHC.Types (Bool (..))
+  type If :: Bool -> k -> k -> k
+  type family If cond tru fls where
+    If 'True tru _ = tru
+    If 'False _ fls = fls
+- |
+  {-# LANGUAGE DataKinds, ExistentialQuantification, PolyKinds, StandaloneKindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeError where
+  import GHC.Types (Symbol, Type)
+  type ErrorMessage :: Type
+  data ErrorMessage
+    = Text Symbol
+    | forall t. ShowType t
+    | ErrorMessage :<>: ErrorMessage
+  type TypeError :: forall b. ErrorMessage -> b
+  type family TypeError a where
+- |
+  {-# LANGUAGE AllowAmbiguousTypes, ConstraintKinds, DataKinds, KindSignatures, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import Data.Type.Bool (If)
+  import Data.Type.Ord (Compare, OrdCond)
+  import GHC.TypeError (ErrorMessage (..), TypeError)
+  import GHC.Types (Bool (..), Constraint, Symbol)
+  data Word64 = W64
+  type family MaxName ty :: Symbol
+  type instance MaxName Word64 = "m"
+  type family NameInBoundOf ty (n :: Symbol) :: Bool where
+    NameInBoundOf ty n = OrdCond (Compare n (MaxName ty)) 'True 'True 'False
+  type family NameWithinBound ty (n :: Symbol) :: Constraint where
+    NameWithinBound ty n = If (NameInBoundOf ty n) (() ~ ()) (TypeError ('Text "Name " ':<>: 'ShowType n ':<>: 'Text " is out of bounds for " ':<>: 'ShowType ty))
+  nameWord64 :: forall n. NameWithinBound Word64 n => Word64
+  nameWord64 = W64
+  relay :: forall n. NameWithinBound Word64 n => Word64
+  relay = nameWord64 @n
+  newtype Named (n :: Symbol) = Named Word64
+  class Sized a where
+    size :: a -> Word64
+  instance NameWithinBound Word64 n => Sized (Named n) where
+    size (Named w) = w
+  useSized :: forall n. NameWithinBound Word64 n => Named n -> Word64
+  useSized = size
+  first :: Word64
+  first = nameWord64 @"a"
+status: pass
+reason: the right-hand side of a constraint-kinded family equation converts a nested (() ~ ()) to the dictionary type of the class (~), so the equation lints at kind Type, and the evidence of the reduced constraint at a literal is that dictionary

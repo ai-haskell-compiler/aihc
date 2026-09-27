@@ -20,6 +20,7 @@ module Aihc.Prim.Wiring
     boxedTupleTyConName,
     boxedTupleDataConName,
     unboxedTupleTyConName,
+    constraintTupleTyConName,
     unboxedSumTyConName,
     unboxedSumDataConName,
   )
@@ -36,6 +37,7 @@ import Aihc.Tc
     TcConfig,
     TcWiring (..),
     TyCon,
+    UnliftedFieldReferences (..),
     mkTcConfig,
     mkTyConWithNamespace,
   )
@@ -85,7 +87,8 @@ primTcWiring prim =
       tcWiringArrowTyCon = types ResolutionNamespaceType "(->)" 2,
       tcWiringTypeTyCon = types ResolutionNamespaceType "Type" 0,
       tcWiringConstraintTyCon = types ResolutionNamespaceType "Constraint" 0,
-      tcWiringConstraintTupleTyCon = tyCon ResolutionNamespaceType "GHC.Classes" "CTuple0" 0,
+      tcWiringConstraintTupleTyCon = \arity ->
+        tyCon ResolutionNamespaceType "GHC.Classes" (constraintTupleTyConName arity) arity,
       tcWiringBoolTyCon = types ResolutionNamespaceType "Bool" 0,
       tcWiringCharTyCon = types ResolutionNamespaceType "Char" 0,
       tcWiringNaturalTyCon = tyCon ResolutionNamespaceType "GHC.Prim.Natural" "Natural" 0,
@@ -138,6 +141,10 @@ boxedTupleDataConName arity =
 unboxedTupleTyConName :: Int -> Text
 unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
 
+-- | The class in @GHC.Classes@ that is the constraint tuple of one arity.
+constraintTupleTyConName :: Int -> Text
+constraintTupleTyConName arity = "CTuple" <> T.pack (show arity)
+
 -- | The primitive declaration names the unboxed sum type.
 unboxedSumTyConName :: Int -> Text
 unboxedSumTyConName arity = "Sum" <> T.pack (show arity) <> "#"
@@ -167,7 +174,15 @@ primDerivingReferences prim =
       derivingEQ = term "GHC.Types" NameConId "EQ",
       derivingGT = term "GHC.Types" NameConId "GT",
       derivingIntCon = term "GHC.Types" NameConId "I#",
-      derivingIntPrimType = DerivingReference ReferencePrimPackage "GHC.Prim" "Int#" NameConId ResolutionNamespaceType,
+      derivingIntPrimType = primType "Int#",
+      derivingUnliftedFields =
+        [ unliftedField "Int#" NameVarSym "==#" "<#",
+          unliftedField "Word#" NameVarId "eqWord#" "ltWord#",
+          unliftedField "Char#" NameVarId "eqChar#" "ltChar#",
+          unliftedField "Double#" NameVarSym "==##" "<##",
+          unliftedField "Float#" NameVarId "eqFloat#" "ltFloat#",
+          unliftedField "Addr#" NameVarId "eqAddr#" "ltAddr#"
+        ],
       derivingGreaterOrEqual = term "GHC.Classes" NameVarSym ">=",
       derivingCons = term "GHC.Types" NameConSym ":",
       derivingBind = term "GHC.Prim.Base" NameVarSym ">>=",
@@ -200,6 +215,12 @@ primDerivingReferences prim =
     thSyntaxModule = "GHC.Internal.TH.Syntax"
     term moduleName nameType name =
       DerivingReference ReferencePrimPackage moduleName name nameType ResolutionNamespaceTerm
+    primType name =
+      DerivingReference ReferencePrimPackage "GHC.Prim" name NameConId ResolutionNamespaceType
+    -- The two comparison operators of one unlifted type share a spelling
+    -- style: both symbolic, or both alphanumeric.
+    unliftedField typeName nameType equal less =
+      UnliftedFieldReferences (primType typeName) (term "GHC.Prim" nameType equal) (term "GHC.Prim" nameType less)
     -- The Template Haskell helpers live beside the Lift class, in a package
     -- whose identity this table cannot name.
     classTerm moduleName nameType name =

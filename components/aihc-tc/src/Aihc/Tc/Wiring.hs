@@ -64,9 +64,12 @@ data TcWiring = TcWiring
     tcWiringTypeTyCon :: TyCon,
     -- | The kind of constraints, which a bare @Constraint@ denotes.
     tcWiringConstraintTyCon :: TyCon,
-    -- | The empty constraint tuple, which @()@ denotes at kind
-    -- @Constraint@ rather than at kind @Type@.
-    tcWiringConstraintTupleTyCon :: TyCon,
+    -- | The constraint tuple of one arity. The empty one is what @()@
+    -- denotes at kind @Constraint@ rather than at kind @Type@. A tuple of
+    -- constraints, as a constraint synonym expands to, is one of the
+    -- others; the type checker splits it into its components wherever it
+    -- becomes a predicate, so no instance of these classes is ever solved.
+    tcWiringConstraintTupleTyCon :: Int -> TyCon,
     -- | The type of a guard and of an @if@ condition.
     tcWiringBoolTyCon :: TyCon,
     -- | The type of a character literal, and the kind of a type-level
@@ -138,6 +141,7 @@ mkTcKinds wiring =
     { kindsTyCon = tcWiringKindTyCon wiring,
       kindsDataCon = tcWiringKindDataCon wiring,
       kindsEqualityTyCon = tcWiringEqualityTyCon wiring,
+      kindsConstraintTupleTyCon = tcWiringConstraintTupleTyCon wiring,
       kindsArrowTyCon = tcWiringArrowTyCon wiring,
       kindsListTyCon = tcWiringListTyCon wiring,
       kindsListDeclaration = tcWiringListDeclaration wiring,

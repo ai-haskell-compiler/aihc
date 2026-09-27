@@ -66,8 +66,8 @@ solveRewrittenByGivens givens ct = case ctPred ct of
     left' <- zonkType left
     right' <- zonkType right
     equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) givens
-    let substitution = concatMap orient equalities
-        rewrittenLeft = applyGivenSubst substitution left'
+    substitution <- concat <$> mapM orient equalities
+    let rewrittenLeft = applyGivenSubst substitution left'
         rewrittenRight = applyGivenSubst substitution right'
     if null substitution || (sameType rewrittenLeft left' && sameType rewrittenRight right')
       then solveWithoutGivens ct
@@ -82,10 +82,21 @@ solveRewrittenByGivens givens ct = case ctPred ct of
           EqError _ -> pure (EqError ct)
   _ -> solveWithoutGivens ct
   where
-    orient (a, b, _)
-      | TcTyVar tyVar <- a, not (typeMentionsTyVar tyVar b) = [(a, b)]
-      | TcTyVar tyVar <- b, not (typeMentionsTyVar tyVar a) = [(b, a)]
-      | otherwise = []
+    -- A rigid variable equal to a family application names that
+    -- application: with the given @Sub n m ~ d@ the wanted @Proxy t0 ~
+    -- Proxy d@ must bind @t0@ to @d@, not to @Sub n m@, so that the given
+    -- @KnownNat d@ still solves the wanted @KnownNat t0@. So the family
+    -- application rewrites to the variable, the way every other given
+    -- rewrites a family application to its other side.
+    orient (a, b, _) = do
+      aIsFamily <- isTypeFamilyApplication a
+      bIsFamily <- isTypeFamilyApplication b
+      pure $ case (a, b) of
+        (TcTyVar tyVar, _)
+          | not (typeMentionsTyVar tyVar b) -> if bIsFamily then [(b, a)] else [(a, b)]
+        (_, TcTyVar tyVar)
+          | not (typeMentionsTyVar tyVar a) -> if aIsFamily then [(a, b)] else [(b, a)]
+        _ -> []
 
 solveWithoutGivens :: Ct -> TcM EqResult
 solveWithoutGivens ct = case ctPred ct of

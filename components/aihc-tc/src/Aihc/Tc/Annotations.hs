@@ -14,6 +14,7 @@ module Aihc.Tc.Annotations
     annotateRhsCast,
     annotateExprCast,
     annotateFunCast,
+    annotateSigCast,
     annotateDoStmtCast,
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
@@ -116,6 +117,15 @@ annotateExprCast ty evidence =
 -- for the function itself.
 annotateFunCast :: TcType -> EvVar -> Expr -> Expr
 annotateFunCast ty evidence =
+  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | Cast an annotated expression onto its signature type. The expression
+-- is equated as @actual ~ signature@, so the proof runs forwards. A given
+-- equality can be what proves it: with the given @d ~ Maybe x@ the
+-- expression @Proxy :: Proxy d@ has the type @Proxy (Maybe x)@ where it
+-- stands, and FC needs the cast onto @Proxy d@.
+annotateSigCast :: TcType -> EvVar -> Expr -> Expr
+annotateSigCast ty evidence =
   EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Cast the sequencing method of a @do@ statement onto the type the

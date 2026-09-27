@@ -1,0 +1,28 @@
+extensions:
+- DataKinds
+- KindSignatures
+- ScopedTypeVariables
+- StandaloneKindSignatures
+- TypeApplications
+- TypeFamilies
+- TypeOperators
+- GADTs
+- FlexibleContexts
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications, TypeFamilies, TypeOperators, GADTs, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Bool(..), Constraint, Type)
+  data Nat = Z | S Nat
+  type KnownNat :: Nat -> Constraint
+  class KnownNat n where
+    natSing :: Bool
+  type family Sub (a :: Nat) (b :: Nat) :: Nat
+  natVal :: forall n proxy. KnownNat n => proxy n -> Bool
+  natVal _ = natSing @n
+  data Proxy (a :: k) = Proxy
+  newtype ListN (n :: Nat) a = ListN [a]
+  drop :: forall a d (m :: Nat) (n :: Nat). (KnownNat d, d ~ Sub n m) => ListN n a -> Bool
+  drop _ = natVal (Proxy :: Proxy d)
+status: pass
+reason: a given equality between a rigid variable and a family application does not stop the given dictionary of that variable from solving its wanted
