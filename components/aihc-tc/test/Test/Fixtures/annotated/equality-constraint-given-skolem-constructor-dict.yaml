@@ -21,13 +21,13 @@ annotated:
   f :: forall x d. (C d, Maybe x ~ d) => Proxy x -> Bool
   f _ = useC (Proxy :: Proxy d)
   │ │   │     └─ type: Proxy (Maybe x); type-args: Maybe x
-  │ │   └─ type: Proxy (Maybe x) → GHC.Types.Bool; type-args: Maybe x; evidence: cast(given C d, C sym (given Maybe x ~ d))
+  │ │   └─ type: Proxy d → GHC.Types.Bool; type-args: d; evidence: given C d
   │ └─ type: Proxy x
   └─ type: ∀ x d. (C d, (Maybe x) ~ d) ⇒ Proxy x → GHC.Types.Bool
   g :: forall x d. (C d, d ~ Maybe x) => Proxy x -> Bool
   g _ = useC (Proxy :: Proxy d)
   │ │   │     └─ type: Proxy (Maybe x); type-args: Maybe x
-  │ │   └─ type: Proxy (Maybe x) → GHC.Types.Bool; type-args: Maybe x; evidence: cast(given C d, C given d ~ Maybe x)
+  │ │   └─ type: Proxy d → GHC.Types.Bool; type-args: d; evidence: given C d
   │ └─ type: Proxy x
   └─ type: ∀ x d. (C d, d ~ (Maybe x)) ⇒ Proxy x → GHC.Types.Bool
 extensions:
