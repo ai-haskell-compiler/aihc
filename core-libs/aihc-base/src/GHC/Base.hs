@@ -13,6 +13,7 @@ module GHC.Base
     Char (..),
     ord,
     unsafeChr,
+    assert,
     eqInt,
     neInt,
     ltInt,
@@ -50,6 +51,10 @@ import GHC.Int (Int (..))
 import GHC.Prim
 import GHC.Prim.Base
 import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, isTrue#)
+
+-- | Assertions are not checked. The value is returned unchanged.
+assert :: Bool -> a -> a
+assert _ value = value
 
 -- | Convert a code point to a character without a range check.
 unsafeChr :: Int -> Char
