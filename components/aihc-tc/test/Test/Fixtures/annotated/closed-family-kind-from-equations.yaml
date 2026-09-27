@@ -1,0 +1,132 @@
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, PolyKinds, StandaloneKindSignatures, TypeFamilies, UndecidableInstances #-}
+  module Test where
+
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Bool (..), Constraint, Type)
+
+  data Integer = Integer
+       │         └─ type: Integer
+       └─ type: Type
+  data Word8 = Word8
+       │       └─ type: Word8
+       └─ type: Type
+  data Proxy (n :: Natural) = Proxy
+       │                      └─ type: ∀ n. Proxy n
+       └─ type: GHC.Prim.Natural.Natural → Type
+
+  class Ok
+  └─ class methods:
+  instance Ok
+  └─ $fOk ∷ () ⇒ Ok
+  class Never
+  └─ class methods:
+
+  type MaxBound :: Type -> Natural
+  type family MaxBound ty
+              └─ type: Type → GHC.Prim.Natural.Natural
+  type instance MaxBound Word8 = 255
+
+  type LeQ :: k -> k -> Bool
+  type family LeQ a b
+              └─ type: k → k → GHC.Types.Bool
+
+  type If :: Bool -> k -> k -> k
+  type family If c t e where
+              └─ type: GHC.Types.Bool → k → k → k
+    If 'True t e = t
+    If 'False t e = e
+
+  -- The result kind Bool and the kind Natural of @n@ come from the equations.
+  type family InBound ty n where
+              └─ type: Type → GHC.Prim.Natural.Natural → GHC.Types.Bool
+    InBound Integer n = 'True
+    InBound ty n = LeQ n (MaxBound ty)
+
+  -- The result kind Natural comes from the literal.
+  type family Limit ty where
+              └─ type: Type → GHC.Prim.Natural.Natural
+    Limit Integer = 0
+    Limit ty = MaxBound ty
+
+  -- The result kind Constraint comes from the branches of @If@.
+  type family WithinBound ty (n :: Natural) where
+              └─ type: Type → GHC.Prim.Natural.Natural → GHC.Types.Constraint
+    WithinBound ty n = If (InBound ty n) Ok Never
+
+  class Tag a where
+  └─ class methods: tag ∷ ∀ a. (Tag a) ⇒ a → Bool
+    tag :: a -> Bool
+
+  instance WithinBound Word8 n => Tag (Proxy n) where
+  └─ $fTagProxyn ∷ ∀ n. (WithinBound Word8 n) ⇒ Tag (Proxy n)
+    tag _ = True
+    │   └─ type: Proxy n
+    └─ tag ∷ Proxy n → Bool
+
+  bounded :: WithinBound Word8 n => Proxy n -> Proxy n
+  bounded p = p
+  │       └─ type: Proxy n
+  └─ type: ∀ n. (WithinBound Word8 n) ⇒ Proxy n → Proxy n
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- PolyKinds
+- StandaloneKindSignatures
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, PolyKinds, StandaloneKindSignatures, TypeFamilies, UndecidableInstances #-}
+  module Test where
+
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Bool (..), Constraint, Type)
+
+  data Integer = Integer
+  data Word8 = Word8
+  data Proxy (n :: Natural) = Proxy
+
+  class Ok
+  instance Ok
+  class Never
+
+  type MaxBound :: Type -> Natural
+  type family MaxBound ty
+  type instance MaxBound Word8 = 255
+
+  type LeQ :: k -> k -> Bool
+  type family LeQ a b
+
+  type If :: Bool -> k -> k -> k
+  type family If c t e where
+    If 'True t e = t
+    If 'False t e = e
+
+  -- The result kind Bool and the kind Natural of @n@ come from the equations.
+  type family InBound ty n where
+    InBound Integer n = 'True
+    InBound ty n = LeQ n (MaxBound ty)
+
+  -- The result kind Natural comes from the literal.
+  type family Limit ty where
+    Limit Integer = 0
+    Limit ty = MaxBound ty
+
+  -- The result kind Constraint comes from the branches of @If@.
+  type family WithinBound ty (n :: Natural) where
+    WithinBound ty n = If (InBound ty n) Ok Never
+
+  class Tag a where
+    tag :: a -> Bool
+
+  instance WithinBound Word8 n => Tag (Proxy n) where
+    tag _ = True
+
+  bounded :: WithinBound Word8 n => Proxy n -> Proxy n
+  bounded p = p
+status: pass
+reason: a closed type family without a result signature takes its result kind and its unannotated parameter kinds from its equations, as in GHC. The kinds Bool, Natural, and Constraint are inferred, and a use of the family as a constraint kind checks.
