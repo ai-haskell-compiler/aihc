@@ -833,6 +833,22 @@ unifyKindsAt sp expected actual = do
   expected' <- zonkKind expected >>= refineGivenKind
   actual' <- zonkKind actual >>= refineGivenKind
   case (expected', actual') of
+    -- Two open kinds become one variable, and the unique that survives
+    -- decides which settling rule reaches it. A tracked kind meta is one
+    -- a declaration allocated, and the declaration's defaulting pass
+    -- settles it. An untracked one is a kind argument of a use site, as
+    -- when an instance head instantiates the kind variables of a
+    -- poly-kinded constructor, and only a walk over that use settles it.
+    -- Keep the tracked meta as the representative: the declaration then
+    -- settles the kind, and the use site follows through the solution.
+    -- Otherwise a class parameter kind can point at a use-site meta that
+    -- no pass defaults, and the open kind reaches System FC.
+    (TcMetaTv left, TcMetaTv right) -> do
+      leftTracked <- isTrackedKindMeta left
+      rightTracked <- isTrackedKindMeta right
+      if leftTracked && not rightTracked
+        then bindKindMetaAt sp right expected'
+        else bindKindMetaAt sp left actual'
     (TcMetaTv unique, kind) -> bindKindMetaAt sp unique kind
     (kind, TcMetaTv unique) -> bindKindMetaAt sp unique kind
     (TcTyVar left, TcTyVar right)

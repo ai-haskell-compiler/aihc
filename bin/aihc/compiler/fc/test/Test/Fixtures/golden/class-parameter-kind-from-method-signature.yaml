@@ -1,0 +1,114 @@
+---
+extensions:
+- PolyKinds
+status: pass
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Compose where
+
+  newtype Compose f g a = Compose { getCompose :: f (g a) }
+- |
+  module Composition where
+
+  import Compose
+
+  class Composition o where
+    decompose :: o f g x -> f (g x)
+    compose :: f (g x) -> o f g x
+
+  instance Composition Compose where
+    decompose = getCompose
+    compose = Compose
+expected: |-
+  scope 1 = "" Compose
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tCompose (k0 : 2.sType) (k1 : 2.sType) (f : k0 2.→ 2.sType) (g : k1 2.→ k0) (a : k1) :: 2.sType {}
+
+  axiom 1.$ax$Compose (k0 : 2.sType) (k1 : 2.sType) (f : k0 2.→ 2.sType) (g : k1 2.→ k0) (a : k1) : 1.tCompose k0 k1 f g a ~R f (g a)
+
+  pub val 1.vgetCompose :: ∀(k0 : 2.sType) (k1 : 2.sType) (f : k0 2.→ 2.sType) (g : k1 2.→ k0) (a : k1). 1.tCompose k0 k1 f g a 2.→ f (g a)
+   = Λ(k0 : 2.sType).
+    Λ(k1 : 2.sType).
+      Λ(f : k0 2.→ 2.sType).
+        Λ(g : k1 2.→ k0).
+          Λ(a : k1).
+            λ($record : 1.tCompose k0 k1 f g a).
+              $record ▷ axiom-co 1.$ax$Compose @k0 @k1 @f @g @a
+  scope 1 = "" Compose
+  scope 2 = "" Composition
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    1.tCompose :: ∀(k0 : 3.sType) (k1 : 3.sType) (f : k0 3.→ 3.sType) (g : k1 3.→ k0) (a : k1). 3.sType;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    1.vgetCompose :: ∀(k0 : 3.sType) (k1 : 3.sType) (f : k0 3.→ 3.sType) (g : k1 3.→ k0) (a : k1). 1.tCompose k0 k1 f g a 3.→ f (g a)
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  import axioms
+    1.$ax$Compose (k0 : 3.sType) (k1 : 3.sType) (f : k0 3.→ 3.sType) (g : k1 3.→ k0) (a : k1) : 1.tCompose k0 k1 f g a ~R f (g a)
+
+  pub type 2.t$Dict$Composition (o : (3.sType 3.→ 3.sType) 3.→ (3.sType 3.→ 3.sType) 3.→ 3.sType 3.→ 3.sType) :: 3.sType {
+      pub 2.c$Dict$Composition :: ∀(o : (3.sType 3.→ 3.sType) 3.→ (3.sType 3.→ 3.sType) 3.→ 3.sType 3.→ 3.sType). (∀(f : 3.sType 3.→ 3.sType) (g : 3.sType 3.→ 3.sType) (x : 3.sType). o f g x 3.→ f (g x)) 3.→ (∀(f : 3.sType 3.→ 3.sType) (g : 3.sType 3.→ 3.sType) (x : 3.sType). f (g x) 3.→ o f g x) 3.→ 2.t$Dict$Composition o
+  }
+
+  pub val 2.vdecompose :: ∀(o : (3.sType 3.→ 3.sType) 3.→ (3.sType 3.→ 3.sType) 3.→ 3.sType 3.→ 3.sType) (f : 3.sType 3.→ 3.sType) (g : 3.sType 3.→ 3.sType) (x : 3.sType). 2.t$Dict$Composition o 3.→ o f g x 3.→ f (g x)
+   = Λ(o : (3.sType 3.→ 3.sType) 3.→ (3.sType 3.→ 3.sType) 3.→ 3.sType 3.→ 3.sType).
+    Λ(f : 3.sType 3.→ 3.sType).
+      Λ(g : 3.sType 3.→ 3.sType).
+        Λ(x : 3.sType).
+          λ($d0 : 2.t$Dict$Composition o).
+            case $d0 as ($dict : 2.t$Dict$Composition o) return (o f g x 3.→ f (g x)) of {
+                2.c$Dict$Composition ($method0 : ∀(f{1} : 3.sType 3.→ 3.sType) (g{1} : 3.sType 3.→ 3.sType) (x{1} : 3.sType). o f{1} g{1} x{1} 3.→ f{1} (g{1} x{1})) ($method1 : ∀(f{1} : 3.sType 3.→ 3.sType) (g{1} : 3.sType 3.→ 3.sType) (x{1} : 3.sType). f{1} (g{1} x{1}) 3.→ o f{1} g{1} x{1}) →
+                    $method0 @f @g @x
+            }
+
+  pub val 2.vcompose :: ∀(o : (3.sType 3.→ 3.sType) 3.→ (3.sType 3.→ 3.sType) 3.→ 3.sType 3.→ 3.sType) (f : 3.sType 3.→ 3.sType) (g : 3.sType 3.→ 3.sType) (x : 3.sType). 2.t$Dict$Composition o 3.→ f (g x) 3.→ o f g x
+   = Λ(o : (3.sType 3.→ 3.sType) 3.→ (3.sType 3.→ 3.sType) 3.→ 3.sType 3.→ 3.sType).
+    Λ(f : 3.sType 3.→ 3.sType).
+      Λ(g : 3.sType 3.→ 3.sType).
+        Λ(x : 3.sType).
+          λ($d0 : 2.t$Dict$Composition o).
+            case $d0 as ($dict : 2.t$Dict$Composition o) return (f (g x) 3.→ o f g x) of {
+                2.c$Dict$Composition ($method0 : ∀(f{1} : 3.sType 3.→ 3.sType) (g{1} : 3.sType 3.→ 3.sType) (x{1} : 3.sType). o f{1} g{1} x{1} 3.→ f{1} (g{1} x{1})) ($method1 : ∀(f{1} : 3.sType 3.→ 3.sType) (g{1} : 3.sType 3.→ 3.sType) (x{1} : 3.sType). f{1} (g{1} x{1}) 3.→ o f{1} g{1} x{1}) →
+                    $method1 @f @g @x
+            }
+
+  pub val 2.v$fCompositionCompose :: 2.t$Dict$Composition (1.tCompose (3.tTYPE (3.cBoxedRep 3.cLifted)) (3.tTYPE (3.cBoxedRep 3.cLifted)))
+   = 2.c$Dict$Composition @(1.tCompose (3.tTYPE (3.cBoxedRep 3.cLifted)) (3.tTYPE (3.cBoxedRep 3.cLifted))) 2.v$fCompositionCompose$cdecompose 2.v$fCompositionCompose$ccompose
+
+  val 2.v$fCompositionCompose$cdecompose :: ∀(f : 3.sType 3.→ 3.sType) (g : 3.sType 3.→ 3.sType) (x : 3.sType). 1.tCompose (3.tTYPE (3.cBoxedRep 3.cLifted)) (3.tTYPE (3.cBoxedRep 3.cLifted)) f g x 3.→ f (g x)
+   = Λ(f : 3.sType 3.→ 3.sType).
+    Λ(g : 3.sType 3.→ 3.sType).
+      Λ(x : 3.sType).
+        1.vgetCompose @(3.tTYPE (3.cBoxedRep 3.cLifted)) @(3.tTYPE (3.cBoxedRep 3.cLifted)) @f @g @x
+
+  val 2.v$fCompositionCompose$ccompose :: ∀(f : 3.sType 3.→ 3.sType) (g : 3.sType 3.→ 3.sType) (x : 3.sType). f (g x) 3.→ 1.tCompose (3.tTYPE (3.cBoxedRep 3.cLifted)) (3.tTYPE (3.cBoxedRep 3.cLifted)) f g x
+   = Λ(f : 3.sType 3.→ 3.sType).
+    Λ(g : 3.sType 3.→ 3.sType).
+      Λ(x : 3.sType).
+        λ(_newtype : f (g x)).
+          _newtype ▷ sym (axiom-co 1.$ax$Compose @(3.tTYPE (3.cBoxedRep 3.cLifted)) @(3.tTYPE (3.cBoxedRep 3.cLifted)) @f @g @x)
