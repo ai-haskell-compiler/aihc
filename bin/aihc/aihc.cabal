@@ -146,6 +146,7 @@ library
     Aihc.Fc.Arity
     Aihc.Fc.ConstantLift
     Aihc.Fc.Convert
+    Aihc.Fc.Demand
     Aihc.Fc.Desugar
     Aihc.Fc.Fold
     Aihc.Fc.Imports
