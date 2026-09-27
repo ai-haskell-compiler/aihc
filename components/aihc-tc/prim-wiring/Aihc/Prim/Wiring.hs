@@ -20,6 +20,7 @@ module Aihc.Prim.Wiring
     boxedTupleTyConName,
     boxedTupleDataConName,
     unboxedTupleTyConName,
+    constraintTupleTyConName,
     unboxedSumTyConName,
     unboxedSumDataConName,
   )
@@ -86,7 +87,8 @@ primTcWiring prim =
       tcWiringArrowTyCon = types ResolutionNamespaceType "(->)" 2,
       tcWiringTypeTyCon = types ResolutionNamespaceType "Type" 0,
       tcWiringConstraintTyCon = types ResolutionNamespaceType "Constraint" 0,
-      tcWiringConstraintTupleTyCon = tyCon ResolutionNamespaceType "GHC.Classes" "CTuple0" 0,
+      tcWiringConstraintTupleTyCon = \arity ->
+        tyCon ResolutionNamespaceType "GHC.Classes" (constraintTupleTyConName arity) arity,
       tcWiringBoolTyCon = types ResolutionNamespaceType "Bool" 0,
       tcWiringCharTyCon = types ResolutionNamespaceType "Char" 0,
       tcWiringNaturalTyCon = tyCon ResolutionNamespaceType "GHC.Prim.Natural" "Natural" 0,
@@ -138,6 +140,10 @@ boxedTupleDataConName arity =
 -- same name.
 unboxedTupleTyConName :: Int -> Text
 unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
+
+-- | The class in @GHC.Classes@ that is the constraint tuple of one arity.
+constraintTupleTyConName :: Int -> Text
+constraintTupleTyConName arity = "CTuple" <> T.pack (show arity)
 
 -- | The primitive declaration names the unboxed sum type.
 unboxedSumTyConName :: Int -> Text
