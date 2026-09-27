@@ -1,4 +1,5 @@
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 
 module Data.Functor.Classes
   ( -- * Liftings of Prelude classes
@@ -55,7 +56,7 @@ import Text.Show (showListWith)
 import Prelude
 
 -- | Lifting of the 'Eq' class to unary type constructors.
-class Eq1 (f :: Type -> Type) where
+class (forall a. (Eq a) => Eq (f a)) => Eq1 (f :: Type -> Type) where
   liftEq :: (a -> b -> Bool) -> f a -> f b -> Bool
 
 -- | Lift the standard @('==')@ function through the type constructor.
@@ -63,7 +64,7 @@ eq1 :: (Eq1 f, Eq a) => f a -> f a -> Bool
 eq1 = liftEq (==)
 
 -- | Lifting of the 'Ord' class to unary type constructors.
-class (Eq1 f) => Ord1 (f :: Type -> Type) where
+class (Eq1 f, forall a. (Ord a) => Ord (f a)) => Ord1 (f :: Type -> Type) where
   liftCompare :: (a -> b -> Ordering) -> f a -> f b -> Ordering
 
 -- | Lift the standard 'compare' function through the type constructor.
@@ -73,7 +74,7 @@ compare1 = liftCompare compare
 -- | Lifting of the 'Read' class to unary type constructors.
 --
 -- Instances define either 'liftReadsPrec' or 'liftReadPrec'.
-class Read1 (f :: Type -> Type) where
+class (forall a. (Read a) => Read (f a)) => Read1 (f :: Type -> Type) where
   liftReadsPrec :: (Int -> ReadS a) -> ReadS [a] -> Int -> ReadS (f a)
   liftReadsPrec rp rl =
     readPrec_to_S (liftReadPrec (readS_to_Prec rp) (readS_to_Prec (const rl)))
@@ -106,7 +107,7 @@ liftReadListPrecDefault :: (Read1 f) => ReadPrec a -> ReadPrec [a] -> ReadPrec [
 liftReadListPrecDefault rp rl = list (liftReadPrec rp rl)
 
 -- | Lifting of the 'Show' class to unary type constructors.
-class Show1 (f :: Type -> Type) where
+class (forall a. (Show a) => Show (f a)) => Show1 (f :: Type -> Type) where
   liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
 
   liftShowList :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> [f a] -> ShowS

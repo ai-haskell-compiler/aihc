@@ -23,7 +23,7 @@ import Data.Semigroup.Internal (Monoid (..))
 import Foreign.Storable (Storable (..))
 import GHC.List (drop)
 import GHC.Ptr (castPtr)
-import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Traversable (..), const, (++), (<$>))
+import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Read (..), Show (..), Traversable (..), const, lex, readParen, showParen, showString, (++), (.), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
@@ -56,6 +56,16 @@ instance (Ord a) => Ord (Const a b) where
   Const left >= Const right = left >= right
   max (Const left) (Const right) = Const (max left right)
   min (Const left) (Const right) = Const (min left right)
+
+instance (Read a) => Read (Const a b) where
+  readsPrec precedence =
+    readParen
+      (precedence > 10)
+      (\input -> [(Const value, rest) | (name, afterName) <- lex input, name == "Const", (value, rest) <- readsPrec 11 afterName])
+
+instance (Show a) => Show (Const a b) where
+  showsPrec precedence (Const value) =
+    showParen (precedence > 10) (showString "Const " . showsPrec 11 value)
 
 instance Functor (Const a) where
   fmap _ (Const value) = Const value

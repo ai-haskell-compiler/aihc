@@ -17,6 +17,7 @@ module GHC.Internal.Read
 where
 
 import Data.Either (Either (..))
+import Data.Proxy (Proxy (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
 import GHC.Float (Double, Float)
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
@@ -278,6 +279,11 @@ instance (Read a) => Read (NonEmpty a) where
               return (value :| values)
           )
       )
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read (Proxy t) where
+  readPrec = parens (do expectP (Ident "Proxy"); return Proxy)
   readListPrec = readListPrecDefault
   readList = readListDefault
 
