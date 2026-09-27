@@ -58,7 +58,7 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (newtypeRepresentation, stockFieldTypes, stockFunctorialFields)
+import Aihc.Tc.Deriving.Context (UnliftedFieldType, newtypeRepresentation, stockFieldTypes, stockFunctorialFields, unliftedFieldReferences)
 import Aihc.Tc.Deriving.Functorial (FieldUse (..), fieldUse)
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf)
@@ -68,7 +68,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (forM, zipWithM)
-import Data.Foldable (foldrM)
+import Data.Foldable (find, foldrM)
 import Data.Functor ((<&>))
 import Data.Maybe (catMaybes, fromMaybe, maybeToList)
 import Data.Text (Text)
@@ -83,10 +83,11 @@ generateDerivedInstances :: (TcDerivingPlan -> Bool) -> (Text, Text) -> Module -
 generateDerivedInstances selected origin modu = do
   references <- getDerivingReferences
   primPackage <- getPrimPackage
-  concat <$> mapM (declDerivedInstances selected references primPackage origin) (moduleDecls modu)
+  unlifted <- unliftedFieldReferences
+  concat <$> mapM (declDerivedInstances selected references primPackage unlifted origin) (moduleDecls modu)
 
-declDerivedInstances :: (TcDerivingPlan -> Bool) -> DerivingReferences -> PackageId -> (Text, Text) -> Decl -> TcM [Decl]
-declDerivedInstances selected references primPackage origin decl =
+declDerivedInstances :: (TcDerivingPlan -> Bool) -> DerivingReferences -> PackageId -> [(UnliftedFieldType, UnliftedFieldReferences)] -> (Text, Text) -> Decl -> TcM [Decl]
+declDerivedInstances selected references primPackage unlifted origin decl =
   case decl of
     DeclAnn annotation inner -> do
       own <-
@@ -95,10 +96,10 @@ declDerivedInstances selected references primPackage origin decl =
             kinds <- getKinds
             catMaybes
               <$> mapM
-                (generatePlan kinds references primPackage origin (peelDeclAnn inner))
+                (generatePlan kinds references primPackage unlifted origin (peelDeclAnn inner))
                 (filter selected (tcDerivingPlans derivingAnnotation))
           Nothing -> pure []
-      rest <- declDerivedInstances selected references primPackage origin inner
+      rest <- declDerivedInstances selected references primPackage unlifted origin inner
       pure (own <> rest)
     _ -> pure []
 
@@ -109,14 +110,17 @@ data Gen = Gen
     genReferences :: !DerivingReferences,
     -- | The primitive package, which most references come from.
     genPrimPackage :: !PackageId,
+    -- | The unlifted field types that a derived @Eq@ or @Ord@ compares
+    -- with primitive operators, by identity.
+    genUnliftedFields :: ![(UnliftedFieldType, UnliftedFieldReferences)],
     genPlan :: !TcDerivingPlan,
     -- | Package and module of the class, where its methods live, and where
     -- a reference of the class package comes from.
     genClassOrigin :: !(Text, Text)
   }
 
-generatePlan :: TcKinds -> DerivingReferences -> PackageId -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
-generatePlan kinds references primPackage origin sourceDecl plan =
+generatePlan :: TcKinds -> DerivingReferences -> PackageId -> [(UnliftedFieldType, UnliftedFieldReferences)] -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
+generatePlan kinds references primPackage unlifted origin sourceDecl plan =
   case supportedStrategy of
     Left message -> do
       emitWarning (tcDerivingSourceSpan plan) (OtherError message)
@@ -166,6 +170,7 @@ generatePlan kinds references primPackage origin sourceDecl plan =
           genKinds = kinds,
           genReferences = references,
           genPrimPackage = primPackage,
+          genUnliftedFields = unlifted,
           genPlan = plan,
           genClassOrigin = fromMaybe origin (tcDerivingClassOrigin plan)
         }
@@ -224,11 +229,11 @@ generateItems gen =
     TcDerivingStock ->
       case (stockFieldTypes plan, tcDerivingDataType plan) of
         (Left message, _) -> failWith message
-        (Right _, Just dataType) ->
+        (Right fieldTypes, Just dataType) ->
           let constructors = dtiConstructors dataType
            in case stockClassMethodsOf (tcDerivingClassName plan) of
-                Just StockEqMethods -> Just <$> eqItems gen constructors
-                Just StockOrdMethods -> Just <$> ordItems gen constructors
+                Just StockEqMethods -> Just <$> eqItems gen (zip constructors fieldTypes)
+                Just StockOrdMethods -> Just <$> ordItems gen (zip constructors fieldTypes)
                 Just StockShowMethods -> Just <$> showItems gen constructors
                 Just StockReadMethods -> Just <$> readItems gen constructors
                 Just StockBoundedMethods -> boundedItems gen constructors
@@ -276,21 +281,28 @@ referencesAvailable gen = do
 
 -- * Eq
 
-eqItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
+-- | The equality equations. A lifted field compares with @(==)@ of its
+-- instance; an unlifted field has no instance and compares with the
+-- primitive operator of its type, as GHC does.
+eqItems :: Gen -> [(DataConInfo, [TcType])] -> TcM [InstanceDeclItem]
 eqItems gen constructors = do
   matches <- mapM constructorMatch constructors
   let fallback = [simpleMatch gen [atPattern gen PWildcard, atPattern gen PWildcard] (referenceExpr gen derivingFalse) | length constructors > 1]
   pure [methodBind gen "==" (matches <> fallback)]
   where
-    constructorMatch constructor = do
+    constructorMatch (constructor, fieldTypes) = do
       lefts <- fieldLocals gen "a" constructor
       rights <- fieldLocals gen "b" constructor
       pure
         ( simpleMatch
             gen
             [constructorPattern gen constructor (map Just lefts), constructorPattern gen constructor (map Just rights)]
-            (conjunction [methodApp gen "==" [localExpr gen left, localExpr gen right] | (left, right) <- zip lefts rights])
+            (conjunction (zipWith3 fieldEquality lefts rights fieldTypes))
         )
+    fieldEquality left right fieldType =
+      case unliftedFieldOperators gen fieldType of
+        Just operators -> primitiveTest gen (applyN gen (referenceExprOf gen (unliftedFieldEq operators)) [localExpr gen left, localExpr gen right])
+        Nothing -> methodApp gen "==" [localExpr gen left, localExpr gen right]
     conjunction tests =
       case tests of
         [] -> referenceExpr gen derivingTrue
@@ -303,19 +315,42 @@ eqItems gen constructors = do
               (referencePattern gen derivingFalse, referenceExpr gen derivingFalse)
             ]
 
+-- | The primitive comparison operators of an unlifted field type, or
+-- 'Nothing' for a field whose class instance compares it.
+unliftedFieldOperators :: Gen -> TcType -> Maybe UnliftedFieldReferences
+unliftedFieldOperators gen fieldType =
+  case fieldType of
+    TcTyCon tyCon [] ->
+      snd <$> find ((== (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)) . fst) (genUnliftedFields gen)
+    _ -> Nothing
+
+-- | The 'Bool' of a primitive comparison, whose @Int#@ result is @0#@ for
+-- false and any other value for true.
+primitiveTest :: Gen -> Expr -> Expr
+primitiveTest gen test =
+  caseOf
+    gen
+    test
+    [ (intHashPattern gen 0, referenceExpr gen derivingFalse),
+      (atPattern gen PWildcard, referenceExpr gen derivingTrue)
+    ]
+
 -- * Ord
 
-ordItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
+-- | The @compare@ equations. A lifted field compares with @compare@ of its
+-- instance; an unlifted field compares with the less-than and equality
+-- operators of its type, as GHC does.
+ordItems :: Gen -> [(DataConInfo, [TcType])] -> TcM [InstanceDeclItem]
 ordItems gen constructors =
   case constructors of
-    [constructor] -> do
+    [(constructor, fieldTypes)] -> do
       lefts <- fieldLocals gen "a" constructor
       rights <- fieldLocals gen "b" constructor
       pure
         [ methodBind
             gen
             "compare"
-            [simpleMatch gen [constructorPattern gen constructor (map Just lefts), constructorPattern gen constructor (map Just rights)] (compareFields (zip lefts rights))]
+            [simpleMatch gen [constructorPattern gen constructor (map Just lefts), constructorPattern gen constructor (map Just rights)] (compareFields (zip3 lefts rights fieldTypes))]
         ]
     _ -> do
       left <- freshLocal gen "x"
@@ -326,28 +361,46 @@ ordItems gen constructors =
     lastIndex = length constructors - 1
     -- The constructors before this one compare greater, the same
     -- constructor compares its fields, and every later one compares less.
-    outerAlternative right (index, constructor) = do
+    outerAlternative right (index, (constructor, fieldTypes)) = do
       lefts <- fieldLocals gen "a" constructor
       rights <- fieldLocals gen "b" constructor
       let earlier =
             [ (constructorPattern gen other (map (const Nothing) (dciFields other)), referenceExpr gen derivingGT)
-            | other <- take index constructors
+            | (other, _) <- take index constructors
             ]
-          same = (constructorPattern gen constructor (map Just rights), compareFields (zip lefts rights))
+          same = (constructorPattern gen constructor (map Just rights), compareFields (zip3 lefts rights fieldTypes))
           later = [(atPattern gen PWildcard, referenceExpr gen derivingLT) | index < lastIndex]
       pure (constructorPattern gen constructor (map Just lefts), caseOf gen (localExpr gen right) (earlier <> [same] <> later))
-    compareFields pairs =
-      case pairs of
+    compareFields fields =
+      case fields of
         [] -> referenceExpr gen derivingEQ
-        [(left, right)] -> methodApp gen "compare" [localExpr gen left, localExpr gen right]
-        (left, right) : rest ->
+        [field] -> compareField field
+        field : rest ->
           caseOf
             gen
-            (methodApp gen "compare" [localExpr gen left, localExpr gen right])
+            (compareField field)
             [ (referencePattern gen derivingLT, referenceExpr gen derivingLT),
               (referencePattern gen derivingGT, referenceExpr gen derivingGT),
               (referencePattern gen derivingEQ, compareFields rest)
             ]
+    compareField (left, right, fieldType) =
+      case unliftedFieldOperators gen fieldType of
+        Just operators ->
+          let operator select = applyN gen (referenceExprOf gen (select operators)) [localExpr gen left, localExpr gen right]
+              orderingWhenNotLess =
+                caseOf
+                  gen
+                  (operator unliftedFieldEq)
+                  [ (intHashPattern gen 0, referenceExpr gen derivingGT),
+                    (atPattern gen PWildcard, referenceExpr gen derivingEQ)
+                  ]
+           in caseOf
+                gen
+                (operator unliftedFieldLt)
+                [ (intHashPattern gen 0, orderingWhenNotLess),
+                  (atPattern gen PWildcard, referenceExpr gen derivingLT)
+                ]
+        Nothing -> methodApp gen "compare" [localExpr gen left, localExpr gen right]
 
 -- * Show
 
@@ -1265,10 +1318,14 @@ methodApp :: Gen -> Text -> [Expr] -> Expr
 methodApp gen name = applyN gen (methodExpr gen name)
 
 referenceSyntax :: Gen -> (DerivingReferences -> DerivingReference) -> Name
-referenceSyntax gen select =
+referenceSyntax gen select = referenceSyntaxOf gen (select (genReferences gen))
+
+-- | A resolved occurrence of one reference, which need not sit in the
+-- table itself.
+referenceSyntaxOf :: Gen -> DerivingReference -> Name
+referenceSyntaxOf gen reference =
   resolvedName (genSpan gen) package moduleName (referenceNameType reference) (referenceNamespace reference) name
   where
-    reference = select (genReferences gen)
     (package, moduleName, name) = referenceIdentityOf gen reference
 
 -- | The identity a reference denotes in this generation context: the
@@ -1280,6 +1337,9 @@ referenceIdentityOf gen =
 
 referenceExpr :: Gen -> (DerivingReferences -> DerivingReference) -> Expr
 referenceExpr gen select = at gen (EVar (referenceSyntax gen select))
+
+referenceExprOf :: Gen -> DerivingReference -> Expr
+referenceExprOf gen reference = at gen (EVar (referenceSyntaxOf gen reference))
 
 referencePattern :: Gen -> (DerivingReferences -> DerivingReference) -> Pattern
 referencePattern gen select = atPattern gen (PCon (referenceSyntax gen select) [] [])
@@ -1299,7 +1359,12 @@ intHashPattern :: Gen -> Integer -> Pattern
 intHashPattern gen value =
   atPattern gen $
     PAnn (primitiveIntTypeAnnotation gen) $
-      PLit (LitInt value TIntHash (T.pack (show value) <> "#"))
+      PLit (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
+
+-- | Place a generated literal at the deriving clause, because the checker
+-- attaches the literal type to the literal itself.
+atLiteral :: Gen -> Literal -> Literal
+atLiteral gen = maybe id (LitAnn . mkAnnotation) (genSpan gen)
 
 -- | The resolution of @Int#@ that a primitive literal carries, which is
 -- what the resolver leaves on one it read from source.
