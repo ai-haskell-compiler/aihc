@@ -137,6 +137,7 @@ solveNormalizedDict visited givens ct
               result <- withGivenPredicates givens (solveEquality ct {ctPred = equality, ctEvVar = proof})
               case result of
                 EqSolved -> do
+                  kinds <- getKinds
                   bindEvidence (ctEvVar ct) (EvCoercible (kindsEqualityTyCon kinds) left right)
                   pure DictSolved
                 _ -> pure (DictStuck ct {ctPred = IrredPred reduced})
@@ -232,8 +233,7 @@ solveNormalizedDict visited givens ct
       normalized <- normalizeFamilyPred reduced
       case normalized of
         IrredPred constraint -> do
-          kinds <- getKinds
-          reclassified <- irreduciblePred kinds constraint
+          reclassified <- irreduciblePred constraint
           pure (fromMaybe normalized reclassified)
         _ -> pure normalized
 
