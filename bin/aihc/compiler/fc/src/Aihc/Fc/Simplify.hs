@@ -929,12 +929,18 @@ mkLet env bind body
       simplifyExpr env (substExpr (Map.singleton name copy) body)
   -- Lifted lets around a value float out of the right-hand side. The
   -- binding is then a value, which gets a new chance to move to its use.
-  -- The binders of the floated lets are distinct from every name in the
-  -- body, so the body captures nothing.
+  --
+  -- The floated binders were beside the body, and a tidied program keeps
+  -- only the binders that nest apart: a binder of the body can have the
+  -- name of a floated one. Once the floated lets scope over the body, and
+  -- once the value moves under such a binder, that name is captured. The
+  -- floated lets are copied with fresh binders first, so that the body
+  -- captures nothing.
   | lifted,
     Just (floated, value) <- floatValueLets env rhs = do
-      inner <- mkLet env (Bind binder value) body
-      pure (foldr ExLet inner floated)
+      (floated', value') <- freshenLets floated value
+      inner <- mkLet env (Bind binder value') body
+      pure (foldr ExLet inner floated')
   -- A lazy constructor application runs its safe primitive calls first,
   -- so that lowering stores the value instead of a thunk.
   | lifted,
@@ -1865,6 +1871,20 @@ substCoercionTypes subst coercion =
     again = substCoercionTypes subst
 
 -- * Fresh names
+
+-- | Give the binders of a let chain and of its body names that no other
+-- binder of the program has, and give the chain back in its two parts.
+freshenLets :: [Bind] -> Expr -> SimplM ([Bind], Expr)
+freshenLets binds inner = peel (length binds) <$> freshenExpr (foldr ExLet inner binds)
+  where
+    peel :: Int -> Expr -> ([Bind], Expr)
+    peel count expr =
+      case expr of
+        ExLet bind body
+          | count > 0 ->
+              let (rest, deepest) = peel (count - 1) body
+               in (bind : rest, deepest)
+        _ -> ([], expr)
 
 -- | Give every binder of an expression a name that no other binder of the
 -- program has. The copy can then go into any scope without a clash.

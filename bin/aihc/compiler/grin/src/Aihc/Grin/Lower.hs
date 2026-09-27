@@ -13,6 +13,7 @@ import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Dce (sweptGrinProgram)
+import Aihc.Grin.Lint (GrinLintError (..), lintNodeArities)
 import Aihc.Grin.Simplify (simplifyGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Grin.Tidy (tidyGrinProgram)
@@ -22,6 +23,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -126,10 +128,24 @@ lowerProgram program = do
 -- again folds the copy binds it leaves behind. Sweeping between the two
 -- drops what simplification orphaned, so the rest of the pipeline never
 -- sees it and 'tidyGrinProgram' renumbers only what survives.
+--
+-- The finished program must build each thunk and closure node with the
+-- fields its function takes. The full lint is opt-in, but this check is
+-- cheap and always on: a node with a field too few is otherwise found
+-- only by a backend, as an entry stub whose arity does not match.
 finishGrinProgram :: GrinProgram -> Either String GrinProgram
 finishGrinProgram program = do
   swept <- sweptGrinProgram (simplifyGrinProgram (normalizeGrinProgram program))
-  pure (tidyGrinProgram (normalizeGrinProgram swept))
+  let finished = tidyGrinProgram (normalizeGrinProgram swept)
+  case lintNodeArities finished of
+    [] -> pure finished
+    errors -> Left ("GRIN node arity check failed: " <> List.intercalate "; " (map renderNodeArityError errors))
+  where
+    renderNodeArityError err =
+      case err of
+        GrinLintFunctionArity functionName expected actual ->
+          "a node of " <> T.unpack (unFunctionName functionName) <> " supplies " <> show actual <> " values, its function takes " <> show expected
+        other -> show other
 
 lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
 lowerDecl env declaration =
