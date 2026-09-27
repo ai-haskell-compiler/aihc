@@ -9,6 +9,13 @@
 -- class. The solver then takes the first type of the default list that is an
 -- instance of every @C@ in the group.
 --
+-- Haskell 2010 section 4.5.3 reduces a context to head normal form before
+-- defaulting runs. The dictionary solver leaves a wanted such as @Eq [v]@
+-- unsolved when the context @Eq v@ of the matching instance is stuck on the
+-- meta-variable. This module reduces such a wanted through the instance head
+-- to @Eq v@ for the group test only. Once the variable is concrete, the
+-- caller solves the original wanted again.
+--
 -- The default list comes from the module @default@ declaration. A module
 -- without one uses @(Integer, Double)@.
 module Aihc.Tc.Solve.Defaulting
@@ -20,11 +27,12 @@ module Aihc.Tc.Solve.Defaulting
 where
 
 import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
-import Aihc.Tc.Env (TyConInfo (..))
+import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Generalize (predMetaVars)
-import Aihc.Tc.Monad (TcM, freshEvVar, getDefaultTypes, lookupTyCon, tcSpeculate, writeMetaTv)
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDict)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), Unique)
+import Aihc.Tc.Match (matchTypes)
+import Aihc.Tc.Monad (TcM, freshEvVar, getClassInstances, getDefaultTypes, lookupTyCon, tcSpeculate, writeMetaTv)
+import Aihc.Tc.Solve.Dict (DictResult (..), mostSpecificInstances, solveDict)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), Unique, applySubstPred)
 import Aihc.Tc.Zonk (zonkPred)
 import Data.List (nub)
 import Data.Maybe (mapMaybe)
@@ -42,21 +50,48 @@ import Data.Text (Text)
 -- discharge them.
 defaultAmbiguousMetas :: [Unique] -> [Ct] -> TcM Bool
 defaultAmbiguousMetas keep constraints = do
-  zonked <- mapM zonkCtPred constraints
+  zonked <- mapM (zonkPred . ctPred) constraints
+  reduced <- concat <$> mapM (reduceToHeadNormalForm reductionDepthLimit) zonked
   candidates <- defaultCandidateTypes
   if null candidates
     then pure False
     else do
-      let ambiguous = filter (`notElem` keep) (nub (concatMap (predMetaVars . ctPred) zonked))
-      results <- mapM (defaultOneMeta candidates zonked) ambiguous
+      let ambiguous = filter (`notElem` keep) (nub (concatMap predMetaVars reduced))
+      results <- mapM (defaultOneMeta candidates reduced) ambiguous
       pure (or results)
-  where
-    zonkCtPred ct = do
-      predicate <- zonkPred (ctPred ct)
-      pure (ct {ctPred = predicate})
+
+-- | Reduce a class constraint to head normal form through the instance that
+-- matches it, as Haskell 2010 section 4.5.3 does before defaulting.
+--
+-- A constraint on a bare meta-variable is already in head normal form. A
+-- constraint that exactly one instance matches becomes the instance
+-- context under the match substitution, reduced again. Any other
+-- constraint stays as it is, so it blocks defaulting as before.
+--
+-- The reduction is only a view for the group test. It binds no evidence and
+-- no kind meta-variable. The depth limit stops an instance chain that does
+-- not terminate.
+reduceToHeadNormalForm :: Int -> Pred -> TcM [Pred]
+reduceToHeadNormalForm depth predicate =
+  case predicate of
+    ClassPred _ [TcMetaTv _] -> pure [predicate]
+    ClassPred className args
+      | depth > 0 -> do
+          instances <- getClassInstances className
+          case mostSpecificInstances args instances of
+            [instanceInfo]
+              | Just substitution <- matchTypes (iiHead instanceInfo) args ->
+                  concat <$> mapM (reduceToHeadNormalForm (depth - 1) . applySubstPred substitution) (iiContext instanceInfo)
+            _ -> pure [predicate]
+    _ -> pure [predicate]
+
+-- | The number of instance steps that 'reduceToHeadNormalForm' takes at
+-- most.
+reductionDepthLimit :: Int
+reductionDepthLimit = 32
 
 -- | Default one meta-variable, if its constraint group permits it.
-defaultOneMeta :: [TcType] -> [Ct] -> Unique -> TcM Bool
+defaultOneMeta :: [TcType] -> [Pred] -> Unique -> TcM Bool
 defaultOneMeta candidates constraints unique =
   case defaultableGroup unique constraints of
     Nothing -> pure False
@@ -72,10 +107,12 @@ defaultOneMeta candidates constraints unique =
 -- allows defaulting it.
 --
 -- Every constraint that mentions the variable must be a single-parameter
--- class constraint applied to the bare variable. A constraint such as
--- @C [v]@, @C v w@, or an unsolved equality blocks defaulting, as does a
--- non-standard class or a group without a numeric class.
-defaultableGroup :: Unique -> [Ct] -> Maybe [TyCon]
+-- class constraint applied to the bare variable. The constraints are in
+-- head normal form, so @C [v]@ reaches here only when no instance reduces
+-- it. Such a constraint, @C v w@, or an unsolved equality blocks
+-- defaulting, as does a non-standard class or a group without a numeric
+-- class.
+defaultableGroup :: Unique -> [Pred] -> Maybe [TyCon]
 defaultableGroup unique constraints = do
   classes <- traverse classOfConstraint mentioning
   let names = map tyConName classes
@@ -83,7 +120,7 @@ defaultableGroup unique constraints = do
     then Just (nub classes)
     else Nothing
   where
-    mentioning = [ctPred ct | ct <- constraints, unique `elem` predMetaVars (ctPred ct)]
+    mentioning = [predicate | predicate <- constraints, unique `elem` predMetaVars predicate]
 
     classOfConstraint predicate =
       case predicate of

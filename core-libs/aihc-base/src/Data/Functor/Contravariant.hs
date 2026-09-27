@@ -1,4 +1,6 @@
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Data.Functor.Contravariant
   ( -- * Contravariant Functors
@@ -28,10 +30,14 @@ module Data.Functor.Contravariant
 where
 
 import Control.Applicative (Const (..))
+import Data.Functor.Compose (Compose (..))
+import Data.Functor.Product (Product (..))
+import Data.Functor.Sum (Sum (..))
 import Data.Kind (Type)
-import Data.Monoid (Monoid (..))
+import Data.Monoid (Alt (..), Monoid (..))
 import Data.Proxy (Proxy (..))
 import Data.Semigroup (Semigroup (..))
+import GHC.Generics
 import Prelude
 
 -- | The class of contravariant functors.
@@ -68,6 +74,44 @@ instance Contravariant (Const a) where
 
 instance Contravariant Proxy where
   contramap _ _ = Proxy
+
+instance (Contravariant f) => Contravariant (Alt f) where
+  contramap f = Alt . contramap f . getAlt
+
+instance (Functor f, Contravariant g) => Contravariant (Compose f g) where
+  contramap f (Compose fga) = Compose (fmap (contramap f) fga)
+
+instance (Contravariant f, Contravariant g) => Contravariant (Product f g) where
+  contramap f (Pair a b) = Pair (contramap f a) (contramap f b)
+
+instance (Contravariant f, Contravariant g) => Contravariant (Sum f g) where
+  contramap f (InL xs) = InL (contramap f xs)
+  contramap f (InR ys) = InR (contramap f ys)
+
+instance Contravariant V1 where
+  contramap _ v = case v of {}
+
+instance Contravariant U1 where
+  contramap _ _ = U1
+
+instance Contravariant (K1 i c) where
+  contramap _ (K1 c) = K1 c
+
+instance (Contravariant f) => Contravariant (M1 i c f) where
+  contramap f (M1 fp) = M1 (contramap f fp)
+
+instance (Contravariant f) => Contravariant (Rec1 f) where
+  contramap f (Rec1 fp) = Rec1 (contramap f fp)
+
+instance (Contravariant f, Contravariant g) => Contravariant (f :*: g) where
+  contramap f (xs :*: ys) = contramap f xs :*: contramap f ys
+
+instance (Contravariant f, Contravariant g) => Contravariant (f :+: g) where
+  contramap f (L1 xs) = L1 (contramap f xs)
+  contramap f (R1 ys) = R1 (contramap f ys)
+
+instance (Functor f, Contravariant g) => Contravariant (f :.: g) where
+  contramap f (Comp1 fgp) = Comp1 (fmap (contramap f) fgp)
 
 newtype Predicate a = Predicate {getPredicate :: a -> Bool}
 

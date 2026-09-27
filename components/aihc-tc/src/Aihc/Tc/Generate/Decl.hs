@@ -1772,6 +1772,13 @@ resolveForeignValueType sourceType = do
               | otherwise -> do
                   mDataType <- lookupDataType tyCon
                   case mDataType of
+                    -- A Bool is an HsBool, which GHC declares as a C int of
+                    -- the word width: False is 0, True is 1, and a nonzero
+                    -- result is True. The constructors carry the two tags.
+                    Just dataType
+                      | isBoolTyCon tyCon,
+                        constructorNames@[_, _] <- map dciName (dtiConstructors dataType) ->
+                          Right <$> primitiveMarshal sourceType (reverse constructors <> constructorNames) "Int#" TcForeignInt cType
                     Just dataType
                       | [constructor] <- dtiConstructors dataType,
                         null (dciExTyVars constructor),
@@ -1788,6 +1795,7 @@ resolveForeignValueType sourceType = do
       | ty == sourceType = pure (Left (renderTcType ty))
       | otherwise = pure (Left (renderTcType ty <> " in " <> renderTcType sourceType))
     maximumUnwrapDepth = 64
+    isBoolTyCon tyCon = tyConName tyCon == "Bool" && tyConModuleName tyCon == "GHC.Types" && tyConArity tyCon == 0
     byteArrayMarshal ty =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,
@@ -3616,25 +3624,25 @@ generalizableResidualPreds inferredType solveResult = do
   -- parameter gets the empty call stack.
   let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
-  let uniqueResidualCts = nubBy sameCtPred residualCts
-      (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) uniqueResidualCts
+  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) residualCts
   -- Defaulting makes an ambiguous meta-variable concrete. A constraint that
   -- became concrete this way has an instance in most cases, so give the
-  -- dictionary solver a second attempt before the error report.
+  -- dictionary solver a second attempt before the error report. Every
+  -- occurrence needs its own evidence, so the attempt covers each
+  -- constraint, also when two constraints have the same predicate.
   concreteCts <-
     if defaulted
       then concat <$> mapM attemptDefaultedCt defaultedCts
       else pure defaultedCts
   -- Every occurrence still needs evidence, even when equal predicates share
   -- one constraint in the generalized type.
-  forM_ residualCts $ \ct ->
-    when (predicateCanGeneralize (ctPred ct)) $
-      bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+  forM_ polymorphicCts $ \ct ->
+    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
-  forM_ concreteCts $ \ct ->
+  forM_ (nubBy sameCtPred concreteCts) $ \ct ->
     emitError (ctLoc ct) (UnsolvedWanted (ctPred ct) (ctOrigin ct))
-  pure (map ctPred polymorphicCts)
+  pure (map ctPred (nubBy sameCtPred polymorphicCts))
   where
     zonkCtPred ct = do
       pred' <- zonkPred (ctPred ct)
@@ -4479,7 +4487,21 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
       (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
       forM_ paramInfos $ \param ->
         forM_ (Map.lookup (paramName param) sharedKinds) (`unifyKinds` paramKind param)
-      inferredKind <- tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
+      -- A closed family without a standalone kind signature takes the kinds
+      -- it does not write from its equations, as in GHC: @type family F ty n
+      -- where F ty n = n <=? Bound ty@ has the result kind 'Bool' and gives
+      -- @n@ the kind of @Bound ty@. Its result kind starts as a meta, and
+      -- nothing here defaults its metas: the equations settle them when the
+      -- declaration group is registered, and 'defaultGlobalKindMetas' closes
+      -- what the equations leave open. An open family has no equations to
+      -- read, so it defaults to 'Type' here, as in GHC.
+      let inferFromEquations = isClosedFamily && isNothing maybeKindScheme
+      inferredKind <-
+        if inferFromEquations && isNothing (typeFamilyResultKindType familyDecl)
+          then do
+            resultKind <- freshKindMeta
+            pure (foldr (KFun . paramKind) resultKind paramInfos)
+          else tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
       familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
       let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
       storeTyConInfo
@@ -4496,14 +4518,17 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
             tciTypeSynonym = Nothing,
             tciInjectivity = typeFamilyInjectivePositions familyDecl
           }
-      if Map.null sharedKinds
-        then void (defaultKindMetas declaredKind)
-        else do
-          -- Only the class parameters stay open; the class registration
-          -- settles them once its methods have been seen.
-          forM_ paramInfos $ \param ->
-            unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
-          void (defaultKindMetas (typeResultKind arity declaredKind))
+      unless inferFromEquations $
+        if Map.null sharedKinds
+          then void (defaultKindMetas declaredKind)
+          else do
+            -- Only the class parameters stay open; the class registration
+            -- settles them once its methods have been seen.
+            forM_ paramInfos $ \param ->
+              unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
+            void (defaultKindMetas (typeResultKind arity declaredKind))
+  where
+    isClosedFamily = isJust (typeFamilyDeclEquations familyDecl)
 
 -- | The argument positions that an injectivity annotation says the result
 -- determines. @type family F a b = r | r -> a@ gives @Just [0]@.
@@ -5408,7 +5433,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
-  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy (matchRhs match)))
+  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy (matchRhs match)))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) <|> sp

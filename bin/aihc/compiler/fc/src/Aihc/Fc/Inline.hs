@@ -73,10 +73,15 @@ data InlinePolicy = InlinePolicy
     -- | Nodes every value may grow by in the pass whatever its size, so
     -- that a small value can still take one useful copy.
     policyValueSlack :: !Int,
-    -- | Whether an @INLINE@ value within the callee limit is copied at
-    -- every site the site rule admits, whatever the growth and the
-    -- allowance of the value.
-    policyTakeRequested :: !Bool
+    -- | The largest growth a site of an @INLINE@ value within the callee
+    -- limit may cause without a charge to the allowance of the value it
+    -- lands in. A wrapper such as @(.)@ or @>>@ costs a few nodes, and
+    -- such a copy must not starve the other sites of the value. A larger
+    -- requested copy is decided like a measured site: the pragma makes
+    -- the value a candidate whatever its size, and the growth then bounds
+    -- the value as it bounds any other copy. Zero lets a requested copy
+    -- go free only when the program does not grow.
+    policyRequestedSiteLimit :: !Int
   }
   deriving (Eq, Show)
 
@@ -94,7 +99,7 @@ shrinkPolicy =
       policyFunctionArgumentDiscount = 0,
       policyValueGrowth = 0,
       policyValueSlack = 0,
-      policyTakeRequested = False
+      policyRequestedSiteLimit = 0
     }
 
 -- | Accept a site that makes the program larger, within the limits.
@@ -104,12 +109,16 @@ shrinkPolicy =
 -- wrapper is a few nodes either way. A value may double, plus the slack
 -- that lets a value of a few nodes take one copy.
 --
--- A small @INLINE@ value is copied at each site whatever the allowance,
--- as GHC does. Without that, the wrappers of the IO monad and function
--- composition stay calls in a large value that other sites filled first.
--- A large @INLINE@ value is only a candidate: the @text@ package marks
--- large functions @INLINE@, and to copy them at every call made its
--- example two and a half times larger.
+-- A small @INLINE@ value whose copy costs a few nodes is copied at each
+-- site whatever the allowance, as GHC does. Without that, the wrappers of
+-- the IO monad and function composition stay calls in a large value that
+-- other sites filled first. A larger copy of an @INLINE@ value charges
+-- the allowance like any other: the @text@ package marks @==@ on @Text@
+-- @INLINE@, and a parser compared text at eighteen thousand sites, so
+-- copies that were free of the allowance made its program six times
+-- larger and the compile ran out of memory. A large @INLINE@ value is
+-- only a candidate: @text@ marks large functions @INLINE@ too, and to
+-- copy them at every call made its example two and a half times larger.
 growPolicy :: InlinePolicy
 growPolicy =
   InlinePolicy
@@ -119,7 +128,7 @@ growPolicy =
       policyFunctionArgumentDiscount = 6,
       policyValueGrowth = 100,
       policyValueSlack = 20,
-      policyTakeRequested = True
+      policyRequestedSiteLimit = 10
     }
 
 data InlineConfig = InlineConfig
@@ -260,10 +269,11 @@ inliningAllowed phase spec =
     InlineNever activation -> ruleActiveIn phase activation
 
 -- | Whether a value's pragma asks for it to be a candidate whatever its
--- size: @INLINE@ in its active phases. A policy that takes requested
--- sites copies such a value at each site when it is within the callee
--- limit. Otherwise the site policy decides each copy, so the shrinking
--- pass keeps its promise not to grow the program.
+-- size: @INLINE@ in its active phases. When such a value is within the
+-- callee limit, a copy within the requested site limit is free of the
+-- allowance, and a larger copy is decided like a measured site. The
+-- shrinking policy sets that limit to zero, so it keeps its promise not
+-- to grow the program.
 inliningRequested :: Int -> InlineSpec -> Bool
 inliningRequested phase spec =
   case spec of
@@ -341,7 +351,7 @@ simplifyValue config known recursive st name
                         withinLimit = size <= policyCalleeLimit policy
                         sites
                           | every = SitesUnconditional
-                          | requested && withinLimit && policyTakeRequested policy = SitesRequested
+                          | requested && withinLimit = SitesRequested
                           | otherwise = SitesMeasured,
                     -- A callee over the limit is never copied, unless every
                     -- copy together replaces it or its pragma asks for it.
@@ -368,6 +378,7 @@ simplifyValue config known recursive st name
                             spCse = Map.empty,
                             spEvaluated = Set.empty,
                             spSiteLimit = policySiteLimit policy,
+                            spRequestedSiteLimit = policyRequestedSiteLimit policy,
                             spDiscount = policyFunctionArgumentDiscount policy,
                             spRules = inRules st
                           }

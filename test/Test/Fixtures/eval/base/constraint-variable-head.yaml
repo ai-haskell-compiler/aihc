@@ -1,0 +1,44 @@
+extensions: [ConstraintKinds, FlexibleContexts, FlexibleInstances, KindSignatures, MultiParamTypeClasses, RankNTypes, UndecidableInstances]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, FlexibleContexts, FlexibleInstances, KindSignatures, MultiParamTypeClasses, RankNTypes, UndecidableInstances #-}
+    module Test where
+
+    import Data.Kind (Constraint, Type)
+    import Prelude
+
+    data Proxy (q :: Type -> Constraint) = Proxy
+
+    newtype Wrap p = Wrap p
+
+    data Pair f g = Pair f g
+
+    class GDeciding q t where
+      gdeciding :: p q -> (forall b. q b => b -> b -> Bool) -> t -> t -> Bool
+
+    instance q p => GDeciding q (Wrap p) where
+      gdeciding _ q (Wrap x) (Wrap y) = q x y
+
+    instance (GDeciding q f, GDeciding q g) => GDeciding q (Pair f g) where
+      gdeciding p q (Pair x y) (Pair x' y') = gdeciding p q x x' && gdeciding p q y y'
+
+    geq :: GDeciding Eq t => t -> t -> Bool
+    geq = gdeciding (Proxy :: Proxy Eq) (==)
+
+    gle :: GDeciding Ord t => t -> t -> Bool
+    gle = gdeciding (Proxy :: Proxy Ord) (<=)
+
+    result :: Bool
+    result =
+      and
+      [ geq (Pair (Wrap (1 :: Int)) (Wrap 'a')) (Pair (Wrap 1) (Wrap 'a')),
+        not (geq (Pair (Wrap (1 :: Int)) (Wrap 'a')) (Pair (Wrap 2) (Wrap 'a'))),
+        gle (Pair (Wrap (1 :: Int)) (Wrap 'a')) (Pair (Wrap 2) (Wrap 'b')),
+        not (gle (Wrap 'z') (Wrap 'a'))
+      ]
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a constraint headed by a class variable is solved by the given of an instance context and by the class it is instantiated to

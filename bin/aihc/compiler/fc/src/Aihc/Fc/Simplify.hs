@@ -107,6 +107,7 @@ simplifyProgram phase program =
                 spCse = Map.empty,
                 spEvaluated = Set.empty,
                 spSiteLimit = 0,
+                spRequestedSiteLimit = 0,
                 spDiscount = 0,
                 spRules = ruleTable phase (programDecls program)
               }
@@ -189,8 +190,9 @@ data CandidateSites
   = -- | Take every site, whatever its growth. The site charges the
     -- allowance with its growth.
     SitesUnconditional
-  | -- | Take every site, whatever its growth, and do not charge the
-    -- allowance. The pragma of the value asks for each copy.
+  | -- | Take a site within the requested site limit without a charge to
+    -- the allowance: the pragma of the value asks for each copy. Decide
+    -- a larger site as a measured one.
     SitesRequested
   | -- | Take a site when its growth fits the site limit and the
     -- allowance.
@@ -215,6 +217,9 @@ data Simpl = Simpl
     -- strict fields, and let binders of values.
     spEvaluated :: !(Set Name),
     spSiteLimit :: !Int,
+    -- | The largest growth a requested site may cause without a charge
+    -- to the allowance.
+    spRequestedSiteLimit :: !Int,
     -- | The discount one function argument of a call site takes off the
     -- growth of inlining it.
     spDiscount :: !Int,
@@ -388,20 +393,27 @@ nestedPaid before after = ssAllowance before - ssAllowance after
 -- than the value it replaces, and the sites after it must see the
 -- allowance that is left.
 --
--- A requested site is taken whatever its growth, and it does not charge
--- the allowance: the pragma asks for the copy, and a copy that the pragma
--- asks for must not starve the other sites of the value. The sites inside
--- the copy still charge the allowance.
+-- A requested site within the requested site limit is taken and does
+-- not charge the allowance: the pragma asks for the copy, and a copy of
+-- a few nodes must not starve the other sites of the value. The sites
+-- inside the copy still charge the allowance. A requested site that
+-- grows more is measured like any other: its growth counts the copies
+-- inside it that went free, so a chain of requested copies stops where
+-- it grows past the limit.
 acceptSite :: Simpl -> Candidate -> Int -> SimplM Bool
 acceptSite env candidate growth =
   case candidateSites candidate of
     SitesUnconditional -> do
       modify' (\st -> st {ssAllowance = ssAllowance st - growth, ssInlined = ssInlined st + 1})
       pure True
-    SitesRequested -> do
-      modify' (\st -> st {ssInlined = ssInlined st + 1})
-      pure True
-    SitesMeasured -> do
+    SitesRequested
+      | growth <= spRequestedSiteLimit env -> do
+          modify' (\st -> st {ssInlined = ssInlined st + 1})
+          pure True
+      | otherwise -> measured
+    SitesMeasured -> measured
+  where
+    measured = do
       accepted <- acceptGrowth env growth
       if accepted
         then do
@@ -1041,13 +1053,22 @@ caseOfCaseRaw env scrutinee binder resultType alternatives
     -- The case binder is a parameter of every join point: each copy of
     -- the small case binds it under a fresh name, and the call passes
     -- that name.
+    --
+    -- The join point takes fresh parameters. Its body is simplified where
+    -- the call lands, inside an alternative of the scrutinee, and a
+    -- binder of that alternative may carry the same name as the case
+    -- binder or an alternative binder: the two were siblings in the
+    -- tidied program. The environment is keyed by name and assumes that
+    -- no binder shadows another, so a parameter under the old name would
+    -- take the value that the inner binder holds.
     joinPoint alternative
       | isTrivial (altRhs alternative) || not (null (altTypeBinders alternative)) = pure (Nothing, alternative)
       | otherwise = do
           name <- freshLocal (binderName binder)
           let binders = binder : altBinders alternative
               call = rebuildSpine (ExVar name) (map (Right . ExVar . binderName) binders)
-          pure (Just (name, foldr ExLam (altRhs alternative) binders), alternative {altRhs = call})
+          body <- freshenExpr (foldr ExLam (altRhs alternative) binders)
+          pure (Just (name, body), alternative {altRhs = call})
 
 -- | Push a small case, whose alternatives call join points, into the
 -- tails of a simplified expression. A tail that is a case takes the

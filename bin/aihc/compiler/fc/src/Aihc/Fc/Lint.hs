@@ -237,7 +237,7 @@ lintSynonymDecl env declaration =
         (Left err, _) -> [err]
         (_, Left err) -> [err]
         (Right {}, Right bodyKind) ->
-          [KindMismatch "synonym body" (synResult declaration) bodyKind | not (typesEqual binderEnv (synResult declaration) bodyKind)]
+          [KindMismatch "synonym body" (synResult declaration) bodyKind | not (kindsEqual binderEnv (synResult declaration) bodyKind)]
 
 lintAxiomDecl :: TypeEnv -> AxiomDecl -> [LintError]
 lintAxiomDecl env declaration =

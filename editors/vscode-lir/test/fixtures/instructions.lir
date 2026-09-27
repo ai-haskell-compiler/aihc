@@ -77,3 +77,5 @@ f64
 ptr
 code
 %f = itof.s i64 %n to f64
+pdep
+pext
