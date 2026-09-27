@@ -1,0 +1,39 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    data One = One
+
+    data Two = Two
+
+    type family Sink w g
+    type instance Sink One g = Nat -> g
+    type instance Sink Two g = Nat -> Nat -> g
+
+    class Source w where
+      feed :: Sink w g -> w -> g
+
+    instance Source One where
+      feed f One = f (S Z)
+
+    instance Source Two where
+      feed f w = f b1 b2
+        where
+          b1 = S Z
+          b2 = case w of
+            Two -> S (S Z)
+
+    plus :: Nat -> Nat -> Nat
+    plus Z n = n
+    plus (S m) n = S (plus m n)
+output: |
+  S (S (S (S Z)))
+expression: |
+  plus (feed (\n -> n) One) (feed plus Two)
+status: pass
+reason: an argument whose type is a type family application is applied
+  like a function after the family reduces

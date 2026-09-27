@@ -1,0 +1,93 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (check) where
+
+  import GHC.Prim ((+#), (-#))
+  import GHC.Types (Int (..))
+
+  count :: Int -> Int
+  count n = case n of
+    I# i -> case i of
+      0# -> I# 1#
+      _ -> count (I# (i -# 1#))
+
+  twice :: Int -> Int
+  twice n = case n of
+    I# i -> I# (i +# i)
+
+  divide :: Int -> Int -> Int
+  divide a b = case a of
+    I# p -> case b of
+      I# q -> I# (p -# q)
+
+  check :: Int -> Int -> Int
+  check n m = divide (twice (count n)) (twice (count m))
+passes:
+- demand
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  val 1.vcount :: 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt).
+    case x as (_scrut : 3.tInt) return (3.tInt) of {
+        3.cI# (i : 2.tInt#) →
+            case i as (_scrut{1} : 2.tInt#) return (3.tInt) of {
+                0#3.cIntRep →
+                    3.cI# 1#3.cIntRep;
+                _ →
+                    1.vcount (3.cI# (foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} i 1#3.cIntRep))
+            }
+    }
+
+  pub val 1.vcheck :: 3.tInt 3.→ 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt).
+    λ(y : 3.tInt).
+      case 1.vcount x as (argument : 3.tInt) return (3.tInt) of {
+          _ →
+              case argument as (_scrut : 3.tInt) return (3.tInt) of {
+                  3.cI# (i : 2.tInt#) →
+                      let {
+                          argument{1} : 3.tInt =
+                              3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} i i)
+                      } in
+                          case 1.vcount y as (argument{2} : 3.tInt) return (3.tInt) of {
+                              _ →
+                                  case argument{2} as (_scrut{1} : 3.tInt) return (3.tInt) of {
+                                      3.cI# (i{1} : 2.tInt#) →
+                                          case argument{1} as (_scrut{2} : 3.tInt) return (3.tInt) of {
+                                              3.cI# (p : 2.tInt#) →
+                                                  let {
+                                                      q : 2.tInt# =
+                                                          foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} i{1} i{1}
+                                                  } in
+                                                      3.cI# (foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} p q)
+                                          }
+                                  }
+                          }
+              }
+      }
+status: pass
+reason: The demand pass evaluates each strict argument in a case, so the argument of 'divide' is a case on the argument of 'twice', and the two case binders are siblings that the tidied program names 'argument' both. The case of a case turns the outer alternative into a join point and simplifies its body inside the inner alternative, where the inner 'argument' is a known constructor. The join point takes fresh parameters, so the outer 'argument' keeps the doubled value instead of the field of the inner one, and the result subtracts the doubled values.

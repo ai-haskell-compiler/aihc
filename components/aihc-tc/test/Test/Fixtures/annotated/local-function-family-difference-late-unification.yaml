@@ -1,0 +1,150 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  import GHC.Classes (Eq (..), (||))
+  import GHC.Types (Bool (..))
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Opt a = None | Some a
+       │       │      └─ type: ∀ a. a → Opt a
+       │       └─ type: ∀ a. Opt a
+       └─ type: Type → Type
+  newtype Count ty = Count Nat
+          │          └─ type: ∀ ty. Nat → Count ty
+          └─ type: Type → Type
+  data Arr ty = Arr
+       │        └─ type: ∀ ty. Arr ty
+       └─ type: Type → Type
+  newtype Str = Str (Arr Nat)
+          │     └─ type: Arr Nat → Str
+          └─ type: Type
+  class Subtractive a where
+  └─ class methods: minus ∷ ∀ a. (Subtractive a) ⇒ a → a → Difference a
+    type Difference a
+         └─ type: Type → Type
+    minus :: a -> a -> Difference a
+  instance Subtractive (Count ty) where
+  └─ $fSubtractiveCountty ∷ ∀ ty. () ⇒ Subtractive (Count ty) [associated types: Difference (Count ty) = Opt (Count ty)]
+    type Difference (Count ty) = Opt (Count ty)
+    minus _ _ = None
+    │     │ │   └─ type: Opt (Count ty); type-args: Count ty
+    │     │ └─ type: Count ty
+    │     └─ type: Count ty
+    └─ minus ∷ Count ty → Count ty → Difference (Count ty)
+  class Integral a where
+  └─ class methods: fromNat ∷ ∀ a. (Integral a) ⇒ Nat → a
+    fromNat :: Nat -> a
+  instance Integral (Count ty) where
+  └─ $fIntegralCountty ∷ ∀ ty. () ⇒ Integral (Count ty)
+    fromNat = Count
+    │         └─ type: Nat → Count ty; type-args: ty
+    └─ fromNat ∷ Nat → Count ty
+  type family Element c
+              └─ type: Type → Type
+  type instance Element (Arr ty) = ty
+  class Collection c where
+  └─ class methods: length ∷ ∀ c. (Collection c) ⇒ c → Count (Element c), take ∷ ∀ c. (Collection c) ⇒ Count (Element c) → c → c, drop ∷ ∀ c. (Collection c) ⇒ Count (Element c) → c → c
+    length :: c -> Count (Element c)
+    take :: Count (Element c) -> c -> c
+    drop :: Count (Element c) -> c -> c
+  instance Collection (Arr ty) where
+  └─ $fCollectionArrty ∷ ∀ ty. () ⇒ Collection (Arr ty)
+    length _ = Count Z
+    │      │   └─ type: Nat → Count ty; type-args: ty
+    │      └─ type: Arr ty
+    └─ length ∷ Arr ty → Count (Element (Arr ty))
+    take _ x = x
+    │    │ └─ type: Arr ty
+    │    └─ type: Count (Element (Arr ty))
+    └─ take ∷ Count (Element (Arr ty)) → Arr ty → Arr ty
+    drop _ x = x
+    │    │ └─ type: Arr ty
+    │    └─ type: Count (Element (Arr ty))
+    └─ drop ∷ Count (Element (Arr ty)) → Arr ty → Arr ty
+  instance Eq (Arr ty) where
+  └─ $fEqArrty ∷ ∀ ty. () ⇒ Eq (Arr ty)
+    _ == _ = True
+    ││    └─ type: Arr ty
+    └─ type: Arr ty
+    └─ == ∷ Arr ty → Arr ty → Bool
+  isInfixOf :: Str -> Str -> Bool
+  isInfixOf (Str needle) (Str haystack) = loop (minus hayLen needleLen) haystack
+  │          │   │        │   └─ type: Arr Nat  └─ type: Count Nat → Count Nat → Difference (Count Nat); type-args: Count Nat; evidence: $fSubtractiveCountty @Nat
+  │          │   │        └─ type: Str
+  │          │   └─ type: Arr Nat
+  │          └─ type: Str
+  └─ type: Str → Str → GHC.Types.Bool
+    where
+      needleLen = length needle
+      │           └─ type: Arr Nat → Count (Element (Arr Nat)); type-args: Arr Nat; evidence: $fCollectionArrty @Nat
+      └─ type: Count Nat
+      hayLen = length haystack
+      │        └─ type: Arr Nat → Count (Element (Arr Nat)); type-args: Arr Nat; evidence: $fCollectionArrty @Nat
+      └─ type: Count Nat
+      loop None _ = False
+      │    │    └─ type: Arr Nat
+      │    └─ type: Opt (Count Nat)
+      └─ type: Difference (Count Nat) → Arr Nat → GHC.Types.Bool
+      loop (Some cnt) haystack' =
+      │     │    │    └─ type: Arr Nat
+      │     │    └─ type: Count Nat
+      │     └─ type: Opt (Count Nat)
+      └─ type: Difference (Count Nat) → Arr Nat → GHC.Types.Bool
+        needle == take needleLen haystack'
+               │  └─ type: Count (Element (Arr Nat)) → Arr Nat → Arr Nat; type-args: Arr Nat; evidence: $fCollectionArrty @Nat
+               └─ type: Arr Nat → Arr Nat → GHC.Types.Bool; type-args: Arr Nat; evidence: $fEqArrty @Nat
+          || loop (minus cnt (fromNat (S Z))) (drop (fromNat (S Z)) haystack')
+                   │          │                │     └─ type: Nat → Count Nat; type-args: Count Nat; evidence: $fIntegralCountty @Nat
+                   │          │                └─ type: Count (Element (Arr Nat)) → Arr Nat → Arr Nat; type-args: Arr Nat; evidence: $fCollectionArrty @Nat
+                   │          └─ type: Nat → Count Nat; type-args: Count Nat; evidence: $fIntegralCountty @Nat
+                   └─ type: Count Nat → Count Nat → Difference (Count Nat); type-args: Count Nat; evidence: $fSubtractiveCountty @Nat
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  import GHC.Classes (Eq (..), (||))
+  import GHC.Types (Bool (..))
+  data Nat = Z | S Nat
+  data Opt a = None | Some a
+  newtype Count ty = Count Nat
+  data Arr ty = Arr
+  newtype Str = Str (Arr Nat)
+  class Subtractive a where
+    type Difference a
+    minus :: a -> a -> Difference a
+  instance Subtractive (Count ty) where
+    type Difference (Count ty) = Opt (Count ty)
+    minus _ _ = None
+  class Integral a where
+    fromNat :: Nat -> a
+  instance Integral (Count ty) where
+    fromNat = Count
+  type family Element c
+  type instance Element (Arr ty) = ty
+  class Collection c where
+    length :: c -> Count (Element c)
+    take :: Count (Element c) -> c -> c
+    drop :: Count (Element c) -> c -> c
+  instance Collection (Arr ty) where
+    length _ = Count Z
+    take _ x = x
+    drop _ x = x
+  instance Eq (Arr ty) where
+    _ == _ = True
+  isInfixOf :: Str -> Str -> Bool
+  isInfixOf (Str needle) (Str haystack) = loop (minus hayLen needleLen) haystack
+    where
+      needleLen = length needle
+      hayLen = length haystack
+      loop None _ = False
+      loop (Some cnt) haystack' =
+        needle == take needleLen haystack'
+          || loop (minus cnt (fromNat (S Z))) (drop (fromNat (S Z)) haystack')
+reason: a local function without a signature has a family application on a
+  shared meta variable, and a later unification makes the application reducible
+status: pass

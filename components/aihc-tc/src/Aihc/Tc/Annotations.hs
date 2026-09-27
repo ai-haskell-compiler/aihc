@@ -76,8 +76,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 
--- | A checked cast on the result of a right-hand side.
-newtype TcCastAnnotation = TcCastAnnotation Coercion
+-- | A checked cast on an expression or a right-hand side. The type is the
+-- type after the cast, which is the right type of the proof. A reflexive
+-- proof has no coercion. The annotation then keeps only the type, because
+-- a function whose type is a family application needs its arrow type.
+data TcCastAnnotation = TcCastAnnotation (Maybe Coercion) TcType
   deriving (Eq, Show)
 
 -- | The solver must supply the proof before FC desugaring.
