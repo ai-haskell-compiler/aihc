@@ -53,13 +53,18 @@ finalizeAnnotationTc ann =
     Just (PendingTcCastAnnotation ty ev direction) -> do
       evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
       case evidence of
-        EvCoercion (Refl _) -> pure (mkAnnotation ())
+        EvCoercion (Refl _) -> do
+          target <- zonkType ty
+          pure $ case firstMetaType target of
+            Nothing -> mkAnnotation (TcCastAnnotation Nothing target)
+            Just {} -> mkAnnotation ()
         EvCoercion proof -> do
           let oriented = case direction of
                 CastToRight -> proof
                 CastToLeft -> symmetric proof
-          rejectMeta "cast annotation" (firstMetaCoercion oriented)
-          pure (mkAnnotation (TcCastAnnotation oriented))
+          target <- zonkType ty
+          rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
+          pure (mkAnnotation (TcCastAnnotation (Just oriented) target))
         EvVarTerm _ -> pure (mkAnnotation ())
         _ -> abortTc "a result cast requires equality evidence"
     Nothing -> finalizeOtherAnnotationTc ann
