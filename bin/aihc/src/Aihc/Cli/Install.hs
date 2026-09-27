@@ -2574,7 +2574,9 @@ renderPointsToReport name stats rewrites analysisNs rewriteNs =
     <> show (Grin.statsSharedLocations stats)
     <> " shared, "
     <> show (Grin.statsSingleEntryThunks stats)
-    <> " single-entry thunks), rewrites "
+    <> " single-entry thunks, "
+    <> show (Grin.statsWidenedNodes stats)
+    <> " widened), rewrites "
     <> renderDuration rewriteNs
     <> " ("
     <> show (Grin.rewritesDeadAlternatives rewrites)
