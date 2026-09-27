@@ -1,0 +1,56 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Arrow
+    import Control.Monad (MonadPlus (..))
+
+    halve :: Kleisli Maybe Int Int
+    halve = Kleisli (\x -> if even x then Just (x `div` 2) else Nothing)
+
+    plusOne :: Int -> Int
+    plusOne x = x + 1
+
+    -- 'loop' feeds the output back as input: the second component is
+    -- the count of the first component, and the first component does
+    -- not depend on it.
+    countedLoop :: Int -> Int
+    countedLoop = loop (\(b, d) -> (b + d, 10))
+
+    chooseKleisli :: Kleisli Maybe (Either Int Int) Int
+    chooseKleisli = halve ||| arr plusOne
+
+    checks :: [Bool]
+    checks =
+      [ (plusOne ^>> (* 2)) 3 == 8,
+        ((* 2) >>^ plusOne) 3 == 7,
+        ((* 2) <<^ plusOne) 3 == 8,
+        (plusOne ^<< (* 2)) 3 == 7,
+        runKleisli (halve >>> arr plusOne) 4 == Just 3,
+        runKleisli (halve >>> arr plusOne) 3 == Nothing,
+        runKleisli (first halve) (4, 'x') == Just (2, 'x'),
+        runKleisli (second halve) ('x', 6) == Just ('x', 3),
+        runKleisli (halve *** halve) (4, 6) == Just (2, 3),
+        runKleisli (halve &&& arr plusOne) 4 == Just (2, 5),
+        left plusOne (Left 1 :: Either Int Char) == Left 2,
+        right plusOne (Left 'x' :: Either Char Int) == Left 'x',
+        (plusOne +++ not) (Right True :: Either Int Bool) == Right False,
+        (plusOne ||| length) (Right "abc") == 3,
+        runKleisli chooseKleisli (Left 8) == Just 4,
+        runKleisli chooseKleisli (Right 8) == Just 9,
+        runKleisli (left halve) (Left 8 :: Either Int Char) == Just (Left 4),
+        app (plusOne, 1) == 2,
+        runKleisli app (halve, 10) == Just 5,
+        leftApp plusOne (Left 1 :: Either Int Char) == Left 2,
+        leftApp plusOne (Right 'x' :: Either Int Char) == Right 'x',
+        countedLoop 5 == 15,
+        runKleisli (zeroArrow :: Kleisli Maybe Int Int) 1 == Nothing,
+        runKleisli (zeroArrow <+> halve) 4 == Just 2,
+        runKleisli (halve `mplus` arr plusOne) 3 == Just 4,
+        returnA 7 == (7 :: Int)
+      ]
+output: 'True'
+expression: and checks
+status: pass
+reason: Kleisli, ArrowChoice, ArrowApply, ArrowLoop, ArrowZero and ArrowPlus from Control.Arrow evaluate as in GHC
