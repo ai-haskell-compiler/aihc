@@ -45,6 +45,7 @@ module Control.Exception.Base
   )
 where
 
+import GHC.Base (assert)
 import GHC.Conc.Sync (throwTo)
 import GHC.Exception (ArithException (..), ErrorCall (..), Exception (..), SomeException (..), throw, pattern ErrorCall)
 import GHC.IO (MaskingState (..), bracket, catch, evaluate, finally, getMaskingState, interruptible, mask, mask_, onException, throwIO, uninterruptibleMask, uninterruptibleMask_)
@@ -63,7 +64,7 @@ import GHC.IO.Exception
     asyncExceptionToException,
     ioError,
   )
-import Prelude (Bool, Either (..), IO, Maybe (..), const, pure, (.), (>>=))
+import Prelude (Either (..), IO, Maybe (..), const, pure, (.), (>>=))
 
 handle :: (Exception e) => (e -> IO a) -> IO a -> IO a
 handle handler action = catch action handler
@@ -101,7 +102,3 @@ bracketOnError :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
 bracketOnError acquire release use = do
   resource <- acquire
   use resource `onException` release resource
-
--- | Assertions are not checked. The value is returned unchanged.
-assert :: Bool -> a -> a
-assert _ value = value
