@@ -5,8 +5,8 @@
 - Total Extensions: 63
 - Supported: 48
 - In Progress: 15
-- Fixtures (eval): 632
-- Fixtures (fc): 262
+- Fixtures (eval): 640
+- Fixtures (fc): 268
 
 ## Extension Status
 
@@ -16,7 +16,7 @@
 | BangPatterns               |   🟢    | 11/11         |
 | BlockArguments             |   🟢    | 2/2           |
 | CApiFFI                    |   🟢    | 5/5           |
-| ConstraintKinds            |   🟢    | 3/3           |
+| ConstraintKinds            |   🟢    | 4/4           |
 | DataKinds                  |   🟡    | 22/23         |
 | DefaultSignatures          |   🟢    | 8/8           |
 | DeriveAnyClass             |   🟢    | 6/6           |
@@ -33,21 +33,21 @@
 | ExplicitForAll             |   🟢    | 13/13         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedLiterals           |   🟢    | 13/13         |
-| FlexibleContexts           |   🟢    | 11/11         |
-| FlexibleInstances          |   🟡    | 42/44         |
-| ForeignFunctionInterface   |   🟢    | 42/42         |
+| FlexibleContexts           |   🟢    | 12/12         |
+| FlexibleInstances          |   🟡    | 44/46         |
+| ForeignFunctionInterface   |   🟢    | 43/43         |
 | FunctionalDependencies     |   🔴    | 18/22         |
-| GADTs                      |   🟢    | 99/99         |
+| GADTs                      |   🟢    | 100/100       |
 | GeneralizedNewtypeDeriving |   🟢    | 18/18         |
 | GHCForeignImportPrim       |   🔴    | 7/9           |
 | ImplicitParams             |   🟢    | 4/4           |
 | ImportQualifiedPost        |   🟢    | 7/7           |
 | InstanceSigs               |   🟢    | 3/3           |
 | InterruptibleFFI           |   🟢    | 1/1           |
-| KindSignatures             |   🟢    | 43/43         |
+| KindSignatures             |   🟢    | 44/44         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 222/223       |
-| MultiParamTypeClasses      |   🔴    | 34/38         |
+| MagicHash                  |   🟡    | 225/226       |
+| MultiParamTypeClasses      |   🔴    | 35/39         |
 | MultiWayIf                 |   🟢    | 2/2           |
 | NamedFieldPuns             |   🟢    | 3/3           |
 | OverloadedStrings          |   🟢    | 4/4           |
@@ -56,7 +56,7 @@
 | PatternSynonyms            |   🟢    | 27/27         |
 | PolyKinds                  |   🟢    | 27/27         |
 | QuantifiedConstraints      |   🟢    | 1/1           |
-| RankNTypes                 |   🟢    | 21/21         |
+| RankNTypes                 |   🟢    | 22/22         |
 | RebindableSyntax           |   🟡    | 19/20         |
 | RecordWildCards            |   🟢    | 2/2           |
 | RecursiveDo                |   🔴    | 0/11          |
@@ -67,11 +67,11 @@
 | StarIsType                 |   🟢    | 2/2           |
 | TemplateHaskellQuotes      |   🟢    | 1/1           |
 | TypeApplications           |   🟢    | 9/9           |
-| TypeFamilies               |   🟡    | 39/41         |
+| TypeFamilies               |   🟡    | 40/42         |
 | TypeFamilyDependencies     |   🟢    | 1/1           |
-| TypeOperators              |   🟢    | 104/104       |
+| TypeOperators              |   🟢    | 106/106       |
 | UnboxedSums                |   🟢    | 9/9           |
 | UnboxedTuples              |   🟡    | 83/84         |
-| UndecidableInstances       |   🔴    | 7/10          |
+| UndecidableInstances       |   🔴    | 8/11          |
 | UnliftedFFITypes           |   🟢    | 2/2           |
 | ViewPatterns               |   🟢    | 9/9           |
