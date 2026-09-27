@@ -34,5 +34,14 @@ instance Bifunctor ((,,) x) where
 instance Bifunctor ((,,,) x y) where
   bimap onFirst onSecond (x, y, valueOne, valueTwo) = (x, y, onFirst valueOne, onSecond valueTwo)
 
+instance Bifunctor ((,,,,) x y z) where
+  bimap onFirst onSecond (x, y, z, valueOne, valueTwo) = (x, y, z, onFirst valueOne, onSecond valueTwo)
+
+instance Bifunctor ((,,,,,) x y z w) where
+  bimap onFirst onSecond (x, y, z, w, valueOne, valueTwo) = (x, y, z, w, onFirst valueOne, onSecond valueTwo)
+
+instance Bifunctor ((,,,,,,) x y z w v) where
+  bimap onFirst onSecond (x, y, z, w, v, valueOne, valueTwo) = (x, y, z, w, v, onFirst valueOne, onSecond valueTwo)
+
 instance Bifunctor Const where
   bimap onFirst _ (Const value) = Const (onFirst value)

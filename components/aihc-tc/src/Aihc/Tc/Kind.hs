@@ -5,6 +5,7 @@ module Aihc.Tc.Kind
     ParamInfo (..),
     checkSurfaceType,
     checkRuntimeType,
+    floatResultQuantifiers,
     unboxedSumType,
     convertSurfaceTypeWithKinds,
     defaultKindMetas,
@@ -562,15 +563,55 @@ expandTypeSynonym tvEnv ty =
             Just {} <- tsiBody synonym -> do
               let ForAll variables _ _ = tciKindScheme info
               instantiation <- instantiateWithArgs (tciKindScheme info)
+              -- The expansion keeps no use of the synonym, so no walk over
+              -- its kind arguments settles them later. Track them as the
+              -- kind metas of the enclosing declaration, which then
+              -- defaults or quantifies them.
+              mapM_ trackKindMeta [meta | TcMetaTv meta <- instTypeArgs instantiation]
               let substitution = Map.fromList (zip (map tvUnique variables) (instTypeArgs instantiation))
                   specialize variable = do
                     kind <- zonkKind (tvKind variable)
                     pure (setTyVarKind (applySubst substitution kind) variable)
               parameters <- mapM specialize (tsiParams synonym)
-              let specialized = synonym {tsiParams = parameters, tsiBody = applySubst substitution <$> tsiBody synonym}
+              -- The kind of a variable that the body quantifies can still be
+              -- a solved meta-variable. Zonk it first, so that the
+              -- substitution also reaches that kind.
+              body <- traverse zonkTyVarKinds (tsiBody synonym)
+              let specialized = synonym {tsiParams = parameters, tsiBody = applySubst substitution <$> body}
               Just <$> instantiateTypeSynonym tvEnv (nameText name) specialized arguments
         _ -> pure Nothing
     Nothing -> pure Nothing
+
+-- | Zonk the kinds of the type variables in a type. The type itself is
+-- not zonked, thus a recursive synonym in it is not expanded.
+zonkTyVarKinds :: TcType -> TcM TcType
+zonkTyVarKinds ty =
+  case ty of
+    TcTyVar tyVar -> TcTyVar <$> zonkVariable tyVar
+    TcMetaTv {} -> pure ty
+    TcArrowTy -> pure ty
+    TcTyLit {} -> pure ty
+    TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM zonkTyVarKinds arguments
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM zonkTyVarKinds kindArguments
+    TcFunTy argument result -> TcFunTy <$> zonkTyVarKinds argument <*> zonkTyVarKinds result
+    TcForAllTy tyVar body -> TcForAllTy <$> zonkVariable tyVar <*> zonkTyVarKinds body
+    TcQualTy predicates body -> TcQualTy <$> mapM zonkPredicate predicates <*> zonkTyVarKinds body
+    TcAppTy function argument -> TcAppTy <$> zonkTyVarKinds function <*> zonkTyVarKinds argument
+  where
+    zonkVariable tyVar = do
+      kind <- zonkKind (tvKind tyVar)
+      pure (setTyVarKind kind tyVar)
+    zonkPredicate predicate =
+      case predicate of
+        ClassPred className arguments -> ClassPred className <$> mapM zonkTyVarKinds arguments
+        EqPred left right -> EqPred <$> zonkTyVarKinds left <*> zonkTyVarKinds right
+        IParamPred name payload -> IParamPred name <$> zonkTyVarKinds payload
+        IrredPred constraint -> IrredPred <$> zonkTyVarKinds constraint
+        QuantifiedPred variables antecedents consequent ->
+          QuantifiedPred
+            <$> mapM zonkVariable variables
+            <*> mapM zonkPredicate antecedents
+            <*> zonkPredicate consequent
 
 -- | The head name and the arguments of a type constructor application,
 -- whether it is spelled prefix (@Assert b c@) or infix (@x <= y@). A
