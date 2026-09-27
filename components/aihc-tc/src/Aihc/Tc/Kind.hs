@@ -642,7 +642,11 @@ inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
 inferTypeVariable tvEnv name =
   let n = unqualifiedNameText name
    in case Map.lookup n tvEnv of
-        Just (tv, kind) -> pure (TcTyVar tv, kind)
+        Just (tv, kind) -> do
+          -- A variable that a pattern signature bound stands for the type
+          -- the signature matched.
+          bound <- getTyVarTypes
+          pure (Map.findWithDefault (TcTyVar tv) (tvUnique tv) bound, kind)
         Nothing -> inferUnknownType
 
 inferTypeConstructor :: Name -> TcM (TcType, TcType)
