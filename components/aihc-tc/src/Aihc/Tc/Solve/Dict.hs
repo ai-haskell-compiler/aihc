@@ -558,13 +558,17 @@ implicitParamEvidence ct name payload parent =
     _ -> parent
 
 -- | The package and module of the @CallStack@ type when the implicit
--- parameter is @?callStack :: CallStack@.
+-- parameter has the type @CallStack@.
+--
+-- The type alone makes an implicit parameter a call stack. Like GHC, the
+-- solver accepts a name other than @?callStack@, such as @?callstack@. A
+-- given solves only a wanted with the same name, so a wanted with another
+-- name gets the empty call stack.
 callStackOrigin :: Text -> TcType -> Maybe (Text, Text)
-callStackOrigin name payload =
+callStackOrigin _name payload =
   case payload of
     TcTyCon tyCon []
-      | name == "?callStack",
-        tyConName tyCon == "CallStack" ->
+      | tyConName tyCon == "CallStack" ->
           Just (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon)
     _ -> Nothing
 
