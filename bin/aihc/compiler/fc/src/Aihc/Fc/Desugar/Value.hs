@@ -3431,16 +3431,20 @@ desugarNewtypeConstructor annotation dataType = do
   convertedArguments <- convertNewtypeAxiomArguments dataType resultArguments
   pure (ExLam argument (ExCast (ExVar (binderName argument)) (CoSym (CoAxiom axiom convertedArguments))))
 
+-- | The type arguments of the newtype axiom of one wrap or unwrap. Each
+-- visible argument is converted at the kind of its axiom binder. An
+-- argument that nothing determines is @Any@ without a kind argument, and
+-- the binder kind is what gives it one: a parameter of kind @Nat@ gets
+-- @Any Nat@, not @Any Type@.
 convertNewtypeAxiomArguments :: DataTypeInfo -> [TcType] -> ValueM [Type]
 convertNewtypeAxiomArguments dataType arguments =
   if length arguments > length (dtiTyVars dataType)
     then mapM convertCheckedType arguments
-    else do
-      env <- gets vsConvertEnv
-      invisibleArguments <- liftEither (invisibleKindArgs env (dtiTyCon dataType) arguments Nothing)
-      visibleArguments <- mapM convertCheckedType arguments
-      pure (invisibleArguments <> visibleArguments)
+    else convertTyConApplicationArguments (dtiTyCon dataType) arguments
 
+-- | The invisible kind arguments and the visible arguments of one type
+-- constructor application, each visible argument converted at the kind
+-- that the constructor expects for it.
 convertTyConApplicationArguments :: TyCon -> [TcType] -> ValueM [Type]
 convertTyConApplicationArguments tyCon arguments = do
   env <- gets vsConvertEnv
