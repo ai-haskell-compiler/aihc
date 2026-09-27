@@ -11,8 +11,7 @@ module GHC.Prim.IO
 where
 
 import GHC.Prim (RealWorld, State#)
-
-newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+import GHC.Types (IO (..))
 
 newtype ST s a = ST (State# s -> (# State# s, a #))
 

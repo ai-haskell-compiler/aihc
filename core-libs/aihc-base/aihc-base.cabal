@@ -189,6 +189,7 @@ library
     GHC.Num.BigNat
     GHC.Num.Integer
     GHC.Num.Natural
+    GHC.Num.Primitives
     GHC.OldList
     GHC.OverloadedLabels
     GHC.Profiling

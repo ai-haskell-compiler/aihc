@@ -1,0 +1,113 @@
+extensions:
+  - MagicHash
+  - UnboxedSums
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Num.BigNat
+    import GHC.Num.Integer
+    import GHC.Num.Natural (Natural)
+    import GHC.Num.Primitives (wordSizeInBase#)
+    import GHC.Prim
+    import GHC.Types (IO (..), Int (..), Word (..))
+    import Prelude
+
+    big :: Integer
+    big = 340282366920938463463374607431768211457
+
+    magnitude :: Integer -> BigNat
+    magnitude value = BN# (integerToBigNatClamp# value)
+
+    fromMagnitude :: BigNat -> Integer
+    fromMagnitude (BN# value) = integerFromBigNat# value
+
+    subtractMagnitudes :: Integer -> Integer -> String
+    subtractMagnitudes left right =
+      case (magnitude left, magnitude right) of
+        (BN# a, BN# b) -> case bigNatSub a b of
+          (# (# #) | #) -> "underflow"
+          (# | difference #) -> show (integerFromBigNat# difference)
+
+    quotRemWord :: Integer -> Word -> (Integer, Word)
+    quotRemWord value (W# divisor) =
+      case magnitude value of
+        BN# a -> case bigNatQuotRemWord# a divisor of
+          (# quotient, remainder #) -> (integerFromBigNat# quotient, W# remainder)
+
+    bitTests :: Integer -> [Int]
+    bitTests value =
+      case magnitude value of
+        BN# a -> [I# (bigNatTestBit# a (int2Word# index)) | I# index <- [0, 1, 64, 128, 129]]
+
+    sizeInBase :: Word -> Integer -> Word
+    sizeInBase (W# base) value = W# (integerSizeInBase# base value)
+
+    wordSize :: Word -> Word -> Word
+    wordSize (W# base) (W# value) = W# (wordSizeInBase# base value)
+
+    gcde :: Integer -> Integer -> (Integer, Integer, Integer)
+    gcde left right = case integerGcde# left right of
+      (# g, x, y #) -> (g, x, y)
+
+    -- GHC.Num.Integer has private helpers with the names recipMod and
+    -- powMod. The same names here make sure that the two modules keep their
+    -- functions apart.
+    recipMod :: Integer -> Natural -> Maybe Natural
+    recipMod value modulus = case integerRecipMod# value modulus of
+      (# inverse | #) -> Just inverse
+      (# | () #) -> Nothing
+
+    powMod :: Integer -> Integer -> Natural -> Maybe Natural
+    powMod base exponent modulus = case integerPowMod# base exponent modulus of
+      (# result | #) -> Just result
+      (# | () #) -> Nothing
+
+    -- Write the bytes into a fresh array, then read them back in both byte
+    -- orders.
+    roundTrip :: Integer -> IO (Word, Integer, Integer)
+    roundTrip value = IO (\state ->
+      case newByteArray# 32# state of
+        (# state1, bytes #) -> case integerToMutableByteArray# value bytes (int2Word# 2#) 1# state1 of
+          (# state2, count #) -> case unsafeFreezeByteArray# bytes state2 of
+            (# state3, frozen #) -> case integerFromByteArray# count frozen (int2Word# 2#) 1# state3 of
+              (# state4, bigEndian #) -> case integerFromByteArray# count frozen (int2Word# 2#) 0# state4 of
+                (# state5, littleEndian #) -> (# state5, (W# count, bigEndian, littleEndian) #))
+
+    main :: IO ()
+    main = do
+      print (map (\value -> I# (integerCheck# value)) [0, big, negate big])
+      print (subtractMagnitudes big 1, subtractMagnitudes 1 big)
+      print (quotRemWord big 10)
+      print (bitTests big)
+      print (map (sizeInBase 10) [0, 999, 1000, big], sizeInBase 256 big, sizeInBase 2 (negate big))
+      print (wordSize 10 0, wordSize 10 12345, wordSize 16 255)
+      print (gcde 240 46, gcde (negate big) 12, gcde 0 0)
+      print (recipMod 3 11, recipMod 4 8, recipMod 5 1, recipMod (negate 3) 11)
+      print (powMod 4 13 497, powMod 3 (negate 1) 11, powMod 2 10 0, powMod 7 5 1)
+      print (integerSqr big, integerGcd 12 (negate 18), integerLcm 4 6)
+      print (integerToNatural (negate 42), integerFromNatural 42)
+      print (fromMagnitude bigNatOne, fromMagnitude (BN# (bigNatFromWord2# (int2Word# 1#) (int2Word# 2#))))
+      roundTrip 258 >>= print
+      roundTrip big >>= print
+stdout: |
+  [1,1,1]
+  ("340282366920938463463374607431768211456","underflow")
+  (34028236692093846346337460743176821145,7)
+  [1,0,0,1,0]
+  ([0,3,4,39],17,129)
+  (0,5,2)
+  ((2,-9,47),(1,-5,-141784319550391026443072753096570088107),(0,0,0))
+  (Just 4,Nothing,Just 0,Just 7)
+  (Just 445,Just 4,Nothing,Just 0)
+  (115792089237316195423570985008687907853950549399482440966384333222776666062849,6,12)
+  (42,42)
+  (1,18446744073709551618)
+  (2,258,513)
+  (17,340282366920938463463374607431768211457,340282366920938463463374607431768211457)
+output: |
+  ()
+expression: main
+status: pass
+reason: The ghc-bignum BigNat and Integer operations that integer-gmp re-exports give the same results as GHC
