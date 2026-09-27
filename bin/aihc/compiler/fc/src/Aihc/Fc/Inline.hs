@@ -14,7 +14,8 @@
 -- on what the walk did to any other value. The 'InlinePolicy' names the
 -- limits, and the program as a whole has no budget: each accepted site
 -- adds at most the callee limit, each value grows at most to its own
--- multiple, recursive groups are never copied into themselves, and the
+-- multiple, a site that is free of that multiple adds at most its own
+-- site limit, recursive groups are never copied into themselves, and the
 -- rounds are counted, so the growth of the program is bounded by
 -- construction.
 --
@@ -81,7 +82,14 @@ data InlinePolicy = InlinePolicy
     -- the value a candidate whatever its size, and the growth then bounds
     -- the value as it bounds any other copy. Zero lets a requested copy
     -- go free only when the program does not grow.
-    policyRequestedSiteLimit :: !Int
+    policyRequestedSiteLimit :: !Int,
+    -- | The largest growth a strong reducing site of an @INLINE@ value
+    -- may cause without a charge to the allowance of the value it lands
+    -- in, with the copies inside it. A site reduces strongly when it gives
+    -- a constructor application or a known top-level value to a parameter
+    -- that the callee scrutinises. The callee limit does not apply. Zero
+    -- lets such a copy go free only when the program does not grow.
+    policyReducingSiteLimit :: !Int
   }
   deriving (Eq, Show)
 
@@ -99,7 +107,8 @@ shrinkPolicy =
       policyFunctionArgumentDiscount = 0,
       policyValueGrowth = 0,
       policyValueSlack = 0,
-      policyRequestedSiteLimit = 0
+      policyRequestedSiteLimit = 0,
+      policyReducingSiteLimit = 0
     }
 
 -- | Accept a site that makes the program larger, within the limits.
@@ -119,6 +128,16 @@ shrinkPolicy =
 -- larger and the compile ran out of memory. A large @INLINE@ value is
 -- only a candidate: @text@ marks large functions @INLINE@ too, and to
 -- copy them at every call made its example two and a half times larger.
+--
+-- A reducing site gives a known constructor to a parameter that the
+-- callee scrutinises, and is free of the allowance within a site limit.
+-- The reducing site limit of a strong reducing site of an @INLINE@ value
+-- is the smallest round
+-- number that takes the step of SHA-256 in the @SHA@ package: an @INLINE@
+-- value that the block function calls sixty-four times in a chain, each
+-- copy about 250 nodes with the arithmetic inside it. The copies took the
+-- @sha-digest@ benchmark from 58 ms to 29 ms and its allocation from
+-- 226 MB to 59 MB.
 growPolicy :: InlinePolicy
 growPolicy =
   InlinePolicy
@@ -128,7 +147,8 @@ growPolicy =
       policyFunctionArgumentDiscount = 6,
       policyValueGrowth = 100,
       policyValueSlack = 20,
-      policyRequestedSiteLimit = 10
+      policyRequestedSiteLimit = 10,
+      policyReducingSiteLimit = 256
     }
 
 data InlineConfig = InlineConfig
@@ -337,7 +357,7 @@ simplifyValue config known recursive st name
               reachable = calleesOf (inRefs st) references
               candidates =
                 Map.fromList
-                  [ (callee, Candidate calleeBody sites)
+                  [ (callee, Candidate calleeBody sites requested)
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
@@ -379,6 +399,7 @@ simplifyValue config known recursive st name
                             spEvaluated = Set.empty,
                             spSiteLimit = policySiteLimit policy,
                             spRequestedSiteLimit = policyRequestedSiteLimit policy,
+                            spReducingSiteLimit = policyReducingSiteLimit policy,
                             spDiscount = policyFunctionArgumentDiscount policy,
                             spRules = inRules st
                           }
@@ -395,6 +416,7 @@ simplifyValue config known recursive st name
                    in killDead
                         st
                           { inBodies = Map.insert name body' (inBodies st),
+                            inLimits = Map.adjust (+ ssExempt simplState) name (inLimits st),
                             inRefs = Map.insert name (valueReferences (inDecls st) body') (inRefs st),
                             inCounts = counts',
                             inCalls = calls',

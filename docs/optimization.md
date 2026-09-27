@@ -176,18 +176,18 @@ reads the types of arguments off the type of the head of a call. Where a
 type is unknown the rewrite does not happen.
 
 The plans run the pass with `StrictLetsOnly`. The strict-argument rewrite
-is measured, not switched on. On the `sha-digest` benchmark at `-O2` it
-took the allocation from 214 MB to 150 MB, and the run time from 60 ms to
-90 ms, with a binary 61% larger. The block function of SHA-256 calls
-`step256` sixty-four times, and the inliner does not copy the callee, so
-each call became a non-tail call whose continuation frame holds the
-remaining words of the message schedule: sixty-eight continuations with
-up to seventy-two parameters each, where a thunk held three fields. The
-rewrite pays where the callee is inlined, because the cases then reduce
-by case of known constructor to straight-line code, and where few
-variables are live across the call. It goes into the plans when the
-inliner copies such callees, or when the rewrite counts the live
-variables at the site.
+is measured, not switched on. It was first measured when the inliner did
+not copy `step256`: the block function of SHA-256 calls it sixty-four
+times, and each call became a non-tail call whose continuation frame held
+the remaining words of the message schedule. The reducing sites of the
+inliner (see "The policy" below) now copy `step256`, and the rewrite still
+loses. On the `sha-digest` benchmark at `-O2`, with strict lets only, the
+run takes 29 ms and allocates 59 MB, with a 2.30 MB program object. With
+strict arguments, it takes 39 ms and allocates 91 MB, with a 2.22 MB
+object. The strict arguments of the `Integer` arithmetic then become
+non-tail calls: `mod` on `Integer` gets 665 continuation functions, where
+it had none. The rewrite goes into the plans when it counts the live
+variables at the site, or when a worker takes the unboxed arguments.
 
 The report gives the number of top-level values with a strict parameter,
 the number of lets that became cases, and the number of arguments that
@@ -217,7 +217,7 @@ what the walk did to any other value, so the result of one value is stable
 under edits to unrelated values, and any single decision can be read off a
 dump of the program.
 
-`Aihc.Fc.Inline.InlinePolicy` has six knobs:
+`Aihc.Fc.Inline.InlinePolicy` has seven knobs:
 
 | Knob | Meaning |
 | ---- | ------- |
@@ -227,6 +227,7 @@ dump of the program.
 | `policyValueGrowth` | How far one top-level value may grow in the pass, as a percentage of its size when the pass began. |
 | `policyValueSlack` | Nodes every value may grow by in the pass, whatever its size, so that a small value can still take one useful copy. |
 | `policyRequestedSiteLimit` | The largest growth a site of an `INLINE` value within the callee limit may cause without a charge to the allowance of the value it lands in. A larger requested copy is decided like a measured site. |
+| `policyReducingSiteLimit` | The largest growth a strong reducing site of an `INLINE` value may cause without a charge to the allowance, with the copies inside it. The callee limit does not apply. |
 
 `shrinkPolicy` sets the callee limit to 80 and every other limit to zero, so
 a requested copy goes free only when the program does not grow.
@@ -250,11 +251,58 @@ callee limit and from the growth of the value it lands in: the copies
 together are no larger than the value, so the program shrinks whatever the
 value's size.
 
+A site reduces when it gives a known constructor to a parameter that the
+callee scrutinises. In the copy, the case on the parameter selects its
+alternative, and when the callee returns a constructor, the case of the
+next call on the result selects its alternative too. A chain of such calls
+becomes straight-line code, with no call, no case, and no constructor
+between the steps. No size of the result shows that saving, so a reducing
+site is free of the allowance of the value it lands in. There are two
+strengths of reduction:
+
+- A strong reduction gives a constructor application, an expression whose
+  every tail is one, or a variable that names a known top-level value,
+  such as a dictionary. The copy removes an allocation or selects the
+  methods of a dictionary.
+- A weak reduction gives a local variable that holds a known constructor,
+  such as the case binder of an alternative. The copy removes only the
+  case.
+
+The rules are:
+
+- A reducing site that is not unconditional is taken when its growth, with
+  the copies inside it, is within the site limit.
+- A strong reducing site of an `INLINE` value is taken when that growth is
+  within the reducing site limit, whatever the callee limit.
+- The allowance that the copies inside the site took is given back, and
+  the limit of the value grows by the growth of the site, so a later round
+  does not charge it either. A requested copy within the requested site
+  limit also grows the limit of the value.
+
+A weak reduction gets only the site limit because of the `text` package. It
+gives `INLINE` functions of about two hundred nodes, such as `mul`, `index`
+and `unsafeHead`, a case binder at many sites. When the reducing site limit
+applied to those sites, the example of `text` grew by 21% at `-O2` in
+System FC nodes. With the site limit, it grows by 2%.
+
+`growPolicy` sets the reducing site limit to 256, the smallest round number
+that takes the step of SHA-256 in the `SHA` package. That step is an
+`INLINE` value of 124 nodes, and the block function calls it sixty-four
+times in a chain, each call on the result of the one before. Each copy,
+with the `Word32` arithmetic inside it, grows the block function by about
+250 nodes, which no per-value allowance can hold. On the `sha-digest`
+benchmark at `-O2`, the rules took the run time from 58 ms to 29 ms and
+the allocation from 226 MB to 59 MB, and the program object from 2.04 MB
+to 2.30 MB. The program objects of the examples grew by 0% to 5%, and by 8%
+for `pretty`. `shrinkPolicy` sets the limit to zero, and the `-Os` objects
+do not change.
+
 Why these rules bound the program without a global counter: every accepted
 site adds at most the callee limit, every value grows at most to its own
 multiple, an exempt copy never grows the program, a requested copy that is
 free of the allowance adds at most the requested site limit in place of a
-call of at least two nodes, recursive groups are never copied into
+call of at least two nodes, a reducing copy adds at most the site limit or
+the reducing site limit in place of a call, recursive groups are never copied into
 themselves, and the round count is fixed. Total growth is bounded by
 construction. There is no program budget and no backstop: a program that
 grows more than expected is a mis-tuned knob, found by reading the pass
@@ -343,7 +391,7 @@ reads it per phase, with the activation read as a rule's is:
 
 | Pragma | In the phases the activation names | In the other phases |
 | ------ | ---------------------------------- | ------------------- |
-| `INLINE` | a candidate whatever its size; within the callee limit, copied at each admitted site whose growth is within the requested site limit, whatever the allowance; otherwise the site policy decides each copy | never copied |
+| `INLINE` | a candidate whatever its size; within the callee limit, copied at each admitted site whose growth is within the requested site limit, whatever the allowance; at a strong reducing site, copied when the growth is within the reducing site limit, whatever the allowance; otherwise the site policy decides each copy | never copied |
 | `INLINABLE` | the usual policy | never copied |
 | `NOINLINE` | the usual policy | never copied |
 | none | the usual policy | the usual policy |
@@ -370,7 +418,8 @@ Three things differ from GHC:
 - A larger `INLINE` value is only a candidate, and the site policy decides
   each copy. The `text` package marks large functions `INLINE`, and
   honouring them GHC's way made its example two and a half times larger at
-  `-O2`.
+  `-O2`. A strong reducing site of such a value is the exception, within
+  the reducing site limit.
 - A copy of a small `INLINE` value that grows the site by more than the
   requested site limit charges the allowance like a measured copy. The
   growth of a site counts the free copies inside it, so a chain of

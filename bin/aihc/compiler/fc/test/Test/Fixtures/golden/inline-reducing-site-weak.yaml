@@ -1,0 +1,106 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run, again, other) where
+  import GHC.Types (Bool (..))
+
+  data State = State Bool Bool Bool
+
+  step :: State -> Bool -> State
+  step (State a b c) x = case x of
+    True -> State b c a
+    False -> case a of
+      True -> State c a b
+      False -> State a c b
+  {-# INLINE step #-}
+
+  run :: State -> Bool -> State
+  run s x = case s of
+    State _ _ _ -> step s x
+
+  again :: State -> Bool -> State
+  again s x = step s x
+
+  other :: State -> Bool -> State
+  other s x = step s x
+passes:
+- inline:
+    policy: grow
+    callee-limit: 5
+    site-limit: 100
+    value-growth: 0
+    value-slack: 0
+    requested-site-limit: 0
+    reducing-site-limit: 100
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cFalse :: 2.tBool;
+    2.cLifted :: 2.tLevity;
+    2.cTrue :: 2.tBool
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tState :: 2.sType {
+      1.cState :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool 2.→ 1.tState
+  }
+
+  val 1.vstep inline :: 1.tState 2.→ 2.tBool 2.→ 1.tState
+   = λ(x : 1.tState).
+    λ(y : 2.tBool).
+      case x as (_scrut : 1.tState) return (1.tState) of {
+          1.cState (a : 2.tBool) (b : 2.tBool) (c : 2.tBool) →
+              case y as (_scrut{1} : 2.tBool) return (1.tState) of {
+                  2.cTrue →
+                      1.cState b c a;
+                  2.cFalse →
+                      case a as (_scrut{2} : 2.tBool) return (1.tState) of {
+                          2.cTrue →
+                              1.cState c a b;
+                          2.cFalse →
+                              1.cState a c b
+                      }
+              }
+      }
+
+  pub val 1.vrun :: 1.tState 2.→ 2.tBool 2.→ 1.tState
+   = λ(x : 1.tState).
+    λ(y : 2.tBool).
+      case x as (_scrut : 1.tState) return (1.tState) of {
+          1.cState (_pat : 2.tBool) (_pat{1} : 2.tBool) (_pat{2} : 2.tBool) →
+              case y as (_scrut{1} : 2.tBool) return (1.tState) of {
+                  2.cTrue →
+                      1.cState _pat{1} _pat{2} _pat;
+                  2.cFalse →
+                      case _pat as (_scrut{2} : 2.tBool) return (1.tState) of {
+                          2.cTrue →
+                              1.cState _pat{2} _pat _pat{1};
+                          2.cFalse →
+                              1.cState _pat _pat{2} _pat{1}
+                      }
+              }
+      }
+
+  pub val 1.vagain :: 1.tState 2.→ 2.tBool 2.→ 1.tState
+   = λ(x : 1.tState).
+    λ(y : 2.tBool).
+      1.vstep x y
+
+  pub val 1.vother :: 1.tState 2.→ 2.tBool 2.→ 1.tState
+   = λ(x : 1.tState).
+    λ(y : 2.tBool).
+      1.vstep x y
+status: pass
+reason: A weak reduction is free of the allowance within the site limit, so a value with no growth left takes the copy.
