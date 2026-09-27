@@ -2748,7 +2748,7 @@ desugarRhsWithFailure resultType failure rhs = do
   let annotations = case rhs of
         Syn.UnguardedRhs anns _ _ -> anns
         Syn.GuardedRhss anns _ _ -> anns
-      proofs = [proof | TcCastAnnotation proof <- mapMaybe Syn.fromAnnotation annotations]
+      proofs = [proof | TcCastAnnotation (Just proof) _ <- mapMaybe Syn.fromAnnotation annotations]
   foldM (\expression proof -> withCoercion proof (pure . ExCast expression)) body proofs
 
 desugarRhsBodyWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
@@ -2858,7 +2858,7 @@ desugarExpr expression =
     Syn.EAnn annotation inner
       -- A given equality made the expression fit where it stands, so the
       -- proof it carries is the cast that keeps the Core well typed.
-      | Just (TcCastAnnotation proof) <- Syn.fromAnnotation annotation ->
+      | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation annotation ->
           do
             inner' <- desugarExpr inner
             withCoercion proof (pure . ExCast inner')
@@ -4072,7 +4072,7 @@ doMethodCast :: Syn.DoStmt body -> Maybe Ev.Coercion
 doMethodCast statement =
   case statement of
     Syn.DoAnn annotation inner
-      | Just (TcCastAnnotation proof) <- Syn.fromAnnotation annotation -> Just proof
+      | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation annotation -> Just proof
       | otherwise -> doMethodCast inner
     _ -> Nothing
 
@@ -5029,7 +5029,9 @@ requiredExprType expression =
 inferExprType :: Syn.Expr -> ValueM TcType
 inferExprType expression =
   case expression of
-    Syn.EAnn _ inner -> inferExprType inner
+    Syn.EAnn annotation inner
+      | Just (TcCastAnnotation _ target) <- Syn.fromAnnotation annotation -> pure target
+      | otherwise -> inferExprType inner
     Syn.EVar name -> lookupNamedBindingType name
     Syn.EApp function _ -> do
       functionType <- inferExprType function
@@ -5064,7 +5066,7 @@ inferExprType expression =
 exprType :: Syn.Expr -> Maybe TcType
 exprType expression =
   case expression of
-    Syn.EAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> exprType inner
+    Syn.EAnn annotation inner -> annotationExprType annotation <|> exprType inner
     Syn.EApp function _ -> exprType function >>= applicationResultType
     Syn.EParen inner -> exprType inner
     Syn.EPragma _ inner -> exprType inner
@@ -5073,6 +5075,15 @@ exprType expression =
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner
     _ -> Nothing
+
+-- | The type that an expression annotation gives. A cast gives the type
+-- after the cast, so a function whose type is a family application has
+-- the arrow type that the type checker proved for it.
+annotationExprType :: Syn.Annotation -> Maybe TcType
+annotationExprType annotation =
+  case Syn.fromAnnotation annotation of
+    Just (TcCastAnnotation _ target) -> Just target
+    Nothing -> tcAnnType <$> Syn.fromAnnotation annotation
 
 applicationResultType :: TcType -> Maybe TcType
 applicationResultType ty =
