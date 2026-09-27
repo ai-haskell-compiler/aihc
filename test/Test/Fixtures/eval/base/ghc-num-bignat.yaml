@@ -1,0 +1,30 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (Int (..))
+    import GHC.Num.BigNat
+    import GHC.Num.Integer
+
+    results :: (Bool, Bool, Int, Int, Bool, Bool, Bool, Bool, Bool)
+    results =
+      case (bigNatZero, bigNatOne) of
+        (BN# zero, BN# one) ->
+          ( bigNatIsZero zero
+          , bigNatIsOne one
+          , I# (bigNatSize# zero)
+          , I# (bigNatSize# (bigNatFromWord# 7##))
+          , integerFromBigNat# zero == 0
+          , integerFromBigNat# (bigNatFromWord# 0xffffffffffffffff##) == 18446744073709551615
+          , integerFromBigNat# (bigNatXor (bigNatFromWord# 12##) (bigNatFromWord# 10##)) == 6
+          , integerFromBigNat# (bigNatAnd (integerToBigNatClamp# (2 ^ 70 + 5)) (bigNatFromWord# 7##)) == 5
+          , integerFromBigNat# (bigNatOr (integerToBigNatClamp# (2 ^ 70)) (bigNatFromWord# 1##)) == 2 ^ 70 + 1
+          )
+output: |
+  (True,True,(I# 0),(I# 1),True,True,True,True,True)
+expression: |
+  results
+status: pass
+reason: GHC.Num.BigNat builds, inspects, and combines magnitudes that GHC.Num.Integer converts to canonical Integer values

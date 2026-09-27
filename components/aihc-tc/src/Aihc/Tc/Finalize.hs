@@ -33,6 +33,7 @@ import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo 
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, typeKind)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
@@ -194,7 +195,7 @@ finalizeType :: TcType -> TcM TcType
 finalizeType = zonkType >=> defaultTypeKinds
 
 finalizePred :: Pred -> TcM Pred
-finalizePred = zonkPred >=> defaultPredKinds
+finalizePred = zonkPred >=> reclassifyIrreduciblePred >=> defaultPredKinds
 
 zonkCoercion :: Coercion -> TcM Coercion
 zonkCoercion coercion =

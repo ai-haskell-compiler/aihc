@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -744,12 +744,16 @@ collectSpine = go []
         _ -> (SpineHeadExpr expr, frames)
 
 -- | Whether an argument's type is known without inferring it: the
--- argument is a variable, or an application of a variable. The quick
--- look reads such an argument before any argument is checked.
+-- argument is a variable, an application of a variable, or an expression
+-- with a type signature. The quick look reads such an argument before any
+-- argument is checked, so a later rank-2 argument sees the instantiation
+-- it fixes: in @gdeciding (Proxy :: Proxy Eq) (\b -> b == b)@ the given
+-- @q b@ of the lambda is @Eq b@ only after the signature fixes @q@.
 isGuardedArgument :: Expr -> Bool
 isGuardedArgument expr =
   case expr of
     EVar {} -> True
+    ETypeSig {} -> True
     EApp fun _ -> isGuardedArgument fun
     ETypeApp fun _ -> isGuardedArgument fun
     EInfix {} -> True
@@ -1565,7 +1569,7 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
       blockTy <- maybe freshMetaTv pure expected
       (action', actionTy, actionCts) <- inferExprAt ambient action
       let bindTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy restExpected) blockTy)
-      (pending, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
+      (pending, methodEv, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
       prepareScrutinee (actionCts <> methodCts)
       patCheck <- checkPattern ambient pat itemTy
       (rest', restTy, restCts) <-
@@ -1573,7 +1577,7 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
           withPatternBindings (pcBindings patCheck) (inferDoStmtsWith (Just restExpected) ambient rest)
       resultEquality <- wantedDoEq ambient restTy restExpected
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
-          stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action'))
+          stmt' = annotateDoStmtCast bindTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action')))
       remainingCts <- solvePatternBranch ambient patCheck restExpected (restCts <> [resultEquality])
       pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts)
     DoExpr action -> do
@@ -1581,11 +1585,11 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
       blockTy <- maybe freshMetaTv pure expected
       (action', actionTy, actionCts) <- inferExprAt ambient action
       let thenTy = TcFunTy actionTy (TcFunTy restExpected blockTy)
-      (pending, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
+      (pending, methodEv, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
       prepareScrutinee (actionCts <> methodCts)
       (rest', restTy, restCts) <- inferDoStmtsWith (Just restExpected) ambient rest
       resultEquality <- wantedDoEq ambient restTy restExpected
-      let stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action'))
+      let stmt' = annotateDoStmtCast thenTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action')))
       pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts <> [resultEquality])
     _ -> do
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
@@ -1604,14 +1608,17 @@ resolvedLiteralCts sp literalResolution argumentTy = do
       ev <- freshEvVar
       pure [mkWantedCt (EqPred argumentTy (TcTyCon (tciTyCon info) [])) ev (LitOrigin sp) sp]
 
--- | Instantiate the method that sequences a do statement and equate it with the expected type.
-inferDoMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcType -> TcM (PendingTcAnnotation, [Ct])
+-- | Instantiate the method that sequences a do statement and equate it with
+-- the expected type. The evidence of that equality is the cast the
+-- desugarer puts on the method: a given equality can be what makes the
+-- method fit the statement.
+inferDoMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcType -> TcM (PendingTcAnnotation, EvVar, [Ct])
 inferDoMethod sp methodName resolution expectedTy = do
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
   ev <- freshEvVar
   let methodEq = mkWantedCt (EqPred methodTy expectedTy) ev (OccurrenceOf methodName) sp
       pending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
-  pure (pending, methodCts <> [methodEq])
+  pure (pending, ev, methodCts <> [methodEq])
 
 wantedDoEq :: Maybe SourceSpan -> TcType -> TcType -> TcM Ct
 wantedDoEq sp actual expected = do

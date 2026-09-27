@@ -38,6 +38,21 @@
 -- locations. The worklist gives each set node only the locations that are
 -- new to it. The solver does not merge cycles.
 --
+-- Each location holds one node, from its creation. An @apply@ site makes
+-- one location for each shape of partial application that it makes: a
+-- new shape is a new location, which flows to the result of the site like
+-- any other. So no trigger has to see a location again, and the solver
+-- keeps no list of the triggers that saw a location. Such lists held
+-- more memory than the location sets themselves.
+--
+-- A set node that gathers more than 'widenLimit' locations is widened:
+-- its set becomes the unknown location, and the locations it held escape.
+-- The rewrites need every location of a variable, and a variable that can
+-- point at thousands of them gives none of them, so the precision that the
+-- widening loses is precision that no rewrite used. Without the limit, the
+-- sets of a whole program that passes closures through continuations grew
+-- past the memory of the compiler.
+--
 -- The rewrites use the result:
 --
 -- * A case alternative whose constructor no location of the scrutinee holds
@@ -64,6 +79,8 @@ module Aihc.Grin.PointsTo
     PointsToStats (..),
     PointsToRewrites (..),
     analyzePointsTo,
+    analyzePointsToWith,
+    widenLimit,
     pointsToStats,
     rewriteWithPointsTo,
     totalPointsToRewrites,
@@ -112,9 +129,22 @@ data PointsToStats = PointsToStats
     statsSetNodes :: !Int,
     statsLocations :: !Int,
     statsSharedLocations :: !Int,
-    statsSingleEntryThunks :: !Int
+    statsSingleEntryThunks :: !Int,
+    -- | The number of set nodes that the solver widened to the unknown
+    -- location.
+    statsWidenedNodes :: !Int
   }
   deriving (Eq, Show)
+
+-- | The most locations a set node holds before the solver widens it. The
+-- rewrites need every location of a variable: a case alternative is dead
+-- when no location holds its constructor, an @eval@ goes when every
+-- location is a value, and an @apply@ is a direct call when one closure
+-- is the only location. A variable that can point at this many places
+-- gives none of them, and the sets of such variables, copied along every
+-- edge, were what held the memory of a large whole program.
+widenLimit :: Int
+widenLimit = 1024
 
 -- | The number of rewrites of each kind.
 data PointsToRewrites = PointsToRewrites
@@ -230,8 +260,9 @@ data Trigger
     TriggerEval !Int
   | -- | The binders of the alternatives, per constructor, and all binders.
     TriggerCase !(Map Text [Slot]) ![Slot]
-  | -- | The location of the partial applications this makes, the argument
-    -- set nodes of each argument group, and the result.
+  | -- | The apply site, whose shapes of partial application are
+    -- locations, the argument set nodes of each argument group, and the
+    -- result.
     TriggerApply !Int ![[Maybe Int]] !Results
   | TriggerFetch !GrinNodeTag !Results
   | -- | A @readMutVar#@ of the location. The value goes to the set node.
@@ -252,18 +283,31 @@ data Solver s = Solver
     solverIterations :: !(STRef s Int),
     solverLocationCount :: !(STRef s Int),
     solverLocationNodes :: !(STRef s (MV.MVector s (Map GrinNodeTag [Int]))),
-    solverLocationReaders :: !(STRef s (MV.MVector s [Trigger])),
+    -- | The location of each shape of partial application that an apply
+    -- site makes, by the site.
+    solverShapes :: !(STRef s (MV.MVector s (Map GrinNodeTag Int))),
+    -- | Whether each set node is widened to the unknown location.
+    solverWidened :: !(STRef s (MU.MVector s Bool)),
+    solverWidenedCount :: !(STRef s Int),
+    -- | The most locations a set node holds before the solver widens it.
+    solverWidenLimit :: !Int,
     solverEvalNodes :: !(STRef s (Map FunctionName Int)),
     solverGlobalNodes :: !(STRef s (Map Text Int)),
     solverStatics :: !(STRef s (Map Text Int)),
     solverFunctions :: !(STRef s (Map FunctionName FunctionInfo))
   }
 
--- | Analyze a program. A program that holds CPS or GC forms, or an explicit
--- @update@, gives 'Nothing'.
+-- | Analyze a program with the widening limit 'widenLimit'. A program
+-- that holds CPS or GC forms, or an explicit @update@, gives 'Nothing'.
 analyzePointsTo :: GrinProgram -> Maybe PointsTo
-analyzePointsTo program
-  | all (supportedExpr . grinFunctionBody) (grinFunctions program) = Just (runAnalysis program)
+analyzePointsTo = analyzePointsToWith widenLimit
+
+-- | Analyze a program with the given widening limit: the most locations a
+-- set node holds before the solver widens it. The fixtures use a small
+-- limit to show the widening on a small program.
+analyzePointsToWith :: Int -> GrinProgram -> Maybe PointsTo
+analyzePointsToWith limit program
+  | all (supportedExpr . grinFunctionBody) (grinFunctions program) = Just (runAnalysis limit program)
   | otherwise = Nothing
 
 -- | The expression forms that the analysis models. An explicit update can
@@ -299,9 +343,9 @@ supportedExpr expression =
     GrinCpsRaise {} -> False
     GrinHalt {} -> False
 
-runAnalysis :: GrinProgram -> PointsTo
-runAnalysis program = runST $ do
-  solver <- newSolver
+runAnalysis :: Int -> GrinProgram -> PointsTo
+runAnalysis limit program = runST $ do
+  solver <- newSolver limit
   escape <- newNode solver
   when (escape /= escapeNode) (error "points-to: the escape set node must come first")
   addTrigger solver escapeNode TriggerEscape
@@ -348,6 +392,7 @@ runAnalysis program = runST $ do
   sets <- V.freeze . MV.take nodeCount =<< readSTRef (solverSets solver)
   locationNodes <- V.freeze . MV.take locationCount =<< readSTRef (solverLocationNodes solver)
   iterations <- readSTRef (solverIterations solver)
+  widenedCount <- readSTRef (solverWidenedCount solver)
   functions <- readSTRef (solverFunctions solver)
   evalNodes <- readSTRef (solverEvalNodes solver)
   statics <- readSTRef (solverStatics solver)
@@ -370,12 +415,13 @@ runAnalysis program = runST $ do
               statsSetNodes = nodeCount,
               statsLocations = locationCount,
               statsSharedLocations = IntSet.size shared,
-              statsSingleEntryThunks = IntSet.size singleEntry
+              statsSingleEntryThunks = IntSet.size singleEntry,
+              statsWidenedNodes = widenedCount
             }
       }
 
-newSolver :: ST s (Solver s)
-newSolver = do
+newSolver :: Int -> ST s (Solver s)
+newSolver limit = do
   let capacity = 1024
   Solver
     <$> newSTRef 0
@@ -388,7 +434,10 @@ newSolver = do
     <*> newSTRef 0
     <*> newSTRef 0
     <*> (newSTRef =<< MV.replicate capacity Map.empty)
-    <*> (newSTRef =<< MV.replicate capacity [])
+    <*> (newSTRef =<< MV.replicate capacity Map.empty)
+    <*> (newSTRef =<< MU.replicate capacity False)
+    <*> newSTRef 0
+    <*> pure limit
     <*> newSTRef Map.empty
     <*> newSTRef Map.empty
     <*> newSTRef Map.empty
@@ -425,6 +474,7 @@ newNode solver = do
   ensureSize (solverSuccessors solver) IntSet.empty (node + 1)
   ensureSize (solverTriggers solver) [] (node + 1)
   ensureUnboxedSize (solverQueued solver) False (node + 1)
+  ensureUnboxedSize (solverWidened solver) False (node + 1)
   pure node
 
 newSlot :: Solver s -> GrinRep -> ST s Slot
@@ -437,8 +487,20 @@ newLocation solver = do
   location <- readSTRef (solverLocationCount solver)
   writeSTRef (solverLocationCount solver) (location + 1)
   ensureSize (solverLocationNodes solver) Map.empty (location + 1)
-  ensureSize (solverLocationReaders solver) [] (location + 1)
+  ensureSize (solverShapes solver) Map.empty (location + 1)
   pure location
+
+-- | The location of one shape of partial application that an apply site
+-- makes. The first application of that shape makes the location.
+shapeLocation :: Solver s -> Int -> GrinNodeTag -> ST s Int
+shapeLocation solver site tag = do
+  shapes <- readAt (solverShapes solver) site
+  case Map.lookup tag shapes of
+    Just location -> pure location
+    Nothing -> do
+      location <- newLocation solver
+      writeAt (solverShapes solver) site (Map.insert tag location shapes)
+      pure location
 
 readAt :: STRef s (MV.MVector s a) -> Int -> ST s a
 readAt ref index = do
@@ -494,19 +556,18 @@ addTrigger solver node trigger = do
   current <- readAt (solverSets solver) node
   forM_ (IntSet.toList current) (seeLocation solver trigger)
 
--- | The set nodes of the fields of a node that a location holds. The node
--- gets new set nodes when the location did not hold it before, and each
--- trigger that saw the location sees the new node.
+-- | The set nodes of the fields of the node that a location holds. The
+-- node gets its set nodes when the location is made, and a location holds
+-- one node: a trigger that saw the location has seen all of it.
 addNode :: Solver s -> Int -> GrinNodeTag -> Int -> ST s [Int]
 addNode solver location tag fieldCount = do
   nodes <- readAt (solverLocationNodes solver) location
   case Map.lookup tag nodes of
     Just fields -> pure fields
     Nothing -> do
+      unless (Map.null nodes) (error "points-to: a location holds one node")
       fields <- mapM (const (newNode solver)) [1 .. fieldCount]
       writeAt (solverLocationNodes solver) location (Map.insert tag fields nodes)
-      readers <- readAt (solverLocationReaders solver) location
-      forM_ readers $ \trigger -> fireNode solver trigger location tag fields
       pure fields
 
 solve :: Solver s -> ST s ()
@@ -523,20 +584,51 @@ solve solver = do
       current <- readAt (solverSets solver) node
       let new = delta `IntSet.difference` current
       unless (IntSet.null new) $ do
-        modifySTRef' (solverIterations solver) (+ 1)
-        writeAt (solverSets solver) node (current <> new)
-        successors <- readAt (solverSuccessors solver) node
-        forM_ (IntSet.toList successors) $ \successor -> addLocations solver successor new
-        triggers <- readAt (solverTriggers solver) node
-        forM_ triggers $ \trigger -> forM_ (IntSet.toList new) (seeLocation solver trigger)
+        widenedNodes <- readSTRef (solverWidened solver)
+        widened <- MU.read widenedNodes node
+        if widened
+          then escapeLocations solver new
+          else do
+            modifySTRef' (solverIterations solver) (+ 1)
+            let merged = current <> new
+            if node /= escapeNode && IntSet.size merged > solverWidenLimit solver
+              then widen solver node merged
+              else do
+                writeAt (solverSets solver) node merged
+                successors <- readAt (solverSuccessors solver) node
+                forM_ (IntSet.toList successors) $ \successor -> addLocations solver successor new
+                triggers <- readAt (solverTriggers solver) node
+                forM_ triggers $ \trigger -> forM_ (IntSet.toList new) (seeLocation solver trigger)
       solve solver
+
+-- | Widen a set node to the unknown location. The locations it held
+-- escape, so what code could do with them through this node is what the
+-- analysis assumes of an escaped location. Its successors get the unknown
+-- location, and its triggers see it. A location that reaches the node
+-- afterwards escapes too.
+widen :: Solver s -> Int -> IntSet -> ST s ()
+widen solver node locations = do
+  widenedNodes <- readSTRef (solverWidened solver)
+  MU.write widenedNodes node True
+  modifySTRef' (solverWidenedCount solver) (+ 1)
+  writeAt (solverSets solver) node (IntSet.singleton unknownLocation)
+  escapeLocations solver locations
+  successors <- readAt (solverSuccessors solver) node
+  forM_ (IntSet.toList successors) $ \successor -> addLocation solver successor unknownLocation
+  triggers <- readAt (solverTriggers solver) node
+  forM_ triggers (fireUnknown solver)
+
+-- | Locations escape: they go to the escape set node, whose trigger sees
+-- each of them. The escape set node is never widened.
+escapeLocations :: Solver s -> IntSet -> ST s ()
+escapeLocations solver locations =
+  addLocations solver escapeNode (IntSet.filter (not . isUnknownLocation) locations)
 
 -- | A trigger sees a location for the first time.
 seeLocation :: Solver s -> Trigger -> Int -> ST s ()
 seeLocation solver trigger location
   | isUnknownLocation location = fireUnknown solver trigger
   | otherwise = do
-      modifyAt (solverLocationReaders solver) location (trigger :)
       nodes <- readAt (solverLocationNodes solver) location
       forM_ (Map.toList nodes) (uncurry (fireNode solver trigger location))
 
@@ -612,10 +704,11 @@ applyNode solver site groups results tag fields =
     _ -> pure ()
   where
     grow arguments grown = do
-      grownFields <- addNode solver site grown (length fields + length arguments)
+      shape <- shapeLocation solver site grown
+      grownFields <- addNode solver shape grown (length fields + length arguments)
       zipWithM_ (addEdge solver) fields grownFields
       zipWithM_ (\value field -> for_ value (\node -> addEdge solver node field)) arguments (drop (length fields) grownFields)
-      addLocationResult solver results site
+      addLocationResult solver results shape
 
 -- | A location escapes: code that the program cannot see can read its
 -- fields, apply it, or evaluate it.

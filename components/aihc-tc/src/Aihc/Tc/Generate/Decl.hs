@@ -1772,6 +1772,13 @@ resolveForeignValueType sourceType = do
               | otherwise -> do
                   mDataType <- lookupDataType tyCon
                   case mDataType of
+                    -- A Bool is an HsBool, which GHC declares as a C int of
+                    -- the word width: False is 0, True is 1, and a nonzero
+                    -- result is True. The constructors carry the two tags.
+                    Just dataType
+                      | isBoolTyCon tyCon,
+                        constructorNames@[_, _] <- map dciName (dtiConstructors dataType) ->
+                          Right <$> primitiveMarshal sourceType (reverse constructors <> constructorNames) "Int#" TcForeignInt cType
                     Just dataType
                       | [constructor] <- dtiConstructors dataType,
                         null (dciExTyVars constructor),
@@ -1788,6 +1795,7 @@ resolveForeignValueType sourceType = do
       | ty == sourceType = pure (Left (renderTcType ty))
       | otherwise = pure (Left (renderTcType ty <> " in " <> renderTcType sourceType))
     maximumUnwrapDepth = 64
+    isBoolTyCon tyCon = tyConName tyCon == "Bool" && tyConModuleName tyCon == "GHC.Types" && tyConArity tyCon == 0
     byteArrayMarshal ty =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,
@@ -3616,25 +3624,25 @@ generalizableResidualPreds inferredType solveResult = do
   -- parameter gets the empty call stack.
   let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
-  let uniqueResidualCts = nubBy sameCtPred residualCts
-      (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) uniqueResidualCts
+  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) residualCts
   -- Defaulting makes an ambiguous meta-variable concrete. A constraint that
   -- became concrete this way has an instance in most cases, so give the
-  -- dictionary solver a second attempt before the error report.
+  -- dictionary solver a second attempt before the error report. Every
+  -- occurrence needs its own evidence, so the attempt covers each
+  -- constraint, also when two constraints have the same predicate.
   concreteCts <-
     if defaulted
       then concat <$> mapM attemptDefaultedCt defaultedCts
       else pure defaultedCts
   -- Every occurrence still needs evidence, even when equal predicates share
   -- one constraint in the generalized type.
-  forM_ residualCts $ \ct ->
-    when (predicateCanGeneralize (ctPred ct)) $
-      bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+  forM_ polymorphicCts $ \ct ->
+    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
-  forM_ concreteCts $ \ct ->
+  forM_ (nubBy sameCtPred concreteCts) $ \ct ->
     emitError (ctLoc ct) (UnsolvedWanted (ctPred ct) (ctOrigin ct))
-  pure (map ctPred polymorphicCts)
+  pure (map ctPred (nubBy sameCtPred polymorphicCts))
   where
     zonkCtPred ct = do
       pred' <- zonkPred (ctPred ct)
