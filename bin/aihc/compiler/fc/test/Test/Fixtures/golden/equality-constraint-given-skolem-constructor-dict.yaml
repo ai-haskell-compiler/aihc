@@ -1,0 +1,22 @@
+extensions:
+- ScopedTypeVariables
+- TypeFamilies
+- GADTs
+- FlexibleContexts
+modules:
+- |
+  {-# LANGUAGE ScopedTypeVariables, TypeFamilies, GADTs, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Bool(..))
+  data Maybe a = Nothing | Just a
+  class C a where
+    c :: Proxy a -> Bool
+  data Proxy a = Proxy
+  useC :: forall a. C a => Proxy a -> Bool
+  useC p = c p
+  f :: forall x d. (C d, Maybe x ~ d) => Proxy x -> Bool
+  f _ = useC (Proxy :: Proxy d)
+  g :: forall x d. (C d, d ~ Maybe x) => Proxy x -> Bool
+  g _ = useC (Proxy :: Proxy d)
+status: pass
+reason: a given equality between a constructor application and a rigid variable does not stop the given dictionary of that variable from solving its wanted
