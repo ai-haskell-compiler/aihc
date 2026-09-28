@@ -159,6 +159,11 @@ data PlanRequest = PlanRequest
     -- | Directories whose subdirectory @NAME@ is the source of the package
     -- @NAME@, before Hackage.
     requestWorkspaces :: ![FilePath],
+    -- | Take a package that no local directory and no core library
+    -- provides from Hackage. When this is off, the plan uses only the
+    -- local packages and the core libraries, and a package that they do
+    -- not provide is a plan error.
+    requestHackage :: !Bool,
     requestPlatform :: !(OS, Arch),
     requestConstraints :: ![Constraint],
     -- | The local lock file. Hackage targets have no lock file.
@@ -242,7 +247,7 @@ planPackages request = do
   forM_ (Map.toList localRoots) $ \(name, path) ->
     when (Map.member name packageAliases) $
       ioError (userError ("The package " <> unPackageName name <> " at " <> path <> " has the name of a boot library"))
-  (solution, solved) <- solveWithLock request inputs config
+  (solution, solved) <- solveWithLock request inputs config localDirectories
   when (requestCheckBuildTools request) $
     checkBuildTools request inputs config solution
   plans <- buildPlans inputs solution
@@ -260,8 +265,8 @@ planPackages request = do
     rootStanzas = noStanzas {stanzasExecutables = Set.fromList . map mkUnqualComponentName <$> requestExecutables request}
 
 -- | Take the plan from a valid lock, or solve and say so.
-solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> IO (Solution, Bool)
-solveWithLock request inputs config
+solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> [FilePath] -> IO (Solution, Bool)
+solveWithLock request inputs config localDirectories
   | Nothing <- requestLockFile request = runSolve config
   | Just lockPath <- requestLockFile request = do
       lock <- readLockFile lockPath
@@ -305,8 +310,34 @@ solveWithLock request inputs config
     runSolve solverConfig = do
       result <- solve inputs solverConfig
       case result of
-        Left failure -> ioError (userError ("Could not resolve dependencies:\n" <> renderSolveFailure failure))
+        Left failure
+          | requestHackage request -> ioError (userError ("Could not resolve dependencies:\n" <> renderSolveFailure failure))
+          | otherwise -> do
+              unavailable <- unavailablePackages inputs solverConfig
+              ioError (userError (renderLocalFailure localDirectories unavailable failure))
         Right solution -> pure (solution, True)
+
+-- | Explain a failed solve without Hackage. The packages that no local
+-- directory provides come first, because a user acts on them first. When
+-- every package is present, the solver log tells which versions conflict.
+renderLocalFailure :: [FilePath] -> [(PackageName, [(Dependent, VersionRange)])] -> SolveFailure -> String
+renderLocalFailure localDirectories unavailable failure =
+  intercalate "\n" $
+    case unavailable of
+      [] ->
+        [ "Could not resolve dependencies from the local packages alone, and Hackage is disabled:",
+          renderSolveFailure failure
+        ]
+      _ ->
+        ["Could not resolve dependencies without Hackage. No local package provides:"]
+          <> ["  " <> unPackageName name <> ", needed by " <> renderDependents dependents | (name, dependents) <- unavailable]
+          <> searched
+          <> ["Put the source of each package in a subdirectory with its name, or allow Hackage packages."]
+  where
+    searched =
+      case localDirectories of
+        [] -> ["No directory was searched for local packages."]
+        directories -> "Local packages were searched for in:" : ["  " <> directory | directory <- directories]
 
 -- | The packages that depend on any of the given ones, transitively,
 -- together with the given ones.
@@ -383,7 +414,9 @@ solverInputs request descriptions localRoots localDirectories =
               local <- findLocal name localDirectories
               case local of
                 Just path -> pure <$> localCandidate name path
-                Nothing -> hackageCandidates name preference
+                Nothing
+                  | requestHackage request -> hackageCandidates name preference
+                  | otherwise -> pure []
 
     bootVersion provider =
       maybe [] bootLibraryVersion (lookupBootLibraryByStandin (coreProviderName provider) emulatedGhc)

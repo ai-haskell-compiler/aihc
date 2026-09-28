@@ -86,6 +86,12 @@ does nothing but call those lookups.
   is downloaded; only the chosen versions are fetched. Local packages and
   packages under `--workspace` are single candidates at their checked-out
   version, and shadow Hackage.
+- **No Hackage**: `--no-hackage` removes the Hackage candidates. Then the
+  local packages, the packages under `--workspace`, and the core libraries
+  are the only candidates. If a dependency has no candidate, the plan fails.
+  The error gives each package that has no local source, the packages that
+  need it, and the directories that the plan searched. Hackage is enabled by
+  default. `aihc install` and `aihc build` both accept the flag.
 - **Installed packages**: the core-library standins, each at the single version
   the emulated GHC release fixes, with no flags. A candidate whose range
   excludes that version is dropped before the search starts, which prunes a

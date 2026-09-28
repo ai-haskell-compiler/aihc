@@ -131,6 +131,7 @@ runBuild options = do
           requestExecutables = Nothing,
           requestCheckBuildTools = True,
           requestWorkspaces = [],
+          requestHackage = True,
           requestPlatform = (buildOS, buildArch),
           requestConstraints = [],
           requestLockFile = Just (lockDirectory </> lockFileName),

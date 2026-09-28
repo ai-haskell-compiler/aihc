@@ -559,7 +559,7 @@ installWith output options = do
       printTimings message = when (installPrintTimings options) (hPutStrLn output message)
   hackageIndex <- newHackageIndex defaultIndexOptions
   (root, origin, lockDirectory) <- installTargetRoot (installPackageTarget options)
-  request <- planRequestFor hackageIndex (installPlanOptions options) (cabalPlatformForTarget target) [] lockDirectory verbose
+  request <- planRequestFor hackageIndex (installPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (installWorkspace options)) lockDirectory verbose
   planned <- planPackages request {requestRoots = [root]}
   plan <- case plannedRoots planned of
     [rootPlan] -> pure rootPlan
@@ -661,6 +661,7 @@ planRequestFor index options platform workspaces lockDirectory verbose = do
         requestExecutables = Nothing,
         requestCheckBuildTools = True,
         requestWorkspaces = workspaces,
+        requestHackage = planHackage options,
         requestPlatform = platform,
         requestConstraints = concat constraints,
         requestLockFile = (</> lockFileName) <$> lockDirectory,

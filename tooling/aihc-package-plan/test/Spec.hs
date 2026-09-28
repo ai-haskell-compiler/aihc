@@ -458,7 +458,8 @@ test_parsesConstraints = do
   assertBool "garbage is rejected" (either (const True) (const False) (parseConstraint "unix >>> 1"))
 
 -- A root beside a sibling package plans without the Hackage index: the
--- siblings and the core libraries are the only candidates. No lock is
+-- siblings and the core libraries are the only candidates. The plan is the
+-- same when Hackage is disabled. No lock is
 -- written for such a plan, but a lock that is present is read, and
 -- @--locked@ takes a valid one and refuses a stale one.
 test_plansLocalPackages :: Assertion
@@ -479,6 +480,7 @@ test_plansLocalPackages =
               requestExecutables = Nothing,
               requestCheckBuildTools = True,
               requestWorkspaces = [],
+              requestHackage = True,
               requestPlatform = (Linux, X86_64),
               requestConstraints = [],
               requestLockFile = Just lockFile,
@@ -487,6 +489,8 @@ test_plansLocalPackages =
               requestVerbose = const (pure ())
             }
     planned <- planPackages (request LockNormal)
+    withoutHackage <- planPackages (request LockNormal) {requestHackage = False}
+    assertEqual "the siblings and the core libraries satisfy the plan without Hackage" (plannedSolution planned) (plannedSolution withoutHackage)
     rootPlan <- case plannedRoots planned of
       [plan] -> pure plan
       plans -> assertFailure ("expected one root, got " <> show (length plans))
@@ -547,6 +551,7 @@ test_packageLockFixtures =
                 requestExecutables = Nothing,
                 requestCheckBuildTools = True,
                 requestWorkspaces = [],
+                requestHackage = True,
                 requestPlatform = (Linux, X86_64),
                 requestConstraints = [],
                 requestLockFile = case root of
@@ -573,7 +578,21 @@ test_packageLockFixtures =
       exists <- doesFileExist lockFile
       assertBool "local packages with Hackage dependencies need a lock file" exists
       _ <- planPackages localRequest {requestLockMode = LockLocked}
-      pure ()
+      -- Without Hackage, dep has no source. The plan must fail and name
+      -- dep and the package that needs it, also when the lock has dep.
+      withoutHackage <- try (planPackages localRequest {requestHackage = False})
+      case withoutHackage of
+        Right _ -> assertFailure "a plan without Hackage must not take dep from Hackage"
+        Left err -> do
+          let message = show (err :: IOException)
+          assertBool message ("No local package provides:" `isInfixOf` message)
+          assertBool message ("dep, needed by root-1.0 (==1.0)" `isInfixOf` message)
+      hackageRoot <- try (planPackages (request (RootHackage "dep" Nothing) LockNormal) {requestHackage = False})
+      case hackageRoot of
+        Right _ -> assertFailure "a Hackage root must not plan without Hackage"
+        Left err -> do
+          let message = show (err :: IOException)
+          assertBool message ("dep, needed by the root" `isInfixOf` message)
 
 -- | A fresh directory under the system temporary directory, removed
 -- afterwards. The temporary file only reserves a unique name.
