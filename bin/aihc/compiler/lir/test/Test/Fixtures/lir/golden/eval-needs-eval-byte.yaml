@@ -13,89 +13,82 @@ program: |
       data Box (payload%4 :: IntRep) ->
         constant (payload%4 :: IntRep)
 expected: |
-  extern func @aihc_lir_continue_i(ptr, ptr, i64)
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, ptr, i64)
 
-  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern func @aihc_lir_enter_0_0_k(ptr, ptr, ptr)
+  extern func @aihc_lir_enter_0_0_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern func @aihc_lir_enter_1_1(ptr, ptr, ptr, ptr)
+  extern func @aihc_lir_enter_1_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
-  extern func @aihc_lir_eval(ptr, ptr, ptr)
+  extern func @aihc_lir_eval(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
   extern func @aihc_no_match() cc c
 
-  extern func @aihc_stack_grow(ptr, i64) -> ptr cc c
+  extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
 
-  func @aihc_f_aihc_entry___sdelayed(%machine_0: ptr, %$cps_return_1: ptr) {
+  func @aihc_f_aihc_entry___sdelayed(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %$cps_return_5: ptr) {
   entry:
-    tailcall @aihc_lir_continue_p(%machine_0, %$cps_return_1, @aihc_entry_Nothing)
+    tailcall @aihc_lir_continue_p(%machine_0, %hp_1, %hp_limit_2, %sp_3, %sp_limit_4, %$cps_return_5, @aihc_entry_Nothing)
   }
 
-  func @aihc_f_aihc_entry___sentry(%machine_2: ptr, %value_3: ptr, %$cps_return_4: ptr) {
+  func @aihc_f_aihc_entry___sentry(%machine_6: ptr, %hp_7: ptr, %hp_limit_8: ptr, %sp_9: ptr, %sp_limit_10: ptr, %value_11: ptr, %$cps_return_12: ptr) {
   entry:
-    jump eval_check_5(%value_3)
+    jump eval_check_13(%value_11)
 
-  eval_check_5(%current_8: ptr):
-    %header_word_9 = load i64 [%current_8] align 8
-    %info_word_10 = and i64 %header_word_9, -4
-    %header_11 = ptr.from_int %info_word_10
-    %needs_eval_12 = load i8 [%header_11 + 44] align 1
-    %needs_eval_13 = zext i8 %needs_eval_12 to i64
-    %not_value_14 = ne i64 %needs_eval_13, 0
-    br %not_value_14, eval_not_value_15, eval_ready_6
+  eval_check_13(%current_16: ptr):
+    %header_word_17 = load i64 [%current_16] align 8
+    %info_word_18 = and i64 %header_word_17, -4
+    %header_19 = ptr.from_int %info_word_18
+    %needs_eval_20 = load i8 [%header_19 + 44] align 1
+    %needs_eval_21 = zext i8 %needs_eval_20 to i64
+    %not_value_22 = ne i64 %needs_eval_21, 0
+    br %not_value_22, eval_not_value_23, eval_ready_14
 
-  eval_not_value_15:
-    %indirection_17 = eq i64 %needs_eval_13, 2
-    br %indirection_17, eval_follow_16, eval_slow_7
+  eval_not_value_23:
+    %indirection_25 = eq i64 %needs_eval_21, 2
+    br %indirection_25, eval_follow_24, eval_slow_15
 
-  eval_follow_16:
-    %next_18 = load ptr [%current_8 + 8] align 8
-    jump eval_check_5(%next_18)
+  eval_follow_24:
+    %next_26 = load ptr [%current_16 + 8] align 8
+    jump eval_check_13(%next_26)
 
-  eval_ready_6:
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_2, %$cps_return_4, %current_8)
+  eval_ready_14:
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_6, %hp_7, %hp_limit_8, %sp_9, %sp_limit_10, %$cps_return_12, %current_16)
 
-  eval_slow_7:
-    %frame_19 = load ptr [%machine_2 + 40] align 1 word
-    %stack_20 = ptr.add %frame_19, 16
-    %frame_word_21 = ptr.to_int %frame_19
-    %stack_before_22 = sub i64 %frame_word_21, 1
-    %stack_last_23 = add i64 %frame_word_21, 15
-    %stack_differ_24 = xor i64 %stack_before_22, %stack_last_23
-    %stack_fits_25 = lt.u i64 %stack_differ_24, 4096
-    br %stack_fits_25, stack_fits_26, stack_grow_27
+  eval_slow_15:
+    %sp_27 = ptr.add %sp_9, 16
+    %stack_fits_28 = le.u ptr %sp_27, %sp_limit_10
+    br %stack_fits_28, stack_pushed_30(%sp_9, %sp_27, %sp_limit_10), stack_grow_29
 
-  stack_fits_26:
-    store ptr %stack_20, [%machine_2 + 40] align 1 word
-    jump stack_pushed_28(%frame_19)
+  stack_grow_29:
+    %result_31 = call @aihc_stack_grow(%machine_6, %sp_9, 2)
+    %sp_32 = ptr.add %result_31, 16
+    %sp_limit_33 = ptr.add %result_31, 4064
+    jump stack_pushed_30(%result_31, %sp_32, %sp_limit_33)
 
-  stack_grow_27:
-    %result_29 = call @aihc_stack_grow(%machine_2, 2)
-    jump stack_pushed_28(%result_29)
-
-  stack_pushed_28(%frame_30: ptr):
-    store ptr @aihc_lir_info_0, [%frame_30] align 8
-    store ptr %$cps_return_4, [%frame_30 + 8] align 8
-    tailcall @aihc_lir_eval(%machine_2, %current_8, %frame_30)
+  stack_pushed_30(%frame_34: ptr, %sp_35: ptr, %sp_limit_36: ptr):
+    store ptr @aihc_lir_info_0, [%frame_34] align 8
+    store ptr %$cps_return_12, [%frame_34 + 8] align 8
+    tailcall @aihc_lir_eval(%machine_6, %hp_7, %hp_limit_8, %sp_35, %sp_limit_36, %current_16, %frame_34)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%machine_31: ptr, %$cps_return_32: ptr, %ready_33: ptr) {
+  func @aihc_f_aihc_entry___sentry__ucont(%machine_37: ptr, %hp_38: ptr, %hp_limit_39: ptr, %sp_40: ptr, %sp_limit_41: ptr, %$cps_return_42: ptr, %ready_43: ptr) {
   entry:
-    %header_word_36 = load i64 [%ready_33] align 8
-    %info_word_37 = and i64 %header_word_36, -4
-    %header_38 = ptr.from_int %info_word_37
-    %identity_39 = load ptr [%header_38] align 1 word
-    %matches_40 = eq ptr %identity_39, @aihc_c_aihc_entry_Box_0
-    br %matches_40, alt_34, no_match_35
+    %header_word_46 = load i64 [%ready_43] align 8
+    %info_word_47 = and i64 %header_word_46, -4
+    %header_48 = ptr.from_int %info_word_47
+    %identity_49 = load ptr [%header_48] align 1 word
+    %matches_50 = eq ptr %identity_49, @aihc_c_aihc_entry_Box_0
+    br %matches_50, alt_44, no_match_45
 
-  no_match_35:
+  no_match_45:
     call @aihc_no_match()
     trap "no matching case alternative"
 
-  alt_34:
-    %payload_41 = load i64 [%ready_33 + 8] align 8
-    tailcall @aihc_lir_continue_i(%machine_31, %$cps_return_32, %payload_41)
+  alt_44:
+    %payload_51 = load i64 [%ready_43 + 8] align 8
+    tailcall @aihc_lir_continue_i(%machine_37, %hp_38, %hp_limit_39, %sp_40, %sp_limit_41, %$cps_return_42, %payload_51)
   }
 
   data mut @aihc_entry_delayed align 8 = { ptr @aihc_lir_info_2, zero 8 }

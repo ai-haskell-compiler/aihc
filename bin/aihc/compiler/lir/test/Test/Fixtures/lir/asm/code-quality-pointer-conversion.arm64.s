@@ -1,28 +1,18 @@
 	.text
 	.p2align 2
-	.globl _enter_direct
-_enter_direct:
-	ldr x8, [x20]
-	and x8, x8, #0xfffffffffffffffc
-	ldr x8, [x8]
-	ldr x20, [x20, #8]
+_enter:
+	add x22, x0, #0
+	mov x8, x0
+	orr x8, x8, #0xfff
+	add x23, x8, #1
+	ldr x8, [x0]
+	ldr x8, [x8, #24]
 	mov x14, x8
 	cbz x14, .Llir_trap_0_0
+	mov x2, x1
+	mov x1, xzr
 	br x14
 .Llir_trap_0_0:
-	b .Llir_trap_0
-	.text
-	.p2align 2
-	.globl _enter_inline
-_enter_inline:
-	ldr x8, [x20]
-	and x8, x8, #0xfffffffffffffffc
-	ldr x8, [x8]
-	ldr x20, [x20, #8]
-	mov x14, x8
-	cbz x14, .Llir_trap_1_0
-	br x14
-.Llir_trap_1_0:
 	b .Llir_trap_0
 	.text
 	.p2align 2

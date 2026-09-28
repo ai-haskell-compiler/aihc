@@ -6,32 +6,30 @@ program: |
 expected: |
   extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
-  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
-  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %$cps_return_1: ptr) {
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %$cps_return_5: ptr) {
   entry:
-    %roots_2 = stack.alloc 8 align 8
-    %heap_3 = load ptr [%machine_0 + 24] align 1 word
-    %heap_end_4 = load ptr [%machine_0 + 32] align 1 word
-    %heap_word_5 = ptr.to_int %heap_3
-    %heap_end_word_6 = ptr.to_int %heap_end_4
-    %heap_room_7 = sub i64 %heap_end_word_6, %heap_word_5
-    %heap_fits_8 = ge.u i64 %heap_room_7, 16
-    br %heap_fits_8, gc_reserved_10(%$cps_return_1), gc_collect_9
+    %roots_6 = stack.alloc 8 align 8
+    %heap_end_7 = ptr.add %hp_1, 16
+    %heap_fits_8 = le.u ptr %heap_end_7, %hp_limit_2
+    br %heap_fits_8, gc_reserved_10(%$cps_return_5, %hp_1, %hp_limit_2), gc_collect_9
 
   gc_collect_9:
-    store ptr %$cps_return_1, [%roots_2] align 8
-    call @aihc_heap_collect(%machine_0, 2, 1, %roots_2, null)
-    %$cps_return$gc_12 = load ptr [%roots_2] align 8
-    jump gc_reserved_10(%$cps_return$gc_12)
+    store ptr %$cps_return_5, [%roots_6] align 8
+    store ptr %hp_1, [%machine_0 + 24] align 1 word
+    store ptr %sp_3, [%machine_0 + 40] align 1 word
+    call @aihc_heap_collect(%machine_0, 2, 1, %roots_6, null)
+    %$cps_return$gc_14 = load ptr [%roots_6] align 8
+    %hp_15 = load ptr [%machine_0 + 24] align 1 word
+    %hp_limit_16 = load ptr [%machine_0 + 32] align 1 word
+    jump gc_reserved_10(%$cps_return$gc_14, %hp_15, %hp_limit_16)
 
-  gc_reserved_10(%$cps_return$gc_11: ptr):
-    %object_13 = load ptr [%machine_0 + 24] align 1 word
-    %heap_14 = ptr.add %object_13, 16
-    store ptr %heap_14, [%machine_0 + 24] align 1 word
-    store ptr @aihc_c_aihc_entry_Box_0, [%object_13] align 8
-    store i64 1, [%object_13 + 8] align 8
-    tailcall @aihc_lir_continue_p(%machine_0, %$cps_return$gc_11, %object_13)
+  gc_reserved_10(%$cps_return$gc_11: ptr, %hp_12: ptr, %hp_limit_13: ptr):
+    %hp_17 = ptr.add %hp_12, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_12] align 8
+    store i64 1, [%hp_12 + 8] align 8
+    tailcall @aihc_lir_continue_p(%machine_0, %hp_17, %hp_limit_13, %sp_3, %sp_limit_4, %$cps_return$gc_11, %hp_12)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

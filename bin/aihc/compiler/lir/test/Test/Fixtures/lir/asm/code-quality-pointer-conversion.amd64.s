@@ -1,26 +1,17 @@
 	.text
 	.p2align 4
-	.globl enter_direct
-enter_direct:
-	mov r9, [r12]
-	and r9, -0x4
-	mov r9, [r9]
-	mov r12, [r12 + 8]
+enter:
+	lea r14, [rdi]
+	mov r9, rdi
+	or r9, 0xfff
+	lea r15, [r9 + 1]
+	mov r9, [rdi]
+	mov r9, [r9 + 24]
 	mov r10, r9
 	test r10, r10
 	je .Llir_trap_0
-	jmp r10
-	.text
-	.p2align 4
-	.globl enter_inline
-enter_inline:
-	mov r9, [r12]
-	and r9, -0x4
-	mov r9, [r9]
-	mov r12, [r12 + 8]
-	mov r10, r9
-	test r10, r10
-	je .Llir_trap_0
+	mov rdx, rsi
+	mov esi, 0x0
 	jmp r10
 	.text
 	.p2align 4

@@ -97,7 +97,11 @@ data NativeBackend statement register error = NativeBackend
   { nbLintErrors :: [LintError] -> error,
     nbUnsupported :: Text -> error,
     nbSymbol :: Symbol -> Text,
+    -- | The integer argument registers of the C convention.
     nbArgumentRegisters :: ![register],
+    -- | The argument registers of the aihc convention. They can differ from
+    -- the C registers and there can be more of them.
+    nbAihcArgumentRegisters :: ![register],
     nbResultRegisters :: ![register],
     nbPreservedRegisters :: ![register],
     nbScratchLeft :: register,
@@ -469,9 +473,11 @@ classify types =
     [(index, ty) | (index, ty) <- zip [0 ..] types, isFloatType ty]
   )
 
+-- | The bytes of the stack block that carries the aihc arguments after the
+-- argument registers.
 overflowBytes :: NativeBackend statement register error -> Int -> Int
 overflowBytes backend count =
-  ((max 0 (count - length (nbArgumentRegisters backend)) * 8 + 15) `div` 16) * 16
+  ((max 0 (count - length (nbAihcArgumentRegisters backend)) * 8 + 15) `div` 16) * 16
 
 -- Functions
 
@@ -734,8 +740,8 @@ functionPrologue backend ctx = do
     function = ctxFunction ctx
     layout = ctxLayout ctx
     parameterLocation index
-      | index < length (nbArgumentRegisters backend) = LocRegister (nbArgumentRegisters backend !! index)
-      | otherwise = LocSlot (frameBytes backend layout + nbReturnAddressGap backend + 8 * (index - length (nbArgumentRegisters backend)))
+      | index < length (nbAihcArgumentRegisters backend) = LocRegister (nbAihcArgumentRegisters backend !! index)
+      | otherwise = LocSlot (frameBytes backend layout + nbReturnAddressGap backend + 8 * (index - length (nbAihcArgumentRegisters backend)))
 
 saveRegisters :: NativeBackend statement register error -> Ctx register -> [statement]
 saveRegisters backend ctx =

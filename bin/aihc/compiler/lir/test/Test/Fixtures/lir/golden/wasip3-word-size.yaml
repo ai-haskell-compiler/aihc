@@ -7,35 +7,33 @@ program: |
 expected: |
   extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
-  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 
-  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %$cps_return_1: ptr) {
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %$cps_return_5: ptr) {
   entry:
-    %roots_2 = stack.alloc 8 align 8
-    %heap_3 = load ptr [%machine_0 + 20] align 1 word
-    %heap_end_4 = load ptr [%machine_0 + 24] align 1 word
-    %heap_word_5 = ptr.to_int %heap_3
-    %heap_end_word_6 = ptr.to_int %heap_end_4
-    %heap_room_7 = sub i64 %heap_end_word_6, %heap_word_5
-    %heap_fits_8 = ge.u i64 %heap_room_7, 16
-    br %heap_fits_8, gc_reserved_10(%$cps_return_1), gc_collect_9
+    %roots_6 = stack.alloc 8 align 8
+    %heap_end_7 = ptr.add %hp_1, 16
+    %heap_fits_8 = le.u ptr %heap_end_7, %hp_limit_2
+    br %heap_fits_8, gc_reserved_10(%$cps_return_5, %hp_1, %hp_limit_2), gc_collect_9
 
   gc_collect_9:
-    %slot_12 = ptr.to_int %$cps_return_1
-    store i64 %slot_12, [%roots_2] align 8
-    call @aihc_heap_collect(%machine_0, 2, 1, %roots_2, null)
-    %$cps_return$gc_13 = load i64 [%roots_2] align 8
-    %$cps_return$gc_14 = ptr.from_int %$cps_return$gc_13
-    jump gc_reserved_10(%$cps_return$gc_14)
+    %slot_14 = ptr.to_int %$cps_return_5
+    store i64 %slot_14, [%roots_6] align 8
+    store ptr %hp_1, [%machine_0 + 20] align 1 word
+    store ptr %sp_3, [%machine_0 + 28] align 1 word
+    call @aihc_heap_collect(%machine_0, 2, 1, %roots_6, null)
+    %$cps_return$gc_15 = load i64 [%roots_6] align 8
+    %$cps_return$gc_16 = ptr.from_int %$cps_return$gc_15
+    %hp_17 = load ptr [%machine_0 + 20] align 1 word
+    %hp_limit_18 = load ptr [%machine_0 + 24] align 1 word
+    jump gc_reserved_10(%$cps_return$gc_16, %hp_17, %hp_limit_18)
 
-  gc_reserved_10(%$cps_return$gc_11: ptr):
-    %object_15 = load ptr [%machine_0 + 20] align 1 word
-    %heap_16 = ptr.add %object_15, 16
-    store ptr %heap_16, [%machine_0 + 20] align 1 word
-    %slot_17 = ptr.to_int @aihc_c_aihc_entry_Box_0
-    store i64 %slot_17, [%object_15] align 8
-    store i64 1, [%object_15 + 8] align 8
-    tailcall @aihc_lir_continue_p(%machine_0, %$cps_return$gc_11, %object_15)
+  gc_reserved_10(%$cps_return$gc_11: ptr, %hp_12: ptr, %hp_limit_13: ptr):
+    %hp_19 = ptr.add %hp_12, 16
+    %slot_20 = ptr.to_int @aihc_c_aihc_entry_Box_0
+    store i64 %slot_20, [%hp_12] align 8
+    store i64 1, [%hp_12 + 8] align 8
+    tailcall @aihc_lir_continue_p(%machine_0, %hp_19, %hp_limit_13, %sp_3, %sp_limit_4, %$cps_return$gc_11, %hp_12)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
