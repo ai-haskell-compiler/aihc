@@ -194,7 +194,7 @@ in rec {
     warningsAsErrors ? false,
   }: let
     hsLib = pkgs.haskell.lib;
-    localPackageNames = (builtins.attrNames componentSpecs) ++ ["aihc-hackage" "aihc-package-plan"];
+    localPackageNames = (builtins.attrNames componentSpecs) ++ ["aihc-hackage" "aihc-hackage-fetch" "aihc-package-plan"];
     enableWarningsAsErrors = drv:
       if warningsAsErrors
       then
@@ -275,6 +275,11 @@ in rec {
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}
+            ))
+          ));
+          aihc-hackage-fetch = hsLib.dontCheck (hsLib.dontHaddock (
+            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
+              final.callCabal2nix "aihc-hackage-fetch" (sources.hackageFetchSrc pkgs) {}
             ))
           ));
           aihc-package-plan = hsLib.dontCheck (hsLib.dontHaddock (

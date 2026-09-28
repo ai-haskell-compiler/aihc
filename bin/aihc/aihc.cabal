@@ -107,6 +107,16 @@ data-files:
   compiler/wasm/runtime/wit/deps/clocks.wit
   compiler/wasm/runtime/wit/deps/filesystem.wit
 
+flag hackage
+  description:
+    Read the Hackage index and download the Hackage releases that a plan
+    needs. Without this flag, aihc does not depend on aihc-hackage-fetch and
+    its network, tar, and zlib packages, and a plan uses only local packages
+    and the core libraries.
+
+  default: True
+  manual: True
+
 custom-setup
   setup-depends:
     Cabal >=3.14 && <3.17,
@@ -132,6 +142,7 @@ library
     Aihc.Cli.BuildStamp
     Aihc.Cli.CapiStub
     Aihc.Cli.CompilerHeaders
+    Aihc.Cli.Hackage
     Aihc.Cli.Install
     Aihc.Cli.Lto
     Aihc.Cli.OptimizationPlan
@@ -264,6 +275,12 @@ library
     transformers,
     unix >=2.7 && <2.9,
     vector >=0.13 && <0.14,
+
+  if flag(hackage)
+    hs-source-dirs: hackage/enabled
+    build-depends: aihc-hackage-fetch
+  else
+    hs-source-dirs: hackage/disabled
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall

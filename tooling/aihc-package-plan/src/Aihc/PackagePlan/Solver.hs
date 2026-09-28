@@ -54,7 +54,9 @@ module Aihc.PackagePlan.Solver
     Rejection (..),
     Dependent (..),
     renderSolveFailure,
+    renderDependents,
     solve,
+    unavailablePackages,
     verifySolution,
 
     -- * Cabal file inspection
@@ -290,8 +292,13 @@ renderSolveFailure = intercalate "\n" . render
             RejectedSubtree inner ->
               (label <> " was tried, and then:") : map ("    " <>) (render inner)
 
-    renderDependents dependents =
-      intercalate ", " [renderDependent dependent <> rangeSuffix range | (dependent, range) <- dependents]
+    listedVersions = 8 :: Int
+
+-- | The packages that demanded a range of a goal, each with its range.
+renderDependents :: [(Dependent, VersionRange)] -> String
+renderDependents dependents =
+  intercalate ", " [renderDependent dependent <> rangeSuffix range | (dependent, range) <- dependents]
+  where
     rangeSuffix range
       | range == anyVersion = ""
       | otherwise = " (" <> prettyShow range <> ")"
@@ -301,13 +308,51 @@ renderSolveFailure = intercalate "\n" . render
         DependentConstraint -> "a constraint"
         DependentPackage name version flags -> renderCandidateName (Candidate name version 0 False CandidateHackage) flags
 
-    renderCandidateName candidate flags =
-      unPackageName (candidateName candidate)
-        <> "-"
-        <> prettyShow (candidateVersion candidate)
-        <> concat [" " <> (if value then "+" else "-") <> unFlagName flag | (flag, value) <- unFlagAssignment flags]
+renderCandidateName :: Candidate -> FlagAssignment -> String
+renderCandidateName candidate flags =
+  unPackageName (candidateName candidate)
+    <> "-"
+    <> prettyShow (candidateVersion candidate)
+    <> concat [" " <> (if value then "+" else "-") <> unFlagName flag | (flag, value) <- unFlagAssignment flags]
 
-    listedVersions = 8 :: Int
+-- | Every package that the roots and goals reach and that has no
+-- candidate, with the packages that need it. The walk follows each
+-- candidate of a known package under its first flag assignment, which is
+-- the default one. It ignores the version ranges, so the result names
+-- only the packages that are absent, not the ones in the wrong version.
+-- A caller uses it to explain a failed solve when the candidates come
+-- from a restricted source.
+unavailablePackages :: (Monad m) => SolverInputs m -> SolverConfig -> m [(PackageName, [(Dependent, VersionRange)])]
+unavailablePackages inputs config =
+  evalStateT (walk Set.empty Map.empty start) (Memo Map.empty Map.empty 0)
+  where
+    start =
+      [(alias config name, DependentRoot, anyVersion) | name <- Map.keys (configRoots config)]
+        <> [(alias config name, DependentRoot, range) | (name, range) <- configGoals config]
+
+    walk _ missing [] = pure (Map.toAscList (Map.map reverse missing))
+    walk seen missing ((name, dependent, range) : rest) = do
+      candidates <- candidatesOf inputs config name
+      if null candidates
+        then walk (Set.insert name seen) (Map.insertWith (<>) name [(dependent, range)] missing) rest
+        else
+          if Set.member name seen
+            then walk seen missing rest
+            else do
+              next <- concat <$> mapM (dependenciesOf name) candidates
+              walk (Set.insert name seen) missing (rest <> next)
+
+    dependenciesOf name candidate = do
+      gpd <- descriptionOf inputs candidate
+      let root = Map.lookup name (configRoots config)
+          flags = case flagAssignments config name gpd root of
+            first : _ -> first
+            [] -> mkFlagAssignment []
+          dependent = DependentPackage name (candidateVersion candidate) flags
+      pure
+        [ (dependency, dependent, dependencyRange)
+        | (dependency, dependencyRange) <- Map.toAscList (candidateDependencies (configPlatform config) (configAliases config) flags root gpd)
+        ]
 
 -- | A pending goal: the range its dependents agree on, and who they are.
 data Goal = Goal

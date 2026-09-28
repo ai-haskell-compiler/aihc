@@ -82,6 +82,7 @@ import Aihc.Cli.BuildStamp
   )
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, hostPlatformMacros)
+import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceNonTermRootTyCons, interfaceTermTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
@@ -103,8 +104,8 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
-import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
+import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Resolve qualified as Lir
 import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
@@ -557,9 +558,9 @@ installWith output options = do
       targetDirectory = nativeTargetStoreDirectory target
   let verbose message = when (installVerbose options) (hPutStrLn output message)
       printTimings message = when (installPrintTimings options) (hPutStrLn output message)
-  hackageIndex <- newHackageIndex defaultIndexOptions
+  hackageSource <- defaultHackageSource
   (root, origin, lockDirectory) <- installTargetRoot (installPackageTarget options)
-  request <- planRequestFor hackageIndex (installPlanOptions options) (cabalPlatformForTarget target) [] lockDirectory verbose
+  request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (installWorkspace options)) lockDirectory verbose
   planned <- planPackages request {requestRoots = [root]}
   plan <- case plannedRoots planned of
     [rootPlan] -> pure rootPlan
@@ -643,8 +644,8 @@ parsePackageTarget target = do
 
 -- | The plan request the command-line plan options describe, without its
 -- roots and goals. A local target uses @aihc.lock@ in the given directory.
-planRequestFor :: HackageIndex -> PlanOptions -> (OS, Arch) -> [FilePath] -> Maybe FilePath -> (String -> IO ()) -> IO PlanRequest
-planRequestFor index options platform workspaces lockDirectory verbose = do
+planRequestFor :: Maybe HackageSource -> PlanOptions -> (OS, Arch) -> [FilePath] -> Maybe FilePath -> (String -> IO ()) -> IO PlanRequest
+planRequestFor hackage options platform workspaces lockDirectory verbose = do
   constraints <- forM (planConstraints options) $ \text ->
     either (ioError . userError) pure (parseConstraint text)
   lockMode <-
@@ -661,11 +662,11 @@ planRequestFor index options platform workspaces lockDirectory verbose = do
         requestExecutables = Nothing,
         requestCheckBuildTools = True,
         requestWorkspaces = workspaces,
+        requestHackage = hackage,
         requestPlatform = platform,
         requestConstraints = concat constraints,
         requestLockFile = (</> lockFileName) <$> lockDirectory,
         requestLockMode = lockMode,
-        requestIndex = index,
         requestVerbose = verbose
       }
 

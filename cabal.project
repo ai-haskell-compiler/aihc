@@ -10,6 +10,7 @@ packages:
   bin/aihc-fmt
   bin/aihc-haddock
   tooling/aihc-hackage
+  tooling/aihc-hackage-fetch
   tooling/aihc-package-plan
   tooling/aihc-testing
   tooling/aihc-resolve-tooling-common

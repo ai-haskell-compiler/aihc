@@ -30,6 +30,7 @@ library
     aeson >=2.0 && <2.3,
     aeson-pretty,
     aihc-hackage,
+    aihc-hackage-fetch,
     aihc-package-plan,
     aihc-parser,
     base >=4.16 && <5,

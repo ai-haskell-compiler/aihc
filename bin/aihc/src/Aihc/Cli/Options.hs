@@ -123,6 +123,7 @@ data InstallOptions = InstallOptions
     installVerbose :: !Bool,
     installPrintTimings :: !Bool,
     installTarget :: !NativeTarget,
+    installWorkspace :: !(Maybe FilePath),
     installPlanOptions :: !PlanOptions
   }
   deriving (Eq, Show)
@@ -464,4 +465,5 @@ installOptionsParser =
           <> OA.help "Print compiler stage timings"
       )
     <*> nativeTargetOption
+    <*> workspaceOption
     <*> planOptionsParser

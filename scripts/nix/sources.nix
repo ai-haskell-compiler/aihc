@@ -93,6 +93,12 @@ in rec {
     ".cabal"
   ];
 
+  hackageFetchSrc = mkComponentSrc "/tooling/aihc-hackage-fetch" [
+    ".hs"
+    ".hs-boot"
+    ".cabal"
+  ];
+
   packagePlanSrc = mkComponentSrc "/tooling/aihc-package-plan" [
     ".hs"
     ".hs-boot"

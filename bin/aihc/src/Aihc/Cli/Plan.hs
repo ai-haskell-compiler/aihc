@@ -18,9 +18,9 @@ module Aihc.Cli.Plan
   )
 where
 
+import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install (cabalPlatformForTarget, installTargetRoot, planRequestFor)
 import Aihc.Cli.Options (PlanCommandOptions (..), PlanOptions (..), defaultPlanOptions)
-import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.PackagePlan (PlanRequest (..), PlannedPackages (..), planPackages)
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..))
 import Control.Monad (when)
@@ -55,13 +55,13 @@ runPlan options = planPackageRows options >>= mapM_ (putStrLn . renderPlanRow)
 -- name order, so the order does not change from one run to the next.
 planPackageRows :: PlanCommandOptions -> IO [PlanRow]
 planPackageRows options = do
-  hackageIndex <- newHackageIndex defaultIndexOptions
+  hackageSource <- defaultHackageSource
   (root, _, _) <- installTargetRoot (planCommandInput options)
   let verbose message = when (planCommandVerbose options) (putStrLn message)
       executables = planCommandExecutables options
   request <-
     planRequestFor
-      hackageIndex
+      hackageSource
       defaultPlanOptions {planConstraints = planCommandConstraints options}
       (cabalPlatformForTarget (planCommandTarget options))
       (maybe [] pure (planCommandWorkspace options))

@@ -7,19 +7,17 @@ license-file: LICENSE
 author: David Himmelstrup
 maintainer: lemmih@gmail.com
 category: Development
-synopsis: Shared Hackage download and cabal-file utilities
+synopsis: Shared cabal-file utilities for Hackage packages
 
 library
   exposed-modules:
     Aihc.Hackage.Cabal
     Aihc.Hackage.Cache
     Aihc.Hackage.Cpp
-    Aihc.Hackage.Download
     Aihc.Hackage.Headers
-    Aihc.Hackage.Index
-    Aihc.Hackage.IndexCache
     Aihc.Hackage.Preprocessor
     Aihc.Hackage.Release
+    Aihc.Hackage.Source
     Aihc.Hackage.Types
     Aihc.Hackage.Util
 
@@ -32,13 +30,7 @@ library
     containers >=0.5 && <0.9,
     directory >=1.2.3 && <1.5,
     filepath >=1.3.0.1 && <1.6,
-    http-client >=0.5 && <0.8,
-    http-client-tls >=0.2 && <0.4,
-    http-types >=0.9 && <0.13,
-    tar >=0.5 && <0.7,
     text >=1.2.3 && <2.2,
-    time >=1.9 && <1.15,
-    zlib >=0.5.4 && <0.8,
 
   ghc-options: -Wall
   default-language: GHC2021
@@ -57,12 +49,10 @@ test-suite spec
     directory,
     filepath,
     hedgehog,
-    tar,
     tasty,
     tasty-hedgehog,
     tasty-hunit,
     text,
-    zlib,
 
   ghc-options:
     -Wall
