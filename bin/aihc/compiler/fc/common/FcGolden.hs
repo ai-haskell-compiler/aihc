@@ -209,7 +209,8 @@ parseFcFixture path value = do
 -- policy. The policy is @shrink@, @grow@, or an object that names one of
 -- the two under @policy@ and overrides its knobs: @callee-limit@,
 -- @site-limit@, @discount@, @value-growth@, @value-slack@,
--- @requested-site-limit@, and the @rounds@ of the pass.
+-- @requested-site-limit@, @reducing-site-limit@, and the @rounds@ of the
+-- pass.
 parsePass :: Y.Value -> Y.Parser Pass
 parsePass value =
   case value of
@@ -234,6 +235,7 @@ parsePass value =
           valueGrowth <- knobs .:? "value-growth" .!= policyValueGrowth base
           valueSlack <- knobs .:? "value-slack" .!= policyValueSlack base
           requestedSiteLimit <- knobs .:? "requested-site-limit" .!= policyRequestedSiteLimit base
+          reducingSiteLimit <- knobs .:? "reducing-site-limit" .!= policyReducingSiteLimit base
           rounds <- knobs .:? "rounds" .!= defaultRounds
           pure
             ( PassInline
@@ -243,7 +245,8 @@ parsePass value =
                     policyFunctionArgumentDiscount = discount,
                     policyValueGrowth = valueGrowth,
                     policyValueSlack = valueSlack,
-                    policyRequestedSiteLimit = requestedSiteLimit
+                    policyRequestedSiteLimit = requestedSiteLimit,
+                    policyReducingSiteLimit = reducingSiteLimit
                   }
                 rounds
                 phase
