@@ -16,9 +16,10 @@
 -- @r9@ and the rest in a 16-byte aligned block above the return address.
 -- The first five arguments of a lowered function are the machine and the
 -- heap and stack pointers with their limits. A C call preserves their
--- registers, so these values stay in them across a C call. The callee pops that block with
--- @ret imm16@, so a tail call moves the return address and the outgoing
--- block to the place of the incoming block and the stack does not grow.
+-- registers, so these values stay in them across a C call. The callee pops
+-- that block with @ret imm16@, so a tail call moves the return address and
+-- the outgoing block to the place of the incoming block and the stack does
+-- not grow.
 -- Results come back in @rax@, @rdx@, @rcx@, @rsi@, @rdi@, @r8@, @r9@, and
 -- @r10@. An aihc function preserves no register: every call clobbers them
 -- all, so an aihc function that makes no call and spills nothing needs no
