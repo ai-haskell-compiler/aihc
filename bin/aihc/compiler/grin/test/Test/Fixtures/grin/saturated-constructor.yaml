@@ -8,9 +8,9 @@ expected: |-
 
   scope 2 = "aihc-prim" GHC.Tuple
 
-  pub global 1.pair = (P$pair/2)
+  pub global 1.pair = (P1.$pair/2)
 
-  $pair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$pair (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
     store (C2."(,)" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
 status: pass
 reason: stores a saturated constructor directly without eval or apply operations

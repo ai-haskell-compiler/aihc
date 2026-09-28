@@ -80,9 +80,7 @@ import GHC.Prim
     wordToWord64#,
     wordToWord8#,
   )
-import GHC.Types (Bool, isTrue#)
-
-data Word = W# Word#
+import GHC.Types (Bool, Word (..), isTrue#)
 
 data Word8 = W8# Word8#
 

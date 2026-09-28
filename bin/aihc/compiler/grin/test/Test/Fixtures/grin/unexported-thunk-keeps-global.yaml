@@ -5,16 +5,16 @@ expected: |-
 
   primitive *# :: IntRep/2
 
-  global 1.shared = (F$shared_thunk)
+  global 1.shared = (F1.$shared_thunk)
 
-  pub global 1.visible = (F$visible_thunk)
+  pub global 1.visible = (F1.$visible_thunk)
 
-  $shared_thunk -> BoxedRep Lifted =
+  1.$shared_thunk -> BoxedRep Lifted =
     argument :: IntRep <-
       primitive-call @IntRep *# (6 :: IntRep) (7 :: IntRep)
     store (C1.Box (argument :: IntRep))
 
-  $visible_thunk -> BoxedRep Lifted =
+  1.$visible_thunk -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) global-ref 1.shared
 extensions:
 - MagicHash

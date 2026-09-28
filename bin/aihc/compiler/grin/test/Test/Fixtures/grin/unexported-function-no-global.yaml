@@ -5,17 +5,17 @@ expected: |-
 
   primitive +# :: IntRep/2
 
-  pub global 1.visible = (P$visible/[[IntRep]])
+  pub global 1.visible = (P1.$visible/[[IntRep]])
 
-  $helper (x :: IntRep) -> IntRep =
+  1.$helper (x :: IntRep) -> IntRep =
     argument :: IntRep <-
       primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
     primitive-call @IntRep *# (argument :: IntRep) (2 :: IntRep)
 
-  $visible (x :: IntRep) -> IntRep =
+  1.$visible (x :: IntRep) -> IntRep =
     argument :: IntRep <-
-      call @IntRep $helper (x :: IntRep)
-    call @IntRep $helper (argument :: IntRep)
+      call @IntRep 1.$helper (x :: IntRep)
+    call @IntRep 1.$helper (argument :: IntRep)
 extensions:
 - MagicHash
 modules:

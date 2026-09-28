@@ -409,7 +409,9 @@ evaluateGrin mode environment output name program =
       | otherwise = interpretProgramBinding
 
 -- | Put the fixture GRIN after the core GRIN.
--- The fixture has a different package name and a different module name.
+-- The fixture has a different package name and a different module name, and
+-- every top-level name of GRIN contains its package and its module. Thus no
+-- name of the fixture is also a name of the core.
 appendGrinProgram :: GrinProgram -> GrinProgram -> GrinProgram
 appendGrinProgram core fixture =
   GrinProgram

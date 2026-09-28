@@ -13,6 +13,8 @@
 module GHC.Types
   ( List (..),
     Int (..),
+    Word (..),
+    IO (..),
     Char (..),
     Float (..),
     Double (..),
@@ -171,13 +173,17 @@ module GHC.Types
   )
 where
 
-import GHC.Prim (Addr#, Char#, Double#, Float#, Int#)
+import GHC.Prim (Addr#, Char#, Double#, Float#, Int#, RealWorld, State#, Word#)
 
 data List a = [] | a : [a]
 
 infixr 5 :
 
 data Int = I# Int#
+
+data Word = W# Word#
+
+newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
 data Char = C# Char#
 

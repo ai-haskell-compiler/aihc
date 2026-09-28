@@ -3,14 +3,14 @@ expected: |-
 
   primitive +# :: IntRep/2
 
-  pub global 1.visible = (P$visible/[[IntRep]])
+  pub global 1.visible = (P1.$visible/[[IntRep]])
 
-  global 1.helper = (P$helper/[[IntRep]])
+  global 1.helper = (P1.$helper/[[IntRep]])
 
-  $helper (x :: IntRep) -> IntRep =
+  1.$helper (x :: IntRep) -> IntRep =
     primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
 
-  $twice (x :: BoxedRep Lifted) (y :: IntRep) -> IntRep =
+  1.$twice (x :: BoxedRep Lifted) (y :: IntRep) -> IntRep =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     function_whnf%1 :: BoxedRep Lifted <-
@@ -19,8 +19,8 @@ expected: |-
       apply @IntRep (function_whnf%1 :: BoxedRep Lifted) (y :: IntRep)
     apply @IntRep (function_whnf :: BoxedRep Lifted) (argument :: IntRep)
 
-  $visible (x :: IntRep) -> IntRep =
-    call @IntRep $twice global-ref 1.helper (x :: IntRep)
+  1.$visible (x :: IntRep) -> IntRep =
+    call @IntRep 1.$twice global-ref 1.helper (x :: IntRep)
 extensions:
 - MagicHash
 modules:

@@ -3,9 +3,9 @@ expected: |-
 
   foreign 1.labs = "labs" :: (int) -> int ! pure
 
-  pub global 1.run = (P$run/[[IntRep]])
+  pub global 1.run = (P1.$run/[[IntRep]])
 
-  $run (x :: IntRep) -> IntRep =
+  1.$run (x :: IntRep) -> IntRep =
     foreign-call 1.labs = "labs" :: (int) -> int ! pure with (x :: IntRep)
 extensions:
 - ForeignFunctionInterface
