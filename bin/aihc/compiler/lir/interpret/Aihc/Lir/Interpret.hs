@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Reference interpreter for Lir. It implements the semantics in
 -- @docs/lir.md@ with a 64-bit word and a flat address space.
 module Aihc.Lir.Interpret

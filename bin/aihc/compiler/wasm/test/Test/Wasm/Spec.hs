@@ -10,6 +10,7 @@ import Aihc.Cli.Backend (compileEntryObject)
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
+import Aihc.Lir.Interpret (Value (..), renderValues)
 import Aihc.Lir.Lower (lowerEntry, lowerModule, wasip3Target)
 import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
 import Aihc.Parser.Syntax (Extension (MagicHash, UnboxedTuples))

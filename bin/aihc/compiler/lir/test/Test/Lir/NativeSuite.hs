@@ -16,6 +16,7 @@ import Aihc.Cli.Backend (BackendOutput (..), compileGrinTo, compileLirTo)
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
+import Aihc.Lir.Interpret (Value (..), renderValues)
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native (NativeTarget (..), executableEntryName, renderNativeTarget)
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))

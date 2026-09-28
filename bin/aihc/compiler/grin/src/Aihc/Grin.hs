@@ -40,11 +40,6 @@ module Aihc.Grin
     parseExpr,
     renderParseError,
     prettyProgram,
-    ProgramStreams (..),
-    interpretProgramBinding,
-    interpretProgramIoBinding,
-    InterpretError (..),
-    RuntimeValue (..),
   )
 where
 
@@ -61,7 +56,6 @@ import Aihc.Grin.Cps
     toCpsGrin,
   )
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, lowerGc)
-import Aihc.Grin.Interpret (InterpretError (..), ProgramStreams (..), RuntimeValue (..), interpretProgramBinding, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintCpsProgram, lintGcProgram, lintNodeArities, lintProgram)
 import Aihc.Grin.Lower (finishGrinProgram, lowerProgram)
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
