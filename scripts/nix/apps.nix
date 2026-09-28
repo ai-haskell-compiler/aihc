@@ -15,6 +15,10 @@
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
   unicode = import ./unicode.nix {inherit pkgs;};
+  # The C libraries that packages of docs/self-hosting-packages.md bind to:
+  # libffi for libffi, ncurses for terminfo, and zlib for zlib. Clang reads
+  # CPATH for headers and LIBRARY_PATH for libraries.
+  selfHostingCLibraries = [pkgs.libffi pkgs.ncurses pkgs.zlib];
   repoRootGuard = ''
     test -f cabal.project || {
       echo "Run this app from the repository root." >&2
@@ -216,6 +220,8 @@ in {
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC=${aihcExe}
+      export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" selfHostingCLibraries}''${CPATH:+:$CPATH}"
+      export LIBRARY_PATH="${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
       exec bash ./scripts/self-hosting-progress.sh "$@"
     '';
