@@ -4,13 +4,16 @@
 
 # AI-written Haskell Compiler (aihc)
 
-Can gpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not but let's find out. We'll need preprocessing, parsing, name resolution, type checking, desugaring, and code generation. Progress will be tracked as a percentage of stackage for each component.
-
-Find more information here:
-- [**aihc-cpp** README](https://github.com/ai-haskell-compiler/aihc-cpp#readme)
-- [**aihc-parser** README](https://github.com/ai-haskell-compiler/aihc-parser#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc-parser/blob/main/docs/aihc-parser-supported-extensions.md)
-- [**aihc-resolve** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-resolve#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-resolve-supported-extensions.md)
-- [**aihc-tc** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-tc#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-tc-supported-extensions.md)
+Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not but let's find out. We'll need:
+- [x] preprocessing (done, see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp)),
+- [x] parsing (done, see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser)),
+- [ ] name resolution (<!-- AUTO-GENERATED: START resolve-progress --> `119/119` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->),
+- [ ] type checking (<!-- AUTO-GENERATED: START tc-progress --> `698/703` (`99.28%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->),
+- [ ] desugaring (workable, incomplete),
+- [ ] code generation (can generate machine code, llvm ir, wasm),
+- [ ] `ghc-prim` shim (<!-- AUTO-GENERATED: START ghc-prim-progress --> `784/5013` (`15.64%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->),
+- [ ] `base` implementation (<!-- AUTO-GENERATED: START base-progress --> `2137/10061` (`21.24%`) ●○○○○ <!-- AUTO-GENERATED: END base-progress -->),
+- [ ] self-host (<!-- AUTO-GENERATED: START self-hosting-progress --> `76/118` (`64.41%`) ●●●○○ <!-- AUTO-GENERATED: END self-hosting-progress -->).
 
 ## Latest News
 
@@ -22,16 +25,25 @@ Rewrite rules connect the parser to list fusion, unboxed sums survive collection
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
 
-## Progress
+## Performance
 
-| Name               | Progress                                                                                                                             |
-| ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `784/5013` (`15.64%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `2137/10061` (`21.24%`) ●○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
-| Self-compile       | <!-- AUTO-GENERATED: START self-hosting-progress --> `76/118` (`64.41%`) ●●●○○ <!-- AUTO-GENERATED: END self-hosting-progress --> |
-| &nbsp; | &nbsp; |
-| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `698/703` (`99.28%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `119/119` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
+<!-- AUTO-GENERATED: START perf-highlights -->
+Each number is the AIHC value divided by the GHC value, as a geometric mean over 6 benchmarks. Lower is better. 1.00× is parity.
+
+| Metric | Native | LLVM | Wasm |
+| --- | ---: | ---: | ---: |
+| Compile time `-O0` | 0.32× | 0.22× | 0.48× |
+| Artifact size `-Os` | 0.58× | 0.52× | 0.60× |
+| Runtime `-O1` | 19.3× | 17.7× | 40.4× |
+| Runtime `-O2` | 4.85× | 4.38× | 7.57× |
+
+Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`e1d25b1ac`](https://github.com/ai-haskell-compiler/aihc/commit/e1d25b1acada4624ca181b3379d158a9e537341d) (2026-09-27). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+<!-- AUTO-GENERATED: END perf-highlights -->
+
+
+## Self hosting
+
+AIHC compiling itself ("self hosting") is the next milestone. Expand the details to see exactly what packages are required and which fail to install.
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
@@ -162,25 +174,6 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->
-
-The "Self-compile" row counts the packages of the `aihc` executable that aihc can compile, with `aihc` itself as the last package. `aihc plan bin/aihc --executable aihc` finds the packages, and [docs/self-hosting-packages.md](docs/self-hosting-packages.md) lists them. A package waits when one of its dependencies does not install.
-
-The `aihc-prim` and `aihc-base` rows count the exports of GHC's `ghc-prim` and `base` that aihc provides with the same name and signature (up to type variable names, `forall` prefixes and kind synonyms; a type without a standalone kind signature matches any kind). Compatibility also runs the other way: a module that exists in `ghc-prim` or `base` may only export names that GHC exports from it too, so code written against aihc keeps compiling with GHC. The `dev-spec` test suite fails on any new divergence; `cabal run aihc-dev -- core-libs-progress --divergences` lists the current ones. Modules that only aihc defines are free to export anything.
-
-## Performance
-
-<!-- AUTO-GENERATED: START perf-highlights -->
-Each number is the AIHC value divided by the GHC value, as a geometric mean over 6 benchmarks. Lower is better. 1.00× is parity.
-
-| Metric | Native | LLVM | Wasm |
-| --- | ---: | ---: | ---: |
-| Compile time `-O0` | 0.32× | 0.22× | 0.48× |
-| Artifact size `-Os` | 0.58× | 0.52× | 0.60× |
-| Runtime `-O1` | 19.3× | 17.7× | 40.4× |
-| Runtime `-O2` | 4.85× | 4.38× | 7.57× |
-
-Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`e1d25b1ac`](https://github.com/ai-haskell-compiler/aihc/commit/e1d25b1acada4624ca181b3379d158a9e537341d) (2026-09-27). Get all results at [perf.aihc.app](https://perf.aihc.app/).
-<!-- AUTO-GENERATED: END perf-highlights -->
 
 ## Useful Commands
 
