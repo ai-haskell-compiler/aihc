@@ -21,6 +21,7 @@ module Data.Semigroup
   )
 where
 
+import Data.Bifunctor (Bifunctor (..))
 import Data.Semigroup.Internal
   ( All (..),
     Any (..),
@@ -167,3 +168,6 @@ instance Functor Last where
 
 instance Functor (Arg a) where
   fmap f (Arg key value) = Arg key (f value)
+
+instance Bifunctor Arg where
+  bimap f g (Arg key value) = Arg (f key) (g value)

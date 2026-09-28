@@ -139,7 +139,7 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -4142,7 +4142,8 @@ registerClassDefaultSignature classTvEnv classTyVars item =
 -- @forall@ is peeled like the one of an ordinary signature, so the
 -- method type is a function type and the equations of a default or
 -- instance body see their parameters; it also scopes the binders'
--- names over that body.
+-- names over that body. The quantifiers of a function result come last,
+-- as 'floatResultQuantifiers' moves them for an ordinary signature.
 classSignatureScheme :: TvKindEnv -> [TyVarId] -> Type -> TcM TypeScheme
 classSignatureScheme classTvEnv classTyVars ty = do
   let (explicitBinders, context, body) = splitSigma ty
@@ -4161,9 +4162,10 @@ classSignatureScheme classTvEnv classTyVars ty = do
             | param <- explicitParams
             ]
   kinds <- getKinds
-  methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
+  checkedBody <- checkSurfaceType tvEnv body (typeKind kinds)
   contextPreds <- surfaceContextToPreds tvEnv context
-  pure (specifiedScheme (classTyVars <> extraTyVars <> explicitTyVars) contextPreds methodBody)
+  let (floatedTyVars, floatedPreds, methodBody) = floatResultQuantifiers checkedBody
+  pure (specifiedScheme (classTyVars <> extraTyVars <> explicitTyVars <> floatedTyVars) (contextPreds <> floatedPreds) methodBody)
 
 registerInstanceDecl :: (Text, Text) -> InstanceDecl -> TcM [TcBindingResult]
 registerInstanceDecl origin instanceDecl =
