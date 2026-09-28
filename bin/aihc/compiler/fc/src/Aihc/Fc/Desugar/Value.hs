@@ -4439,6 +4439,11 @@ desugarEvidence evidence =
       ExApp <$> desugarEvidence function <*> desugarEvidence argument
     Ev.EvCallStackPush (packageName, moduleName') function site parent -> desugarCallStackPush (packageName, moduleName') function site parent
     Ev.EvCallStackEmpty origin -> desugarCallStackEmpty origin
+    Ev.EvRecursive predicate dictionaryType body -> withoutEvidenceScope $ do
+      -- The body names the dictionary as a given of its own predicate.
+      binder <- freshBinder "$recursive_d" dictionaryType
+      body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
+      pure (ExRec [Bind binder body'] (ExVar (binderName binder)))
 
 -- | Build the case chain that selects one superclass field.
 desugarSuperClass :: Ev.EvTerm -> ValueM Expr

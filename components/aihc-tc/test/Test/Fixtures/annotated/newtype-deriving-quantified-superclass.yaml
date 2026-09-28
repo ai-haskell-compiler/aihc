@@ -1,0 +1,62 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints, GeneralizedNewtypeDeriving #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+  └─ class methods: rnf ∷ ∀ a. (NFData a) ⇒ a → a
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type) where
+  └─ class methods: liftRnf ∷ ∀ f b. (NFData1 f) ⇒ (b → b) → f b → f b
+    liftRnf :: (b -> b) -> f b -> f b
+
+  class (forall a. NFData a => NFData1 (p a)) => NFData2 (p :: Type -> Type -> Type) where
+  └─ class methods: liftRnf2 ∷ ∀ p a b. (NFData2 p) ⇒ (a → a) → (b → b) → p a b → p a b
+    liftRnf2 :: (a -> a) -> (b -> b) -> p a b -> p a b
+
+  newtype Wrap p a b = Wrap (p a b)
+  │       │            └─ type: ∀ p a b. p a b → Wrap p a b
+  │       └─ type: (Type → Type → Type) → Type → Type → Type
+  └─ deriving plans: newtype NFData (Wrap p a b) [context: NFData p a b] [methods: rnf], newtype NFData1 (Wrap p a) [context: NFData1 p a] [methods: liftRnf], newtype NFData2 (Wrap p) [context: NFData2 p] [methods: liftRnf2]
+    deriving (NFData, NFData1, NFData2)
+              │       │        └─ $fNFData2Wrapp ∷ ∀ p. (NFData2 p) ⇒ NFData2 (Wrap p) [superclasses: Λa. λ(_ ∷ NFData a). $fNFData1Wrappa @p @a (((super[0](given NFData2 p)) @a) (given NFData a))]
+              │       └─ $fNFData1Wrappa ∷ ∀ p a. (NFData1 (p a)) ⇒ NFData1 (Wrap p a) [superclasses: Λa. λ(_ ∷ NFData a). $fNFDataWrappab @p @a @a (((super[0](given NFData1 p a)) @a) (given NFData a))]
+              └─ $fNFDataWrappab ∷ ∀ p a b. (NFData (p a b)) ⇒ NFData (Wrap p a b)
+
+  newtype Lone f a = Lone (f a)
+  │       │          └─ type: ∀ f a. f a → Lone f a
+  │       └─ type: (Type → Type) → Type → Type
+  └─ deriving plans: newtype NFData1 (Lone f) [context: NFData1 f] [methods: liftRnf]
+    deriving NFData1
+             └─ $fNFData1Lonef ∷ ∀ f. (NFData1 f) ⇒ NFData1 (Lone f) [superclasses: ev125]
+             └─ error: unsolved constraint forall a. (NFData a) => NFData Lone f a
+extensions:
+- KindSignatures
+- QuantifiedConstraints
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints, GeneralizedNewtypeDeriving #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type) where
+    liftRnf :: (b -> b) -> f b -> f b
+
+  class (forall a. NFData a => NFData1 (p a)) => NFData2 (p :: Type -> Type -> Type) where
+    liftRnf2 :: (a -> a) -> (b -> b) -> p a b -> p a b
+
+  newtype Wrap p a b = Wrap (p a b)
+    deriving (NFData, NFData1, NFData2)
+
+  newtype Lone f a = Lone (f a)
+    deriving NFData1
+reason: newtype deriving infers a context that proves a quantified superclass, and a missing superclass instance is an error
+status: pass

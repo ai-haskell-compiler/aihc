@@ -76,6 +76,7 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
       EvDictLam _ _ inner -> mentionsSelf inner
       EvTypeApp inner _ -> mentionsSelf inner
       EvDictApp function argument -> mentionsSelf function || mentionsSelf argument
+      EvRecursive _ _ inner -> mentionsSelf inner
       _ -> False
 
 -- | The type whose instance the plan reuses, and whose methods the generated

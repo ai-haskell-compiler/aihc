@@ -116,6 +116,8 @@ module Aihc.Tc.Monad
     getTyVarTypes,
     withGivenPredicates,
     getGivenPredicates,
+    withRecursiveDictionary,
+    getRecursiveDictionaries,
     addInstance,
     getInstances,
     getClassInstances,
@@ -235,6 +237,10 @@ data TcEnv = TcEnv
     -- with an explicit @forall@, an instance head, or a class head binds
     -- them over the bodies it covers.
     tcEnvGivenPredicates :: ![Pred],
+    -- | The class predicates whose instance dictionaries the solver is
+    -- building. A wanted that comes back to one of them names that
+    -- dictionary, so the evidence is a recursive dictionary.
+    tcEnvRecursiveDictionaries :: ![Pred],
     tcEnvScopedTyVars :: !(Map Text (TyVarId, TcType)),
     -- | The scoped type variables that stand for a type and not for
     -- themselves, by unique. A pattern signature binds a type variable
@@ -463,6 +469,7 @@ emptyTcEnv config =
       tcEnvPolyKindOrigins = [],
       tcEnvComponentTyCons = Set.empty,
       tcEnvGivenPredicates = [],
+      tcEnvRecursiveDictionaries = [],
       tcEnvScopedTyVars = Map.empty,
       tcEnvTyVarTypes = Map.empty,
       tcEnvAmbientSpan = Nothing,
@@ -1118,6 +1125,14 @@ withGivenPredicates predicates = local (\env -> env {tcEnvGivenPredicates = pred
 
 getGivenPredicates :: TcM [Pred]
 getGivenPredicates = asks tcEnvGivenPredicates
+
+-- | Run an action while the solver builds the instance dictionary of a
+-- class predicate.
+withRecursiveDictionary :: Pred -> TcM a -> TcM a
+withRecursiveDictionary predicate = local (\env -> env {tcEnvRecursiveDictionaries = predicate : tcEnvRecursiveDictionaries env})
+
+getRecursiveDictionaries :: TcM [Pred]
+getRecursiveDictionaries = asks tcEnvRecursiveDictionaries
 
 -- | The lexically scoped type variables that are in scope.
 getScopedTyVars :: TcM (Map Text (TyVarId, TcType))

@@ -118,7 +118,7 @@ showsPrec1 :: (Show1 f, Show a) => Int -> f a -> ShowS
 showsPrec1 = liftShowsPrec showsPrec showList
 
 -- | Lifting of the 'Eq' class to binary type constructors.
-class Eq2 (f :: Type -> Type -> Type) where
+class (forall a. (Eq a) => Eq1 (f a)) => Eq2 (f :: Type -> Type -> Type) where
   liftEq2 :: (a -> b -> Bool) -> (c -> d -> Bool) -> f a c -> f b d -> Bool
 
 -- | Lift the standard @('==')@ function through the type constructor.
@@ -126,7 +126,7 @@ eq2 :: (Eq2 f, Eq a, Eq b) => f a b -> f a b -> Bool
 eq2 = liftEq2 (==) (==)
 
 -- | Lifting of the 'Ord' class to binary type constructors.
-class (Eq2 f) => Ord2 (f :: Type -> Type -> Type) where
+class (Eq2 f, forall a. (Ord a) => Ord1 (f a)) => Ord2 (f :: Type -> Type -> Type) where
   liftCompare2 :: (a -> b -> Ordering) -> (c -> d -> Ordering) -> f a c -> f b d -> Ordering
 
 -- | Lift the standard 'compare' function through the type constructor.
@@ -136,7 +136,7 @@ compare2 = liftCompare2 compare compare
 -- | Lifting of the 'Read' class to binary type constructors.
 --
 -- Instances define either 'liftReadsPrec2' or 'liftReadPrec2'.
-class Read2 (f :: Type -> Type -> Type) where
+class (forall a. (Read a) => Read1 (f a)) => Read2 (f :: Type -> Type -> Type) where
   liftReadsPrec2 :: (Int -> ReadS a) -> ReadS [a] -> (Int -> ReadS b) -> ReadS [b] -> Int -> ReadS (f a b)
   liftReadsPrec2 rp1 rl1 rp2 rl2 =
     readPrec_to_S
@@ -208,7 +208,7 @@ liftReadListPrec2Default ::
 liftReadListPrec2Default rp1 rl1 rp2 rl2 = list (liftReadPrec2 rp1 rl1 rp2 rl2)
 
 -- | Lifting of the 'Show' class to binary type constructors.
-class Show2 (f :: Type -> Type -> Type) where
+class (forall a. (Show a) => Show1 (f a)) => Show2 (f :: Type -> Type -> Type) where
   liftShowsPrec2 :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> (Int -> b -> ShowS) -> ([b] -> ShowS) -> Int -> f a b -> ShowS
 
   liftShowList2 :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> (Int -> b -> ShowS) -> ([b] -> ShowS) -> [f a b] -> ShowS

@@ -280,6 +280,11 @@ simplifyPredicate kinds environment owner rawPredicate = do
 simplifyReducedPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> TcM (Either Pred [Pred])
 simplifyReducedPredicate kinds environment owner predicate
   | isBareVariablePredicate (tcDerivingTyVars owner) predicate = pure (Right [predicate])
+  -- A quantified obligation, such as the superclass of @Eq1@, adds nothing
+  -- to the context. Its residue mentions the quantified variables, so it
+  -- cannot be a context predicate. The check of the generated instance
+  -- solves it with the inferred context as givens, as GHC does.
+  | QuantifiedPred {} <- predicate = pure (Right [])
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)

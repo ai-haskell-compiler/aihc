@@ -191,6 +191,8 @@ zonkEvTerm evTerm =
       EvTypeApp <$> zonkEvTerm function <*> finalizeType argument
     EvDictApp function argument ->
       EvDictApp <$> zonkEvTerm function <*> zonkEvTerm argument
+    EvRecursive predicate dictionaryType body ->
+      EvRecursive <$> finalizePred predicate <*> finalizeType dictionaryType <*> zonkEvTerm body
     EvCallStackPush origin function site parent ->
       EvCallStackPush origin function site <$> zonkEvTerm parent
     EvCallStackEmpty origin ->
@@ -394,6 +396,8 @@ firstMetaEvTerm evTerm =
       firstMetaEvTerm function <|> firstMetaType argument
     EvDictApp function argument ->
       firstMetaEvTerm function <|> firstMetaEvTerm argument
+    EvRecursive predicate dictionaryType body ->
+      firstMetaPred predicate <|> firstMetaType dictionaryType <|> firstMetaEvTerm body
     EvCallStackPush _ _ _ parent ->
       firstMetaEvTerm parent
     EvCallStackEmpty {} ->
