@@ -792,7 +792,7 @@ rebuildApp env headExpr' args' = do
 -- in its lazy constructor arguments bound by strict lets first.
 bindApplication :: Simpl -> Expr -> [Arg] -> SimplM Expr
 bindApplication env headExpr args = do
-  bound <- mapM (either (pure . (,) [] . Left) (fmap (fmap Right) . bindLazyPrimitives env)) args
+  bound <- mapM (either (pure . (,) [] . Left) (fmap (fmap Right) . bindLazyPrimitives env . primitiveConstructor env)) args
   pure (foldr ExLet (rebuildSpine headExpr (map snd bound)) (concatMap fst bound))
 
 -- | Move out of the arguments of an application each case that cannot
@@ -1823,6 +1823,27 @@ bindLazyPrimitives env expr
               name <- freshLocal (Name "argument" SortValue (OriginLocal (Unique 0)))
               pure ([Bind (Binder name ty) value], Right (ExVar name))
           | otherwise -> fmap Right <$> bindLazyPrimitives env value
+
+-- | An argument that is a case that only binds the value of a safe
+-- primitive call for a constructor, as the constructor with the call as
+-- its argument. A copy of the wrapper of a function with a constructed
+-- result gives such a case, @case x +# y of r -> I# r@. In an argument,
+-- the case is a thunk, where @I# (x +# y)@ is a constructor whose
+-- primitive call 'bindLazyPrimitives' binds in front of the application.
+-- A safe primitive cannot fail, so the call can move into the
+-- constructor.
+primitiveConstructor :: Simpl -> Expr -> Expr
+primitiveConstructor env expr =
+  case expr of
+    ExCase scrutinee binder _ [Alt AltDefault [] [] rhs]
+      | isStrictBinder (spEnv env) binder,
+        isJust (safePrimitiveCall (spEnv env) scrutinee),
+        (ExVar con, args) <- collectSpine rhs,
+        isConstructorName con,
+        [()] <- [() | Right (ExVar argument) <- args, argument == binderName binder],
+        Occurrences 1 False <- occurrences (binderName binder) rhs ->
+          substExpr (Map.singleton (binderName binder) scrutinee) rhs
+    _ -> expr
 
 -- | Whether a constructor application has a safe primitive call among its
 -- arguments or among the arguments of its constructor arguments.

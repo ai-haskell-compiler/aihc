@@ -260,8 +260,11 @@ A function has a constructed product result when its result type has one
 constructor that a worker can take apart and build again, and every tail
 of its body is that constructor, a recursive call, or an unboxed
 parameter, which the worker builds from its fields. The worker then
-returns the fields: the field itself when there is one, and an unboxed
-tuple of the fields when there are more. Each tail that is the
+returns the fields: the field itself when there is one and its type is
+unlifted, and an unboxed tuple of the fields when there are more. A
+single lifted field is not returned as it is: the wrapper evaluates what
+the worker returns, and the field of a lazy constructor such as
+`data Box = Box Int` must stay unevaluated. Each tail that is the
 constructor gives its arguments, and another tail is taken apart by a
 case. The wrapper builds the constructor again from what the worker
 returns, and at a call whose result a case takes apart, that constructor
@@ -297,9 +300,25 @@ The pass does not split:
 On the `sha-digest` benchmark at `-O2`, the pass took the run time from
 20 ms to 10 ms, the allocation from 59 MB to 43 MB, and the program object
 from 2.29 MB to 1.66 MB. The program objects of the examples became 1.5%
-to 8.6% smaller. Some examples allocate up to 3.4% more; the cause is not
-examined yet. The argument side alone gave no change in run time and
+to 8.6% smaller. The argument side alone gave no change in run time and
 52.7 MB of allocation.
+
+A copy of a wrapper gives a case on the call of the worker,
+`case $wf x as r of _ -> I# r`. When the worker is a safe primitive
+call, the case is `case x +# y as r of _ -> I# r`. In an argument of an
+application, such as an argument of `(:)`, that case is a thunk, where
+`I# (x +# y)` is a constructor whose primitive call `bindLazyPrimitives`
+binds in front of the application. The simplifier therefore makes such an
+argument the constructor with the call as its argument. Before that rule,
+the examples allocated up to 3.4% more with constructed results than
+without them. The rule applies to arguments only: applied to every such
+case, it changed the inlining of the block functions of `sha-digest` and
+made it allocate 8% more.
+
+A constructed result with one lifted field is not returned as the field,
+because the wrapper would evaluate it (see above). The first version of
+the pass did return it, and so evaluated the lazy field of a constructor
+such as `Box` too early.
 
 The report gives the number of workers, the number of parameters they
 take as fields, and the number of workers that return fields. The fixtures are the `worker-wrapper-*.yaml` files; a

@@ -48,6 +48,7 @@ import Aihc.Fc.Demand (Demand (..), Signature (..), productConstructor, topLevel
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Simplify (collectSpine, exprValueNames, freshenExprFrom, maxLocalUnique)
+import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, lookupHeaderType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
@@ -201,11 +202,16 @@ splitValue types workerName demands declaration =
             pure (ResultProduct con arguments (zip fields reps) returned)
       guard (not (Set.null unboxedNames) || isJust resultProduct)
       pure (tyBinders, parameters, arrows, result, resultProduct, inner)
-    -- One field is returned as it is. More fields are returned in an
-    -- unboxed tuple, when the program has the tuple of that size.
+    -- One unlifted field is returned as it is. More fields are returned in
+    -- an unboxed tuple, when the program has the tuple of that size.
     returnedKind env fields =
       case fields of
-        [_] -> Just ReturnField
+        -- A lifted field is not returned as it is: the wrapper evaluates
+        -- what the worker returns, and the field of a lazy constructor
+        -- must stay unevaluated.
+        [(ty, _)]
+          | isLiftedType env ty -> Nothing
+          | otherwise -> Just ReturnField
         _ -> do
           let size = T.pack (show (length fields))
               tupleCon = wiredGhcTypes primPackage ("Tuple" <> size <> "#") SortDataConstructor
