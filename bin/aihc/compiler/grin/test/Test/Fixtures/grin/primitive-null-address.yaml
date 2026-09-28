@@ -5,9 +5,9 @@ expected: |-
 
   primitive nullAddr# :: AddrRep/0
 
-  pub global 1.value = (F$value_thunk)
+  pub global 1.value = (F1.$value_thunk)
 
-  $value_thunk -> BoxedRep Lifted =
+  1.$value_thunk -> BoxedRep Lifted =
     argument :: AddrRep <-
       primitive-call @AddrRep nullAddr#
     store (C1.Address (argument :: AddrRep))

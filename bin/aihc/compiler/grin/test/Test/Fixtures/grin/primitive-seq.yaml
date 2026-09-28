@@ -5,17 +5,17 @@ expected: |-
 
   pub constructor 1.Second []
 
-  pub global 1.value = (F$value_thunk)
+  pub global 1.value = (F1.$value_thunk)
 
-  $value_closure (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$value_closure (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (seq_first :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as seq_evaluated :: BoxedRep Lifted of
       _ ->
         eval @(BoxedRep Lifted) (seq_second :: BoxedRep Lifted)
 
-  $value_thunk -> BoxedRep Lifted =
-    call @(BoxedRep Lifted) $value_closure global-ref 1.First global-ref 1.Second
+  1.$value_thunk -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) 1.$value_closure global-ref 1.First global-ref 1.Second
 extensions: []
 source: |
   module Test where

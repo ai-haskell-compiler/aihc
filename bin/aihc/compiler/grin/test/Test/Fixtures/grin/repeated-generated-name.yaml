@@ -9,19 +9,19 @@ expected: |-
 
   pub constructor 1.Box [BoxedRep Lifted, BoxedRep Lifted]
 
-  pub global 1.boxes = (F$boxes_thunk)
+  pub global 1.boxes = (F1.$boxes_thunk)
 
-  $boxes_closure (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$boxes_closure (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
-  $boxes_closure_2 (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$boxes_closure_2 (y :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
 
-  $boxes_thunk -> BoxedRep Lifted =
+  1.$boxes_thunk -> BoxedRep Lifted =
     argument :: BoxedRep Lifted <-
-      store (P$boxes_closure/1)
+      store (P1.$boxes_closure/1)
     argument%1 :: BoxedRep Lifted <-
-      store (P$boxes_closure_2/1)
+      store (P1.$boxes_closure_2/1)
     store (C1.Box (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted))
 status: pass
 reason: gives a number to the second generated function that wants the same name

@@ -11,7 +11,6 @@ import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
 import Aihc.Grin.Lint (lintGcProgram)
 import Aihc.Grin.Parser qualified as GrinParser
 import Aihc.Grin.Simplify (simplifyGrinProgram)
-import Aihc.Grin.Syntax (FunctionName (..), GrinAlt (..), GrinExpr (..), GrinFunction (..), GrinNode (..), GrinNodeTag (..), claimFunctionName, functionNamesFrom)
 import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
@@ -20,9 +19,7 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.List (sort)
 import Data.List qualified as List
-import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Yaml qualified as Y
@@ -412,54 +409,18 @@ evaluateGrin mode environment output name program =
       | otherwise = interpretProgramBinding
 
 -- | Put the fixture GRIN after the core GRIN.
--- The fixture has a different package name and a different module name, so
--- its globals and constructors keep their names. A function name does not
--- contain the module. Thus, a fixture function can have the same name as a
--- private core function. A native object keeps the two functions apart with
--- internal linkage. Here, the fixture function gets a name that is free.
+-- The fixture has a different package name and a different module name, and
+-- every top-level name of GRIN contains its package and its module. Thus no
+-- name of the fixture is also a name of the core.
 appendGrinProgram :: GrinProgram -> GrinProgram -> GrinProgram
 appendGrinProgram core fixture =
   GrinProgram
     { grinConstructors = grinConstructors core <> grinConstructors fixture,
       grinPrimitives = grinPrimitives core <> grinPrimitives fixture,
       grinForeignCalls = grinForeignCalls core <> grinForeignCalls fixture,
-      grinGlobals = grinGlobals core <> map renameGlobal (grinGlobals fixture),
-      grinFunctions = grinFunctions core <> map renameFunction (grinFunctions fixture)
+      grinGlobals = grinGlobals core <> grinGlobals fixture,
+      grinFunctions = grinFunctions core <> grinFunctions fixture
     }
-  where
-    coreNames = Set.fromList (map grinFunctionName (grinFunctions core))
-    fixtureNames = map grinFunctionName (grinFunctions fixture)
-    renames =
-      Map.fromList . snd $
-        List.mapAccumL
-          (\names name -> let (fresh, names') = claimFunctionName (unFunctionName name) names in (names', (name, fresh)))
-          (functionNamesFrom (Set.union coreNames (Set.fromList fixtureNames)))
-          (filter (`Set.member` coreNames) fixtureNames)
-    rename name = Map.findWithDefault name name renames
-    renameGlobal global = global {grinGlobalNode = renameNode (grinGlobalNode global)}
-    renameFunction function =
-      function
-        { grinFunctionName = rename (grinFunctionName function),
-          grinFunctionBody = renameExpr (grinFunctionBody function)
-        }
-    renameNode (GrinNode tag fields) = GrinNode (renameTag tag) fields
-    renameTag tag =
-      case tag of
-        GrinClosure name layouts -> GrinClosure (rename name) layouts
-        GrinThunk name -> GrinThunk (rename name)
-        GrinConstructor {} -> tag
-    renameExpr expression =
-      case expression of
-        GrinCall resultRep name arguments -> GrinCall resultRep (rename name) arguments
-        GrinBind variables valueExpression body -> GrinBind variables (renameExpr valueExpression) (renameExpr body)
-        GrinStore node -> GrinStore (renameNode node)
-        GrinStoreUnchecked node -> GrinStoreUnchecked (renameNode node)
-        GrinStoreRec bindings body -> GrinStoreRec (map (fmap renameNode) bindings) (renameExpr body)
-        GrinStoreRecUnchecked bindings body -> GrinStoreRecUnchecked (map (fmap renameNode) bindings) (renameExpr body)
-        GrinFetch tag value -> GrinFetch (renameTag tag) value
-        GrinIfWhnf value ready slow -> GrinIfWhnf value (renameExpr ready) (renameExpr slow)
-        GrinCase value binder alternatives -> GrinCase value binder [alternative {grinAltRhs = renameExpr (grinAltRhs alternative)} | alternative <- alternatives]
-        _ -> expression
 
 prepareEvalProgram :: Text -> Fc.Program -> Either String (Fc.Program, Text -> Text)
 prepareEvalProgram sourceName program =

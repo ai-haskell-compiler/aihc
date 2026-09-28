@@ -79,7 +79,7 @@ prettyVis vis =
 
 prettyFunction :: Scopes -> GrinFunction -> Doc ann
 prettyFunction scopes function =
-  prettyFunctionName (grinFunctionName function)
+  prettyFunctionName scopes (grinFunctionName function)
     <> foldMap ((space <>) . prettyVarAtom) (grinFunctionParameters function)
     <+> "->"
     <+> prettyResultRep (grinFunctionResultRep function)
@@ -123,7 +123,7 @@ prettyExprWith scopes expr =
       "call"
         <+> "@"
         <> prettyResultRepArgument resultRep
-        <+> prettyFunctionName functionName
+        <+> prettyFunctionName scopes functionName
         <> prettyValues scopes arguments
     GrinPrimitiveCall runtimeRep name arguments ->
       "primitive-call"
@@ -264,12 +264,12 @@ prettyNodeTag scopes nodeTag =
       "C" <> prettyName scopes name <> if remaining == 0 then mempty else "/" <> pretty remaining
     GrinClosure functionName argumentLayouts ->
       "P"
-        <> prettyFunctionName functionName
+        <> prettyFunctionName scopes functionName
         <> "/"
         <> if all (== [BoxedRep Lifted]) argumentLayouts
           then pretty (length argumentLayouts)
           else prettyLayouts argumentLayouts
-    GrinThunk functionName -> "F" <> prettyFunctionName functionName
+    GrinThunk functionName -> "F" <> prettyFunctionName scopes functionName
 
 prettyLiteral :: GrinLiteral -> Doc ann
 prettyLiteral literal =
@@ -374,8 +374,8 @@ prettyForeignType foreignType =
     GrinForeignClosure -> "closure"
     GrinForeignVoid -> "void"
 
-prettyFunctionName :: FunctionName -> Doc ann
-prettyFunctionName = prettyBareName . unFunctionName
+prettyFunctionName :: Scopes -> FunctionName -> Doc ann
+prettyFunctionName scopes = prettyName scopes . unFunctionName
 
 -- | Print one top-level name. A name whose scope has a number prints as
 -- @number.name@. Every other name prints in full.

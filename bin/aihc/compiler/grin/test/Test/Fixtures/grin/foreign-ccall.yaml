@@ -3,14 +3,14 @@ expected: |-
 
   foreign 1.labs = unsafe "labs" :: (int) -> int ! pure
 
-  pub global 1.run = (P$run/[[IntRep]])
+  pub global 1.run = (P1.$run/[[IntRep]])
 
-  pub global 1.alias = (P$alias/[[IntRep]])
+  pub global 1.alias = (P1.$alias/[[IntRep]])
 
-  $run (x :: IntRep) -> IntRep =
+  1.$run (x :: IntRep) -> IntRep =
     foreign-call 1.labs = unsafe "labs" :: (int) -> int ! pure with (x :: IntRep)
 
-  $alias (_foreign_argument :: IntRep) -> IntRep =
+  1.$alias (_foreign_argument :: IntRep) -> IntRep =
     foreign-call 1.labs = unsafe "labs" :: (int) -> int ! pure with (_foreign_argument :: IntRep)
 extensions:
 - ForeignFunctionInterface

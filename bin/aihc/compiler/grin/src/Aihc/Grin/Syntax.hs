@@ -476,6 +476,15 @@ grinProgramScopes program =
         <> grinProgramGlobalReferences program
         <> concatMap (nodeTagNames . grinGlobalNode) (grinGlobals program)
         <> concatMap (exprTagNames . grinFunctionBody) (grinFunctions program)
+        <> map unFunctionName (grinProgramFunctionNames program)
+
+-- | Every function name of a program: the name of each function and each
+-- name that a global or a function body refers to.
+grinProgramFunctionNames :: GrinProgram -> [FunctionName]
+grinProgramFunctionNames program =
+  map grinFunctionName (grinFunctions program)
+    <> concatMap (grinNodeFunctionNames . grinGlobalNode) (grinGlobals program)
+    <> concatMap (grinExprFunctionNames . grinFunctionBody) (grinFunctions program)
 
 -- | The constructor tags that one expression names. Node tags and case
 -- alternatives are the only places that name a constructor.

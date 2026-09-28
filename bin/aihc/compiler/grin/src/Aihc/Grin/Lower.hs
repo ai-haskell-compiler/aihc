@@ -61,8 +61,8 @@ localFunctionArity = length . localFunctionLayouts
 data LowerState = LowerState
   { lowerNextUnique :: !Int,
     -- | The top-level value that lowering works on. Each function that this
-    -- value needs takes its name from this name.
-    lowerCurrentValue :: !Text,
+    -- value needs takes its name and its scope from this name.
+    lowerCurrentValue :: !(Maybe Fc.Name),
     lowerUsedFunctions :: !FunctionNames,
     lowerFunctionsRev :: ![GrinFunction],
     -- | The primitives that the module calls, by name.
@@ -101,7 +101,7 @@ lowerProgram program = do
       globals = globalNameTable types
       constructorArities = constructorArityTable types
       baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
-      initialState = LowerState (-1000000000) "" (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty
+      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
@@ -167,9 +167,9 @@ withLowerContext context =
 -- name from the value, so that a reader can find the source of the code.
 withCurrentValue :: Fc.Name -> LowerM a -> LowerM a
 withCurrentValue name action = do
-  modify' (\state -> state {lowerCurrentValue = Fc.nameText name})
+  modify' (\state -> state {lowerCurrentValue = Just name})
   result <- action
-  modify' (\state -> state {lowerCurrentValue = ""})
+  modify' (\state -> state {lowerCurrentValue = Nothing})
   pure result
 
 -- | Lower one type declaration to the layout of each of its constructors.
@@ -1998,11 +1998,21 @@ freshVar hint representation = do
 -- | Name one generated function after the top-level value that needs it. An
 -- empty hint names the entry of the value itself. A name that is already in
 -- use gets a number, so that no two functions share a name.
+--
+-- The function also takes the package and the module of the value, as a
+-- global does (see 'stableGlobalName'). Thus the functions of two modules
+-- have different names also when the two modules go into one program.
 freshFunction :: Text -> LowerM FunctionName
 freshFunction hint = do
   state <- get
-  let (candidate, names) = claimFunctionName ("$" <> qualifiedHint (lowerCurrentValue state) hint) (lowerUsedFunctions state)
-  modify' (\current -> current {lowerUsedFunctions = names})
+  let current = lowerCurrentValue state
+      baseName = "$" <> qualifiedHint (maybe "" Fc.nameText current) hint
+      scopedName =
+        case Fc.nameOrigin <$> current of
+          Just (Fc.OriginTop (PackageId packageName) moduleName) -> grinScopedName packageName moduleName baseName
+          _ -> baseName
+      (candidate, names) = claimFunctionName scopedName (lowerUsedFunctions state)
+  modify' (\current' -> current' {lowerUsedFunctions = names})
   pure candidate
 
 -- | Put the value name in front of the hint. A hint that already starts with

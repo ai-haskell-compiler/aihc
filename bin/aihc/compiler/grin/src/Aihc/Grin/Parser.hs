@@ -160,7 +160,7 @@ optionalPub = MP.option GrinPrivate (GrinPub <$ (keyword "pub" *> horizontal1))
 
 functionDeclaration :: Parser GrinFunction
 functionDeclaration = do
-  functionName <- FunctionName <$> name
+  functionName <- FunctionName <$> scopedName
   parameters <- MP.many (MP.try (horizontal1 *> varAtom))
   horizontal1
   _ <- MPC.string "->"
@@ -429,7 +429,7 @@ namedCallExpr expressionName constructor = do
   horizontal1
   representation <- resultRepArgument
   horizontal1
-  functionName <- FunctionName <$> name
+  functionName <- FunctionName <$> scopedName
   arguments <- grinValues
   lineEnd
   pure (constructor representation functionName arguments)
@@ -549,7 +549,7 @@ nodeTag =
         pure (GrinConstructor constructorName (fromMaybe 0 remaining)),
       do
         _ <- MPC.char 'P'
-        functionName <- FunctionName <$> name
+        functionName <- FunctionName <$> scopedName
         _ <- MPC.char '/'
         argumentLayouts <-
           MP.try layouts <|> do
@@ -559,7 +559,7 @@ nodeTag =
             when (arity /= length parsedLayouts) $ fail "closure arity does not match its layouts"
             pure parsedLayouts
         pure (GrinClosure functionName argumentLayouts),
-      GrinThunk . FunctionName <$> (MPC.char 'F' *> name)
+      GrinThunk . FunctionName <$> (MPC.char 'F' *> scopedName)
     ]
 
 grinValue :: Parser GrinValue

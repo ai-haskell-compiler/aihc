@@ -19,9 +19,9 @@ expected: |-
 
   pub constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
 
-  pub global 1.pair = (P$pair/1)
+  pub global 1.pair = (P1.$pair/1)
 
-  $pair (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$pair (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     size :: BoxedRep Lifted <-
       store (C2.I# (3 :: IntRep))
     argument :: BoxedRep Lifted <-

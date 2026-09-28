@@ -5,9 +5,9 @@ expected: |-
 
   foreign 1.putsAddress = address "puts" :: () -> addr ! pure
 
-  pub global 1.address = (F$address_thunk)
+  pub global 1.address = (F1.$address_thunk)
 
-  $address_thunk -> BoxedRep Lifted =
+  1.$address_thunk -> BoxedRep Lifted =
     foreign_result :: AddrRep <-
       foreign-call 1.putsAddress = address "puts" :: () -> addr ! pure with
     store (C1.Ptr (foreign_result :: AddrRep))
