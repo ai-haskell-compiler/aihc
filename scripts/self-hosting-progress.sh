@@ -274,9 +274,12 @@ while IFS=$'\t' read -r name version source depends; do
 	status=0
 	if [ "$name" = "$root_name" ]; then
 		# The last package is the one to compile itself. Its executable is
-		# the goal, so it is built rather than installed.
+		# the goal, so it is built rather than installed. The plan of the
+		# package list disables the `hackage` flag of aihc, so the build
+		# disables it too.
 		echo "Building the executable $root_executable of $name-$version"
 		run_with_timeout "$aihc" build "$workspace/$name" --executable "$root_executable" \
+			--constraint "aihc -hackage" \
 			--store "$store" --build-root "$work_directory/build" --target "$target" -O "$level" \
 			>>"$log" 2>&1 || status=$?
 	else
