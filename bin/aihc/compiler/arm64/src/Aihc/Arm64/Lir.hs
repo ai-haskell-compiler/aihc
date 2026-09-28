@@ -175,6 +175,8 @@ arm64Backend =
       nbReturn = \ctx -> adjustStack ArmAdd (ctxIncomingOverflow ctx) <> [arm64Instruction ArmRet],
       nbLoadSlot = loadSlot,
       nbStoreSlot = storeSlot,
+      nbStoreSlots = slotPairs ArmStp storeSlot,
+      nbLoadSlots = slotPairs ArmLdp loadSlot,
       nbMove = move,
       nbLiteralInto = literalInto,
       nbStoreSlotImmediate = \_ _ -> Nothing,
@@ -244,7 +246,8 @@ registersFor convention =
       registersPreserved = preservedRegisters,
       registersPreservedCost = convention == CConvention,
       registersArgument = argument . conventionArguments,
-      registersResult = argument argumentRegisters
+      registersResult = argument argumentRegisters,
+      registersPairedSaves = True
     }
   where
     conventionArguments callee = case callee of
@@ -442,6 +445,19 @@ restoreRegisters ctx displacement =
 
 loadSlot :: Arm64Register -> Int -> Arm64Statement
 loadSlot register offset = arm64Instruction (ArmLdr register (Arm64Offset SP (fromIntegral offset)))
+
+-- | Store or load registers at frame slots, two at a time where two slots
+-- are next to each other.
+slotPairs :: (Arm64Register -> Arm64Register -> Arm64Address -> Arm64Instruction) -> (Arm64Register -> Int -> Arm64Statement) -> [(Arm64Register, Int)] -> [Arm64Statement]
+slotPairs pair single slots =
+  case slots of
+    (first, offset) : (second, offset') : rest
+      | offset' == offset + 8,
+        offset `mod` 8 == 0,
+        offset + 8 <= 504 ->
+          arm64Instruction (pair first second (Arm64Offset SP (fromIntegral offset))) : slotPairs pair single rest
+    (register, offset) : rest -> single register offset : slotPairs pair single rest
+    [] -> []
 
 storeSlot :: Arm64Register -> Int -> Arm64Statement
 storeSlot register offset = arm64Instruction (ArmStr register (Arm64Offset SP (fromIntegral offset)))

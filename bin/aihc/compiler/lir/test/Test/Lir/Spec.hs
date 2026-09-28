@@ -74,7 +74,8 @@ alignedLoad alignment =
                   { blockLabel = Label "entry",
                     blockParameters = [],
                     blockInstructions = [Instruction [Var "v"] (Load I64 (byteAddress (OperandLiteral (LitSymbol (Symbol "bytes"))) 4) alignment)],
-                    blockTerminator = Return [OperandVar (Var "v")]
+                    blockTerminator = Return [OperandVar (Var "v")],
+                    blockCold = False
                   }
               ]
           }

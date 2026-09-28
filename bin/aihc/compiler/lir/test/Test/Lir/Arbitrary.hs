@@ -68,6 +68,7 @@ genBlock =
     <*> smallList genParameter
     <*> Gen.list (Range.linear 0 4) genInstruction
     <*> genTerminator
+    <*> Gen.bool
 
 genInstruction :: Gen Instruction
 genInstruction = Instruction <$> Gen.list (Range.linear 0 2) genVar <*> genOperation

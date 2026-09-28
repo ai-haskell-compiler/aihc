@@ -333,6 +333,9 @@ parameterList = parenthesized (parameter `MP.sepBy` token ",")
 
 block :: Parser Block
 block = do
+  -- A block named @cold@ has no modifier, so the modifier must precede a
+  -- label.
+  cold <- MP.option False (True <$ MP.try (keyword "cold" <* MP.lookAhead label))
   blockName <- label
   parameters <- MP.option [] parameterList
   token ":"
@@ -343,7 +346,8 @@ block = do
       { blockLabel = blockName,
         blockParameters = parameters,
         blockInstructions = instructions,
-        blockTerminator = terminator
+        blockTerminator = terminator,
+        blockCold = cold
       }
 
 instruction :: Parser Instruction

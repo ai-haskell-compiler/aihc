@@ -30,7 +30,7 @@ expected: |
     %heap_fits_14 = le.u ptr %heap_end_13, %hp_limit_8
     br %heap_fits_14, gc_reserved_16(%$cps_return_11, %hp_7, %hp_limit_8), gc_collect_15
 
-  gc_collect_15:
+  cold gc_collect_15:
     store ptr %$cps_return_11, [%roots_12] align 8
     store ptr %hp_7, [%machine_6 + 24] align 1 word
     store ptr %sp_9, [%machine_6 + 40] align 1 word
@@ -48,7 +48,7 @@ expected: |
     %stack_fits_25 = le.u ptr %sp_24, %sp_limit_10
     br %stack_fits_25, stack_pushed_27(%sp_9, %sp_24, %sp_limit_10), stack_grow_26
 
-  stack_grow_26:
+  cold stack_grow_26:
     %result_28 = call @aihc_stack_grow(%machine_6, %sp_9, 3)
     %sp_29 = ptr.add %result_28, 24
     %sp_limit_30 = ptr.add %result_28, 4064
@@ -68,7 +68,7 @@ expected: |
     %heap_fits_44 = le.u ptr %heap_end_43, %hp_limit_36
     br %heap_fits_44, gc_reserved_46(%$cps_return_39, %first_40, %hp_35, %hp_limit_36), gc_collect_45
 
-  gc_collect_45:
+  cold gc_collect_45:
     store ptr %$cps_return_39, [%roots_42] align 8
     store ptr %first_40, [%roots_42 + 8] align 8
     store ptr %hp_35, [%machine_34 + 24] align 1 word

@@ -946,7 +946,7 @@ wideHelpers = [unsignedHelper, signedHelper]
           functionParameters = [(a, I64), (b, I64)],
           functionResults = [I64, I64],
           functionConvention = AihcConvention,
-          functionBlocks = [Block (Label "entry") [] instructions (Return [var "low", var "result_high"])]
+          functionBlocks = [Block (Label "entry") [] instructions (Return [var "low", var "result_high"]) False]
         }
     unsignedHelper = helper "aihc_lir_wasm_mul_wide_u64" (limbs <> [op "result_high" (Binary Add I64 (var "high") (int 0))])
     signedHelper =
@@ -976,14 +976,15 @@ bitScatterHelpers = [depositHelper, extractHelper]
     int = OperandLiteral . LitInt
     op name = Instruction [Var name]
     loop = Label "loop"
-    entry = Block (Label "entry") [] [] (Jump (Target loop [var "a", var "b", int 0]))
+    entry = Block (Label "entry") [] [] (Jump (Target loop [var "a", var "b", int 0])) False
     test =
       Block
         loop
         [(Var "source", I64), (Var "mask", I64), (Var "result", I64)]
         [op "done" (Compare Eq I64 (var "mask") (int 0))]
         (Branch (var "done") (Target (Label "exit") [var "result"]) (Target (Label "body") []))
-    exit = Block (Label "exit") [(Var "value", I64)] [] (Return [var "value"])
+        False
+    exit = Block (Label "exit") [(Var "value", I64)] [] (Return [var "value"]) False
     helper name body =
       Function
         { functionName = Symbol name,
@@ -1009,6 +1010,7 @@ bitScatterHelpers = [depositHelper, extractHelper]
               op "shifted" (Binary ShrU I64 (var "source") (int 1))
             ]
             (Jump (Target loop [var "shifted", var "rest", var "next"]))
+            False
         )
     extractHelper =
       helper
@@ -1026,6 +1028,7 @@ bitScatterHelpers = [depositHelper, extractHelper]
               op "shifted" (Binary Shl I64 (var "aligned_source") (int 1))
             ]
             (Jump (Target loop [var "shifted", var "rest", var "next"]))
+            False
         )
 
 tshow :: (Show value) => value -> Text

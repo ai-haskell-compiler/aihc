@@ -186,9 +186,10 @@ spliceBlock inlines prefix = go []
               { blockLabel = continueLabel,
                 blockParameters = zip (instructionResults instruction) (copyResults copy),
                 blockInstructions = after,
-                blockTerminator = blockTerminator block
+                blockTerminator = blockTerminator block,
+                blockCold = blockCold block
               }
-      go (done <> [entered] <> copyBlocks copy (Jump . Target continueLabel)) resumed
+      go (done <> [entered] <> copyBlocks copy (blockCold block) (Jump . Target continueLabel)) resumed
 
     -- A tail call needs no cut. The results of the body are the results of
     -- the caller, which the linter has already checked, so its returns stay.
@@ -198,7 +199,7 @@ spliceBlock inlines prefix = go []
           | Just callee <- Map.lookup symbol inlines -> do
               copy <- copyOf callee
               let entered = block {blockTerminator = Jump (Target (copyEntry copy) arguments)}
-              pure (done <> [entered] <> copyBlocks copy Return)
+              pure (done <> [entered] <> copyBlocks copy (blockCold block) Return)
         _ -> pure (done <> [block])
 
     calleeOf instruction =
@@ -231,10 +232,10 @@ copyEntry copy@(Copy _ _ callee) =
     [] -> error ("Lir inline function " <> T.unpack (unSymbol (functionName callee)) <> " has no blocks")
 
 -- | The blocks of the copy, with every @return@ replaced by the terminator
--- the call site needs.
-copyBlocks :: Copy -> ([Operand] -> Terminator) -> [Block]
-copyBlocks copy@(Copy _ _ callee) onReturn =
-  [ renameBlock copy onReturn (isEntry index) block
+-- the call site needs. A copy spliced into a cold block is cold throughout.
+copyBlocks :: Copy -> Bool -> ([Operand] -> Terminator) -> [Block]
+copyBlocks copy@(Copy _ _ callee) cold onReturn =
+  [ (renameBlock copy onReturn (isEntry index) block) {blockCold = cold || blockCold block}
   | (index, block) <- zip [0 :: Int ..] (functionBlocks callee)
   ]
   where
@@ -247,7 +248,8 @@ renameBlock copy onReturn entryParameters block =
     { blockLabel = renameLabel copy (blockLabel block),
       blockParameters = [(renameVar copy name, ty) | (name, ty) <- entryParameters <> blockParameters block],
       blockInstructions = map renameInstruction (blockInstructions block),
-      blockTerminator = mapTerminator operand (renameLabel copy) onReturn (blockTerminator block)
+      blockTerminator = mapTerminator operand (renameLabel copy) onReturn (blockTerminator block),
+      blockCold = blockCold block
     }
   where
     renameInstruction instruction =
@@ -325,7 +327,10 @@ mergeBlocks blocks =
         joined =
           block
             { blockInstructions = blockInstructions block <> blockInstructions absorbed,
-              blockTerminator = blockTerminator absorbed
+              blockTerminator = blockTerminator absorbed,
+              -- The block jumps only to the absorbed block, and nothing
+              -- else reaches that one, so the two run equally often.
+              blockCold = blockCold block || blockCold absorbed
             }
 
 -- | Rewrite the operands an operation reads.

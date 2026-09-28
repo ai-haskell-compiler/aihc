@@ -58,7 +58,7 @@ fits:
 
 ; The runtime gives the first frame of a chunk, so the rest of the chunk
 ; follows the frame.
-grow:
+cold grow:
   %grown = call @aihc_stack_grow(%machine, %sp, %words)
   %grown_end = ptr.add %grown, %bytes
   %grown_limit = ptr.add %grown, @AIHC_STACK_CHUNK_FRAME_BYTES
@@ -116,7 +116,7 @@ blackhole:
   %heap_fits = ge.u i64 %heap_room, @AIHC_EVAL_WAITER_BYTES
   br %heap_fits, block(%current, %continuation), collect
 
-collect:
+cold collect:
   %current_word = ptr.to_int %current
   store i64 %current_word, [%roots] align 8
   %continuation_word = ptr.to_int %continuation
