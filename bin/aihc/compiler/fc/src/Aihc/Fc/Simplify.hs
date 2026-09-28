@@ -56,11 +56,11 @@ import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
 import Aihc.Fc.Size (exprSize, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, guard)
+import Control.Monad (foldM, guard, mapAndUnzipM)
 import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
@@ -752,8 +752,58 @@ simplifyApp env headExpr args = do
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp env (altRhs alternative) args') alternatives
           pure (ExCase scrutinee binder resultType' alternatives')
     _ -> do
-      bound <- mapM (either (pure . (,) [] . Left) (fmap (fmap Right) . bindLazyPrimitives env)) args'
-      pure (foldr ExLet (rebuildSpine headExpr' (map snd bound)) (concatMap fst bound))
+      speculated <- speculateArguments env headExpr' args'
+      case speculated of
+        Just result -> pure result
+        Nothing -> bindApplication env headExpr' args'
+
+-- | An application whose head is not copied, with the safe primitive calls
+-- in its lazy constructor arguments bound by strict lets first.
+bindApplication :: Simpl -> Expr -> [Arg] -> SimplM Expr
+bindApplication env headExpr args = do
+  bound <- mapM (either (pure . (,) [] . Left) (fmap (fmap Right) . bindLazyPrimitives env)) args
+  pure (foldr ExLet (rebuildSpine headExpr (map snd bound)) (concatMap fst bound))
+
+-- | Move out of the arguments of an application each case that cannot
+-- fail and does not evaluate anything: a case on an evaluated variable
+-- with one alternative, whose constructor is the only constructor of its
+-- type. In a lazy argument, such a case is a thunk that only takes a value
+-- apart. Around the application, it runs once, and the argument that is
+-- left is often a constructor with a primitive call, which
+-- 'bindLazyPrimitives' then binds by a strict let.
+--
+-- The case gets the type of the application as its result type, so the
+-- head must be a constructor or a top-level value whose type is known.
+-- The case moves into a larger scope, so its binders are fresh.
+speculateArguments :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
+speculateArguments env headExpr args
+  | ExVar name <- headExpr,
+    any (either (const False) speculable) args,
+    Just headType <- lookupHeaderType (spEnv env) name,
+    Just resultType <- appliedType (spEnv env) headType args = do
+      (wrappers, args') <- mapAndUnzipM (speculate resultType) args
+      inner <- bindApplication env headExpr args'
+      pure (Just (foldr ($) inner (concat wrappers)))
+  | otherwise = pure Nothing
+  where
+    speculable argument =
+      case argument of
+        ExCase scrutinee binder _ [Alt (AltData con) [] _ _] ->
+          isEvaluated env scrutinee && onlyConstructor (binderType binder) == Just con
+        _ -> False
+    onlyConstructor ty = do
+      tyCon <- typeHead (reduceType (spEnv env) ty)
+      [con] <- Map.lookup tyCon (teDataCons (spEnv env))
+      pure con
+    speculate resultType argument
+      | Right value <- argument,
+        speculable value = do
+          fresh <- freshenExpr value
+          pure $ case fresh of
+            ExCase scrutinee binder _ [alternative] ->
+              ([\inner -> ExCase scrutinee binder resultType [alternative {altRhs = inner}]], Right (altRhs alternative))
+            _ -> ([], argument)
+      | otherwise = pure ([], argument)
 
 -- | Fire the first active rule that matches an application, if any. The
 -- right-hand side is copied with fresh binders, instantiated by the

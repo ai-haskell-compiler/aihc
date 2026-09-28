@@ -65,7 +65,7 @@ program = do
   imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
   Program scopes imports <$> MP.many declaration
   where
-    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 importGroup :: Parser [Imports -> Imports]
 importGroup = do
@@ -83,6 +83,7 @@ importEntries entry = entry `MP.sepBy1` symbol ";"
 
 importedHeader :: Parser (Imports -> Imports)
 importedHeader = do
+  dataCons <- MP.optional (keyword "constructors" *> brackets (topName SortDataConstructor `MP.sepBy` symbol ","))
   strictFields <- constructorStrictFields
   representation <- constructorRepresentation
   name <- importedHeaderName
@@ -92,7 +93,8 @@ importedHeader = do
         imports
           { importHeaders = Map.insert name ty (importHeaders imports),
             importConRepresentations = if representation == HeapConstructor then importConRepresentations imports else Map.insert name representation (importConRepresentations imports),
-            importConStrictFields = if null strictFields then importConStrictFields imports else Map.insert name strictFields (importConStrictFields imports)
+            importConStrictFields = if null strictFields then importConStrictFields imports else Map.insert name strictFields (importConStrictFields imports),
+            importDataCons = maybe (importDataCons imports) (\constructors -> Map.insert name constructors (importDataCons imports)) dataCons
           }
     )
 

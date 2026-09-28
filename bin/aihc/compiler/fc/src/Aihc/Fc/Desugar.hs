@@ -1057,6 +1057,7 @@ importsOrigins imports =
     <> concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importSynonyms imports))
     <> concatMap (\(name, declaration) -> nameOriginPair name <> axiomOrigins declaration) (Map.toList (importAxioms imports))
     <> concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importBinders imports))
+    <> concatMap (concatMap nameOriginPair) (Map.elems (importDataCons imports))
 
 axiomOrigins :: AxiomDecl -> [(PackageId, Text)]
 axiomOrigins declaration =

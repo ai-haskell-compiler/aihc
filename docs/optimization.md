@@ -103,6 +103,24 @@ For a default case on a variable, the simplifier uses the evaluated case
 binder in the case body. This gives a strict constructor field one use before
 the case. The simplifier can then move a single-use thunk into the case.
 
+System FC knows every constructor of a data type. A local type declaration
+lists them, and an imported data type carries them in front of its header,
+as `constructors [3.cI#] 3.tInt :: 3.sType`. The type checker gives the
+list in its interface, and the desugarer copies it into the imports. A type
+with no constructor, such as a primitive type, has no list, so its
+constructors are not known.
+
+The simplifier uses the list to speculate a case. An argument of a call can
+be a case on an evaluated variable with one alternative, whose constructor
+is the only constructor of its type. Such a case cannot fail and evaluates
+nothing, so it moves out of the argument and around the call:
+`Box (case x of I# a -> I# (a +# 1#))` becomes
+`case x of I# a -> let argument = a +# 1# in Box (I# argument)`. The lazy
+argument then holds a value instead of a thunk. The case gets the type of
+the call, so the head of the call must be a constructor or a top-level value
+with a known type. A case in a lazy let is not speculated yet, because the
+simplifier does not know the type of the body of the let.
+
 ## Constant lifting
 
 `PassLiftConstants` runs after the final simplification pass. It moves closed,

@@ -29,7 +29,7 @@ import Data.Set qualified as Set
 type References = Set Name
 
 emptyImports :: Imports
-emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Convert each used name when the import closure first needs it.
 importsForProgramLookup :: PackageId -> (Name -> Either String (Maybe TypeEnv)) -> Program -> Either String Imports
@@ -108,7 +108,8 @@ importsForNames available names =
       importAxioms = Map.restrictKeys (teAxioms available) names,
       importBinders = Map.restrictKeys (teBinders available) names,
       importConRepresentations = Map.restrictKeys (teConRepresentations available) names,
-      importConStrictFields = Map.restrictKeys (teConStrictFields available) names
+      importConStrictFields = Map.restrictKeys (teConStrictFields available) names,
+      importDataCons = Map.restrictKeys (teDataCons available) names
     }
 
 mergeImports :: Imports -> Imports -> Imports
@@ -119,7 +120,8 @@ mergeImports preferred fallback =
       importAxioms = Map.union (importAxioms preferred) (importAxioms fallback),
       importBinders = Map.union (importBinders preferred) (importBinders fallback),
       importConRepresentations = Map.union (importConRepresentations preferred) (importConRepresentations fallback),
-      importConStrictFields = Map.union (importConStrictFields preferred) (importConStrictFields fallback)
+      importConStrictFields = Map.union (importConStrictFields preferred) (importConStrictFields fallback),
+      importDataCons = Map.union (importDataCons preferred) (importDataCons fallback)
     }
 
 -- | Return one entry for each import declaration that has no use.
@@ -316,5 +318,6 @@ pruneImports program = program {programImports = imports'}
           importAxioms = Map.filterWithKey (keepAxiom used) (importAxioms imports),
           importBinders = Map.filterWithKey (\name _ -> Set.member name used) (importBinders imports),
           importConRepresentations = Map.restrictKeys (importConRepresentations imports) used,
-          importConStrictFields = Map.restrictKeys (importConStrictFields imports) used
+          importConStrictFields = Map.restrictKeys (importConStrictFields imports) used,
+          importDataCons = Map.restrictKeys (importDataCons imports) used
         }

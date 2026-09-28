@@ -16,9 +16,9 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
     2.sLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.sType;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
     2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
     2.sType :: 2.sType;
     2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;

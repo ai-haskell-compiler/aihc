@@ -35,6 +35,7 @@ mergePrograms programs =
       Imports
         { importConRepresentations = notDeclared (Map.unions (map (importConRepresentations . programImports) programs)),
           importConStrictFields = notDeclared (Map.unions (map (importConStrictFields . programImports) programs)),
+          importDataCons = notDeclared (Map.unions (map (importDataCons . programImports) programs)),
           importHeaders = notDeclared (Map.unions (map (importHeaders . programImports) programs)),
           importSynonyms = notDeclared (Map.unions (map (importSynonyms . programImports) programs)),
           importAxioms = notDeclared (Map.unions (map (importAxioms . programImports) programs)),

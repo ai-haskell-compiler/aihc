@@ -60,6 +60,10 @@ data TypeEnv = TypeEnv
     teConRepresentations :: Map Name ConRepresentation,
     -- | The strict fields of each constructor that has one.
     teConStrictFields :: Map Name [Int],
+    -- | Every constructor of each data type that has one. A primitive
+    -- type has no constructor, so a type with none is not recorded, and
+    -- its constructors are not known.
+    teDataCons :: Map Name [Name],
     -- | The term binders in scope that hold a value in weak-head normal
     -- form. Only the lint fills this set.
     teEvaluated :: Set.Set Name
@@ -77,6 +81,7 @@ emptyTypeEnv primPackage =
       teBinders = Map.empty,
       teConRepresentations = Map.empty,
       teConStrictFields = Map.empty,
+      teDataCons = Map.empty,
       teEvaluated = Set.empty
     }
 
@@ -91,6 +96,7 @@ unionTypeEnv left right =
       teBinders = teBinders left `Map.union` teBinders right,
       teConRepresentations = teConRepresentations left `Map.union` teConRepresentations right,
       teConStrictFields = teConStrictFields left `Map.union` teConStrictFields right,
+      teDataCons = teDataCons left `Map.union` teDataCons right,
       teEvaluated = teEvaluated left `Set.union` teEvaluated right
     }
 
@@ -117,7 +123,8 @@ addImports env imports =
       teFamilyAxioms = List.foldl' addFamilyAxiom (teFamilyAxioms env) (Map.elems (importAxioms imports)),
       teBinders = importBinders imports `Map.union` teBinders env,
       teConRepresentations = importConRepresentations imports `Map.union` teConRepresentations env,
-      teConStrictFields = importConStrictFields imports `Map.union` teConStrictFields env
+      teConStrictFields = importConStrictFields imports `Map.union` teConStrictFields env,
+      teDataCons = importDataCons imports `Map.union` teDataCons env
     }
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
@@ -127,7 +134,8 @@ addDecl env decl =
       env
         { teHeaders = List.foldl' addConstructor (Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)) (typeCons declaration),
           teConRepresentations = Map.fromList [(conName con, conRepresentation con) | con <- typeCons declaration, conRepresentation con /= HeapConstructor] `Map.union` teConRepresentations env,
-          teConStrictFields = Map.fromList [(conName con, conStrictFields con) | con <- typeCons declaration, not (null (conStrictFields con))] `Map.union` teConStrictFields env
+          teConStrictFields = Map.fromList [(conName con, conStrictFields con) | con <- typeCons declaration, not (null (conStrictFields con))] `Map.union` teConStrictFields env,
+          teDataCons = if null (typeCons declaration) then teDataCons env else Map.insert (typeName declaration) (map conName (typeCons declaration)) (teDataCons env)
         }
       where
         addConstructor headers constructor = Map.insert (conName constructor) (conType constructor) headers

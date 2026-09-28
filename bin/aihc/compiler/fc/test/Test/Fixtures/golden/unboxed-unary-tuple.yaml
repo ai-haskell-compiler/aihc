@@ -15,13 +15,13 @@ expected: |-
 
   import headers
     2.tInt# :: 3.tTYPE 3.cIntRep;
-    3.tLevity :: 3.sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
     3.sLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.tTuple1# :: ∀(r1 : 3.tRuntimeRep) (a1 : 3.tTYPE r1). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c[] 3.tRuntimeRep)));
+    constructors [3.cTuple1#] 3.tTuple1# :: ∀(r1 : 3.tRuntimeRep) (a1 : 3.tTYPE r1). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c[] 3.tRuntimeRep)));
     3.sType :: 3.sType;
-    3.t[] :: ∀(a : 3.sType). 3.sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
     3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
     3.cIntRep :: 3.tRuntimeRep;

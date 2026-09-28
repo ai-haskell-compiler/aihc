@@ -63,7 +63,7 @@ prettyImports scopes imports =
     <> prettyImportGroup "value-binders" valueBinderEntries
   where
     headerEntries =
-      map (\(name, ty) -> prettyConStrictFields (Map.findWithDefault [] name (importConStrictFields imports)) <> prettyConRepresentation (Map.findWithDefault HeapConstructor name (importConRepresentations imports)) <> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importHeaders imports))
+      map (\(name, ty) -> prettyDataCons scopes (Map.lookup name (importDataCons imports)) <> prettyConStrictFields (Map.findWithDefault [] name (importConStrictFields imports)) <> prettyConRepresentation (Map.findWithDefault HeapConstructor name (importConRepresentations imports)) <> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importHeaders imports))
     synonymEntries =
       map (\(name, ty) -> prettyTopName scopes name <+> "=" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importSynonyms imports))
     axiomEntries =
@@ -81,6 +81,12 @@ importEntries :: Map.Map Name entry -> [(Name, entry)]
 importEntries = List.sortOn (importEntryKey . fst) . Map.toAscList
   where
     importEntryKey name = (nameClass (nameSort name), nameText name, nameOrigin name)
+
+-- | The constructors of an imported data type: @constructors [1.cA, 1.cB]@
+-- in front of its header, or nothing when they are not known.
+prettyDataCons :: ScopeIndex -> Maybe [Name] -> Doc ann
+prettyDataCons scopes =
+  maybe mempty (\constructors -> "constructors [" <> hsep (punctuate "," (map (prettyTopName scopes) constructors)) <> "] ")
 
 prettyImportGroup :: Doc ann -> [Doc ann] -> [Doc ann]
 prettyImportGroup _ [] = []

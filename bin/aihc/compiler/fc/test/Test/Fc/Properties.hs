@@ -123,7 +123,7 @@ identityProgram :: Program
 identityProgram =
   Program
     { programScopes = scopes,
-      programImports = Imports mempty mempty mempty mempty mempty mempty,
+      programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
       programDecls =
         [ DeclType
             TypeDecl
@@ -172,7 +172,8 @@ genImports = do
   axioms <- Map.fromList <$> Gen.list (Range.linear 0 5) genImportedAxiom
   binders <- genMap genLocalName genType
   strictFields <- Map.fromList <$> (traverse (\name -> (,) name <$> genStrictFields) =<< Gen.subsequence (Map.keys headers))
-  pure (Imports headers synonyms axioms binders mempty (Map.filter (not . null) strictFields))
+  dataCons <- Map.fromList <$> (traverse (\name -> (,) name <$> Gen.list (Range.linear 0 3) (dataNameTop . ("ImportedC" <>) <$> genSuffix)) =<< Gen.subsequence [name | name <- Map.keys headers, nameSort name == SortTypeConstructor])
+  pure (Imports headers synonyms axioms binders mempty (Map.filter (not . null) strictFields) dataCons)
   where
     genMap makeName makeValue = Map.fromList <$> Gen.list (Range.linear 0 5) ((,) <$> makeName <*> makeValue)
     genHeaderName = do
@@ -412,7 +413,7 @@ genTidyProgram = do
   pure
     Program
       { programScopes = scopes,
-        programImports = Imports mempty mempty mempty mempty mempty mempty,
+        programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
         programDecls =
           [ DeclVal
               ValDecl
