@@ -106,6 +106,7 @@ simplifyProgram phase program =
                 spLocals = Map.empty,
                 spCse = Map.empty,
                 spEvaluated = Set.empty,
+                spDone = Map.empty,
                 spSiteLimit = 0,
                 spRequestedSiteLimit = 0,
                 spReducingSiteLimit = 0,
@@ -221,6 +222,12 @@ data Simpl = Simpl
     -- binders, variable scrutinees inside their alternatives, binders of
     -- strict fields, and let binders of values.
     spEvaluated :: !(Set Name),
+    -- | Local binders whose one use takes a right-hand side that is
+    -- already simplified. A use is replaced by a fresh copy of that
+    -- right-hand side, and the copy is not simplified again: it can hold
+    -- sites that were decided already, and each walk over it would decide
+    -- them again.
+    spDone :: !(Map Name Expr),
     spSiteLimit :: !Int,
     -- | The largest growth a requested site may cause without a charge
     -- to the allowance.
@@ -707,11 +714,34 @@ extendTypeBinder env binder = env {spEnv = extendBinder (spEnv env) binder}
 -- simplified first. A head that names a candidate is replaced by a copy of
 -- its body when the size rule accepts the reduced result.
 simplifyApp :: Simpl -> Expr -> [Arg] -> SimplM Expr
-simplifyApp env headExpr args = do
-  headExpr' <- case headExpr of
-    ExVar {} -> pure headExpr
-    _ -> simplifyExpr env headExpr
-  args' <- mapM (either (pure . Left) (fmap Right . simplifyExpr env)) args
+simplifyApp env headExpr args =
+  case headExpr of
+    -- A binder whose right-hand side is already simplified takes a copy
+    -- of it as it is. Only arguments that the use adds give the copy new
+    -- facts, so only then is its application rebuilt, with the arguments
+    -- of the copy and the new ones together.
+    ExVar name
+      | Just done <- Map.lookup name (spDone env) -> do
+          copy <- freshenExpr done
+          if null args
+            then pure copy
+            else do
+              args' <- simplifyArgs env args
+              let (doneHead, doneArgs) = collectSpine copy
+              rebuildApp env doneHead (doneArgs ++ args')
+    _ -> do
+      headExpr' <- case headExpr of
+        ExVar {} -> pure headExpr
+        _ -> simplifyExpr env headExpr
+      args' <- simplifyArgs env args
+      rebuildApp env headExpr' args'
+
+simplifyArgs :: Simpl -> [Arg] -> SimplM [Arg]
+simplifyArgs env = mapM (either (pure . Left) (fmap Right . simplifyExpr env))
+
+-- | Rebuild an application whose head and arguments are simplified.
+rebuildApp :: Simpl -> Expr -> [Arg] -> SimplM Expr
+rebuildApp env headExpr' args' = do
   fired <- fireRule env headExpr' args'
   case headExpr' of
     _ | Just rewritten <- fired -> simplifyExpr env rewritten
@@ -1047,10 +1077,16 @@ mkLet env bind body
   -- evaluated at the same point in both forms.
   | ExVar var <- body, var == name = pure rhs
   | Occurrences 0 _ <- uses, lifted || isCheapValue (spArity env) rhs = pure body
+  -- The right-hand side is simplified already, so it moves as it is: the
+  -- walk simplifies only the body around the use. A chain of calls whose
+  -- sites the policy rejects, @f (g (f (g x)))@, otherwise has each
+  -- argument simplified again in the copy of each call around it, and
+  -- every inner site is decided again at every level. A use that the
+  -- walk does not reach keeps the binding.
   | lifted,
     Occurrences 1 False <- uses = do
-      copy <- freshenExpr rhs
-      simplifyExpr env (substExpr (Map.singleton name copy) body)
+      body' <- simplifyExpr env {spDone = Map.insert name rhs (spDone env)} body
+      pure (if unused name body' then body' else ExLet bind body')
   -- A value whose one use is a saturated call also moves to its use, even
   -- from under a lambda: a lambda that lands on its arguments and a
   -- partial application that its use completes both allocate nothing
