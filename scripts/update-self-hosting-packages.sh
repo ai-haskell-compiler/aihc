@@ -13,7 +13,8 @@ Usage: scripts/update-self-hosting-packages.sh [OPTION]...
   --help          Show this message
 
 The aihc executable is taken from $AIHC, and defaults to `aihc` on PATH.
-The script runs `aihc plan bin/aihc --executable aihc`. The plan does not
+The script runs `aihc plan bin/aihc --executable aihc` with the `hackage`
+flag of aihc disabled. The plan does not
 use a lock file, so it takes the versions that Hackage has now.
 USAGE
 }
@@ -70,7 +71,10 @@ for directory in components/* tooling/*; do
 	fi
 done
 
-"$aihc" plan bin/aihc --executable aihc --workspace "$workspace" --target "$target" >"$work_directory/plan.tsv"
+# The self-compile does not need Hackage support, so the plan disables the
+# `hackage` flag of aihc.
+"$aihc" plan bin/aihc --executable aihc --constraint "aihc -hackage" \
+	--workspace "$workspace" --target "$target" >"$work_directory/plan.tsv"
 
 # The core libraries come with aihc, so the table leaves them out, also from
 # the dependencies. A local path becomes a path in the repository.
@@ -120,7 +124,9 @@ package that aihc plans for the `aihc` executable, and `aihc` itself last.
 A package comes after all of its dependencies.
 
 `scripts/update-self-hosting-packages.sh` writes this file with
-`aihc plan bin/aihc --executable aihc`. The weekly
+`aihc plan bin/aihc --executable aihc --constraint "aihc -hackage"`. The
+`hackage` flag of aihc is disabled, because the self-compile does not need
+Hackage support. The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
 workflow runs the script, then compiles each package with
 `scripts/self-hosting-progress.sh`. The workflow writes the result to the
