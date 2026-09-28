@@ -52,7 +52,7 @@ expected: |-
           0#3.cIntRep →
               3.cI# 1#3.cIntRep;
           _ →
-              x (3.cI# _scrut)
+              x (3.cI# y)
       }
 status: pass
 reason: One tail calls an unknown function, so the result does not come back as its field. The worker still takes the Int# field of its parameter.
