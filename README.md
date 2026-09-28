@@ -12,6 +12,16 @@ Find more information here:
 - [**aihc-resolve** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-resolve#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-resolve-supported-extensions.md)
 - [**aihc-tc** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-tc#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-tc-supported-extensions.md)
 
+## Latest News
+
+<!-- AUTO-GENERATED: START latest-news -->
+**[AIHC this week: rewrite rules, unboxed sums, and less heap allocation](https://blog.aihc.app/posts/2026-09-25-aihc-highlights/)** (25 Sep 2026)
+
+Rewrite rules connect the parser to list fusion, unboxed sums survive collection, and strict folds and thread stacks reduce managed-heap allocation.
+
+Read all posts at [blog.aihc.app](https://blog.aihc.app/).
+<!-- AUTO-GENERATED: END latest-news -->
+
 ## Progress
 
 | Name               | Progress                                                                                                                             |
@@ -156,6 +166,21 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 The "Self-compile" row counts the packages of the `aihc` executable that aihc can compile, with `aihc` itself as the last package. `aihc plan bin/aihc --executable aihc` finds the packages, and [docs/self-hosting-packages.md](docs/self-hosting-packages.md) lists them. A package waits when one of its dependencies does not install.
 
 The `aihc-prim` and `aihc-base` rows count the exports of GHC's `ghc-prim` and `base` that aihc provides with the same name and signature (up to type variable names, `forall` prefixes and kind synonyms; a type without a standalone kind signature matches any kind). Compatibility also runs the other way: a module that exists in `ghc-prim` or `base` may only export names that GHC exports from it too, so code written against aihc keeps compiling with GHC. The `dev-spec` test suite fails on any new divergence; `cabal run aihc-dev -- core-libs-progress --divergences` lists the current ones. Modules that only aihc defines are free to export anything.
+
+## Performance
+
+<!-- AUTO-GENERATED: START perf-highlights -->
+Each number is the AIHC value divided by the GHC value, as a geometric mean over 6 benchmarks. Lower is better. 1.00× is parity.
+
+| Metric | Native | LLVM | Wasm |
+| --- | ---: | ---: | ---: |
+| Compile time `-O0` | 0.32× | 0.22× | 0.48× |
+| Artifact size `-Os` | 0.58× | 0.52× | 0.60× |
+| Runtime `-O1` | 19.3× | 17.7× | 40.4× |
+| Runtime `-O2` | 4.85× | 4.38× | 7.57× |
+
+Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`e1d25b1ac`](https://github.com/ai-haskell-compiler/aihc/commit/e1d25b1acada4624ca181b3379d158a9e537341d) (2026-09-27). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+<!-- AUTO-GENERATED: END perf-highlights -->
 
 ## Useful Commands
 

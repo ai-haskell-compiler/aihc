@@ -1,0 +1,43 @@
+name: README News Update
+
+on:
+  schedule:
+    # The blog publishes on Fridays.
+    - cron: "41 6 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: readme-news-update
+  cancel-in-progress: false
+
+jobs:
+  update-readme-news:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Update the latest news and performance sections
+        run: scripts/update-readme-news.sh README.md
+
+      # The action updates the open PR on the same branch. It does not open a second PR.
+      - name: Open pull request for README news
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          commit-message: "docs(readme): update the latest news and performance results"
+          add-paths: |
+            README.md
+          branch: "automation/readme-news-update"
+          title: "docs(readme): update the latest news and performance results"
+          body: |
+            The weekly README news workflow made this PR automatically.
+
+            It puts the newest post from https://blog.aihc.app/ in the README.
+            It also puts the newest benchmark results from https://perf.aihc.app/ in the README.
+            The benchmark results come from the machine that has results for the most commits.
