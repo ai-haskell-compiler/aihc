@@ -657,7 +657,10 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
       -- gives a register through @pick@, which is the identity for a hint of
       -- the value and the assignment for a partner or an operand.
       {-# INLINE searchRow #-}
-      searchRow rows index pick value
+      searchRow = searchRowWith True
+      -- With @weigh@ off, a hint need not pay for its saves.
+      {-# INLINE searchRowWith #-}
+      searchRowWith weigh rows index pick value
         | index < 0 = pure (-1)
         | otherwise = go (rowFrom rows index)
         where
@@ -666,7 +669,7 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
             | otherwise = do
                 register <- pick (rowAt rows at)
                 ok <- usable value register
-                worth <- if ok then pays value register else pure False
+                worth <- if ok && weigh then pays value register else pure ok
                 if worth then pure register else go (at + 1)
       -- Whether a hint pays for itself. A volatile register of a value that
       -- lives across cold calls costs a save and a restore at each of them,
@@ -692,12 +695,17 @@ runAllocation encoded poolSize volatileCount preservedCost pairedSaves = runST $
       firstFree value register
         | register >= poolSize = pure (-1)
         | otherwise = usable value register >>= \ok -> if ok then pure register else firstFree value (register + 1)
+      hinted weigh value =
+        searchRowWith weigh hints value pure value
+          `orElse` searchRowWith weigh partners value (readArray assigned) value
+          `orElse` searchRowWith weigh partners value (\partner -> searchRowWith weigh hints partner pure value) value
+      -- A value that lives across a cold call and takes no hint prefers a
+      -- preserved register. When none is free, the value needs a save in
+      -- each volatile register, so a hint is again the best choice.
       preferred value =
-        searchRow hints value pure value
-          `orElse` searchRow partners value (readArray assigned) value
-          `orElse` searchRow partners value (\partner -> searchRow hints partner pure value) value
+        hinted True value
           `orElse` ( if crosses coldCalls (starts ! value) (ends ! value)
-                       then firstFree value volatileCount
+                       then firstFree value volatileCount `orElse` hinted False value
                        else pure (-1)
                    )
           `orElse` searchRow (encReads encoded) (encDefiner encoded ! value) (readArray assigned) value
