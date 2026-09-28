@@ -52,14 +52,20 @@ optimizationPlan :: Bool -> OptimizationLevel -> OptimizationPlan
 optimizationPlan lto level =
   case level of
     O0 -> OptimizationPlan {planWholeProgram = lto, planPasses = [], planGrinPointsTo = False}
-    O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> grow, planGrinPointsTo = False}
-    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> grow, planGrinPointsTo = True}
+    O1 -> OptimizationPlan {planWholeProgram = lto, planPasses = shrink <> split <> grow, planGrinPointsTo = False}
+    O2 -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> split <> grow, planGrinPointsTo = True}
     Os -> OptimizationPlan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
   where
     -- The phases count down as GHC's do: the shrinking inliner is phase
     -- 2, the growing one phase 1 and the final walk phase 0, so a rule
     -- with a phase control fires where its author expects.
     shrink = [Fc.PassEtaExpand, Fc.PassInline Fc.shrinkPolicy rounds 2, Fc.PassDemand Fc.StrictLetsOnly]
+    -- The wrappers are small INLINE values, which the growing inliner
+    -- copies at each call. The shrinking inliner would keep them as calls,
+    -- so -Os does not split. A worker body is new, and the growing
+    -- inliner does not walk a body that calls no candidate, so a
+    -- simplifying walk in the phase of the growing inliner follows.
+    split = [Fc.PassWorkerWrapper, Fc.PassSimplify 1]
     grow = [Fc.PassInline Fc.growPolicy rounds 1] <> finish
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4

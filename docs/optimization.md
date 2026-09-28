@@ -62,6 +62,7 @@ after each pass under `--lint`.
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
+| `PassWorkerWrapper` | Split each function that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. `Aihc.Fc.WorkerWrapper`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
@@ -73,7 +74,7 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, inline `shrinkPolicy` [2], demand, inline `growPolicy` [1], eta expand, simplify [0], lift constants |
+| `-O1` | eta expand, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], inline `growPolicy` [1], eta expand, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
 | `-Os` | eta expand, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
@@ -85,7 +86,12 @@ program that `-Os` would have produced. The demand pass runs after the
 shrinking inliner, so that the calls it sees are the calls that remain
 after the dictionary selections and the aliases are gone, and before the
 growing inliner, so that the cases it makes are in the program the
-growing inliner copies. Eta expansion runs before the
+growing inliner copies. The worker/wrapper pass runs after the demand
+pass and before the growing inliner, which copies the wrappers at their
+calls. A walk of the simplifier follows it, because the growing inliner
+does not walk a body that calls no candidate, and a new worker is not
+simplified yet. `-Os` does not split: the shrinking inliner would keep
+each wrapper as a call. Eta expansion runs before the
 inliner so that a value it turns into a function is a saturated call, and
 after it because a call of a class method hides the arity of the method until
 the selection is inlined. The final simplifying walk reduces the applications
@@ -214,10 +220,90 @@ are evaluated before their call. The fixtures are the
 `demand` entry in `passes:` runs both rewrites and `demand: lets` the
 strict lets alone.
 
+A strict parameter gets the `StrictProduct` demand when a case in the
+body takes it apart with an alternative for its constructor, and its type
+has one constructor that a worker can take apart and build again (see
+`productConstructor`). The worker/wrapper pass reads that demand.
+
 Not done: divergence, so a branch that calls `error` evaluates nothing
 and makes its function lazy in what the other branches evaluate; and
-demands on the fields of a constructor, which is what a worker/wrapper
-split needs. Both are steps on the same lattice.
+demands on the fields of a constructor, so a field of a field is not
+taken apart. Both are steps on the same lattice.
+
+## Worker/wrapper
+
+`PassWorkerWrapper` is `Aihc.Fc.WorkerWrapper`. It splits a top-level
+function that has a parameter with the `StrictProduct` demand, or whose
+result is a constructed product (see below). The worker
+takes the fields of the one constructor in place of the parameter, and
+builds the value again for its body with a let. The function keeps its
+name and becomes an `INLINE` wrapper that takes the parameter apart and
+calls the worker:
+
+```text
+add = λx y. case x of I# a -> case y of I# b -> I# (a +# b)
+
+$wadd = λx y. let x' = I# x; y' = I# y in <the body of add on x' and y'>
+add {-# INLINE #-} = λx y. case x of I# a -> case y of I# b -> $wadd a b
+```
+
+The simplifier walk after the pass reduces each case on the value that
+the worker builds again, and the let goes away when nothing else uses the
+value. The growing inliner copies the wrapper at each call, and there a
+constructor argument meets the case of the wrapper, so the call gives the
+fields to the worker and no box is built. A recursive call in the body of
+the worker calls a copy of the wrapper, so the worker calls itself with
+the fields, and the wrapper is not in a recursive group, which the inliner
+never copies.
+
+A function has a constructed product result when its result type has one
+constructor that a worker can take apart and build again, and every tail
+of its body is that constructor, a recursive call, or an unboxed
+parameter, which the worker builds from its fields. The worker then
+returns the fields: the field itself when there is one, and an unboxed
+tuple of the fields when there are more. Each tail that is the
+constructor gives its arguments, and another tail is taken apart by a
+case. The wrapper builds the constructor again from what the worker
+returns, and at a call whose result a case takes apart, that constructor
+meets the case and goes away:
+
+```text
+count = λn. case n of I# i -> case i of 0# -> n; _ -> count (I# (i -# 1#))
+
+$wcount = λx. case x of 0# -> x; _ -> $wcount (x -# 1#)
+count {-# INLINE #-} = λn. case n of I# i -> case $wcount i of r -> I# r
+```
+
+The pass uses an unboxed tuple only when the program already has its
+type and constructor, because the pass cannot add an import. Without it,
+the worker returns the constructor as it is.
+
+A recursive call in the worker becomes a case on the call that returns
+its binder, `case $wcount x of r -> r`. The simplifier makes such a case
+its scrutinee, so the recursive call stays a tail call. Both are
+undefined when the scrutinee is, and both are its value otherwise.
+
+The pass does not split:
+
+- a function in a recursive group of more than one value;
+- a function with an inline pragma, or that a rewrite rule names;
+- a function whose lambdas are not type lambdas followed by value lambdas;
+- a parameter of a type with more than one constructor, an existential
+  type or an equality, a class dictionary, or a constructor with a lifted
+  strict field or with no field. A worker could not show that a lifted
+  strict field is evaluated when it builds the value again, and it would
+  take every method of a dictionary as a parameter.
+
+On the `sha-digest` benchmark at `-O2`, the pass took the run time from
+20 ms to 10 ms, the allocation from 59 MB to 43 MB, and the program object
+from 2.29 MB to 1.66 MB. The program objects of the examples became 1.5%
+to 8.6% smaller. Some examples allocate up to 3.4% more; the cause is not
+examined yet. The argument side alone gave no change in run time and
+52.7 MB of allocation.
+
+The report gives the number of workers, the number of parameters they
+take as fields, and the number of workers that return fields. The fixtures are the `worker-wrapper-*.yaml` files; a
+`worker-wrapper` entry in `passes:` runs the pass.
 
 ## The inliner
 
