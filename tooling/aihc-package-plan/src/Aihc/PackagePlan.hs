@@ -46,10 +46,8 @@ where
 
 import Aihc.Hackage.Cabal (BuildContext (..))
 import Aihc.Hackage.Cpp (DependencyVersions)
-import Aihc.Hackage.Download qualified as HackageDownload
-import Aihc.Hackage.Index (IndexEntry (..))
-import Aihc.Hackage.IndexCache (HackageIndex, IndexVersion (..), indexPackageVersions, indexReadCabalFile, indexState)
 import Aihc.Hackage.Release (BootLibrary (..), GhcRelease (..), emulatedGhc, lookupBootLibraryByStandin, releaseVersionText, showVersionBranch)
+import Aihc.Hackage.Source (HackageRelease (..), HackageSource (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.PackagePlan.Lock
@@ -159,17 +157,16 @@ data PlanRequest = PlanRequest
     -- | Directories whose subdirectory @NAME@ is the source of the package
     -- @NAME@, before Hackage.
     requestWorkspaces :: ![FilePath],
-    -- | Take a package that no local directory and no core library
-    -- provides from Hackage. When this is off, the plan uses only the
-    -- local packages and the core libraries, and a package that they do
-    -- not provide is a plan error.
-    requestHackage :: !Bool,
+    -- | Where a package that no local directory and no core library
+    -- provides comes from. With 'Nothing', the plan uses only the local
+    -- packages and the core libraries, and a package that they do not
+    -- provide is a plan error.
+    requestHackage :: !(Maybe HackageSource),
     requestPlatform :: !(OS, Arch),
     requestConstraints :: ![Constraint],
     -- | The local lock file. Hackage targets have no lock file.
     requestLockFile :: !(Maybe FilePath),
     requestLockMode :: !LockMode,
-    requestIndex :: !HackageIndex,
     requestVerbose :: String -> IO ()
   }
 
@@ -250,7 +247,7 @@ planPackages request = do
   (solution, solved) <- solveWithLock request inputs config localDirectories
   when (requestCheckBuildTools request) $
     checkBuildTools request inputs config solution
-  plans <- buildPlans inputs solution
+  plans <- buildPlans request inputs solution
   when (solved && any usesHackage (Map.elems solution) && requestLockMode request /= LockLocked) $
     writeLock request solution
   pure
@@ -311,7 +308,7 @@ solveWithLock request inputs config localDirectories
       result <- solve inputs solverConfig
       case result of
         Left failure
-          | requestHackage request -> ioError (userError ("Could not resolve dependencies:\n" <> renderSolveFailure failure))
+          | Just _ <- requestHackage request -> ioError (userError ("Could not resolve dependencies:\n" <> renderSolveFailure failure))
           | otherwise -> do
               unavailable <- unavailablePackages inputs solverConfig
               ioError (userError (renderLocalFailure localDirectories unavailable failure))
@@ -325,14 +322,14 @@ renderLocalFailure localDirectories unavailable failure =
   intercalate "\n" $
     case unavailable of
       [] ->
-        [ "Could not resolve dependencies from the local packages alone, and Hackage is disabled:",
+        [ "Could not resolve dependencies from the local packages alone. This build has no Hackage support:",
           renderSolveFailure failure
         ]
       _ ->
-        ["Could not resolve dependencies without Hackage. No local package provides:"]
+        ["Could not resolve dependencies. This build has no Hackage support, and no local package provides:"]
           <> ["  " <> unPackageName name <> ", needed by " <> renderDependents dependents | (name, dependents) <- unavailable]
           <> searched
-          <> ["Put the source of each package in a subdirectory with its name, or allow Hackage packages."]
+          <> ["Put the source of each package in a subdirectory with its name, or use a build with the Cabal flag +hackage."]
   where
     searched =
       case localDirectories of
@@ -359,7 +356,9 @@ compilerName = "ghc-" <> releaseVersionText emulatedGhc
 writeLock :: PlanRequest -> Solution -> IO ()
 writeLock request solution = forM_ (requestLockFile request) $ \lockPath -> do
   existing <- readLockFile lockPath
-  state <- indexState (requestIndex request)
+  -- Only a plan with a Hackage release writes a lock, so a plan without a
+  -- Hackage source records no index state.
+  state <- traverse hackageIndexState (requestHackage request)
   let otherPlatforms =
         case existing of
           Just (Right file) | lockCompiler file == compilerName -> lockPlatforms file
@@ -367,7 +366,7 @@ writeLock request solution = forM_ (requestLockFile request) $ \lockPath -> do
       lock =
         LockFile
           { lockCompiler = compilerName,
-            lockIndexState = Just (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" (posixSecondsToUTCTime (fromIntegral state))),
+            lockIndexState = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" . posixSecondsToUTCTime . fromIntegral <$> state,
             lockPlatforms = Map.insert (uncurry platformKey (requestPlatform request)) (lockEntriesFromSolution solution) otherPlatforms
           }
   requestVerbose request ("Writing " <> lockPath)
@@ -414,9 +413,7 @@ solverInputs request descriptions localRoots localDirectories =
               local <- findLocal name localDirectories
               case local of
                 Just path -> pure <$> localCandidate name path
-                Nothing
-                  | requestHackage request -> hackageCandidates name preference
-                  | otherwise -> pure []
+                Nothing -> maybe (pure []) (hackageCandidates name preference) (requestHackage request)
 
     bootVersion provider =
       maybe [] bootLibraryVersion (lookupBootLibraryByStandin (coreProviderName provider) emulatedGhc)
@@ -435,18 +432,18 @@ solverInputs request descriptions localRoots localDirectories =
         ioError (userError ("The package at " <> path <> " is " <> unPackageName actual <> ", not " <> unPackageName name))
       pure (Candidate name (CabalPackage.packageVersion (package (packageDescription gpd))) 0 False (CandidateLocal path))
 
-    hackageCandidates name preference = do
-      versions <- indexPackageVersions (requestIndex request) (unPackageName name)
+    hackageCandidates name preference source = do
+      releases <- hackageReleases source (unPackageName name)
       pure
-        [ Candidate name (indexVersionVersion version) revision (indexVersionDeprecated version) CandidateHackage
-        | version <- fromMaybe [] versions,
-          let latest = maximum (map indexEntryRevision (indexVersionRevisions version))
+        [ Candidate name (hackageReleaseVersion release) revision (hackageReleaseDeprecated release) CandidateHackage
+        | release <- fromMaybe [] releases,
+          let latest = maximum (hackageReleaseRevisions release)
               revision =
                 case preference of
                   Just chosen
-                    | preferredVersion chosen == indexVersionVersion version,
+                    | preferredVersion chosen == hackageReleaseVersion release,
                       Just wanted <- preferredRevision chosen,
-                      wanted `elem` map indexEntryRevision (indexVersionRevisions version) ->
+                      wanted `elem` hackageReleaseRevisions release ->
                         wanted
                   _ -> latest
         ]
@@ -456,7 +453,8 @@ solverInputs request descriptions localRoots localDirectories =
         CandidateLocal path -> snd <$> describeLocal path
         CandidateCore path -> snd <$> describeLocal path
         CandidateHackage -> do
-          result <- indexReadCabalFile (requestIndex request) (unPackageName (candidateName candidate)) (candidateVersion candidate) (Just (candidateRevision candidate))
+          source <- requireHackage request
+          result <- hackageCabalFile source (unPackageName (candidateName candidate)) (candidateVersion candidate) (Just (candidateRevision candidate))
           case result of
             Left problem -> ioError (userError problem)
             Right (_, bytes) -> parseDescriptionBytes (unPackageName (candidateName candidate) <> "-" <> prettyShow (candidateVersion candidate) <> " from the Hackage index") bytes
@@ -472,8 +470,8 @@ solverInputs request descriptions localRoots localDirectories =
 
 -- | Turn the solution into plan trees, one node per package, fetching the
 -- Hackage releases it chose.
-buildPlans :: SolverInputs IO -> Solution -> IO (Map PackageName PackagePlan)
-buildPlans inputs solution = do
+buildPlans :: PlanRequest -> SolverInputs IO -> Solution -> IO (Map PackageName PackagePlan)
+buildPlans request inputs solution = do
   built <- newIORef Map.empty
   forM_ (Map.keys solution) (build built [])
   readIORef built
@@ -494,10 +492,8 @@ buildPlans inputs solution = do
                   CandidateLocal path -> pure (path, PlanLocal)
                   CandidateCore path -> pure (path, PlanCore)
                   CandidateHackage -> do
-                    path <-
-                      HackageDownload.downloadPackageWithOptions
-                        HackageDownload.defaultDownloadOptions
-                        PackageSpec {pkgName = unPackageName name, pkgVersion = prettyShow (assignmentVersion assignment)}
+                    source <- requireHackage request
+                    path <- hackageDownload source PackageSpec {pkgName = unPackageName name, pkgVersion = prettyShow (assignmentVersion assignment)}
                     pure (path, PlanHackage)
               cabalFiles <- HackageUtil.findCabalFiles sourcePath
               cabalFile <-
@@ -520,6 +516,12 @@ buildPlans inputs solution = do
                       }
               modifyIORef' built (Map.insert name plan)
               pure plan
+
+-- | The Hackage source of a request that chose a Hackage release. Only a
+-- request with a source has Hackage candidates, so the error is a defect.
+requireHackage :: PlanRequest -> IO HackageSource
+requireHackage request =
+  maybe (ioError (userError "A Hackage release was chosen, but the plan has no Hackage source")) pure (requestHackage request)
 
 -- | Every package depends on @aihc-prim@, whether its Cabal file says so or
 -- not. The two packages below it are the exception: @aihc-prim@ itself, and

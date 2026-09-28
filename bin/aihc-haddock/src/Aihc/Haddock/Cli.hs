@@ -16,7 +16,7 @@ module Aihc.Haddock.Cli
   )
 where
 
-import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
+import Aihc.Hackage.Fetch (newHackageSource)
 import Aihc.Haddock.Compare
 import Aihc.Haddock.Hoogle (renderHoogle)
 import Aihc.Haddock.Model
@@ -118,7 +118,7 @@ runCommand cmd =
 
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
-  hackageIndex <- newHackageIndex defaultIndexOptions
+  hackageSource <- newHackageSource
   (root, lockDirectory) <- resolveTarget (buildTarget options)
   storeRoot' <- maybe defaultStoreRoot pure (buildStoreRoot options)
   let store = Store storeRoot'
@@ -131,12 +131,11 @@ runBuild options = do
           requestExecutables = Nothing,
           requestCheckBuildTools = True,
           requestWorkspaces = [],
-          requestHackage = True,
+          requestHackage = Just hackageSource,
           requestPlatform = (buildOS, buildArch),
           requestConstraints = [],
           requestLockFile = Just (lockDirectory </> lockFileName),
           requestLockMode = LockNormal,
-          requestIndex = hackageIndex,
           requestVerbose = say
         }
   plan <- case plannedRoots planned of

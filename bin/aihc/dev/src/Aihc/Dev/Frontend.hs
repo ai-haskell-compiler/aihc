@@ -19,6 +19,7 @@ module Aihc.Dev.Frontend
 where
 
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
+import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install
   ( InstanceProvider,
     ModuleCompileConfig (..),
@@ -54,7 +55,7 @@ import Aihc.Cli.Install
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph (Task (..), TaskId (..), TaskKind (..), renderDuration, runTaskGraph)
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.Download qualified as HackageDownload
+import Aihc.Hackage.Source (HackageSource (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget, defaultOptimizationLevel, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (DependencyVersions, PackagePlan (..), PlanOrigin (..), dependencyVersionsFromManifests, parseSourcePackageDescriptionAt)
@@ -228,10 +229,11 @@ resolveFrontendTarget argument = do
   if isDirectory
     then pure argument
     else case parsePackageTarget argument of
-      Just (name, Just version) ->
-        HackageDownload.downloadPackageWithOptions
-          HackageDownload.defaultDownloadOptions
-          PackageSpec {pkgName = name, pkgVersion = version}
+      Just (name, Just version) -> do
+        source <- defaultHackageSource
+        case source of
+          Just hackage -> hackageDownload hackage PackageSpec {pkgName = name, pkgVersion = version}
+          Nothing -> die (argument <> " is not an existing directory, and this build of aihc has no Hackage support (Cabal flag -hackage)")
       Just (_, Nothing) ->
         die (argument <> " is not an existing directory, and a Hackage package needs its version (NAME-VERSION)")
       Nothing ->

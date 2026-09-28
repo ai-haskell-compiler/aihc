@@ -29,6 +29,7 @@ import Aihc.Cli.BuildModule
     validateSelectedPackageNames,
   )
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
+import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install
   ( InstallLocations (..),
     ModuleCompileConfig (..),
@@ -50,7 +51,6 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan
   ( PackagePlan (..),
@@ -95,7 +95,7 @@ buildPackage :: BuildOptions -> IO [FilePath]
 buildPackage options = do
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
-  hackageIndex <- newHackageIndex defaultIndexOptions
+  hackageSource <- defaultHackageSource
   (rootPackage, origin, lockDirectory) <- installTargetRoot (buildInput options)
   let target = buildTarget options
       targetDirectory = nativeTargetStoreDirectory target
@@ -106,7 +106,7 @@ buildPackage options = do
   -- The package itself and its siblings resolve locally before the
   -- workspace and Hackage, so an executable that depends on the library
   -- of its own package finds it in the source tree.
-  request <- planRequestFor hackageIndex (buildPlanOptions options) (os, arch) (maybe [] pure (buildWorkspace options)) lockDirectory verbose
+  request <- planRequestFor hackageSource (buildPlanOptions options) (os, arch) (maybe [] pure (buildWorkspace options)) lockDirectory verbose
   planned <- planPackages request {requestRoots = [rootPackage], requestExecutables = selection}
   rootPlan <- case plannedRoots planned of
     [plan] -> pure plan

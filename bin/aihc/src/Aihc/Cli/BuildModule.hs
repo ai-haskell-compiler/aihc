@@ -22,6 +22,7 @@ where
 import Aihc.Cli.Backend (compileEntryObject)
 import Aihc.Cli.CapiStub (noCapiStubOptions)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, ensureCompilerHeaders)
+import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install
   ( InstallLocations (..),
     InstallResult (..),
@@ -41,7 +42,6 @@ import Aihc.Cli.Options (BuildOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.PackagePlan (PackagePlan, PlanRequest (..), PlannedPackages (..), canonicalPackageName, planPackages)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -171,8 +171,8 @@ runBuildModule options = do
   -- names them, their fingerprints name the store directories, and a
   -- directory that is absent is built. Nothing lists the store. A main
   -- module has no cabal file, so its lock lives in the working directory.
-  hackageIndex <- newHackageIndex defaultIndexOptions
-  request <- planRequestFor hackageIndex (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (when (buildVerbose options) . putStrLn)
+  hackageSource <- defaultHackageSource
+  request <- planRequestFor hackageSource (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (when (buildVerbose options) . putStrLn)
   let goals =
         [ (canonicalPackageName (mkPackageName (T.unpack (constraintName constraint))), constraintRange constraint)
         | constraint <- constraints <> map implicitConstraint ["aihc-base", "aihc-prim"]

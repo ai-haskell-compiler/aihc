@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Aihc.Hackage.Cache (getHackageCacheDir)
+import Aihc.Hackage.Fetch (hackageSourceFor)
 import Aihc.Hackage.Index (scanIndex)
 import Aihc.Hackage.IndexCache (IndexOptions (..), defaultIndexOptions, getIndexCacheDir, indexTableFromScan, newHackageIndex, renderIndexTable)
 import Aihc.PackagePlan
@@ -480,16 +481,15 @@ test_plansLocalPackages =
               requestExecutables = Nothing,
               requestCheckBuildTools = True,
               requestWorkspaces = [],
-              requestHackage = True,
+              requestHackage = Just (hackageSourceFor index),
               requestPlatform = (Linux, X86_64),
               requestConstraints = [],
               requestLockFile = Just lockFile,
               requestLockMode = mode,
-              requestIndex = index,
               requestVerbose = const (pure ())
             }
     planned <- planPackages (request LockNormal)
-    withoutHackage <- planPackages (request LockNormal) {requestHackage = False}
+    withoutHackage <- planPackages (request LockNormal) {requestHackage = Nothing}
     assertEqual "the siblings and the core libraries satisfy the plan without Hackage" (plannedSolution planned) (plannedSolution withoutHackage)
     rootPlan <- case plannedRoots planned of
       [plan] -> pure plan
@@ -551,14 +551,13 @@ test_packageLockFixtures =
                 requestExecutables = Nothing,
                 requestCheckBuildTools = True,
                 requestWorkspaces = [],
-                requestHackage = True,
+                requestHackage = Just (hackageSourceFor index),
                 requestPlatform = (Linux, X86_64),
                 requestConstraints = [],
                 requestLockFile = case root of
                   RootLocal _ -> Just lockFile
                   RootHackage _ _ -> Nothing,
                 requestLockMode = mode,
-                requestIndex = index,
                 requestVerbose = const (pure ())
               }
       forM_ [Nothing, Just (version "1.0")] $ \requestedVersion -> do
@@ -580,14 +579,14 @@ test_packageLockFixtures =
       _ <- planPackages localRequest {requestLockMode = LockLocked}
       -- Without Hackage, dep has no source. The plan must fail and name
       -- dep and the package that needs it, also when the lock has dep.
-      withoutHackage <- try (planPackages localRequest {requestHackage = False})
+      withoutHackage <- try (planPackages localRequest {requestHackage = Nothing})
       case withoutHackage of
         Right _ -> assertFailure "a plan without Hackage must not take dep from Hackage"
         Left err -> do
           let message = show (err :: IOException)
-          assertBool message ("No local package provides:" `isInfixOf` message)
+          assertBool message ("no local package provides:" `isInfixOf` message)
           assertBool message ("dep, needed by root-1.0 (==1.0)" `isInfixOf` message)
-      hackageRoot <- try (planPackages (request (RootHackage "dep" Nothing) LockNormal) {requestHackage = False})
+      hackageRoot <- try (planPackages (request (RootHackage "dep" Nothing) LockNormal) {requestHackage = Nothing})
       case hackageRoot of
         Right _ -> assertFailure "a Hackage root must not plan without Hackage"
         Left err -> do

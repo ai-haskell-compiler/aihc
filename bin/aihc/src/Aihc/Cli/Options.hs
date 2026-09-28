@@ -91,17 +91,13 @@ data PlanOptions = PlanOptions
     -- | Ignore the lock for every package and rewrite it.
     planUpdate :: !Bool,
     -- | Ignore the lock for these packages and their dependents.
-    planUpdatePackages :: ![String],
-    -- | Take the dependencies that no local package provides from
-    -- Hackage. With @--no-hackage@, only the local packages and the core
-    -- libraries satisfy the dependencies.
-    planHackage :: !Bool
+    planUpdatePackages :: ![String]
   }
   deriving (Eq, Show)
 
--- | Take the lock as it is, or solve and write it, with Hackage.
+-- | Take the lock as it is, or solve and write it.
 defaultPlanOptions :: PlanOptions
-defaultPlanOptions = PlanOptions [] False False [] True
+defaultPlanOptions = PlanOptions [] False False []
 
 -- | Link an executable from a bundle that @build --no-link@ wrote.
 data LinkExeOptions = LinkExeOptions
@@ -293,13 +289,6 @@ planOptionsParser =
           ( OA.long "update-package"
               <> OA.metavar "NAME"
               <> OA.help "Ignore what aihc.lock says about NAME and the packages that depend on it, and rewrite the lock"
-          )
-      )
-    <*> fmap
-      not
-      ( OA.switch
-          ( OA.long "no-hackage"
-              <> OA.help "Do not download packages from Hackage: satisfy each dependency from the local packages and the core libraries, or fail"
           )
       )
 
