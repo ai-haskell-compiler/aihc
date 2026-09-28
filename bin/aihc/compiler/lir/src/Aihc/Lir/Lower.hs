@@ -344,7 +344,8 @@ applyFrameAppliedInfoSymbol groups = Symbol ("aihc_lir_apply_frame_" <> groupsNa
 data OpenBlock = OpenBlock
   { openLabel :: !Label,
     openParameters :: ![(Var, Type)],
-    openInstructionsRev :: ![Instruction]
+    openInstructionsRev :: ![Instruction],
+    openCold :: !Bool
   }
 
 data LowerState = LowerState
@@ -659,11 +660,18 @@ emitItem item = do
   put next {stateItemsRev = item : stateItemsRev state}
 
 beginBlock :: Label -> [(Var, Type)] -> LowerM ()
-beginBlock label parameters = do
+beginBlock = beginBlockWith False
+
+-- | Open a slow-path block that runs rarely, such as a collection.
+beginColdBlock :: Label -> [(Var, Type)] -> LowerM ()
+beginColdBlock = beginBlockWith True
+
+beginBlockWith :: Bool -> Label -> [(Var, Type)] -> LowerM ()
+beginBlockWith cold label parameters = do
   state <- get
   case stateOpen state of
     Just _ -> failWith (LowerUnsupportedExpression "internal: block opened inside another block")
-    Nothing -> put state {stateOpen = Just (OpenBlock label parameters [])}
+    Nothing -> put state {stateOpen = Just (OpenBlock label parameters [] cold)}
 
 emit :: [Var] -> Operation -> LowerM ()
 emit results operation = do
@@ -688,7 +696,7 @@ terminate terminator = do
       put
         state
           { stateOpen = Nothing,
-            stateBlocksRev = Block (openLabel open) (openParameters open) (reverse (openInstructionsRev open)) terminator : stateBlocksRev state
+            stateBlocksRev = Block (openLabel open) (openParameters open) (reverse (openInstructionsRev open)) terminator (openCold open) : stateBlocksRev state
           }
 
 -- | Collect the blocks emitted since the last function into a function item.
@@ -1612,7 +1620,7 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   heapLimit <- fresh "hp_limit"
   let heapArguments current = [contextHeap current, contextHeapLimit current]
   terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
-  beginBlock collect []
+  beginColdBlock collect []
   forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
     storeSlot Ptr root array (toInteger (8 * index))
   -- The compare above is the reservation, so this is the collector rather
@@ -1698,7 +1706,7 @@ pushStackFrame machine stack stackLimit words' = do
   growLabel <- freshLabel "stack_grow"
   pushedLabel <- freshLabel "stack_pushed"
   terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit]) (Target growLabel []))
-  beginBlock growLabel []
+  beginColdBlock growLabel []
   grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64] [Ptr] [machine, stack, OperandLiteral (LitInt (toInteger words'))]
   grownEnd <- emitValue "sp" Ptr (PtrAdd grown (OperandLiteral (LitInt bytes)))
   -- The runtime gives the first frame of a chunk, so the rest of the chunk
@@ -2318,7 +2326,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       failed <- freshLabel "out_of_bounds"
       inside <- freshLabel "inside"
       terminate (Branch invalid (Target failed []) (Target inside []))
-      beginBlock failed []
+      beginColdBlock failed []
       _ <- callRuntime failure [] [] []
       terminate (Trap message)
       beginBlock inside []

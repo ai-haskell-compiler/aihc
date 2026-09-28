@@ -16,7 +16,7 @@ expected: |
     %heap_fits_8 = le.u ptr %heap_end_7, %hp_limit_2
     br %heap_fits_8, gc_reserved_10(%$cps_return_5, %hp_1, %hp_limit_2), gc_collect_9
 
-  gc_collect_9:
+  cold gc_collect_9:
     %slot_14 = ptr.to_int %$cps_return_5
     store i64 %slot_14, [%roots_6] align 8
     store ptr %hp_1, [%machine_0 + 20] align 1 word

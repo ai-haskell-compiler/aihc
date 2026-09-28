@@ -28,7 +28,7 @@ expected: |
     %heap_fits_8 = le.u ptr %heap_end_7, %hp_limit_2
     br %heap_fits_8, gc_reserved_10(%$cps_return_5, %hp_1, %hp_limit_2), gc_collect_9
 
-  gc_collect_9:
+  cold gc_collect_9:
     store ptr %$cps_return_5, [%roots_6] align 8
     store ptr %hp_1, [%machine_0 + 24] align 1 word
     store ptr %sp_3, [%machine_0 + 40] align 1 word
@@ -56,7 +56,7 @@ expected: |
     %heap_fits_27 = le.u ptr %heap_end_26, %hp_limit_25
     br %heap_fits_27, gc_reserved_29(%$cps_return$gc_11, %result_23, %hp_24, %hp_limit_25), gc_collect_28
 
-  gc_collect_28:
+  cold gc_collect_28:
     store ptr %$cps_return$gc_11, [%roots_6] align 8
     store ptr %result_23, [%roots_6 + 8] align 8
     store ptr %hp_24, [%machine_0 + 24] align 1 word

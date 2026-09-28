@@ -397,6 +397,7 @@ simplifyValue config known recursive st name
                             spLocals = Map.empty,
                             spCse = Map.empty,
                             spEvaluated = Set.empty,
+                            spDone = Map.empty,
                             spSiteLimit = policySiteLimit policy,
                             spRequestedSiteLimit = policyRequestedSiteLimit policy,
                             spReducingSiteLimit = policyReducingSiteLimit policy,

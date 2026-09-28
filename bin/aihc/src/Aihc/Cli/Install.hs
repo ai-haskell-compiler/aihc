@@ -3264,7 +3264,21 @@ moduleTypeInterface kinds supportTerms exports package interface = go
             || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
         visibleTerm (TcTermLocal {}) = False
         visibleTermIdentity identity@(_, _, identifier) =
-          Map.member identifier (scopeTerms scope) || identity `Set.member` termIdentities || identity == localIdentity identifier
+          Map.member identifier (scopeTerms scope)
+            || identity `Set.member` termIdentities
+            || identity `Set.member` methodIdentities
+            || identity == localIdentity identifier
+        -- The methods of a visible class are visible. An instance defines
+        -- them, and a derived instance does so when the scope has the class
+        -- but not its methods, as after an export of @Show@ without @(..)@.
+        methodIdentities =
+          Set.fromList
+            [ (PackageId packageIdText', moduleName', method)
+            | info <- Map.elems (tcInterfaceClassMap interface),
+              visibleClass info,
+              Just (packageIdText', moduleName') <- [ciOrigin info],
+              (method, _) <- ciMethods info
+            ]
         -- The matcher and the builder of a visible pattern synonym are visible.
         patSynHelperBase identifier = mapMaybe (`T.stripPrefix` identifier) ["$m", "$b"]
         visibleTyCon info =

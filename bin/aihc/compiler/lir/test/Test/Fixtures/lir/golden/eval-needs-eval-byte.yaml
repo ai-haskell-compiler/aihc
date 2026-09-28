@@ -61,7 +61,7 @@ expected: |
     %stack_fits_28 = le.u ptr %sp_27, %sp_limit_10
     br %stack_fits_28, stack_pushed_30(%sp_9, %sp_27, %sp_limit_10), stack_grow_29
 
-  stack_grow_29:
+  cold stack_grow_29:
     %result_31 = call @aihc_stack_grow(%machine_6, %sp_9, 2)
     %sp_32 = ptr.add %result_31, 16
     %sp_limit_33 = ptr.add %result_31, 4064
