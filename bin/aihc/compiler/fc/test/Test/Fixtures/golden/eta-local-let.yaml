@@ -43,18 +43,18 @@ expected: |-
   scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    4.tBool :: 4.sType;
-    4.tInt :: 4.sType;
+    constructors [4.cFalse, 4.cTrue] 4.tBool :: 4.sType;
+    constructors [4.cI#] 4.tInt :: 4.sType;
     2.tInt# :: 4.tTYPE 4.cIntRep;
-    4.tLevity :: 4.sType;
+    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: 4.sType;
     4.sLiftedRep :: 4.tRuntimeRep;
     2.tRealWorld :: 4.sType;
-    4.tRuntimeRep :: 4.sType;
+    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: 4.sType;
     2.tState# :: ∀(s : 4.sType). 4.tTYPE (4.cTupleRep (4.c[] 4.tRuntimeRep));
     4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
-    3.tTuple2 :: ∀(a1 : 4.sType) (a2 : 4.sType). 4.sType;
+    constructors [3.c(,)] 3.tTuple2 :: ∀(a1 : 4.sType) (a2 : 4.sType). 4.sType;
     4.sType :: 4.sType;
-    4.t[] :: ∀(a : 4.sType). 4.sType;
+    constructors [4.c[], 4.c:] 4.t[] :: ∀(a : 4.sType). 4.sType;
     3.c(,) :: ∀(a1 : 4.sType) (a2 : 4.sType). a1 4.→ a2 4.→ 3.tTuple2 a1 a2;
     4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
     4.cFalse :: 4.tBool;

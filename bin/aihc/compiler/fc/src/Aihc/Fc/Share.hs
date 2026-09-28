@@ -83,6 +83,7 @@ shareImports imports =
     <*> shareTypeMap (importBinders imports)
     <*> (Map.fromList <$> mapM (\(name, representation) -> (,representation) <$> shareName name) (Map.toList (importConRepresentations imports)))
     <*> (Map.fromList <$> mapM (\(name, fields) -> (,fields) <$> shareName name) (Map.toList (importConStrictFields imports)))
+    <*> (Map.fromList <$> mapM (\(name, constructors) -> (,) <$> shareName name <*> mapM shareName constructors) (Map.toList (importDataCons imports)))
   where
     shareTypeMap table =
       Map.fromList <$> mapM (\(name, ty) -> (,) <$> shareName name <*> shareType ty) (Map.toList table)

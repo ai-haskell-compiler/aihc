@@ -31,16 +31,16 @@ expected: |-
 
   import headers
     3.tAddr# :: 5.tTYPE 5.cAddrRep;
-    5.tChar :: 5.sType;
-    5.tInt :: 5.sType;
+    constructors [5.cC#] 5.tChar :: 5.sType;
+    constructors [5.cI#] 5.tInt :: 5.sType;
     3.tInt# :: 5.tTYPE 5.cIntRep;
-    5.tLevity :: 5.sType;
+    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: 5.sType;
     5.sLiftedRep :: 5.tRuntimeRep;
-    5.tRuntimeRep :: 5.sType;
+    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: 5.sType;
     5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.sType;
-    4.tTuple2 :: ∀(a1 : 5.sType) (a2 : 5.sType). 5.sType;
+    constructors [4.c(,)] 4.tTuple2 :: ∀(a1 : 5.sType) (a2 : 5.sType). 5.sType;
     5.sType :: 5.sType;
-    5.t[] :: ∀(a : 5.sType). 5.sType;
+    constructors [5.c[], 5.c:] 5.t[] :: ∀(a : 5.sType). 5.sType;
     4.c(,) :: ∀(a1 : 5.sType) (a2 : 5.sType). a1 5.→ a2 5.→ 4.tTuple2 a1 a2;
     5.cAddrRep :: 5.tRuntimeRep;
     5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;

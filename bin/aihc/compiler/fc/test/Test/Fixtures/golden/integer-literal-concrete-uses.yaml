@@ -28,12 +28,12 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    3.tBool :: 3.sType;
-    3.tInt :: 3.sType;
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
+    constructors [3.cI#] 3.tInt :: 3.sType;
     2.tInt# :: 3.tTYPE 3.cIntRep;
-    3.tLevity :: 3.sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
     3.sLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
     3.sType :: 3.sType;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
@@ -65,17 +65,17 @@ expected: |-
   scope 7 = "aihc-prim" GHC.Types
 
   import headers
-    5.t$Dict$Num :: ∀(a : 7.sType). 7.sType;
-    7.tBool :: 7.sType;
-    7.tInt :: 7.sType;
+    constructors [5.c$Dict$Num] 5.t$Dict$Num :: ∀(a : 7.sType). 7.sType;
+    constructors [7.cFalse, 7.cTrue] 7.tBool :: 7.sType;
+    constructors [7.cI#] 7.tInt :: 7.sType;
     3.tInt# :: 7.tTYPE 7.cIntRep;
-    4.tInteger :: 7.sType;
-    7.tLevity :: 7.sType;
+    constructors [4.cIS, 4.cIP, 4.cIN] 4.tInteger :: 7.sType;
+    constructors [7.cLifted, 7.cUnlifted] 7.tLevity :: 7.sType;
     7.sLiftedRep :: 7.tRuntimeRep;
-    7.tRuntimeRep :: 7.sType;
+    constructors [7.cAddrRep, 7.cBoxedRep, 7.cDoubleRep, 7.cFloatRep, 7.cInt16Rep, 7.cInt32Rep, 7.cInt64Rep, 7.cInt8Rep, 7.cIntRep, 7.cSumRep, 7.cTupleRep, 7.cVecRep, 7.cWord16Rep, 7.cWord32Rep, 7.cWord64Rep, 7.cWord8Rep, 7.cWordRep] 7.tRuntimeRep :: 7.sType;
     7.tTYPE :: ∀(rep : 7.tRuntimeRep). 7.sType;
     7.sType :: 7.sType;
-    6.tUnit :: 7.sType;
+    constructors [6.c()] 6.tUnit :: 7.sType;
     5.v$fNumInt :: 5.t$Dict$Num 7.tInt;
     5.v$fNumInteger :: 5.t$Dict$Num 4.tInteger;
     6.c() :: 6.tUnit;

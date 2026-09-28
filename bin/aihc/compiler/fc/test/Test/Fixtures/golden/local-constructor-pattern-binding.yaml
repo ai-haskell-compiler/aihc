@@ -18,16 +18,16 @@ expected: |-
   scope 6 = "aihc-prim" GHC.Types
 
   import headers
-    4.t$Dict$Num :: ∀(a : 6.sType). 6.sType;
-    6.tInt :: 6.sType;
+    constructors [4.c$Dict$Num] 4.t$Dict$Num :: ∀(a : 6.sType). 6.sType;
+    constructors [6.cI#] 6.tInt :: 6.sType;
     2.tInt# :: 6.tTYPE 6.cIntRep;
-    3.tInteger :: 6.sType;
-    6.tLevity :: 6.sType;
+    constructors [3.cIS, 3.cIP, 3.cIN] 3.tInteger :: 6.sType;
+    constructors [6.cLifted, 6.cUnlifted] 6.tLevity :: 6.sType;
     6.sLiftedRep :: 6.tRuntimeRep;
-    6.tRuntimeRep :: 6.sType;
+    constructors [6.cAddrRep, 6.cBoxedRep, 6.cDoubleRep, 6.cFloatRep, 6.cInt16Rep, 6.cInt32Rep, 6.cInt64Rep, 6.cInt8Rep, 6.cIntRep, 6.cSumRep, 6.cTupleRep, 6.cVecRep, 6.cWord16Rep, 6.cWord32Rep, 6.cWord64Rep, 6.cWord8Rep, 6.cWordRep] 6.tRuntimeRep :: 6.sType;
     6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.sType;
     6.sType :: 6.sType;
-    5.tUnit :: 6.sType;
+    constructors [5.c()] 5.tUnit :: 6.sType;
     4.v$fNumInt :: 4.t$Dict$Num 6.tInt;
     5.c() :: 5.tUnit;
     6.cBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep;

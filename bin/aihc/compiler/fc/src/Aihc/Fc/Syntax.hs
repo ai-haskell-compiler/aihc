@@ -179,7 +179,10 @@ data Imports = Imports
     importBinders :: Map Name Type,
     importConRepresentations :: Map Name ConRepresentation,
     -- | The strict fields of each imported constructor that has one.
-    importConStrictFields :: Map Name [Int]
+    importConStrictFields :: Map Name [Int],
+    -- | Every constructor of each imported data type that has one. A
+    -- type that is absent has constructors that no pass knows.
+    importDataCons :: Map Name [Name]
   }
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)

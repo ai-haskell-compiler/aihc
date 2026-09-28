@@ -18,11 +18,11 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.t$Dict$Eq :: ∀(a : 3.sType). 3.sType;
-    3.tBool :: 3.sType;
-    3.tLevity :: 3.sType;
+    constructors [2.c$Dict$Eq] 2.t$Dict$Eq :: ∀(a : 3.sType). 3.sType;
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
     3.sLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
     3.sType :: 3.sType;
     2.c$Dict$Eq :: ∀(a : 3.sType). (a 3.→ a 3.→ 3.tBool) 3.→ (a 3.→ a 3.→ 3.tBool) 3.→ 2.t$Dict$Eq a;

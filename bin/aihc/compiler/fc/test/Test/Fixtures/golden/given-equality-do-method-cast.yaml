@@ -34,15 +34,15 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.t$Dict$Applicative :: ∀(f : 3.sType 3.→ 3.sType). 3.sType;
-    2.t$Dict$Functor :: ∀(f : 3.sType 3.→ 3.sType). 3.sType;
-    2.t$Dict$Monad :: ∀(m : 3.sType 3.→ 3.sType). 3.sType;
-    3.tLevity :: 3.sType;
+    constructors [2.c$Dict$Applicative] 2.t$Dict$Applicative :: ∀(f : 3.sType 3.→ 3.sType). 3.sType;
+    constructors [2.c$Dict$Functor] 2.t$Dict$Functor :: ∀(f : 3.sType 3.→ 3.sType). 3.sType;
+    constructors [2.c$Dict$Monad] 2.t$Dict$Monad :: ∀(m : 3.sType 3.→ 3.sType). 3.sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
     3.sLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
     3.sType :: 3.sType;
-    3.t[] :: ∀(a : 3.sType). 3.sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
     2.c$Dict$Applicative :: ∀(f : 3.sType 3.→ 3.sType). 2.t$Dict$Functor f 3.→ (∀(a : 3.sType). a 3.→ f a) 3.→ (∀(a : 3.sType) (b : 3.sType). f (a 3.→ b) 3.→ f a 3.→ f b) 3.→ (∀(a : 3.sType) (b : 3.sType). f a 3.→ f b 3.→ f b) 3.→ (∀(a : 3.sType) (b : 3.sType). f a 3.→ f b 3.→ f a) 3.→ (∀(a : 3.sType) (b : 3.sType) (c : 3.sType). (a 3.→ b 3.→ c) 3.→ f a 3.→ f b 3.→ f c) 3.→ 2.t$Dict$Applicative f;
     2.c$Dict$Functor :: ∀(f : 3.sType 3.→ 3.sType). (∀(a : 3.sType) (b : 3.sType). (a 3.→ b) 3.→ f a 3.→ f b) 3.→ (∀(a : 3.sType) (b : 3.sType). a 3.→ f b 3.→ f a) 3.→ 2.t$Dict$Functor f;
     2.c$Dict$Monad :: ∀(m : 3.sType 3.→ 3.sType). 2.t$Dict$Applicative m 3.→ (∀(a : 3.sType) (b : 3.sType). m a 3.→ (a 3.→ m b) 3.→ m b) 3.→ (∀(a : 3.sType) (b : 3.sType). m a 3.→ m b 3.→ m b) 3.→ (∀(a : 3.sType). a 3.→ m a) 3.→ 2.t$Dict$Monad m;

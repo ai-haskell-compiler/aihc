@@ -14,12 +14,12 @@ expected: |-
   scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    4.t$Dict$Num :: ∀(a : 5.sType). 5.sType;
+    constructors [4.c$Dict$Num] 4.t$Dict$Num :: ∀(a : 5.sType). 5.sType;
     2.tInt# :: 5.tTYPE 5.cIntRep;
-    3.tInteger :: 5.sType;
-    5.tLevity :: 5.sType;
+    constructors [3.cIS, 3.cIP, 3.cIN] 3.tInteger :: 5.sType;
+    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: 5.sType;
     5.sLiftedRep :: 5.tRuntimeRep;
-    5.tRuntimeRep :: 5.sType;
+    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: 5.sType;
     5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.sType;
     5.sType :: 5.sType;
     5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
