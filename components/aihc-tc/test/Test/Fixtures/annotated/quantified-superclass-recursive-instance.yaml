@@ -1,0 +1,65 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, KindSignatures, QuantifiedConstraints, UndecidableInstances #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+  └─ class methods: rnf ∷ ∀ a. (NFData a) ⇒ a → a
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type) where
+  └─ class methods: liftRnf ∷ ∀ f b. (NFData1 f) ⇒ (b → b) → f b → f b
+    liftRnf :: (b -> b) -> f b -> f b
+
+  class (forall a. NFData a => NFData1 (p a)) => NFData2 (p :: Type -> Type -> Type) where
+  └─ class methods: liftRnf2 ∷ ∀ p a b. (NFData2 p) ⇒ (a → a) → (b → b) → p a b → p a b
+    liftRnf2 :: (a -> a) -> (b -> b) -> p a b -> p a b
+
+  newtype Fix p a = In (p (Fix p a) a)
+          │         └─ type: ∀ p a. p (Fix p a) a → Fix p a
+          └─ type: (Type → Type → Type) → Type → Type
+
+  instance NFData (p (Fix p a) a) => NFData (Fix p a) where
+  └─ $fNFDataFixpa ∷ ∀ p a. (NFData (p (Fix p a) a)) ⇒ NFData (Fix p a)
+    rnf x = x
+    │   └─ type: Fix p a
+    └─ rnf ∷ Fix p a → Fix p a
+
+  instance NFData2 p => NFData1 (Fix p) where
+  └─ $fNFData1Fixp ∷ ∀ p. (NFData2 p) ⇒ NFData1 (Fix p) [superclasses: Λa. λ(_ ∷ NFData a). rec(NFData Fix p a). $fNFDataFixpa @p @a (((super[0](((super[0](given NFData2 p)) @Fix p a) (given NFData Fix p a))) @a) (given NFData a))]
+    liftRnf _ x = x
+    │       │ └─ type: Fix p b
+    │       └─ type: b → b
+    └─ liftRnf ∷ ∀ b. (b → b) → Fix p b → Fix p b
+extensions:
+- FlexibleContexts
+- KindSignatures
+- QuantifiedConstraints
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, KindSignatures, QuantifiedConstraints, UndecidableInstances #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type) where
+    liftRnf :: (b -> b) -> f b -> f b
+
+  class (forall a. NFData a => NFData1 (p a)) => NFData2 (p :: Type -> Type -> Type) where
+    liftRnf2 :: (a -> a) -> (b -> b) -> p a b -> p a b
+
+  newtype Fix p a = In (p (Fix p a) a)
+
+  instance NFData (p (Fix p a) a) => NFData (Fix p a) where
+    rnf x = x
+
+  instance NFData2 p => NFData1 (Fix p) where
+    liftRnf _ x = x
+reason: a quantified superclass goal can use itself through a recursive instance
+status: pass

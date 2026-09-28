@@ -1,0 +1,59 @@
+extensions:
+  - FlexibleContexts
+  - KindSignatures
+  - QuantifiedConstraints
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts #-}
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE QuantifiedConstraints #-}
+    {-# LANGUAGE UndecidableInstances #-}
+    module Test where
+
+    import GHC.Types (Type)
+
+    data Nat = Z | S Nat
+
+    data Unit = Unit
+
+    class Size a where
+      size :: a -> Nat -> Nat
+
+    class (forall a. Size a => Size (f a)) => Size1 (f :: Type -> Type)
+
+    class (forall a. Size a => Size1 (p a)) => Size2 (p :: Type -> Type -> Type)
+
+    instance Size Unit where
+      size _ n = S n
+
+    data Node a b = Branch a b | Leaf b
+
+    instance (Size a, Size b) => Size (Node a b) where
+      size (Branch x y) n = S (size x (size y n))
+      size (Leaf y) n = S (size y n)
+
+    instance Size a => Size1 (Node a)
+
+    instance Size2 Node
+
+    newtype Fix p a = In (p (Fix p a) a)
+
+    instance Size (p (Fix p a) a) => Size (Fix p a) where
+      size (In x) n = size x n
+
+    -- The superclass of this instance is a recursive dictionary.
+    instance Size2 p => Size1 (Fix p)
+
+    sizeThroughSuperclass :: (Size1 f, Size a) => f a -> Nat
+    sizeThroughSuperclass x = size x Z
+
+    tree :: Fix Node Unit
+    tree = In (Branch (In (Leaf Unit)) Unit)
+output: |
+  S (S (S (S Z)))
+expression: |
+  sizeThroughSuperclass tree
+status: pass
+reason: the quantified superclass of an instance is a recursive dictionary that
+  the program uses at run time

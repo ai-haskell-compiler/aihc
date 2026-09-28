@@ -271,6 +271,8 @@ renderEvTerm ev =
     EvCallStackPush _ function site parent ->
       "push(" <> T.unpack function <> "@" <> show (callSiteStartLine site) <> ":" <> show (callSiteStartColumn site) <> ", " <> renderEvTerm parent <> ")"
     EvCallStackEmpty _ -> "emptyCallStack"
+    EvRecursive predicate _ body ->
+      "rec(" <> renderPred predicate <> "). " <> renderEvTerm body
 
 renderTypeArgs :: [TcType] -> String
 renderTypeArgs [] = ""

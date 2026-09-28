@@ -28,7 +28,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, withErrorTracking, withGivenPredicates)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
@@ -79,7 +79,17 @@ solveDictWithGivensVisited visited givens ct0 = do
 
 solveNormalizedDict :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveNormalizedDict visited givens ct
-  | ctPred ct `elem` visited = pure (DictStuck ct)
+  | ctPred ct `elem` visited = do
+      -- A wanted that comes back to a dictionary that an instance is
+      -- building names that dictionary. The loop goes through the
+      -- instance, so the recursive dictionary is productive. Any other
+      -- loop cannot be solved.
+      recursive <- getRecursiveDictionaries
+      if ctPred ct `elem` recursive
+        then do
+          bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+          pure DictSolved
+        else pure (DictStuck ct)
   | otherwise =
       case ctPred ct of
         ClassPred className args -> do
@@ -313,10 +323,15 @@ solveNormalizedDict visited givens ct
         Just subst -> do
           let context = map (applySubstPred subst) (iiContext instanceInfo)
               typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
-          (contextEvidence, failed) <- withErrorTracking (solveContext visited' context)
+          (contextEvidence, failed) <- withErrorTracking (withRecursiveDictionary (ctPred ct) (solveContext visited' context))
           case contextEvidence of
             Just evidence | not failed -> do
-              bindEvidence (ctEvVar ct) (EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence)
+              let dictionary = EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence
+              if any (mentionsGiven (ctPred ct)) evidence
+                then do
+                  dictionaryType <- predicateType (ctPred ct)
+                  bindEvidence (ctEvVar ct) (EvRecursive (ctPred ct) dictionaryType dictionary)
+                else bindEvidence (ctEvVar ct) dictionary
               pure DictSolved
             _ -> do
               -- A failed candidate must not change another candidate's types or evidence.
@@ -521,6 +536,28 @@ solveNormalizedDict visited givens ct
           consequentType <- predicateType consequent
           let qualified = if null antecedents then consequentType else TcQualTy antecedents consequentType
           pure (foldr TcForAllTy qualified variables)
+
+-- | Whether evidence names a given predicate. A recursive dictionary names
+-- itself in this way.
+mentionsGiven :: Pred -> EvTerm -> Bool
+mentionsGiven predicate evidence =
+  case evidence of
+    EvGiven given -> given == predicate
+    EvDict _ _ _ arguments -> any (mentionsGiven predicate) arguments
+    EvSuperClass inner _ _ _ _ -> mentionsGiven predicate inner
+    EvCast inner _ -> mentionsGiven predicate inner
+    EvTypeable _ _ _ kindArguments arguments -> any (mentionsGiven predicate . snd) kindArguments || any (mentionsGiven predicate) arguments
+    EvTypeLam _ body -> mentionsGiven predicate body
+    EvDictLam _ _ body -> mentionsGiven predicate body
+    EvTypeApp function _ -> mentionsGiven predicate function
+    EvDictApp function argument -> mentionsGiven predicate function || mentionsGiven predicate argument
+    EvCallStackPush _ _ _ parent -> mentionsGiven predicate parent
+    EvRecursive inner _ body -> inner /= predicate && mentionsGiven predicate body
+    EvVarTerm {} -> False
+    EvCoercible {} -> False
+    EvCoercion {} -> False
+    EvTypeLit {} -> False
+    EvCallStackEmpty {} -> False
 
 -- | The instances whose heads match the arguments, without an instance that
 -- a more specific match overlaps. For @MonadState s (StateT s m)@ the
