@@ -5,8 +5,8 @@
 - Total Extensions: 63
 - Supported: 48
 - In Progress: 15
-- Fixtures (eval): 650
-- Fixtures (fc): 291
+- Fixtures (eval): 651
+- Fixtures (fc): 309
 
 ## Extension Status
 
@@ -33,7 +33,7 @@
 | ExplicitForAll             |   🟢    | 13/13         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedLiterals           |   🟢    | 13/13         |
-| FlexibleContexts           |   🟢    | 15/15         |
+| FlexibleContexts           |   🟢    | 16/16         |
 | FlexibleInstances          |   🟡    | 44/46         |
 | ForeignFunctionInterface   |   🟢    | 43/43         |
 | FunctionalDependencies     |   🔴    | 18/22         |
@@ -44,9 +44,9 @@
 | ImportQualifiedPost        |   🟢    | 7/7           |
 | InstanceSigs               |   🟢    | 3/3           |
 | InterruptibleFFI           |   🟢    | 1/1           |
-| KindSignatures             |   🟢    | 50/50         |
+| KindSignatures             |   🟢    | 51/51         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 235/236       |
+| MagicHash                  |   🟡    | 251/252       |
 | MultiParamTypeClasses      |   🔴    | 35/39         |
 | MultiWayIf                 |   🟢    | 2/2           |
 | NamedFieldPuns             |   🟢    | 3/3           |
@@ -55,7 +55,7 @@
 | PartialTypeSignatures      |   🟢    | 2/2           |
 | PatternSynonyms            |   🟢    | 27/27         |
 | PolyKinds                  |   🟢    | 30/30         |
-| QuantifiedConstraints      |   🟢    | 1/1           |
+| QuantifiedConstraints      |   🟢    | 2/2           |
 | RankNTypes                 |   🟢    | 24/24         |
 | RebindableSyntax           |   🟡    | 19/20         |
 | RecordWildCards            |   🟢    | 2/2           |
@@ -71,7 +71,7 @@
 | TypeFamilyDependencies     |   🟢    | 1/1           |
 | TypeOperators              |   🟢    | 111/111       |
 | UnboxedSums                |   🟢    | 10/10         |
-| UnboxedTuples              |   🟡    | 84/85         |
-| UndecidableInstances       |   🔴    | 10/13         |
+| UnboxedTuples              |   🟡    | 85/86         |
+| UndecidableInstances       |   🔴    | 11/14         |
 | UnliftedFFITypes           |   🟢    | 2/2           |
 | ViewPatterns               |   🟢    | 9/9           |

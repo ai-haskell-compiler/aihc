@@ -7,13 +7,13 @@
 Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not but let's find out. We'll need:
 - [x] preprocessing (done, see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp)),
 - [x] parsing (done, see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser)),
-- [ ] name resolution (<!-- AUTO-GENERATED: START resolve-progress --> `119/119` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->),
-- [ ] type checking (<!-- AUTO-GENERATED: START tc-progress --> `698/703` (`99.28%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->),
+- [ ] name resolution (<!-- AUTO-GENERATED: START resolve-progress --> `120/120` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->),
+- [ ] type checking (<!-- AUTO-GENERATED: START tc-progress --> `702/707` (`99.29%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->),
 - [ ] desugaring (workable, incomplete),
 - [ ] code generation (can generate machine code, llvm ir, wasm),
 - [ ] `ghc-prim` shim (<!-- AUTO-GENERATED: START ghc-prim-progress --> `784/5013` (`15.64%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->),
 - [ ] `base` implementation (<!-- AUTO-GENERATED: START base-progress --> `2137/10061` (`21.24%`) ●○○○○ <!-- AUTO-GENERATED: END base-progress -->),
-- [ ] self-host (<!-- AUTO-GENERATED: START self-hosting-progress --> `76/118` (`64.41%`) ●●●○○ <!-- AUTO-GENERATED: END self-hosting-progress -->).
+- [ ] self-host (<!-- AUTO-GENERATED: START self-hosting-progress --> `64/80` (`80.00%`) ●●●●○ <!-- AUTO-GENERATED: END self-hosting-progress -->).
 
 ## Latest News
 
@@ -47,7 +47,7 @@ AIHC compiling itself ("self hosting") is the next milestone. Expand the details
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 76 install, 8 fail, 34 wait for a dependency</summary>
+<summary>Self-compile packages: 64 install, 3 fail, 13 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -56,59 +56,37 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | OneTuple | 0.4.3 | ✅ installs |
 | array | 0.5.8.0 | ✅ installs |
 | assoc | 1.1.1 | ✅ installs |
-| atomic-counter | 0.1.2.4 | ✅ installs |
 | base-orphans | 0.9.4 | ✅ installs |
-| basement | 0.0.16 | ✅ installs |
-| byteorder | 1.0.4 | ✅ installs |
 | character-ps | 0.1 | ✅ installs |
 | colour | 2.3.7 | ✅ installs |
 | ansi-terminal-types | 1.1.3 | ✅ installs |
 | ansi-terminal | 1.1.5 | ✅ installs |
 | deepseq | 1.5.2.0 | ✅ installs |
 | bytestring | 0.12.2.0 | ✅ installs |
-| appar | 0.1.8 | ✅ installs |
-| base64-bytestring | 1.2.1.0 | ✅ installs |
 | containers | 0.8 | ✅ installs |
 | binary | 0.8.9.3 | ✅ installs |
-| cereal | 0.5.8.3 | ✅ installs |
 | cryptohash-sha256 | 0.11.102.1 | ✅ installs |
-| data-default | 0.8.0.2 | ✅ installs |
-| data-default-class | 0.2.0.0 | ✅ installs |
 | dlist | 1.0 | ✅ installs |
-| ghc-bignum | 1.3 | ✅ installs |
-| hourglass | 0.2.12 | ✅ installs |
-| integer-gmp | 1.1 | ✅ installs |
 | integer-logarithms | 1.0.5 | ✅ installs |
-| libffi | 0.2.1 | ❌ fails ('ffi.h' file not found) |
-| memory | 0.18.0 | ❌ fails (unhandled syntax: term name ‘DeclPragma’) |
-| asn1-types | 0.3.4 | ⏸️ needs `memory` |
-| asn1-encoding | 0.9.6 | ⏸️ needs `asn1-types` |
-| asn1-parse | 0.9.5 | ⏸️ needs `asn1-encoding`, `asn1-types` |
-| crypton | 1.0.6 | ⏸️ needs `memory` |
 | parser-combinators | 1.3.1 | ✅ installs |
-| pem | 0.2.4 | ⏸️ needs `memory` |
 | pretty | 1.1.3.6 | ✅ installs |
 | splitmix | 0.1.3.2 | ✅ installs |
 | stm | 2.5.3.1 | ✅ installs |
-| tagged | 0.8.10 | ✅ installs |
-| terminfo | 0.4.1.7 | ❌ fails ('term.h' file not found) |
+| tagged | 0.8.11 | ✅ installs |
+| terminfo | 0.4.1.7 | ✅ installs |
 | text | 2.1.4 | ✅ installs |
-| blaze-builder | 0.4.4.1 | ✅ installs |
-| mime-types | 0.1.2.2 | ✅ installs |
 | prettyprinter | 1.7.2 | ✅ installs |
 | prettyprinter-ansi-terminal | 1.1.4 | ✅ installs |
 | th-abstraction | 0.7.2.0 | ✅ installs |
 | th-compat | 0.1.7 | ✅ installs |
 | time | 1.14 | ✅ installs |
-| cookie | 0.5.1 | ✅ installs |
 | transformers | 0.6.3.0 | ✅ installs |
-| StateVar | 1.2.2 | ❌ fails (could not fetch the source) |
-| contravariant | 1.5.6 | ⏸️ needs `StateVar` |
-| crypton-x509 | 1.7.7 | ⏸️ needs `asn1-encoding`, `asn1-parse`, `asn1-types`, `crypton`, `memory`, `pem` |
+| StateVar | 1.2.2 | ✅ installs |
+| contravariant | 1.5.6 | ✅ installs |
 | distributive | 0.6.3 | ✅ installs |
 | indexed-traversable | 0.1.5 | ✅ installs |
 | comonad | 5.0.10 | ✅ installs |
-| bifunctors | 5.6.3 | ❌ fails (unsolved constraint ∀ a. (Eq a) ⇒ Eq (Biap bi a a)) |
+| bifunctors | 5.6.3 | ✅ installs |
 | mtl | 2.3.2 | ✅ installs |
 | exceptions | 0.10.12 | ✅ installs |
 | filepath | 1.4.301.0 | ✅ installs |
@@ -117,7 +95,6 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | hashable | 1.5.1.0 | ✅ installs |
 | case-insensitive | 1.2.1.0 | ✅ installs |
 | data-fix | 0.3.4 | ✅ installs |
-| http-types | 0.12.6 | ✅ installs |
 | parsec | 3.1.18.0 | ✅ installs |
 | network-uri | 2.6.4.2 | ✅ installs |
 | primitive | 0.9.1.0 | ✅ installs |
@@ -136,27 +113,17 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | text-iso8601 | 0.1.1.2 | ✅ installs |
 | transformers-compat | 0.7.2 | ✅ installs |
 | unix | 2.8.8.0 | ❌ fails (invalid redefinition of function 'write') |
-| directory-ospath-streaming | 0.3 | ⏸️ needs `unix` |
 | file-io | 0.1.6 | ⏸️ needs `unix` |
 | directory | 1.3.10.1 | ⏸️ needs `file-io`, `unix` |
 | Cabal-syntax | 3.16.1.0 | ⏸️ needs `directory` |
-| crypton-x509-store | 1.6.14 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `directory`, `pem`, `unix` |
-| network | 3.2.9.0 | ⏸️ needs `directory` |
-| crypton-socks | 0.6.2 | ⏸️ needs `network` |
-| iproute | 1.7.15 | ⏸️ needs `network` |
-| crypton-x509-validation | 1.6.14 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `crypton-x509-store`, `iproute`, `memory`, `pem` |
 | process | 1.6.30.0 | ⏸️ needs `directory`, `unix` |
 | Cabal | 3.16.1.0 | ⏸️ needs `Cabal-syntax`, `directory`, `process`, `unix` |
-| crypton-x509-system | 1.6.8 | ⏸️ needs `crypton-x509`, `crypton-x509-store`, `directory`, `pem`, `process` |
-| haskeline | 0.8.5.0 | ⏸️ needs `directory`, `process`, `terminfo`, `unix` |
+| aihc-hackage | 0.1.0.0 | ⏸️ needs `Cabal`, `Cabal-syntax`, `directory` |
+| haskeline | 0.8.5.0 | ⏸️ needs `directory`, `process`, `unix` |
 | optparse-applicative | 0.18.1.0 | ⏸️ needs `process` |
-| tar | 0.6.4.0 | ⏸️ needs `directory`, `directory-ospath-streaming`, `file-io` |
-| unix-time | 0.5.0 | ✅ installs |
 | unordered-containers | 0.2.21 | ✅ installs |
 | async | 2.2.6 | ✅ installs |
-| semigroupoids | 6.0.2 | ⏸️ needs `bifunctors`, `contravariant` |
-| tls | 1.9.0 | ⏸️ needs `asn1-encoding`, `asn1-types`, `crypton`, `crypton-x509`, `crypton-x509-store`, `crypton-x509-validation`, `memory`, `network` |
-| crypton-connection | 0.4.5 | ⏸️ needs `crypton-socks`, `crypton-x509-store`, `crypton-x509-system`, `network`, `tls` |
+| semigroupoids | 6.0.2 | ❌ fails (unbound term name ‘trans’) |
 | uuid-types | 1.0.6.1 | ✅ installs |
 | vector-stream | 0.1.0.1 | ✅ installs |
 | vector | 0.13.2.0 | ✅ installs |
@@ -164,13 +131,8 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | semialign | 1.4 | ⏸️ needs `semigroupoids` |
 | witherable | 0.5 | ✅ installs |
 | aeson | 2.2.5.1 | ⏸️ needs `semialign` |
-| zlib | 0.7.1.1 | ❌ fails ('zlib.h' file not found) |
-| streaming-commons | 0.2.3.1 | ⏸️ needs `directory`, `network`, `process`, `unix`, `zlib` |
-| http-client | 0.7.19 | ⏸️ needs `iproute`, `network`, `streaming-commons` |
-| http-client-tls | 0.3.6.4 | ⏸️ needs `crypton`, `crypton-connection`, `http-client`, `memory`, `network`, `tls` |
-| aihc-hackage | 0.1.0.0 | ⏸️ needs `Cabal`, `Cabal-syntax`, `directory`, `http-client`, `http-client-tls`, `tar`, `zlib` |
 | aihc-package-plan | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `directory` |
-| aihc | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `aihc-package-plan`, `aihc-resolve`, `aihc-tc`, `directory`, `haskeline`, `libffi`, `optparse-applicative`, `process`, `unix` |
+| aihc | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `aihc-package-plan`, `aihc-resolve`, `aihc-tc`, `directory`, `haskeline`, `optparse-applicative`, `process`, `unix` |
 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->
