@@ -1,0 +1,58 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (apply) where
+
+  import GHC.Types (Int (..))
+
+  apply :: (Int -> Int) -> Int -> Int
+  apply g x = case x of
+    I# a -> case a of
+      0# -> I# 1#
+      _ -> g x
+passes:
+- worker-wrapper
+- simplify: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub val 1.vapply inline :: (3.tInt 3.→ 3.tInt) 3.→ 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt 3.→ 3.tInt).
+    λ(y : 3.tInt).
+      case y as (wrapped : 3.tInt) return (3.tInt) of {
+          3.cI# (y{1} : 2.tInt#) →
+              1.v$wapply x y{1}
+      }
+
+  val 1.v$wapply :: FUN @(3.cBoxedRep 3.cLifted) @(3.cBoxedRep 3.cLifted) (3.tInt 3.→ 3.tInt) (FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# 3.tInt)
+   = λ(x : 3.tInt 3.→ 3.tInt).
+    λ(y : 2.tInt#).
+      case y as (_scrut : 2.tInt#) return (3.tInt) of {
+          0#3.cIntRep →
+              3.cI# 1#3.cIntRep;
+          _ →
+              x (3.cI# _scrut)
+      }
+status: pass
+reason: One tail calls an unknown function, so the result does not come back as its field. The worker still takes the Int# field of its parameter.

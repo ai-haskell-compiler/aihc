@@ -37,10 +37,15 @@
 -- accumulator weakens the guess to lazy, and the argument stays a thunk.
 -- Local functions, recursive or not, get signatures the same way.
 --
+-- A strict parameter whose type has one constructor, and that the body
+-- takes apart with a case, gets the 'StrictProduct' demand. The
+-- worker/wrapper pass, "Aihc.Fc.WorkerWrapper", passes the fields of such
+-- a parameter in its place.
+--
 -- What the analysis does not do: it does not track divergence, so a
 -- branch that calls @error@ is a branch that evaluates nothing, and it
--- does not look inside the fields of a constructor, which is what a
--- worker/wrapper split needs. Both are later steps on the same lattice.
+-- does not give demands to the fields of a constructor. Both are later
+-- steps on the same lattice.
 --
 -- == Where the result lives
 --
@@ -63,7 +68,11 @@ module Aihc.Fc.Demand
     DemandRewrites (..),
     demandProgram,
     Demand (..),
+    isStrict,
     Signature (..),
+    Signatures,
+    topLevelSignatures,
+    productConstructor,
   )
 where
 
@@ -77,6 +86,7 @@ import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, foreignArg
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
+import Control.Monad (guard)
 import Control.Monad.Trans.State.Strict (State, evalState, modify', runState, state)
 import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -86,6 +96,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text qualified as T
 
 -- | What a function does with one parameter when it is called with every
 -- parameter.
@@ -95,7 +106,15 @@ data Demand
   | -- | The body evaluates the parameter to weak-head normal form on
     -- every path.
     Strict
+  | -- | The body evaluates the parameter on every path, and a case in the
+    -- body takes it apart. Its type has one constructor, which
+    -- 'productConstructor' can take apart and build again.
+    StrictProduct
   deriving (Eq, Ord, Show)
+
+-- | Whether a demand evaluates the parameter.
+isStrict :: Demand -> Bool
+isStrict demand = demand /= Lazy
 
 -- | One demand per manifest lambda of a function.
 newtype Signature = Signature {signatureDemands :: [Demand]}
@@ -138,7 +157,7 @@ demandProgram rewrites program =
           env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites}
           supply = maxLocalUnique program + 1
           (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
-          strictValues = length [() | signature <- Map.elems signatures, Strict `elem` signatureDemands signature]
+          strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
        in ( tidyProgram (pruneImports program {programDecls = decls}),
             DemandReport strictValues (dsStrictLets final) (dsStrictArguments final)
           )
@@ -182,7 +201,108 @@ lambdaSignature :: Env -> Expr -> Signature
 lambdaSignature env expr =
   let (binders, body) = collectLambdas expr
       strict = strictIn (extendTypes env binders) body
-   in Signature [if Set.member (binderName binder) strict then Strict else Lazy | binder <- binders]
+      -- The kinds of the type variables give the representation of a
+      -- parameter type.
+      inner = extendTypes env (lambdaTypeBinders expr)
+      demand binder
+        | Set.notMember (binderName binder) strict = Lazy
+        | Just (con, _, _) <- productConstructor (envTypes inner) (binderType binder),
+          takenApart (binderName binder) con body =
+            StrictProduct
+        | otherwise = Strict
+   in Signature (map demand binders)
+
+-- | The type binders of a function, through lambdas and casts.
+lambdaTypeBinders :: Expr -> [Binder]
+lambdaTypeBinders expr =
+  case expr of
+    ExLam _ body -> lambdaTypeBinders body
+    ExTyLam binder body -> binder : lambdaTypeBinders body
+    ExCast body _ -> lambdaTypeBinders body
+    _ -> []
+
+-- | Whether a case on the variable, somewhere in the expression, has an
+-- alternative for the constructor.
+takenApart :: Name -> Name -> Expr -> Bool
+takenApart name con = go
+  where
+    go expr =
+      case expr of
+        ExCase scrutinee _ _ alternatives ->
+          ( isVariable scrutinee
+              && any ((== AltData con) . altCon) alternatives
+          )
+            || go scrutinee
+            || any (go . altRhs) alternatives
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) || go body
+        ExRec binds body -> any (go . bindRhs) binds || go body
+        ExApp function argument -> go function || go argument
+        ExTyApp function _ -> go function
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> any go arguments
+        _ -> False
+    isVariable scrutinee =
+      case scrutinee of
+        ExVar var -> var == name
+        ExCast inner _ -> isVariable inner
+        _ -> False
+
+-- | The one constructor of a type that a worker can take apart and build
+-- again, with the type arguments of the type and the types of the
+-- fields. The type is a lifted data type with one constructor and no
+-- existential type or equality, and the constructor has at least one
+-- field and no lifted strict field: a worker that builds the value
+-- again from its fields could not show that such a field is evaluated. A
+-- class dictionary is not taken apart, because a worker would take every
+-- method as a parameter.
+productConstructor :: TypeEnv -> Type -> Maybe (Name, [Type], [Type])
+productConstructor env ty = do
+  let reduced = reduceType env ty
+  (tyCon, arguments) <- splitTypeApplication reduced
+  guard (not ("$Dict$" `T.isPrefixOf` nameText tyCon))
+  guard (isLiftedType env reduced)
+  [con] <- Map.lookup tyCon (teDataCons env)
+  conType <- lookupHeaderType env con
+  instantiated <- instantiate conType arguments
+  let (fields, result) = arrows instantiated
+  guard (not (null fields))
+  guard (not (any isEquality fields))
+  guard (isResult result)
+  let strict = Map.findWithDefault [] con (teConStrictFields env)
+  guard (not (any (\position -> maybe False (isLiftedType env) (lookupIndex position fields)) strict))
+  pure (con, arguments, fields)
+  where
+    instantiate current arguments =
+      case arguments of
+        [] -> Just current
+        argument : rest -> do
+          (binder, body) <- viewForAll env current
+          instantiate (substType (binderName binder) argument body) rest
+    arrows current =
+      case viewFun env current of
+        Just (_, _, argument, result) -> let (fields, final) = arrows result in (argument : fields, final)
+        Nothing -> ([], current)
+    isEquality field =
+      case reduceType env field of
+        TyEq {} -> True
+        _ -> False
+    isResult result =
+      case reduceType env result of
+        TyForAll {} -> False
+        _ -> True
+    lookupIndex position fields = case drop position fields of
+      field : _ -> Just field
+      [] -> Nothing
+
+-- | A type constructor applied to type arguments.
+splitTypeApplication :: Type -> Maybe (Name, [Type])
+splitTypeApplication ty =
+  case ty of
+    TyCon name -> Just (name, [])
+    TyApp function argument -> (\(name, arguments) -> (name, arguments <> [argument])) <$> splitTypeApplication function
+    _ -> Nothing
 
 -- | The binders a function takes, through type lambdas and casts, and the
 -- body under them. Casts are transparent because a coercion runs no code.
@@ -360,15 +480,16 @@ walkArguments env result = go
           (argument', strict) <- demandExpr env argumentType argument
           (arguments, sets, wraps) <- go rest
           case (demand, argumentType, result) of
-            (Strict, Just argumentTy, Just _)
-              | envRewrites env == StrictLetsAndArguments,
+            (demand', Just argumentTy, Just _)
+              | isStrict demand',
+                envRewrites env == StrictLetsAndArguments,
                 isLiftedType (envTypes env) argumentTy,
                 not (isValueLike env argument') -> do
                   name <- freshName
                   let binder = Binder name argumentTy
                   modify' (\st -> st {dsStrictArguments = dsStrictArguments st + 1})
                   pure (Right (ExVar name) : arguments, strict : sets, (binder, argument') : wraps)
-            (Strict, _, _) -> pure (Right argument' : arguments, strict : sets, wraps)
+            (demand', _, _) | isStrict demand' -> pure (Right argument' : arguments, strict : sets, wraps)
             _ -> pure (Right argument' : arguments, sets, wraps)
 
 freshName :: DemandM Name

@@ -167,6 +167,7 @@ library
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf
     Aihc.Fc.Wired
+    Aihc.Fc.WorkerWrapper
     Aihc.Grin
     Aihc.Grin.Anf
     Aihc.Grin.Cps

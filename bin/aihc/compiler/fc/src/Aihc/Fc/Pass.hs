@@ -26,6 +26,7 @@ import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Syntax (Program)
+import Aihc.Fc.WorkerWrapper (WorkerWrapperReport (..), workerWrapperProgram)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -46,6 +47,10 @@ data Pass
     -- 'StrictLetsAndArguments' for every strict argument of a saturated
     -- call. @Aihc.Fc.Demand@.
     PassDemand !DemandRewrites
+  | -- | Split each function that takes apart a strict parameter of a type
+    -- with one constructor into a worker that takes the fields and an
+    -- @INLINE@ wrapper. @Aihc.Fc.WorkerWrapper@.
+    PassWorkerWrapper
   deriving (Eq, Show)
 
 -- | The phase a pass runs in. Phases count down as GHC's do, from 2 to
@@ -56,6 +61,7 @@ passPhase pass =
     PassLiftConstants -> Nothing
     PassEtaExpand -> Nothing
     PassDemand _ -> Nothing
+    PassWorkerWrapper -> Nothing
     PassInline _ _ phase -> Just phase
     PassSimplify phase -> Just phase
 
@@ -75,6 +81,7 @@ passName pass =
     PassLiftConstants -> "lift constants"
     PassDemand StrictLetsOnly -> "demand"
     PassDemand StrictLetsAndArguments -> "demand arguments"
+    PassWorkerWrapper -> "worker/wrapper"
     PassEtaExpand -> "eta expand"
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
     PassSimplify phase -> "simplify [" <> T.pack (show phase) <> "]"
@@ -102,6 +109,16 @@ runPass roots pass program =
                 reportBefore = programSize program,
                 reportAfter = programSize rewritten,
                 reportDetail = count (reportStrictValues report) "strict values" <> ", " <> count (reportStrictLets report) "strict lets" <> ", " <> count (reportStrictArguments report) "strict arguments"
+              }
+          )
+    PassWorkerWrapper ->
+      let (split, report) = workerWrapperProgram program
+       in ( split,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize program,
+                reportAfter = programSize split,
+                reportDetail = count (reportWorkers report) "workers" <> ", " <> count (reportUnboxedParameters report) "unboxed parameters" <> ", " <> count (reportConstructedResults report) "constructed results"
               }
           )
     PassEtaExpand ->

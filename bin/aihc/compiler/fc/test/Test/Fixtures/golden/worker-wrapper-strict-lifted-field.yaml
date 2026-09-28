@@ -1,0 +1,46 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (first) where
+
+  import GHC.Types (Int (..))
+
+  data Pair = Pair !Int !Int
+
+  first :: Pair -> Int
+  first p = case p of
+    Pair a _ -> a
+passes:
+- worker-wrapper
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cI#] 2.tInt :: 2.sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tPair :: 2.sType {
+      strict [0, 1] 1.cPair :: 2.tInt 2.→ 2.tInt 2.→ 1.tPair
+  }
+
+  pub val 1.vfirst :: 1.tPair 2.→ 2.tInt
+   = λ(x : 1.tPair).
+    case x as (_scrut : 1.tPair) return (2.tInt) of {
+        1.cPair (a : 2.tInt) (_pat : 2.tInt) →
+            a
+    }
+status: pass
+reason: A constructor with a lifted strict field is not taken apart. The worker would have to build the box again from fields that it does not know to be evaluated.

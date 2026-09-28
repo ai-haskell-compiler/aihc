@@ -1,0 +1,49 @@
+---
+extensions: []
+modules:
+- |
+  module Test (twice) where
+
+  class Step a where
+    step :: a -> a
+
+  twice :: Step a => a -> a
+  twice x = step (step x)
+passes:
+- worker-wrapper
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.t$Dict$Step (a : 2.sType) :: 2.sType {
+      1.c$Dict$Step :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$Step a
+  }
+
+  val 1.vstep :: ∀(a : 2.sType). 1.t$Dict$Step a 2.→ a 2.→ a
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$Step a).
+      case $d0 as ($dict : 1.t$Dict$Step a) return (a 2.→ a) of {
+          1.c$Dict$Step ($method0 : a 2.→ a) →
+              $method0
+      }
+
+  pub val 1.vtwice :: ∀(a : 2.sType). 1.t$Dict$Step a 2.→ a 2.→ a
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$Step a).
+      λ(x : a).
+        1.vstep @a $d0 (1.vstep @a $d0 x)
+status: pass
+reason: A class dictionary is not taken apart, although it has one constructor and the function selects from it. The worker would take every method as a parameter.

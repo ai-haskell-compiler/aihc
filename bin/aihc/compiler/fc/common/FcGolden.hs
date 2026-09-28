@@ -216,6 +216,7 @@ parsePass value =
   case value of
     Y.String "lift-constants" -> pure PassLiftConstants
     Y.String "eta" -> pure PassEtaExpand
+    Y.String "worker-wrapper" -> pure PassWorkerWrapper
     Y.String "demand" -> pure (PassDemand StrictLetsAndArguments)
     Y.Object obj | Just (Y.String "lets") <- KeyMap.lookup "demand" obj -> pure (PassDemand StrictLetsOnly)
     Y.String "simplify" -> pure (PassSimplify 0)

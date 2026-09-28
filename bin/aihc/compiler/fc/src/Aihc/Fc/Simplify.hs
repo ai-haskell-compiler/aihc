@@ -46,6 +46,7 @@ module Aihc.Fc.Simplify
     castedSpine,
     exprValueNames,
     maxLocalUnique,
+    freshenExprFrom,
   )
 where
 
@@ -1648,6 +1649,13 @@ rebuildSpine = List.foldl' apply
 mkCase :: TypeEnv -> Expr -> Binder -> Type -> [Alt] -> Expr
 mkCase env scrutinee binder resultType alternatives =
   case List.partition ((== AltDefault) . altCon) alternatives of
+    -- A case that returns its own binder is its scrutinee: both are
+    -- undefined when the scrutinee is, and both are its value otherwise. A
+    -- call in the scrutinee then stays a tail call.
+    ([Alt AltDefault [] [] (ExVar returned)], [])
+      | returned == binderName binder,
+        resultType == binderType binder ->
+          scrutinee
     ([defaultAlt], others)
       | ExCase inner innerBinder _ innerAlternatives <- altRhs defaultAlt,
         inner == scrutinee,
@@ -2026,6 +2034,11 @@ freshenLets binds inner = peel (length binds) <$> freshenExpr (foldr ExLet inner
               let (rest, deepest) = peel (count - 1) body
                in (bind : rest, deepest)
         _ -> ([], expr)
+
+-- | A copy of an expression with fresh binders, from the given unique
+-- on, and the next free unique.
+freshenExprFrom :: Int -> Expr -> (Expr, Int)
+freshenExprFrom supply expr = runState (renameExpr Map.empty expr) supply
 
 -- | Give every binder of an expression a name that no other binder of the
 -- program has. The copy can then go into any scope without a clash.
