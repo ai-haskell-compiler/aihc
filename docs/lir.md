@@ -951,9 +951,10 @@ a volatile register to a value that lives across a cold call only when the
 hint spares enough moves: the convention sites and the partners that name
 the register must be at least one and a half times the instructions that
 the saves cost. A save and a restore cost two moves, or one instruction when
-the backend pairs them. A value that
-lives across a cold call and takes no hint prefers a preserved register,
-because then it needs no save.
+the backend pairs them. A value that lives across a cold call and takes no
+hint prefers a preserved register, because then it needs no save. When no
+preserved register is free, the value needs a save in each register, so it
+takes its hint after all.
 
 A hint is a register the scan tries first. Parameters, call arguments, call
 results, and returned values are hinted with the register the convention
