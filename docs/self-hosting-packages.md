@@ -56,7 +56,7 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | pretty | 1.1.3.6 | hackage:0 | deepseq |
 | splitmix | 0.1.3.2 | hackage:0 | deepseq |
 | stm | 2.5.3.1 | hackage:1 | array |
-| tagged | 0.8.10 | hackage:1 | deepseq |
+| tagged | 0.8.10 | hackage:2 | deepseq |
 | terminfo | 0.4.1.7 | hackage:0 |  |
 | text | 2.1.4 | hackage:0 | array, binary, bytestring, deepseq |
 | blaze-builder | 0.4.4.1 | hackage:0 | bytestring, text |
@@ -90,7 +90,7 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | integer-conversion | 0.1.1 | hackage:2 | bytestring, primitive, text |
 | random | 1.3.1 | hackage:0 | bytestring, deepseq, mtl, splitmix, transformers |
 | QuickCheck | 2.18.0.0 | hackage:0 | containers, deepseq, random, splitmix, transformers |
-| scientific | 0.3.8.1 | hackage:0 | binary, bytestring, containers, deepseq, hashable, integer-logarithms, primitive, text |
+| scientific | 0.3.9.0 | hackage:0 | binary, bytestring, containers, deepseq, hashable, integer-logarithms, primitive, text |
 | megaparsec | 9.8.3 | hackage:0 | array, bytestring, case-insensitive, containers, deepseq, mtl, parser-combinators, scientific, text, transformers |
 | aihc-parser | 4.0.0.0 | hackage:0 | bytestring, containers, deepseq, megaparsec, prettyprinter, text |
 | aihc-resolve | 0.1.0.0 | local:components/aihc-resolve | aihc-parser, containers, deepseq, text |
