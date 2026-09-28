@@ -22,8 +22,8 @@ library
 
   hs-source-dirs: src
   build-depends:
-    Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
+    aihc-cabal-syntax >=0.1 && <0.2,
     aihc-cpp,
     aihc-hackage,
     aihc-parser,
@@ -46,7 +46,7 @@ test-suite spec
   hs-source-dirs: test
   main-is: Spec.hs
   build-depends:
-    Cabal-syntax >=3.14 && <3.17,
+    aihc-cabal-syntax,
     aihc-hackage,
     aihc-hackage-fetch,
     aihc-package-plan,

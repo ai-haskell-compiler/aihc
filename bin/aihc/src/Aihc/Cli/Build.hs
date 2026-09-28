@@ -51,6 +51,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Package (mkPackageName, unPackageName)
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan
   ( PackagePlan (..),
@@ -67,8 +68,6 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Distribution.Package (mkPackageName, unPackageName)
-import Distribution.Types.Dependency (depPkgName)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory)
 import System.FilePath (takeDirectory, (<.>), (</>))
 
@@ -179,7 +178,7 @@ buildPackage options = do
     let name = executableInfoName executable
     verbose ("Build executable: " <> name)
     let dependencyPackages =
-          nub (map depPkgName (executableInfoDependencies executable) <> map mkPackageName ["aihc-base", "aihc-prim"])
+          nub (executableInfoDependencies executable <> map mkPackageName ["aihc-base", "aihc-prim"])
     plans <- mapM (plannedPackage planned) dependencyPackages
     -- The plan finds the package being built by its name, which marks
     -- it local. What the user asked for decides instead: a directory is

@@ -26,9 +26,9 @@ library
 
   hs-source-dirs: src
   build-depends:
-    Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty,
+    aihc-cabal-syntax >=0.1 && <0.2,
     aihc-hackage,
     aihc-hackage-fetch,
     aihc-package-plan,

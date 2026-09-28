@@ -1,8 +1,10 @@
 module Main (main) where
 
+import Aihc.Cabal (Package, parseHookedBuildInfo, parseValue)
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (builtinCppMacros, cabalMacrosHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Package (Arch (..), OS (..), buildArch, buildOS, mkFlagName, mkPackageName, parsePackageDescription)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
 import Control.Exception (bracket)
 import Data.ByteString qualified as BS
@@ -11,11 +13,6 @@ import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Distribution.Package (mkPackageName)
-import Distribution.PackageDescription (mkFlagName)
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, parseHookedBuildInfo, runParseResult)
-import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
@@ -60,9 +57,9 @@ test_generatesPathsModule =
 
     cabalBytes <- BS.readFile cabalFile
     gpd <-
-      case snd (runParseResult (parseGenericPackageDescription cabalBytes)) of
+      case parsePackageDescription cabalBytes of
         Right parsed -> pure parsed
-        Left (_, errs) -> assertFailure ("failed to parse test cabal file: " <> show errs)
+        Left err -> assertFailure ("failed to parse test cabal file: " <> err)
 
     files <- HC.collectComponentFiles gpd root
     let paths = map HC.fileInfoPath files
@@ -92,9 +89,9 @@ test_collectsConditionalExposedModules =
 
     cabalBytes <- BS.readFile cabalFile
     gpd <-
-      case snd (runParseResult (parseGenericPackageDescription cabalBytes)) of
+      case parsePackageDescription cabalBytes of
         Right parsed -> pure parsed
-        Left (_, errs) -> assertFailure ("failed to parse test cabal file: " <> show errs)
+        Left err -> assertFailure ("failed to parse test cabal file: " <> err)
 
     files <- HC.collectComponentFiles gpd root
     let paths = map HC.fileInfoPath files
@@ -277,9 +274,9 @@ test_configureBuildInfo = do
   gpd <- parseTestCabal configureCabal
   assertEqual "build type" HC.Configure (HC.packageBuildType gpd)
   assertEqual "autogen includes" ["DemoConfig.h"] (HC.collectLibraryAutogenIncludesFor buildOS buildArch gpd)
-  hooked <- case snd (runParseResult (parseHookedBuildInfo (BSC.pack "cc-options: -DHOOKED\ncpp-options: -DHOOKED_HS\ninclude-dirs: generated\n"))) of
+  hooked <- case parseValue (parseHookedBuildInfo (BSC.pack "cc-options: -DHOOKED\ncpp-options: -DHOOKED_HS\ninclude-dirs: generated\n")) of
     Right parsed -> pure parsed
-    Left (_, errs) -> assertFailure ("failed to parse test buildinfo: " <> show errs)
+    Left errs -> assertFailure ("failed to parse test buildinfo: " <> show errs)
   let file = HC.FileInfo "/pkg/src/Demo.hs" [] ["-DFROM_CABAL"] ["/pkg/include"] Nothing [T.pack "base"] Nothing
       cInfo = HC.collectLibraryCCompileInfo gpd "/pkg"
       (files, cInfo') = HC.applyHookedBuildInfo "/build" hooked [HC.prependIncludeDirs ["/build/include"] file] cInfo
@@ -347,11 +344,11 @@ test_detectsCustomPreprocessorOptions = do
   assertBool "expected inactive custom preprocessor options to be ignored" (not (HC.packageUsesCustomPreprocessor inactive))
   assertBool "expected -pgmF without -F not to enable preprocessing" (not (HC.packageUsesCustomPreprocessor pgmFOnly))
 
-parseTestCabal :: String -> IO GenericPackageDescription
+parseTestCabal :: String -> IO Package
 parseTestCabal source =
-  case snd (runParseResult (parseGenericPackageDescription (BSC.pack source))) of
+  case parsePackageDescription (BSC.pack source) of
     Right parsed -> pure parsed
-    Left (_, errs) -> assertFailure ("failed to parse test cabal file: " <> show errs)
+    Left err -> assertFailure ("failed to parse test cabal file: " <> err)
 
 pathsDemoCabal :: String
 pathsDemoCabal =

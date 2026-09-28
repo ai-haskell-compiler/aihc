@@ -44,8 +44,28 @@ module Aihc.PackagePlan
   )
 where
 
+import Aihc.Cabal (Package, packageVersion)
 import Aihc.Hackage.Cabal (BuildContext (..))
 import Aihc.Hackage.Cpp (DependencyVersions)
+import Aihc.Hackage.Package
+  ( Arch,
+    FlagAssignment,
+    OS,
+    PackageName,
+    Version,
+    VersionRange,
+    anyVersion,
+    mkFlagName,
+    mkPackageName,
+    packageNameOf,
+    parseDependencyString,
+    parsePackageDescription,
+    parsePackageIdentifier,
+    showVersion,
+    thisVersion,
+    unPackageName,
+    versionFromList,
+  )
 import Aihc.Hackage.Release (BootLibrary (..), GhcRelease (..), emulatedGhc, lookupBootLibraryByStandin, releaseVersionText, showVersionBranch)
 import Aihc.Hackage.Source (HackageRelease (..), HackageSource (..))
 import Aihc.Hackage.Types (PackageSpec (..))
@@ -64,19 +84,6 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
-import Distribution.Package (PackageName, mkPackageName, unPackageName)
-import Distribution.Package qualified as CabalPackage
-import Distribution.PackageDescription (package, packageDescription)
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
-import Distribution.Parsec (simpleParsec)
-import Distribution.Pretty (prettyShow)
-import Distribution.System (Arch, OS)
-import Distribution.Types.Dependency (Dependency (..))
-import Distribution.Types.Flag (FlagAssignment, mkFlagName)
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
-import Distribution.Types.UnqualComponentName (mkUnqualComponentName)
-import Distribution.Types.Version (Version, mkVersion)
-import Distribution.Types.VersionRange (VersionRange, anyVersion, thisVersion)
 import System.Directory
   ( doesDirectoryExist,
     doesFileExist,
@@ -94,7 +101,7 @@ data PackagePlan = PackagePlan
     -- | What the plan solved with. For a Hackage release this is the
     -- cabal file of the recorded revision, which may be newer than the one
     -- in the source tree.
-    planDescription :: GenericPackageDescription,
+    planDescription :: Package,
     planOrigin :: !PlanOrigin,
     -- | The cabal file revision of a Hackage release.
     planRevision :: !(Maybe Int),
@@ -199,11 +206,11 @@ parseConstraint input =
     [] -> Left "empty constraint"
     name : flags@(_ : _)
       | all isFlagWord flags,
-        Just packageName <- simpleParsec name ->
+        Just (packageName, Nothing) <- parsePackageIdentifier name ->
           Right [ConstraintFlag packageName (mkFlagName (drop 1 flag)) (take 1 flag == "+") | flag <- flags]
     _ ->
-      case simpleParsec input of
-        Just (Dependency name range _) -> Right [ConstraintVersion name range]
+      case parseDependencyString input of
+        Just (name, range) -> Right [ConstraintVersion name range]
         Nothing -> Left ("Invalid constraint: " <> input <> " (expected NAME RANGE, NAME +flag, or NAME -flag)")
   where
     isFlagWord flag = case flag of
@@ -259,7 +266,7 @@ planPackages request = do
   where
     usesHackage assignment = assignmentSource assignment == CandidateHackage
     prim = mkPackageName "aihc-prim"
-    rootStanzas = noStanzas {stanzasExecutables = Set.fromList . map mkUnqualComponentName <$> requestExecutables request}
+    rootStanzas = noStanzas {stanzasExecutables = Set.fromList . map T.pack <$> requestExecutables request}
 
 -- | Take the plan from a valid lock, or solve and say so.
 solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> [FilePath] -> IO (Solution, Bool)
@@ -378,7 +385,7 @@ checkBuildTools request inputs config solution = do
   problems <- forM (Map.toList solution) $ \(name, assignment) -> do
     gpd <- inputsDescription inputs (assignmentCandidate name assignment)
     let unknown = unknownBuildTools (requestPlatform request) (assignmentFlags assignment) (Map.lookup name (configRoots config)) gpd
-    pure [unPackageName name <> "-" <> prettyShow (assignmentVersion assignment) <> " needs the build tool " <> tool | tool <- unknown]
+    pure [unPackageName name <> "-" <> showVersion (assignmentVersion assignment) <> " needs the build tool " <> tool | tool <- unknown]
   unless (all null problems) $
     ioError (userError ("The plan needs build tools this compiler cannot run:\n" <> intercalate "\n" (map ("  " <>) (concat problems))))
 
@@ -394,7 +401,7 @@ assignmentCandidate name assignment =
 
 -- | The candidates and cabal files the solver reads: core standins, the
 -- roots, their siblings and the workspace, then Hackage.
-solverInputs :: PlanRequest -> IORef (Map FilePath (FilePath, GenericPackageDescription)) -> Map PackageName FilePath -> [FilePath] -> SolverInputs IO
+solverInputs :: PlanRequest -> IORef (Map FilePath (FilePath, Package)) -> Map PackageName FilePath -> [FilePath] -> SolverInputs IO
 solverInputs request descriptions localRoots localDirectories =
   SolverInputs
     { inputsCandidates = candidates,
@@ -408,7 +415,7 @@ solverInputs request descriptions localRoots localDirectories =
           case lookupCoreProvider (unPackageName name) of
             Just provider -> do
               path <- coreProviderSourcePath provider
-              pure [Candidate name (mkVersion (bootVersion provider)) 0 False (CandidateCore path)]
+              pure [Candidate name (versionFromList (bootVersion provider)) 0 False (CandidateCore path)]
             Nothing -> do
               local <- findLocal name localDirectories
               case local of
@@ -430,7 +437,7 @@ solverInputs request descriptions localRoots localDirectories =
       let actual = packageNameOf gpd
       when (actual /= name) $
         ioError (userError ("The package at " <> path <> " is " <> unPackageName actual <> ", not " <> unPackageName name))
-      pure (Candidate name (CabalPackage.packageVersion (package (packageDescription gpd))) 0 False (CandidateLocal path))
+      pure (Candidate name (packageVersion gpd) 0 False (CandidateLocal path))
 
     hackageCandidates name preference source = do
       releases <- hackageReleases source (unPackageName name)
@@ -457,7 +464,7 @@ solverInputs request descriptions localRoots localDirectories =
           result <- hackageCabalFile source (unPackageName (candidateName candidate)) (candidateVersion candidate) (Just (candidateRevision candidate))
           case result of
             Left problem -> ioError (userError problem)
-            Right (_, bytes) -> parseDescriptionBytes (unPackageName (candidateName candidate) <> "-" <> prettyShow (candidateVersion candidate) <> " from the Hackage index") bytes
+            Right (_, bytes) -> parseDescriptionBytes (unPackageName (candidateName candidate) <> "-" <> showVersion (candidateVersion candidate) <> " from the Hackage index") bytes
 
     describeLocal path = do
       known <- Map.lookup path <$> readIORef descriptions
@@ -493,7 +500,7 @@ buildPlans request inputs solution = do
                   CandidateCore path -> pure (path, PlanCore)
                   CandidateHackage -> do
                     source <- requireHackage request
-                    path <- hackageDownload source PackageSpec {pkgName = unPackageName name, pkgVersion = prettyShow (assignmentVersion assignment)}
+                    path <- hackageDownload source PackageSpec {pkgName = unPackageName name, pkgVersion = showVersion (assignmentVersion assignment)}
                     pure (path, PlanHackage)
               cabalFiles <- HackageUtil.findCabalFiles sourcePath
               cabalFile <-
@@ -534,9 +541,6 @@ withImplicitPrimDependency name dependencies
   where
     prim = mkPackageName "aihc-prim"
 
-packageNameOf :: GenericPackageDescription -> PackageName
-packageNameOf = CabalPackage.packageName . package . packageDescription
-
 data CoreProvider = CoreProvider
   { coreProviderName :: !String,
     coreProviderVersion :: !String,
@@ -548,19 +552,18 @@ packageSpecFromSource :: FilePath -> IO PackageSpec
 packageSpecFromSource sourcePath =
   packageSpecFromDescription <$> parseSourcePackageDescription sourcePath
 
-packageSpecFromDescription :: GenericPackageDescription -> PackageSpec
+packageSpecFromDescription :: Package -> PackageSpec
 packageSpecFromDescription gpd =
-  let packageId = package (packageDescription gpd)
-   in PackageSpec
-        { pkgName = CabalPackage.unPackageName (CabalPackage.packageName packageId),
-          pkgVersion = prettyShow (CabalPackage.packageVersion packageId)
-        }
+  PackageSpec
+    { pkgName = unPackageName (packageNameOf gpd),
+      pkgVersion = showVersion (packageVersion gpd)
+    }
 
-parseSourcePackageDescription :: FilePath -> IO GenericPackageDescription
+parseSourcePackageDescription :: FilePath -> IO Package
 parseSourcePackageDescription sourcePath = snd <$> parseSourcePackageDescriptionAt sourcePath
 
 -- | Parse the @.cabal@ file of a source tree and say which file it was.
-parseSourcePackageDescriptionAt :: FilePath -> IO (FilePath, GenericPackageDescription)
+parseSourcePackageDescriptionAt :: FilePath -> IO (FilePath, Package)
 parseSourcePackageDescriptionAt sourcePath = do
   cabalFiles <- HackageUtil.findCabalFiles sourcePath
   cabalFile <-
@@ -571,11 +574,11 @@ parseSourcePackageDescriptionAt sourcePath = do
   parsed <- parseDescriptionBytes cabalFile cabalBytes
   pure (cabalFile, parsed)
 
-parseDescriptionBytes :: String -> BS.ByteString -> IO GenericPackageDescription
+parseDescriptionBytes :: String -> BS.ByteString -> IO Package
 parseDescriptionBytes label cabalBytes =
-  case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right parsed) -> pure parsed
-    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> label <> ": " <> show errs))
+  case parsePackageDescription cabalBytes of
+    Right parsed -> pure parsed
+    Left err -> ioError (userError ("Failed to parse " <> label <> ": " <> err))
 
 -- | The standin that provides a package name, under either the name of the
 -- boot library or the name of the standin itself.

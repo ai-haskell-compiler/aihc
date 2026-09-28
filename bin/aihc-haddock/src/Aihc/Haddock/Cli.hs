@@ -17,6 +17,7 @@ module Aihc.Haddock.Cli
 where
 
 import Aihc.Hackage.Fetch (newHackageSource)
+import Aihc.Hackage.Package (buildArch, buildOS, parsePackageIdentifier, parseVersionString, showVersion, unPackageName)
 import Aihc.Haddock.Compare
 import Aihc.Haddock.Hoogle (renderHoogle)
 import Aihc.Haddock.Model
@@ -30,11 +31,6 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Distribution.Package qualified as CabalPackage
-import Distribution.Parsec (simpleParsec)
-import Distribution.Pretty (prettyShow)
-import Distribution.System (buildArch, buildOS)
-import Distribution.Version (nullVersion)
 import Options.Applicative
 import System.Directory (doesDirectoryExist, getCurrentDirectory)
 import System.Exit (exitFailure)
@@ -175,15 +171,11 @@ resolveTarget target = do
       Nothing -> ioError (userError (target <> " is not a directory nor a Hackage package NAME[-VERSION]"))
       Just (name, requestedVersion) -> do
         version <- forM requestedVersion $ \text ->
-          maybe (ioError (userError ("Invalid version " <> text))) pure (simpleParsec text)
+          maybe (ioError (userError ("Invalid version " <> text))) pure (parseVersionString text)
         directory <- getCurrentDirectory
         pure (RootHackage name version, directory)
 
 parsePackageTarget :: String -> Maybe (String, Maybe String)
 parsePackageTarget target = do
-  packageId <- simpleParsec target :: Maybe CabalPackage.PackageIdentifier
-  let version = CabalPackage.pkgVersion packageId
-  pure
-    ( CabalPackage.unPackageName (CabalPackage.pkgName packageId),
-      if version == nullVersion then Nothing else Just (prettyShow version)
-    )
+  (name, version) <- parsePackageIdentifier target
+  pure (unPackageName name, showVersion <$> version)

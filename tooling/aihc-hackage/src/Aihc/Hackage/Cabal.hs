@@ -1,5 +1,3 @@
-{-# LANGUAGE PatternSynonyms #-}
-
 -- | Cabal-file parsing utilities: condition evaluation, component file discovery.
 module Aihc.Hackage.Cabal
   ( -- * File info
@@ -33,6 +31,7 @@ module Aihc.Hackage.Cabal
     targetFlagOverrides,
     collectCondTreeData,
     collectMergedBuildInfo,
+    isBuildable,
 
     -- * Configure build type
     BuildType (..),
@@ -58,105 +57,78 @@ module Aihc.Hackage.Cabal
   )
 where
 
-import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
-import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
-import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, sourceDirs)
-import Data.List (isPrefixOf, nub)
-import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
-import Data.Text (Text)
-import Data.Text qualified as T
-import Distribution.Compat.Graph qualified as Graph
-import Distribution.Compat.NonEmptySet qualified as NonEmptySet
-import Distribution.Compiler (CompilerFlavor (..), CompilerId (..))
-import Distribution.Compiler qualified as Compiler
-import Distribution.ModuleName qualified as ModuleName
-import Distribution.Package (PackageName, mkPackageName, packageName, unPackageName)
-import Distribution.PackageDescription
-  ( BuildInfo,
-    BuildType (..),
-    Executable,
-    FlagName,
-    HookedBuildInfo,
-    Library,
-    PackageDescription,
+import Aihc.Cabal
+  ( Branch (..),
+    BuildInfo,
+    Component (..),
+    ComponentKind (..),
+    Condition (..),
+    Conditional (..),
+    Dependency (..),
+    HookedBuildInfo (..),
+    LibraryTarget (..),
+    Package,
+    ToolDependency (..),
     autogenIncludes,
     autogenModules,
-    benchmarkBuildInfo,
-    buildInfo,
-    buildToolDepends,
     buildTools,
-    buildType,
     buildable,
     cSources,
     ccOptions,
-    condBenchmarks,
-    condExecutables,
-    condForeignLibs,
-    condLibrary,
-    condSubLibraries,
-    condTestSuites,
     cppOptions,
-    customFieldsBI,
     cxxOptions,
     cxxSources,
-    defaultExtensions,
     defaultLanguage,
-    exeModules,
+    dependencies,
+    emptyBuildInfo,
     exposedModules,
+    extensions,
+    extraFields,
+    fieldText,
     flagDefault,
     flagName,
+    ghcOptions,
     includeDirs,
     installIncludes,
-    libBuildInfo,
-    mkFlagName,
-    modulePath,
-    oldExtensions,
-    options,
+    legacyExtensions,
+    mainIs,
+    mergeBuildInfo,
     otherModules,
-    package,
-    packageDescription,
-    testBuildInfo,
+    packageComponents,
+    packageFlags,
+    packageVersion,
   )
-import Distribution.Pretty (prettyShow)
-import Distribution.Simple.Build.PathsModule (generatePathsModule)
-import Distribution.Simple.BuildPaths (autogenPathsModuleName)
-import Distribution.Simple.Compiler
-  ( AbiTag (..),
-    Compiler (..),
-    DebugInfoLevel (..),
-    OptimisationLevel (..),
-    PackageDBX (..),
-    ProfDetailLevel (..),
+import Aihc.Cabal qualified as Cabal
+import Aihc.Hackage.Package
+  ( Arch (..),
+    FlagAssignment,
+    FlagName,
+    OS,
+    PackageName,
+    buildArch,
+    buildOS,
+    classifyArch,
+    classifyOS,
+    mkFlagAssignment,
+    mkFlagName,
+    mkPackageName,
+    packageNameOf,
+    unFlagAssignment,
+    unPackageName,
+    versionFromList,
+    withinRange,
   )
-import Distribution.Simple.InstallDirs (defaultInstallDirs)
-import Distribution.Simple.Program.Db (emptyProgramDb)
-import Distribution.Simple.Setup (defaultConfigFlags)
-import Distribution.System (Arch (..), OS, buildArch, buildOS, buildPlatform)
-import Distribution.Types.BuildInfo (targetBuildDepends)
-import Distribution.Types.ComponentId (mkComponentId)
-import Distribution.Types.ComponentLocalBuildInfo (ComponentLocalBuildInfo (..))
-import Distribution.Types.ComponentName (ComponentName (..), componentNameString, pattern CBenchName, pattern CExeName, pattern CFLibName, pattern CTestName)
-import Distribution.Types.ComponentRequestedSpec (ComponentRequestedSpec (..))
-import Distribution.Types.CondTree
-  ( CondBranch (CondBranch),
-    CondTree (condTreeComponents, condTreeData),
-  )
-import Distribution.Types.Condition (Condition (..))
-import Distribution.Types.ConfVar (ConfVar (..))
-import Distribution.Types.Dependency (Dependency (..), depPkgName)
-import Distribution.Types.ExeDependency (ExeDependency (..))
-import Distribution.Types.Flag (FlagAssignment, mkFlagAssignment, unFlagAssignment)
-import Distribution.Types.ForeignLib (foreignLibBuildInfo)
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
-import Distribution.Types.LegacyExeDependency (LegacyExeDependency (..))
-import Distribution.Types.LibraryName (LibraryName (..))
-import Distribution.Types.LocalBuildInfo (LocalBuildInfo (..))
-import Distribution.Types.MungedPackageName (MungedPackageName (..))
-import Distribution.Types.UnitId (mkUnitId)
-import Distribution.Types.UnqualComponentName (UnqualComponentName, unUnqualComponentName)
-import Distribution.Utils.Path (getSymbolicPath)
-import Distribution.Version (mkVersion, withinRange)
+import Aihc.Hackage.PathsModule (generatePathsModule, pathsModuleName)
+import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
+import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
+import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFilePath, sourceDirs)
+import Data.List (isPrefixOf, nub)
+import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
+import Data.Text (Text)
+import Data.Text qualified as T
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
 
@@ -204,56 +176,61 @@ data CCompileInfo = CCompileInfo
   }
   deriving (Eq, Show)
 
--- | Collect all source files from a parsed @GenericPackageDescription@.
+-- | Collect all source files from a parsed package description.
 --
 -- Returns deduplicated 'FileInfo' records for every library and executable
 -- component whose @buildable@ flag is true.
-collectComponentFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
-collectComponentFiles gpd packageRoot = do
-  libraryFiles <- collectLibraryFiles gpd packageRoot
-  executableFiles <- collectExecutableFiles gpd packageRoot
+collectComponentFiles :: Package -> FilePath -> IO [FileInfo]
+collectComponentFiles package packageRoot = do
+  libraryFiles <- collectLibraryFiles package packageRoot
+  executableFiles <- collectExecutableFiles package packageRoot
   pure (dedupeFiles (libraryFiles <> executableFiles))
 
 -- | Collect source files from buildable library components only.
-collectLibraryFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
+collectLibraryFiles :: Package -> FilePath -> IO [FileInfo]
 collectLibraryFiles = collectLibraryFilesFor buildOS buildArch
 
 -- | Collect source files from buildable library components for one platform.
-collectLibraryFilesFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> IO [FileInfo]
+collectLibraryFilesFor :: OS -> Arch -> Package -> FilePath -> IO [FileInfo]
 collectLibraryFilesFor os arch = collectLibraryFilesIn (buildContextFor os arch)
 
 -- | Collect source files from buildable library components under the
 -- conditions of one build context.
-collectLibraryFilesIn :: BuildContext -> GenericPackageDescription -> FilePath -> IO [FileInfo]
-collectLibraryFilesIn context gpd packageRoot = do
-  let evalCond = conditionEvaluatorIn context gpd
-      pkgDescr = packageDescription gpd
-      libraryTrees = installedLibraryTrees evalCond gpd
-
-  libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor pkgDescr evalCond packageRoot)) libraryTrees)
+collectLibraryFilesIn :: BuildContext -> Package -> FilePath -> IO [FileInfo]
+collectLibraryFilesIn context package packageRoot = do
+  let evalCond = conditionEvaluatorIn context package
+      libraryTrees = installedLibraryTrees evalCond package
+  libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor package evalCond packageRoot)) libraryTrees)
   pure (dedupeFiles libraryFiles)
 
 -- | Collect C compile inputs from buildable library components for the host.
-collectLibraryCCompileInfo :: GenericPackageDescription -> FilePath -> CCompileInfo
+collectLibraryCCompileInfo :: Package -> FilePath -> CCompileInfo
 collectLibraryCCompileInfo = collectLibraryCCompileInfoFor buildOS buildArch
 
 -- | Collect C compile inputs from buildable library components for one platform.
-collectLibraryCCompileInfoFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> CCompileInfo
+collectLibraryCCompileInfoFor :: OS -> Arch -> Package -> FilePath -> CCompileInfo
 collectLibraryCCompileInfoFor os arch = collectLibraryCCompileInfoIn (buildContextFor os arch)
 
 -- | Collect C compile inputs from buildable library components under the
 -- conditions of one build context.
-collectLibraryCCompileInfoIn :: BuildContext -> GenericPackageDescription -> FilePath -> CCompileInfo
-collectLibraryCCompileInfoIn context gpd packageRoot =
+collectLibraryCCompileInfoIn :: BuildContext -> Package -> FilePath -> CCompileInfo
+collectLibraryCCompileInfoIn context package packageRoot =
   mergeCCompileInfo
     [ cCompileInfoFromBuild packageRoot build
-    | tree <- libraryTrees,
-      let build = collectMergedBuildInfo evalCond libBuildInfo tree,
-      buildable build
+    | build <- activeLibraryBuildInfos context package
     ]
+
+-- | The merged build information of each buildable library component that
+-- an install builds.
+activeLibraryBuildInfos :: BuildContext -> Package -> [BuildInfo]
+activeLibraryBuildInfos context package =
+  [ build
+  | (_, tree) <- installedLibraryTrees evalCond package,
+    let build = collectMergedBuildInfo evalCond tree,
+    isBuildable build
+  ]
   where
-    evalCond = conditionEvaluatorIn context gpd
-    libraryTrees = map snd (installedLibraryTrees evalCond gpd)
+    evalCond = conditionEvaluatorIn context package
 
 cCompileInfoFromBuild :: FilePath -> BuildInfo -> CCompileInfo
 cCompileInfoFromBuild packageRoot build =
@@ -262,9 +239,9 @@ cCompileInfoFromBuild packageRoot build =
       cCompileCxxSources = extractCxxSources packageRoot build,
       cCompileLirSources = extractLirSources packageRoot build,
       cCompileIncludeDirs = extractIncludeDirs packageRoot build,
-      cCompileInstallIncludes = map getSymbolicPath (installIncludes build),
-      cCompileCcOptions = ccOptions build,
-      cCompileCxxOptions = cxxOptions build
+      cCompileInstallIncludes = installIncludes build,
+      cCompileCcOptions = map T.unpack (ccOptions build),
+      cCompileCxxOptions = map T.unpack (cxxOptions build)
     }
 
 mergeCCompileInfo :: [CCompileInfo] -> CCompileInfo
@@ -279,40 +256,41 @@ mergeCCompileInfo items =
       cCompileCxxOptions = concatMap cCompileCxxOptions items
     }
 
+-- | How a package is built.
+data BuildType = Simple | Configure | Custom | Make | Hooks
+  deriving (Eq, Show)
+
 -- | The build type of a package. A missing @build-type@ field defaults the
--- way Cabal defaults it: @Simple@, or @Custom@ when the file has a
--- @custom-setup@ stanza.
-packageBuildType :: GenericPackageDescription -> BuildType
-packageBuildType = buildType . packageDescription
+-- way Cabal defaults it: @Simple@ from @cabal-version@ 2.2, @Custom@
+-- before it, and @Custom@ when the file has a @custom-setup@ stanza.
+packageBuildType :: Package -> BuildType
+packageBuildType package =
+  case T.unpack (Cabal.buildType package) of
+    "Configure" -> Configure
+    "Custom" -> Custom
+    "Make" -> Make
+    "Hooks" -> Hooks
+    _ -> Simple
 
 -- | The headers the active library components declare as @autogen-includes@
 -- for one platform: the files a configure script is expected to write. The
 -- paths are relative to the include directories.
-collectLibraryAutogenIncludesFor :: OS -> Arch -> GenericPackageDescription -> [FilePath]
+collectLibraryAutogenIncludesFor :: OS -> Arch -> Package -> [FilePath]
 collectLibraryAutogenIncludesFor os arch = collectLibraryAutogenIncludesIn (buildContextFor os arch)
 
 -- | The @autogen-includes@ of the active library components under the
 -- conditions of one build context.
-collectLibraryAutogenIncludesIn :: BuildContext -> GenericPackageDescription -> [FilePath]
-collectLibraryAutogenIncludesIn context gpd =
-  nub
-    [ getSymbolicPath path
-    | tree <- libraryTrees,
-      let build = collectMergedBuildInfo evalCond libBuildInfo tree,
-      buildable build,
-      path <- autogenIncludes build
-    ]
-  where
-    evalCond = conditionEvaluatorIn context gpd
-    libraryTrees = map snd (installedLibraryTrees evalCond gpd)
+collectLibraryAutogenIncludesIn :: BuildContext -> Package -> [FilePath]
+collectLibraryAutogenIncludesIn context package =
+  nub [path | build <- activeLibraryBuildInfos context package, path <- autogenIncludes build]
 
 -- | Apply the library build information from @<package>.buildinfo@.
 -- Read public headers, include directories, C sources, and C and CPP options.
 -- Resolve relative paths from the configure output directory.
 -- Ignore fields without a consumer, such as @extra-libraries@.
 applyHookedBuildInfo :: FilePath -> HookedBuildInfo -> [FileInfo] -> CCompileInfo -> ([FileInfo], CCompileInfo)
-applyHookedBuildInfo buildRoot (hooked, _) files cInfo =
-  case hooked of
+applyHookedBuildInfo buildRoot hooked files cInfo =
+  case hookedLibrary hooked of
     Nothing -> (files, cInfo)
     Just build ->
       ( map (overlayFile build) files,
@@ -321,7 +299,7 @@ applyHookedBuildInfo buildRoot (hooked, _) files cInfo =
   where
     overlayFile build file =
       file
-        { fileInfoCppOptions = fileInfoCppOptions file <> cppOptions build,
+        { fileInfoCppOptions = fileInfoCppOptions file <> map T.unpack (cppOptions build),
           fileInfoIncludeDirs = nub (extractIncludeDirs buildRoot build <> fileInfoIncludeDirs file)
         }
 
@@ -333,24 +311,14 @@ prependIncludeDirs directories file =
 -- | Collect the public module interface selected by active Cabal conditions.
 -- Private @other-modules@ are intentionally absent even though
 -- 'collectLibraryFiles' includes their source files for compilation.
-collectLibraryExposedModules :: GenericPackageDescription -> [Text]
+collectLibraryExposedModules :: Package -> [Text]
 collectLibraryExposedModules = collectLibraryExposedModulesIn hostBuildContext
 
 -- | The exposed modules of the active library components under the
 -- conditions of one build context.
-collectLibraryExposedModulesIn :: BuildContext -> GenericPackageDescription -> [Text]
-collectLibraryExposedModulesIn context gpd =
-  nub
-    [ T.pack (prettyShow moduleName)
-    | tree <- libraryTrees,
-      let build = collectMergedBuildInfo evalCond libBuildInfo tree,
-      buildable build,
-      library <- collectCondTreeData evalCond tree,
-      moduleName <- exposedModules library
-    ]
-  where
-    evalCond = conditionEvaluatorIn context gpd
-    libraryTrees = map snd (installedLibraryTrees evalCond gpd)
+collectLibraryExposedModulesIn :: BuildContext -> Package -> [Text]
+collectLibraryExposedModulesIn context package =
+  nub [moduleName | build <- activeLibraryBuildInfos context package, moduleName <- exposedModules build]
 
 -- | The library components that an install builds under the active
 -- conditions. These are the main library and each sub-library that the main
@@ -359,19 +327,18 @@ collectLibraryExposedModulesIn context gpd =
 -- sub-library that nothing uses can have dependencies that the plan does not
 -- have (the @benchmarks-O2@ library of vector depends on tasty). A package
 -- without a main library and without executables gives all its
--- sub-libraries.
-installedLibraryTrees :: (Condition ConfVar -> Bool) -> GenericPackageDescription -> [(LibraryName, CondTree ConfVar [Dependency] Library)]
-installedLibraryTrees evalCond gpd
-  | null (condLibrary gpd) && null (condExecutables gpd) = subLibraries
-  | otherwise = mainLibrary <> filter ((`Set.member` used) . fst) subLibraries
+-- sub-libraries. The main library has no name.
+installedLibraryTrees :: (Condition -> Bool) -> Package -> [(Maybe Text, Conditional BuildInfo)]
+installedLibraryTrees evalCond package
+  | null mainLibrary && null executables = subLibraries
+  | otherwise = mainLibrary <> filter (maybe False (`Set.member` used) . fst) subLibraries
   where
-    self = packageName (packageDescription gpd)
-    mainLibrary = maybe [] (pure . (LMainLibName,)) (condLibrary gpd)
-    subLibraries = map (first LSubLibName) (condSubLibraries gpd)
-    subLibraryTrees = Map.fromList subLibraries
-    rootDependencies =
-      concatMap (activeDependencies libBuildInfo . snd) mainLibrary
-        <> concatMap (activeDependencies buildInfo . snd) (condExecutables gpd)
+    self = Cabal.packageName package
+    mainLibrary = [(Nothing, tree) | Component (Library MainLibrary) tree <- packageComponents package]
+    subLibraries = [(Just name, tree) | Component (Library (NamedLibrary name)) tree <- packageComponents package]
+    executables = [tree | Component (Executable _) tree <- packageComponents package]
+    subLibraryTrees = Map.fromList [(name, tree) | (Just name, tree) <- subLibraries]
+    rootDependencies = concatMap (activeDependencies . snd) mainLibrary <> concatMap activeDependencies executables
     used = reach Set.empty (ownLibraries rootDependencies)
     reach seen [] = seen
     reach seen (name : rest)
@@ -379,28 +346,26 @@ installedLibraryTrees evalCond gpd
       | otherwise =
           reach
             (Set.insert name seen)
-            (rest <> maybe [] (ownLibraries . activeDependencies libBuildInfo) (Map.lookup name subLibraryTrees))
-    activeDependencies :: (a -> BuildInfo) -> CondTree ConfVar c a -> [Dependency]
-    activeDependencies toBuildInfo tree =
-      let build = collectMergedBuildInfo evalCond toBuildInfo tree
-       in if buildable build then targetBuildDepends build else []
+            (rest <> maybe [] (ownLibraries . activeDependencies) (Map.lookup name subLibraryTrees))
+    activeDependencies tree =
+      let build = collectMergedBuildInfo evalCond tree
+       in if isBuildable build then dependencies build else []
     -- The Cabal parser rewrites a dependency on an internal library name to
     -- a dependency on this package, so this finds each use.
-    ownLibraries dependencies =
+    ownLibraries deps =
       [ library
-      | Dependency name _ libraries <- dependencies,
-        name == self,
-        library <- NonEmptySet.toList libraries,
-        library /= LMainLibName
+      | dependency <- deps,
+        dependencyPackage dependency == self,
+        NamedLibrary library <- NE.toList (dependencyLibraries dependency)
       ]
 
-collectExecutableFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
-collectExecutableFiles gpd packageRoot = do
-  let evalCond = conditionEvaluator gpd
-      pkgDescr = packageDescription gpd
-      executableTrees = condExecutables gpd
-
-  executableFiles <- fmap concat (mapM (uncurry (executableFilesFor pkgDescr evalCond packageRoot)) executableTrees)
+collectExecutableFiles :: Package -> FilePath -> IO [FileInfo]
+collectExecutableFiles package packageRoot = do
+  let evalCond = conditionEvaluator package
+  executableFiles <-
+    fmap
+      concat
+      (sequence [executableFilesFor package evalCond packageRoot name tree | Component (Executable name) tree <- packageComponents package])
   pure (dedupeFiles executableFiles)
 
 -- | One buildable executable of a package, as the active conditions of one
@@ -410,8 +375,8 @@ data ExecutableInfo = ExecutableInfo
     -- | The sources of the executable: its @main-is@ file, its
     -- @other-modules@, and the generated @Paths_@ module when it lists one.
     executableInfoFiles :: [FileInfo],
-    -- | The @build-depends@ of the executable, with their version ranges.
-    executableInfoDependencies :: [Dependency],
+    -- | The packages in the @build-depends@ of the executable.
+    executableInfoDependencies :: [PackageName],
     -- | The @c-sources@, @include-dirs@, and @cc-options@ of the executable.
     executableInfoCCompileInfo :: CCompileInfo
   }
@@ -419,32 +384,28 @@ data ExecutableInfo = ExecutableInfo
 
 -- | The buildable executables of a package for one platform, in the order
 -- the Cabal file declares them.
-collectExecutablesFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> IO [ExecutableInfo]
+collectExecutablesFor :: OS -> Arch -> Package -> FilePath -> IO [ExecutableInfo]
 collectExecutablesFor os arch = collectExecutablesIn (buildContextFor os arch)
 
 -- | The buildable executables of a package under the conditions of one
 -- build context, in the order the Cabal file declares them.
-collectExecutablesIn :: BuildContext -> GenericPackageDescription -> FilePath -> IO [ExecutableInfo]
-collectExecutablesIn context gpd packageRoot =
-  concat <$> mapM executableInfo (condExecutables gpd)
+collectExecutablesIn :: BuildContext -> Package -> FilePath -> IO [ExecutableInfo]
+collectExecutablesIn context package packageRoot =
+  concat <$> sequence [executableInfo name tree | Component (Executable name) tree <- packageComponents package]
   where
-    evalCond = conditionEvaluatorIn context gpd
-    pkgDescr = packageDescription gpd
-    executableInfo (exeName, tree) = do
-      let build = collectMergedBuildInfo evalCond buildInfo tree
-      files <- executableFilesFor pkgDescr evalCond packageRoot exeName tree
+    evalCond = conditionEvaluatorIn context package
+    executableInfo exeName tree = do
+      let build = collectMergedBuildInfo evalCond tree
+      files <- executableFilesFor package evalCond packageRoot exeName tree
       pure
         [ ExecutableInfo
-            { executableInfoName = unUnqualComponentName exeName,
+            { executableInfoName = T.unpack exeName,
               executableInfoFiles = files,
-              executableInfoDependencies = targetBuildDepends build,
+              executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
               executableInfoCCompileInfo = cCompileInfoFromBuild packageRoot build
             }
-        | buildable build
+        | isBuildable build
         ]
-
-first :: (a -> c) -> (a, b) -> (c, b)
-first f (a, b) = (f a, b)
 
 -- | Keep the first 'FileInfo' of each path, in order.
 --
@@ -459,61 +420,57 @@ dedupeFiles = go Set.empty
       | Set.member (fileInfoPath f) seen = go seen fs
       | otherwise = f : go (Set.insert (fileInfoPath f) seen) fs
 
-libraryFilesFor :: PackageDescription -> (Condition ConfVar -> Bool) -> FilePath -> LibraryName -> CondTree ConfVar c Library -> IO [FileInfo]
-libraryFilesFor pkgDescr evalCond packageRoot libName tree = do
-  let libraries = collectCondTreeData evalCond tree
-      build = collectMergedBuildInfo evalCond libBuildInfo tree
-      moduleNames = nub (concatMap exposedModules libraries <> otherModules build <> autogenModules build)
-      exts = extractExtensions build
-      cppOpts = cppOptions build
-      includeSearchDirs = extractIncludeDirs packageRoot build
-      lang = extractLanguage build
-      deps = extractDependencies build
-  if not (buildable build)
+libraryFilesFor :: Package -> (Condition -> Bool) -> FilePath -> Maybe Text -> Conditional BuildInfo -> IO [FileInfo]
+libraryFilesFor package evalCond packageRoot libName tree = do
+  let build = collectMergedBuildInfo evalCond tree
+      moduleNames = nub (exposedModules build <> otherModules build <> autogenModules build)
+  if not (isBuildable build)
     then pure []
     else do
       paths <- moduleFilesForBuildInfo packageRoot build moduleNames
-      generatedPaths <- generatedPathsFiles packageRoot pkgDescr (libraryComponentName libName) moduleNames
+      generatedPaths <- generatedPathsFiles packageRoot package (maybe "" (("-lib-" <>) . T.unpack) libName) moduleNames
       pure $
-        [FileInfo path exts cppOpts includeSearchDirs lang deps (filePreprocessor path) | path <- paths]
+        [sourceFileInfo packageRoot build path | path <- paths]
           <> [generatedPathsFileInfo path | path <- generatedPaths]
 
-executableFilesFor :: PackageDescription -> (Condition ConfVar -> Bool) -> FilePath -> UnqualComponentName -> CondTree ConfVar c Executable -> IO [FileInfo]
-executableFilesFor pkgDescr evalCond packageRoot exeName tree = do
-  let executable = condTreeData tree
-      build = collectMergedBuildInfo evalCond buildInfo tree
-      moduleNames = otherModules build <> exeModules executable <> autogenModules build
-      mainPath = getSymbolicPath (modulePath executable)
-      exts = extractExtensions build
-      cppOpts = cppOptions build
-      includeSearchDirs = extractIncludeDirs packageRoot build
-      lang = extractLanguage build
-      deps = extractDependencies build
-  if not (buildable build)
+executableFilesFor :: Package -> (Condition -> Bool) -> FilePath -> Text -> Conditional BuildInfo -> IO [FileInfo]
+executableFilesFor package evalCond packageRoot exeName tree = do
+  let build = collectMergedBuildInfo evalCond tree
+      moduleNames = nub (otherModules build <> autogenModules build)
+  if not (isBuildable build)
     then pure []
     else do
       moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
-      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
-      generatedPaths <- generatedPathsFiles packageRoot pkgDescr (CExeName exeName) moduleNames
+      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build, mainPath <- maybe [] pure (mainIs build)]
+      generatedPaths <- generatedPathsFiles packageRoot package ("-exe-" <> T.unpack exeName) moduleNames
       pure $
-        [FileInfo path exts cppOpts includeSearchDirs lang deps (filePreprocessor path) | path <- moduleFiles <> mainFiles]
+        [sourceFileInfo packageRoot build path | path <- moduleFiles <> mainFiles]
           <> [generatedPathsFileInfo path | path <- generatedPaths]
 
-libraryComponentName :: LibraryName -> ComponentName
-libraryComponentName = CLibName
+sourceFileInfo :: FilePath -> BuildInfo -> FilePath -> FileInfo
+sourceFileInfo packageRoot build path =
+  FileInfo
+    { fileInfoPath = path,
+      fileInfoExtensions = extractExtensions build,
+      fileInfoCppOptions = map T.unpack (cppOptions build),
+      fileInfoIncludeDirs = extractIncludeDirs packageRoot build,
+      fileInfoLanguage = extractLanguage build,
+      fileInfoDependencies = extractDependencies build,
+      fileInfoPreprocessor = filePreprocessor path
+    }
 
 -- | Collect package and executable names referenced by active build-tool fields.
-buildToolDependencyNames :: GenericPackageDescription -> [Text]
-buildToolDependencyNames gpd =
+buildToolDependencyNames :: Package -> [Text]
+buildToolDependencyNames package =
   nub $
-    concatMap buildInfoToolNames (activeComponentBuildInfos gpd)
+    concatMap buildInfoToolNames (activeComponentBuildInfos package)
 
 -- | Return whether any active source component uses Cabal's Haskell98 default.
 --
 -- Cabal treats a missing @default-language@ as Haskell98. AIHC does not support
 -- Haskell98 as a package language target, so progress tooling filters these
 -- packages before parsing their files.
-packageDefaultsToHaskell98 :: GenericPackageDescription -> Bool
+packageDefaultsToHaskell98 :: Package -> Bool
 packageDefaultsToHaskell98 =
   any buildInfoDefaultsToHaskell98 . activeSourceComponentBuildInfos
 
@@ -521,55 +478,40 @@ buildInfoDefaultsToHaskell98 :: BuildInfo -> Bool
 buildInfoDefaultsToHaskell98 bi =
   case defaultLanguage bi of
     Nothing -> True
-    Just lang -> prettyShow lang == "Haskell98"
+    Just lang -> lang == T.pack "Haskell98"
 
-activeSourceComponentBuildInfos :: GenericPackageDescription -> [BuildInfo]
-activeSourceComponentBuildInfos gpd =
-  let evalCond = conditionEvaluator gpd
-      merged = collectMergedBuildInfo evalCond
-   in maybe [] (pure . merged libBuildInfo) (condLibrary gpd)
-        <> map (merged libBuildInfo . snd) (condSubLibraries gpd)
-        <> map (merged buildInfo . snd) (condExecutables gpd)
+activeSourceComponentBuildInfos :: Package -> [BuildInfo]
+activeSourceComponentBuildInfos package =
+  [ collectMergedBuildInfo evalCond tree
+  | Component kind tree <- packageComponents package,
+    isSource kind
+  ]
+  where
+    evalCond = conditionEvaluator package
+    isSource kind =
+      case kind of
+        Library _ -> True
+        Executable _ -> True
+        _ -> False
 
 -- | Return whether any active component requests a custom GHC preprocessor.
-packageUsesCustomPreprocessor :: GenericPackageDescription -> Bool
-packageUsesCustomPreprocessor gpd =
-  any buildInfoUsesCustomPreprocessor (activeComponentBuildInfos gpd)
+packageUsesCustomPreprocessor :: Package -> Bool
+packageUsesCustomPreprocessor package =
+  any buildInfoUsesCustomPreprocessor (activeComponentBuildInfos package)
 
-activeComponentBuildInfos :: GenericPackageDescription -> [BuildInfo]
-activeComponentBuildInfos gpd =
-  let evalCond = conditionEvaluator gpd
-      merged = collectMergedBuildInfo evalCond
-   in maybe [] (pure . merged libBuildInfo) (condLibrary gpd)
-        <> map (merged libBuildInfo . snd) (condSubLibraries gpd)
-        <> map (merged foreignLibBuildInfo . snd) (condForeignLibs gpd)
-        <> map (merged buildInfo . snd) (condExecutables gpd)
-        <> map (merged testBuildInfo . snd) (condTestSuites gpd)
-        <> map (merged benchmarkBuildInfo . snd) (condBenchmarks gpd)
+activeComponentBuildInfos :: Package -> [BuildInfo]
+activeComponentBuildInfos package =
+  [collectMergedBuildInfo evalCond tree | Component _ tree <- packageComponents package]
+  where
+    evalCond = conditionEvaluator package
 
 buildInfoToolNames :: BuildInfo -> [Text]
 buildInfoToolNames bi =
-  concatMap exeDependencyNames (buildToolDepends bi)
-    <> concatMap legacyExeDependencyNames (buildTools bi)
-
-exeDependencyNames :: ExeDependency -> [Text]
-exeDependencyNames (ExeDependency pkgName exeName _) =
-  [ T.pack (unPackageName pkgName),
-    T.pack (unUnqualComponentName exeName)
-  ]
-
-legacyExeDependencyNames :: LegacyExeDependency -> [Text]
-legacyExeDependencyNames (LegacyExeDependency toolName _) =
-  [T.pack toolName]
+  concat [maybe [toolName tool] (\toolPackageName -> [toolPackageName, toolName tool]) (toolPackage tool) | tool <- buildTools bi]
 
 buildInfoUsesCustomPreprocessor :: BuildInfo -> Bool
 buildInfoUsesCustomPreprocessor bi =
-  ghcOptionsUseCustomPreprocessor (concat ghcOptions)
-  where
-    ghcOptions =
-      [ opts
-      | (GHC, opts) <- Compiler.perCompilerFlavorToList (options bi)
-      ]
+  ghcOptionsUseCustomPreprocessor (map T.unpack (ghcOptions bi))
 
 ghcOptionsUseCustomPreprocessor :: [String] -> Bool
 ghcOptionsUseCustomPreprocessor opts =
@@ -589,142 +531,34 @@ generatedPathsFileInfo path =
       fileInfoPreprocessor = Nothing
     }
 
-generatedPathsFiles :: FilePath -> PackageDescription -> ComponentName -> [ModuleName.ModuleName] -> IO [FilePath]
-generatedPathsFiles packageRoot pkgDescr componentName moduleNames
-  | autogenPathsModuleName pkgDescr `notElem` moduleNames = pure []
+-- | Write the @Paths_@ module of a component when the component lists it.
+-- The suffix names the component in the unit name, as Cabal does.
+generatedPathsFiles :: FilePath -> Package -> String -> [Text] -> IO [FilePath]
+generatedPathsFiles packageRoot package componentSuffix moduleNames
+  | T.pack moduleName `notElem` moduleNames = pure []
   | otherwise = do
-      let path = generatedPathsModulePath packageRoot pkgDescr
+      let path = packageRoot </> ".aihc-autogen" </> moduleNameFilePath (T.pack moduleName) <.> "hs"
+          version = packageVersion package
+          packageId = unPackageName (packageNameOf package) <> "-" <> showPackageVersion
+          showPackageVersion = T.unpack (Cabal.renderVersion version)
       createDirectoryIfMissing True (takeDirectory path)
-      lbi <- syntheticLocalBuildInfo pkgDescr
-      let clbi = syntheticComponentLocalBuildInfo pkgDescr componentName
-      writeFile path (generatePathsModule pkgDescr lbi clbi)
+      writeFile
+        path
+        ( generatePathsModule
+            (buildOS, buildArch)
+            compilerMajorMinor
+            (unPackageName (packageNameOf package))
+            version
+            (packageId <> componentSuffix)
+        )
       pure [path]
-
-generatedPathsModulePath :: FilePath -> PackageDescription -> FilePath
-generatedPathsModulePath packageRoot pkgDescr =
-  packageRoot </> ".aihc-autogen" </> ModuleName.toFilePath (autogenPathsModuleName pkgDescr) <.> "hs"
-
-syntheticLocalBuildInfo :: PackageDescription -> IO LocalBuildInfo
-syntheticLocalBuildInfo pkgDescr = do
-  dirs <- defaultInstallDirs GHC False False
-  let comp =
-        Compiler
-          (CompilerId GHC (mkVersion (releaseCompilerVersion emulatedGhc)))
-          NoAbiTag
-          [CompilerId GHC (mkVersion (releaseCompilerVersion emulatedGhc))]
-          []
-          []
-          Map.empty
-  pure $
-    LocalBuildInfo
-      { configFlags = defaultConfigFlags emptyProgramDb,
-        flagAssignment = mempty,
-        componentEnabledSpec = ComponentRequestedSpec False False,
-        extraConfigArgs = [],
-        installDirTemplates = dirs,
-        compiler = comp,
-        hostPlatform = buildPlatform,
-        pkgDescrFile = Nothing,
-        componentGraph = Graph.empty,
-        componentNameMap = Map.empty,
-        promisedPkgs = Map.empty,
-        installedPkgs = mempty,
-        localPkgDescr = pkgDescr,
-        withPrograms = emptyProgramDb,
-        withPackageDB = [GlobalPackageDB],
-        withVanillaLib = True,
-        withProfLib = False,
-        withProfLibShared = False,
-        withSharedLib = False,
-        withStaticLib = False,
-        withDynExe = False,
-        withFullyStaticExe = False,
-        withProfExe = False,
-        withProfLibDetail = ProfDetailNone,
-        withProfExeDetail = ProfDetailNone,
-        withOptimization = NoOptimisation,
-        withDebugInfo = NoDebugInfo,
-        withGHCiLib = False,
-        splitSections = False,
-        splitObjs = False,
-        stripExes = False,
-        stripLibs = False,
-        exeCoverage = False,
-        libCoverage = False,
-        extraCoverageFor = [],
-        relocatable = False
-      }
-
-syntheticComponentLocalBuildInfo :: PackageDescription -> ComponentName -> ComponentLocalBuildInfo
-syntheticComponentLocalBuildInfo pkgDescr componentName =
-  case componentName of
-    CLibName libName ->
-      LibComponentLocalBuildInfo
-        { componentLocalName = componentName,
-          componentComponentId = componentId,
-          componentUnitId = unitId,
-          componentIsIndefinite_ = False,
-          componentInstantiatedWith = [],
-          componentPackageDeps = [],
-          componentIncludes = [],
-          componentExeDeps = [],
-          componentInternalDeps = [],
-          componentCompatPackageKey = unitIdText,
-          componentCompatPackageName = MungedPackageName (packageName pkgDescr) libName,
-          componentExposedModules = [],
-          componentIsPublic = True
-        }
-    CExeName _ ->
-      ExeComponentLocalBuildInfo
-        { componentLocalName = componentName,
-          componentComponentId = componentId,
-          componentUnitId = unitId,
-          componentPackageDeps = [],
-          componentIncludes = [],
-          componentExeDeps = [],
-          componentInternalDeps = []
-        }
-    CTestName _ ->
-      TestComponentLocalBuildInfo
-        { componentLocalName = componentName,
-          componentComponentId = componentId,
-          componentUnitId = unitId,
-          componentPackageDeps = [],
-          componentIncludes = [],
-          componentExeDeps = [],
-          componentInternalDeps = []
-        }
-    CBenchName _ ->
-      BenchComponentLocalBuildInfo
-        { componentLocalName = componentName,
-          componentComponentId = componentId,
-          componentUnitId = unitId,
-          componentPackageDeps = [],
-          componentIncludes = [],
-          componentExeDeps = [],
-          componentInternalDeps = []
-        }
-    CFLibName _ ->
-      FLibComponentLocalBuildInfo
-        { componentLocalName = componentName,
-          componentComponentId = componentId,
-          componentUnitId = unitId,
-          componentPackageDeps = [],
-          componentIncludes = [],
-          componentExeDeps = [],
-          componentInternalDeps = []
-        }
   where
-    unitIdText = prettyShow (package pkgDescr) <> componentSuffix componentName
-    componentId = mkComponentId unitIdText
-    unitId = mkUnitId unitIdText
-
-componentSuffix :: ComponentName -> String
-componentSuffix componentName =
-  case componentName of
-    CLibName LMainLibName -> ""
-    CLibName (LSubLibName name) -> "-lib-" <> prettyShow name
-    CNotLibName _ -> "-exe-" <> maybe "unnamed" prettyShow (componentNameString componentName)
+    moduleName = pathsModuleName (unPackageName (packageNameOf package))
+    compilerMajorMinor =
+      case releaseCompilerVersion emulatedGhc of
+        major : minor : _ -> (major, minor)
+        major : _ -> (major, 0)
+        [] -> (0, 0)
 
 -- | What closes the conditions of a Cabal file: the platform the package is
 -- built for and the flags the plan decided. Flags the plan did not decide
@@ -747,43 +581,46 @@ buildContextFor :: OS -> Arch -> BuildContext
 buildContextFor os arch = BuildContext os arch (mkFlagAssignment [])
 
 -- | Evaluate cabal conditions using the emulated compiler and default flag values.
-conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
+conditionEvaluator :: Package -> Condition -> Bool
 conditionEvaluator = conditionEvaluatorIn hostBuildContext
 
 -- | Evaluate cabal conditions for one OS and architecture.
-conditionEvaluatorFor :: GenericPackageDescription -> OS -> Arch -> Condition ConfVar -> Bool
-conditionEvaluatorFor gpd os arch = conditionEvaluatorIn (buildContextFor os arch) gpd
+conditionEvaluatorFor :: Package -> OS -> Arch -> Condition -> Bool
+conditionEvaluatorFor package os arch = conditionEvaluatorIn (buildContextFor os arch) package
 
 -- | The value of every flag of a package under a build context: the
 -- default, unless the target overrides it or the context decided it.
-packageFlagAssignment :: BuildContext -> GenericPackageDescription -> Map.Map FlagName Bool
-packageFlagAssignment context gpd =
+packageFlagAssignment :: BuildContext -> Package -> Map.Map FlagName Bool
+packageFlagAssignment context package =
   Map.unions
     [ Map.fromList (unFlagAssignment (contextFlags context)),
-      Map.fromList (targetFlagOverrides (contextArch context) (packageName (packageDescription gpd))),
-      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+      Map.fromList (targetFlagOverrides (contextArch context) (packageNameOf package)),
+      Map.fromList [(flagName flag, flagDefault flag) | flag <- packageFlags package]
     ]
 
 -- | Evaluate cabal conditions under one build context.
-conditionEvaluatorIn :: BuildContext -> GenericPackageDescription -> Condition ConfVar -> Bool
-conditionEvaluatorIn context gpd = eval
+--
+-- The names in @os(...)@ and @arch(...)@ take the aliases that Cabal
+-- accepts, so @os(darwin)@ is true on macOS.
+conditionEvaluatorIn :: BuildContext -> Package -> Condition -> Bool
+conditionEvaluatorIn context package = eval
   where
-    flags = packageFlagAssignment context gpd
+    flags = packageFlagAssignment context package
 
     -- aihc presents itself as the GHC release in "Aihc.Hackage.Release", the
     -- same one the CPP macros describe; the host compiler is irrelevant.
-    compilerVer = mkVersion (releaseCompilerVersion emulatedGhc)
+    compilerVer = versionFromList (releaseCompilerVersion emulatedGhc)
 
-    eval (Var confVar) =
-      case confVar of
-        OS wanted -> wanted == contextOs context
-        Arch wanted -> wanted == contextArch context
-        PackageFlag flag -> Map.findWithDefault False flag flags
-        Impl flavor range -> flavor == GHC && withinRange compilerVer range
-    eval (Lit b) = b
-    eval (CNot c) = not (eval c)
-    eval (COr a b) = eval a || eval b
-    eval (CAnd a b) = eval a && eval b
+    eval condition =
+      case condition of
+        Literal b -> b
+        OS wanted -> classifyOS (T.unpack wanted) == contextOs context
+        Arch wanted -> classifyArch (T.unpack wanted) == contextArch context
+        FlagValue flag -> Map.findWithDefault False flag flags
+        Impl flavor range -> flavor == T.pack "ghc" && withinRange compilerVer range
+        Not c -> not (eval c)
+        Or a b -> eval a || eval b
+        And a b -> eval a && eval b
 
 -- | The flags of a package a target sets away from their defaults.
 --
@@ -812,50 +649,53 @@ targetFlagOverrides arch name
       [(mkFlagName "simdutf", False), (mkFlagName "pure-haskell", True)]
   | otherwise = []
 
--- | Collect all data nodes from a 'CondTree', evaluating conditions.
-collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
+-- | Collect the data of the active branches of a conditional tree, in
+-- source order.
+collectCondTreeData :: (Condition -> Bool) -> Conditional a -> [a]
 collectCondTreeData evalCond tree =
-  condTreeData tree : concatMap collectBranch (condTreeComponents tree)
+  unconditionalData : concatMap collectBranch (branches tree)
   where
-    collectBranch (CondBranch cond thenTree elseTree) =
+    unconditionalData = unconditional tree
+    collectBranch (Branch cond thenTree elseTree) =
       if evalCond cond
         then collectCondTreeData evalCond thenTree
         else maybe [] (collectCondTreeData evalCond) elseTree
 
--- | Merge 'BuildInfo' from all active branches of a 'CondTree'.
-collectMergedBuildInfo :: (Monoid b) => (Condition v -> Bool) -> (a -> b) -> CondTree v c a -> b
-collectMergedBuildInfo evalCond toBuildInfo =
-  mconcat . map toBuildInfo . collectCondTreeData evalCond
+-- | Merge the 'BuildInfo' of all active branches of a conditional tree.
+collectMergedBuildInfo :: (Condition -> Bool) -> Conditional BuildInfo -> BuildInfo
+collectMergedBuildInfo evalCond =
+  foldl mergeBuildInfo emptyBuildInfo . collectCondTreeData evalCond
+
+-- | A component is buildable unless a @buildable: False@ field is active.
+isBuildable :: BuildInfo -> Bool
+isBuildable = fromMaybe True . buildable
 
 -- | Extract extension names as strings from a 'BuildInfo'.
 extractExtensions :: BuildInfo -> [String]
-extractExtensions bi = nub (map prettyShow (defaultExtensions bi <> oldExtensions bi))
+extractExtensions bi = nub (map T.unpack (extensions bi <> legacyExtensions bi))
 
 -- | Extract the default language as a string from a 'BuildInfo'.
 extractLanguage :: BuildInfo -> Maybe String
-extractLanguage bi =
-  case defaultLanguage bi of
-    Just lang -> Just (prettyShow lang)
-    Nothing -> Nothing
+extractLanguage bi = T.unpack <$> defaultLanguage bi
 
 -- | Extract include search directories from a 'BuildInfo'.
 extractIncludeDirs :: FilePath -> BuildInfo -> [FilePath]
 extractIncludeDirs packageRoot bi =
-  nub [packageRoot </> getSymbolicPath dir | dir <- includeDirs bi]
+  nub [packageRoot </> dir | dir <- includeDirs bi]
 
 -- | Extract C source paths from a 'BuildInfo'.
 extractCSources :: FilePath -> BuildInfo -> [FilePath]
 extractCSources packageRoot bi =
-  nub [packageRoot </> getSymbolicPath path | path <- cSources bi]
+  nub [packageRoot </> path | path <- cSources bi]
 
 -- | Extract C++ source paths from a 'BuildInfo'.
 extractCxxSources :: FilePath -> BuildInfo -> [FilePath]
 extractCxxSources packageRoot bi =
-  nub [packageRoot </> getSymbolicPath path | path <- cxxSources bi]
+  nub [packageRoot </> path | path <- cxxSources bi]
 
--- | The field naming the Lir units of a component. Cabal keeps a field it
--- does not know under its @x-@ prefix, so the units are listed like
--- @c-sources@ and read from here.
+-- | The field naming the Lir units of a component. The parser keeps a field
+-- it does not know, so the units are listed like @c-sources@ and read from
+-- here.
 lirSourcesField :: String
 lirSourcesField = "x-aihc-lir-sources"
 
@@ -865,12 +705,11 @@ extractLirSources :: FilePath -> BuildInfo -> [FilePath]
 extractLirSources packageRoot bi =
   nub
     [ packageRoot </> path
-    | (field, value) <- customFieldsBI bi,
-      field == lirSourcesField,
-      path <- words (map (\character -> if character == ',' then ' ' else character) value)
+    | value <- Map.findWithDefault [] (T.pack lirSourcesField) (extraFields bi),
+      path <- words (map (\character -> if character == ',' then ' ' else character) (T.unpack (fieldText value)))
     ]
 
 -- | Extract build dependency package names from a 'BuildInfo'.
 extractDependencies :: BuildInfo -> [Text]
 extractDependencies bi =
-  map (T.pack . unPackageName . depPkgName) (targetBuildDepends bi)
+  map dependencyPackage (dependencies bi)
