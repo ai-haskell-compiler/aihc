@@ -1,0 +1,33 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    x :: () -> ()
+    x a = a
+    {-# LANGUAGE x #-}
+    {-# OPTIONS_GHC -Wall #-}
+    y :: () -> ()
+    y a = a
+annotated:
+  - |
+    module Main where
+    x :: () -> ()
+    │    │     └─ t Builtin ()
+    │    └─ t Builtin ()
+    └─ v Main
+    x a = a
+    │ │   └─ v 0
+    │ └─ v 0
+    └─ v Main
+    {-# LANGUAGE x #-}
+    {-# OPTIONS_GHC -Wall #-}
+    y :: () -> ()
+    │    │     └─ t Builtin ()
+    │    └─ t Builtin ()
+    └─ v Main
+    y a = a
+    │ │   └─ v 1
+    │ └─ v 1
+    └─ v Main
+status: pass
+reason: GHC ignores a file-header pragma between declarations, so the resolver accepts it without diagnostics

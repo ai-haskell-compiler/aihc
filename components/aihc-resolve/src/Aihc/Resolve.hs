@@ -524,6 +524,8 @@ ignoredPragma pragma =
           True
     PragmaDeprecated _ -> True
     PragmaWarning _ -> True
+    -- GHC ignores a file-header pragma between declarations.
+    PragmaLanguage _ -> True
     PragmaUnknown rawText ->
       -- A phase such as @INLINE[1]@ is part of the first word.
       case T.words (T.toUpper (T.drop 3 rawText)) of
@@ -531,7 +533,9 @@ ignoredPragma pragma =
         [] -> False
     _ -> False
 
--- | Keywords of hint pragmas that do not change name resolution.
+-- | Keywords of hint pragmas that do not change name resolution. The
+-- file-header keywords are here because GHC ignores such a pragma between
+-- declarations.
 ignoredPragmaKeywords :: [Text]
 ignoredPragmaKeywords =
   [ "INLINE",
@@ -552,7 +556,12 @@ ignoredPragmaKeywords =
     "OPAQUE",
     "DEPRECATED",
     "WARNING",
-    "CFILES"
+    "CFILES",
+    "LANGUAGE",
+    "OPTIONS",
+    "OPTIONS_GHC",
+    "OPTIONS_HADDOCK",
+    "INCLUDE"
   ]
 
 resolveValueDecl :: TermDefinition -> ValueDecl -> ResolveM ValueDecl

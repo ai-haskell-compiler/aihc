@@ -1,0 +1,5 @@
+status: pass
+reason: A derived instance must type-check when the class is in scope and its methods are not.
+needs-base: true
+expect-type-constructors:
+  - [Public, [Wrap]]
