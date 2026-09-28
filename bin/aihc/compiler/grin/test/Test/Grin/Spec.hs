@@ -4,10 +4,11 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinConstructorDecl (..), GrinGlobal (..), GrinLintError (..), GrinProgram (..), GrinVis (..), InterpretError (..), PointsToRewrites (..), ProgramStreams (..), analyzePointsTo, analyzePointsToWith, finishGrinProgram, interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram, rewriteWithPointsTo, widenLimit)
+import Aihc.Grin (GrinConstructorDecl (..), GrinGlobal (..), GrinLintError (..), GrinProgram (..), GrinVis (..), PointsToRewrites (..), analyzePointsTo, analyzePointsToWith, finishGrinProgram, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram, rewriteWithPointsTo, widenLimit)
 import Aihc.Grin.Cps (toCpsGrin)
 import Aihc.Grin.Dce (sweptGrinProgram)
 import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
+import Aihc.Grin.Interpret (InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding)
 import Aihc.Grin.Lint (lintGcProgram)
 import Aihc.Grin.Parser qualified as GrinParser
 import Aihc.Grin.Simplify (simplifyGrinProgram)

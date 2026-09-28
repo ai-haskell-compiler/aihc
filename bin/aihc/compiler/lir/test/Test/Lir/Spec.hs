@@ -5,6 +5,7 @@ module Test.Lir.Spec (tests) where
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
+import Aihc.Lir.Interpret (InterpretError (..), renderInterpretError, renderValues, runFunction)
 import Aihc.Lir.Lower (lowerModule, posixTarget64)
 import Aihc.Testing.RuntimeArchive (withFixtureRuntimeUnits)
 import Control.Monad (unless)

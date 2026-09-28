@@ -18,17 +18,10 @@ module Aihc.Lir
     resolveConstants,
     inlineModule,
     prepareModule,
-    Value (..),
-    InterpretError (..),
-    runFunction,
-    renderValue,
-    renderValues,
-    renderInterpretError,
   )
 where
 
 import Aihc.Lir.Inline
-import Aihc.Lir.Interpret
 import Aihc.Lir.Lint
 import Aihc.Lir.Parser
 import Aihc.Lir.Pretty (prettyModule, renderModule)
