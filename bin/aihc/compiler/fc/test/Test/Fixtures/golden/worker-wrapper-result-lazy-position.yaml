@@ -1,0 +1,106 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (box, total) where
+
+  import GHC.Prim ((+#))
+  import GHC.Types (Int (..))
+
+  data Pair = Pair !Int !Int
+
+  data Box = Box Int
+
+  plus :: Int -> Int -> Int
+  plus a b = case a of
+    I# i -> case b of
+      I# j -> I# (i +# j)
+
+  box :: Pair -> Box
+  box p = case p of
+    Pair x y -> case x of
+      I# i -> case y of
+        I# j -> Box (plus (I# i) (I# j))
+
+  total :: Pair -> Int
+  total p = case p of
+    Pair x y -> plus x (plus y x)
+passes:
+- worker-wrapper
+- simplify: 1
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tPair :: 3.sType {
+      strict [0, 1] 1.cPair :: 3.tInt 3.→ 3.tInt 3.→ 1.tPair
+  }
+
+  type 1.tBox :: 3.sType {
+      1.cBox :: 3.tInt 3.→ 1.tBox
+  }
+
+  pub val 1.vbox :: 1.tPair 3.→ 1.tBox
+   = λ(x : 1.tPair).
+    case x as (_scrut : 1.tPair) return (1.tBox) of {
+        1.cPair (x{1} : 3.tInt) (y : 3.tInt) →
+            case x{1} as (_scrut{1} : 3.tInt) return (1.tBox) of {
+                3.cI# (i : 2.tInt#) →
+                    case y as (_scrut{2} : 3.tInt) return (1.tBox) of {
+                        3.cI# (j : 2.tInt#) →
+                            let {
+                                argument : 2.tInt# =
+                                    foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} i j
+                            } in
+                                1.cBox (3.cI# argument)
+                    }
+            }
+    }
+
+  pub val 1.vtotal :: 1.tPair 3.→ 3.tInt
+   = λ(x : 1.tPair).
+    case x as (_scrut : 1.tPair) return (3.tInt) of {
+        1.cPair (x{1} : 3.tInt) (y : 3.tInt) →
+            case x{1} as (wrapped : 3.tInt) return (3.tInt) of {
+                3.cI# (x{2} : 2.tInt#) →
+                    case y as (wrapped{1} : 3.tInt) return (3.tInt) of {
+                        3.cI# (x{3} : 2.tInt#) →
+                            case x{1} as (wrapped{2} : 3.tInt) return (3.tInt) of {
+                                3.cI# (y{1} : 2.tInt#) →
+                                    case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{3} y{1} as (field : 2.tInt#) return (3.tInt) of {
+                                        _ →
+                                            let {
+                                                wrapped{3} : 3.tInt =
+                                                    3.cI# field
+                                            } in
+                                                case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{2} field as (field{1} : 2.tInt#) return (3.tInt) of {
+                                                    _ →
+                                                        3.cI# field{1}
+                                                }
+                                    }
+                            }
+                    }
+            }
+    }
+status: pass
+reason: A copy of the wrapper of a function with a constructed result gives a case on a safe primitive call. In the lazy argument of Box, that case must become a strict let of the primitive, which the constructor takes as a value, and not a thunk.
