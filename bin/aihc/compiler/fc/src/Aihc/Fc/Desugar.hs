@@ -74,7 +74,6 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     defaultMethodWorkerScheme,
-    isEqualityTyCon,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -321,8 +320,7 @@ headerIndex convertEnv interface =
         [ [ (classDictTypeName (ciTyCon info), HeaderClass info),
             (classDictConName (ciTyCon info), HeaderClass info)
           ]
-        | info <- tcInterfaceClasses interface,
-          not (isEqualityTyCon (ceKinds convertEnv) (ciTyCon info))
+        | info <- tcInterfaceClasses interface
         ]
     dataConFacts =
       [ (Name (dciName constructor) SortDataConstructor (OriginTop package moduleName'), HeaderDataCon constructor)
@@ -507,11 +505,11 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           convertSynonym env info
         Syn.DeclClass classDecl -> do
           info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
-          -- Nominal equality uses coercions instead of a class dictionary.
-          classDecls <-
-            if isEqualityTyCon (ceKinds env) (ciTyCon info)
-              then pure []
-              else (: []) <$> convertClass env info
+          -- Nominal equality in a context is a coercion, not a dictionary.
+          -- Its dictionary type still exists: it is what @a ~ b@ denotes
+          -- inside a type, such as the right-hand side of a
+          -- constraint-kinded family equation.
+          classDecls <- (: []) <$> convertClass env info
           -- Each associated type family of the class is an empty family
           -- type, the same as a top-level family declaration.
           families <-
@@ -768,13 +766,17 @@ convertDataFamilyInst env package moduleName' bindings info = do
   result <- convertKind bindersEnv representationKind
   familyType <- convertType bindersEnv (dfiiFamilyType info)
   let representationType = foldl TyApp (TyCon representationName) (map (TyVar . binderName) binders)
+      -- A data family is generative, as in GHC. The instance axiom is
+      -- representational, thus type equality does not reduce a data family
+      -- application. A type family equation for another type constructor
+      -- is then apart from it. A cast uses the axiom explicitly.
       familyAxiom =
         DeclAxiom
           AxiomDecl
             { axiomVis = Private,
               axiomName = Name (dfiiAxiomName info) SortAxiom (OriginTop package moduleName'),
               axiomBinders = binders,
-              axiomRole = Nominal,
+              axiomRole = Representational,
               axiomLeft = familyType,
               axiomRight = representationType
             }
@@ -868,7 +870,7 @@ convertTypeFamilyEquation env info = do
       TcAxiomKey package moduleName' axiomName = typeFamilyAxiomKey info
   binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
   left <- convertType bindersEnv (tfiiLeft info)
-  right <- convertType bindersEnv (tfiiRight info)
+  right <- convertNestedType bindersEnv (tfiiRight info)
   pure
     ( DeclAxiom
         AxiomDecl
@@ -1200,6 +1202,7 @@ definitionResolution declaration =
     Syn.DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (Syn.newtypeDeclHead newtypeDeclaration))
     Syn.DeclClass classDeclaration -> nameResolution (binderHeadName (Syn.classDeclHead classDeclaration))
     Syn.DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (Syn.dataFamilyDeclHead familyDeclaration))
+    Syn.DeclTypeFamilyDecl familyDeclaration -> familyHeadResolution (typeFamilyDeclHead familyDeclaration)
     Syn.DeclForeign foreignDecl -> nameResolution (Syn.foreignName foreignDecl)
     Syn.DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
     Syn.DeclPatSyn patSynDeclaration -> nameResolution (Syn.patSynDeclName patSynDeclaration)
@@ -1220,3 +1223,13 @@ patternResolution pattern' =
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
 nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
+
+-- | The resolution of the name at the head of a type family declaration.
+familyHeadResolution :: Syn.Type -> Maybe ResolutionAnnotation
+familyHeadResolution ty =
+  case Syn.peelTypeHead ty of
+    Syn.TCon name _ -> listToMaybe (mapMaybe fromAnnotation (Syn.nameAnns name))
+    Syn.TInfix _ name _ _ -> listToMaybe (mapMaybe fromAnnotation (Syn.nameAnns name))
+    Syn.TApp function _ -> familyHeadResolution function
+    Syn.TTypeApp function _ -> familyHeadResolution function
+    _ -> Nothing

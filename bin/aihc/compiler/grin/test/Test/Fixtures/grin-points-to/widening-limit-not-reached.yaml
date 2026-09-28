@@ -1,0 +1,133 @@
+program: |
+  constructor I# [IntRep]
+  constructor J [IntRep]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $forceValue (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  $g (v :: BoxedRep Lifted) -> BoxedRep Lifted =
+    w :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (v :: BoxedRep Lifted)
+    case (w :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data I# (n :: IntRep) ->
+        store (CI# (n :: IntRep))
+      data J (m :: IntRep) ->
+        store (CJ (m :: IntRep))
+
+  $h (v :: BoxedRep Lifted) -> BoxedRep Lifted =
+    w :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (v :: BoxedRep Lifted)
+    case (w :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data I# (n :: IntRep) ->
+        store (CI# (n :: IntRep))
+      data J (m :: IntRep) ->
+        store (CJ (m :: IntRep))
+
+  $k (v :: BoxedRep Lifted) -> BoxedRep Lifted =
+    w :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (v :: BoxedRep Lifted)
+    case (w :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data I# (n :: IntRep) ->
+        store (CI# (n :: IntRep))
+      data J (m :: IntRep) ->
+        store (CJ (m :: IntRep))
+
+  $callIt (f :: BoxedRep Lifted) (arg :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (arg :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    two :: BoxedRep Lifted <-
+      store (CI# (2 :: IntRep))
+    three :: BoxedRep Lifted <-
+      store (CI# (3 :: IntRep))
+    a :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (one :: BoxedRep Lifted)
+    b :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (two :: BoxedRep Lifted)
+    c :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (three :: BoxedRep Lifted)
+    fg :: BoxedRep Lifted <-
+      store (P$g/1)
+    fh :: BoxedRep Lifted <-
+      store (P$h/1)
+    fk :: BoxedRep Lifted <-
+      store (P$k/1)
+    r1 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $callIt (fg :: BoxedRep Lifted) (a :: BoxedRep Lifted)
+    r2 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $callIt (fh :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+    r3 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $callIt (fk :: BoxedRep Lifted) (c :: BoxedRep Lifted)
+    p :: BoxedRep Lifted <-
+      store (CPair (r1 :: BoxedRep Lifted) (r2 :: BoxedRep Lifted))
+    store (CPair (p :: BoxedRep Lifted) (r3 :: BoxedRep Lifted))
+expected: |-
+  constructor I# [IntRep]
+
+  constructor J [IntRep]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global entry = (F$entry)
+
+  $forceValue (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $g (v :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data I# (n :: IntRep) ->
+        store (CI# (n :: IntRep))
+
+  $h (v :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data I# (n :: IntRep) ->
+        store (CI# (n :: IntRep))
+
+  $k (v :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (v :: BoxedRep Lifted) as scrutinee :: BoxedRep Lifted of
+      data I# (n :: IntRep) ->
+        store (CI# (n :: IntRep))
+
+  $callIt (f :: BoxedRep Lifted) (arg :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (arg :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    one :: BoxedRep Lifted <-
+      store (CI# (1 :: IntRep))
+    two :: BoxedRep Lifted <-
+      store (CI# (2 :: IntRep))
+    three :: BoxedRep Lifted <-
+      store (CI# (3 :: IntRep))
+    a :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (one :: BoxedRep Lifted)
+    b :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (two :: BoxedRep Lifted)
+    c :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $forceValue (three :: BoxedRep Lifted)
+    fg :: BoxedRep Lifted <-
+      store (P$g/1)
+    fh :: BoxedRep Lifted <-
+      store (P$h/1)
+    fk :: BoxedRep Lifted <-
+      store (P$k/1)
+    r1 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $callIt (fg :: BoxedRep Lifted) (a :: BoxedRep Lifted)
+    r2 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $callIt (fh :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+    r3 :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $callIt (fk :: BoxedRep Lifted) (c :: BoxedRep Lifted)
+    p :: BoxedRep Lifted <-
+      store (CPair (r1 :: BoxedRep Lifted) (r2 :: BoxedRep Lifted))
+    store (CPair (p :: BoxedRep Lifted) (r3 :: BoxedRep Lifted))
+rewrites:
+  dead-alternatives: 3
+  evals-of-values: 4
+  direct-calls: 0
+  single-entry-evals: 0
+status: pass
+reason: with the default widening limit the same program gives the evals of the parameters that only values reach and removes the J alternatives that no location of their scrutinees holds

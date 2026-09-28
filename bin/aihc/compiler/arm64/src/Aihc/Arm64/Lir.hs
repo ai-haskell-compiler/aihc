@@ -11,8 +11,12 @@
 -- arguments of a jump are moved to their destinations at once, so a value
 -- the allocator already placed where the convention wants it costs nothing.
 --
--- The @aihc@ calling convention passes the first eight arguments in @x0@ to
--- @x7@ and the rest in a 16-byte aligned block on the stack. The callee pops
+-- The @aihc@ calling convention passes the first 24 arguments in registers:
+-- the first five in @x19@ to @x23@, the next ones in @x0@ to @x13@, and then
+-- @x24@ to @x28@. The rest go in a 16-byte aligned block on the stack. The
+-- first five arguments of a lowered function are the machine and the heap
+-- and stack pointers with their limits. A C call preserves @x19@ to @x23@,
+-- so these values stay in their registers across a C call. The callee pops
 -- that block, so a tail call restores the stack of the caller before it
 -- pushes its own block and the stack does not grow. Results come back in
 -- @x0@ to @x7@. An aihc function preserves no register: every call clobbers
@@ -130,6 +134,7 @@ arm64Backend =
       nbUnsupported = Arm64LirUnsupported,
       nbSymbol = lirSymbol,
       nbArgumentRegisters = argumentRegisters,
+      nbAihcArgumentRegisters = aihcArgumentRegisters,
       nbResultRegisters = argumentRegisters,
       nbPreservedRegisters = preservedRegisters,
       nbScratchLeft = scratchLeft,
@@ -212,6 +217,16 @@ arm64Backend =
 argumentRegisters :: [Arm64Register]
 argumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
 
+-- | The argument registers of the aihc convention. The first five carry the
+-- machine and the heap and stack context of a lowered function. They are
+-- preserved registers, so a C call does not move them.
+aihcArgumentRegisters :: [Arm64Register]
+aihcArgumentRegisters =
+  [X19, X20, X21, X22, X23]
+    <> argumentRegisters
+    <> [X8, X9, X10, X11, X12, X13]
+    <> [X24, X25, X26, X27, X28]
+
 volatileRegisters :: [Arm64Register]
 volatileRegisters = [X8, X9, X10, X11, X12, X13] <> argumentRegisters
 
@@ -230,13 +245,16 @@ registersFor convention =
     { registersVolatile = volatileRegisters,
       registersPreserved = preservedRegisters,
       registersPreservedCost = convention == CConvention,
-      registersArgument = argument,
-      registersResult = argument,
+      registersArgument = argument . conventionArguments,
+      registersResult = argument argumentRegisters,
       registersPairedSaves = True
     }
   where
-    argument index
-      | index < length argumentRegisters = Just (argumentRegisters !! index)
+    conventionArguments callee = case callee of
+      AihcConvention -> aihcArgumentRegisters
+      CConvention -> argumentRegisters
+    argument registers index
+      | index < length registers = Just (registers !! index)
       | otherwise = Nothing
 
 renderTraps :: [(Text, Int)] -> [Arm64Statement]
@@ -614,6 +632,58 @@ arm64Binary ctx op ty dst a right =
       zero <- trapLabel "integer division by zero"
       let (loads, b) = rightRegister ty right
       pure (loads <> [arm64Instruction (ArmCbz b zero), arm64Instruction (ArmUdiv scratchExtra a b), arm64Instruction (ArmMsub dst scratchExtra b a)])
+    -- AArch64 has no scalar bit deposit or extract, so both are loops over
+    -- the set bits of the mask. The operands move to the scratch registers
+    -- first, since the destination can be one of them. A deposit walks the
+    -- mask from its lowest set bit and takes the source bits from the low
+    -- end. An extract walks the mask from its highest set bit, which a
+    -- leading-zero count finds, and shifts each source bit into the result
+    -- from the low end. A narrow mask keeps the result canonical.
+    Pdep -> do
+      loop <- freshLabel "pdep"
+      done <- freshLabel "pdep_done"
+      let (loads, b) = rightRegister ty right
+      pure
+        ( loads
+            <> move scratchLeft a
+            <> move scratchRight b
+            <> [ immediate dst (0 :: Int),
+                 Arm64Label loop,
+                 arm64Instruction (ArmCbz scratchRight done),
+                 arm64Instruction (ArmSub scratchExtra XZR (Arm64RegisterValue scratchRight)),
+                 arm64Instruction (ArmAnd scratchExtra scratchRight (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmEor scratchRight scratchRight (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmTst scratchLeft (Arm64ImmediateValue 1)),
+                 arm64Instruction (ArmCsel scratchExtra scratchExtra XZR ArmNe),
+                 arm64Instruction (ArmOrr dst dst (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmLsr scratchLeft scratchLeft (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmB loop),
+                 Arm64Label done
+               ]
+        )
+    Pext -> do
+      loop <- freshLabel "pext"
+      done <- freshLabel "pext_done"
+      let (loads, b) = rightRegister ty right
+      pure
+        ( loads
+            <> move scratchLeft a
+            <> move scratchRight b
+            <> [ immediate dst (0 :: Int),
+                 Arm64Label loop,
+                 arm64Instruction (ArmCbz scratchRight done),
+                 arm64Instruction (ArmClz scratchExtra scratchRight),
+                 arm64Instruction (ArmLsl scratchRight scratchRight (Arm64RegisterShift scratchExtra)),
+                 arm64Instruction (ArmLsl scratchLeft scratchLeft (Arm64RegisterShift scratchExtra)),
+                 arm64Instruction (ArmLsl dst dst (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmLsr scratchExtra scratchLeft (Arm64ImmediateShift 63)),
+                 arm64Instruction (ArmOrr dst dst (Arm64RegisterValue scratchExtra)),
+                 arm64Instruction (ArmLsl scratchRight scratchRight (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmLsl scratchLeft scratchLeft (Arm64ImmediateShift 1)),
+                 arm64Instruction (ArmB loop),
+                 Arm64Label done
+               ]
+        )
     And -> pure (logical ArmAnd)
     Or -> pure (logical ArmOrr)
     Xor -> pure (logical ArmEor)
@@ -941,12 +1011,12 @@ arm64CallWith ctx convention resultTypes parameterTypes branch arguments results
         AihcConvention ->
           concat
             [ loads <> [storeSlot register (8 * position)]
-            | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip types arguments)),
+            | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) (zip types arguments)),
               let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
             ]
             <> parallelMove'
               [ (LocRegister register, Native.displaceSource outgoing (operandSource ctx ty argument))
-              | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
+              | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
               ]
         CConvention -> cArgumentMoves ctx outgoing 0 parameterTypes arguments
       cleanup = case convention of
@@ -1013,11 +1083,11 @@ arm64TailCall ctx callee convention parameterTypes arguments =
       let outgoing = overflowBytes' (length arguments)
           incoming = ctxIncomingOverflow ctx
           types = parameterTypes <> repeat I64
-          overflow = drop (length argumentRegisters) (zip types arguments)
+          overflow = drop (length aihcArgumentRegisters) (zip types arguments)
           registerMoves displacement =
             parallelMove'
               [ (LocRegister register, Native.displaceSource displacement (operandSource ctx ty argument))
-              | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
+              | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
               ]
           overflowStores displacement base =
             concat

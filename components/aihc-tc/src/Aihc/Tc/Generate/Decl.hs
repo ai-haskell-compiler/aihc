@@ -139,7 +139,7 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, freeTypeVars, freshKindMeta, hasWildcardType, isUnitConstraintType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -243,6 +243,7 @@ definitionResolution declaration =
     DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
     DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
     DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (dataFamilyDeclHead familyDeclaration))
+    DeclTypeFamilyDecl familyDeclaration -> nameResolution =<< typeFamilyHeadName (typeFamilyDeclHead familyDeclaration)
     DeclForeign foreignDeclaration -> nameResolution (foreignName foreignDeclaration)
     DeclTypeSyn typeSynDeclaration -> nameResolution (binderHeadName (typeSynHead typeSynDeclaration))
     DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
@@ -1771,6 +1772,13 @@ resolveForeignValueType sourceType = do
               | otherwise -> do
                   mDataType <- lookupDataType tyCon
                   case mDataType of
+                    -- A Bool is an HsBool, which GHC declares as a C int of
+                    -- the word width: False is 0, True is 1, and a nonzero
+                    -- result is True. The constructors carry the two tags.
+                    Just dataType
+                      | isBoolTyCon tyCon,
+                        constructorNames@[_, _] <- map dciName (dtiConstructors dataType) ->
+                          Right <$> primitiveMarshal sourceType (reverse constructors <> constructorNames) "Int#" TcForeignInt cType
                     Just dataType
                       | [constructor] <- dtiConstructors dataType,
                         null (dciExTyVars constructor),
@@ -1787,6 +1795,7 @@ resolveForeignValueType sourceType = do
       | ty == sourceType = pure (Left (renderTcType ty))
       | otherwise = pure (Left (renderTcType ty <> " in " <> renderTcType sourceType))
     maximumUnwrapDepth = 64
+    isBoolTyCon tyCon = tyConName tyCon == "Bool" && tyConModuleName tyCon == "GHC.Types" && tyConArity tyCon == 0
     byteArrayMarshal ty =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,
@@ -2192,7 +2201,7 @@ tcInstanceDeclBodies (DeclAnn ann inner)
     DeclInstance instanceDecl <- peelDeclAnn inner = do
       let classNameText = tyConName (tcInstanceClassTyCon annotation)
           headTys = tcInstanceHeadTypes annotation
-      givens <- mapM (constraintTypePred . tcDictBinderType) (tcInstanceContextDicts annotation)
+      let givens = map tcDictBinderPred (tcInstanceContextDicts annotation)
       classInfo <- lookupClass (tcInstanceClassTyCon annotation) >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       items <-
         withScopedTyVars (tyVarScope (tcInstanceTyVars annotation)) $
@@ -2417,7 +2426,14 @@ methodExpectedScheme classInfo headTys methodName =
           let classKinds = map tvKind (ciTyVars classInfo)
               kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
               subst = receiverSubst <> kindSubst
-              unsubstituted = filter (\tyVar -> not (Map.member (tvUnique tyVar) subst))
+              -- A binder that stays quantified can still mention a class
+              -- kind variable in its kind: @p :: k -> Type@ in
+              -- @class HasResolution (a :: k) where resolution :: p a -> Integer@.
+              unsubstituted tyVars =
+                [ setTyVarKind (applySubst subst (tvKind tyVar)) tyVar
+                | tyVar <- tyVars,
+                  not (Map.member (tvUnique tyVar) subst)
+                ]
           pure
             ( Scheme
                 (unsubstituted inferred)
@@ -2457,24 +2473,25 @@ predDictBinder :: Pred -> TcM TcDictBinderAnnotation
 predDictBinder pred' =
   case pred' of
     ClassPred classTyCon args ->
-      pure (TcDictBinderAnnotation (tyConName classTyCon) args (TcTyCon classTyCon args))
+      pure (TcDictBinderAnnotation (tyConName classTyCon) args (TcTyCon classTyCon args) pred')
     EqPred {} -> do
       ty <- predType pred'
-      pure (TcDictBinderAnnotation "<constraint>" [] ty)
+      pure (TcDictBinderAnnotation "<constraint>" [] ty pred')
     QuantifiedPred {} -> do
       ty <- predType pred'
-      pure (TcDictBinderAnnotation "<quantified>" [] ty)
+      pure (TcDictBinderAnnotation "<quantified>" [] ty pred')
     IrredPred constraint ->
-      pure (TcDictBinderAnnotation "<irreducible>" [] constraint)
+      pure (TcDictBinderAnnotation "<irreducible>" [] constraint pred')
     IParamPred name payload -> do
       ty <- predType pred'
-      pure (TcDictBinderAnnotation name [payload] ty)
+      pure (TcDictBinderAnnotation name [payload] ty pred')
 
 constraintTypeDictBinder :: TcKinds -> TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder kinds ty =
   case constraintTypeToPred kinds ty of
-    Just (ClassPred classTyCon args) -> TcDictBinderAnnotation (tyConName classTyCon) args ty
-    _ -> TcDictBinderAnnotation "<constraint>" [] ty
+    Just predicate@(ClassPred classTyCon args) -> TcDictBinderAnnotation (tyConName classTyCon) args ty predicate
+    Just predicate -> TcDictBinderAnnotation "<constraint>" [] ty predicate
+    Nothing -> TcDictBinderAnnotation "<constraint>" [] ty (IrredPred ty)
 
 constraintTypePred :: TcType -> TcM Pred
 constraintTypePred ty = do
@@ -3607,25 +3624,25 @@ generalizableResidualPreds inferredType solveResult = do
   -- parameter gets the empty call stack.
   let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
-  let uniqueResidualCts = nubBy sameCtPred residualCts
-      (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) uniqueResidualCts
+  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) residualCts
   -- Defaulting makes an ambiguous meta-variable concrete. A constraint that
   -- became concrete this way has an instance in most cases, so give the
-  -- dictionary solver a second attempt before the error report.
+  -- dictionary solver a second attempt before the error report. Every
+  -- occurrence needs its own evidence, so the attempt covers each
+  -- constraint, also when two constraints have the same predicate.
   concreteCts <-
     if defaulted
       then concat <$> mapM attemptDefaultedCt defaultedCts
       else pure defaultedCts
   -- Every occurrence still needs evidence, even when equal predicates share
   -- one constraint in the generalized type.
-  forM_ residualCts $ \ct ->
-    when (predicateCanGeneralize (ctPred ct)) $
-      bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+  forM_ polymorphicCts $ \ct ->
+    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
-  forM_ concreteCts $ \ct ->
+  forM_ (nubBy sameCtPred concreteCts) $ \ct ->
     emitError (ctLoc ct) (UnsolvedWanted (ctPred ct) (ctOrigin ct))
-  pure (map ctPred polymorphicCts)
+  pure (map ctPred (nubBy sameCtPred polymorphicCts))
   where
     zonkCtPred ct = do
       pred' <- zonkPred (ctPred ct)
@@ -3898,11 +3915,10 @@ registerClassDecl origin classDecl = do
   let classBinder = binderHeadName (classDeclHead classDecl)
       className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
-  poly <- isImplicitlyKindPolymorphicClass origin className
-  kindParams <-
-    if poly
-      then implicitBinderKindParams params
-      else pure []
+  -- A kind variable that only a binder annotation mentions, as @r@ in
+  -- @class IsCode q (a :: TYPE r) c@, is a kind parameter of the class,
+  -- the same as for a data declaration ('dataDeclParamInfos').
+  kindParams <- implicitBinderKindParams params
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   paramInfos <- makeParamEnvWith kindEnv params
   let paramTyVars = map paramTyVar paramInfos
@@ -3910,10 +3926,11 @@ registerClassDecl origin classDecl = do
       paramKinds = map paramKind paramInfos
       paramTvEnv = kindEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   kinds <- getKinds
-  -- The empty constraint @()@ gives no superclass, also when a constraint
-  -- synonym expands to it.
+  -- A constraint synonym in the context gives the superclasses of its
+  -- expansion: none for the empty constraint @()@, and one for each
+  -- component of a constraint tuple.
   checkedSuperClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty (constraintKind kinds)) (flattenSurfaceContext (fromMaybe [] (classDeclContext classDecl)))
-  superClassTypes <- filterM (fmap not . isUnitConstraintType) checkedSuperClassTypes
+  let superClassTypes = concatMap (flattenConstraintType kinds) checkedSuperClassTypes
   let classKind = foldr KFun (constraintKind kinds) paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
   let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
@@ -4092,20 +4109,6 @@ typeArguments ty =
     TcAppTy function argument -> typeArguments function <> [argument]
     _ -> []
 
--- | Whether the parameters of a class take implicit kind parameters: the
--- Template Haskell @Lift@ class that the wiring names, and the nominal
--- equality constraint. A class is identified by its module and its name;
--- the origin package carries a version that the wiring does not know.
-isImplicitlyKindPolymorphicClass :: (Text, Text) -> Text -> TcM Bool
-isImplicitlyKindPolymorphicClass (_, moduleName') className = do
-  wiring <- getWiring
-  let equality = tcWiringEqualityTyCon wiring
-  pure
-    ( (moduleName', className) == tcWiringLiftClass wiring
-        || (moduleName', className) `elem` [("Type.Reflection", "Typeable"), ("Type.Reflection.Internal", "Typeable")]
-        || (moduleName' == tyConModuleName equality && className `elem` [tyConName equality, "~~"])
-    )
-
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
@@ -4139,7 +4142,8 @@ registerClassDefaultSignature classTvEnv classTyVars item =
 -- @forall@ is peeled like the one of an ordinary signature, so the
 -- method type is a function type and the equations of a default or
 -- instance body see their parameters; it also scopes the binders'
--- names over that body.
+-- names over that body. The quantifiers of a function result come last,
+-- as 'floatResultQuantifiers' moves them for an ordinary signature.
 classSignatureScheme :: TvKindEnv -> [TyVarId] -> Type -> TcM TypeScheme
 classSignatureScheme classTvEnv classTyVars ty = do
   let (explicitBinders, context, body) = splitSigma ty
@@ -4158,9 +4162,10 @@ classSignatureScheme classTvEnv classTyVars ty = do
             | param <- explicitParams
             ]
   kinds <- getKinds
-  methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
+  checkedBody <- checkSurfaceType tvEnv body (typeKind kinds)
   contextPreds <- surfaceContextToPreds tvEnv context
-  pure (specifiedScheme (classTyVars <> extraTyVars <> explicitTyVars) contextPreds methodBody)
+  let (floatedTyVars, floatedPreds, methodBody) = floatResultQuantifiers checkedBody
+  pure (specifiedScheme (classTyVars <> extraTyVars <> explicitTyVars <> floatedTyVars) (contextPreds <> floatedPreds) methodBody)
 
 registerInstanceDecl :: (Text, Text) -> InstanceDecl -> TcM [TcBindingResult]
 registerInstanceDecl origin instanceDecl =
@@ -4485,7 +4490,21 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
       (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
       forM_ paramInfos $ \param ->
         forM_ (Map.lookup (paramName param) sharedKinds) (`unifyKinds` paramKind param)
-      inferredKind <- tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
+      -- A closed family without a standalone kind signature takes the kinds
+      -- it does not write from its equations, as in GHC: @type family F ty n
+      -- where F ty n = n <=? Bound ty@ has the result kind 'Bool' and gives
+      -- @n@ the kind of @Bound ty@. Its result kind starts as a meta, and
+      -- nothing here defaults its metas: the equations settle them when the
+      -- declaration group is registered, and 'defaultGlobalKindMetas' closes
+      -- what the equations leave open. An open family has no equations to
+      -- read, so it defaults to 'Type' here, as in GHC.
+      let inferFromEquations = isClosedFamily && isNothing maybeKindScheme
+      inferredKind <-
+        if inferFromEquations && isNothing (typeFamilyResultKindType familyDecl)
+          then do
+            resultKind <- freshKindMeta
+            pure (foldr (KFun . paramKind) resultKind paramInfos)
+          else tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
       familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
       let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
       storeTyConInfo
@@ -4502,14 +4521,17 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
             tciTypeSynonym = Nothing,
             tciInjectivity = typeFamilyInjectivePositions familyDecl
           }
-      if Map.null sharedKinds
-        then void (defaultKindMetas declaredKind)
-        else do
-          -- Only the class parameters stay open; the class registration
-          -- settles them once its methods have been seen.
-          forM_ paramInfos $ \param ->
-            unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
-          void (defaultKindMetas (typeResultKind arity declaredKind))
+      unless inferFromEquations $
+        if Map.null sharedKinds
+          then void (defaultKindMetas declaredKind)
+          else do
+            -- Only the class parameters stay open; the class registration
+            -- settles them once its methods have been seen.
+            forM_ paramInfos $ \param ->
+              unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
+            void (defaultKindMetas (typeResultKind arity declaredKind))
+  where
+    isClosedFamily = isJust (typeFamilyDeclEquations familyDecl)
 
 -- | The argument positions that an injectivity annotation says the result
 -- determines. @type family F a b = r | r -> a@ gives @Just [0]@.
@@ -4983,8 +5005,16 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
           let params = tsiParams synonym
               tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
-          (_, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
+          (body, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind
+          -- The stored body must name the kind variables of the synonym's
+          -- own kind scheme, so that each expansion instantiates them
+          -- afresh. A kind annotation in the body leaves kind metas
+          -- behind ('TKindSig'); the declared kind has just fixed them, so
+          -- this conversion replaces the one 'registerTypeSynonymBody'
+          -- stored for the forward references of the group.
+          body' <- zonkType body
+          replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body'})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 checkTypeSynonymBody _ = pure ()
 
@@ -5406,7 +5436,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkFunctionPatterns sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
-  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy (matchRhs match)))
+  (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternScope patCheck (checkRhs resTy (matchRhs match)))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) <|> sp

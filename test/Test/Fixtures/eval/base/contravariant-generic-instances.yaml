@@ -1,0 +1,56 @@
+extensions: [TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import Data.Functor.Compose (Compose (..))
+    import Data.Functor.Contravariant
+    import Data.Functor.Product (Product (..))
+    import Data.Functor.Sum (Sum (..))
+    import Data.Monoid (Alt (..))
+    import GHC.Generics
+    import Prelude
+
+    isEven :: Predicate Int
+    isEven = Predicate even
+
+    run :: Predicate a -> a -> Bool
+    run = getPredicate
+
+    len :: String -> Int
+    len = length
+
+    viaM1 :: M1 D c Predicate Int -> M1 D c Predicate String
+    viaM1 = contramap len
+
+    result :: Bool
+    result =
+      and
+      [ run (unM1 (viaM1 (M1 isEven))) "ab",
+        run (unRec1 (contramap len (Rec1 isEven))) "abc" == False,
+        case contramap len (U1 :: U1 Int) of U1 -> True,
+        unK1 (contramap len (K1 'k' :: K1 R Char Int)) == 'k',
+        case contramap len (isEven :*: Predicate (> 1)) of
+          l :*: r -> run l "ab" && run r "ab",
+        case contramap len (L1 isEven :: (Predicate :+: Predicate) Int) of
+          L1 l -> run l "ab"
+          R1 _ -> False,
+        case contramap len (Comp1 [isEven, Predicate (> 2)]) of
+          Comp1 ps -> map (`run` "abcd") ps == [True, True],
+        case contramap len (Compose (Just isEven)) of
+          Compose (Just p) -> run p "ab"
+          Compose Nothing -> False,
+        case contramap len (Pair isEven (Predicate (> 1))) of
+          Pair l r -> run l "ab" && run r "ab",
+        case contramap len (InR isEven :: Sum Predicate Predicate Int) of
+          InR r -> run r "ab"
+          InL _ -> False,
+        run (getAlt (contramap len (Alt isEven))) "ab"
+      ]
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: Data.Functor.Contravariant gives instances for the GHC.Generics representation types, Compose, Product, Sum, and Alt

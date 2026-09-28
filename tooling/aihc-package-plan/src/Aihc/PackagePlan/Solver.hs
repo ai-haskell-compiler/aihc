@@ -110,7 +110,7 @@ import Distribution.Types.ExeDependency (ExeDependency (..))
 import Distribution.Types.Flag (FlagAssignment, lookupFlagAssignment, mkFlagAssignment, unFlagAssignment)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
 import Distribution.Types.LegacyExeDependency (LegacyExeDependency (..))
-import Distribution.Types.UnqualComponentName (unUnqualComponentName)
+import Distribution.Types.UnqualComponentName (UnqualComponentName, unUnqualComponentName)
 import Distribution.Types.Version (Version)
 import Distribution.Types.VersionRange (VersionRange, anyVersion, intersectVersionRanges, withinRange)
 import Distribution.Version (simplifyVersionRange)
@@ -152,12 +152,24 @@ data SolverInputs m = SolverInputs
 -- dependencies.
 data Stanzas = Stanzas
   { stanzasTests :: !Bool,
-    stanzasBenchmarks :: !Bool
+    stanzasBenchmarks :: !Bool,
+    -- | The executables that contribute. 'Nothing' selects every
+    -- executable.
+    stanzasExecutables :: !(Maybe (Set.Set UnqualComponentName))
   }
   deriving (Eq, Show)
 
+-- | No test suites, no benchmarks, and every executable.
 noStanzas :: Stanzas
-noStanzas = Stanzas False False
+noStanzas = Stanzas False False Nothing
+
+-- | The executables of a root package that its stanzas select.
+selectedExecutableTrees :: Stanzas -> GenericPackageDescription -> [CondTree ConfVar [Dependency] Executable]
+selectedExecutableTrees stanzas gpd =
+  [ tree
+  | (name, tree) <- condExecutables gpd,
+    maybe True (Set.member name) (stanzasExecutables stanzas)
+  ]
 
 -- | A restriction from the command line, or from the lock file when the
 -- lock is being kept.
@@ -183,7 +195,7 @@ data SolverConfig = SolverConfig
     configConstraints :: ![Constraint],
     configPreferences :: !(Map PackageName Preference),
     -- | The packages to plan, and which of their optional components
-    -- contribute dependencies. A root's executables always do.
+    -- contribute dependencies.
     configRoots :: !(Map PackageName Stanzas),
     -- | Further packages to plan, with the range each must satisfy. A main
     -- module built against a set of packages has these and no root.
@@ -574,7 +586,7 @@ searchableFlags _ root gpd =
       Set.unions
         ( map (guardingFlags libBuildInfo) (allLibraryTrees gpd)
             <> concat
-              [ map (guardingFlags buildInfo) (executableTrees gpd)
+              [ map (guardingFlags buildInfo) (selectedExecutableTrees stanzas gpd)
                   <> [guardingFlags testBuildInfo tree | stanzasTests stanzas, tree <- map snd (condTestSuites gpd)]
                   <> [guardingFlags benchmarkBuildInfo tree | stanzasBenchmarks stanzas, tree <- map snd (condBenchmarks gpd)]
               | Just stanzas <- [root]
@@ -612,9 +624,6 @@ conditionFlags condition =
 allLibraryTrees :: GenericPackageDescription -> [CondTree ConfVar [Dependency] Library]
 allLibraryTrees gpd = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
 
-executableTrees :: GenericPackageDescription -> [CondTree ConfVar [Dependency] Executable]
-executableTrees gpd = map snd (condExecutables gpd)
-
 -- | The build infos of the components that contribute dependencies under
 -- one flag assignment: the buildable libraries that an install builds, and for a root package its
 -- executables and requested stanzas as well.
@@ -624,7 +633,7 @@ contributingBuildInfos (os, arch) flags root gpd =
     buildable
     ( map (merged libBuildInfo . snd) (installedLibraryTrees evalCond gpd)
         <> concat
-          [ map (merged buildInfo) (executableTrees gpd)
+          [ map (merged buildInfo) (selectedExecutableTrees stanzas gpd)
               <> [merged testBuildInfo tree | stanzasTests stanzas, tree <- map snd (condTestSuites gpd)]
               <> [merged benchmarkBuildInfo tree | stanzasBenchmarks stanzas, tree <- map snd (condBenchmarks gpd)]
           | Just stanzas <- [root]

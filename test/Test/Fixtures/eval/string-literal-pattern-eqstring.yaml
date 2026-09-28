@@ -1,0 +1,69 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+
+    -- Equations with shared prefixes and a final variable equation, as in
+    -- the readColourName function of the colour package.
+    colour :: String -> Either String Int
+    colour "red" = Right 1
+    colour "redwood" = Right 2
+    colour "green" = Right 3
+    colour "greenyellow" = Right 4
+    colour name = Left ("unknown " ++ name)
+
+    -- Short literals match as lists, longer ones compare with eqString.
+    size :: String -> Int
+    size "" = 0
+    size "a" = 1
+    size "ab" = 2
+    size _ = 3
+
+    -- Characters outside ASCII and the NUL character.
+    special :: String -> Bool
+    special "caf\233" = True
+    special "a\0b" = True
+    special _ = False
+
+    -- A string literal inside a constructor pattern.
+    inner :: Maybe String -> Int
+    inner (Just "yes") = 1
+    inner (Just _) = 2
+    inner Nothing = 3
+
+    -- A constructor row after a string literal row.
+    mixed :: String -> Int
+    mixed "ab" = 1
+    mixed ('a' : _) = 2
+    mixed _ = 3
+
+    -- A case expression with string literal alternatives.
+    choose :: String -> Int
+    choose word =
+      case word of
+        "one" -> 1
+        "two" -> 2
+        _ -> 0
+
+    -- The comparison stops at the first character that differs, so the
+    -- rest of the scrutinee is never forced.
+    early :: Int
+    early = size ('a' : 'x' : undefined)
+
+    result :: ([Either String Int], [Int], [Bool], [Int], [Int], [Int], Int)
+    result =
+      ( map colour ["red", "redwood", "green", "greenyellow", "blue", "re", "redwoods"],
+        map size ["", "a", "ab", "abc", "b"],
+        map special ["caf\233", "a\0b", "cafe", "a"],
+        [inner (Just "yes"), inner (Just "no"), inner Nothing],
+        map mixed ["ab", "abc", "a", "b"],
+        map choose ["one", "two", "three"],
+        early
+      )
+output: |
+  ((: (Right (I# 1)) (: (Right (I# 2)) (: (Right (I# 3)) (: (Right (I# 4)) (: (Left (: 'u' (: 'n' (: 'k' (: 'n' (: 'o' (: 'w' (: 'n' (: ' ' (: 'b' (: 'l' (: 'u' (: 'e' []))))))))))))) (: (Left (: 'u' (: 'n' (: 'k' (: 'n' (: 'o' (: 'w' (: 'n' (: ' ' (: 'r' (: 'e' []))))))))))) (: (Left (: 'u' (: 'n' (: 'k' (: 'n' (: 'o' (: 'w' (: 'n' (: ' ' (: 'r' (: 'e' (: 'd' (: 'w' (: 'o' (: 'o' (: 'd' (: 's' []))))))))))))))))) []))))))),(: (I# 0) (: (I# 1) (: (I# 2) (: (I# 3) (: (I# 3) []))))),(: True (: True (: False (: False [])))),(: (I# 1) (: (I# 2) (: (I# 3) []))),(: (I# 1) (: (I# 2) (: (I# 2) (: (I# 3) [])))),(: (I# 1) (: (I# 2) (: (I# 0) []))),(I# 3))
+expression: |
+  result
+status: pass
+reason: string literal patterns of two or more characters compare with eqString and match the same strings as before

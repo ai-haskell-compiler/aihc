@@ -9,38 +9,38 @@ expected: |-
 
   pub constructor 1.$Dict$Arrow [BoxedRep Lifted]
 
-  pub global 1.second = (P$second/1)
+  pub global 1.second = (P1.$second/1)
 
   pub global 1."$fArrow(->)" = (C1.$Dict$Arrow global-ref 1."$fArrow(->)$csecond")
 
-  pub global 1.apply = (P$apply/1)
+  pub global 1.apply = (P1.$apply/1)
 
-  global 1."$fArrow(->)$csecond" = (P"$$fArrow(->)$csecond"/2)
+  global 1."$fArrow(->)$csecond" = (P1."$$fArrow(->)$csecond"/2)
 
-  $second ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$second ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
       data 1.$Dict$Arrow ($method0 :: BoxedRep Lifted) ->
         eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
 
-  "$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1."$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (b :: BoxedRep Lifted)
 
-  "$$fArrow(->)$csecond" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1."$$fArrow(->)$csecond" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
       data 1.Pair (d :: BoxedRep Lifted) (b :: BoxedRep Lifted) ->
         argument :: BoxedRep Lifted <-
-          store (F"$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+          store (F1."$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted))
         store (C1.Pair (d :: BoxedRep Lifted) (argument :: BoxedRep Lifted))
 
-  $apply (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$apply (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_application :: BoxedRep Lifted <-
-      call @(BoxedRep Lifted) $second global-ref 1."$fArrow(->)"
+      call @(BoxedRep Lifted) 1.$second global-ref 1."$fArrow(->)"
     apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x :: BoxedRep Lifted)
 extensions: []
 reason: a method of an instance for the function arrow has the function type,

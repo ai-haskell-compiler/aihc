@@ -1,0 +1,34 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Foldable (toList)
+    import Data.Proxy (Proxy (..))
+
+    monoidProxy :: Bool
+    monoidProxy = (mempty :: Proxy Int) == (Proxy <> Proxy)
+
+    applicativeProxy :: Bool
+    applicativeProxy = (pure 'x' :: Proxy Char) == (Proxy <*> Proxy)
+
+    monadProxy :: Bool
+    monadProxy = (Proxy >>= (\_ -> Proxy)) == (Proxy :: Proxy Bool)
+
+    foldableProxy :: Bool
+    foldableProxy = null (toList (Proxy :: Proxy Int)) && length (Proxy :: Proxy Int) == 0
+
+    traversableProxy :: Bool
+    traversableProxy = traverse Just (Proxy :: Proxy Int) == Just Proxy
+
+    showProxy :: Bool
+    showProxy = show (Proxy :: Proxy Int) == "Proxy" && showsPrec 11 (Proxy :: Proxy Int) "" == "Proxy"
+
+    answer :: Bool
+    answer = monoidProxy && applicativeProxy && monadProxy && foldableProxy && traversableProxy && showProxy
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: Proxy has the Semigroup, Monoid, Applicative, Monad, Foldable, Traversable, and Show instances of base

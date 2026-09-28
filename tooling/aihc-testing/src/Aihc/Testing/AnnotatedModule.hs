@@ -133,14 +133,28 @@ collectWrapped ::
   node ->
   node ->
   [PlacedLabel]
-collectWrapped renderAnnotation peel original reparsed =
+collectWrapped renderAnnotation peel =
+  collectWrappedWith renderAnnotation peel Nothing collectGeneric
+
+-- | Merge the leading annotations of a node. The parent span is the last
+-- fallback for a node that has no span of its own. The base function merges
+-- the node below the leading annotations.
+collectWrappedWith ::
+  (Annotation -> Maybe (Doc ann)) ->
+  (node -> Maybe (Annotation, node)) ->
+  Maybe SourceSpan ->
+  ((Annotation -> Maybe (Doc ann)) -> node -> node -> [PlacedLabel]) ->
+  node ->
+  node ->
+  [PlacedLabel]
+collectWrappedWith renderAnnotation peel parentSpan collectBase original reparsed =
   labelsAt renderAnnotation wrappedSpan (nonSpanAnnotations originalAnns)
-    <> collectGeneric renderAnnotation originalBase reparsedBase
+    <> collectBase renderAnnotation originalBase reparsedBase
   where
     (originalAnns, originalBase) = peelLeading peel original
     (reparsedAnns, reparsedBase) = peelLeading peel reparsed
     -- A checked node can carry a span that the parser did not give it.
-    wrappedSpan = spanFromAnnotations reparsedAnns <|> spanFromAnnotations originalAnns
+    wrappedSpan = spanFromAnnotations reparsedAnns <|> spanFromAnnotations originalAnns <|> parentSpan
 
 peelLeading :: (node -> Maybe (Annotation, node)) -> node -> ([Annotation], node)
 peelLeading peel =
@@ -173,10 +187,20 @@ collectPattern :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe
 collectPattern renderAnnotation original reparsed = do
   originalPattern <- cast original
   reparsedPattern <- cast reparsed
-  pure (collectWrapped renderAnnotation peelPatternAnn originalPattern reparsedPattern)
+  pure (collectWrappedWith renderAnnotation peelPatternAnn Nothing (collectPatternBase (patternSpan reparsedPattern <|> patternSpan originalPattern)) originalPattern reparsedPattern)
   where
     peelPatternAnn (PAnn ann inner) = Just (ann, inner)
     peelPatternAnn _ = Nothing
+    patternSpan = spanFromAnnotations . fst . peelLeading peelPatternAnn
+
+-- | The parser gives no span to a literal in a nested pattern. The literal
+-- has the same source extent as its pattern, so it gets the pattern span.
+collectPatternBase :: Maybe SourceSpan -> (Annotation -> Maybe (Doc ann)) -> Pattern -> Pattern -> [PlacedLabel]
+collectPatternBase patternSpan renderAnnotation original reparsed =
+  case (original, reparsed) of
+    (PLit originalLiteral, PLit reparsedLiteral) ->
+      collectWrappedWith renderAnnotation peelLiteralAnn patternSpan collectGeneric originalLiteral reparsedLiteral
+    _ -> collectGeneric renderAnnotation original reparsed
 
 collectDecl :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectDecl renderAnnotation original reparsed = do
@@ -201,9 +225,10 @@ collectLiteral renderAnnotation original reparsed = do
   originalLiteral <- cast original
   reparsedLiteral <- cast reparsed
   pure (collectWrapped renderAnnotation peelLiteralAnn originalLiteral reparsedLiteral)
-  where
-    peelLiteralAnn (LitAnn ann inner) = Just (ann, inner)
-    peelLiteralAnn _ = Nothing
+
+peelLiteralAnn :: Literal -> Maybe (Annotation, Literal)
+peelLiteralAnn (LitAnn ann inner) = Just (ann, inner)
+peelLiteralAnn _ = Nothing
 
 collectGuardQualifier :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectGuardQualifier renderAnnotation original reparsed = do

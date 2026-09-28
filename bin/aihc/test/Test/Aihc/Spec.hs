@@ -44,7 +44,7 @@ import System.Directory
     removeDirectoryRecursive,
     removeFile,
   )
-import System.Environment (lookupEnv)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, openTempFile)
@@ -86,6 +86,7 @@ tests =
               testCase "parses the optimization level" test_buildModuleOptimizationOption,
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
+              testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
@@ -427,6 +428,10 @@ data InstallFixture = InstallFixture
     installFixtureImmutable :: Bool,
     installFixtureNoCode :: Bool,
     installFixtureReinstall :: Bool,
+    -- | Variables set in the environment of the test process while the
+    -- package installs, for a fixture about what the tools aihc runs
+    -- inherit.
+    installFixtureEnvironment :: [(String, String)],
     -- | The package depends on base, so it gets the seeded store that holds
     -- aihc-base. The other fixtures get the smaller store, which is faster
     -- to copy.
@@ -445,6 +450,7 @@ instance FromJSON InstallFixture where
           <*> obj .:? "immutable" .!= False
           <*> obj .:? "no-code" .!= True
           <*> obj .:? "check-reinstall" .!= False
+          <*> (Map.toList <$> obj .:? "environment" .!= Map.empty)
           <*> obj .:? "needs-base" .!= False
       else fail "install fixtures require pass status"
 
@@ -465,7 +471,7 @@ testInstallFixtures getPrimStore getCoreStore = do
               { installImmutable = installFixtureImmutable fixture,
                 installNoCode = installFixtureNoCode fixture
               }
-      outcome <- try $ do
+      outcome <- try $ withEnvironment (installFixtureEnvironment fixture) $ do
         first <- install options
         if installFixtureReinstall fixture
           then install options {installReinstall = True}
@@ -482,6 +488,15 @@ testInstallFixtures getPrimStore getCoreStore = do
               let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
               forM_ expected $ \constructor ->
                 assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
+
+-- | Run an action with the variables set in the process environment, and
+-- put back what each held before.
+withEnvironment :: [(String, String)] -> IO a -> IO a
+withEnvironment variables action =
+  bracket
+    (mapM (\(name, value) -> (,) name <$> lookupEnv name <* setEnv name value) variables)
+    (mapM_ (\(name, previous) -> maybe (unsetEnv name) (setEnv name) previous))
+    (const action)
 
 test_parsePackageTarget :: Assertion
 test_parsePackageTarget = do
@@ -526,6 +541,7 @@ withBuildModuleSandbox getStore prefix action = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Just (sandboxRoot sandbox </> "program"),
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     action sandbox fixtureRoot storeRoot options
@@ -838,6 +854,7 @@ withBuildPackageSandbox getStore prefix action = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Nothing,
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     action sandbox buildRoot options
@@ -876,6 +893,23 @@ test_buildExecutables getStore =
     bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
     assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArchives bundle))
 
+-- | Two dependencies can each hold a module of one name, as @filepath@ and
+-- @os-string@ both hold @System.OsString.Internal.Types@. The facts of both
+-- modules reach the type checker, so the executable derives one instance
+-- for each of the two types and the lint finds one definition of each.
+test_buildSharedModuleName :: IO SeedStore -> Assertion
+test_buildSharedModuleName getStore =
+  withBuildPackageSandbox getStore "aihc-build-shared-module-name" $ \_ buildRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/shared-module-name"
+    workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/workspace"
+    let binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget options) </> "bin"
+    outputs <- build options {buildInput = fixtureRoot, buildWorkspace = Just workspace, buildLint = True}
+    assertEqual "built executables" [binDirectory </> "shared"] outputs
+    (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> "shared") [] ""
+    assertEqual "shared exit status" ExitSuccess status
+    assertEqual "shared stdout" "2\n21\n" stdout
+    assertEqual "shared stderr" "" stderr
+
 -- A package with @cxx-sources@ compiles them as C++ with its
 -- @cxx-options@, records in its manifest that its objects need the C++
 -- standard library, and an executable that links the package links that
@@ -909,6 +943,7 @@ test_buildCxxSources getStore = do
               buildNoLink = False,
               buildVerbose = False,
               buildOutput = Nothing,
+              buildExecutables = [],
               buildPlanOptions = defaultPlanOptions
             }
     outputs <- build options

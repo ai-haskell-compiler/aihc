@@ -1,0 +1,25 @@
+extensions:
+- DataKinds
+- FlexibleContexts
+- FlexibleInstances
+- KindSignatures
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE PolyKinds, StandaloneKindSignatures #-}
+  module GHC.TypeError where
+  import GHC.Types (Symbol, Type)
+  type ErrorMessage :: Type
+  data ErrorMessage = Text Symbol
+  type TypeError :: forall b. ErrorMessage -> b
+  type family TypeError a where
+- |
+  module Test where
+  import GHC.TypeError (ErrorMessage (..), TypeError)
+  import GHC.Types (Symbol)
+  -- As Utils.Containers.Internal.TypeError of containers declares it.
+  class Whoops (a :: Symbol)
+  instance TypeError ('Text a) => Whoops a
+status: pass
+reason: A TypeError in an instance context is a stuck constraint. Its context dictionary binder takes the Constraint kind argument from the predicate, not from the bare type.

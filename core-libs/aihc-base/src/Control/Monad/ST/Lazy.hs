@@ -10,10 +10,15 @@ module Control.Monad.ST.Lazy
     runST,
     strictToLazyST,
     lazyToStrictST,
+    RealWorld,
+    stToIO,
   )
 where
 
 import GHC.Base (Applicative (..), Functor (..), Monad (..))
+import GHC.IO (IO)
+import GHC.IO qualified as Strict (stToIO)
+import GHC.Prim (RealWorld)
 import GHC.ST qualified as Strict
 
 newtype ST s a = ST (Strict.ST s a)
@@ -30,3 +35,7 @@ strictToLazyST = ST
 -- | Convert a lazy 'ST' action to a strict 'Strict.ST' action.
 lazyToStrictST :: ST s a -> Strict.ST s a
 lazyToStrictST (ST action) = action
+
+-- | Run a lazy state thread in the 'IO' monad.
+stToIO :: ST RealWorld a -> IO a
+stToIO (ST action) = Strict.stToIO action

@@ -19,23 +19,30 @@ isCoercibleClass constructor = do
 
 -- | Use nominal arguments unless a container has a known representation role.
 -- Unknown outer types wait for other constraints.
-solveCoercible :: TcType -> TcType -> TcM Bool
-solveCoercible = go [] False
+--
+-- A @Coercible@ given solves the pair it names at any representational
+-- position, so @Coercible b c@ also solves @Coercible (a -> b) (a -> c)@.
+solveCoercible :: TyCon -> [Pred] -> TcType -> TcType -> TcM Bool
+solveCoercible coercibleClass givens wantedLeft wantedRight = do
+  edges <- mapM normalizeEdge [(left, right) | ClassPred className [left, right] <- givens, className == coercibleClass]
+  go edges [] False wantedLeft wantedRight
   where
-    go visited nested rawLeft rawRight = do
-      left <- zonkType rawLeft >>= reduceTypeFamilies
-      right <- zonkType rawRight >>= reduceTypeFamilies
-      if left == right
+    normalizeEdge (left, right) = (,) <$> normalize left <*> normalize right
+    normalize = reduceTypeFamilies <=< zonkType
+    go edges visited nested rawLeft rawRight = do
+      left <- normalize rawLeft
+      right <- normalize rawRight
+      if left == right || (left, right) `elem` edges || (right, left) `elem` edges
         then pure True
         else
           if length visited >= 100 || (left, right) `elem` visited
             then pure False
-            else shapes ((left, right) : visited) nested left right
-    shapes visited _ (TcFunTy a b) (TcFunTy c d) = do
-      argument <- go visited True a c
-      result <- go visited True b d
+            else shapes edges ((left, right) : visited) nested left right
+    shapes edges visited _ (TcFunTy a b) (TcFunTy c d) = do
+      argument <- go edges visited True a c
+      result <- go edges visited True b d
       pure (argument && result)
-    shapes visited nested leftType@(TcTyCon left args) rightType@(TcTyCon right args')
+    shapes edges visited nested leftType@(TcTyCon left args) rightType@(TcTyCon right args')
       | left == right,
         length args == length args' = do
           -- A data family has nominal parameters, but two of its
@@ -44,21 +51,21 @@ solveCoercible = go [] False
           family <- isDataFamily left
           unwrapped <- if family then unwrapEither leftType rightType else pure Nothing
           case unwrapped of
-            Just (leftInner, rightInner) -> go visited nested leftInner rightInner
+            Just (leftInner, rightInner) -> go edges visited nested leftInner rightInner
             Nothing ->
               and
                 <$> sequence
                   [ do
                       representational <- representationParameter [] left index
-                      if representational then go visited True argument argument' else nominal argument argument'
+                      if representational then go edges visited True argument argument' else nominal argument argument'
                   | (index, (argument, argument')) <- zip [0 ..] (zip args args')
                   ]
-    shapes visited nested left right = do
+    shapes edges visited nested left right = do
       leftRepresentation <- representation left
       rightRepresentation <- representation right
       case (leftRepresentation, rightRepresentation) of
-        (Just inner, _) -> go visited nested inner right
-        (_, Just inner) -> go visited nested left inner
+        (Just inner, _) -> go edges visited nested inner right
+        (_, Just inner) -> go edges visited nested left inner
         _
           | nested -> nominal left right
           | otherwise -> pure False

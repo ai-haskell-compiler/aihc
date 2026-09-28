@@ -9,6 +9,7 @@ module Aihc.Fc.Convert
     withTyVars,
     withKindEnv,
     withClassTyCons,
+    convertNestedType,
     withSynonymTyCons,
     withExportedNames,
     exportedVis,
@@ -254,11 +255,7 @@ convertTypeWithExpectedKind env expectedKind ty =
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
     TcTyCon tyCon [left, right]
       | Tc.isEqualityTyCon (ceKinds env) tyCon -> convertPred env (EqPred left right)
-    TcTyCon tyCon arguments -> do
-      kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
-      argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
-      converted <- zipWithM (convertTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
-      pure (foldl TyApp (TyCon (tyConNameFc env tyCon)) (kindArgs <> converted))
+    TcTyCon tyCon arguments -> convertTyConApplication env expectedKind tyCon arguments
     -- The type checker recorded the kind arguments of a bare constructor,
     -- because no visible argument tells them.
     TcKindedTyCon tyCon kindArguments -> do
@@ -279,10 +276,38 @@ convertTypeWithExpectedKind env expectedKind ty =
       convertedBody <- convertType env body
       pure (evidenceArrows env body convertedPredicates convertedBody)
     TcAppTy function argument ->
-      TyApp <$> convertType env function <*> convertType env argument
+      TyApp <$> convertNestedType env function <*> convertNestedType env argument
     -- A saturated arrow is 'TcFunTy'; only a partial one reaches here, and
     -- the desugarer names it as it names any other type constructor.
     TcArrowTy -> Right (TyCon (tyConNameFc env (kindsArrowTyCon (ceKinds env))))
+
+-- | Convert a saturated or partial application of a type constructor. The
+-- arguments are nested types.
+convertTyConApplication :: ConvertEnv -> Maybe TcType -> TyCon -> [TcType] -> Either String Type
+convertTyConApplication env expectedKind tyCon arguments = do
+  kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
+  argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
+  converted <- zipWithM (convertNestedTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
+  pure (foldl TyApp (TyCon (tyConNameFc env tyCon)) (kindArgs <> converted))
+
+-- | Convert a type that stands inside another type: an argument of a
+-- type constructor, or the right-hand side of a family equation.
+--
+-- At the top of a context @a ~ b@ is a coercion, whose evidence is erased
+-- to the empty unboxed tuple. Inside a type it is a value of kind
+-- 'Constraint', which erases to 'Type', and a lifted value of that type
+-- is the dictionary of the class @~@: a family equation such as
+-- @NatWithinBound ty n = If (...) (() ~ ()) (TypeError ...)@ reduces to
+-- that dictionary type, and the solver builds the dictionary.
+convertNestedType :: ConvertEnv -> TcType -> Either String Type
+convertNestedType env = convertNestedTypeWithExpectedKind env Nothing
+
+convertNestedTypeWithExpectedKind :: ConvertEnv -> Maybe TcType -> TcType -> Either String Type
+convertNestedTypeWithExpectedKind env expectedKind ty =
+  case ty of
+    TcTyCon tyCon arguments@[_, _]
+      | Tc.isEqualityTyCon (ceKinds env) tyCon -> convertTyConApplication env expectedKind tyCon arguments
+    _ -> convertTypeWithExpectedKind env expectedKind ty
 
 -- | A type-level literal keeps its value across the boundary; the two
 -- representations differ only in which module declares them.

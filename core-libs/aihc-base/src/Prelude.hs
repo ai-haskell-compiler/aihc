@@ -157,6 +157,7 @@ where
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
+import Data.Proxy (Proxy (..))
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, map, ($), (++), (.))
 import GHC.Base qualified
@@ -199,7 +200,7 @@ import GHC.Real
     (^^),
   )
 import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
-import GHC.Tuple ()
+import GHC.Tuple (Solo (..))
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
 
@@ -489,6 +490,15 @@ instance (Ord a, Ord b) => Ord (Either a b) where
   max = maxBy compareEither
   min = minBy compareEither
 
+instance (Ord a) => Ord (Solo a) where
+  compare = compareSolo
+  left < right = lessBy compareSolo left right
+  left <= right = lessOrEqualBy compareSolo left right
+  left > right = greaterBy compareSolo left right
+  left >= right = greaterOrEqualBy compareSolo left right
+  max = maxBy compareSolo
+  min = minBy compareSolo
+
 instance (Ord a, Ord b) => Ord (a, b) where
   compare = comparePair
   left < right = lessBy comparePair left right
@@ -506,6 +516,42 @@ instance (Ord a, Ord b, Ord c) => Ord (a, b, c) where
   left >= right = greaterOrEqualBy compareTriple left right
   max = maxBy compareTriple
   min = minBy compareTriple
+
+instance (Ord a, Ord b, Ord c, Ord d) => Ord (a, b, c, d) where
+  compare = compareQuadruple
+  left < right = lessBy compareQuadruple left right
+  left <= right = lessOrEqualBy compareQuadruple left right
+  left > right = greaterBy compareQuadruple left right
+  left >= right = greaterOrEqualBy compareQuadruple left right
+  max = maxBy compareQuadruple
+  min = minBy compareQuadruple
+
+instance (Ord a, Ord b, Ord c, Ord d, Ord e) => Ord (a, b, c, d, e) where
+  compare = compareQuintuple
+  left < right = lessBy compareQuintuple left right
+  left <= right = lessOrEqualBy compareQuintuple left right
+  left > right = greaterBy compareQuintuple left right
+  left >= right = greaterOrEqualBy compareQuintuple left right
+  max = maxBy compareQuintuple
+  min = minBy compareQuintuple
+
+instance (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f) => Ord (a, b, c, d, e, f) where
+  compare = compareSextuple
+  left < right = lessBy compareSextuple left right
+  left <= right = lessOrEqualBy compareSextuple left right
+  left > right = greaterBy compareSextuple left right
+  left >= right = greaterOrEqualBy compareSextuple left right
+  max = maxBy compareSextuple
+  min = minBy compareSextuple
+
+instance (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f, Ord g) => Ord (a, b, c, d, e, f, g) where
+  compare = compareSeptuple
+  left < right = lessBy compareSeptuple left right
+  left <= right = lessOrEqualBy compareSeptuple left right
+  left > right = greaterBy compareSeptuple left right
+  left >= right = greaterOrEqualBy compareSeptuple left right
+  max = maxBy compareSeptuple
+  min = minBy compareSeptuple
 
 compareList :: (Ord a) => [a] -> [a] -> Ordering
 compareList [] [] = EQ
@@ -529,6 +575,9 @@ compareEither (Left _) (Right _) = LT
 compareEither (Right _) (Left _) = GT
 compareEither (Right x) (Right y) = compare x y
 
+compareSolo :: (Ord a) => Solo a -> Solo a -> Ordering
+compareSolo (MkSolo left) (MkSolo right) = compare left right
+
 comparePair :: (Ord a, Ord b) => (a, b) -> (a, b) -> Ordering
 comparePair (leftA, leftB) (rightA, rightB) =
   case compare leftA rightA of
@@ -543,6 +592,47 @@ compareTriple (leftA, leftB, leftC) (rightA, rightB, rightC) =
         EQ -> compare leftC rightC
         result -> result
     result -> result
+
+infixr 9 `thenCompare`
+
+-- | Use the second comparison only when the first one is 'EQ'.
+thenCompare :: Ordering -> Ordering -> Ordering
+thenCompare EQ next = next
+thenCompare result _ = result
+
+compareQuadruple :: (Ord a, Ord b, Ord c, Ord d) => (a, b, c, d) -> (a, b, c, d) -> Ordering
+compareQuadruple (leftA, leftB, leftC, leftD) (rightA, rightB, rightC, rightD) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+
+compareQuintuple :: (Ord a, Ord b, Ord c, Ord d, Ord e) => (a, b, c, d, e) -> (a, b, c, d, e) -> Ordering
+compareQuintuple (leftA, leftB, leftC, leftD, leftE) (rightA, rightB, rightC, rightD, rightE) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+    `thenCompare` compare leftE rightE
+
+compareSextuple :: (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f) => (a, b, c, d, e, f) -> (a, b, c, d, e, f) -> Ordering
+compareSextuple (leftA, leftB, leftC, leftD, leftE, leftF) (rightA, rightB, rightC, rightD, rightE, rightF) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+    `thenCompare` compare leftE rightE
+    `thenCompare` compare leftF rightF
+
+compareSeptuple :: (Ord a, Ord b, Ord c, Ord d, Ord e, Ord f, Ord g) => (a, b, c, d, e, f, g) -> (a, b, c, d, e, f, g) -> Ordering
+compareSeptuple (leftA, leftB, leftC, leftD, leftE, leftF, leftG) (rightA, rightB, rightC, rightD, rightE, rightF, rightG) =
+  compare leftA rightA
+    `thenCompare` compare leftB rightB
+    `thenCompare` compare leftC rightC
+    `thenCompare` compare leftD rightD
+    `thenCompare` compare leftE rightE
+    `thenCompare` compare leftF rightF
+    `thenCompare` compare leftG rightG
 
 lessBy :: (a -> a -> Ordering) -> a -> a -> Bool
 lessBy cmp x y =
@@ -599,6 +689,13 @@ instance (Show a, Show b) => Show (Either a b) where
   showsPrec precedence (Right value) =
     showParen (precedence > 10) (showString "Right " . showsPrec 11 value)
 
+instance (Show a) => Show (Solo a) where
+  showsPrec precedence (MkSolo value) =
+    showParen (precedence > 10) (showString "MkSolo " . showsPrec 11 value)
+
+instance Show (Proxy s) where
+  showsPrec _ _ = showString "Proxy"
+
 instance (Show a, Show b) => Show (a, b) where
   showsPrec _ (first, second) =
     showChar '(' . shows first . showChar ',' . shows second . showChar ')'
@@ -611,6 +708,66 @@ instance (Show a, Show b, Show c) => Show (a, b, c) where
       . shows second
       . showChar ','
       . shows third
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d) => Show (a, b, c, d) where
+  showsPrec _ (first, second, third, fourth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e) => Show (a, b, c, d, e) where
+  showsPrec _ (first, second, third, fourth, fifth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f) => Show (a, b, c, d, e, f) where
+  showsPrec _ (first, second, third, fourth, fifth, sixth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ','
+      . shows sixth
+      . showChar ')'
+
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g) => Show (a, b, c, d, e, f, g) where
+  showsPrec _ (first, second, third, fourth, fifth, sixth, seventh) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ','
+      . shows sixth
+      . showChar ','
+      . shows seventh
       . showChar ')'
 
 showLitString :: String -> ShowS
@@ -774,6 +931,29 @@ instance Functor (Either e) where
 
 instance Functor ((,) a) where
   fmap f (first, second) = (first, f second)
+
+instance Functor Solo where
+  fmap f (MkSolo value) = MkSolo (f value)
+
+instance Applicative Solo where
+  pure = MkSolo
+  MkSolo f <*> MkSolo value = MkSolo (f value)
+
+instance Monad Solo where
+  MkSolo value >>= next = next value
+
+instance Traversable Solo where
+  traverse f (MkSolo value) = fmap MkSolo (f value)
+
+instance Applicative Proxy where
+  pure _ = Proxy
+  _ <*> _ = Proxy
+
+instance Monad Proxy where
+  _ >>= _ = Proxy
+
+instance Traversable Proxy where
+  traverse _ _ = pure Proxy
 
 instance (Monoid a) => Applicative ((,) a) where
   pure value = (mempty, value)

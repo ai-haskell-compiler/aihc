@@ -1,0 +1,38 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleInstances, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE, Type, Int)
+  newtype TExp a = TExp Int
+          │        └─ type: ∀ k0 a. GHC.Types.Int → TExp a
+          └─ type: k0 → Type
+  newtype Code m a = Code (m (TExp a))
+          │          └─ type: ∀ k0 m a. m (TExp a) → Code m a
+          └─ type: (Type → Type) → k0 → Type
+  data Q a = Q a
+       │     └─ type: ∀ a. a → Q a
+       └─ type: Type → Type
+  class IsCode q a c where
+  └─ class methods: toCode ∷ ∀ q a c. (IsCode q a c) ⇒ c → Code q a
+    toCode   :: c -> Code q a
+  instance texp ~ TExp a => IsCode Q a (Q texp) where
+  └─ $fIsCodeQaQtexp ∷ ∀ texp a. (texp ~ (TExp a)) ⇒ IsCode Q a (Q texp)
+    toCode   = Code
+    │          └─ type: Q (TExp a) → Code Q a; type-args: Type, Q, a
+    └─ toCode ∷ Q texp → Code Q a
+  
+extensions: [DataKinds, KindSignatures, FlexibleInstances, MultiParamTypeClasses, PolyKinds, TypeOperators, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE FlexibleInstances, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE, Type, Int)
+  newtype TExp a = TExp Int
+  newtype Code m a = Code (m (TExp a))
+  data Q a = Q a
+  class IsCode q a c where
+    toCode   :: c -> Code q a
+  instance texp ~ TExp a => IsCode Q a (Q texp) where
+    toCode   = Code
+reason: an instance context equality between a rigid variable and a type with another variable rewrites a wanted that still holds a meta variable (th-compat)
+status: pass

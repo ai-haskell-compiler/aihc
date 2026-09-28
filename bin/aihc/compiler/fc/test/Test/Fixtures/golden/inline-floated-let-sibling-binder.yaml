@@ -1,0 +1,168 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (run, other) where
+
+  import GHC.Prim (Int#, RealWorld, State#, (+#))
+  import GHC.Types (Int (..))
+
+  newtype Eff a = Eff (State# RealWorld -> a)
+
+  message :: Int -> Int
+  message n = case n of I# raw -> I# (raw +# 1#)
+  {-# NOINLINE message #-}
+
+  -- A class method, so eta expansion does not see its state lambda. The
+  -- growing pass copies the instance method, and the shrinking pass does
+  -- not.
+  class Guard f where
+    guard :: Int -> Int -> Int -> f Int
+
+  instance Guard Eff where
+    guard limit location n = Eff (\s -> case n of
+      I# 0# -> location
+      I# 1# -> message location
+      _ -> limit)
+    {-# INLINE [1] guard #-}
+
+  -- The location has two uses, so its let stays.
+  twice :: Int -> Int -> Eff Int
+  twice limit location = guard limit location location
+
+  -- Point-free, so eta expansion names its parameter 'eta'.
+  failWith :: Int -> Eff Int
+  failWith = twice (I# 5#)
+
+  -- The shrinking pass copies this into 'run': the action becomes a let
+  -- beside the lambda binder 'eta', and its right-hand side holds the let
+  -- named 'eta' of the location.
+  wrap :: Eff Int -> Eff Int
+  wrap action = Eff (\eta -> case action of Eff f -> f eta)
+
+  -- Opaque, so 'run' takes no state token of its own.
+  keep :: Eff Int -> Eff Int
+  keep action = action
+  {-# NOINLINE keep #-}
+
+  run :: Int -> Eff Int
+  run n = keep (wrap (failWith (message n)))
+
+  other :: Int -> Eff Int
+  other n = guard n n n
+passes:
+- eta
+- inline: shrink
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    2.tRealWorld :: 3.sType;
+    3.tRuntimeRep :: 3.sType;
+    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tEff (a : 3.sType) :: 3.sType {}
+
+  axiom 1.$ax$Eff (a : 3.sType) : 1.tEff a ~R FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (2.tState# 2.tRealWorld) a
+
+  type 1.t$Dict$Guard (f : 3.sType 3.→ 3.sType) :: 3.sType {
+      1.c$Dict$Guard :: ∀(f : 3.sType 3.→ 3.sType). (3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ f 3.tInt) 3.→ 1.t$Dict$Guard f
+  }
+
+  pub val 1.v$fGuardEff :: 1.t$Dict$Guard 1.tEff
+   = 1.c$Dict$Guard @1.tEff 1.v$fGuardEff$cguard
+
+  val 1.v$fGuardEff$cguard inline [1] :: 3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ 1.tEff 3.tInt
+   = λ(x : 3.tInt).
+    λ(y : 3.tInt).
+      λ(z : 3.tInt).
+        (λ(s : 2.tState# 2.tRealWorld).
+          case z as (_scrut : 3.tInt) return (3.tInt) of {
+              3.cI# (_pat : 2.tInt#) →
+                  case _pat as (_scrut{1} : 2.tInt#) return (3.tInt) of {
+                      0#3.cIntRep →
+                          y;
+                      1#3.cIntRep →
+                          1.vmessage y;
+                      _ →
+                          x
+                  };
+              _ →
+                  x
+          }) ▷ sym (axiom-co 1.$ax$Eff @3.tInt)
+
+  val 1.vmessage noinline :: 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt).
+    case x as (_scrut : 3.tInt) return (3.tInt) of {
+        3.cI# (raw : 2.tInt#) →
+            3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} raw 1#3.cIntRep)
+    }
+
+  val 1.vkeep noinline :: 1.tEff 3.tInt 3.→ 1.tEff 3.tInt
+   = λ(x : 1.tEff 3.tInt).
+    x
+
+  pub val 1.vrun :: 3.tInt 3.→ 1.tEff 3.tInt
+   = λ(x : 3.tInt).
+    1.vkeep (let {
+        eta : 3.tInt =
+            1.vmessage x
+    } in
+        let {
+            x{1} : 3.tInt =
+                3.cI# 5#3.cIntRep
+        } in
+            (λ(eta{1} : 2.tState# 2.tRealWorld).
+              case eta as (_scrut : 3.tInt) return (3.tInt) of {
+                  3.cI# (_pat : 2.tInt#) →
+                      case _pat as (_scrut{1} : 2.tInt#) return (3.tInt) of {
+                          0#3.cIntRep →
+                              eta;
+                          1#3.cIntRep →
+                              1.vmessage eta;
+                          _ →
+                              x{1}
+                      };
+                  _ →
+                      x{1}
+              }) ▷ sym (axiom-co 1.$ax$Eff @3.tInt))
+
+  pub val 1.vother :: 3.tInt 3.→ 1.tEff 3.tInt
+   = λ(x : 3.tInt).
+    (λ(s : 2.tState# 2.tRealWorld).
+      case x as (_scrut : 3.tInt) return (3.tInt) of {
+          3.cI# (_pat : 2.tInt#) →
+              case _pat as (_scrut{1} : 2.tInt#) return (3.tInt) of {
+                  0#3.cIntRep →
+                      x;
+                  1#3.cIntRep →
+                      1.vmessage x;
+                  _ →
+                      x
+              };
+          _ →
+              _scrut
+      }) ▷ sym (axiom-co 1.$ax$Eff @3.tInt)
+status: pass
+reason: The growing pass copies guard into the action, which turns its right-hand side into a lambda under the let named eta, and floats that let out over the body. The action then moves to its one call under the lambda binder named eta. The floated binder gets a fresh name first, so the location still names the floated binding and not the state token.

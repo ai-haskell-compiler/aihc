@@ -1,0 +1,18 @@
+; expect: 176, 171, 3, 0, 6, 15, 3, 4
+; Parallel bit deposit and extract. A deposit scatters the low bits of the
+; source to the set bits of the mask; an extract gathers the source bits at
+; the set bits of the mask into the low bits. A narrow mask keeps the result
+; in the width of the type.
+
+func @main() -> (i64, i64, i64, i64, i8, i8, i16, i32) {
+entry:
+  %deposit = pdep i64 11, 61680
+  %extract = pext i64 41136, 61680
+  %ends = pext i64 -1, -9223372036854775807
+  %empty = pdep i64 -1, 0
+  %narrow_deposit = pdep i8 3, 6
+  %narrow_extract = pext i8 255, 15
+  %half = pext i16 12, 12
+  %word = pdep i32 1, 4
+  return %deposit, %extract, %ends, %empty, %narrow_deposit, %narrow_extract, %half, %word
+}

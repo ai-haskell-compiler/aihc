@@ -13,7 +13,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Congruence (proveGivenEquality)
+import Aihc.Tc.Solve.Congruence (applyGivenSubst, givenEqualities, proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
@@ -51,7 +51,52 @@ solveEquality :: Ct -> TcM EqResult
 solveEquality ct = do
   givens <- getGivenPredicates
   proved <- solveGivenEquality givens ct
-  if proved then pure EqSolved else solveWithoutGivens ct
+  if proved then pure EqSolved else solveRewrittenByGivens givens ct
+
+-- | A wanted that still holds a meta variable cannot be proved from the
+-- givens as it stands: with the given @texp ~ TExp a@, the wanted
+-- @TExp t0 ~ texp@ is only provable once @t0@ is @a@. Rewriting the
+-- wanted through the givens that fix a rigid variable gives
+-- @TExp t0 ~ TExp a@, whose solution binds @t0@. The evidence for the
+-- original wanted then comes from the givens, so the rewritten copy is
+-- solved under an evidence variable that nothing reads.
+solveRewrittenByGivens :: [Pred] -> Ct -> TcM EqResult
+solveRewrittenByGivens givens ct = case ctPred ct of
+  EqPred left right | not (null givens) -> do
+    left' <- zonkType left
+    right' <- zonkType right
+    equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) givens
+    substitution <- concat <$> mapM orient equalities
+    let rewrittenLeft = applyGivenSubst substitution left'
+        rewrittenRight = applyGivenSubst substitution right'
+    if null substitution || (sameType rewrittenLeft left' && sameType rewrittenRight right')
+      then solveWithoutGivens ct
+      else do
+        scratch <- freshEvVar
+        result <- solveWithoutGivens ct {ctPred = EqPred rewrittenLeft rewrittenRight, ctEvVar = scratch}
+        case result of
+          EqSolved -> do
+            proved <- solveGivenEquality givens ct
+            pure (if proved then EqSolved else EqError ct)
+          EqStuck _ -> pure (EqStuck ct)
+          EqError _ -> pure (EqError ct)
+  _ -> solveWithoutGivens ct
+  where
+    -- A rigid variable equal to a family application names that
+    -- application: with the given @Sub n m ~ d@ the wanted @Proxy t0 ~
+    -- Proxy d@ must bind @t0@ to @d@, not to @Sub n m@, so that the given
+    -- @KnownNat d@ still solves the wanted @KnownNat t0@. So the family
+    -- application rewrites to the variable, the way every other given
+    -- rewrites a family application to its other side.
+    orient (a, b, _) = do
+      aIsFamily <- isTypeFamilyApplication a
+      bIsFamily <- isTypeFamilyApplication b
+      pure $ case (a, b) of
+        (TcTyVar tyVar, _)
+          | not (typeMentionsTyVar tyVar b) -> if bIsFamily then [(b, a)] else [(a, b)]
+        (_, TcTyVar tyVar)
+          | not (typeMentionsTyVar tyVar a) -> if aIsFamily then [(a, b)] else [(b, a)]
+        _ -> []
 
 solveWithoutGivens :: Ct -> TcM EqResult
 solveWithoutGivens ct = case ctPred ct of

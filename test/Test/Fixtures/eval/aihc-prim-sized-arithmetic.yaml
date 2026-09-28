@@ -1,0 +1,38 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int Int Int Int Int Int
+
+    -- The carry, times 1000, plus the low word.
+    plusWord2Sum :: Word# -> Word# -> Int
+    plusWord2Sum a b =
+      case plusWord2# a b of
+        (# high, low #) -> I# (word2Int# (plusWord# (timesWord# high 1000##) low))
+
+    results :: Results
+    results =
+      Results
+        (I# (word2Int# (word8ToWord# (plusWord8# (wordToWord8# 200##) (wordToWord8# 100##)))))
+        (I# (word2Int# (word8ToWord# (subWord8# (wordToWord8# 5##) (wordToWord8# 10##)))))
+        (I# (word2Int# (word16ToWord# (timesWord16# (wordToWord16# 300##) (wordToWord16# 300##)))))
+        (I# (int8ToInt# (plusInt8# (intToInt8# 100#) (intToInt8# 100#))))
+        (I# (int8ToInt# (subInt8# (intToInt8# (negateInt# 100#)) (intToInt8# 100#))))
+        (I# (int16ToInt# (timesInt16# (intToInt16# 300#) (intToInt16# 300#))))
+        (I# (int32ToInt# (plusInt32# (intToInt32# 2147483647#) (intToInt32# 1#))))
+        (plusWord2Sum 18446744073709551615## 1##)
+        (plusWord2Sum 5## 7##)
+        (I# (int64ToInt# (word64ToInt64# (wordToWord64# 18446744073709551615##))))
+        (I# (eqWord64# (int64ToWord64# (intToInt64# (negateInt# 1#))) (wordToWord64# 18446744073709551615##)))
+output: |
+  Results (I# 44) (I# 251) (I# 24464) (I# -56) (I# 56) (I# 24464) (I# -2147483648) (I# 1000) (I# 12) (I# -1) (I# 1)
+expression: |
+  results
+status: pass
+reason: sized arithmetic wraps at its width, plusWord2# gives the carry first, and the 64-bit sign conversions keep the bits

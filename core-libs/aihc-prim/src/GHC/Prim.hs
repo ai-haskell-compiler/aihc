@@ -169,6 +169,7 @@ module GHC.Prim
     newPinnedByteArray#,
     noDuplicate#,
     not#,
+    notI#,
     ord#,
     or#,
     orWord8#,
@@ -176,6 +177,9 @@ module GHC.Prim
     orWord32#,
     plusWord#,
     popCnt#,
+    bitReverse#,
+    pdep#,
+    pext#,
     quotRemWord#,
     quotRemWord2#,
     quotWord#,
@@ -367,6 +371,39 @@ module GHC.Prim
     int32ToInt#,
     intToInt64#,
     int64ToInt#,
+    plusWord8#,
+    subWord8#,
+    timesWord8#,
+    plusWord16#,
+    subWord16#,
+    timesWord16#,
+    plusWord32#,
+    subWord32#,
+    timesWord32#,
+    plusInt8#,
+    subInt8#,
+    timesInt8#,
+    plusInt16#,
+    subInt16#,
+    timesInt16#,
+    plusInt32#,
+    subInt32#,
+    timesInt32#,
+    word64ToInt64#,
+    int64ToWord64#,
+    plusWord2#,
+    popCnt8#,
+    popCnt16#,
+    popCnt32#,
+    popCnt64#,
+    clz8#,
+    clz16#,
+    clz32#,
+    clz64#,
+    ctz8#,
+    ctz16#,
+    ctz32#,
+    ctz64#,
     plusFloat#,
     minusFloat#,
     timesFloat#,
@@ -392,8 +429,11 @@ module GHC.Prim
     int2Float#,
     float2Int#,
     gtFloat#,
+    geFloat#,
     ltFloat#,
+    leFloat#,
     eqFloat#,
+    neFloat#,
     (+##),
     (-##),
     (*##),
@@ -419,8 +459,11 @@ module GHC.Prim
     int2Double#,
     double2Int#,
     (>##),
+    (>=##),
     (<##),
+    (<=##),
     (==##),
+    (/=##),
     ctz#,
     eqWord#,
     geWord#,
@@ -547,7 +590,7 @@ data Proxy# (a :: k)
 
 foreign import prim proxy# :: forall k (a :: k). Proxy# a
 
-foreign import prim reallyUnsafePtrEquality# :: a -> b -> Int#
+foreign import prim reallyUnsafePtrEquality# :: forall {l :: Levity} {k :: Levity} (a :: TYPE ('BoxedRep l)) (b :: TYPE ('BoxedRep k)). a -> b -> Int#
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 
@@ -706,6 +749,8 @@ foreign import prim xorWord32# :: Word32# -> Word32# -> Word32#
 
 foreign import prim not# :: Word# -> Word#
 
+foreign import prim notI# :: Int# -> Int#
+
 foreign import prim uncheckedShiftL# :: Word# -> Int# -> Word#
 
 foreign import prim uncheckedShiftRL# :: Word# -> Int# -> Word#
@@ -764,6 +809,72 @@ foreign import prim intToInt64# :: Int# -> Int64#
 
 foreign import prim int64ToInt# :: Int64# -> Int#
 
+foreign import prim plusWord8# :: Word8# -> Word8# -> Word8#
+
+foreign import prim subWord8# :: Word8# -> Word8# -> Word8#
+
+foreign import prim timesWord8# :: Word8# -> Word8# -> Word8#
+
+foreign import prim plusWord16# :: Word16# -> Word16# -> Word16#
+
+foreign import prim subWord16# :: Word16# -> Word16# -> Word16#
+
+foreign import prim timesWord16# :: Word16# -> Word16# -> Word16#
+
+foreign import prim plusWord32# :: Word32# -> Word32# -> Word32#
+
+foreign import prim subWord32# :: Word32# -> Word32# -> Word32#
+
+foreign import prim timesWord32# :: Word32# -> Word32# -> Word32#
+
+foreign import prim plusInt8# :: Int8# -> Int8# -> Int8#
+
+foreign import prim subInt8# :: Int8# -> Int8# -> Int8#
+
+foreign import prim timesInt8# :: Int8# -> Int8# -> Int8#
+
+foreign import prim plusInt16# :: Int16# -> Int16# -> Int16#
+
+foreign import prim subInt16# :: Int16# -> Int16# -> Int16#
+
+foreign import prim timesInt16# :: Int16# -> Int16# -> Int16#
+
+foreign import prim plusInt32# :: Int32# -> Int32# -> Int32#
+
+foreign import prim subInt32# :: Int32# -> Int32# -> Int32#
+
+foreign import prim timesInt32# :: Int32# -> Int32# -> Int32#
+
+foreign import prim word64ToInt64# :: Word64# -> Int64#
+
+foreign import prim int64ToWord64# :: Int64# -> Word64#
+
+foreign import prim plusWord2# :: Word# -> Word# -> (# Word#, Word# #)
+
+foreign import prim popCnt8# :: Word# -> Word#
+
+foreign import prim popCnt16# :: Word# -> Word#
+
+foreign import prim popCnt32# :: Word# -> Word#
+
+foreign import prim popCnt64# :: Word64# -> Word#
+
+foreign import prim clz8# :: Word# -> Word#
+
+foreign import prim clz16# :: Word# -> Word#
+
+foreign import prim clz32# :: Word# -> Word#
+
+foreign import prim clz64# :: Word64# -> Word#
+
+foreign import prim ctz8# :: Word# -> Word#
+
+foreign import prim ctz16# :: Word# -> Word#
+
+foreign import prim ctz32# :: Word# -> Word#
+
+foreign import prim ctz64# :: Word64# -> Word#
+
 foreign import prim plusFloat# :: Float# -> Float# -> Float#
 
 foreign import prim minusFloat# :: Float# -> Float# -> Float#
@@ -814,9 +925,15 @@ foreign import prim float2Int# :: Float# -> Int#
 
 foreign import prim gtFloat# :: Float# -> Float# -> Int#
 
+foreign import prim geFloat# :: Float# -> Float# -> Int#
+
 foreign import prim ltFloat# :: Float# -> Float# -> Int#
 
+foreign import prim leFloat# :: Float# -> Float# -> Int#
+
 foreign import prim eqFloat# :: Float# -> Float# -> Int#
+
+foreign import prim neFloat# :: Float# -> Float# -> Int#
 
 foreign import prim (+##) :: Double# -> Double# -> Double#
 
@@ -834,9 +951,15 @@ foreign import prim double2Int# :: Double# -> Int#
 
 foreign import prim (>##) :: Double# -> Double# -> Int#
 
+foreign import prim (>=##) :: Double# -> Double# -> Int#
+
 foreign import prim (<##) :: Double# -> Double# -> Int#
 
+foreign import prim (<=##) :: Double# -> Double# -> Int#
+
 foreign import prim (==##) :: Double# -> Double# -> Int#
+
+foreign import prim (/=##) :: Double# -> Double# -> Int#
 
 foreign import prim sqrtDouble# :: Double# -> Double#
 
@@ -875,6 +998,12 @@ foreign import prim (**##) :: Double# -> Double# -> Double#
 foreign import prim ctz# :: Word# -> Word#
 
 foreign import prim popCnt# :: Word# -> Word#
+
+foreign import prim bitReverse# :: Word# -> Word#
+
+foreign import prim pdep# :: Word# -> Word# -> Word#
+
+foreign import prim pext# :: Word# -> Word# -> Word#
 
 foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
 

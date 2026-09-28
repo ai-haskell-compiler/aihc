@@ -55,11 +55,14 @@ module Aihc.Grin.Syntax
     grinNodeGlobalReferences,
     grinExprFunctionNames,
     grinNodeFunctionNames,
+    grinExprNodes,
     grinExprConstructorTags,
     grinNodeConstructorTags,
     grinValueRuntimeRep,
     grinVarNameNeedsNumber,
-    unusedFunctionName,
+    FunctionNames,
+    functionNamesFrom,
+    claimFunctionName,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
   )
@@ -426,14 +429,41 @@ data GrinLiteral
 -- | Every scope that the top-level names of one program come from, in a
 -- stable order. The printer gives each of them a number, and it prints a name
 -- from a numbered scope without its package and its module.
--- | The first name that is free, starting from @base@. A name that is in use
--- gets a number, so that no two functions of a program share a name.
-unusedFunctionName :: Text -> Set FunctionName -> FunctionName
-unusedFunctionName base used = search (FunctionName base) 2
+-- | The function names that are in use, and for each base name the first
+-- number that 'claimFunctionName' has not tried yet.
+data FunctionNames = FunctionNames
+  { functionNamesUsed :: !(Set FunctionName),
+    functionNamesNext :: !(Map.Map Text Int)
+  }
+
+-- | The names of a program's functions, before any name is claimed.
+functionNamesFrom :: Set FunctionName -> FunctionNames
+functionNamesFrom used = FunctionNames used Map.empty
+
+-- | Claim the first name that is free, starting from @base@. A name that is
+-- in use gets a number, so that no two functions of a program share a name.
+--
+-- The claimed names stay in use, so every number below the one claimed last
+-- for a base is still taken. The search for the next name of that base
+-- therefore starts after it. A module that names thousands of functions
+-- after one value would otherwise try every number again for each of them.
+claimFunctionName :: Text -> FunctionNames -> (FunctionName, FunctionNames)
+claimFunctionName base names
+  | Set.notMember (FunctionName base) used = (FunctionName base, names {functionNamesUsed = Set.insert (FunctionName base) used})
+  | otherwise = search (Map.findWithDefault 2 base (functionNamesNext names))
   where
-    search candidate index
-      | Set.member candidate used = search (FunctionName (base <> "_" <> T.pack (show index))) (index + 1 :: Int)
-      | otherwise = candidate
+    used = functionNamesUsed names
+    search index
+      | Set.member candidate used = search (index + 1)
+      | otherwise =
+          ( candidate,
+            FunctionNames
+              { functionNamesUsed = Set.insert candidate used,
+                functionNamesNext = Map.insert base (index + 1) (functionNamesNext names)
+              }
+          )
+      where
+        candidate = FunctionName (base <> "_" <> T.pack (show (index :: Int)))
 
 grinProgramScopes :: GrinProgram -> [GrinScope]
 grinProgramScopes program =
@@ -446,6 +476,15 @@ grinProgramScopes program =
         <> grinProgramGlobalReferences program
         <> concatMap (nodeTagNames . grinGlobalNode) (grinGlobals program)
         <> concatMap (exprTagNames . grinFunctionBody) (grinFunctions program)
+        <> map unFunctionName (grinProgramFunctionNames program)
+
+-- | Every function name of a program: the name of each function and each
+-- name that a global or a function body refers to.
+grinProgramFunctionNames :: GrinProgram -> [FunctionName]
+grinProgramFunctionNames program =
+  map grinFunctionName (grinFunctions program)
+    <> concatMap (grinNodeFunctionNames . grinGlobalNode) (grinGlobals program)
+    <> concatMap (grinExprFunctionNames . grinFunctionBody) (grinFunctions program)
 
 -- | The constructor tags that one expression names. Node tags and case
 -- alternatives are the only places that name a constructor.
@@ -596,6 +635,22 @@ grinExprFunctionNames = exprNames
         GrinStoreRecUnchecked bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
         GrinIfWhnf _ ready slow -> exprNames ready <> exprNames slow
         GrinCase _ _ alternatives -> concatMap (exprNames . grinAltRhs) alternatives
+        _ -> []
+
+-- | The nodes one expression builds: the node of every store, and the
+-- nodes of every recursive group.
+grinExprNodes :: GrinExpr -> [GrinNode]
+grinExprNodes = exprNodes
+  where
+    exprNodes expression =
+      case expression of
+        GrinBind _ valueExpression body -> exprNodes valueExpression <> exprNodes body
+        GrinStore node -> [node]
+        GrinStoreUnchecked node -> [node]
+        GrinStoreRec bindings body -> map snd bindings <> exprNodes body
+        GrinStoreRecUnchecked bindings body -> map snd bindings <> exprNodes body
+        GrinIfWhnf _ ready slow -> exprNodes ready <> exprNodes slow
+        GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
         _ -> []
 
 -- | The constructors one node names.

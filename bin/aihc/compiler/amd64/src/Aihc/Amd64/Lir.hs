@@ -11,11 +11,15 @@
 -- arguments of a jump are moved to their destinations at once, so a value
 -- the allocator already placed where the convention wants it costs nothing.
 --
--- The @aihc@ calling convention passes the first six arguments in @rdi@,
--- @rsi@, @rdx@, @rcx@, @r8@, and @r9@ and the rest in a 16-byte aligned
--- block above the return address. The callee pops that block with
--- @ret imm16@, so a tail call moves the return address and the outgoing
--- block to the place of the incoming block and the stack does not grow.
+-- The @aihc@ calling convention passes the first eleven arguments in
+-- @rbx@, @r12@, @r13@, @r14@, @r15@, @rdi@, @rsi@, @rdx@, @rcx@, @r8@, and
+-- @r9@ and the rest in a 16-byte aligned block above the return address.
+-- The first five arguments of a lowered function are the machine and the
+-- heap and stack pointers with their limits. A C call preserves their
+-- registers, so these values stay in them across a C call. The callee pops
+-- that block with @ret imm16@, so a tail call moves the return address and
+-- the outgoing block to the place of the incoming block and the stack does
+-- not grow.
 -- Results come back in @rax@, @rdx@, @rcx@, @rsi@, @rdi@, @r8@, @r9@, and
 -- @r10@. An aihc function preserves no register: every call clobbers them
 -- all, so an aihc function that makes no call and spills nothing needs no
@@ -140,6 +144,7 @@ amd64Backend =
       nbUnsupported = Amd64LirUnsupported,
       nbSymbol = lirSymbol,
       nbArgumentRegisters = argumentRegisters,
+      nbAihcArgumentRegisters = aihcArgumentRegisters,
       nbResultRegisters = resultRegisters,
       nbPreservedRegisters = preservedRegisters,
       nbScratchLeft = scratchLeft,
@@ -264,6 +269,14 @@ trapStubLabel index = ".Llir_trap_" <> tshow index
 argumentRegisters :: [Amd64Register]
 argumentRegisters = [RDI, RSI, RDX, RCX, R8, R9]
 
+-- | The argument registers of the aihc convention. The first five carry the
+-- machine and the heap and stack context of a lowered function. They are
+-- preserved registers, so a C call does not move them. An aihc tail call
+-- with a stack block uses @rax@ after the argument moves, so @rax@ carries
+-- no argument.
+aihcArgumentRegisters :: [Amd64Register]
+aihcArgumentRegisters = preservedRegisters <> argumentRegisters
+
 resultRegisters :: [Amd64Register]
 resultRegisters = [RAX, RDX, RCX, RSI, RDI, R8, R9, R10]
 
@@ -314,11 +327,14 @@ registersFor convention scratch =
     { registersVolatile = volatileRegisters scratch,
       registersPreserved = preservedRegisters,
       registersPreservedCost = convention == CConvention,
-      registersArgument = carrier argumentRegisters,
+      registersArgument = carrier . conventionArguments,
       registersResult = carrier resultRegisters,
       registersPairedSaves = False
     }
   where
+    conventionArguments callee = case callee of
+      AihcConvention -> aihcArgumentRegisters
+      CConvention -> argumentRegisters
     carrier registers index
       | index < length registers = Just (registers !! index)
       | otherwise = Nothing
@@ -391,6 +407,7 @@ instructionEffect instruction =
     AmdMovdFromXmm destination _ -> writes [destination]
     AmdCvtts2si _ destination _ -> writes [destination]
     AmdBitCount _ destination _ -> writes [destination]
+    AmdBmi2 _ destination _ _ -> writes [destination]
   where
     writes registers
       | RSP `elem` registers = Forgets
@@ -692,7 +709,15 @@ amd64Binary ctx op ty dst a right =
     Shl -> pure (shift ty dst (move dst a) AmdShl AmdShlImmediate right)
     ShrS -> pure (shift ty dst (signExtendTo dst ty a) AmdSar AmdSarImmediate right)
     ShrU -> pure (shift ty dst (move dst a) AmdShr AmdShrImmediate right)
+    -- A narrow mask has no set bit above its width, so the result of the
+    -- 32-bit form is canonical.
+    Pdep -> pure (bmi2 AmdPdep)
+    Pext -> pure (bmi2 AmdPext)
   where
+    bmi2 operation =
+      let (loads, b) = rightRegister ty right
+          width register = if typeBits ty == 64 then register else dwordRegister register
+       in loads <> [amd64Instruction (AmdBmi2 operation (width dst) (width a) (width b))]
     rightValue operandTy operand =
       case smallImmediate operandTy operand of
         Just value -> ([], RightImmediate value)
@@ -996,12 +1021,12 @@ amd64Call ctx callee arguments results = do
         pure
           ( concat
               [ loads <> [storeSlot register (8 * position)]
-              | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length argumentRegisters) (zip types arguments)),
+              | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) (zip types arguments)),
                 let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
               ]
               <> parallelMove'
                 [ (LocRegister register, Native.displaceSource outgoing (operandSource ctx ty argument))
-                | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
+                | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
                 ]
           )
       CConvention -> cArgumentMoves' ctx parameterTypes arguments
@@ -1058,11 +1083,11 @@ amd64TailCall ctx callee convention parameterTypes arguments =
       let outgoing = overflowBytes' (length arguments)
           incoming = ctxIncomingOverflow ctx
           types = parameterTypes <> repeat I64
-          overflow = drop (length argumentRegisters) (zip types arguments)
+          overflow = drop (length aihcArgumentRegisters) (zip types arguments)
           registerMoves displacement =
             parallelMove'
               [ (LocRegister register, Native.displaceSource displacement (operandSource ctx ty argument))
-              | (register, (ty, argument)) <- zip argumentRegisters (zip types arguments)
+              | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
               ]
           overflowStores displacement base =
             concat

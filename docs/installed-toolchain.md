@@ -85,7 +85,9 @@ that ships with GHC, which adds GHC's own C flags and include directory.
 
 hsc2hs always runs in its cross-compilation mode, with the C compiler and
 flags of the target, so the constants it reads are the target's and no
-program is run. The generated module lands under the package's output path
+program is run. It runs without the `GHCRTS` variable of aihc, because it is
+a GHC program that is not threaded, and an RTS option such as `-N` would
+stop it at start-up. The generated module lands under the package's output path
 for that target, in `preprocess/`, next to the `configure/` directory of a
 `build-type: Configure` package, whose headers it can include.
 

@@ -380,6 +380,8 @@ binaryOpName op =
     Shl -> "shl"
     ShrS -> "shr.s"
     ShrU -> "shr.u"
+    Pdep -> "pdep"
+    Pext -> "pext"
 
 wideOpName :: WideOp -> Text
 wideOpName op =

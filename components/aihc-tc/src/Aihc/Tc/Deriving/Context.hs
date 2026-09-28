@@ -18,6 +18,8 @@ module Aihc.Tc.Deriving.Context
     isContextFreeStockPlan,
     settleContextFreePlans,
     derivingObligations,
+    UnliftedFieldType,
+    unliftedFieldReferences,
     newtypeRepresentation,
     stockFieldTypes,
     stockFunctorialFields,
@@ -34,6 +36,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Annotations
   ( TcDerivingAnnotation (..),
     TcDerivingContext (..),
@@ -43,7 +46,8 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Deriving.Functorial (fieldUse, fieldUseObligations)
-import Aihc.Tc.Deriving.StockClass (StockObligations (..), generatesStockMethods, stockClassObligationsOf)
+import Aihc.Tc.Deriving.References (DerivingReferences (..), UnliftedFieldReferences (..), referenceIdentity)
+import Aihc.Tc.Deriving.StockClass (StockMethods (..), StockObligations (..), generatesStockMethods, stockClassMethodsOf, stockClassObligationsOf)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Match (matchTypes)
@@ -64,9 +68,10 @@ import Data.Text qualified as T
 inferDerivingContexts :: [Module] -> TcM [Module]
 inferDerivingContexts modules = do
   kinds <- getKinds
+  unlifted <- unliftedFieldTypes
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
-  trialEnvironment <- derivingEnv kinds existingInstances originalPlans
+  trialEnvironment <- derivingEnv kinds unlifted existingInstances originalPlans
   let selectPlan plan
         | tcDerivingStockFallback plan,
           TcDerivingInferContext <- tcDerivingContext plan,
@@ -74,9 +79,35 @@ inferDerivingContexts modules = do
             plan {tcDerivingStrategy = TcDerivingStock}
         | otherwise = plan
       selectedPlans = map selectPlan originalPlans
-  environment <- derivingEnv kinds existingInstances selectedPlans
-  contextPlans <- mapM (inferPlanContext kinds environment) selectedPlans
+  environment <- derivingEnv kinds unlifted existingInstances selectedPlans
+  contextPlans <- mapM (inferPlanContext kinds unlifted environment) selectedPlans
   pure (map (replaceModulePlans contextPlans) modules)
+
+-- | The identity of one unlifted type whose fields a derived @Eq@ or @Ord@
+-- compares with primitive operators: its package, module, and name.
+type UnliftedFieldType = (PackageId, Text, Text)
+
+-- | The unlifted field types of the reference table, resolved to the
+-- primitive package of the configuration.
+unliftedFieldTypes :: TcM [UnliftedFieldType]
+unliftedFieldTypes = map fst <$> unliftedFieldReferences
+
+-- | Each unlifted field type of the reference table with its operators.
+unliftedFieldReferences :: TcM [(UnliftedFieldType, UnliftedFieldReferences)]
+unliftedFieldReferences = do
+  references <- getDerivingReferences
+  primPackage <- getPrimPackage
+  pure
+    [ (referenceIdentity primPackage primPackage (unliftedFieldType field), field)
+    | field <- derivingUnliftedFields references
+    ]
+
+-- | Whether a field type is one of the unlifted types.
+isUnliftedFieldType :: [UnliftedFieldType] -> TcType -> Bool
+isUnliftedFieldType unlifted ty =
+  case ty of
+    TcTyCon tyCon [] -> (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon) `elem` unlifted
+    _ -> False
 
 -- | Whether a plan generates a stock instance that needs no context and
 -- registers declarations of its own that the other contexts of the batch
@@ -112,8 +143,8 @@ data DerivingEnv = DerivingEnv
     derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred]))
   }
 
-derivingEnv :: TcKinds -> [InstanceInfo] -> [TcDerivingPlan] -> TcM DerivingEnv
-derivingEnv kinds existingInstances plans = do
+derivingEnv :: TcKinds -> [UnliftedFieldType] -> [InstanceInfo] -> [TcDerivingPlan] -> TcM DerivingEnv
+derivingEnv kinds unlifted existingInstances plans = do
   contexts <- solveContexts (length inferable + 2) (Map.fromList (map initialContext inferable))
   pure base {derivingEnvContexts = contexts}
   where
@@ -125,7 +156,7 @@ derivingEnv kinds existingInstances plans = do
         }
     groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
 
-    inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds plan]]
+    inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds unlifted plan]]
 
     -- Reject cycles for the plans that reuse an instance.
     -- Stock plans can use recursive structural instances.
@@ -151,29 +182,35 @@ derivingEnv kinds existingInstances plans = do
 -- | The obligations of a plan whose context the compiler has to infer, or
 -- 'Nothing' when the plan carries its context or needs no inference. A
 -- 'Left' reports why the plan cannot be derived.
-inferableObligations :: TcKinds -> TcDerivingPlan -> Maybe (Either String [Pred])
-inferableObligations kinds plan =
+inferableObligations :: TcKinds -> [UnliftedFieldType] -> TcDerivingPlan -> Maybe (Either String [Pred])
+inferableObligations kinds unlifted plan =
   case tcDerivingContext plan of
-    TcDerivingInferContext -> derivingObligations kinds plan
+    TcDerivingInferContext -> derivingObligations kinds unlifted plan
     TcDerivingExplicitContext {} -> Nothing
 
 -- | The predicates that the generated instance body of a plan needs, before
 -- simplification, or 'Nothing' for a strategy that generates nothing.
-derivingObligations :: TcKinds -> TcDerivingPlan -> Maybe (Either String [Pred])
-derivingObligations kinds plan =
+derivingObligations :: TcKinds -> [UnliftedFieldType] -> TcDerivingPlan -> Maybe (Either String [Pred])
+derivingObligations kinds unlifted plan =
   case tcDerivingStrategy plan of
     TcDerivingAnyclass -> Just (Right (anyClassObligations kinds plan))
     TcDerivingStock
       | generatesStockMethods (tcDerivingClassName plan),
         Just shape <- stockClassObligationsOf (tcDerivingClassName plan) ->
           Just $ case shape of
-            FieldObligations -> map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan
+            FieldObligations -> map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concatMap (filter (not . comparedPrimitively)) <$> stockFieldTypes plan
             FunctorialObligations -> functorialObligations plan
             NoObligations -> Right []
       | otherwise -> Nothing
     TcDerivingNewtype ->
       Just (coercedObligations kinds plan <$> newtypeRepresentation plan)
     TcDerivingVia viaType -> Just (Right (coercedObligations kinds plan viaType))
+  where
+    -- A derived Eq or Ord compares an unlifted field with the primitive
+    -- operators of its type, so the field asks nothing of the context.
+    comparedPrimitively ty =
+      stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockOrdMethods]
+        && isUnliftedFieldType unlifted ty
 
 -- | Whether a strategy reuses the instance of another type instead of
 -- generating a structural one. A structural instance can be recursive, so a
@@ -202,9 +239,9 @@ coercedObligations kinds plan source = supers <> methods
     supers = mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
     methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [source]) | not (null (tcDerivingClassMethods plan))]
 
-inferPlanContext :: TcKinds -> DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
-inferPlanContext kinds environment plan =
-  case inferableObligations kinds plan of
+inferPlanContext :: TcKinds -> [UnliftedFieldType] -> DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
+inferPlanContext kinds unlifted environment plan =
+  case inferableObligations kinds unlifted plan of
     Nothing -> pure plan
     Just (Left message) -> do
       emitError (tcDerivingSourceSpan plan) (OtherError message)

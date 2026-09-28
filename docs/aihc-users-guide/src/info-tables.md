@@ -26,10 +26,12 @@ Each info table contains these fields:
 | `remaining_arity` | Gives the number of arguments that the object still requires. One byte: a function takes at most 255 arguments. |
 | `frame_kind` | Identifies a continuation frame for stack unwind operations. |
 | `object_kind` | Identifies a node, closure, thunk, partial constructor, or special run-time object. |
+| `needs_eval` | Is `1` for a thunk and a blackhole, `2` for an indirection, and `0` for a value. |
 
 The garbage collector uses `field_count` and `field_is_pointer` to find managed pointers.
 The application code uses `remaining_arity` and `next` to apply one source argument.
-The evaluation code uses `object_kind` and `backend_entry` to enter an object.
+The inline evaluation check uses only `needs_eval` to find a value or an indirection.
+The run-time evaluation code uses `object_kind` and `backend_entry` to enter an object.
 Exception code uses `frame_kind` to identify continuation frames.
 
 One source argument can use more than one machine field.
@@ -90,13 +92,17 @@ Its table has the following logical values:
 | `remaining_arity` | `0` |
 | `frame_kind` | No frame. |
 | `object_kind` | Thunk. |
+| `needs_eval` | `1` |
 
 The pointer map depends on the run-time representation of `x` and `y`.
 For example, a lifted value has a pointer byte of `1`.
 An `Int#` value has a pointer byte of `0`.
 
-When code evaluates `total`, it reads the thunk kind from the table.
-It then uses the backend entry to call the generated function.
+When code evaluates `total`, it reads the `needs_eval` byte from the table.
+The byte is `1`, so the code calls the run-time evaluation code.
+After the update, the object is an indirection and the byte is `2`.
+The code then follows the indirection to the result without a call.
+That code reads the thunk kind and uses the backend entry to call the generated function.
 The run-time system sets the thunk state to blackhole during evaluation.
 After evaluation, the run-time system changes the thunk into an indirection to the result.
 
@@ -167,8 +173,8 @@ Linked constructor table names keep constructor identities equal across compilat
 ### WebAssembly
 
 The WebAssembly backend emits the same fields in WebAssembly assembly data.
-Its pointers are 32 bits and its counts and kind values are one byte each.
-Thus, its table is 24 bytes instead of the 48-byte table on 64-bit native targets.
+Its pointers are 32 bits and its counts, kind values, and flags are one byte each.
+Thus, its table is 28 bytes instead of the 48-byte table on 64-bit native targets.
 
 WebAssembly calls require a compatible function type.
 Its run-time adapter converts `backend_entry` to the required function type.

@@ -28,6 +28,6 @@ expected: |-
       pub 1.cPayloadValue :: ∀(a : 2.sType). a 2.→ 1.t$R$Payload$PayloadValue a
   }
 
-  axiom 1.$ax$Payload$PayloadValue (a : 2.sType) : 1.tPayload a ~N 1.t$R$Payload$PayloadValue a
+  axiom 1.$ax$Payload$PayloadValue (a : 2.sType) : 1.tPayload a ~R 1.t$R$Payload$PayloadValue a
 status: pass
 reason: A data family is an empty type. An instance adds a hidden representation type and a nominal axiom.

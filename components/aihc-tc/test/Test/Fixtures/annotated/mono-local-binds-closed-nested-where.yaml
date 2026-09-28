@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  pair :: (Nat, Box)
+  pair = (dup Z, dup Box)
+  │      ││      └─ type: Box → Box; type-args: Box
+  │      │└─ type: Nat → Nat; type-args: Nat
+  │      └─ type: (Nat, Box); type-args: Nat, Box
+  └─ type: (Nat, Box)
+    where
+      dup x = ident x
+      │   │   └─ type: a → a; type-args: a
+      │   └─ type: a
+      └─ type: ∀ a. a → a
+        where
+          ident y = y
+          │     └─ type: a
+          └─ type: ∀ a. a → a
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  data Nat = Z | S Nat
+  data Box = Box
+  pair :: (Nat, Box)
+  pair = (dup Z, dup Box)
+    where
+      dup x = ident x
+        where
+          ident y = y
+reason: a local binding is closed when its free variables are closed. The
+  binders of its own where block are not free variables, so a closed binding
+  with a nested where block generalizes under MonoLocalBinds
+status: pass

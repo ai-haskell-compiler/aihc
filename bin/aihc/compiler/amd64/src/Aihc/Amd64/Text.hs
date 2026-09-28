@@ -112,6 +112,8 @@ instruction code =
     AmdCvtts2si wide destination source ->
       (if wide then "cvttsd2si " else "cvttss2si ") <> reg destination <> ", " <> xmm source
     AmdBitCount operation destination source -> two (bitCountName operation) destination source
+    AmdBmi2 operation destination source mask ->
+      bmi2Name operation <> " " <> reg destination <> ", " <> reg source <> ", " <> reg mask
   where
     two name destination source = name <> " " <> reg destination <> ", " <> rm source
     binary name destination source = name <> " " <> rm destination <> ", " <> binarySource source
@@ -128,6 +130,12 @@ sseName operation wide =
     SseConvertWidth -> if wide then "cvtsd2ss" else "cvtss2sd"
   where
     suffix = if wide then "sd" else "ss"
+
+bmi2Name :: Amd64Bmi2Op -> String
+bmi2Name operation =
+  case operation of
+    AmdPdep -> "pdep"
+    AmdPext -> "pext"
 
 bitCountName :: Amd64BitCountOp -> String
 bitCountName operation =

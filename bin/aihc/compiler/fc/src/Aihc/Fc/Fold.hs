@@ -25,13 +25,16 @@ module Aihc.Fc.Fold
     foldForeignCall,
     hasLiteralPrimitiveCall,
     isCheapPrimitive,
+    depositBits,
+    extractBits,
+    reverseBits,
   )
 where
 
 import Aihc.Fc.Name (nameText)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv, reduceType)
-import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
+import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, setBit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.Char qualified as Char
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -104,6 +107,11 @@ table =
         | (name, operation) <- [("quotWord#", quot), ("remWord#", rem)]
         ],
         [("not#", ([Just wordRep], unary wordRep (Just . complement)))],
+        [("notI#", ([Just intRep], unary intRep (Just . complement)))],
+        [("bitReverse#", ([Just wordRep], unary wordRep (Just . reverseBits)))],
+        [ (name, ([Just wordRep, Just wordRep], wordBinary operation))
+        | (name, operation) <- [("pdep#", depositBits), ("pext#", extractBits)]
+        ],
         [("negateInt#", ([Just intRep], unary intRep (Just . negate)))],
         [ (name, ([Just wordRep, Just intRep], shift wordRep 64 operation))
         | (name, operation) <- [("uncheckedShiftL#", shiftL), ("uncheckedShiftRL#", shiftR)]
@@ -123,7 +131,11 @@ table =
         ],
         [ (prefix <> "Word" <> width <> "#", ([Just rep, Just rep], sizedBinary rep operation))
         | (width, rep) <- [("8", word8Rep), ("16", word16Rep), ("32", word32Rep)],
-          (prefix, operation) <- [("and", (.&.)), ("or", (.|.)), ("xor", xor)]
+          (prefix, operation) <- [("and", (.&.)), ("or", (.|.)), ("xor", xor), ("plus", (+)), ("sub", (-)), ("times", (*))]
+        ],
+        [ (prefix <> "Int" <> width <> "#", ([Just rep, Just rep], sizedBinary rep operation))
+        | (width, rep) <- [("8", int8Rep), ("16", int16Rep), ("32", int32Rep)],
+          (prefix, operation) <- [("plus", (+)), ("sub", (-)), ("times", (*))]
         ],
         [ (name, ([Just wordRep, Just wordRep], comparison operation))
         | (name, operation) <- [("eqWord#", (==)), ("neWord#", (/=)), ("ltWord#", (<)), ("leWord#", (<=)), ("gtWord#", (>)), ("geWord#", (>=))]
@@ -157,11 +169,17 @@ table =
               ("word8ToWord#", word8Rep, wordRep),
               ("word16ToWord#", word16Rep, wordRep),
               ("word32ToWord#", word32Rep, wordRep),
-              ("word64ToWord#", word64Rep, wordRep)
+              ("word64ToWord#", word64Rep, wordRep),
+              ("word64ToInt64#", word64Rep, int64Rep),
+              ("int64ToWord64#", int64Rep, word64Rep)
             ]
         ],
         [ (name, ([Just wordRep], unary wordRep (Just . toInteger . operation . word64)))
         | (name, operation) <- [("popCnt#", popCount), ("clz#", countLeadingZeros), ("ctz#", countTrailingZeros)]
+        ],
+        [ (name <> width <> "#", ([Just rep], unary wordRep (Just . toInteger . operation bits . word64 . normalize "WordRep")))
+        | (width, bits, rep) <- [("8", 8, wordRep), ("16", 16, wordRep), ("32", 32, wordRep), ("64", 64, word64Rep)],
+          (name, operation) <- [("popCnt", sizedPopCount), ("clz", sizedLeadingZeros), ("ctz", sizedTrailingZeros)]
         ]
       ]
   where
@@ -198,6 +216,40 @@ table =
     fromBool operation left right = if operation left right then 1 else 0
     word64 :: Integer -> Word64
     word64 = fromInteger
+    -- The bit counts of the low @bits@ bits of a word.
+    sizedPopCount :: Int -> Word64 -> Int
+    sizedPopCount bits value = popCount (lowBits bits value)
+    sizedLeadingZeros :: Int -> Word64 -> Int
+    sizedLeadingZeros bits value = countLeadingZeros (lowBits bits value) - (64 - bits)
+    sizedTrailingZeros :: Int -> Word64 -> Int
+    sizedTrailingZeros bits value = min bits (countTrailingZeros (lowBits bits value))
+    lowBits :: Int -> Word64 -> Word64
+    lowBits bits value = if bits == 64 then value else value .&. (shiftL 1 bits - 1)
+
+-- | The 64 bits of a word in the opposite order, the @bitReverse#@
+-- primitive.
+reverseBits :: Integer -> Integer
+reverseBits value = foldl (\accumulated index -> shiftL accumulated 1 .|. (shiftR value index .&. 1)) 0 [0 .. 63]
+
+-- | The low bits of the source scattered to the set bits of the mask, the
+-- @pdep#@ primitive.
+depositBits :: Integer -> Integer -> Integer
+depositBits source mask = go 0 0 [index | index <- [0 .. 63], testBit mask index]
+  where
+    go result _ [] = result
+    go result sourceIndex (index : rest)
+      | testBit source sourceIndex = go (setBit result index) (sourceIndex + 1) rest
+      | otherwise = go result (sourceIndex + 1) rest
+
+-- | The set bits of the mask gathered into the low bits, the @pext#@
+-- primitive.
+extractBits :: Integer -> Integer -> Integer
+extractBits source mask = go 0 0 [index | index <- [0 .. 63], testBit mask index]
+  where
+    go result _ [] = result
+    go result resultIndex (index : rest)
+      | testBit source index = go (setBit result resultIndex) (resultIndex + 1) rest
+      | otherwise = go result (resultIndex + 1) rest
 
 compareInts :: Integer -> Integer -> Integer
 compareInts left right =

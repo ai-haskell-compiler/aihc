@@ -61,7 +61,7 @@ import Aihc.PackagePlan
     planPackages,
   )
 import Aihc.Resolve (Package (..), PackageId (..))
-import Control.Monad (forM, when)
+import Control.Monad (forM, forM_, unless, when)
 import Data.List (nub)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -84,11 +84,13 @@ runBuild options = do
 build :: BuildOptions -> IO [FilePath]
 build options = do
   isFile <- doesFileExist (buildInput options)
-  if isFile
-    then pure <$> runBuildModule options
-    else buildPackage options
+  case (isFile, buildExecutables options) of
+    (True, _ : _) -> ioError (userError "--executable selects the executables of a package, and a main module is one executable")
+    (True, []) -> pure <$> runBuildModule options
+    (False, _) -> buildPackage options
 
--- | Build every executable of the Cabal package the input names.
+-- | Build every executable of the Cabal package the input names, or the
+-- executables that @--executable@ selects.
 buildPackage :: BuildOptions -> IO [FilePath]
 buildPackage options = do
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
@@ -99,11 +101,13 @@ buildPackage options = do
       targetDirectory = nativeTargetStoreDirectory target
       (os, arch) = cabalPlatformForTarget target
       verbose message = when (buildVerbose options) (putStrLn message)
+      -- The selected executables, or every executable when none is named.
+      selection = if null (buildExecutables options) then Nothing else Just (nub (buildExecutables options))
   -- The package itself and its siblings resolve locally before the
   -- workspace and Hackage, so an executable that depends on the library
   -- of its own package finds it in the source tree.
   request <- planRequestFor hackageIndex (buildPlanOptions options) (os, arch) (maybe [] pure (buildWorkspace options)) lockDirectory verbose
-  planned <- planPackages request {requestRoots = [rootPackage]}
+  planned <- planPackages request {requestRoots = [rootPackage], requestExecutables = selection}
   rootPlan <- case plannedRoots planned of
     [plan] -> pure plan
     _ -> ioError (userError "The plan has no root")
@@ -118,9 +122,17 @@ buildPackage options = do
           (buildBuildRoot options)
       buildRoot = localBuildRoot </> targetDirectory
       outputDirectory = fromMaybe (buildRoot </> "bin") (buildOutput options)
-  executables <- HackageCabal.collectExecutablesIn (planBuildContext (os, arch) rootPlan) gpd root
-  when (null executables) $
+  buildable <- HackageCabal.collectExecutablesIn (planBuildContext (os, arch) rootPlan) gpd root
+  when (null buildable) $
     ioError (userError ("The package " <> unPackageName (planName rootPlan) <> " has no buildable executable"))
+  let buildableNames = map executableInfoName buildable
+      executables = maybe buildable (\names -> filter ((`elem` names) . executableInfoName) buildable) selection
+  forM_ (fromMaybe [] selection) $ \name ->
+    unless (name `elem` buildableNames) $
+      ioError
+        ( userError
+            ("The package " <> unPackageName (planName rootPlan) <> " has no buildable executable " <> name <> "; its buildable executables are " <> unwords buildableNames)
+        )
   buildIdentity <- buildEnvironmentIdentity target
   headerDirectory <- ensureCompilerHeaders target buildRoot
   let plan = optimizationPlan (buildLto options) (buildOptimization options)

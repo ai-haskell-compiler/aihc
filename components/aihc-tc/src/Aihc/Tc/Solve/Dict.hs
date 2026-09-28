@@ -14,6 +14,7 @@ module Aihc.Tc.Solve.Dict
     isCallStackPred,
     reportUnsolvedDict,
     classFieldTypes,
+    mostSpecificInstances,
   )
 where
 
@@ -31,19 +32,19 @@ import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSk
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, normalizeFamilyPred, reducePredFamilies, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, foldM_, (<=<))
+import Control.Monad (foldM, foldM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (elemIndex, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -84,7 +85,7 @@ solveNormalizedDict visited givens ct
         ClassPred className args -> do
           args' <- mapM (reduceTypeFamilies <=< zonkType) args
           coercibleClass <- isCoercibleClass className
-          givens' <- mapM zonkPred givens
+          givens' <- mapM zonkGivenPred givens
           givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
           case givenEvidence of
             Just evidence -> do
@@ -99,7 +100,7 @@ solveNormalizedDict visited givens ct
                       | null (ciMethods classInfo),
                         null (ciSuperClassTypes classInfo),
                         null (ciKindTyVars classInfo) -> do
-                          direct <- solveCoercible left right
+                          direct <- solveCoercible className givens' left right
                           if direct
                             then pure True
                             else solveCoercibleFromGivens className givens' left right
@@ -110,8 +111,8 @@ solveNormalizedDict visited givens ct
                       pure DictSolved
                     else pure (DictStuck ct)
                 ("Typeable", [ty]) -> tryTypeable className ty
-                ("KnownNat", [ty]) -> tryTypeLit "KnownNat" isNatLiteral ty
-                ("KnownSymbol", [ty]) -> tryTypeLit "KnownSymbol" isSymbolLiteral ty
+                ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
+                ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
                 _ -> do
                   instances <- getClassInstances className
                   result <- tryInstances (ctPred ct : visited) className args' (mostSpecificInstances args' instances)
@@ -124,9 +125,22 @@ solveNormalizedDict visited givens ct
           -- the empty constraint tuple -- and the ordinary machinery solves
           -- it and builds its dictionary.
           reduced <- reduceTypeFamilies =<< zonkType constraint
-          kinds <- getKinds
-          reclassified <- irreduciblePred kinds reduced
+          reclassified <- irreduciblePred reduced
           case reclassified of
+            Just equality@(EqPred left right) -> do
+              -- A family that reduces to an equality, as @NatWithinBound
+              -- Word64 3@ reduces to @() ~ ()@, demands that equality. The
+              -- constraint itself is a lifted value of kind Constraint, so
+              -- once the equality is proved its evidence is the empty
+              -- dictionary of the class @~@, not the erased coercion.
+              proof <- freshEvVar
+              result <- withGivenPredicates givens (solveEquality ct {ctPred = equality, ctEvVar = proof})
+              case result of
+                EqSolved -> do
+                  kinds <- getKinds
+                  bindEvidence (ctEvVar ct) (EvCoercible (kindsEqualityTyCon kinds) left right)
+                  pure DictSolved
+                _ -> pure (DictStuck ct {ctPred = IrredPred reduced})
             Just solvable ->
               solveDictWithGivensVisited (ctPred ct : visited) givens ct {ctPred = solvable}
             Nothing -> do
@@ -135,7 +149,7 @@ solveNormalizedDict visited givens ct
               -- superclass of @SeedGen g@, and an instance for @SeedGen
               -- (StateGen g)@ owes it for @SeedSize (StateGen g)@, which
               -- reduces to the given's.
-              givens' <- mapM zonkPred givens
+              givens' <- mapM zonkGivenPred givens
               evidence <- firstGivenOrSuperclass (ctPred ct : visited) (IrredPred reduced) givens'
               case evidence of
                 Just given -> do
@@ -146,7 +160,7 @@ solveNormalizedDict visited givens ct
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
           payload' <- zonkType payload
-          givens' <- mapM zonkPred givens
+          givens' <- mapM zonkGivenPred givens
           -- The innermost binding of the name wins. Givens are outermost first.
           case [given | given@(IParamPred givenName _) <- reverse givens', givenName == name] of
             given@(IParamPred _ givenPayload) : _ -> do
@@ -162,38 +176,97 @@ solveNormalizedDict visited givens ct
     -- A given equality with a type family application on one side rewrites
     -- that application in the wanted: @Token s ~ Word8@ turns @Num (Token
     -- s)@ into @Num Word8@, which an instance solves, and @a ~ Tokens s@
-    -- turns @IsString (Tokens s)@ into @IsString a@, which is a given. The
+    -- turns @IsString (Tokens s)@ into @IsString a@, which is a given. A
+    -- given equality between two rigid variables, or between a rigid
+    -- variable and another type, rewrites the variable in the same way:
+    -- @a ~ b@ turns @HasSetter t a@ into @HasSetter t b@, which the
+    -- superclass of a given @HasUpdate t a b@ solves. Such an equality has
+    -- no preferred side, so each direction is tried as an alternative. The
     -- evidence for the rewritten wanted is cast back to the original
     -- predicate along the congruence of the given coercions.
     solveThroughGivenEqualities visited' zonkedGivens className args = do
-      outerGivens <- mapM zonkPred =<< getGivenPredicates
-      rules <- familyRewriteRules (zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens)
-      let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) args)
-      if null rules || and (zipWith sameType rewrittenArgs args)
-        then pure (DictStuck ct)
-        else do
-          rewrittenEvidence <- freshEvVar
-          let rewritten = ClassPred className rewrittenArgs
-          result <- solveDictWithGivensVisited visited' zonkedGivens (ct {ctPred = rewritten, ctEvVar = rewrittenEvidence})
-          case result of
-            DictStuck _ -> pure (DictStuck ct)
-            DictSolved -> do
-              inner <- lookupEvidence rewrittenEvidence
-              case inner of
-                Nothing -> pure (DictStuck ct)
-                Just evidence -> do
-                  bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions)))
-                  pure DictSolved
+      outerGivens <- mapM zonkGivenPred =<< getGivenPredicates
+      let allGivens = zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens
+      ruleSets <- givenRewriteRuleSets allGivens
+      tryRuleSets visited' zonkedGivens allGivens className args ruleSets
 
-    firstGivenOrSuperclass _ _ [] = pure Nothing
-    firstGivenOrSuperclass visited' target (given : rest)
+    tryRuleSets _ _ _ _ _ [] = pure (DictStuck ct)
+    tryRuleSets visited' zonkedGivens allGivens className args (rules : rest) = do
+      let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) args)
+      -- The rules rewrite the givens as well as the wanted: with the
+      -- given @d ~ Maybe x@ a wanted @C (Maybe x)@ names no @d@, but the
+      -- given @C d@ rewrites to @C (Maybe x)@ and solves it. The given
+      -- dictionary is cast along the congruence of the rules.
+      case rewrittenGivenMatches rules allGivens className args of
+        (given, givenArgs, givenCoercions) : _ -> do
+          bindEvidence (ctEvVar ct) (EvCast (EvGiven given) (TyConAppCo className givenArgs givenCoercions))
+          pure DictSolved
+        [] ->
+          if null rules || and (zipWith sameType rewrittenArgs args)
+            then tryRuleSets visited' zonkedGivens allGivens className args rest
+            else tryRewrittenWanted visited' zonkedGivens allGivens className args rest rewrittenArgs coercions
+
+    rewrittenGivenMatches rules allGivens className args =
+      [ (given, givenArgs, givenCoercions)
+      | given@(ClassPred givenClass givenArgs) <- allGivens,
+        givenClass == className,
+        not (and (zipWith sameType givenArgs args)),
+        let (rewrittenGivenArgs, givenCoercions) = unzip (map (rewriteWithRules rules) givenArgs),
+        and (zipWith sameType rewrittenGivenArgs args)
+      ]
+
+    tryRewrittenWanted visited' zonkedGivens allGivens className args rest rewrittenArgs coercions = do
+      saved <- lift get
+      rewrittenEvidence <- freshEvVar
+      let rewritten = ClassPred className rewrittenArgs
+      result <- solveDictWithGivensVisited visited' zonkedGivens (ct {ctPred = rewritten, ctEvVar = rewrittenEvidence})
+      case result of
+        DictStuck _ -> do
+          -- A failed alternative must not change another alternative's types or evidence.
+          lift (put saved)
+          tryRuleSets visited' zonkedGivens allGivens className args rest
+        DictSolved -> do
+          inner <- lookupEvidence rewrittenEvidence
+          case inner of
+            Nothing -> pure (DictStuck ct)
+            Just evidence -> do
+              bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions)))
+              pure DictSolved
+
+    -- A given that does not match as written is compared in the normal
+    -- form the wanted has: its families reduced. The given @NatWithinBound
+    -- Word64 n@ reduces to the same stuck @If@ application as a wanted at
+    -- the same rigid @n@, and only then are the two equal. The evidence
+    -- names the given as written, because that is the dictionary the
+    -- desugarer binds.
+    firstGivenOrSuperclass visited' target givens' = do
+      asWritten <- firstGivenOrSuperclassAsWritten visited' target givens'
+      case asWritten of
+        Just evidence -> pure (Just evidence)
+        Nothing -> do
+          normalized <- mapM normalizeGiven givens'
+          pure $ case [given | (given, normalizedGiven) <- zip givens' normalized, normalizedGiven == target] of
+            given : _ -> Just (EvGiven given)
+            [] -> Nothing
+
+    normalizeGiven given = do
+      reduced <- reducePredFamilies given
+      normalized <- normalizeFamilyPred reduced
+      case normalized of
+        IrredPred constraint -> do
+          reclassified <- irreduciblePred constraint
+          pure (fromMaybe normalized reclassified)
+        _ -> pure normalized
+
+    firstGivenOrSuperclassAsWritten _ _ [] = pure Nothing
+    firstGivenOrSuperclassAsWritten visited' target (given : rest)
       | target == given = pure (Just (EvGiven given))
       | otherwise = do
           quantified <- useQuantifiedEvidence visited' target (EvGiven given) given
           projected <- superclassEvidence [] visited' target (EvGiven given) given
           case quantified <|> projected of
             Just evidence -> pure (Just evidence)
-            Nothing -> firstGivenOrSuperclass visited' target rest
+            Nothing -> firstGivenOrSuperclassAsWritten visited' target rest
 
     superclassEvidence classVisited solveVisited target sourceEvidence sourcePredicate =
       case sourcePredicate of
@@ -274,6 +347,14 @@ solveNormalizedDict visited givens ct
           case result of
             DictSolved -> lookupEvidence ev
             DictStuck _ -> pure Nothing
+
+    -- A literal argument builds the dictionary. Otherwise a given
+    -- equality can still rewrite the argument to one a given names.
+    tryTypeLitOrGivens visited' zonkedGivens className args classNameText matchesSort ty = do
+      result <- tryTypeLit classNameText matchesSort ty
+      case result of
+        DictSolved -> pure DictSolved
+        DictStuck _ -> solveThroughGivenEqualities visited' zonkedGivens className args
 
     -- A @KnownNat@ or @KnownSymbol@ constraint is solved when its argument
     -- is a literal of the matching sort. The dictionary carries the
@@ -468,21 +549,39 @@ typeableArguments ty =
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
 
--- | The given equalities that rewrite a type family application, oriented
--- from the family application to the other side. A given whose two sides
--- are both family applications rewrites nothing. The coercion proves
--- @from ~ to@.
-familyRewriteRules :: [Pred] -> TcM [(TcType, TcType, Coercion)]
-familyRewriteRules givens = do
+-- | The rewrite rule sets that the given equalities permit, most
+-- specific first. Each rule's coercion proves @from ~ to@.
+--
+-- The first set holds every family rule: a family application rewrites to
+-- the other side of its given. A given whose two sides are both family
+-- applications rewrites nothing. Each later set adds one rigid variable
+-- rule to the family rules. A rigid variable equal to another type
+-- rewrites to that type. Two rigid variables give one set for each
+-- direction, because the wanted can name either one while the given names
+-- the other.
+givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
+givenRewriteRuleSets givens = do
   equalities <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
-  concat <$> mapM orient equalities
+  oriented <- mapM orient equalities
+  let familyRules = concat [rules | (rules, _) <- oriented]
+      variableRules = concat [rules | (_, rules) <- oriented]
+  pure (familyRules : [familyRules <> [rule] | rule <- variableRules])
   where
     orient (left, right, proof) = do
       leftIsFamily <- isTypeFamilyApplication left
       rightIsFamily <- isTypeFamilyApplication right
       pure $ case (leftIsFamily, rightIsFamily) of
-        (True, False) -> [(left, right, proof)]
-        (False, True) -> [(right, left, Sym proof)]
+        (True, False) -> ([(left, right, proof)], [])
+        (False, True) -> ([(right, left, Sym proof)], [])
+        (False, False) -> ([], variableRule left right proof)
+        (True, True) -> ([], [])
+    variableRule left right proof =
+      case (left, right) of
+        (TcTyVar leftVar, TcTyVar rightVar)
+          | sameTyVar leftVar rightVar -> []
+          | otherwise -> [(left, right, proof), (right, left, Sym proof)]
+        (TcTyVar _, _) -> [(left, right, proof)]
+        (_, TcTyVar _) -> [(right, left, Sym proof)]
         _ -> []
 
 -- | Rewrite every occurrence of a rule's left side, outermost first, and
@@ -527,13 +626,17 @@ implicitParamEvidence ct name payload parent =
     _ -> parent
 
 -- | The package and module of the @CallStack@ type when the implicit
--- parameter is @?callStack :: CallStack@.
+-- parameter has the type @CallStack@.
+--
+-- The type alone makes an implicit parameter a call stack. Like GHC, the
+-- solver accepts a name other than @?callStack@, such as @?callstack@. A
+-- given solves only a wanted with the same name, so a wanted with another
+-- name gets the empty call stack.
 callStackOrigin :: Text -> TcType -> Maybe (Text, Text)
-callStackOrigin name payload =
+callStackOrigin _name payload =
   case payload of
     TcTyCon tyCon []
-      | name == "?callStack",
-        tyConName tyCon == "CallStack" ->
+      | tyConName tyCon == "CallStack" ->
           Just (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon)
     _ -> Nothing
 
@@ -766,11 +869,9 @@ matchKinds = go (Map.empty, [])
           | patternKind == targetKind -> Just (substitution, metas)
           | otherwise -> Nothing
 
--- | The predicate a reduced constraint denotes, when it is no longer headed
--- by a type family. 'Nothing' keeps it irreducible.
-irreduciblePred :: TcKinds -> TcType -> TcM (Maybe Pred)
-irreduciblePred kinds ty = do
-  stillStuck <- isTypeFamilyApplication ty
-  if stillStuck
-    then pure Nothing
-    else pure (constraintTypeToPred kinds ty)
+-- | Zonk a given, and reclassify an irreducible one whose head is now a
+-- class. A given @q b@ from a rank-2 argument @forall b. q b => f b@ is
+-- irreducible when the class variable @q@ is a meta variable; once @q@ is
+-- @Eq@, the given has to compare equal to the wanted @Eq b@.
+zonkGivenPred :: Pred -> TcM Pred
+zonkGivenPred = zonkPred >=> reclassifyIrreduciblePred

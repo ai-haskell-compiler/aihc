@@ -370,8 +370,9 @@ defaultDerivingStrategyKinds strategy =
 constraintTypeDictBinder :: TcKinds -> TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder kinds ty =
   case constraintTypeToPred kinds ty of
-    Just (ClassPred classTyCon arguments) -> TcDictBinderAnnotation (tyConName classTyCon) arguments ty
-    _ -> TcDictBinderAnnotation "<constraint>" [] ty
+    Just predicate@(ClassPred classTyCon arguments) -> TcDictBinderAnnotation (tyConName classTyCon) arguments ty predicate
+    Just predicate -> TcDictBinderAnnotation "<constraint>" [] ty predicate
+    Nothing -> TcDictBinderAnnotation "<constraint>" [] ty (IrredPred ty)
 
 peelForAlls :: TcType -> ([TyVarId], TcType)
 peelForAlls (TcForAllTy tyVar body) =

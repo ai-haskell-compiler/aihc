@@ -327,7 +327,7 @@ staticReferenceSource =
         "static const uint8_t cell_is_pointer[] = {1};",
         "static const AihcInfo cell_info = {.identity = 1, .field_is_pointer = cell_is_pointer, .field_count = 1, .frame_kind = AIHC_FRAME_NONE, .object_kind = AIHC_OBJECT_NODE};",
         "static const AihcInfo leaf_info = {.identity = 2, .field_count = 0, .frame_kind = AIHC_FRAME_NONE, .object_kind = AIHC_OBJECT_NODE};",
-        "static const AihcInfo thunk_info = {.identity = 3, .field_count = 0, .frame_kind = AIHC_FRAME_NONE, .object_kind = AIHC_OBJECT_THUNK};",
+        "static const AihcInfo thunk_info = {.identity = 3, .field_count = 0, .frame_kind = AIHC_FRAME_NONE, .object_kind = AIHC_OBJECT_THUNK, .needs_eval = AIHC_NEEDS_EVAL_ENTER};",
         "typedef struct { AihcSlot header; AihcSlot target; } StaticThunk;",
         "static StaticThunk named_caf = {(AihcSlot)(uintptr_t)&thunk_info, 0};",
         "static StaticThunk unnamed_caf = {(AihcSlot)(uintptr_t)&thunk_info, 0};",

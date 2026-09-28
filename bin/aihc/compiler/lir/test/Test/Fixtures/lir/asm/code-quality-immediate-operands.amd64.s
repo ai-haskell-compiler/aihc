@@ -1,33 +1,29 @@
 	.text
 	.p2align 4
 immediates:
-	mov rax, rdi
+	mov rax, rbx
 	and rax, -0x4
-	mov r9, rdi
-	or r9, 0xff00
+	mov rdx, rbx
+	or rdx, 0xff00
 	mov r10, 0x5555555555555555
-	mov rcx, rdi
+	mov rcx, rbx
 	xor rcx, r10
-	lea r8, [rsi + 20480]
-	lea rdi, [rsi - 7]
-	mov rbx, rdx
-	and rbx, -0x10
-	cmp rsi, -0x1
-	setb sil
-	movzx rsi, sil
-	cmp edx, -0x1000
-	setae dl
-	movzx rdx, dl
-	mov r10, rdx
-	mov rdx, r9
-	mov r9, rsi
-	mov rsi, r8
-	mov r8, rbx
+	lea rsi, [r12 + 20480]
+	lea rdi, [r12 - 7]
+	mov r8, r13
+	and r8, -0x10
+	cmp r12, -0x1
+	setb r9b
+	movzx r9, r9b
+	cmp r13d, -0x1000
+	setae r13b
+	movzx r13, r13b
+	mov r10, r13
 	ret
 	.text
 	.p2align 4
 chunk:
-	cmp rdi, 0x1000
+	cmp rbx, 0x1000
 	jae .Llir_1_2
 .Llir_1_1:
 	mov eax, 0x1

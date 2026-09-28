@@ -128,6 +128,8 @@ runBuild options = do
       PlanRequest
         { requestRoots = [root],
           requestGoals = [],
+          requestExecutables = Nothing,
+          requestCheckBuildTools = True,
           requestWorkspaces = [],
           requestPlatform = (buildOS, buildArch),
           requestConstraints = [],

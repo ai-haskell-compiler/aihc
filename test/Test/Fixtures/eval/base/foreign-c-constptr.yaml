@@ -1,0 +1,31 @@
+extensions:
+  - CApiFFI
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+
+    import Foreign.C.ConstPtr (ConstPtr (..))
+    import Foreign.C.String (withCString)
+    import Foreign.C.Types (CChar, CSize (..))
+    import Foreign.Ptr (nullPtr)
+
+    foreign import capi unsafe "string.h strlen" c_strlen :: ConstPtr CChar -> IO CSize
+
+    foreign import capi unsafe "stdlib.h getenv" c_getenv :: ConstPtr CChar -> IO (ConstPtr CChar)
+
+    report :: IO (Bool, Bool, Bool, Bool)
+    report = do
+      len <- withCString "hello" (c_strlen . ConstPtr)
+      missing <- withCString "AIHC_VARIABLE_THAT_IS_NOT_SET" (c_getenv . ConstPtr)
+      return
+        ( len == 5,
+          unConstPtr missing == nullPtr,
+          missing == ConstPtr nullPtr,
+          show (ConstPtr nullPtr :: ConstPtr CChar) == "ConstPtr 0x0000000000000000"
+        )
+expression: report
+output: |
+  (True,True,True,True)
+status: pass
+reason: Foreign.C.ConstPtr exports the ConstPtr newtype, and a capi import can take and return it

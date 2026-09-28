@@ -374,7 +374,7 @@ test_searchableFlags = do
                 ]
           )
   assertEqual "only the automatic flag guarding library deps" ["deps"] (map unFlagName (searchableFlags (Linux, X86_64) Nothing gpd))
-  assertEqual "a root with tests also searches the test flag" ["deps", "tests"] (map unFlagName (searchableFlags (Linux, X86_64) (Just (Stanzas True False)) gpd))
+  assertEqual "a root with tests also searches the test flag" ["deps", "tests"] (map unFlagName (searchableFlags (Linux, X86_64) (Just (Stanzas True False Nothing)) gpd))
   assertEqual
     "the library dependencies under the defaults"
     ["y", "z"]
@@ -382,7 +382,7 @@ test_searchableFlags = do
   assertEqual
     "the dependencies with tests requested"
     ["hspec", "y", "z"]
-    (map unPackageName (Map.keys (candidateDependencies (Linux, X86_64) Map.empty (mkFlagAssignment []) (Just (Stanzas True False)) gpd)))
+    (map unPackageName (Map.keys (candidateDependencies (Linux, X86_64) Map.empty (mkFlagAssignment []) (Just (Stanzas True False Nothing)) gpd)))
 
 test_lockRoundTrip :: Assertion
 test_lockRoundTrip = do
@@ -476,6 +476,8 @@ test_plansLocalPackages =
           PlanRequest
             { requestRoots = [RootLocal root],
               requestGoals = [],
+              requestExecutables = Nothing,
+              requestCheckBuildTools = True,
               requestWorkspaces = [],
               requestPlatform = (Linux, X86_64),
               requestConstraints = [],
@@ -542,6 +544,8 @@ test_packageLockFixtures =
             PlanRequest
               { requestRoots = [root],
                 requestGoals = [],
+                requestExecutables = Nothing,
+                requestCheckBuildTools = True,
                 requestWorkspaces = [],
                 requestPlatform = (Linux, X86_64),
                 requestConstraints = [],

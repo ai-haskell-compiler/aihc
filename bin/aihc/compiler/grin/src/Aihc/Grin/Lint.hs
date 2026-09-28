@@ -4,6 +4,7 @@ module Aihc.Grin.Lint
     lintProgram,
     lintCpsProgram,
     lintGcProgram,
+    lintNodeArities,
   )
 where
 
@@ -76,6 +77,38 @@ lintCpsProgram cps = lintProgramWith (cpsFunctionContinuations cps) (cpsContinua
 -- | Validate GC-GRIN. The GC phase keeps the CPS metadata unchanged.
 lintGcProgram :: GcGrinProgram -> [GrinLintError]
 lintGcProgram gc = lintProgramWith (gcFunctionContinuations gc) (gcContinuationFrames gc) (gcGrinProgram gc)
+
+-- | The thunk and closure nodes of a direct GRIN program whose fields do
+-- not fit the parameters of their function. A thunk supplies every
+-- parameter, and a closure supplies the parameters that its remaining
+-- arguments do not. A node of a function the program does not define is
+-- not this check's concern.
+--
+-- Lowering runs this on every program it finishes. A pass upstream that
+-- loses an operand of a saturated call then fails here, with the function
+-- named, and not in a backend where the entry stub of the node finds one
+-- stored field too few.
+lintNodeArities :: GrinProgram -> [GrinLintError]
+lintNodeArities program = concatMap checkNode nodes
+  where
+    arities =
+      Map.fromList
+        [ (grinFunctionName function, length (grinFunctionParameters function))
+        | function <- grinFunctions program
+        ]
+    nodes =
+      map grinGlobalNode (grinGlobals program)
+        <> concatMap (grinExprNodes . grinFunctionBody) (grinFunctions program)
+    checkNode node =
+      case grinNodeTag node of
+        GrinThunk functionName -> checkArity functionName (length (grinNodeFields node))
+        GrinClosure functionName layouts -> checkArity functionName (length (grinNodeFields node) + length (concat layouts))
+        GrinConstructor {} -> []
+    checkArity functionName actual =
+      case Map.lookup functionName arities of
+        Just expected
+          | expected /= actual -> [GrinLintFunctionArity functionName expected actual]
+        _ -> []
 
 -- | Validate one GRIN program. The first argument gives the hidden
 -- continuation parameter of each computation entry. The CPS transformation

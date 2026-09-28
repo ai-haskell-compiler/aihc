@@ -1,0 +1,16 @@
+extensions:
+- FunctionalDependencies
+- GADTs
+- MultiParamTypeClasses
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE FunctionalDependencies, GADTs, MultiParamTypeClasses, TypeOperators, NoImplicitPrelude #-}
+  module Test where
+  data Unit = Unit
+  class HasSetter t a | t -> a where
+    set :: t -> a -> Unit
+  update :: (a ~ b, HasSetter t a) => t -> (a -> b) -> a -> Unit
+  update r f a = set r (f a)
+status: pass
+reason: A given equality between two rigid type variables rewrites a class wanted to a given.

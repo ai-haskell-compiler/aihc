@@ -475,7 +475,7 @@ inferGuardQualifiers inferExpr sp resultTy qualifiers rest =
     GuardPat pat scrutinee : more -> do
       (scrutinee', scrutineeTy, scrutineeCts) <- inferExpr scrutinee
       patCheck <- checkPattern sp pat scrutineeTy
-      (more', result, cts) <- withPatternBindings (pcBindings patCheck) (inferGuardQualifiers inferExpr sp resultTy more rest)
+      (more', result, cts) <- withPatternScope patCheck (inferGuardQualifiers inferExpr sp resultTy more rest)
       remainingCts <- solvePatternBranch sp patCheck resultTy cts
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
       pure (GuardPat pat' scrutinee' : more', result, scrutineeCts ++ remainingCts)
@@ -824,7 +824,7 @@ tcMatchEquation inferExpr argTys resTy match = do
   when (length pats > length argTys) $
     abortTc ("internal type checker error: equation with " <> show (length pats) <> " patterns checked against " <> show (length argTys) <> " argument types")
   patCheck <- checkFunctionPatterns matchSpan (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
+  (rhs', rhsTy, rhsCts) <- withPatternScope patCheck (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
   let rhsLocation = (<|>) (rhsSourceSpan (matchRhs match)) matchSpan
       pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
@@ -1040,17 +1040,22 @@ freeVarsPattern pat =
     PView viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner
     _ -> pure Set.empty
 
+-- | The free variables of a right-hand side. The binders of its where block
+-- scope over the body and the block, so they are not free.
 freeVarsRhs :: Rhs Expr -> TcM (Set.Set TcTermKey)
 freeVarsRhs rhs =
   case rhs of
-    UnguardedRhs _ expr maybeDecls -> do
-      exprVars <- freeVarsExpr expr
-      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
-      pure (exprVars <> declVars)
-    GuardedRhss _ alternatives maybeDecls -> do
-      altVars <- Set.unions <$> mapM freeVarsGuardedRhs alternatives
-      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
-      pure (altVars <> declVars)
+    UnguardedRhs _ expr maybeDecls -> withWhereDecls maybeDecls (freeVarsExpr expr)
+    GuardedRhss _ alternatives maybeDecls -> withWhereDecls maybeDecls (Set.unions <$> mapM freeVarsGuardedRhs alternatives)
+  where
+    withWhereDecls maybeDecls bodyVars =
+      case maybeDecls of
+        Nothing -> bodyVars
+        Just decls -> do
+          vars <- bodyVars
+          declVars <- freeVarsDecls decls
+          localBinders <- declBinderKeys decls
+          pure (Set.difference (vars <> declVars) localBinders)
 
 freeVarsGuardedRhs :: GuardedRhs Expr -> TcM (Set.Set TcTermKey)
 freeVarsGuardedRhs alternative =

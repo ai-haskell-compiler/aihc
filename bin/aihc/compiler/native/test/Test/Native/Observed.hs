@@ -103,7 +103,7 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
         <> [ "  {(uintptr_t)&"
                <> cSymbol label
                <> ", "
-               <> cString (unFunctionName name)
+               <> cString (let text = unFunctionName name in maybe text snd (grinNameScope text))
                <> ", "
                <> tshow (length reps)
                <> ", "

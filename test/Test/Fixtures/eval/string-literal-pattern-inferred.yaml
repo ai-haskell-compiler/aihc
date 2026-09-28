@@ -1,0 +1,28 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+
+    -- No signatures: the string literal patterns must give the argument
+    -- the type [Char], as in the segments function of network-uri.
+    isEmpty "" = True
+    isEmpty _ = False
+
+    isRed "red" = True
+    isRed _ = False
+
+    segments :: [String] -> [String]
+    segments parts = dropLeadingEmpty parts
+      where
+        dropLeadingEmpty ("" : rest) = rest
+        dropLeadingEmpty rest = rest
+
+    result :: ([Bool], [Bool], [String])
+    result = (map isEmpty ["", "a"], map isRed ["red", "re"], segments ["", "a"])
+output: |
+  ((: True (: False [])),(: True (: False [])),(: (: 'a' []) []))
+expression: |
+  result
+status: pass
+reason: a string literal pattern in a function without a signature gives the argument the type [Char]

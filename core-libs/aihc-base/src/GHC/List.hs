@@ -3,7 +3,8 @@
 {-# HLINT ignore foldl' "Eta reduce" #-}
 {-# HLINT ignore length "Eta reduce" #-}
 module GHC.List
-  ( map,
+  ( build,
+    map,
     (++),
     filter,
     concat,
@@ -61,6 +62,7 @@ module GHC.List
   )
 where
 
+import GHC.Base (build)
 import GHC.Internal.Foldable (listFoldl', listLength)
 import Prelude hiding (all, and, any, concat, concatMap, elem, foldl', length, notElem, or)
 

@@ -235,6 +235,7 @@ static int static_slot_of(const void *address, uint64_t *slot) {
 static void initialize_statics(void) {
   for (int index = 0; index < STATIC_THUNKS; ++index) {
     static_thunk_info[index].object_kind = AIHC_OBJECT_THUNK;
+    static_thunk_info[index].needs_eval = AIHC_NEEDS_EVAL_ENTER;
     static_thunk_info[index].frame_kind = AIHC_FRAME_NONE;
     static_thunk_info[index].identity = 0;
     static_thunks[index].header =
@@ -888,6 +889,8 @@ static void command_new(char **tokens, size_t count) {
   info->field_is_pointer = pointers;
   info->frame_kind = AIHC_FRAME_NONE;
   info->object_kind = kind;
+  info->needs_eval =
+      kind == AIHC_OBJECT_THUNK ? AIHC_NEEDS_EVAL_ENTER : AIHC_NEEDS_EVAL_NONE;
   info->srt = srt_of(parse_signed(tokens[4]));
   /* A partial constructor carries its applied count in field zero and shares
      one info table with the saturated form the count is measured against. */

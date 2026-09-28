@@ -17,6 +17,7 @@ module GHC.Internal.Read
 where
 
 import Data.Either (Either (..))
+import Data.Proxy (Proxy (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
 import GHC.Float (Double, Float)
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
@@ -281,6 +282,11 @@ instance (Read a) => Read (NonEmpty a) where
   readListPrec = readListPrecDefault
   readList = readListDefault
 
+instance Read (Proxy t) where
+  readPrec = parens (do expectP (Ident "Proxy"); return Proxy)
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
 instance (Read a, Read b) => Read (Either a b) where
   readPrec =
     parens
@@ -315,6 +321,90 @@ instance (Read a, Read b, Read c) => Read (a, b, c) where
               expectP (Punc ",")
               third <- readPrec
               return (first, second, third)
+          )
+      )
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance (Read a, Read b, Read c, Read d) => Read (a, b, c, d) where
+  readPrec =
+    parens
+      ( paren
+          ( do
+              first <- readPrec
+              expectP (Punc ",")
+              second <- readPrec
+              expectP (Punc ",")
+              third <- readPrec
+              expectP (Punc ",")
+              fourth <- readPrec
+              return (first, second, third, fourth)
+          )
+      )
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance (Read a, Read b, Read c, Read d, Read e) => Read (a, b, c, d, e) where
+  readPrec =
+    parens
+      ( paren
+          ( do
+              first <- readPrec
+              expectP (Punc ",")
+              second <- readPrec
+              expectP (Punc ",")
+              third <- readPrec
+              expectP (Punc ",")
+              fourth <- readPrec
+              expectP (Punc ",")
+              fifth <- readPrec
+              return (first, second, third, fourth, fifth)
+          )
+      )
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance (Read a, Read b, Read c, Read d, Read e, Read f) => Read (a, b, c, d, e, f) where
+  readPrec =
+    parens
+      ( paren
+          ( do
+              first <- readPrec
+              expectP (Punc ",")
+              second <- readPrec
+              expectP (Punc ",")
+              third <- readPrec
+              expectP (Punc ",")
+              fourth <- readPrec
+              expectP (Punc ",")
+              fifth <- readPrec
+              expectP (Punc ",")
+              sixth <- readPrec
+              return (first, second, third, fourth, fifth, sixth)
+          )
+      )
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance (Read a, Read b, Read c, Read d, Read e, Read f, Read g) => Read (a, b, c, d, e, f, g) where
+  readPrec =
+    parens
+      ( paren
+          ( do
+              first <- readPrec
+              expectP (Punc ",")
+              second <- readPrec
+              expectP (Punc ",")
+              third <- readPrec
+              expectP (Punc ",")
+              fourth <- readPrec
+              expectP (Punc ",")
+              fifth <- readPrec
+              expectP (Punc ",")
+              sixth <- readPrec
+              expectP (Punc ",")
+              seventh <- readPrec
+              return (first, second, third, fourth, fifth, sixth, seventh)
           )
       )
   readListPrec = readListPrecDefault

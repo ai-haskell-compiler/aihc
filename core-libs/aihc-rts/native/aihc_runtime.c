@@ -12,7 +12,10 @@
    target and does not move it on a 32-bit target. */
 _Static_assert(offsetof(AihcMachine, current_thread) == 8 * sizeof(void *) + 40,
                "machine current-thread ABI");
-_Static_assert(sizeof(AihcInfo) == 6 * sizeof(void *), "info-table size ABI");
+/* Five words and five bytes, rounded up to a word. This matches
+   @AIHC_INFO_BYTES in aihc_constants.lir. */
+_Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
+               "info-table size ABI");
 _Static_assert(_Alignof(AihcInfo) >= 4, "info tables need two header tag bits");
 
 #if UINTPTR_MAX == UINT64_MAX
@@ -37,6 +40,8 @@ _Static_assert(offsetof(AihcInfo, frame_kind) == 42,
                "info-table frame-kind ABI");
 _Static_assert(offsetof(AihcInfo, object_kind) == 43,
                "info-table object-kind ABI");
+_Static_assert(offsetof(AihcInfo, needs_eval) == 44,
+               "info-table needs-eval ABI");
 _Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 16, "SRT child-count ABI");
@@ -75,7 +80,9 @@ _Static_assert(offsetof(AihcInfo, frame_kind) == 22,
                "info-table frame-kind ABI");
 _Static_assert(offsetof(AihcInfo, object_kind) == 23,
                "info-table object-kind ABI");
-_Static_assert(sizeof(AihcInfo) == 24, "info-table size ABI");
+_Static_assert(offsetof(AihcInfo, needs_eval) == 24,
+               "info-table needs-eval ABI");
+_Static_assert(sizeof(AihcInfo) == 28, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 12, "SRT entries ABI");
@@ -123,6 +130,7 @@ static const AihcInfo aihc_indirection_info = {
     .field_is_pointer = aihc_indirection_field_is_pointer,
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_INDIRECTION,
+    .needs_eval = AIHC_NEEDS_EVAL_FOLLOW,
 };
 static const AihcInfo aihc_io_request_info = {
     .object_kind = AIHC_OBJECT_IO_REQUEST,

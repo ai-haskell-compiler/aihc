@@ -15,12 +15,14 @@ module Data.Semigroup.Internal
 where
 
 import Data.Bool (Bool (..), (&&), (||))
+import Data.Proxy (Proxy (..))
 import GHC.Base (Functor (..), List (..), Maybe (..), id, (.))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))
 import GHC.Real (Integral)
+import GHC.Tuple (Solo (..))
 
 class Semigroup a where
   (<>) :: a -> a -> a
@@ -129,6 +131,18 @@ instance (Semigroup b) => Semigroup (a -> b) where
 
 instance (Monoid b) => Monoid (a -> b) where
   mempty _ = mempty
+
+instance Semigroup (Proxy s) where
+  _ <> _ = Proxy
+
+instance Monoid (Proxy s) where
+  mempty = Proxy
+
+instance (Semigroup a) => Semigroup (Solo a) where
+  MkSolo left <> MkSolo right = MkSolo (left <> right)
+
+instance (Monoid a) => Monoid (Solo a) where
+  mempty = MkSolo mempty
 
 -- | The wrappers that only change how values combine live here so that both
 -- "Data.Monoid" and "Data.Semigroup" can re-export them.

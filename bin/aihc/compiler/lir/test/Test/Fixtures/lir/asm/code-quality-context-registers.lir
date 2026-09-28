@@ -1,0 +1,27 @@
+; The machine and the context of a lowered function arrive in the first five
+; argument registers of the aihc convention. A C call preserves these
+; registers, so the function keeps the five values in place across a C call
+; that does not take them, and the tail call passes them on without a move.
+; On AArch64 no value goes to a frame slot. AMD64 has only five registers
+; that a C call preserves, and the context fills them. Thus the value that
+; lives across the call takes one of them, and one value of the context
+; waits in a frame slot until the tail call. See "Lowering from GC-GRIN" in
+; docs/lir.md.
+extern func @work(i64) -> i64 cc c
+extern func @next(ptr, ptr, ptr, ptr, ptr, i64)
+
+func @step(%machine: ptr, %hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %x: i64) {
+entry:
+  %y = add i64 %x, 1
+  %z = call @work(%y)
+  %w = mul i64 %z, %x
+  %less = lt.s i64 %w, 100
+  br %less, small, large
+
+small:
+  tailcall @next(%machine, %hp, %hp_limit, %sp, %sp_limit, %w)
+
+large:
+  %v = sub i64 %w, 100
+  tailcall @next(%machine, %hp, %hp_limit, %sp, %sp_limit, %v)
+}

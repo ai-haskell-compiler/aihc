@@ -50,7 +50,9 @@ Three kinds of dependency are separated, and only one of them is solved:
 - **Library and executable dependencies** are solved. A dependency contributes
   the `build-depends` of its library only, since its executables are never
   built. The root package contributes its library and its executables, and its
-  test suites and benchmarks only when they are requested.
+  test suites and benchmarks only when they are requested. *As built*,
+  `aihc build --executable NAME` and `aihc plan --executable NAME` limit the
+  executables of the root to the ones they name.
 - **Build-tool dependencies** are checked, not solved. Every
   `build-tool-depends` and legacy `build-tools` entry is looked up in the host
   preprocessor table (`Aihc.Hackage.Preprocessor`), which holds `hsc2hs` and

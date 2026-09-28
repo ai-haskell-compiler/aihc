@@ -1,0 +1,72 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, PolyKinds, RankNTypes, StandaloneKindSignatures #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE, Type, Int)
+  newtype TExp (a :: TYPE r) = TExp Int
+          │                    └─ type: ∀ k0 a. GHC.Types.Int → TExp a
+          └─ type: GHC.Types.TYPE k0 → Type
+  type Code :: (Type -> Type) -> forall r. TYPE r -> Type
+  newtype Code m a = Code (m (TExp a))
+          │          └─ type: ∀ r m a. m (TExp a) → Code m a
+          └─ type: (Type → Type) → GHC.Types.TYPE r → Type
+  type Splice :: (Type -> Type) -> forall r. TYPE r -> Type
+  type Splice = Code :: ((Type -> Type) -> forall r. TYPE r -> Type)
+       └─ type: (Type → Type) → GHC.Types.TYPE r → Type
+  data Q a = Q a
+       │     └─ type: ∀ a. a → Q a
+       └─ type: Type → Type
+  type SpliceQ :: TYPE r -> Type
+  type SpliceQ = Splice Q
+       └─ type: GHC.Types.TYPE r → Type
+  liftSplice :: forall (r :: RuntimeRep) (a :: TYPE r) m. m (TExp a) -> Splice m a
+  liftSplice = Code
+  │            └─ type: m (TExp a) → Code m a; type-args: r, m, a
+  └─ type: ∀ r a m. m (TExp a) → Code m a
+  examineSplice :: forall (r :: RuntimeRep) m (a :: TYPE r). Splice m a -> m (TExp a)
+  examineSplice (Code m) = m
+  │              │    └─ type: m (TExp a)
+  │              └─ type: Code m a
+  └─ type: ∀ r m a. Code m a → m (TExp a)
+  hoistSplice :: forall m n (r :: RuntimeRep) (a :: TYPE r). (forall x. m x -> n x) -> Splice m a -> Splice n a
+  hoistSplice f (Code a) = Code (f a)
+  │           │  │    │    │     └─ type: m (TExp a) → n (TExp a); type-args: TExp a
+  │           │  │    │    └─ type: n (TExp a) → Code n a; type-args: r, n, a
+  │           │  │    └─ type: m (TExp a)
+  │           │  └─ type: Code m a
+  │           └─ type: ∀ x. m x → n x
+  └─ type: ∀ m n r a. (∀ x. m x → n x) → Code m a → Code n a
+  spliceQ :: forall (r :: RuntimeRep) (a :: TYPE r). Q (TExp a) -> SpliceQ a
+  spliceQ = liftSplice
+  │         └─ type: Q (TExp a) → Code Q a; type-args: r, a, Q
+  └─ type: ∀ r a. Q (TExp a) → Code Q a
+  
+extensions:
+- DataKinds
+- KindSignatures
+- PolyKinds
+- RankNTypes
+- StandaloneKindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds, RankNTypes, StandaloneKindSignatures #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE, Type, Int)
+  newtype TExp (a :: TYPE r) = TExp Int
+  type Code :: (Type -> Type) -> forall r. TYPE r -> Type
+  newtype Code m a = Code (m (TExp a))
+  type Splice :: (Type -> Type) -> forall r. TYPE r -> Type
+  type Splice = Code :: ((Type -> Type) -> forall r. TYPE r -> Type)
+  data Q a = Q a
+  type SpliceQ :: TYPE r -> Type
+  type SpliceQ = Splice Q
+  liftSplice :: forall (r :: RuntimeRep) (a :: TYPE r) m. m (TExp a) -> Splice m a
+  liftSplice = Code
+  examineSplice :: forall (r :: RuntimeRep) m (a :: TYPE r). Splice m a -> m (TExp a)
+  examineSplice (Code m) = m
+  hoistSplice :: forall m n (r :: RuntimeRep) (a :: TYPE r). (forall x. m x -> n x) -> Splice m a -> Splice n a
+  hoistSplice f (Code a) = Code (f a)
+  spliceQ :: forall (r :: RuntimeRep) (a :: TYPE r). Q (TExp a) -> SpliceQ a
+  spliceQ = liftSplice
+reason: a type synonym with a kind signature whose forall is to the right of an arrow, defined by a kind-annotated type constructor (th-compat)
+status: pass

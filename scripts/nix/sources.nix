@@ -198,10 +198,8 @@ in rec {
       # build-type Configure packages.
       "configure"
       ".h.in"
-      # The hsc2hs fixture: its .hsc source and the stand-in tool that
-      # records the arguments it is given.
+      # The .hsc sources of the code-quality install fixtures.
       ".hsc"
-      "hsc2hs"
     ];
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;

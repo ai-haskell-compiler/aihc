@@ -1,0 +1,80 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  class Pick a where
+    pick :: a -> a -> a
+
+  instance Pick Bool where
+    pick a b = case a of
+      True -> b
+      False -> a
+
+  choose :: Pick a => a -> a -> a -> a
+  choose x y z = pick (pick x y) (pick y z)
+
+  run :: Bool -> Bool -> Bool -> Bool
+  run x y z = choose x y z
+passes:
+- inline:
+    policy: grow
+    value-growth: 0
+    value-slack: 0
+    requested-site-limit: 0
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cFalse :: 2.tBool;
+    2.cLifted :: 2.tLevity;
+    2.cTrue :: 2.tBool
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.t$Dict$Pick (a : 2.sType) :: 2.sType {
+      1.c$Dict$Pick :: ∀(a : 2.sType). (a 2.→ a 2.→ a) 2.→ 1.t$Dict$Pick a
+  }
+
+  pub val 1.v$fPickBool :: 1.t$Dict$Pick 2.tBool
+   = 1.c$Dict$Pick @2.tBool 1.v$fPickBool$cpick
+
+  val 1.v$fPickBool$cpick :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    λ(y : 2.tBool).
+      case x as (_scrut : 2.tBool) return (2.tBool) of {
+          2.cTrue →
+              y;
+          2.cFalse →
+              x
+      }
+
+  pub val 1.vrun :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    λ(y : 2.tBool).
+      λ(z : 2.tBool).
+        1.v$fPickBool$cpick (case x as (_scrut : 2.tBool) return (2.tBool) of {
+            2.cTrue →
+                y;
+            2.cFalse →
+                x
+        }) (case y as (_scrut : 2.tBool) return (2.tBool) of {
+            2.cTrue →
+                z;
+            2.cFalse →
+                y
+        })
+status: pass
+reason: A call that gives a known dictionary to an overloaded callee within the callee limit reduces, because the callee selects its methods from the dictionary. The site is free of the allowance within the site limit.

@@ -1,0 +1,39 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Monad.ST.Lazy hiding (stToIO)
+    import Control.Monad.ST.Strict (stToIO)
+    import qualified Control.Monad.ST.Strict as Strict
+    import Data.STRef (modifySTRef', newSTRef, readSTRef)
+
+    -- The strict module exports the same names as Control.Monad.ST.
+    strictSum :: Strict.ST s Int
+    strictSum = do
+      reference <- newSTRef 0
+      modifySTRef' reference (+ 3)
+      modifySTRef' reference (* 4)
+      readSTRef reference
+
+    -- The lazy module exports RealWorld, and the strict stToIO runs a strict
+    -- action in IO.
+    strictInIO :: IO Int
+    strictInIO = stToIO (strictSum :: Strict.ST RealWorld Int)
+
+    lazySum :: ST s Int
+    lazySum = strictToLazyST strictSum
+
+    report :: IO (Bool, Bool, Bool)
+    report = do
+      fromIO <- strictInIO
+      return
+        ( fromIO == 12,
+          Strict.runST strictSum == 12,
+          runST lazySum == 12
+        )
+expression: report
+output: |
+  (True,True,True)
+status: pass
+reason: Control.Monad.ST.Strict re-exports Control.Monad.ST, and Control.Monad.ST.Lazy exports RealWorld and stToIO

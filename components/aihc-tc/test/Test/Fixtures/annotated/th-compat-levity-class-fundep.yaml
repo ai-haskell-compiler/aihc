@@ -1,0 +1,66 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleInstances, FunctionalDependencies, KindSignatures, MultiParamTypeClasses, PolyKinds, UndecidableInstances, TypeOperators #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE, Type, Int)
+  newtype TExp (a :: TYPE r) = TExp Int
+          │                    └─ type: ∀ k0 a. GHC.Types.Int → TExp a
+          └─ type: GHC.Types.TYPE k0 → Type
+  newtype Code m (a :: TYPE r) = Code (m (TExp a))
+          │                      └─ type: ∀ k0 m a. m (TExp a) → Code m a
+          └─ type: (Type → Type) → GHC.Types.TYPE k0 → Type
+  data Q a = Q a
+       │     └─ type: ∀ a. a → Q a
+       └─ type: Type → Type
+  class IsCode q (a :: TYPE r) c | c -> a q where
+  └─ class methods: toCode ∷ ∀ r q a c. (IsCode q a c) ⇒ c → Code q a, fromCode ∷ ∀ r q a c. (IsCode q a c) ⇒ Code q a → c; fundeps: c → a q
+    toCode   :: c -> Code q a
+    fromCode :: Code q a -> c
+  instance IsCode q (a :: TYPE r) (Code q a) where
+  └─ $fIsCodeqaCodeqa ∷ ∀ q r a. () ⇒ IsCode q a (Code q a)
+    toCode   = \x -> x
+    │          │└─ type: Code q a
+    │          └─ type: Code q a → Code q a
+    └─ toCode ∷ Code q a → Code q a
+    fromCode = \x -> x
+    │          │└─ type: Code q a
+    │          └─ type: Code q a → Code q a
+    └─ fromCode ∷ Code q a → Code q a
+  instance texp ~ TExp a => IsCode Q (a :: TYPE r) (Q texp) where
+  └─ $fIsCodeQaQtexp ∷ ∀ texp r a. (texp ~ (TExp a)) ⇒ IsCode Q a (Q texp)
+    toCode   = Code
+    │          └─ type: Q (TExp a) → Code Q a; type-args: r, Q, a
+    └─ toCode ∷ Q texp → Code Q a
+    fromCode (Code q) = q
+    │         │    └─ type: Q (TExp a)
+    │         └─ type: Code Q a
+    └─ fromCode ∷ Code Q a → Q texp
+  
+extensions:
+- DataKinds
+- KindSignatures
+- FlexibleInstances
+- FunctionalDependencies
+- MultiParamTypeClasses
+- PolyKinds
+- UndecidableInstances
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE FlexibleInstances, FunctionalDependencies, KindSignatures, MultiParamTypeClasses, PolyKinds, UndecidableInstances, TypeOperators #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE, Type, Int)
+  newtype TExp (a :: TYPE r) = TExp Int
+  newtype Code m (a :: TYPE r) = Code (m (TExp a))
+  data Q a = Q a
+  class IsCode q (a :: TYPE r) c | c -> a q where
+    toCode   :: c -> Code q a
+    fromCode :: Code q a -> c
+  instance IsCode q (a :: TYPE r) (Code q a) where
+    toCode   = \x -> x
+    fromCode = \x -> x
+  instance texp ~ TExp a => IsCode Q (a :: TYPE r) (Q texp) where
+    toCode   = Code
+    fromCode (Code q) = q
+reason: a class parameter of kind TYPE r with a functional dependency, and an equality context that covers the dependency (th-compat)
+status: pass

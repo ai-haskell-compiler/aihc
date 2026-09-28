@@ -2,10 +2,10 @@
 	.p2align 4
 	.globl enter_direct
 enter_direct:
-	mov r9, [rsi]
+	mov r9, [r12]
 	and r9, -0x4
 	mov r9, [r9]
-	mov rsi, [rsi + 8]
+	mov r12, [r12 + 8]
 	mov r10, r9
 	test r10, r10
 	je .Llir_trap_0
@@ -14,10 +14,10 @@ enter_direct:
 	.p2align 4
 	.globl enter_inline
 enter_inline:
-	mov r9, [rsi]
+	mov r9, [r12]
 	and r9, -0x4
 	mov r9, [r9]
-	mov rsi, [rsi + 8]
+	mov r12, [r12 + 8]
 	mov r10, r9
 	test r10, r10
 	je .Llir_trap_0

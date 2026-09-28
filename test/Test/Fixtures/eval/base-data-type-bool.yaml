@@ -1,0 +1,33 @@
+extensions:
+  - DataKinds
+  - TypeFamilies
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE DataKinds #-}
+    {-# LANGUAGE TypeFamilies #-}
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import Data.Type.Bool
+
+    data Yes = Yes
+    data No = No
+
+    picked :: If 'True Yes No
+    picked = Yes
+
+    conjunction :: If ('True && Not 'True) Yes No
+    conjunction = No
+
+    disjunction :: If (Not 'False || 'False) Yes No
+    disjunction = Yes
+
+    result :: (Yes, No, Yes)
+    result = (picked, conjunction, disjunction)
+output: |
+  (Yes,No,Yes)
+expression: |
+  result
+status: pass
+reason: Data.Type.Bool reduces If, &&, || and Not on type-level booleans

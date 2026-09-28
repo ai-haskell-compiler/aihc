@@ -42,6 +42,9 @@ resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#reso
 fixture_extension_markdown_cmd="${FIXTURE_EXTENSION_PROGRESS_CMD:-nix run .#fixture-extension-progress}"
 tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
+# The two self-hosting commands get their output file as the last argument.
+self_hosting_packages_cmd="${SELF_HOSTING_PACKAGES_CMD:-nix run .#self-hosting-packages -- --output}"
+self_hosting_progress_cmd="${SELF_HOSTING_PROGRESS_CMD:-nix run .#self-hosting-progress -- --report}"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -54,12 +57,17 @@ resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 fixture_extension_out="$tmpdir/fixture-extension-progress.md"
 tc_out="$tmpdir/tc-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
+self_hosting_packages_out="$tmpdir/self-hosting-packages.md"
+self_hosting_report="$tmpdir/self-hosting-report.tsv"
 
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
 run_cmd "$fixture_extension_markdown_cmd" | sed -n '/^# Test Fixture Extension Support Status/,$p' >"$fixture_extension_out"
 run_cmd "$tc_cmd" >"$tc_out"
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
+run_cmd "$self_hosting_packages_cmd $(printf '%q' "$self_hosting_packages_out")"
+# The progress is of the new package list, also in --check mode.
+run_cmd "$self_hosting_progress_cmd $(printf '%q' "$self_hosting_report") --list $(printf '%q' "$self_hosting_packages_out")"
 
 parse_progress() {
 	local infile="$1"
@@ -163,6 +171,28 @@ tc_circles="$(progress_circles "$tc_complete")"
 ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
 base_circles="$(progress_circles "$base_complete")"
 
+self_hosting_vals=($(awk -F'\t' '
+  NF >= 3 {
+    total++
+    if ($3 == "pass") { pass++ } else if ($3 == "fail") { fail++ } else if ($3 == "blocked") { blocked++ }
+  }
+  END {
+    if (total == 0) {
+      exit 2
+    }
+    printf "%d\n%d\n%d\n%d\n%.2f\n", pass, fail, blocked, total, 100 * pass / total
+  }
+' "$self_hosting_report")) || {
+	echo "update-generated-content.sh: could not parse the self-hosting report (expected 'name<TAB>version<TAB>status<TAB>detail' lines)." >&2
+	exit 2
+}
+self_hosting_pass="${self_hosting_vals[0]}"
+self_hosting_fail="${self_hosting_vals[1]}"
+self_hosting_blocked="${self_hosting_vals[2]}"
+self_hosting_total="${self_hosting_vals[3]}"
+self_hosting_complete="${self_hosting_vals[4]}"
+self_hosting_circles="$(progress_circles "$self_hosting_complete")"
+
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
 \`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`) ${resolve_circles}
 EOF2
@@ -178,6 +208,41 @@ EOF2
 cat >"$tmpdir/readme-root-base.txt" <<EOF2
 \`${base_implemented}/${base_total}\` (\`${base_complete}%\`) ${base_circles}
 EOF2
+
+cat >"$tmpdir/readme-root-self-hosting.txt" <<EOF2
+\`${self_hosting_pass}/${self_hosting_total}\` (\`${self_hosting_complete}%\`) ${self_hosting_circles}
+EOF2
+
+{
+	echo "<details>"
+	echo "<summary>Self-compile packages: ${self_hosting_pass} install, ${self_hosting_fail} fail, ${self_hosting_blocked} wait for a dependency</summary>"
+	echo
+	echo "Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order."
+	echo
+	echo "| Package | Version | Status |"
+	echo "| ------- | ------- | ------ |"
+	awk -F'\t' '
+    NF >= 3 {
+      if ($3 == "pass") {
+        status = "✅ installs"
+      } else if ($3 == "fail") {
+        status = "❌ fails"
+        if ($4 != "" && $4 != "-") {
+          status = status " (" $4 ")"
+        }
+      } else {
+        n = split($4, needs, ",")
+        status = "⏸️ needs "
+        for (i = 1; i <= n; i++) {
+          status = status (i > 1 ? ", " : "") "`" needs[i] "`"
+        }
+      }
+      print "| " $1 " | " $2 " | " status " |"
+    }
+  ' "$self_hosting_report"
+	echo
+	echo "</details>"
+} >"$tmpdir/readme-root-self-hosting-details.txt"
 
 replace_marker_inline() {
 	local file="$1"
@@ -225,6 +290,53 @@ replace_marker_inline() {
 	fi
 }
 
+# Replace the lines between a START marker line and an END marker line.
+replace_marker_block() {
+	local file="$1"
+	local marker="$2"
+	local content_file="$3"
+	local start="<!-- AUTO-GENERATED: START ${marker} -->"
+	local end="<!-- AUTO-GENERATED: END ${marker} -->"
+	local tmp_out="$tmpdir/$(basename "$file").${marker}.block.out"
+
+	local start_count
+	local end_count
+	start_count="$(grep -Fxc "$start" "$file" || true)"
+	end_count="$(grep -Fxc "$end" "$file" || true)"
+	if [ "$start_count" -ne 1 ] || [ "$end_count" -ne 1 ]; then
+		echo "Expected exactly one block marker pair for '${marker}' in ${file}" >&2
+		exit 1
+	fi
+
+	awk -v start="$start" -v end="$end" -v content_file="$content_file" '
+    $0 == start {
+      print
+      while ((getline line < content_file) > 0) {
+        print line
+      }
+      skipping = 1
+      next
+    }
+    $0 == end {
+      skipping = 0
+    }
+    !skipping {
+      print
+    }
+  ' "$file" >"$tmp_out"
+
+	if [ "$mode" = "--update" ]; then
+		if ! cmp -s "$file" "$tmp_out"; then
+			cat "$tmp_out" >"$file"
+		fi
+	else
+		if ! cmp -s "$file" "$tmp_out"; then
+			echo "Generated block out of date: ${file} (${marker})" >&2
+			stale=1
+		fi
+	fi
+}
+
 remove_obsolete_marker_line() {
 	local file="$1"
 	local marker="$2"
@@ -258,10 +370,21 @@ else
 	fi
 fi
 
+if [ "$mode" = "--update" ]; then
+	cp "$self_hosting_packages_out" docs/self-hosting-packages.md
+else
+	if ! cmp -s docs/self-hosting-packages.md "$self_hosting_packages_out"; then
+		echo "Generated file out of date: docs/self-hosting-packages.md" >&2
+		stale=1
+	fi
+fi
+
 replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
 replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
+replace_marker_inline README.md "self-hosting-progress" "$tmpdir/readme-root-self-hosting.txt"
+replace_marker_block README.md "self-hosting-details" "$tmpdir/readme-root-self-hosting-details.txt"
 remove_obsolete_marker_line README.md "tc-stackage-progress"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then

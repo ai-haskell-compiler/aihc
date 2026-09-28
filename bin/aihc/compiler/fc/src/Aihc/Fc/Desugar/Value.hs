@@ -76,7 +76,6 @@ import Aihc.Tc.Types
     addrRep,
     applySubst,
     applySubstPred,
-    constraintTypeToPred,
     int16Rep,
     int32Rep,
     int64Rep,
@@ -895,8 +894,9 @@ foreignTypeNewtypeDependencies ty = do
         TcAppTy function argument -> go newtypes function <> go newtypes argument
 
 -- | The constructors a foreign value marshals through, outermost first.  A
--- unary constructor continues to its field type; the nullary constructor of
--- a unit result ends the chain.
+-- unary constructor continues to its field type; a nullary constructor, of a
+-- unit result or of an enumeration such as @Bool@, has no field, so the
+-- constructors after it belong to the same type.
 foreignMarshalDependencies :: TcForeignMarshal -> ValueM [ForeignImportDependency]
 foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeignConstructors marshal)
   where
@@ -906,19 +906,18 @@ foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeign
       constructors <- Map.findWithDefault [] constructorName <$> gets vsConstructorInfos
       case [(dataType, constructor, fieldType) | dataType <- newtypes, constructor <- dtiConstructors dataType, dciName constructor == constructorName, Just fieldType <- [foreignConstructorField sourceType constructor]] of
         [(dataType, _, fieldType)] ->
-          (foreignNewtypeDependency dataType :) <$> continue constructorName fieldType rest
+          (foreignNewtypeDependency dataType :) <$> continue sourceType fieldType rest
         [] ->
           case [(constructor, fieldType) | constructor <- constructors, Just fieldType <- [foreignConstructorField sourceType constructor]] of
             [(constructor, fieldType)] ->
               let (package, moduleName) = dciOrigin constructor
                   dependency = ForeignConstructor (Name constructorName SortDataConstructor (OriginTop package moduleName))
-               in (dependency :) <$> continue constructorName fieldType rest
+               in (dependency :) <$> continue sourceType fieldType rest
             [] -> failValue ("missing checked foreign constructor " <> T.unpack constructorName)
             _ -> failValue ("ambiguous checked foreign constructor " <> T.unpack constructorName)
         _ -> failValue ("ambiguous checked foreign newtype constructor " <> T.unpack constructorName)
     continue _ (Just fieldType) rest = go fieldType rest
-    continue _ Nothing [] = pure []
-    continue constructorName Nothing _ = failValue ("checked foreign constructor " <> T.unpack constructorName <> " has no field to marshal through")
+    continue sourceType Nothing rest = go sourceType rest
 
 -- | The field type of a unary constructor at the source type, or 'Nothing'
 -- inside for a nullary constructor.
@@ -1364,13 +1363,15 @@ dropClassPredicate classTyCon predicates =
       | predicateClass == classTyCon -> rest
     predicate : rest -> predicate : dropClassPredicate classTyCon rest
 
+-- | The binder of one context dictionary of an instance. The predicate
+-- decides how the binder's type is spelled: a stuck constraint such as
+-- @TypeError msg@ is polymorphic in its result kind, and only the
+-- predicate says that the context fixes that kind to @Constraint@.
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
-  kinds <- valueKinds
-  binder <- freshBinder ("$d" <> T.pack (show index)) (tcDictBinderType annotation)
-  case constraintTypeToPred kinds (tcDictBinderType annotation) of
-    Just predicate -> pure (Dictionary predicate binder)
-    Nothing -> failValue ("invalid checked class dictionary type: " <> show (tcDictBinderType annotation))
+  let predicate = tcDictBinderPred annotation
+  binder <- freshDictionaryBinder "$d" index predicate
+  pure (Dictionary predicate binder)
 
 instanceMethods :: Syn.InstanceDecl -> [(Text, (TcType, [Syn.Match]))]
 instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems instanceDecl)
@@ -1832,7 +1833,36 @@ desugarMatchColumns resultType fallback binders@(argument : arguments) argumentT
           case (maybeFamily, maybeNewtype) of
             (Just (pattern', info), _) -> desugarFamilyPatterns resultType fallback argument arguments argumentTypes works pattern' info
             (_, Just (pattern', dataType)) -> desugarNewtypePatterns resultType fallback argument arguments argumentTypes works pattern' dataType
-            _ -> desugarDataPatterns resultType fallback argument arguments argumentTypes works
+            _
+              -- Rows whose first pattern matches anything, after the last
+              -- constructor row, are the failure of the constructor rows.
+              -- When a constructor row can fail after its constructor
+              -- matches, every alternative at every depth of the match
+              -- would compile them again: a function of string literal
+              -- equations and a final variable equation copied that
+              -- equation once for each character of each literal. Compile
+              -- them once and share them. Otherwise they occur once, in the
+              -- default alternative, where they can use the case binder.
+              | (constructorWorks@(_ : _), defaultWorks@(_ : _)) <- splitTrailingDefaults works,
+                any rowCanFailAfterConstructor constructorWorks -> do
+                  failure <- desugarMatchArguments resultType fallback binders argumentTypes defaultWorks
+                  shareFailure resultType (Just failure) $ \shared ->
+                    desugarDataPatterns resultType shared argument arguments argumentTypes constructorWorks
+              | otherwise -> desugarDataPatterns resultType fallback argument arguments argumentTypes works
+
+-- | Whether a row can still fail after its first constructor matches.
+rowCanFailAfterConstructor :: MatchWork -> Bool
+rowCanFailAfterConstructor (match, _) =
+  case Syn.matchPats match of
+    first : rest -> not (all patternIsIrrefutable (patternChildren first <> rest))
+    [] -> False
+
+-- | The rows before and after the last row whose first pattern is not a
+-- default pattern.
+splitTrailingDefaults :: [MatchWork] -> ([MatchWork], [MatchWork])
+splitTrailingDefaults works =
+  let (defaultsReversed, restReversed) = span (firstPatternIsDefault . fst) (reverse works)
+   in (reverse restReversed, reverse defaultsReversed)
 
 -- | Compile a row whose first pattern is a view pattern. The view function
 -- is applied to the argument and the result is matched against the inner
@@ -2044,8 +2074,7 @@ desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals)
           compile (current <> matchBinderLocals extra) rest
       | isOverloadedLiteralPattern pattern' = do
           test <- desugarOverloadedLiteralPatternTest (ExVar (binderName argument)) pattern'
-          testType <- requiredPatternMethodResultType "==" pattern'
-          testBinder <- freshBinder "_case_guard" testType
+          testBinder <- literalTestBinder "_case_guard" pattern'
           resultType' <- convertCheckedType resultType
           trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
           falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
@@ -2087,9 +2116,20 @@ overloadedPatternFailure resultType arguments = do
       pure (ExCase (ExVar (binderName argument)) failureBinder resultType' [])
     [] -> failValue "overloaded literal match has no argument"
 
--- | The test of an overloaded literal pattern. The literal converts with
+-- | The binder of the result of a literal test. An overloaded literal
+-- compares with the equality method of its type, and a plain string literal
+-- compares with @eqString@, which gives a @Bool@.
+literalTestBinder :: Text -> Syn.Pattern -> ValueM Binder
+literalTestBinder hint pattern' =
+  case overloadedPatternValue pattern' of
+    Just (PlainString _, _) -> do
+      boolName <- primitiveName "GHC.Types" "Bool" SortTypeConstructor
+      freshBinderFromType hint (TyCon boolName)
+    _ -> freshBinder hint =<< requiredPatternMethodResultType "==" pattern'
+
+-- | The test of a literal pattern. An overloaded literal converts with
 -- fromInteger, fromRational or fromString, and the equality method compares
--- it with the scrutinee.
+-- it with the scrutinee. A plain string literal compares with @eqString@.
 desugarOverloadedLiteralPatternTest :: Expr -> Syn.Pattern -> ValueM Expr
 desugarOverloadedLiteralPatternTest scrutinee pattern' = do
   (value, negative) <-
@@ -2097,20 +2137,26 @@ desugarOverloadedLiteralPatternTest scrutinee pattern' = do
       (failValue ("invalid overloaded literal pattern: " <> take 80 (show pattern')))
       pure
       (overloadedPatternValue pattern')
-  positive <-
-    case value of
-      OverloadedInteger integer ->
-        ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
-      OverloadedRational rational ->
-        ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
-      OverloadedString string ->
-        ExApp <$> desugarPatternMethod "fromString" pattern' <*> desugarStringValue string
-  patternValue <-
-    if negative
-      then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
-      else pure positive
-  equality <- desugarPatternMethod "==" pattern'
-  pure (ExApp (ExApp equality scrutinee) patternValue)
+  case value of
+    PlainString string -> do
+      eqString <- primitiveName "GHC.Prim.String" "eqString" SortValue
+      literal <- desugarStringValue string
+      pure (ExApp (ExApp (ExVar eqString) scrutinee) literal)
+    _ -> do
+      positive <-
+        case value of
+          OverloadedInteger integer ->
+            ExApp <$> desugarPatternMethod "fromInteger" pattern' <*> desugarIntegerLiteral integer
+          OverloadedRational rational ->
+            ExApp <$> desugarPatternMethod "fromRational" pattern' <*> desugarRationalLiteral rational
+          OverloadedString string ->
+            ExApp <$> desugarPatternMethod "fromString" pattern' <*> desugarStringValue string
+      patternValue <-
+        if negative
+          then (`ExApp` positive) <$> desugarPatternMethod "negate" pattern'
+          else pure positive
+      equality <- desugarPatternMethod "==" pattern'
+      pure (ExApp (ExApp equality scrutinee) patternValue)
 
 desugarPatternMethod :: Text -> Syn.Pattern -> ValueM Expr
 desugarPatternMethod name pattern' = do
@@ -2151,11 +2197,16 @@ patternOccurrence target = go Nothing
         Syn.PTypeSig inner _ -> go currentType inner
         _ -> Nothing
 
--- | The value of an overloaded literal pattern.
+-- | The value of a literal pattern that compares with an equality test.
 data OverloadedLiteral
   = OverloadedInteger Integer
   | OverloadedRational Rational
   | OverloadedString Text
+  | -- | A string literal of two or more characters without
+    -- OverloadedStrings. It compares with @eqString@, as in GHC, and not
+    -- character by character: one test per equation makes much less code
+    -- than a match on each character of each literal.
+    PlainString Text
 
 isOverloadedLiteralPattern :: Syn.Pattern -> Bool
 isOverloadedLiteralPattern = isJust . overloadedPatternValue
@@ -2165,8 +2216,9 @@ overloadedPatternValue :: Syn.Pattern -> Maybe (OverloadedLiteral, Bool)
 overloadedPatternValue pattern' = go pattern'
   where
     -- OverloadedStrings converts a string pattern with fromString. Without
-    -- the extension the resolver leaves the pattern alone and its characters
-    -- match one by one.
+    -- the extension the resolver leaves the pattern alone. A literal of two
+    -- or more characters then compares with eqString, and a shorter one
+    -- matches as the list of its characters, as in GHC.
     overloadedString = isJust (patternOccurrence "fromString" pattern')
     go inner' =
       case inner' of
@@ -2185,7 +2237,9 @@ overloadedLiteralValue overloadedString literal =
   case Syn.peelLiteralAnn literal of
     Syn.LitInt value Syn.TInteger _ -> Just (OverloadedInteger value)
     Syn.LitFloat value Syn.TFractional _ -> Just (OverloadedRational value)
-    Syn.LitString value _ | overloadedString -> Just (OverloadedString value)
+    Syn.LitString value _
+      | overloadedString -> Just (OverloadedString value)
+      | T.compareLength value 2 /= LT -> Just (PlainString value)
     _ -> Nothing
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
@@ -2277,10 +2331,16 @@ firstFamilyPattern matches = do
 -- | A data-family pattern matches the representation type. Cast the
 -- scrutinee with the family axiom. A newtype instance also casts with the
 -- representation axiom, and then binds the field.
+--
+-- The instance arguments come from the type of the pattern, not from the
+-- type of the scrutinee. The type checker gives the constructor result type
+-- to the pattern. The scrutinee type can be a type family application, for
+-- example @Mutable Vector s ()@, that reduces to the instance type.
 desugarFamilyPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr
 desugarFamilyPatterns resultType fallback argument remaining argumentTypes works representative info = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
-  instanceArguments <- familyInstanceArguments info scrutineeType
+  instanceType <- requiredPatternType representative
+  instanceArguments <- familyInstanceArguments info instanceType
   axiomArguments <- familyAxiomArguments info instanceArguments
   let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
       scrutinee = ExVar (binderName argument)
@@ -2688,7 +2748,7 @@ desugarRhsWithFailure resultType failure rhs = do
   let annotations = case rhs of
         Syn.UnguardedRhs anns _ _ -> anns
         Syn.GuardedRhss anns _ _ -> anns
-      proofs = [proof | TcCastAnnotation proof <- mapMaybe Syn.fromAnnotation annotations]
+      proofs = [proof | TcCastAnnotation (Just proof) _ <- mapMaybe Syn.fromAnnotation annotations]
   foldM (\expression proof -> withCoercion proof (pure . ExCast expression)) body proofs
 
 desugarRhsBodyWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
@@ -2798,7 +2858,7 @@ desugarExpr expression =
     Syn.EAnn annotation inner
       -- A given equality made the expression fit where it stands, so the
       -- proof it carries is the cast that keeps the Core well typed.
-      | Just (TcCastAnnotation proof) <- Syn.fromAnnotation annotation ->
+      | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation annotation ->
           do
             inner' <- desugarExpr inner
             withCoercion proof (pure . ExCast inner')
@@ -3371,16 +3431,20 @@ desugarNewtypeConstructor annotation dataType = do
   convertedArguments <- convertNewtypeAxiomArguments dataType resultArguments
   pure (ExLam argument (ExCast (ExVar (binderName argument)) (CoSym (CoAxiom axiom convertedArguments))))
 
+-- | The type arguments of the newtype axiom of one wrap or unwrap. Each
+-- visible argument is converted at the kind of its axiom binder. An
+-- argument that nothing determines is @Any@ without a kind argument, and
+-- the binder kind is what gives it one: a parameter of kind @Nat@ gets
+-- @Any Nat@, not @Any Type@.
 convertNewtypeAxiomArguments :: DataTypeInfo -> [TcType] -> ValueM [Type]
 convertNewtypeAxiomArguments dataType arguments =
   if length arguments > length (dtiTyVars dataType)
     then mapM convertCheckedType arguments
-    else do
-      env <- gets vsConvertEnv
-      invisibleArguments <- liftEither (invisibleKindArgs env (dtiTyCon dataType) arguments Nothing)
-      visibleArguments <- mapM convertCheckedType arguments
-      pure (invisibleArguments <> visibleArguments)
+    else convertTyConApplicationArguments (dtiTyCon dataType) arguments
 
+-- | The invisible kind arguments and the visible arguments of one type
+-- constructor application, each visible argument converted at the kind
+-- that the constructor expects for it.
 convertTyConApplicationArguments :: TyCon -> [TcType] -> ValueM [Type]
 convertTyConApplicationArguments tyCon arguments = do
   env <- gets vsConvertEnv
@@ -3577,35 +3641,66 @@ desugarListCompPattern resultType binder ty pattern' success failure =
 
 desugarListCompConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompConstructorPattern resultType binder pattern' success failure = do
+  maybeFamily <- doPatternFamily pattern'
   maybeNewtype <- doPatternNewtype pattern'
-  case maybeNewtype of
-    Just dataType -> desugarListCompNewtypePattern resultType binder pattern' dataType success failure
-    Nothing -> do
-      let children = patternChildren pattern'
-          predicates = patternGivenPredicates pattern'
-          typeVariables = patternTypeVariables pattern'
-      withTypeVariables typeVariables $ do
-        typeBinders <- convertTypeBinders typeVariables
-        fieldTypes <- patternFieldTypes pattern' children
-        fields <- zipWithM freshPatternBinder children fieldTypes
-        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-        constructor <- patternConstructor pattern'
-        resultType' <- convertCheckedType resultType
-        caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
-        body <-
-          withAlternativeScope
-            (not (null typeBinders))
-            (zipWith Dictionary predicates dictionaries)
-            (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-        pure
-          ( ExCase
-              (ExVar (binderName binder))
-              caseBinder
-              resultType'
-              [ Alt constructor typeBinders (dictionaries <> fields) body,
-                Alt AltDefault [] [] failure
-              ]
-          )
+  case (maybeFamily, maybeNewtype) of
+    (Just info, _) -> desugarListCompFamilyPattern resultType binder pattern' info success failure
+    (_, Just dataType) -> desugarListCompNewtypePattern resultType binder pattern' dataType success failure
+    _ -> desugarListCompDataPattern resultType binder pattern' success failure
+
+-- | A data-family pattern in a list comprehension generator, cast as in
+-- 'desugarDoFamilyPattern'.
+desugarListCompFamilyPattern :: TcType -> Binder -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompFamilyPattern resultType binder pattern' info success failure = do
+  instanceType <- requiredPatternType pattern'
+  instanceArguments <- familyInstanceArguments info instanceType
+  axiomArguments <- familyAxiomArguments info instanceArguments
+  let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
+      scrutinee = ExVar (binderName binder)
+  if dfiiIsNewtype info
+    then do
+      child <-
+        case patternChildren pattern' of
+          [fieldPattern] -> pure fieldPattern
+          _ -> failValue ("newtype family list comprehension pattern does not have one field: " <> T.unpack (dfiiFamilyName info))
+      childType <- requiredPatternType child
+      field <- freshPatternBinder child childType
+      let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
+      body <- desugarListCompPattern resultType field childType child success failure
+      pure (ExLet (Bind field unwrapped) body)
+    else do
+      representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+      representation <- freshBinderFromType "_list_comp_family" representationType
+      body <- desugarListCompDataPattern resultType representation pattern' success failure
+      pure (ExLet (Bind representation (ExCast scrutinee familyCoercion)) body)
+
+desugarListCompDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompDataPattern resultType binder pattern' success failure = do
+  let children = patternChildren pattern'
+      predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fieldTypes <- patternFieldTypes pattern' children
+    fields <- zipWithM freshPatternBinder children fieldTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    constructor <- patternConstructor pattern'
+    resultType' <- convertCheckedType resultType
+    caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+    pure
+      ( ExCase
+          (ExVar (binderName binder))
+          caseBinder
+          resultType'
+          [ Alt constructor typeBinders (dictionaries <> fields) body,
+            Alt AltDefault [] [] failure
+          ]
+      )
 
 desugarListCompChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Expr -> ValueM Expr
 desugarListCompChildPatterns resultType children success failure =
@@ -3816,13 +3911,13 @@ desugarDo resultType statements =
           desugarLocalDecls declarations (pure resultType) (desugarDo resultType rest)
         Syn.DoBind pattern' action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
-          bind <- desugarResolvedOccurrence annotation resolution
+          bind <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
           continuation <- desugarDoPatternContinuation resultType annotation pattern' rest
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
-          method <- desugarResolvedOccurrence annotation resolution
+          method <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
           continuation <- desugarDo resultType rest
           pure (ExApp (ExApp method action') continuation)
@@ -3854,8 +3949,7 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
           -- An overloaded literal compares with the equality
           -- method of its type, as in a function equation.
           test <- desugarOverloadedLiteralPatternTest (ExVar (binderName binder)) pattern'
-          testType <- requiredPatternMethodResultType "==" pattern'
-          testBinder <- freshBinder "_literal_guard" testType
+          testBinder <- literalTestBinder "_literal_guard" pattern'
           resultType' <- convertCheckedType resultType
           trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
           falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
@@ -3918,28 +4012,60 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
 
 desugarDoConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoConstructorPattern resultType binder pattern' success failure = do
+  maybeFamily <- doPatternFamily pattern'
   maybeNewtype <- doPatternNewtype pattern'
-  case maybeNewtype of
-    Just dataType -> desugarDoNewtypePattern resultType binder pattern' dataType success failure
-    Nothing -> do
-      let children = patternChildren pattern'
-          predicates = patternGivenPredicates pattern'
-      let typeVariables = patternTypeVariables pattern'
-      withTypeVariables typeVariables $ do
-        typeBinders <- convertTypeBinders typeVariables
-        fieldTypes <- patternFieldTypes pattern' children
-        fields <- zipWithM freshPatternBinder children fieldTypes
-        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-        constructor <- patternConstructor pattern'
-        resultType' <- convertCheckedType resultType
-        caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
-        body <-
-          withAlternativeScope
-            (not (null typeBinders))
-            (zipWith Dictionary predicates dictionaries)
-            (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-        let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
-        pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
+  case (maybeFamily, maybeNewtype) of
+    (Just info, _) -> desugarDoFamilyPattern resultType binder pattern' info success failure
+    (_, Just dataType) -> desugarDoNewtypePattern resultType binder pattern' dataType success failure
+    _ -> desugarDoDataPattern resultType binder pattern' success failure
+
+-- | A data-family pattern in a @do@ bind matches the representation type,
+-- as in 'desugarFamilyPatterns': cast the bound value with the family
+-- axiom, and for a newtype instance also with the representation axiom.
+desugarDoFamilyPattern :: TcType -> Binder -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoFamilyPattern resultType binder pattern' info success failure = do
+  instanceType <- requiredPatternType pattern'
+  instanceArguments <- familyInstanceArguments info instanceType
+  axiomArguments <- familyAxiomArguments info instanceArguments
+  let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
+      scrutinee = ExVar (binderName binder)
+  if dfiiIsNewtype info
+    then do
+      child <-
+        case patternChildren pattern' of
+          [fieldPattern] -> pure fieldPattern
+          _ -> failValue ("newtype family do pattern does not have one field: " <> T.unpack (dfiiFamilyName info))
+      childType <- requiredPatternType child
+      field <- freshPatternBinder child childType
+      let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
+      body <- desugarPatternWithFailure resultType field childType child success failure
+      pure (ExLet (Bind field unwrapped) body)
+    else do
+      representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+      representation <- freshBinderFromType "_do_family" representationType
+      body <- desugarDoDataPattern resultType representation pattern' success failure
+      pure (ExLet (Bind representation (ExCast scrutinee familyCoercion)) body)
+
+desugarDoDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoDataPattern resultType binder pattern' success failure = do
+  let children = patternChildren pattern'
+      predicates = patternGivenPredicates pattern'
+  let typeVariables = patternTypeVariables pattern'
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fieldTypes <- patternFieldTypes pattern' children
+    fields <- zipWithM freshPatternBinder children fieldTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    constructor <- patternConstructor pattern'
+    resultType' <- convertCheckedType resultType
+    caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+    let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
+    pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success failure =
@@ -3947,6 +4073,12 @@ desugarDoChildPatterns resultType children success failure =
     [] -> success
     (binder, ty, pattern') : rest ->
       desugarPatternWithFailure resultType binder ty pattern' (desugarDoChildPatterns resultType rest success failure) failure
+
+doPatternFamily :: Syn.Pattern -> ValueM (Maybe DataFamilyInstanceInfo)
+doPatternFamily pattern' =
+  case patternConstructorSourceName pattern' of
+    Just name -> familyConstructorData name
+    Nothing -> pure Nothing
 
 doPatternNewtype :: Syn.Pattern -> ValueM (Maybe DataTypeInfo)
 doPatternNewtype pattern' = do
@@ -3998,6 +4130,24 @@ directPatternBindings pattern' binder ty =
       innerResult <- directPatternBindings inner binder ty
       pure ((outer <>) <$> innerResult)
     _ -> pure Nothing
+
+-- | The sequencing method of a @do@ statement, cast onto the type the
+-- statement uses it at when a given equality made it fit. The statement has
+-- no expression node for the method, so the cast is a statement annotation.
+desugarDoMethod :: Syn.DoStmt Syn.Expr -> TcAnnotation -> ResolutionAnnotation -> ValueM Expr
+desugarDoMethod statement annotation resolution = do
+  method <- desugarResolvedOccurrence annotation resolution
+  case doMethodCast statement of
+    Just proof -> withCoercion proof (pure . ExCast method)
+    Nothing -> pure method
+
+doMethodCast :: Syn.DoStmt body -> Maybe Ev.Coercion
+doMethodCast statement =
+  case statement of
+    Syn.DoAnn annotation inner
+      | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation annotation -> Just proof
+      | otherwise -> doMethodCast inner
+    _ -> Nothing
 
 peelDoStatement :: Syn.DoStmt body -> Syn.DoStmt body
 peelDoStatement statement =
@@ -4261,7 +4411,9 @@ desugarEvidence evidence =
       evidenceArguments <- mapM desugarEvidence subEvidence
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
     Ev.EvCoercible constructor left right -> do
-      arguments <- mapM convertCheckedType [left, right]
+      -- The class can be kind-polymorphic, as @~@ is, so the constructor
+      -- takes the kind arguments before the two types.
+      arguments <- convertTyConApplicationArguments constructor [left, right]
       pure (foldl ExTyApp (ExVar (classDictConName constructor)) arguments)
     Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
@@ -4952,7 +5104,9 @@ requiredExprType expression =
 inferExprType :: Syn.Expr -> ValueM TcType
 inferExprType expression =
   case expression of
-    Syn.EAnn _ inner -> inferExprType inner
+    Syn.EAnn annotation inner
+      | Just (TcCastAnnotation _ target) <- Syn.fromAnnotation annotation -> pure target
+      | otherwise -> inferExprType inner
     Syn.EVar name -> lookupNamedBindingType name
     Syn.EApp function _ -> do
       functionType <- inferExprType function
@@ -4987,7 +5141,7 @@ inferExprType expression =
 exprType :: Syn.Expr -> Maybe TcType
 exprType expression =
   case expression of
-    Syn.EAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> exprType inner
+    Syn.EAnn annotation inner -> annotationExprType annotation <|> exprType inner
     Syn.EApp function _ -> exprType function >>= applicationResultType
     Syn.EParen inner -> exprType inner
     Syn.EPragma _ inner -> exprType inner
@@ -4996,6 +5150,15 @@ exprType expression =
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner
     _ -> Nothing
+
+-- | The type that an expression annotation gives. A cast gives the type
+-- after the cast, so a function whose type is a family application has
+-- the arrow type that the type checker proved for it.
+annotationExprType :: Syn.Annotation -> Maybe TcType
+annotationExprType annotation =
+  case Syn.fromAnnotation annotation of
+    Just (TcCastAnnotation _ target) -> Just target
+    Nothing -> tcAnnType <$> Syn.fromAnnotation annotation
 
 applicationResultType :: TcType -> Maybe TcType
 applicationResultType ty =

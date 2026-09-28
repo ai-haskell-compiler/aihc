@@ -1,0 +1,33 @@
+extensions: [MagicHash]
+modules:
+  - |
+    module Test where
+    import GHC.Exts (Char#, Double#, Float#, Int#, Word#, int2Double#, int2Float#)
+
+    data Results = Results Bool Bool Bool Bool Bool Bool Bool Bool Bool
+
+    data Boxed = Boxed Int#
+      deriving (Eq, Ord)
+
+    data Mixed = Small Word# Char# | Large Double# Float#
+      deriving (Eq, Ord)
+
+    large :: Int# -> Int# -> Mixed
+    large double float = Large (int2Double# double) (int2Float# float)
+
+    result :: Results
+    result =
+      Results
+        (Boxed 3# == Boxed 3#)
+        (Boxed 3# /= Boxed 4#)
+        (compare (Boxed 3#) (Boxed 4#) == LT)
+        (compare (Boxed 4#) (Boxed 3#) == GT)
+        (compare (Boxed 5#) (Boxed 5#) == EQ)
+        (Small 1## 'a'# == Small 1## 'a'#)
+        (compare (Small 1## 'a'#) (Small 1## 'b'#) == LT)
+        (compare (large 2# 1#) (large 2# 3#) == LT)
+        (compare (large 2# 0#) (Small 9## 'z'#) == GT)
+expression: result
+output: Results True True True True True True True True True
+status: pass
+reason: derived Eq and Ord compare unlifted Int#, Word#, Char#, Double#, and Float# fields with the primitive comparison operators

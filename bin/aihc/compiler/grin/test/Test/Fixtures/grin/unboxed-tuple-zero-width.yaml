@@ -5,9 +5,9 @@ expected: |-
 
   primitive realWorld# :: TupleRep []/0
 
-  pub global 1.value = (F$value_thunk)
+  pub global 1.value = (F1.$value_thunk)
 
-  $value_thunk -> BoxedRep Lifted =
+  1.$value_thunk -> BoxedRep Lifted =
     () <-
       primitive-call @(TupleRep []) realWorld#
     store (C1.Box (42 :: IntRep))

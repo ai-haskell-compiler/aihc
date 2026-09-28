@@ -1,0 +1,87 @@
+annotated:
+- |-
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+       │         └─ type: GHC.Prim.Int# → Integer
+       └─ type: Type
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+  instance Num Integer where
+  └─ $fNumInteger ∷ () ⇒ Num Integer
+    fromInteger x = x
+    │           └─ type: Integer
+    └─ fromInteger ∷ Integer → Integer
+- |-
+  module Main where
+  import GHC.Classes (Eq (..))
+  import GHC.Num (Integer, Num)
+  import GHC.Types (Bool (..))
+  instance Eq Integer where
+  └─ $fEqInteger ∷ () ⇒ Eq Integer
+    _ == _ = True
+    ││    └─ type: GHC.Num.Integer
+    └─ type: GHC.Num.Integer
+    └─ == ∷ Integer → Integer → Bool
+  instance Eq a => Eq [a] where
+  └─ $fEqList ∷ ∀ a. (Eq a) ⇒ Eq [a]
+    [] == [] = True
+    ││     └─ type: [a]
+    └─ type: [a]
+    └─ == ∷ [a] → [a] → Bool
+    (x : _) == (y : _) = x == y
+    ││ │ │      │ │ │      └─ type: a → a → GHC.Types.Bool; type-args: a; evidence: given Eq a
+    ││ │ │      │ │ └─ type: [a]
+    ││ │ │      │ └─ type: [a]
+    ││ │ │      └─ type: a
+    ││ │ └─ type: [a]
+    ││ └─ type: [a]
+    │└─ type: a
+    └─ == ∷ [a] → [a] → Bool
+    _ == _ = False
+    ││    └─ type: [a]
+    └─ type: [a]
+    └─ == ∷ [a] → [a] → Bool
+  check :: Bool
+  check = [1] == [1]
+  │       ││  │  │└─ type: GHC.Num.Integer; type-args: Integer; evidence: $fNumInteger
+  │       ││  │  └─ type: [GHC.Num.Integer]; type-args: Integer
+  │       ││  └─ type: [GHC.Num.Integer] → [GHC.Num.Integer] → GHC.Types.Bool; type-args: [Integer]; evidence: $fEqList @Integer ($fEqInteger)
+  │       │└─ type: GHC.Num.Integer; type-args: Integer; evidence: $fNumInteger
+  │       └─ type: [GHC.Num.Integer]; type-args: Integer
+  └─ type: GHC.Types.Bool
+  checkInferred = [1] == [1]
+  │               ││  │  │└─ type: GHC.Num.Integer; type-args: Integer; evidence: $fNumInteger
+  │               ││  │  └─ type: [GHC.Num.Integer]; type-args: Integer
+  │               ││  └─ type: [GHC.Num.Integer] → [GHC.Num.Integer] → GHC.Types.Bool; type-args: [Integer]; evidence: $fEqList @Integer ($fEqInteger)
+  │               │└─ type: GHC.Num.Integer; type-args: Integer; evidence: $fNumInteger
+  │               └─ type: [GHC.Num.Integer]; type-args: Integer
+  └─ type: GHC.Types.Bool
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  instance Num Integer where
+    fromInteger x = x
+- |
+  module Main where
+  import GHC.Classes (Eq (..))
+  import GHC.Num (Integer, Num)
+  import GHC.Types (Bool (..))
+  instance Eq Integer where
+    _ == _ = True
+  instance Eq a => Eq [a] where
+    [] == [] = True
+    (x : _) == (y : _) = x == y
+    _ == _ = False
+  check :: Bool
+  check = [1] == [1]
+  checkInferred = [1] == [1]
+reason: an ambiguous numeric variable under a list equality constraint defaults to Integer
+status: pass

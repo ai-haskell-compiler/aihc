@@ -16,7 +16,8 @@ data @aihc_stable_name_info align 8 = {
   i8 0,
   i8 0,
   i8 @AIHC_FRAME_NONE,
-  i8 @AIHC_OBJECT_STABLE_NAME
+  i8 @AIHC_OBJECT_STABLE_NAME,
+  i8 @AIHC_NEEDS_EVAL_NONE
 }
 
 extern func @aihc_fail(ptr) cc c

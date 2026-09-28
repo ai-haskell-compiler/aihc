@@ -1,0 +1,54 @@
+extensions:
+  - DataKinds
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE DataKinds #-}
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import Control.Applicative (Const (..), ZipList (..))
+    import GHC.Arr (Array, listArray)
+    import Data.Foldable (toList)
+    import Data.Proxy (Proxy (..))
+    import Data.Traversable (traverse)
+    import GHC.Generics
+
+    array :: Array Int Int
+    array = listArray (0, 2) [1, 2, 3]
+
+    sumRep :: (U1 :+: (Par1 :*: Rec1 Maybe)) Int
+    sumRep = R1 (Par1 1 :*: Rec1 (Just 2))
+
+    compRep :: (Maybe :.: []) Int
+    compRep = Comp1 (Just [3, 4])
+
+    metaRep :: M1 D ('MetaData 'False) (K1 R Bool) Int
+    metaRep = M1 (K1 True)
+
+    double :: Int -> Maybe Int
+    double x = Just (x * 2)
+
+    checks :: [Bool]
+    checks =
+      [ toList (Proxy :: Proxy Int) == [],
+        traverse double (Proxy :: Proxy Int) == Just Proxy,
+        toList (ZipList [1, 2, 3 :: Int]) == [1, 2, 3],
+        fmap getZipList (traverse double (ZipList [1, 2])) == Just [2, 4],
+        toList (Const 'x' :: Const Char Int) == [],
+        fmap getConst (traverse double (Const 'x' :: Const Char Int)) == Just 'x',
+        toList array == [1, 2, 3],
+        fmap toList (traverse double array) == Just [2, 4, 6],
+        toList (U1 :: U1 Int) == [],
+        toList sumRep == [1, 2],
+        fmap toList (traverse double sumRep) == Just [2, 4],
+        toList compRep == [3, 4],
+        fmap toList (traverse double compRep) == Just [6, 8],
+        toList metaRep == [],
+        fmap toList (traverse double metaRep) == Just [],
+        sum (L1 (Par1 5) :: (Par1 :+: U1) Int) == 5
+      ]
+output: 'True'
+expression: and checks
+status: pass
+reason: Foldable and Traversable instances for Proxy, ZipList, Const, Array and the GHC.Generics representation types

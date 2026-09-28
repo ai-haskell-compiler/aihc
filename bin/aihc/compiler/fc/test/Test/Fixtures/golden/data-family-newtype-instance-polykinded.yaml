@@ -47,7 +47,7 @@ expected: |-
 
   axiom 1.$ax$R$Payload$PayloadConst (k0 : 2.sType) (a : 2.sType) (b : k0) : 1.t$R$Payload$PayloadConst k0 a b ~R a
 
-  axiom 1.$ax$Payload$PayloadConst (k0 : 2.sType) (a : 2.sType) (b : k0) : 1.tPayload (1.tConst k0 a b) ~N 1.t$R$Payload$PayloadConst k0 a b
+  axiom 1.$ax$Payload$PayloadConst (k0 : 2.sType) (a : 2.sType) (b : k0) : 1.tPayload (1.tConst k0 a b) ~R 1.t$R$Payload$PayloadConst k0 a b
 
   pub val 1.vbuild :: ∀(k0 : 2.sType) (a : 2.sType) (b : k0). a 2.→ 1.tPayload (1.tConst k0 a b)
    = Λ(k0 : 2.sType).

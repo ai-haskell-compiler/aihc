@@ -1,13 +1,13 @@
 	.text
 	.p2align 2
 _count:
-	cbnz x0, .Llir_0_1
-	mov x0, x1
+	cbnz x19, .Llir_0_1
+	mov x19, x20
 	b .Llir_0_2
 .Llir_0_1:
-	sub x8, x0, #1
-	add x1, x1, x0
-	mov x0, x8
+	sub x8, x19, #1
+	add x20, x20, x19
+	mov x19, x8
 	b _count
 .Llir_0_2:
 	b _done

@@ -7,19 +7,25 @@ modules:
       ( (*##),
         (+##),
         (-##),
+        (/=##),
         (<##),
+        (<=##),
         (==##),
         (>##),
+        (>=##),
         double2Int#,
         eqFloat#,
         fabsDouble#,
         fabsFloat#,
         float2Int#,
+        geFloat#,
         gtFloat#,
         int2Double#,
         int2Float#,
+        leFloat#,
         ltFloat#,
         minusFloat#,
+        neFloat#,
         negateDouble#,
         negateFloat#,
         plusFloat#,
@@ -42,6 +48,12 @@ modules:
         ( gtFloat# (int2Float# 2#) (int2Float# 1#)
             +# ltFloat# (int2Float# 2#) (int2Float# 1#)
             +# eqFloat# (int2Float# 3#) (int2Float# 3#)
+            +# geFloat# (int2Float# 3#) (int2Float# 3#)
+            +# geFloat# (int2Float# 1#) (int2Float# 2#)
+            +# leFloat# (int2Float# 3#) (int2Float# 3#)
+            +# leFloat# (int2Float# 2#) (int2Float# 1#)
+            +# neFloat# (int2Float# 1#) (int2Float# 2#)
+            +# neFloat# (int2Float# 3#) (int2Float# 3#)
         )
 
     doubleSum :: Int
@@ -59,9 +71,15 @@ modules:
         ( ((int2Double# 2#) >## (int2Double# 1#))
             +# ((int2Double# 2#) <## (int2Double# 1#))
             +# ((int2Double# 3#) ==## (int2Double# 3#))
+            +# ((int2Double# 3#) >=## (int2Double# 3#))
+            +# ((int2Double# 1#) >=## (int2Double# 2#))
+            +# ((int2Double# 3#) <=## (int2Double# 3#))
+            +# ((int2Double# 2#) <=## (int2Double# 1#))
+            +# ((int2Double# 1#) /=## (int2Double# 2#))
+            +# ((int2Double# 3#) /=## (int2Double# 3#))
         )
 output: |
-  : (I# 42) (: (I# 42) (: (I# 5) (: (I# 2) (: (I# 42) (: (I# 42) (: (I# 5) (: (I# 2) [])))))))
+  : (I# 42) (: (I# 42) (: (I# 5) (: (I# 5) (: (I# 42) (: (I# 42) (: (I# 5) (: (I# 5) [])))))))
 expression: |
   [floatSum, floatProduct, floatAbs, floatOrder, doubleSum, doubleProduct, doubleAbs, doubleOrder]
 status: pass

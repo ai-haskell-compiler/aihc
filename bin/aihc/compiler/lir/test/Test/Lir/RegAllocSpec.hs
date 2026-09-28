@@ -38,7 +38,7 @@ pool count =
     { registersVolatile = [],
       registersPreserved = take count ["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"],
       registersPreservedCost = True,
-      registersArgument = const Nothing,
+      registersArgument = \_ _ -> Nothing,
       registersResult = const Nothing,
       registersPairedSaves = False
     }
@@ -56,7 +56,7 @@ target preservedCost =
     { registersVolatile = ["t0", "t1", "t2", "t3"] <> arguments <> ["r0"],
       registersPreserved = ["s0", "s1"],
       registersPreservedCost = preservedCost,
-      registersArgument = carrier arguments,
+      registersArgument = const (carrier arguments),
       registersResult = carrier results,
       registersPairedSaves = False
     }

@@ -18,11 +18,12 @@ module Control.Applicative
   )
 where
 
-import Control.Arrow (Arrow (..), (>>>))
+import Control.Arrow (Arrow (..), Kleisli (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
 import Foreign.Storable (Storable (..))
+import GHC.List (drop)
 import GHC.Ptr (castPtr)
-import Prelude (Applicative (..), Eq (..), Functor (..), Maybe (..), Monad (..), Ord (..), const, (++), (<$>))
+import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Read (..), Show (..), Traversable (..), const, lex, readParen, showParen, showString, (++), (.), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
@@ -56,8 +57,24 @@ instance (Ord a) => Ord (Const a b) where
   max (Const left) (Const right) = Const (max left right)
   min (Const left) (Const right) = Const (min left right)
 
+instance (Read a) => Read (Const a b) where
+  readsPrec precedence =
+    readParen
+      (precedence > 10)
+      (\input -> [(Const value, rest) | (name, afterName) <- lex input, name == "Const", (value, rest) <- readsPrec 11 afterName])
+
+instance (Show a) => Show (Const a b) where
+  showsPrec precedence (Const value) =
+    showParen (precedence > 10) (showString "Const " . showsPrec 11 value)
+
 instance Functor (Const a) where
   fmap _ (Const value) = Const value
+
+instance Foldable (Const a) where
+  foldr _ initial _ = initial
+
+instance Traversable (Const a) where
+  traverse _ (Const value) = pure (Const value)
 
 instance (Monoid a) => Applicative (Const a) where
   pure _ = Const mempty
@@ -89,11 +106,26 @@ instance (Arrow a) => Applicative (WrappedArrow a b) where
     WrapArrow ((functions &&& values) >>> arr (\(function, value) -> function value))
 
 newtype ZipList a = ZipList {getZipList :: [a]}
-  deriving newtype (Functor)
+  deriving newtype (Eq, Ord, Functor)
+
+instance Foldable ZipList where
+  foldr step initial (ZipList values) = foldr step initial values
+  length (ZipList values) = length values
+  null (ZipList values) = null values
+
+instance Traversable ZipList where
+  traverse function (ZipList values) = ZipList <$> traverse function values
 
 instance Applicative ZipList where
   pure value = ZipList (repeatZipList value)
   ZipList functions <*> ZipList values = ZipList (applyZipList functions values)
+
+-- | The empty list is the identity. The alternative appends the part of
+-- the second list that goes past the first one, so the length of the
+-- result is the longer length.
+instance Alternative ZipList where
+  empty = ZipList []
+  ZipList left <|> ZipList right = ZipList (left ++ drop (length left) right)
 
 class (Applicative f) => Alternative f where
   empty :: f a
@@ -120,6 +152,12 @@ applyZipList (f : functions) (value : values) = f value : applyZipList functions
 instance Alternative [] where
   empty = []
   (<|>) = (++)
+
+-- GHC declares this instance beside 'Kleisli'. 'Control.Arrow' cannot
+-- import this module, so the instance lives beside the class.
+instance (Alternative m) => Alternative (Kleisli m a) where
+  empty = Kleisli (const empty)
+  Kleisli f <|> Kleisli g = Kleisli (\x -> f x <|> g x)
 
 instance Alternative Maybe where
   empty = Nothing

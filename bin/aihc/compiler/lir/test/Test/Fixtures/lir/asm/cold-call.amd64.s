@@ -1,27 +1,31 @@
 	.text
 	.p2align 4
 reserve:
-	mov r12, rsi
-	mov rbx, rdx
-	mov r9, [rdi + 24]
-	mov r8, [rdi + 32]
-	sub r8, r9
-	cmp r8, 0x10
-	jae .Llir_0_2
+	mov r9, rdi
+	mov r8, rsi
+	lea rcx, [r12 + 16]
+	cmp rcx, r13
+	ja .Llir_0_1
+	mov rdx, r12
+	jmp .Llir_0_2
 .Llir_0_1:
 	sub rsp, 0x8
-	mov r13, rdi
+	mov [rbx + 24], r12
+	mov r12, r8
+	mov r13, r9
+	mov rdi, rbx
 	mov esi, 0x2
 	mov eax, 0x0
 	call collect
-	mov rdi, r13
+	mov r8, r12
+	mov r9, r13
+	mov rdx, [rbx + 24]
+	mov r13, [rbx + 32]
 	add rsp, 0x8
 .Llir_0_2:
-	mov rcx, [rdi + 24]
-	lea r9, [rcx + 16]
-	mov [rdi + 24], r9
-	mov [rcx + 8], rbx
-	mov rsi, r12
-	mov rdx, rbx
+	lea r12, [rdx + 16]
+	mov [rdx + 8], r8
+	mov rdi, r9
+	mov rsi, r8
 	jmp next
 	.section .note.GNU-stack

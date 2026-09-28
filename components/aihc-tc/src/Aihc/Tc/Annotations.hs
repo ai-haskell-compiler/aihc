@@ -14,6 +14,8 @@ module Aihc.Tc.Annotations
     annotateRhsCast,
     annotateExprCast,
     annotateFunCast,
+    annotateSigCast,
+    annotateDoStmtCast,
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignSafety (..),
@@ -58,6 +60,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Decl (..),
+    DoStmt (..),
     Expr (..),
     Match,
     Rhs (..),
@@ -73,8 +76,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 
--- | A checked cast on the result of a right-hand side.
-newtype TcCastAnnotation = TcCastAnnotation Coercion
+-- | A checked cast on an expression or a right-hand side. The type is the
+-- type after the cast, which is the right type of the proof. A reflexive
+-- proof has no coercion. The annotation then keeps only the type, because
+-- a function whose type is a family application needs its arrow type.
+data TcCastAnnotation = TcCastAnnotation (Maybe Coercion) TcType
   deriving (Eq, Show)
 
 -- | The solver must supply the proof before FC desugaring.
@@ -112,6 +118,24 @@ annotateExprCast ty evidence =
 annotateFunCast :: TcType -> EvVar -> Expr -> Expr
 annotateFunCast ty evidence =
   EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | Cast an annotated expression onto its signature type. The expression
+-- is equated as @actual ~ signature@, so the proof runs forwards. A given
+-- equality can be what proves it: with the given @d ~ Maybe x@ the
+-- expression @Proxy :: Proxy d@ has the type @Proxy (Maybe x)@ where it
+-- stands, and FC needs the cast onto @Proxy d@.
+annotateSigCast :: TcType -> EvVar -> Expr -> Expr
+annotateSigCast ty evidence =
+  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | Cast the sequencing method of a @do@ statement onto the type the
+-- statement uses it at. The method is equated as
+-- @method ~ (action -> continuation -> block)@, so the proof runs forwards
+-- for the method. The desugarer applies the cast to the method occurrence,
+-- because the statement has no expression node for it.
+annotateDoStmtCast :: TcType -> EvVar -> DoStmt body -> DoStmt body
+annotateDoStmtCast ty evidence =
+  DoAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Annotation attached to AST nodes by the type checker.
 --
@@ -273,10 +297,15 @@ data PendingTcAnnotation = PendingTcAnnotation
   }
   deriving (Eq, Show)
 
+-- | One dictionary that a binding takes or holds. The predicate is the
+-- one the type checker solved with: the type alone does not say whether
+-- its head is a class or a stuck type family, and the desugarer needs to
+-- know, because a stuck constraint takes its kind from the context.
 data TcDictBinderAnnotation = TcDictBinderAnnotation
   { tcDictBinderClassName :: !Text,
     tcDictBinderArgs :: ![TcType],
-    tcDictBinderType :: !TcType
+    tcDictBinderType :: !TcType,
+    tcDictBinderPred :: !Pred
   }
   deriving (Eq, Show)
 

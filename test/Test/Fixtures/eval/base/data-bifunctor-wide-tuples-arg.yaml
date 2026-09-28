@@ -1,0 +1,21 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Bifunctor (bimap, first, second)
+    import Data.Semigroup (Arg (..))
+
+    results :: (Bool, Bool, Bool, Bool)
+    results =
+      ( bimap not (== 'a') ((), (), (), True, 'a') == ((), (), (), False, True),
+        first not ((), (), (), (), True, 'b') == ((), (), (), (), False, 'b'),
+        second (== 'c') ((), (), (), (), (), True, 'c') == ((), (), (), (), (), True, True),
+        case bimap not (== 'd') (Arg True 'd') of
+          Arg key value -> not key && value
+      )
+output: |
+  (True,True,True,True)
+expression: results
+status: pass
+reason: Data.Bifunctor has instances for tuples up to seven components, and Data.Semigroup has an instance for Arg

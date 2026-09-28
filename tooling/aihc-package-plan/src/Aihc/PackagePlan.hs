@@ -76,6 +76,7 @@ import Distribution.System (Arch, OS)
 import Distribution.Types.Dependency (Dependency (..))
 import Distribution.Types.Flag (FlagAssignment, mkFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Distribution.Types.UnqualComponentName (mkUnqualComponentName)
 import Distribution.Types.Version (Version, mkVersion)
 import Distribution.Types.VersionRange (VersionRange, anyVersion, thisVersion)
 import System.Directory
@@ -149,6 +150,12 @@ data PlanRequest = PlanRequest
     -- | Packages to plan besides the roots, each with the range it must
     -- satisfy: the @-p@ constraints of a main module.
     requestGoals :: ![(PackageName, VersionRange)],
+    -- | The executables of the roots whose dependencies the plan takes.
+    -- 'Nothing' takes every executable.
+    requestExecutables :: !(Maybe [String]),
+    -- | Fail when a package of the plan needs a build tool that the host
+    -- cannot run. A request that only reports the plan turns this off.
+    requestCheckBuildTools :: !Bool,
     -- | Directories whose subdirectory @NAME@ is the source of the package
     -- @NAME@, before Hackage.
     requestWorkspaces :: ![FilePath],
@@ -223,7 +230,7 @@ planPackages request = do
               requestConstraints request
                 <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots],
             configPreferences = Map.empty,
-            configRoots = Map.fromList [(name, noStanzas) | (name, _) <- roots],
+            configRoots = Map.fromList [(name, rootStanzas) | (name, _) <- roots],
             -- Every package depends on aihc-prim, so the plan needs it even
             -- when no cabal file names it; see 'withImplicitPrimDependency'.
             configGoals =
@@ -236,7 +243,8 @@ planPackages request = do
     when (Map.member name packageAliases) $
       ioError (userError ("The package " <> unPackageName name <> " at " <> path <> " has the name of a boot library"))
   (solution, solved) <- solveWithLock request inputs config
-  checkBuildTools request inputs config solution
+  when (requestCheckBuildTools request) $
+    checkBuildTools request inputs config solution
   plans <- buildPlans inputs solution
   when (solved && any usesHackage (Map.elems solution) && requestLockMode request /= LockLocked) $
     writeLock request solution
@@ -249,6 +257,7 @@ planPackages request = do
   where
     usesHackage assignment = assignmentSource assignment == CandidateHackage
     prim = mkPackageName "aihc-prim"
+    rootStanzas = noStanzas {stanzasExecutables = Set.fromList . map mkUnqualComponentName <$> requestExecutables request}
 
 -- | Take the plan from a valid lock, or solve and say so.
 solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> IO (Solution, Bool)

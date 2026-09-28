@@ -22,7 +22,7 @@ import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad (TcM, emitError, freshUnique, getClassInstances, getUndecidableInstances, lookupClass)
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (forM_, unless)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -37,7 +37,11 @@ checkInstanceFunDeps :: Maybe SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -
 checkInstanceFunDeps loc classInfo tyVars headTypes context =
   unless (null (ciFunDeps classInfo)) $ do
     headTypes' <- mapM zonkType headTypes
-    contextDependencies <- predicateFunDeps tyVars context
+    -- The kind of a type variable reaches its kind variables, so the
+    -- context has to be as solved as the head: @(a :: TYPE r)@ determines
+    -- @r@ only once the kind of @a@ is known.
+    context' <- mapM zonkPred context
+    contextDependencies <- predicateFunDeps tyVars context'
     forM_ (ciFunDeps classInfo) (checkCoverage loc classInfo tyVars headTypes' contextDependencies)
     others <- getClassInstances (ciTyCon classInfo)
     forM_ others $ \other -> do
@@ -89,6 +93,12 @@ predicateFunDeps tyVars context =
               | tyVar <- tyVars,
                 any (typeMentionsTyVar tyVar) (atPositions positions arguments)
               ]
+        -- An equality in the context determines each side from the other:
+        -- @instance texp ~ TExp a => IsCode Q a (Q texp)@ determines @a@
+        -- from @texp@.
+        EqPred left right -> do
+          let variables ty = [tyVar | tyVar <- tyVars, typeMentionsTyVar tyVar ty]
+          pure [(variables left, variables right), (variables right, variables left)]
         _ -> pure []
 
 -- | Extend a set of type variables with every variable that a functional
