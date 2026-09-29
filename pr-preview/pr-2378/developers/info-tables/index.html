@@ -47,6 +47,8 @@
     
       <link rel="stylesheet" href="../../stylesheets/extra.css">
     
+      <link rel="stylesheet" href="../../stylesheets/info-explorer.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -1177,7 +1179,8 @@ An object header ordinarily points to one info table.
 Thus, an object does not contain a copy of its run-time description.</p>
 <p>Generated info tables are immutable.
 The collector temporarily uses the header as a forwarding address when it moves an object.
-The run-time system also makes temporary tables for blackholes.</p>
+The run-time system marks a thunk under evaluation with bit 0 of its header.
+The header still points to the thunk table.</p>
 <p>The AMD64, ARM64, LLVM, and WebAssembly backends use the same info table model.
 They use the common <code>AihcInfo</code> layout from the native run-time system.</p>
 <h2 id="table-fields">Table fields<a class="headerlink" href="#table-fields" title="Permanent link">&para;</a></h2>
@@ -1228,7 +1231,7 @@ They use the common <code>AihcInfo</code> layout from the native run-time system
 </tr>
 <tr>
 <td><code>needs_eval</code></td>
-<td>Is <code>1</code> for a thunk and a blackhole, <code>2</code> for an indirection, and <code>0</code> for a value.</td>
+<td>Is <code>1</code> for a thunk, <code>2</code> for an indirection, and <code>0</code> for a value. A thunk under evaluation keeps the value <code>1</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -1244,13 +1247,23 @@ The <code>next</code> table gives the correct field layout for the next source a
 <p>A function has one info table for each required application stage.
 An underapplication copies the object and its fields into a new object.
 The new object header points to the <code>next</code> table.
-A saturated closure can enter its generated code without this copy.</p>
+An application that supplies all remaining arguments does not make this copy.
+It calls the backend entry of the object instead.</p>
 <p>The table sequence records these changes:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>remaining arity:  2  -&gt;  1  -&gt;  0
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>stored fields:    0  -&gt;  1  -&gt;  2
 </code></pre></div>
-<p>The last table has no <code>next</code> value.
-A saturated function can enter its generated code.</p>
+<p>The backend entry of a stage takes all remaining arguments of that stage.
+One application supplies a maximum of four argument groups.
+Thus, a stage has a backend entry only when one to four argument groups remain.
+The last table has no <code>next</code> value and no backend entry.
+A saturated call of a known function calls the generated code directly.</p>
+<p>Use the example below to see each stage of a function.
+Change the number of supplied arguments with the slider.
+Change the representation of an argument to see how the field layout changes.</p>
+<div class="info-explorer" data-args="lifted int pair" data-kind="function">
+<p>Enable JavaScript to use the interactive example.</p>
+</div>
 <p>A constructor works differently.
 It has two tables however many arguments it takes: one for the saturated node,
 and one shared by every stage that still wants arguments.
@@ -1262,6 +1275,9 @@ The slots an unsaturated constructor has filled are a prefix of the slots the
 saturated one holds, so one pointer map serves both.
 A saturated constructor is a data node, does not enter code, and stores no
 count.</p>
+<div class="info-explorer" data-args="lifted int lifted" data-kind="constructor">
+<p>Enable JavaScript to use the interactive example.</p>
+</div>
 <h2 id="suspended-function-example">Suspended function example<a class="headerlink" href="#suspended-function-example" title="Permanent link">&para;</a></h2>
 <p>Consider a suspended call that captures <code>x</code> and <code>y</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nf">makeTotal</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="ow">=</span>
@@ -1329,8 +1345,14 @@ The byte is <code>1</code>, so the code calls the run-time evaluation code.
 After the update, the object is an indirection and the byte is <code>2</code>.
 The code then follows the indirection to the result without a call.
 That code reads the thunk kind and uses the backend entry to call the generated function.
-The run-time system sets the thunk state to blackhole during evaluation.
+During evaluation, the run-time system pushes an update frame and sets bit 0 of the header.
+The header still points to the thunk table.
+A second evaluation sees this bit and handles the object as a blackhole.
 After evaluation, the run-time system changes the thunk into an indirection to the result.</p>
+<p>Use the example below to see the thunk before, during, and after evaluation.</p>
+<div class="info-explorer" data-args="lifted lifted" data-kind="thunk">
+<p>Enable JavaScript to use the interactive example.</p>
+</div>
 <h2 id="constructor-example">Constructor example<a class="headerlink" href="#constructor-example" title="Permanent link">&para;</a></h2>
 <p>Consider this constructor:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">Pair</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Pair</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="n">b</span>
@@ -1537,6 +1559,8 @@ The adapter then transfers control through the WebAssembly trampoline.</p>
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/info-explorer.js"></script>
       
     
   </body>

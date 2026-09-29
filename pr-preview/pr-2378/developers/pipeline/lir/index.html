@@ -49,6 +49,8 @@
     
       <link rel="stylesheet" href="../../../stylesheets/extra.css">
     
+      <link rel="stylesheet" href="../../../stylesheets/info-explorer.css">
+    
     <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -1170,143 +1172,146 @@ Thus, the optimizer can see user code and runtime code as one program.</p>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nf">append</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="kt">:</span><span class="w"> </span><span class="n">xs</span><span class="p">)</span><span class="w"> </span><span class="n">ys</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="kt">:</span><span class="w"> </span><span class="n">append</span><span class="w"> </span><span class="n">xs</span><span class="w"> </span><span class="n">ys</span>
 </code></pre></div>
 <p>The compiler makes this Lir program for the module:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>extern func @aihc_lir_enter_0_2_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>extern func @aihc_lir_enter_1_1_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>extern func @aihc_lir_enter_2_0_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>extern func @aihc_lir_eval(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>extern func @aihc_no_match() cc c
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>extern func @aihc_stack_grow(ptr, ptr, i64) -&gt; ptr cc c
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>extern data @aihc_c_aihc__mprim_GHC__dTypes___k__j_0
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>extern data @aihc_c_aihc__mprim_GHC__dTypes___o_0
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>func @aihc_f__Example___sappend(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %x_5: ptr, %y_6: ptr, %$cps_return_7: ptr) {
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>entry:
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>  jump eval_check_8(%x_5)
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>eval_check_8(%current_11: ptr):
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>  %header_word_12 = load i64 [%current_11] align 8
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>  %info_word_13 = and i64 %header_word_12, -4
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>  %header_14 = ptr.from_int %info_word_13
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>  %needs_eval_15 = load i8 [%header_14 + 44] align 1
-<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>  %needs_eval_16 = zext i8 %needs_eval_15 to i64
-<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>  %not_value_17 = ne i64 %needs_eval_16, 0
-<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>  br %not_value_17, eval_not_value_18, eval_ready_9
-<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>
-<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>eval_not_value_18:
-<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>  %indirection_20 = eq i64 %needs_eval_16, 2
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>  br %indirection_20, eval_follow_19, eval_slow_10
-<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>
-<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>eval_follow_19:
-<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>  %next_21 = load ptr [%current_11 + 8] align 8
-<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>  jump eval_check_8(%next_21)
-<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>
-<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>eval_ready_9:
-<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>  tailcall @aihc_f__Example___sappend__ucont(%machine_0, %hp_1, %hp_limit_2, %sp_3, %sp_limit_4, %$cps_return_7, %y_6, %current_11)
-<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>
-<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>eval_slow_10:
-<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>  %sp_22 = ptr.add %sp_3, 24
-<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>  %stack_fits_23 = le.u ptr %sp_22, %sp_limit_4
-<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>  br %stack_fits_23, stack_pushed_25(%sp_3, %sp_22, %sp_limit_4), stack_grow_24
-<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>
-<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>cold stack_grow_24:
-<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>  %result_26 = call @aihc_stack_grow(%machine_0, %sp_3, 3)
-<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>  %sp_27 = ptr.add %result_26, 24
-<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>  %sp_limit_28 = ptr.add %result_26, 4064
-<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>  jump stack_pushed_25(%result_26, %sp_27, %sp_limit_28)
-<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>
-<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>stack_pushed_25(%frame_29: ptr, %sp_30: ptr, %sp_limit_31: ptr):
-<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>  store ptr @aihc_lir_info_3, [%frame_29] align 8
-<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>  store ptr %$cps_return_7, [%frame_29 + 8] align 8
-<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>  store ptr %y_6, [%frame_29 + 16] align 8
-<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>  tailcall @aihc_lir_eval(%machine_0, %hp_1, %hp_limit_2, %sp_30, %sp_limit_31, %current_11, %frame_29)
-<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>}
-<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>
-<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>func @aihc_f__Example___sappend__ucont(%machine_32: ptr, %hp_33: ptr, %hp_limit_34: ptr, %sp_35: ptr, %sp_limit_36: ptr, %$cps_return_37: ptr, %y_38: ptr, %case_value_39: ptr) {
-<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>entry:
-<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>  %roots_40 = stack.alloc 24 align 8
-<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>  %heap_end_41 = ptr.add %hp_33, 48
-<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>  %heap_fits_42 = le.u ptr %heap_end_41, %hp_limit_34
-<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>  br %heap_fits_42, gc_reserved_44(%$cps_return_37, %case_value_39, %y_38, %hp_33, %hp_limit_34), gc_collect_43
-<a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a>
-<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>cold gc_collect_43:
-<a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>  store ptr %$cps_return_37, [%roots_40] align 8
-<a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a>  store ptr %case_value_39, [%roots_40 + 8] align 8
-<a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a>  store ptr %y_38, [%roots_40 + 16] align 8
-<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>  store ptr %hp_33, [%machine_32 + 24] align 1 word
-<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>  store ptr %sp_35, [%machine_32 + 40] align 1 word
-<a id="__codelineno-1-78" name="__codelineno-1-78" href="#__codelineno-1-78"></a>  call @aihc_heap_collect(%machine_32, 6, 3, %roots_40, null)
-<a id="__codelineno-1-79" name="__codelineno-1-79" href="#__codelineno-1-79"></a>  %$cps_return$gc_50 = load ptr [%roots_40] align 8
-<a id="__codelineno-1-80" name="__codelineno-1-80" href="#__codelineno-1-80"></a>  %case_value$gc_51 = load ptr [%roots_40 + 8] align 8
-<a id="__codelineno-1-81" name="__codelineno-1-81" href="#__codelineno-1-81"></a>  %y$gc_52 = load ptr [%roots_40 + 16] align 8
-<a id="__codelineno-1-82" name="__codelineno-1-82" href="#__codelineno-1-82"></a>  %hp_53 = load ptr [%machine_32 + 24] align 1 word
-<a id="__codelineno-1-83" name="__codelineno-1-83" href="#__codelineno-1-83"></a>  %hp_limit_54 = load ptr [%machine_32 + 32] align 1 word
-<a id="__codelineno-1-84" name="__codelineno-1-84" href="#__codelineno-1-84"></a>  jump gc_reserved_44(%$cps_return$gc_50, %case_value$gc_51, %y$gc_52, %hp_53, %hp_limit_54)
-<a id="__codelineno-1-85" name="__codelineno-1-85" href="#__codelineno-1-85"></a>
-<a id="__codelineno-1-86" name="__codelineno-1-86" href="#__codelineno-1-86"></a>gc_reserved_44(%$cps_return$gc_45: ptr, %case_value$gc_46: ptr, %y$gc_47: ptr, %hp_48: ptr, %hp_limit_49: ptr):
-<a id="__codelineno-1-87" name="__codelineno-1-87" href="#__codelineno-1-87"></a>  %header_word_58 = load i64 [%case_value$gc_46] align 8
-<a id="__codelineno-1-88" name="__codelineno-1-88" href="#__codelineno-1-88"></a>  %info_word_59 = and i64 %header_word_58, -4
-<a id="__codelineno-1-89" name="__codelineno-1-89" href="#__codelineno-1-89"></a>  %header_60 = ptr.from_int %info_word_59
-<a id="__codelineno-1-90" name="__codelineno-1-90" href="#__codelineno-1-90"></a>  %identity_61 = load ptr [%header_60] align 1 word
-<a id="__codelineno-1-91" name="__codelineno-1-91" href="#__codelineno-1-91"></a>  %matches_62 = eq ptr %identity_61, @aihc_c_aihc__mprim_GHC__dTypes___k__j_0
-<a id="__codelineno-1-92" name="__codelineno-1-92" href="#__codelineno-1-92"></a>  br %matches_62, alt_55, check_63
-<a id="__codelineno-1-93" name="__codelineno-1-93" href="#__codelineno-1-93"></a>
-<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>check_63:
-<a id="__codelineno-1-95" name="__codelineno-1-95" href="#__codelineno-1-95"></a>  %matches_64 = eq ptr %identity_61, @aihc_c_aihc__mprim_GHC__dTypes___o_0
-<a id="__codelineno-1-96" name="__codelineno-1-96" href="#__codelineno-1-96"></a>  br %matches_64, alt_56, no_match_57
-<a id="__codelineno-1-97" name="__codelineno-1-97" href="#__codelineno-1-97"></a>
-<a id="__codelineno-1-98" name="__codelineno-1-98" href="#__codelineno-1-98"></a>no_match_57:
-<a id="__codelineno-1-99" name="__codelineno-1-99" href="#__codelineno-1-99"></a>  call @aihc_no_match()
-<a id="__codelineno-1-100" name="__codelineno-1-100" href="#__codelineno-1-100"></a>  trap &quot;no matching case alternative&quot;
-<a id="__codelineno-1-101" name="__codelineno-1-101" href="#__codelineno-1-101"></a>
-<a id="__codelineno-1-102" name="__codelineno-1-102" href="#__codelineno-1-102"></a>alt_55:
-<a id="__codelineno-1-103" name="__codelineno-1-103" href="#__codelineno-1-103"></a>  tailcall @aihc_lir_eval(%machine_32, %hp_48, %hp_limit_49, %sp_35, %sp_limit_36, %y$gc_47, %$cps_return$gc_45)
-<a id="__codelineno-1-104" name="__codelineno-1-104" href="#__codelineno-1-104"></a>
-<a id="__codelineno-1-105" name="__codelineno-1-105" href="#__codelineno-1-105"></a>alt_56:
-<a id="__codelineno-1-106" name="__codelineno-1-106" href="#__codelineno-1-106"></a>  %x_65 = load ptr [%case_value$gc_46 + 8] align 8
-<a id="__codelineno-1-107" name="__codelineno-1-107" href="#__codelineno-1-107"></a>  %xs_66 = load ptr [%case_value$gc_46 + 16] align 8
-<a id="__codelineno-1-108" name="__codelineno-1-108" href="#__codelineno-1-108"></a>  %hp_67 = ptr.add %hp_48, 24
-<a id="__codelineno-1-109" name="__codelineno-1-109" href="#__codelineno-1-109"></a>  store ptr @aihc_lir_info_5, [%hp_48] align 8
-<a id="__codelineno-1-110" name="__codelineno-1-110" href="#__codelineno-1-110"></a>  store ptr %xs_66, [%hp_48 + 8] align 8
-<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>  store ptr %y$gc_47, [%hp_48 + 16] align 8
-<a id="__codelineno-1-112" name="__codelineno-1-112" href="#__codelineno-1-112"></a>  %hp_68 = ptr.add %hp_67, 24
-<a id="__codelineno-1-113" name="__codelineno-1-113" href="#__codelineno-1-113"></a>  store ptr @aihc_c_aihc__mprim_GHC__dTypes___o_0, [%hp_67] align 8
-<a id="__codelineno-1-114" name="__codelineno-1-114" href="#__codelineno-1-114"></a>  store ptr %x_65, [%hp_67 + 8] align 8
-<a id="__codelineno-1-115" name="__codelineno-1-115" href="#__codelineno-1-115"></a>  store ptr %hp_48, [%hp_67 + 16] align 8
-<a id="__codelineno-1-116" name="__codelineno-1-116" href="#__codelineno-1-116"></a>  tailcall @aihc_lir_continue_p(%machine_32, %hp_68, %hp_limit_49, %sp_35, %sp_limit_36, %$cps_return$gc_45, %hp_67)
-<a id="__codelineno-1-117" name="__codelineno-1-117" href="#__codelineno-1-117"></a>}
-<a id="__codelineno-1-118" name="__codelineno-1-118" href="#__codelineno-1-118"></a>
-<a id="__codelineno-1-119" name="__codelineno-1-119" href="#__codelineno-1-119"></a>export data mut @_Example_append align 8 = { ptr @aihc_lir_info_0 }
-<a id="__codelineno-1-120" name="__codelineno-1-120" href="#__codelineno-1-120"></a>
-<a id="__codelineno-1-121" name="__codelineno-1-121" href="#__codelineno-1-121"></a>data @aihc_lir_info_0 align 8 = { code @aihc_f__Example___sappend, ptr null, ptr @aihc_lir_info_1, code @aihc_lir_enter_0_2_k, ptr null, i8 0, i8 2, i8 0, i8 1, i8 0 }
-<a id="__codelineno-1-122" name="__codelineno-1-122" href="#__codelineno-1-122"></a>
-<a id="__codelineno-1-123" name="__codelineno-1-123" href="#__codelineno-1-123"></a>data @aihc_lir_bitmap_0 align 1 = { bytes &quot;\x01&quot; }
-<a id="__codelineno-1-124" name="__codelineno-1-124" href="#__codelineno-1-124"></a>
-<a id="__codelineno-1-125" name="__codelineno-1-125" href="#__codelineno-1-125"></a>data @aihc_lir_info_1 align 8 = { code @aihc_f__Example___sappend, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_2, code @aihc_lir_enter_1_1_k, ptr null, i8 1, i8 1, i8 0, i8 1, i8 0 }
-<a id="__codelineno-1-126" name="__codelineno-1-126" href="#__codelineno-1-126"></a>
-<a id="__codelineno-1-127" name="__codelineno-1-127" href="#__codelineno-1-127"></a>data @aihc_lir_bitmap_1 align 1 = { bytes &quot;\x01\x01&quot; }
-<a id="__codelineno-1-128" name="__codelineno-1-128" href="#__codelineno-1-128"></a>
-<a id="__codelineno-1-129" name="__codelineno-1-129" href="#__codelineno-1-129"></a>data @aihc_lir_info_2 align 8 = { code @aihc_f__Example___sappend, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 1, i8 0 }
-<a id="__codelineno-1-130" name="__codelineno-1-130" href="#__codelineno-1-130"></a>
-<a id="__codelineno-1-131" name="__codelineno-1-131" href="#__codelineno-1-131"></a>data @aihc_lir_info_3 align 8 = { code @aihc_f__Example___sappend__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_4, code @aihc_lir_enter_2_1, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-132" name="__codelineno-1-132" href="#__codelineno-1-132"></a>
-<a id="__codelineno-1-133" name="__codelineno-1-133" href="#__codelineno-1-133"></a>data @aihc_lir_bitmap_2 align 1 = { bytes &quot;\x01\x01\x01&quot; }
-<a id="__codelineno-1-134" name="__codelineno-1-134" href="#__codelineno-1-134"></a>
-<a id="__codelineno-1-135" name="__codelineno-1-135" href="#__codelineno-1-135"></a>data @aihc_lir_info_4 align 8 = { code @aihc_f__Example___sappend__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-136" name="__codelineno-1-136" href="#__codelineno-1-136"></a>
-<a id="__codelineno-1-137" name="__codelineno-1-137" href="#__codelineno-1-137"></a>data @aihc_lir_info_5 align 8 = { code @aihc_f__Example___sappend, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_enter_2_0_k, ptr null, i8 2, i8 0, i8 0, i8 2, i8 1 }
+<div class="highlight"><pre><span></span><code><span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_heap_collect</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">i64</span><span class="p">,</span> <span class="no">i64</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">)</span> <span class="k">cc</span> <span class="kc">c</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_lir_continue_p</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">)</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_lir_enter_0_2_k</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">)</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_lir_enter_1_1_k</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">)</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_lir_enter_2_0_k</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">)</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_lir_enter_2_1</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">)</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_lir_eval</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">)</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_no_match</span><span class="p">(</span><span class="p">)</span> <span class="k">cc</span> <span class="kc">c</span>
+
+<span class="k">extern</span> <span class="k">func</span> <span class="nf">@aihc_stack_grow</span><span class="p">(</span><span class="no">ptr</span><span class="p">,</span> <span class="no">ptr</span><span class="p">,</span> <span class="no">i64</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="no">ptr</span> <span class="k">cc</span> <span class="kc">c</span>
+
+<span class="k">extern</span> <span class="k">data</span> <span class="nf">@aihc_c_aihc__mprim_GHC__dTypes___k__j_0</span>
+
+<span class="k">extern</span> <span class="k">data</span> <span class="nf">@aihc_c_aihc__mprim_GHC__dTypes___o_0</span>
+
+<span class="k">extern</span> <span class="k">data</span> <span class="nf">@aihc_machine</span>
+
+<span class="k">func</span> <span class="nf">@aihc_f__Example___sappend</span><span class="p">(</span><span class="nv">%hp_0</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%hp_limit_1</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%sp_2</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%sp_limit_3</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%x_4</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%y_5</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%$cps_return_6</span><span class="p">:</span> <span class="no">ptr</span><span class="p">)</span> <span class="p">{</span>
+<span class="nl">entry</span><span class="p">:</span>
+  <span class="k">jump</span> <span class="nl">eval_check_7</span><span class="p">(</span><span class="nv">%x_4</span><span class="p">)</span>
+
+<span class="nl">eval_check_7</span><span class="p">(</span><span class="nv">%current_10</span><span class="p">:</span> <span class="no">ptr</span><span class="p">)</span><span class="p">:</span>
+  <span class="nv">%header_word_11</span> <span class="o">=</span> <span class="k">load</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%current_10</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%info_word_12</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_11</span><span class="p">,</span> <span class="m">-4</span>
+  <span class="nv">%header_13</span> <span class="o">=</span> <span class="k">ptr.from_int</span> <span class="nv">%info_word_12</span>
+  <span class="nv">%needs_eval_14</span> <span class="o">=</span> <span class="k">load</span> <span class="no">i8</span> <span class="p">[</span><span class="nv">%header_13</span> <span class="o">+</span> <span class="m">44</span><span class="p">]</span> <span class="k">align</span> <span class="m">1</span>
+  <span class="nv">%needs_eval_15</span> <span class="o">=</span> <span class="k">zext</span> <span class="no">i8</span> <span class="nv">%needs_eval_14</span> <span class="k">to</span> <span class="no">i64</span>
+  <span class="nv">%not_value_16</span> <span class="o">=</span> <span class="k">ne</span> <span class="no">i64</span> <span class="nv">%needs_eval_15</span><span class="p">,</span> <span class="m">0</span>
+  <span class="k">br</span> <span class="nv">%not_value_16</span><span class="p">,</span> <span class="nl">eval_not_value_17</span><span class="p">,</span> <span class="nl">eval_ready_8</span>
+
+<span class="nl">eval_not_value_17</span><span class="p">:</span>
+  <span class="nv">%indirection_19</span> <span class="o">=</span> <span class="k">eq</span> <span class="no">i64</span> <span class="nv">%needs_eval_15</span><span class="p">,</span> <span class="m">2</span>
+  <span class="k">br</span> <span class="nv">%indirection_19</span><span class="p">,</span> <span class="nl">eval_follow_18</span><span class="p">,</span> <span class="nl">eval_slow_9</span>
+
+<span class="nl">eval_follow_18</span><span class="p">:</span>
+  <span class="nv">%next_20</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%current_10</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">jump</span> <span class="nl">eval_check_7</span><span class="p">(</span><span class="nv">%next_20</span><span class="p">)</span>
+
+<span class="nl">eval_ready_8</span><span class="p">:</span>
+  <span class="k">tailcall</span> <span class="nf">@aihc_f__Example___sappend__ucont</span><span class="p">(</span><span class="nv">%hp_0</span><span class="p">,</span> <span class="nv">%hp_limit_1</span><span class="p">,</span> <span class="nv">%sp_2</span><span class="p">,</span> <span class="nv">%sp_limit_3</span><span class="p">,</span> <span class="nv">%$cps_return_6</span><span class="p">,</span> <span class="nv">%y_5</span><span class="p">,</span> <span class="nv">%current_10</span><span class="p">)</span>
+
+<span class="nl">eval_slow_9</span><span class="p">:</span>
+  <span class="nv">%sp_21</span> <span class="o">=</span> <span class="k">ptr.add</span> <span class="nv">%sp_2</span><span class="p">,</span> <span class="m">24</span>
+  <span class="nv">%stack_fits_22</span> <span class="o">=</span> <span class="k">le.u</span> <span class="no">ptr</span> <span class="nv">%sp_21</span><span class="p">,</span> <span class="nv">%sp_limit_3</span>
+  <span class="k">br</span> <span class="nv">%stack_fits_22</span><span class="p">,</span> <span class="nl">stack_pushed_24</span><span class="p">(</span><span class="nv">%sp_2</span><span class="p">,</span> <span class="nv">%sp_21</span><span class="p">,</span> <span class="nv">%sp_limit_3</span><span class="p">)</span><span class="p">,</span> <span class="nl">stack_grow_23</span>
+
+<span class="nl">cold</span> <span class="nl">stack_grow_23</span><span class="p">:</span>
+  <span class="nv">%result_25</span> <span class="o">=</span> <span class="k">call</span> <span class="nf">@aihc_stack_grow</span><span class="p">(</span><span class="nf">@aihc_machine</span><span class="p">,</span> <span class="nv">%sp_2</span><span class="p">,</span> <span class="m">3</span><span class="p">)</span>
+  <span class="nv">%sp_26</span> <span class="o">=</span> <span class="k">ptr.add</span> <span class="nv">%result_25</span><span class="p">,</span> <span class="m">24</span>
+  <span class="nv">%sp_limit_27</span> <span class="o">=</span> <span class="k">ptr.add</span> <span class="nv">%result_25</span><span class="p">,</span> <span class="m">4064</span>
+  <span class="k">jump</span> <span class="nl">stack_pushed_24</span><span class="p">(</span><span class="nv">%result_25</span><span class="p">,</span> <span class="nv">%sp_26</span><span class="p">,</span> <span class="nv">%sp_limit_27</span><span class="p">)</span>
+
+<span class="nl">stack_pushed_24</span><span class="p">(</span><span class="nv">%frame_28</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%sp_29</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%sp_limit_30</span><span class="p">:</span> <span class="no">ptr</span><span class="p">)</span><span class="p">:</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_info_3</span><span class="p">,</span> <span class="p">[</span><span class="nv">%frame_28</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%$cps_return_6</span><span class="p">,</span> <span class="p">[</span><span class="nv">%frame_28</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%y_5</span><span class="p">,</span> <span class="p">[</span><span class="nv">%frame_28</span> <span class="o">+</span> <span class="m">16</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">tailcall</span> <span class="nf">@aihc_lir_eval</span><span class="p">(</span><span class="nv">%hp_0</span><span class="p">,</span> <span class="nv">%hp_limit_1</span><span class="p">,</span> <span class="nv">%sp_29</span><span class="p">,</span> <span class="nv">%sp_limit_30</span><span class="p">,</span> <span class="nv">%current_10</span><span class="p">,</span> <span class="nv">%frame_28</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="k">func</span> <span class="nf">@aihc_f__Example___sappend__ucont</span><span class="p">(</span><span class="nv">%hp_31</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%hp_limit_32</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%sp_33</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%sp_limit_34</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%$cps_return_35</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%y_36</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%case_value_37</span><span class="p">:</span> <span class="no">ptr</span><span class="p">)</span> <span class="p">{</span>
+<span class="nl">entry</span><span class="p">:</span>
+  <span class="nv">%roots_38</span> <span class="o">=</span> <span class="k">stack.alloc</span> <span class="m">24</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%heap_end_39</span> <span class="o">=</span> <span class="k">ptr.add</span> <span class="nv">%hp_31</span><span class="p">,</span> <span class="m">48</span>
+  <span class="nv">%heap_fits_40</span> <span class="o">=</span> <span class="k">le.u</span> <span class="no">ptr</span> <span class="nv">%heap_end_39</span><span class="p">,</span> <span class="nv">%hp_limit_32</span>
+  <span class="k">br</span> <span class="nv">%heap_fits_40</span><span class="p">,</span> <span class="nl">gc_reserved_42</span><span class="p">(</span><span class="nv">%$cps_return_35</span><span class="p">,</span> <span class="nv">%case_value_37</span><span class="p">,</span> <span class="nv">%y_36</span><span class="p">,</span> <span class="nv">%hp_31</span><span class="p">,</span> <span class="nv">%hp_limit_32</span><span class="p">)</span><span class="p">,</span> <span class="nl">gc_collect_41</span>
+
+<span class="nl">cold</span> <span class="nl">gc_collect_41</span><span class="p">:</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%$cps_return_35</span><span class="p">,</span> <span class="p">[</span><span class="nv">%roots_38</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%case_value_37</span><span class="p">,</span> <span class="p">[</span><span class="nv">%roots_38</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%y_36</span><span class="p">,</span> <span class="p">[</span><span class="nv">%roots_38</span> <span class="o">+</span> <span class="m">16</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%hp_31</span><span class="p">,</span> <span class="p">[</span><span class="nf">@aihc_machine</span> <span class="o">+</span> <span class="m">24</span><span class="p">]</span> <span class="k">align</span> <span class="m">1</span> <span class="k">word</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%sp_33</span><span class="p">,</span> <span class="p">[</span><span class="nf">@aihc_machine</span> <span class="o">+</span> <span class="m">40</span><span class="p">]</span> <span class="k">align</span> <span class="m">1</span> <span class="k">word</span>
+  <span class="k">call</span> <span class="nf">@aihc_heap_collect</span><span class="p">(</span><span class="nf">@aihc_machine</span><span class="p">,</span> <span class="m">6</span><span class="p">,</span> <span class="m">3</span><span class="p">,</span> <span class="nv">%roots_38</span><span class="p">,</span> <span class="kc">null</span><span class="p">)</span>
+  <span class="nv">%$cps_return$gc_48</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%roots_38</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%case_value$gc_49</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%roots_38</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%y$gc_50</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%roots_38</span> <span class="o">+</span> <span class="m">16</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%hp_51</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nf">@aihc_machine</span> <span class="o">+</span> <span class="m">24</span><span class="p">]</span> <span class="k">align</span> <span class="m">1</span> <span class="k">word</span>
+  <span class="nv">%hp_limit_52</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nf">@aihc_machine</span> <span class="o">+</span> <span class="m">32</span><span class="p">]</span> <span class="k">align</span> <span class="m">1</span> <span class="k">word</span>
+  <span class="k">jump</span> <span class="nl">gc_reserved_42</span><span class="p">(</span><span class="nv">%$cps_return$gc_48</span><span class="p">,</span> <span class="nv">%case_value$gc_49</span><span class="p">,</span> <span class="nv">%y$gc_50</span><span class="p">,</span> <span class="nv">%hp_51</span><span class="p">,</span> <span class="nv">%hp_limit_52</span><span class="p">)</span>
+
+<span class="nl">gc_reserved_42</span><span class="p">(</span><span class="nv">%$cps_return$gc_43</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%case_value$gc_44</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%y$gc_45</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%hp_46</span><span class="p">:</span> <span class="no">ptr</span><span class="p">,</span> <span class="nv">%hp_limit_47</span><span class="p">:</span> <span class="no">ptr</span><span class="p">)</span><span class="p">:</span>
+  <span class="nv">%header_word_56</span> <span class="o">=</span> <span class="k">load</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%case_value$gc_44</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%info_word_57</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_56</span><span class="p">,</span> <span class="m">-4</span>
+  <span class="nv">%header_58</span> <span class="o">=</span> <span class="k">ptr.from_int</span> <span class="nv">%info_word_57</span>
+  <span class="nv">%identity_59</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%header_58</span><span class="p">]</span> <span class="k">align</span> <span class="m">1</span> <span class="k">word</span>
+  <span class="nv">%matches_60</span> <span class="o">=</span> <span class="k">eq</span> <span class="no">ptr</span> <span class="nv">%identity_59</span><span class="p">,</span> <span class="nf">@aihc_c_aihc__mprim_GHC__dTypes___k__j_0</span>
+  <span class="k">br</span> <span class="nv">%matches_60</span><span class="p">,</span> <span class="nl">alt_53</span><span class="p">,</span> <span class="nl">check_61</span>
+
+<span class="nl">check_61</span><span class="p">:</span>
+  <span class="nv">%matches_62</span> <span class="o">=</span> <span class="k">eq</span> <span class="no">ptr</span> <span class="nv">%identity_59</span><span class="p">,</span> <span class="nf">@aihc_c_aihc__mprim_GHC__dTypes___o_0</span>
+  <span class="k">br</span> <span class="nv">%matches_62</span><span class="p">,</span> <span class="nl">alt_54</span><span class="p">,</span> <span class="nl">no_match_55</span>
+
+<span class="nl">no_match_55</span><span class="p">:</span>
+  <span class="k">call</span> <span class="nf">@aihc_no_match</span><span class="p">(</span><span class="p">)</span>
+  <span class="k">trap</span> <span class="s">"</span><span class="s">no matching case alternative</span><span class="s">"</span>
+
+<span class="nl">alt_53</span><span class="p">:</span>
+  <span class="k">tailcall</span> <span class="nf">@aihc_lir_eval</span><span class="p">(</span><span class="nv">%hp_46</span><span class="p">,</span> <span class="nv">%hp_limit_47</span><span class="p">,</span> <span class="nv">%sp_33</span><span class="p">,</span> <span class="nv">%sp_limit_34</span><span class="p">,</span> <span class="nv">%y$gc_45</span><span class="p">,</span> <span class="nv">%$cps_return$gc_43</span><span class="p">)</span>
+
+<span class="nl">alt_54</span><span class="p">:</span>
+  <span class="nv">%x_63</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%case_value$gc_44</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%xs_64</span> <span class="o">=</span> <span class="k">load</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%case_value$gc_44</span> <span class="o">+</span> <span class="m">16</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%hp_65</span> <span class="o">=</span> <span class="k">ptr.add</span> <span class="nv">%hp_46</span><span class="p">,</span> <span class="m">24</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_info_5</span><span class="p">,</span> <span class="p">[</span><span class="nv">%hp_46</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%xs_64</span><span class="p">,</span> <span class="p">[</span><span class="nv">%hp_46</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%y$gc_45</span><span class="p">,</span> <span class="p">[</span><span class="nv">%hp_46</span> <span class="o">+</span> <span class="m">16</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="nv">%hp_66</span> <span class="o">=</span> <span class="k">ptr.add</span> <span class="nv">%hp_65</span><span class="p">,</span> <span class="m">24</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nf">@aihc_c_aihc__mprim_GHC__dTypes___o_0</span><span class="p">,</span> <span class="p">[</span><span class="nv">%hp_65</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%x_63</span><span class="p">,</span> <span class="p">[</span><span class="nv">%hp_65</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">store</span> <span class="no">ptr</span> <span class="nv">%hp_46</span><span class="p">,</span> <span class="p">[</span><span class="nv">%hp_65</span> <span class="o">+</span> <span class="m">16</span><span class="p">]</span> <span class="k">align</span> <span class="m">8</span>
+  <span class="k">tailcall</span> <span class="nf">@aihc_lir_continue_p</span><span class="p">(</span><span class="nv">%hp_66</span><span class="p">,</span> <span class="nv">%hp_limit_47</span><span class="p">,</span> <span class="nv">%sp_33</span><span class="p">,</span> <span class="nv">%sp_limit_34</span><span class="p">,</span> <span class="nv">%$cps_return$gc_43</span><span class="p">,</span> <span class="nv">%hp_65</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="k">export</span> <span class="k">data</span> <span class="k">mut</span> <span class="nf">@_Example_append</span> <span class="k">align</span> <span class="m">8</span> <span class="o">=</span> <span class="p">{</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_info_0</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_info_0</span> <span class="k">align</span> <span class="m">8</span> <span class="o">=</span> <span class="p">{</span> <span class="no">code</span> <span class="nf">@aihc_f__Example___sappend</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_info_1</span><span class="p">,</span> <span class="no">code</span> <span class="nf">@aihc_lir_enter_0_2_k</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">2</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_bitmap_0</span> <span class="k">align</span> <span class="m">1</span> <span class="o">=</span> <span class="p">{</span> <span class="k">bytes</span> <span class="s">"</span><span class="se">\x01</span><span class="s">"</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_info_1</span> <span class="k">align</span> <span class="m">8</span> <span class="o">=</span> <span class="p">{</span> <span class="no">code</span> <span class="nf">@aihc_f__Example___sappend</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_bitmap_0</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_info_2</span><span class="p">,</span> <span class="no">code</span> <span class="nf">@aihc_lir_enter_1_1_k</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_bitmap_1</span> <span class="k">align</span> <span class="m">1</span> <span class="o">=</span> <span class="p">{</span> <span class="k">bytes</span> <span class="s">"</span><span class="se">\x01</span><span class="se">\x01</span><span class="s">"</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_info_2</span> <span class="k">align</span> <span class="m">8</span> <span class="o">=</span> <span class="p">{</span> <span class="no">code</span> <span class="nf">@aihc_f__Example___sappend</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_bitmap_1</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">code</span> <span class="kc">null</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">i8</span> <span class="m">2</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_info_3</span> <span class="k">align</span> <span class="m">8</span> <span class="o">=</span> <span class="p">{</span> <span class="no">code</span> <span class="nf">@aihc_f__Example___sappend__ucont</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_bitmap_1</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_info_4</span><span class="p">,</span> <span class="no">code</span> <span class="nf">@aihc_lir_enter_2_1</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">i8</span> <span class="m">2</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_bitmap_2</span> <span class="k">align</span> <span class="m">1</span> <span class="o">=</span> <span class="p">{</span> <span class="k">bytes</span> <span class="s">"</span><span class="se">\x01</span><span class="se">\x01</span><span class="se">\x01</span><span class="s">"</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_info_4</span> <span class="k">align</span> <span class="m">8</span> <span class="o">=</span> <span class="p">{</span> <span class="no">code</span> <span class="nf">@aihc_f__Example___sappend__ucont</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_bitmap_2</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">code</span> <span class="kc">null</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">i8</span> <span class="m">3</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span> <span class="p">}</span>
+
+<span class="k">data</span> <span class="nf">@aihc_lir_info_5</span> <span class="k">align</span> <span class="m">8</span> <span class="o">=</span> <span class="p">{</span> <span class="no">code</span> <span class="nf">@aihc_f__Example___sappend</span><span class="p">,</span> <span class="no">ptr</span> <span class="nf">@aihc_lir_bitmap_1</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">code</span> <span class="nf">@aihc_lir_enter_2_0_k</span><span class="p">,</span> <span class="no">ptr</span> <span class="kc">null</span><span class="p">,</span> <span class="no">i8</span> <span class="m">2</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">0</span><span class="p">,</span> <span class="no">i8</span> <span class="m">2</span><span class="p">,</span> <span class="no">i8</span> <span class="m">1</span> <span class="p">}</span>
+
 </code></pre></div>
 <p>The compiler made these programs at the default optimization level. The Lir is for the target <code>linux-amd64</code>.</p>
 <p>The page <a href="../examples/">Examples</a> shows more programs.</p>
@@ -1438,6 +1443,8 @@ Thus, the optimizer can see user code and runtime code as one program.</p>
     
     
       <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../../javascripts/info-explorer.js"></script>
       
     
   </body>
