@@ -1,0 +1,16 @@
+; expect: 0
+
+; A module can import write and _exit, which the LLVM backend also
+; declares for its trap messages. Each symbol must get only one
+; declaration. The unix package imports write in this way.
+
+extern func @write(i32, ptr, i64) -> i64 cc c
+extern func @_exit(i32) cc c
+
+data @message align 1 = { bytes "x" }
+
+func @main() -> i64 {
+entry:
+  %written = call @write(2, @message, 0)
+  return %written
+}
