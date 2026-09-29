@@ -68,6 +68,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: docs/aihc-manual
+          wranglerVersion: "4.143.0"
           command: deploy --dry-run
 
       - name: Deploy to docs.aihc.app
@@ -77,6 +78,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: docs/aihc-manual
+          wranglerVersion: "4.143.0"
           command: deploy
 
       - name: Redirect the GitHub Pages site to docs.aihc.app
