@@ -1,0 +1,39 @@
+; expect: 0, 8, 16
+; The Collatz steps of a number. The entry reaches both the odd and the even
+; block, and the two blocks jump to each other. Thus neither block dominates
+; the other, and the control flow is irreducible.
+
+func @steps(%start: i64) -> i64 {
+entry:
+  %low = and i64 %start, 1
+  %is_odd = eq i64 %low, 1
+  br %is_odd, odd(%start, 0), even(%start, 0)
+
+odd(%n: i64, %count: i64):
+  %done = eq i64 %n, 1
+  br %done, finish(%count), grow
+
+grow:
+  %tripled = mul i64 %n, 3
+  %next = add i64 %tripled, 1
+  %grown = add i64 %count, 1
+  jump even(%next, %grown)
+
+even(%m: i64, %counted: i64):
+  %half = shr.u i64 %m, 1
+  %halved = add i64 %counted, 1
+  %half_low = and i64 %half, 1
+  %half_odd = eq i64 %half_low, 1
+  br %half_odd, odd(%half, %halved), even(%half, %halved)
+
+finish(%result: i64):
+  return %result
+}
+
+func @main() -> (i64, i64, i64) {
+entry:
+  %a = call @steps(1)
+  %b = call @steps(6)
+  %c = call @steps(7)
+  return %a, %b, %c
+}

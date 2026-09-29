@@ -37,6 +37,8 @@ import System.Exit (ExitCode (..))
 import System.FilePath (takeExtension, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcess, readProcessWithExitCode)
+import Test.Lir.AsmSuite (AsmBackend (..))
+import Test.Lir.AsmSuite qualified as AsmSuite
 import Test.Lir.NativeSuite (uncheckedTraps)
 import Test.Lir.NativeSuite qualified as Source
 import Test.Lir.Observed (forceCollection, lowerObservedProgram)
@@ -62,11 +64,19 @@ tests = do
   let callbackDirectory = root </> "bin/aihc/compiler/native/test/Test/Fixtures/source-snapshot"
   callbacks <- sort . filter (\name -> "foreign-wrapper" `T.isPrefixOf` T.pack name && takeExtension name == ".yaml") <$> listDirectory callbackDirectory
   lowerFixtures <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory lowerDirectory
+  assembly <-
+    AsmSuite.tests
+      AsmBackend
+        { asmBackendName = "aihc-wasm",
+          asmBackendExtension = ".wasm.s",
+          asmBackendRender = either (Left . show) Right . compileLirModule
+        }
   pure
     ( testGroup
         "aihc-wasm"
         [ testGroup "callback source fixtures" (map (callbackSourceTest tools callbackDirectory) callbacks),
           testGroup "Lir evaluation fixtures" (map (fixtureTest tools directory) names),
+          assembly,
           testGroup "GRIN heap snapshots lowered for wasm32" (map (snapshotTest snapshotDirectory) snapshots),
           testGroup "static data fixtures lowered for wasm32" (map (snapshotTest lowerDirectory) lowerFixtures),
           testCase "a word-scaled address offset counts four bytes" wordOffsetTest,
