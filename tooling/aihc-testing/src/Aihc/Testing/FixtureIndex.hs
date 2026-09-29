@@ -14,8 +14,14 @@ module Aihc.Testing.FixtureIndex
     suiteRelativeRoot,
     suiteRootVariable,
     allFixtureSuites,
+    extensionReportSuites,
+    FixtureGroup (..),
+    allFixtureGroups,
+    groupName,
+    groupSuites,
     fixtureSuiteRoot,
     loadFixtureIndex,
+    loadFixtureSuites,
     loadFixtureSuiteFrom,
     parseFixtureEntry,
   )
@@ -39,27 +45,71 @@ data FixtureSuite
     EvalSuite
   | -- | The System FC desugaring golden fixtures.
     FcGoldenSuite
+  | -- | The GRIN fixtures: lowering, lint, points-to, GC, simplify, and snapshots.
+    GrinSuite
+  | -- | The Lir fixtures that declare a status: goldens and lowering.
+    LirSuite
+  | -- | The native source snapshot fixtures: source compiled to machine code and run.
+    NativeSuite
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | Every indexed suite.
 allFixtureSuites :: [FixtureSuite]
 allFixtureSuites = [minBound .. maxBound]
 
+-- | The suites that declare language extensions, for the extension report.
+extensionReportSuites :: [FixtureSuite]
+extensionReportSuites = [EvalSuite, FcGoldenSuite]
+
+-- | A compiler stage that the README reports progress for.
+data FixtureGroup
+  = -- | Haskell source down to System FC and GRIN, run by the interpreters.
+    DesugarGroup
+  | -- | GRIN down to machine code, plus the runtime.
+    CodegenGroup
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | Every progress group.
+allFixtureGroups :: [FixtureGroup]
+allFixtureGroups = [minBound .. maxBound]
+
+-- | How a group is named on the command line and in reports.
+groupName :: FixtureGroup -> String
+groupName DesugarGroup = "desugar"
+groupName CodegenGroup = "codegen"
+
+-- | The suites that a group counts.
+groupSuites :: FixtureGroup -> [FixtureSuite]
+groupSuites DesugarGroup = [EvalSuite, FcGoldenSuite]
+groupSuites CodegenGroup = [GrinSuite, LirSuite, NativeSuite]
+
 -- | How a suite is named in reports.
 suiteName :: FixtureSuite -> String
 suiteName EvalSuite = "eval"
 suiteName FcGoldenSuite = "fc"
+suiteName GrinSuite = "grin"
+suiteName LirSuite = "lir"
+suiteName NativeSuite = "native"
 
 -- | Where a suite lives, relative to the repository root.
 suiteRelativeRoot :: FixtureSuite -> FilePath
 suiteRelativeRoot EvalSuite = "test" </> "Test" </> "Fixtures" </> "eval"
-suiteRelativeRoot FcGoldenSuite =
-  "bin" </> "aihc" </> "compiler" </> "fc" </> "test" </> "Test" </> "Fixtures" </> "golden"
+suiteRelativeRoot FcGoldenSuite = compilerFixtures "fc" </> "golden"
+suiteRelativeRoot GrinSuite = compilerFixtures "grin"
+suiteRelativeRoot LirSuite = compilerFixtures "lir" </> "lir"
+suiteRelativeRoot NativeSuite = compilerFixtures "native" </> "source-snapshot"
+
+compilerFixtures :: FilePath -> FilePath
+compilerFixtures component =
+  "bin" </> "aihc" </> "compiler" </> component </> "test" </> "Test" </> "Fixtures"
 
 -- | The environment variable that overrides a suite's root.
 suiteRootVariable :: FixtureSuite -> String
 suiteRootVariable EvalSuite = "AIHC_EVAL_FIXTURES"
 suiteRootVariable FcGoldenSuite = "AIHC_FC_FIXTURES"
+suiteRootVariable GrinSuite = "AIHC_GRIN_FIXTURES"
+suiteRootVariable LirSuite = "AIHC_LIR_FIXTURES"
+suiteRootVariable NativeSuite = "AIHC_NATIVE_FIXTURES"
 
 -- | The status a fixture declares for itself.
 --
@@ -113,8 +163,12 @@ findRepositoryRoot suite = do
 
 -- | Index every fixture of every suite.
 loadFixtureIndex :: IO [FixtureEntry]
-loadFixtureIndex =
-  concat <$> mapM (\suite -> fixtureSuiteRoot suite >>= loadFixtureSuiteFrom suite) allFixtureSuites
+loadFixtureIndex = loadFixtureSuites allFixtureSuites
+
+-- | Index every fixture of the given suites.
+loadFixtureSuites :: [FixtureSuite] -> IO [FixtureEntry]
+loadFixtureSuites =
+  fmap concat . mapM (\suite -> fixtureSuiteRoot suite >>= loadFixtureSuiteFrom suite)
 
 -- | Index every fixture of one suite, rooted at the given directory.
 loadFixtureSuiteFrom :: FixtureSuite -> FilePath -> IO [FixtureEntry]

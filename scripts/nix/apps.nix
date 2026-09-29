@@ -11,6 +11,7 @@
   resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-progress";
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-extension-progress";
   fixtureExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-testing "fixture-extension-progress";
+  fixtureProgressExe = pkgs.lib.getExe' hsPkgs.aihc-testing "fixture-progress";
   tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc-tooling-common "tc-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
@@ -141,6 +142,12 @@ in {
     set -euo pipefail
     ${repoRootGuard}
     exec ${fixtureExtensionProgressExe} "$@"
+  '';
+
+  fixture-progress = mkAppWithInputs "fixture-progress" [pkgs.bash] ''
+    set -euo pipefail
+    ${repoRootGuard}
+    exec ${fixtureProgressExe} "$@"
   '';
 
   tc-progress = mkComponentApp "tc-progress" "components/aihc-tc" ''

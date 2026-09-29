@@ -13,8 +13,8 @@ import Aihc.Testing.FixtureIndex
   ( FixtureEntry (..),
     FixtureStatus (..),
     FixtureSuite,
-    allFixtureSuites,
-    loadFixtureIndex,
+    extensionReportSuites,
+    loadFixtureSuites,
     suiteName,
   )
 import Data.List (sortOn)
@@ -32,7 +32,7 @@ data ExtensionResult = ExtensionResult
 
 main :: IO ()
 main = do
-  entries <- loadFixtureIndex
+  entries <- loadFixtureSuites extensionReportSuites
   let grouped = groupByExtension entries
       results = map mkExtensionResult (sortOn fst (M.toList grouped))
   putStr (renderMarkdown entries results)
@@ -71,7 +71,7 @@ renderMarkdown entries results =
         "- Supported: " <> show supportedN,
         "- In Progress: " <> show inProgressN
       ]
-        <> map suiteSummaryLine allFixtureSuites
+        <> map suiteSummaryLine extensionReportSuites
         <> [ "",
              "## Extension Status",
              "",
