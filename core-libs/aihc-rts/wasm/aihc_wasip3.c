@@ -8,8 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-AihcMachine *aihc_machine;
-
 typedef enum {
   AIHC_WASI_IO_NONE,
   AIHC_WASI_IO_STDIN_READ,
@@ -65,13 +63,13 @@ void *aihc_wasi_allocate(uint64_t bytes) {
     aihc_fail("canonical ABI allocation requires a host scope");
   }
   return aihc_byte_array_contents(
-      aihc_host_byte_array(aihc_machine, aihc_wasi_roots, bytes));
+      aihc_host_byte_array(&aihc_machine, aihc_wasi_roots, bytes));
 }
 
 static void aihc_wasi_initialize_arguments(void) {
-  aihc_machine = aihc_machine_initialize();
+  aihc_machine_initialize();
   AihcRootFrame frame;
-  aihc_roots_enter(aihc_machine, &frame, 0, NULL);
+  aihc_roots_enter(&aihc_machine, &frame, 0, NULL);
   aihc_wasi_roots = &frame;
   command_list_string_t arguments = {0};
   wasi_cli_environment_get_arguments(&arguments);
@@ -102,7 +100,7 @@ static void aihc_wasi_initialize_arguments(void) {
     abort();
   }
   command_list_string_free(&arguments);
-  aihc_roots_leave(aihc_machine, &frame);
+  aihc_roots_leave(&aihc_machine, &frame);
   aihc_wasi_roots = NULL;
 }
 
@@ -204,7 +202,7 @@ static int64_t aihc_wasi_finish(int64_t result) {
         &aihc_wasi_io.directories);
   }
   command_waitable_set_drop(aihc_wasi_io.wait_set);
-  aihc_roots_leave(aihc_machine, &aihc_wasi_io.roots);
+  aihc_roots_leave(&aihc_machine, &aihc_wasi_io.roots);
   aihc_wasi_roots = NULL;
   aihc_wasi_io = (AihcWasiIo){0};
   return result;
@@ -442,7 +440,7 @@ static int aihc_wasi_start(AihcWasiIoKind kind, unsigned char *bytes,
   if (aihc_wasi_io.kind != AIHC_WASI_IO_NONE) {
     return 0;
   }
-  aihc_roots_enter(aihc_machine, &aihc_wasi_io.roots, 0, NULL);
+  aihc_roots_enter(&aihc_machine, &aihc_wasi_io.roots, 0, NULL);
   aihc_wasi_roots = &aihc_wasi_io.roots;
   aihc_wasi_io.kind = kind;
   aihc_wasi_io.bytes = bytes;
@@ -698,7 +696,7 @@ _Noreturn void aihc_lir_trap(const uint8_t *message, uint64_t length) {
 static command_callback_code_t aihc_pump(int32_t finished) {
   if (finished) {
     exports_wasi_cli_run_result_void_void_t result = {0};
-    result.is_err = aihc_get_exit_status(aihc_machine) != 0;
+    result.is_err = aihc_get_exit_status(&aihc_machine) != 0;
     exports_wasi_cli_run_run_return(result);
     return COMMAND_CALLBACK_CODE_EXIT;
   }
@@ -763,5 +761,5 @@ exports_wasi_cli_run_run_callback(command_event_t *event) {
     return COMMAND_CALLBACK_CODE_WAIT(aihc_wasi_io.wait_set);
   }
   return aihc_pump(
-      aihc_lir_program_resume(aihc_complete_io(aihc_machine, result)));
+      aihc_lir_program_resume(aihc_complete_io(&aihc_machine, result)));
 }

@@ -67,19 +67,19 @@ lowerObservedProgram target gcStress entryName gcProgram = do
     -- hands them to the snapshot runtime, then returns to main. The
     -- snapshot reads the heap, so the machine gets the context first.
     snapshotContinuation resultTypes = do
-      machine <- fresh "machine"
+      machine <- machineOperand
       (context, contextParameters) <- freshContext
       values <- forM resultTypes $ \ty -> (,ty) <$> fresh "value"
       beginBlock (Label "entry") []
-      storeContext (OperandVar machine) context
+      storeContext machine context
       buffer <- fresh "buffer"
       emit [buffer] (StackAlloc (toInteger (8 * max 1 (length resultTypes))) (byteAlignment 8))
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
         storeSlot ty (OperandVar var) (OperandVar buffer) (toInteger (8 * index))
       requireExtern (Symbol "aihc_snapshot_dump_result") [I64, Ptr, Ptr] []
-      emit [] (Call (Symbol "aihc_snapshot_dump_result") [OperandLiteral (LitInt (toInteger (length resultTypes))), OperandVar buffer, OperandVar machine])
+      emit [] (Call (Symbol "aihc_snapshot_dump_result") [OperandLiteral (LitInt (toInteger (length resultTypes))), OperandVar buffer, machine])
       terminate (Return [])
-      finishFunction snapshotTarget Internal ((machine, Ptr) : contextParameters <> values) [] AihcConvention
+      finishFunction snapshotTarget Internal (contextParameters <> values) [] AihcConvention
     observedMain = do
       argc <- fresh "argc"
       argv <- fresh "argv"
@@ -100,7 +100,7 @@ lowerObservedProgram target gcStress entryName gcProgram = do
       requireExtern (Symbol "aihc_reset_heap_allocated_bytes") [Ptr] []
       emit [] (Call (Symbol "aihc_reset_heap_allocated_bytes") [OperandVar machine])
       context <- loadContext (OperandVar machine)
-      emit [] (Call (functionSymbol entryName) (OperandVar machine : contextOperands context <> [snapshot]))
+      emit [] (Call (functionSymbol entryName) (contextOperands context <> [snapshot]))
       terminate (Return [OperandLiteral (LitInt 0)])
       finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention
 

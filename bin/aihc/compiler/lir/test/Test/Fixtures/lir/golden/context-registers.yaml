@@ -17,66 +17,68 @@ program: |
 expected: |
   extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
-  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
 
   extern func @aihc_mutvar_new(ptr, i64) -> ptr cc c
 
-  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %$cps_return_5: ptr) {
+  extern data @aihc_machine
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
   entry:
-    %roots_6 = stack.alloc 16 align 8
-    %heap_end_7 = ptr.add %hp_1, 40
-    %heap_fits_8 = le.u ptr %heap_end_7, %hp_limit_2
-    br %heap_fits_8, gc_reserved_10(%$cps_return_5, %hp_1, %hp_limit_2), gc_collect_9
+    %roots_5 = stack.alloc 16 align 8
+    %heap_end_6 = ptr.add %hp_0, 40
+    %heap_fits_7 = le.u ptr %heap_end_6, %hp_limit_1
+    br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
 
-  cold gc_collect_9:
-    store ptr %$cps_return_5, [%roots_6] align 8
-    store ptr %hp_1, [%machine_0 + 24] align 1 word
-    store ptr %sp_3, [%machine_0 + 40] align 1 word
-    call @aihc_heap_collect(%machine_0, 5, 1, %roots_6, null)
-    %$cps_return$gc_14 = load ptr [%roots_6] align 8
-    %hp_15 = load ptr [%machine_0 + 24] align 1 word
-    %hp_limit_16 = load ptr [%machine_0 + 32] align 1 word
-    jump gc_reserved_10(%$cps_return$gc_14, %hp_15, %hp_limit_16)
+  cold gc_collect_8:
+    store ptr %$cps_return_4, [%roots_5] align 8
+    store ptr %hp_0, [@aihc_machine + 24] align 1 word
+    store ptr %sp_2, [@aihc_machine + 40] align 1 word
+    call @aihc_heap_collect(@aihc_machine, 5, 1, %roots_5, null)
+    %$cps_return$gc_13 = load ptr [%roots_5] align 8
+    %hp_14 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_15 = load ptr [@aihc_machine + 32] align 1 word
+    jump gc_reserved_9(%$cps_return$gc_13, %hp_14, %hp_limit_15)
 
-  gc_reserved_10(%$cps_return$gc_11: ptr, %hp_12: ptr, %hp_limit_13: ptr):
-    %hp_17 = ptr.add %hp_12, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_12] align 8
-    store i64 1, [%hp_12 + 8] align 8
-    %result_18 = add i64 2, 3
-    %result_19 = mul i64 %result_18, %result_18
-    %flag_20 = lt.s i64 %result_19, 30
-    %wide_21 = zext i1 %flag_20 to i64
-    %coerced_22 = ptr.to_int %hp_12
-    store ptr %hp_17, [%machine_0 + 24] align 1 word
-    store ptr %sp_3, [%machine_0 + 40] align 1 word
-    %result_23 = call @aihc_mutvar_new(%machine_0, %coerced_22)
-    %hp_24 = load ptr [%machine_0 + 24] align 1 word
-    %hp_limit_25 = load ptr [%machine_0 + 32] align 1 word
-    %heap_end_26 = ptr.add %hp_24, 40
-    %heap_fits_27 = le.u ptr %heap_end_26, %hp_limit_25
-    br %heap_fits_27, gc_reserved_29(%$cps_return$gc_11, %result_23, %hp_24, %hp_limit_25), gc_collect_28
+  gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
+    %hp_16 = ptr.add %hp_11, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8
+    store i64 1, [%hp_11 + 8] align 8
+    %result_17 = add i64 2, 3
+    %result_18 = mul i64 %result_17, %result_17
+    %flag_19 = lt.s i64 %result_18, 30
+    %wide_20 = zext i1 %flag_19 to i64
+    %coerced_21 = ptr.to_int %hp_11
+    store ptr %hp_16, [@aihc_machine + 24] align 1 word
+    store ptr %sp_2, [@aihc_machine + 40] align 1 word
+    %result_22 = call @aihc_mutvar_new(@aihc_machine, %coerced_21)
+    %hp_23 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_24 = load ptr [@aihc_machine + 32] align 1 word
+    %heap_end_25 = ptr.add %hp_23, 40
+    %heap_fits_26 = le.u ptr %heap_end_25, %hp_limit_24
+    br %heap_fits_26, gc_reserved_28(%$cps_return$gc_10, %result_22, %hp_23, %hp_limit_24), gc_collect_27
 
-  cold gc_collect_28:
-    store ptr %$cps_return$gc_11, [%roots_6] align 8
-    store ptr %result_23, [%roots_6 + 8] align 8
-    store ptr %hp_24, [%machine_0 + 24] align 1 word
-    store ptr %sp_3, [%machine_0 + 40] align 1 word
-    call @aihc_heap_collect(%machine_0, 5, 2, %roots_6, null)
-    %$cps_return$gc$gc_34 = load ptr [%roots_6] align 8
-    %cell$gc_35 = load ptr [%roots_6 + 8] align 8
-    %hp_36 = load ptr [%machine_0 + 24] align 1 word
-    %hp_limit_37 = load ptr [%machine_0 + 32] align 1 word
-    jump gc_reserved_29(%$cps_return$gc$gc_34, %cell$gc_35, %hp_36, %hp_limit_37)
+  cold gc_collect_27:
+    store ptr %$cps_return$gc_10, [%roots_5] align 8
+    store ptr %result_22, [%roots_5 + 8] align 8
+    store ptr %hp_23, [@aihc_machine + 24] align 1 word
+    store ptr %sp_2, [@aihc_machine + 40] align 1 word
+    call @aihc_heap_collect(@aihc_machine, 5, 2, %roots_5, null)
+    %$cps_return$gc$gc_33 = load ptr [%roots_5] align 8
+    %cell$gc_34 = load ptr [%roots_5 + 8] align 8
+    %hp_35 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_36 = load ptr [@aihc_machine + 32] align 1 word
+    jump gc_reserved_28(%$cps_return$gc$gc_33, %cell$gc_34, %hp_35, %hp_limit_36)
 
-  gc_reserved_29(%$cps_return$gc$gc_30: ptr, %cell$gc_31: ptr, %hp_32: ptr, %hp_limit_33: ptr):
-    %hp_38 = ptr.add %hp_32, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_32] align 8
-    store i64 %wide_21, [%hp_32 + 8] align 8
-    %hp_39 = ptr.add %hp_38, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_38] align 8
-    store ptr %hp_32, [%hp_38 + 8] align 8
-    store ptr %cell$gc_31, [%hp_38 + 16] align 8
-    tailcall @aihc_lir_continue_p(%machine_0, %hp_39, %hp_limit_33, %sp_3, %sp_limit_4, %$cps_return$gc$gc_30, %hp_38)
+  gc_reserved_28(%$cps_return$gc$gc_29: ptr, %cell$gc_30: ptr, %hp_31: ptr, %hp_limit_32: ptr):
+    %hp_37 = ptr.add %hp_31, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_31] align 8
+    store i64 %wide_20, [%hp_31 + 8] align 8
+    %hp_38 = ptr.add %hp_37, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_37] align 8
+    store ptr %hp_31, [%hp_37 + 8] align 8
+    store ptr %cell$gc_30, [%hp_37 + 16] align 8
+    tailcall @aihc_lir_continue_p(%hp_38, %hp_limit_32, %sp_2, %sp_limit_3, %$cps_return$gc$gc_29, %hp_37)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

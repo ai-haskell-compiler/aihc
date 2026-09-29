@@ -352,9 +352,8 @@ or `0`. The fields are, in order:
 | `needs_eval` | `i8` | `@AIHC_NEEDS_EVAL_FOLLOW` (`2`) for an indirection, `@AIHC_NEEDS_EVAL_ENTER` (`1`) for a thunk and a blackhole, and `@AIHC_NEEDS_EVAL_NONE` (`0`) for every other kind. The inline evaluation check reads only this field, at `[%header + @AIHC_INFO_NEEDS_EVAL_OFFSET]`. |
 
 The `backend_entry` field has the signature
-`(ptr, ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()` with the machine, the
-context of the running thread, the object, the continuation, and the
-supplied values. "Lowering from GC-GRIN" describes the context. The
+`(ptr, ptr, ptr, ptr, ptr, ptr, T...) -> ()` with the context of the
+running thread, the object, the continuation, and the supplied values. "Lowering from GC-GRIN" describes the context. The
 types `T...` are the Lir types of the supplied values, so a call site with
 `n` supplied values states a signature with `n` value parameters. A
 continuation object ignores the continuation parameter. The function loads
@@ -648,9 +647,11 @@ fixture also passes the linter and the pretty-printer round-trip.
 
 `Aihc.Lir.Lower` produces one Lir module for one GC-GRIN program. Every GRIN
 function becomes a Lir function with the `aihc` convention and no results.
-The first parameter is the machine. The next four parameters are the
-context of the running thread. The other parameters are the GRIN
-parameters in order. A GRIN value with a pointer representation or an address
+The first four parameters are the context of the running thread. The other
+parameters are the GRIN parameters in order. No function takes the machine
+as a parameter. A process has one machine, the C object `aihc_machine`, and
+Lir code names it by the symbol `@aihc_machine`. Only the code next to a C
+call that takes the machine uses it, so the machine costs no register. A GRIN value with a pointer representation or an address
 representation becomes `ptr`. Every other GRIN value becomes `i64`, and a
 float travels as its bit pattern like in the native runtime ABI.
 
@@ -673,8 +674,7 @@ The context of a thread is four `ptr` values:
 | `%sp` | The stack pointer: the first free byte of the stack of the thread. |
 | `%sp_limit` | The stack limit: the end of the stack chunk that holds the byte before `%sp`. |
 
-Every function that runs Haskell code takes the context after the machine
-and gives it to each function it transfers control to, as it does with a
+Every function that runs Haskell code takes the context first and gives it to each function it transfers control to, as it does with a
 continuation. The shared helpers of the runtime units and the generated
 helpers have the same prefix. Thus the context stays in registers from one
 function to the next.
@@ -696,11 +696,10 @@ They hold a copy of the context only where C code can read it:
   running thread, so the code does not load `%sp` after one. A callback
   that a foreign call enters gives the stack back as it found it.
 - The scheduler can select another thread. `aihc_lir_resume` takes only the
-  machine and the resumption, and it loads the context from the machine
-  after the scheduler record is taken. The code before it stores the
-  context before the C call that gave the resumption. The exit function
-  takes only the machine too, and the code that halts stores the context
-  first.
+  resumption, and it loads the context from the machine after the scheduler
+  record is taken. The code before it stores the context before the C call
+  that gave the resumption. The exit function takes no parameter, and the
+  code that halts stores the context first.
 - Where C code starts Haskell code, it loads the context from the machine:
   the `main` of the executable, the WASI P3 resumption through
   `aihc_lir_resume`, and a foreign callback. The stop frame of a callback
@@ -1025,8 +1024,8 @@ rather than as a change of some object bytes. Run the suite with
   `x19` to `x23`, the next eight in `x0` to `x7`, the next six in `x8` to
   `x13`, and the next five in `x24` to `x28`. The rest go in a 16-byte
   aligned block on the stack. The first five arguments of a lowered
-  function are the machine and the context, and a C call preserves their
-  registers, so they stay in place across a C call. The callee pops the
+  function are the context and its first GRIN argument, and a C call
+  preserves their registers, so they stay in place across a C call. The callee pops the
   stack block. Results come back in `x0` to `x7`. An aihc function preserves no
   register, so one that calls nothing and spills nothing has no frame: it
   leaves the stack pointer where it found it. A function with a frame saves
@@ -1083,8 +1082,9 @@ design of the AArch64 backend:
 - The `aihc` convention passes the first eleven arguments in `rbx`, `r12`,
   `r13`, `r14`, `r15`, `rdi`, `rsi`, `rdx`, `rcx`, `r8`, and `r9` and the
   rest in a 16-byte aligned block above the return address. The first five
-  arguments of a lowered function are the machine and the context, and a C
-  call preserves their registers, so they stay in place across a C call. A
+  arguments of a lowered function are the context and its first GRIN
+  argument, and a C call preserves their registers, so they stay in place
+  across a C call. A
   tail call with a stack block uses `rax` after the argument moves, so `rax`
   carries no argument. The callee pops the block with `ret imm16`. Results
   come back in `rax`, `rdx`, `rcx`, `rsi`, `rdi`, `r8`, `r9`, and `r10`. An
