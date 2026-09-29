@@ -56,6 +56,10 @@ extra_css:
 extra_javascript:
   - javascripts/info-explorer.js
 
+# The hook highlights the fences of the AIHC intermediate languages.
+hooks:
+  - hooks.py
+
 extra:
   social:
     - icon: fontawesome/brands/github
@@ -78,6 +82,13 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
+  # The pipeline pages include the output of
+  # `aihc-dev pipeline-examples`. The build must run in this
+  # directory, because base_path is relative to the working directory.
+  - pymdownx.snippets:
+      base_path:
+        - generated
+      check_paths: true
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
@@ -95,5 +106,10 @@ nav:
       - Libraries: users/libraries.md
   - Developer manual:
       - developers/index.md
-      - Compiler pipeline: developers/pipeline.md
+      - Compiler pipeline:
+          - developers/pipeline/index.md
+          - System FC: developers/pipeline/system-fc.md
+          - GRIN: developers/pipeline/grin.md
+          - Lir: developers/pipeline/lir.md
+          - Examples: developers/pipeline/examples.md
       - Info tables: developers/info-tables.md

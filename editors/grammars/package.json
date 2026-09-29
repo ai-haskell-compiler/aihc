@@ -1,0 +1,20 @@
+{
+  "name": "aihc-grammars",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TextMate grammars of the AIHC intermediate languages: System FC, GRIN, and Lir.",
+  "license": "Unlicense",
+  "type": "module",
+  "files": ["grammars.mjs", "highlight.mjs", "syntaxes"],
+  "bin": {
+    "aihc-highlight": "highlight.mjs"
+  },
+  "scripts": {
+    "test": "node test/grammar.mjs && node test/corpus.mjs"
+  },
+  "dependencies": {
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2",
+    "yaml": "2.8.1"
+  }
+}

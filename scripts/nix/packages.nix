@@ -1,9 +1,9 @@
+# The manual packages (docs, manual, and default) are in checks.nix,
+# because the manual build compiles the pipeline examples.
 {
-  mkManual,
+  mkEditorGrammars,
   mkLirExtension,
 }: pkgs: {
-  docs = mkManual pkgs;
-  manual = mkManual pkgs;
-  default = mkManual pkgs;
+  aihc-grammars = mkEditorGrammars pkgs;
   vscode-lir = mkLirExtension pkgs;
 }

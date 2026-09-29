@@ -35,9 +35,12 @@ Then, use its output in the downstream component.
 
 | Language | Purpose |
 | --- | --- |
-| System FC | The typed core language. The optimizer works on this language. |
-| GRIN | A strict, first-order language with explicit heap operations. |
-| Lir | A low-level language close to machine code. The back ends consume it. |
+| [System FC](system-fc.md) | The typed core language. The optimizer works on this language. |
+| [GRIN](grin.md) | A strict, first-order language with explicit heap operations. |
+| [Lir](lir.md) | A low-level language close to machine code. The back ends consume it. |
+
+The page [Examples](examples.md) shows each intermediate program of some small Haskell programs.
+The manual build makes these programs with the current compiler.
 
 Use `--keep-core`, `--keep-grin`, and `--keep-lir` to inspect the intermediate programs of a build.
-See [Debug options](../users/command-line.md#debug-options).
+See [Debug options](../../users/command-line.md#debug-options).

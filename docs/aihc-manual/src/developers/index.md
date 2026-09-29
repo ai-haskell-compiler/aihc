@@ -5,7 +5,7 @@ It describes the design of the compiler and of its run-time system.
 
 | Page | Content |
 | --- | --- |
-| [Compiler pipeline](pipeline.md) | The components of the compiler and their boundaries. |
+| [Compiler pipeline](pipeline/index.md) | The components of the compiler and their boundaries. |
 | [Info tables](info-tables.md) | How the run-time system describes each object in managed memory. |
 
 ## Development workflow
@@ -18,6 +18,7 @@ The repository uses `just` as its command runner.
 | `just test` | Run all tests and hide successful results. |
 | `just check` | Run the format check, HLint, and the full test suite. |
 | `just docs` | Serve this manual at `http://127.0.0.1:8000/`. |
+| `just docs-examples` | Compile the [pipeline examples](pipeline/examples.md) of this manual with `aihc-dev pipeline-examples`. `just docs` does this first. |
 
 Run `just fmt` and `just check` before each commit.
 The file [AGENTS.md](https://github.com/ai-haskell-compiler/aihc/blob/main/AGENTS.md) gives the full development rules.

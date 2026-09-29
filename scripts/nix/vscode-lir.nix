@@ -1,38 +1,39 @@
+# The VS Code extension for the AIHC intermediate languages. Its grammars
+# are the shared grammars in editors/grammars; the aihc-grammars package
+# tests them. The syntaxes directory of the extension is a link to them, so
+# this build copies them into the package.
 pkgs:
-pkgs.buildNpmPackage {
+pkgs.stdenvNoCC.mkDerivation {
   pname = "aihc-vscode-lir";
-  version = "0.1.0";
+  version = "0.2.0";
   src = pkgs.lib.fileset.toSource {
-    root = ../../editors/vscode-lir;
+    root = ../../editors;
     fileset = pkgs.lib.fileset.unions [
+      ../../editors/grammars/syntaxes
       ../../editors/vscode-lir/package.json
-      ../../editors/vscode-lir/package-lock.json
-      ../../editors/vscode-lir/language-configuration.json
+      ../../editors/vscode-lir/fc-language-configuration.json
+      ../../editors/vscode-lir/grin-language-configuration.json
+      ../../editors/vscode-lir/lir-language-configuration.json
       ../../editors/vscode-lir/.vscodeignore
-      ../../editors/vscode-lir/syntaxes
-      ../../editors/vscode-lir/test
       ../../editors/vscode-lir/USAGE.md
     ];
   };
-  npmDepsHash = "sha256-PTLwIybuVXdTtkf7pGZ/QsTd8+AZ2zi4fmKXkfrUDp0=";
-  dontNpmBuild = true;
-  npmInstallFlags = ["--ignore-scripts"];
   nativeBuildInputs = [pkgs.vsce];
-  doCheck = true;
-  checkPhase = ''
-    runHook preCheck
-    npm test
-    runHook postCheck
+  buildPhase = ''
+    runHook preBuild
+    cd vscode-lir
+    cp -R ../grammars/syntaxes syntaxes
+    cp ${../../LICENSE} LICENSE
+    runHook postBuild
   '';
   installPhase = ''
     runHook preInstall
-    cp ${../../LICENSE} LICENSE
     mkdir -p "$out"
-    vsce package --no-dependencies --out "$out/aihc-lir-0.1.0.vsix"
+    vsce package --no-dependencies --out "$out/aihc-lir-0.2.0.vsix"
     runHook postInstall
   '';
   meta = {
-    description = "VS Code syntax highlighting for AIHC LIR";
+    description = "VS Code syntax highlighting for the AIHC intermediate languages";
     license = pkgs.lib.licenses.unlicense;
     platforms = pkgs.lib.platforms.all;
   };

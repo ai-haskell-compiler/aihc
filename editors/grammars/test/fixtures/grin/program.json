@@ -1,0 +1,223 @@
+[
+ {
+  "line": 1,
+  "text": "scope",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 1,
+  "text": "Example",
+  "scope": "entity.name.namespace.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "pub",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "global",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "append",
+  "scope": "entity.name.function.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "=",
+  "scope": "keyword.operator.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "(",
+  "scope": "punctuation.section.brackets.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "P",
+  "scope": "storage.type.node-tag.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "$append",
+  "scope": "entity.name.function.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "/",
+  "scope": "keyword.operator.aihc-grin"
+ },
+ {
+  "line": 5,
+  "text": "2",
+  "scope": "constant.numeric.aihc-grin"
+ },
+ {
+  "line": 7,
+  "text": "$append",
+  "scope": "entity.name.function.aihc-grin"
+ },
+ {
+  "line": 7,
+  "text": "x",
+  "scope": "variable.other.aihc-grin"
+ },
+ {
+  "line": 7,
+  "text": "BoxedRep",
+  "scope": "storage.type.aihc-grin"
+ },
+ {
+  "line": 7,
+  "text": "Lifted",
+  "scope": "storage.type.aihc-grin"
+ },
+ {
+  "line": 7,
+  "text": "->",
+  "scope": "keyword.operator.aihc-grin"
+ },
+ {
+  "line": 8,
+  "text": "case_value",
+  "scope": "variable.other.aihc-grin"
+ },
+ {
+  "line": 8,
+  "text": "<-",
+  "scope": "keyword.operator.aihc-grin"
+ },
+ {
+  "line": 9,
+  "text": "eval",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 9,
+  "text": "@",
+  "scope": "keyword.operator.aihc-grin"
+ },
+ {
+  "line": 10,
+  "text": "case",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 10,
+  "text": "as",
+  "scope": "keyword.control.aihc-grin",
+  "occurrence": 3
+ },
+ {
+  "line": 10,
+  "text": "_scrut",
+  "scope": "variable.other.aihc-grin"
+ },
+ {
+  "line": 10,
+  "text": "of",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 11,
+  "text": "data",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 11,
+  "text": "\"[]\"",
+  "scope": "entity.name.constructor.aihc-grin"
+ },
+ {
+  "line": 13,
+  "text": ":",
+  "scope": "entity.name.constructor.aihc-grin"
+ },
+ {
+  "line": 13,
+  "text": "x",
+  "scope": "variable.other.aihc-grin"
+ },
+ {
+  "line": 13,
+  "text": "%1",
+  "scope": "constant.numeric.unique.aihc-grin"
+ },
+ {
+  "line": 15,
+  "text": "store",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 15,
+  "text": "F",
+  "scope": "storage.type.node-tag.aihc-grin"
+ },
+ {
+  "line": 15,
+  "text": "$append",
+  "scope": "entity.name.function.aihc-grin"
+ },
+ {
+  "line": 16,
+  "text": "C",
+  "scope": "storage.type.node-tag.aihc-grin"
+ },
+ {
+  "line": 16,
+  "text": ":",
+  "scope": "entity.name.constructor.aihc-grin"
+ },
+ {
+  "line": 18,
+  "text": "store",
+  "scope": "variable.other.aihc-grin"
+ },
+ {
+  "line": 18,
+  "text": "IntRep",
+  "scope": "storage.type.aihc-grin"
+ },
+ {
+  "line": 19,
+  "text": "result",
+  "scope": "variable.other.aihc-grin"
+ },
+ {
+  "line": 20,
+  "text": "primitive-call",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 20,
+  "text": "+#",
+  "scope": "support.function.primitive.aihc-grin"
+ },
+ {
+  "line": 20,
+  "text": "store",
+  "scope": "variable.other.aihc-grin"
+ },
+ {
+  "line": 20,
+  "text": "1",
+  "scope": "constant.numeric.aihc-grin"
+ },
+ {
+  "line": 21,
+  "text": "constant",
+  "scope": "keyword.control.aihc-grin"
+ },
+ {
+  "line": 24,
+  "text": "'c'",
+  "scope": "string.quoted.single.aihc-grin"
+ },
+ {
+  "line": 24,
+  "text": "-1",
+  "scope": "constant.numeric.aihc-grin"
+ }
+]
