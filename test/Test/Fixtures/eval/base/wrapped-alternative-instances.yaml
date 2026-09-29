@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative (Alternative (..), WrappedArrow (..), WrappedMonad (..))
+    import Control.Arrow (Kleisli (..))
+
+    wrappedMonad :: Bool
+    wrappedMonad =
+      unwrapMonad (WrapMonad Nothing <|> WrapMonad (Just 'a')) == Just 'a'
+        && unwrapMonad (empty :: WrappedMonad [] Int) == []
+
+    wrappedArrow :: Bool
+    wrappedArrow =
+      runKleisli (unwrapArrow (WrapArrow (Kleisli (const [1])) <|> WrapArrow (Kleisli (\n -> [n + 1])))) (1 :: Int) == [1, 2 :: Int]
+        && runKleisli (unwrapArrow (empty :: WrappedArrow (Kleisli Maybe) Int Int)) 0 == Nothing
+
+    answer :: Bool
+    answer = wrappedMonad && wrappedArrow
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: WrappedMonad and WrappedArrow have the Alternative instances of base

@@ -61,6 +61,9 @@ instance Foldable Complex where
   foldl f initial ((:+) real imaginary) = f (f initial real) imaginary
   null _ = False
 
+instance Traversable Complex where
+  traverse f ((:+) real imaginary) = (:+) <$> f real <*> f imaginary
+
 -- | Extract the real component.
 realPart :: Complex a -> a
 realPart ((:+) real _) = real

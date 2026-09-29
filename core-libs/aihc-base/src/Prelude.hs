@@ -158,7 +158,7 @@ import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Proxy (Proxy (..))
-import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
+import Data.Semigroup.Internal (Dual (..), Monoid (..), Product (..), Semigroup (..), Sum (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, map, ($), (++), (.))
 import GHC.Base qualified
 import GHC.Enum (Bounded (..), Enum (..))
@@ -970,6 +970,15 @@ instance Traversable ((,) a) where
 instance Traversable List where
   traverse _ [] = pure []
   traverse f (value : values) = fmap (:) (f value) <*> traverse f values
+
+instance Traversable Dual where
+  traverse f (Dual value) = fmap Dual (f value)
+
+instance Traversable Sum where
+  traverse f (Sum value) = fmap Sum (f value)
+
+instance Traversable Product where
+  traverse f (Product value) = fmap Product (f value)
 
 instance Traversable Maybe where
   traverse _ Nothing = pure Nothing

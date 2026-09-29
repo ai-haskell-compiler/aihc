@@ -16,7 +16,7 @@ where
 
 import Data.Bool (Bool (..), (&&), (||))
 import Data.Proxy (Proxy (..))
-import GHC.Base (Functor (..), List (..), Maybe (..), id, (.))
+import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), id, (.))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -230,3 +230,24 @@ instance Functor Sum where
 
 instance Functor Product where
   fmap f (Product value) = Product (f value)
+
+instance Applicative Dual where
+  pure = Dual
+  Dual f <*> Dual value = Dual (f value)
+
+instance Applicative Sum where
+  pure = Sum
+  Sum f <*> Sum value = Sum (f value)
+
+instance Applicative Product where
+  pure = Product
+  Product f <*> Product value = Product (f value)
+
+instance Monad Dual where
+  Dual value >>= f = f value
+
+instance Monad Sum where
+  Sum value >>= f = f value
+
+instance Monad Product where
+  Product value >>= f = f value

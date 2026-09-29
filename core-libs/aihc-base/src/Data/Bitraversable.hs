@@ -18,6 +18,7 @@ import Data.Bifunctor (Bifunctor (..))
 import Data.Functor.Identity (Identity (..))
 import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
+import Data.Semigroup (Arg (..))
 import Prelude
 
 {- HLINT ignore "Use (,)" -}
@@ -69,6 +70,18 @@ instance Bitraversable ((,,) x) where
 
 instance Bitraversable ((,,,) x y) where
   bitraverse f g (x, y, a, b) = (\c d -> (x, y, c, d)) <$> f a <*> g b
+
+instance Bitraversable ((,,,,) x y z) where
+  bitraverse f g (x, y, z, a, b) = (\c d -> (x, y, z, c, d)) <$> f a <*> g b
+
+instance Bitraversable ((,,,,,) x y z w) where
+  bitraverse f g (x, y, z, w, a, b) = (\c d -> (x, y, z, w, c, d)) <$> f a <*> g b
+
+instance Bitraversable ((,,,,,,) x y z w v) where
+  bitraverse f g (x, y, z, w, v, a, b) = (\c d -> (x, y, z, w, v, c, d)) <$> f a <*> g b
+
+instance Bitraversable Arg where
+  bitraverse f g (Arg a b) = Arg <$> f a <*> g b
 
 instance Bitraversable Either where
   bitraverse f _ (Left a) = Left <$> f a

@@ -39,7 +39,7 @@ module Control.Monad
   )
 where
 
-import Control.Applicative (Alternative (..))
+import Control.Applicative (Alternative (..), WrappedMonad (..))
 import Control.Arrow (ArrowPlus (..), ArrowZero (..), Kleisli (..))
 import Control.Monad.Fail (MonadFail (..))
 import Data.Functor (void)
@@ -119,6 +119,14 @@ instance (MonadPlus m) => ArrowZero (Kleisli m) where
 
 instance (MonadPlus m) => ArrowPlus (Kleisli m) where
   Kleisli f <+> Kleisli g = Kleisli (\x -> f x `mplus` g x)
+
+-- GHC declares this instance beside 'WrappedMonad'. 'Control.Applicative'
+-- cannot import this module, so it lives beside 'MonadPlus'.
+instance (MonadPlus m) => Alternative (WrappedMonad m) where
+  empty = WrapMonad mzero
+  WrapMonad left <|> WrapMonad right = WrapMonad (left `mplus` right)
+
+instance (MonadPlus m) => MonadPlus (WrappedMonad m)
 
 (>=>) :: (Monad m) => (a -> m b) -> (b -> m c) -> a -> m c
 (>=>) first second value = first value >>= second

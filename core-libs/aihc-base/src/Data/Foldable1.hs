@@ -1,4 +1,6 @@
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Data.Foldable1
   ( Foldable1 (..),
@@ -14,11 +16,19 @@ module Data.Foldable1
   )
 where
 
+import Data.Complex (Complex (..))
 import Data.Foldable (Foldable, foldlM)
+import Data.Functor.Compose (Compose (..))
 import Data.Functor.Identity (Identity (..))
+import Data.Functor.Product qualified as Functor
+import Data.Functor.Sum qualified as Functor
 import Data.Kind (Type)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Semigroup (Semigroup (..))
+import Data.Monoid (Alt (..))
+import Data.Ord (Down (..))
+import Data.Semigroup (Dual (..), First (..), Last (..), Max (..), Min (..), Product (..), Semigroup (..), Sum (..))
+import GHC.Generics (M1 (..), Par1 (..), Rec1 (..), V1, (:*:) (..), (:+:) (..), (:.:) (..))
+import GHC.Tuple (Solo (..))
 import Prelude hiding (foldl1, foldr1, head, last, maximum, minimum)
 
 -- | Non-empty data structures that can be folded.
@@ -136,6 +146,81 @@ instance Foldable1 Identity where
 instance Foldable1 ((,) a) where
   toNonEmpty (_, x) = x :| []
   foldMap1 f (_, x) = f x
+
+instance Foldable1 Down where
+  toNonEmpty (Down x) = x :| []
+  foldMap1 f (Down x) = f x
+
+instance Foldable1 Dual where
+  toNonEmpty (Dual x) = x :| []
+  foldMap1 f (Dual x) = f x
+
+instance Foldable1 Sum where
+  toNonEmpty (Sum x) = x :| []
+  foldMap1 f (Sum x) = f x
+
+instance Foldable1 Product where
+  toNonEmpty (Product x) = x :| []
+  foldMap1 f (Product x) = f x
+
+instance Foldable1 Min where
+  toNonEmpty (Min x) = x :| []
+  foldMap1 f (Min x) = f x
+
+instance Foldable1 Max where
+  toNonEmpty (Max x) = x :| []
+  foldMap1 f (Max x) = f x
+
+instance Foldable1 First where
+  toNonEmpty (First x) = x :| []
+  foldMap1 f (First x) = f x
+
+instance Foldable1 Last where
+  toNonEmpty (Last x) = x :| []
+  foldMap1 f (Last x) = f x
+
+instance Foldable1 Solo where
+  toNonEmpty (MkSolo x) = x :| []
+  foldMap1 f (MkSolo x) = f x
+
+instance (Foldable1 f) => Foldable1 (Alt f) where
+  foldMap1 f (Alt x) = foldMap1 f x
+
+instance Foldable1 Complex where
+  toNonEmpty (x :+ y) = x :| [y]
+  foldMap1 f (x :+ y) = f x <> f y
+
+instance (Foldable1 f, Foldable1 g) => Foldable1 (Functor.Product f g) where
+  foldMap1 f (Functor.Pair x y) = foldMap1 f x <> foldMap1 f y
+
+instance (Foldable1 f, Foldable1 g) => Foldable1 (Functor.Sum f g) where
+  foldMap1 f (Functor.InL x) = foldMap1 f x
+  foldMap1 f (Functor.InR y) = foldMap1 f y
+
+instance (Foldable1 f, Foldable1 g) => Foldable1 (Compose f g) where
+  foldMap1 f = foldMap1 (foldMap1 f) . getCompose
+
+instance Foldable1 V1 where
+  foldMap1 _ v = case v of {}
+
+instance Foldable1 Par1 where
+  foldMap1 f (Par1 x) = f x
+
+instance (Foldable1 f) => Foldable1 (Rec1 f) where
+  foldMap1 f (Rec1 x) = foldMap1 f x
+
+instance (Foldable1 f) => Foldable1 (M1 i c f) where
+  foldMap1 f (M1 x) = foldMap1 f x
+
+instance (Foldable1 f, Foldable1 g) => Foldable1 (f :+: g) where
+  foldMap1 f (L1 x) = foldMap1 f x
+  foldMap1 f (R1 y) = foldMap1 f y
+
+instance (Foldable1 f, Foldable1 g) => Foldable1 (f :*: g) where
+  foldMap1 f (x :*: y) = foldMap1 f x <> foldMap1 f y
+
+instance (Foldable1 f, Foldable1 g) => Foldable1 (f :.: g) where
+  foldMap1 f = foldMap1 (foldMap1 f) . unComp1
 
 singleton :: a -> NonEmpty a
 singleton x = x :| []

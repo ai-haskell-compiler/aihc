@@ -8,7 +8,7 @@ where
 import Control.Applicative (Const (..))
 import Data.Bifoldable (Bifoldable (..))
 import Data.Kind (Type)
-import Data.Semigroup (Semigroup (..))
+import Data.Semigroup (Arg (..), Semigroup (..))
 import Prelude
 
 class (Bifoldable t) => Bifoldable1 (t :: Type -> Type -> Type) where
@@ -33,3 +33,18 @@ instance Bifoldable1 Either where
 
 instance Bifoldable1 ((,,) x) where
   bifoldMap1 f g (_, left, right) = f left <> g right
+
+instance Bifoldable1 ((,,,) x y) where
+  bifoldMap1 f g (_, _, left, right) = f left <> g right
+
+instance Bifoldable1 ((,,,,) x y z) where
+  bifoldMap1 f g (_, _, _, left, right) = f left <> g right
+
+instance Bifoldable1 ((,,,,,) x y z w) where
+  bifoldMap1 f g (_, _, _, _, left, right) = f left <> g right
+
+instance Bifoldable1 ((,,,,,,) x y z w v) where
+  bifoldMap1 f g (_, _, _, _, _, left, right) = f left <> g right
+
+instance Bifoldable1 Arg where
+  bifoldMap1 f g (Arg left right) = f left <> g right

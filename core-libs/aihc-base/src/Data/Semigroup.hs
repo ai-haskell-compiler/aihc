@@ -35,7 +35,7 @@ import Data.Semigroup.Internal
     stimesMonoid,
   )
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
-import Prelude (Bool (..), Eq (..), Functor (..), Ord (..), Ordering (..))
+import Prelude (Applicative (..), Bool (..), Eq (..), Foldable (..), Functor (..), Monad (..), Ord (..), Ordering (..), Traversable (..))
 
 newtype Min a = Min {getMin :: a}
 
@@ -171,3 +171,76 @@ instance Functor (Arg a) where
 
 instance Bifunctor Arg where
   bimap f g (Arg key value) = Arg (f key) (g value)
+
+instance Applicative Min where
+  pure = Min
+  Min f <*> Min value = Min (f value)
+
+instance Monad Min where
+  Min value >>= f = f value
+
+instance Foldable Min where
+  foldr f initial (Min value) = f value initial
+  foldl f initial (Min value) = f initial value
+  toList (Min value) = [value]
+  null _ = False
+
+instance Traversable Min where
+  traverse f (Min value) = fmap Min (f value)
+
+instance Applicative Max where
+  pure = Max
+  Max f <*> Max value = Max (f value)
+
+instance Monad Max where
+  Max value >>= f = f value
+
+instance Foldable Max where
+  foldr f initial (Max value) = f value initial
+  foldl f initial (Max value) = f initial value
+  toList (Max value) = [value]
+  null _ = False
+
+instance Traversable Max where
+  traverse f (Max value) = fmap Max (f value)
+
+instance Applicative First where
+  pure = First
+  First f <*> First value = First (f value)
+
+instance Monad First where
+  First value >>= f = f value
+
+instance Foldable First where
+  foldr f initial (First value) = f value initial
+  foldl f initial (First value) = f initial value
+  toList (First value) = [value]
+  null _ = False
+
+instance Traversable First where
+  traverse f (First value) = fmap First (f value)
+
+instance Applicative Last where
+  pure = Last
+  Last f <*> Last value = Last (f value)
+
+instance Monad Last where
+  Last value >>= f = f value
+
+instance Foldable Last where
+  foldr f initial (Last value) = f value initial
+  foldl f initial (Last value) = f initial value
+  toList (Last value) = [value]
+  null _ = False
+
+instance Traversable Last where
+  traverse f (Last value) = fmap Last (f value)
+
+instance Foldable (Arg a) where
+  foldr f initial (Arg _ value) = f value initial
+  foldl f initial (Arg _ value) = f initial value
+  toList (Arg _ value) = [value]
+  null _ = False
+
+instance Traversable (Arg a) where
+  traverse f (Arg key value) = fmap (Arg key) (f value)

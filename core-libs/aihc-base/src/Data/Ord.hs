@@ -45,5 +45,24 @@ instance (Show a) => Show (Down a) where
   showsPrec precedence (Down value) =
     showParen (precedence > 10) (showString "Down " . showsPrec 11 value)
 
+instance Functor Down where
+  fmap f (Down value) = Down (f value)
+
+instance Applicative Down where
+  pure = Down
+  Down f <*> Down value = Down (f value)
+
+instance Monad Down where
+  Down value >>= f = f value
+
+instance Foldable Down where
+  foldr f initial (Down value) = f value initial
+  foldl f initial (Down value) = f initial value
+  toList (Down value) = [value]
+  null _ = False
+
+instance Traversable Down where
+  traverse f (Down value) = fmap Down (f value)
+
 comparing :: (Ord a) => (b -> a) -> b -> b -> Ordering
 comparing projection x y = compare (projection x) (projection y)

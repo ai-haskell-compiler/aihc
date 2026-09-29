@@ -20,7 +20,7 @@ import Data.Bool (Bool (..), (&&), (||))
 import Data.Either (Either (..))
 import Data.Kind (Type)
 import Data.Proxy (Proxy (..))
-import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
+import Data.Semigroup.Internal (Dual (..), Monoid (..), Product (..), Semigroup (..), Sum (..))
 import GHC.Base (Maybe (..), id, seq, (++), (.))
 import GHC.Base qualified
 import GHC.Int (Int (..))
@@ -190,6 +190,24 @@ instance Foldable Proxy where
   elem _ _ = False
   sum _ = 0
   product _ = 1
+
+instance Foldable Dual where
+  foldr f initial (Dual value) = f value initial
+  foldl f initial (Dual value) = f initial value
+  toList (Dual value) = [value]
+  null _ = False
+
+instance Foldable Sum where
+  foldr f initial (Sum value) = f value initial
+  foldl f initial (Sum value) = f initial value
+  toList (Sum value) = [value]
+  null _ = False
+
+instance Foldable Product where
+  foldr f initial (Product value) = f value initial
+  foldl f initial (Product value) = f initial value
+  toList (Product value) = [value]
+  null _ = False
 
 instance Foldable NonEmpty where
   foldr f initial (value :| values) = f value (foldr f initial values)
