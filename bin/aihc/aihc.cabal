@@ -208,6 +208,7 @@ library
     Aihc.Native
     Aihc.Prim.Wiring
     Aihc.Wasm
+    Aihc.Wasm.ControlFlow
     Aihc.Wasm.Lir
 
   other-modules:

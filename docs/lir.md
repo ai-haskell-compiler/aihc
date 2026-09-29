@@ -1144,9 +1144,15 @@ Clang assembles:
 - `pdep` and `pext` call helper functions that the backend adds to the
   module, as Lir loops over the set bits of the mask, since WebAssembly has
   no bit deposit or extract.
-- A function is one loop with one nested block per Lir block and a
-  `br_table` on the current block index. A jump assigns the parameters of the
-  target and continues the loop.
+- A function with a reducible control-flow graph becomes nested `block`,
+  `loop`, and `if` constructs that follow its dominator tree, as in "Beyond
+  Relooper" (Ramsey, ICFP 2022). A loop header is in a `loop`. A merge node
+  follows a `block` in the code of its immediate dominator. Every other
+  block goes at the place of its one forward edge. A jump assigns the
+  parameters of the target and then continues at the target or branches
+  to the construct that ends at it.
+- An irreducible function is one loop with one nested block per Lir block
+  and a `br_table` on the current block index.
 - Both conventions are the WebAssembly convention. A `tailcall` is
   `return_call`, and `call.indirect` states the signature.
 - `stack.alloc` reserves memory on the shadow stack below `__stack_pointer`.

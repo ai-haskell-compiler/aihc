@@ -1,0 +1,55 @@
+; expect: 142, 138
+; Nested loops, a switch with a shared target, a diamond that merges, and an
+; exit from the inner loop that leaves both loops. The WebAssembly backend
+; gives each of these its structured form.
+
+func @run(%limit: i64) -> i64 {
+entry:
+  jump outer(0, 0)
+
+outer(%i: i64, %acc: i64):
+  %outer_done = eq i64 %i, 5
+  br %outer_done, finish(%acc), inner(0, %acc)
+
+inner(%j: i64, %sum: i64):
+  %inner_done = eq i64 %j, %i
+  br %inner_done, next_outer(%sum), body
+
+body:
+  %kind = rem.u i64 %j, 3
+  switch i64 %kind {
+    0 -> even
+    1 -> odd
+    default -> even
+  }
+
+even:
+  %e = add i64 %sum, 2
+  jump merge(%e)
+
+odd:
+  %o = mul i64 %sum, 3
+  %big = gt.u i64 %o, %limit
+  br %big, early(%o), merge(%o)
+
+merge(%m: i64):
+  %j1 = add i64 %j, 1
+  jump inner(%j1, %m)
+
+next_outer(%s: i64):
+  %i1 = add i64 %i, 1
+  jump outer(%i1, %s)
+
+early(%value: i64):
+  return %value
+
+finish(%total: i64):
+  return %total
+}
+
+func @main() -> (i64, i64) {
+entry:
+  %a = call @run(1000)
+  %b = call @run(100)
+  return %a, %b
+}
