@@ -51,6 +51,10 @@ theme:
 
 extra_css:
   - stylesheets/extra.css
+  - stylesheets/info-explorer.css
+
+extra_javascript:
+  - javascripts/info-explorer.js
 
 extra:
   social:
