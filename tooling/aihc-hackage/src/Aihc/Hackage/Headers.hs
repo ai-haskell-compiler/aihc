@@ -121,12 +121,41 @@ writeCompilerHeaders target root = do
       if exists then Just <$> TIO.readFile path else pure Nothing
 
 -- | Supply the header features that the selected target supports.
+--
+-- The header also enables the system extensions, as the
+-- @AC_USE_SYSTEM_EXTENSIONS@ block of GHC's @ghcautoconf.h@ does.  A C
+-- library reads these macros at its first header only, and @HsFFI.h@
+-- includes this header before any system header.  Without them, glibc does
+-- not declare X/Open functions such as @ptsname@, and the capi wrappers of
+-- @unix@ do not compile.  A package that sets a macro itself keeps its value.
 ghcautoconfHeader :: HeaderTarget -> Text
 ghcautoconfHeader target =
-  header
+  headerLines
     "GHCAUTOCONF_H"
     ["#include \"ghcplatform.h\""]
-    [("HAVE_DLFCN_H", "1") | headerOs target `elem` ["darwin", "linux"]]
+    ( concatMap defineUnlessSet systemExtensions
+        <> ["#define HAVE_DLFCN_H 1" | headerOs target `elem` ["darwin", "linux"]]
+    )
+  where
+    defineUnlessSet name = ["#ifndef " <> name, "#define " <> name <> " 1", "#endif"]
+    systemExtensions =
+      [ "_ALL_SOURCE",
+        "_DARWIN_C_SOURCE",
+        "__EXTENSIONS__",
+        "_GNU_SOURCE",
+        "_HPUX_ALT_XOPEN_SOCKET_API",
+        "_NETBSD_SOURCE",
+        "_OPENBSD_SOURCE",
+        "_POSIX_PTHREAD_SEMANTICS",
+        "__STDC_WANT_IEC_60559_ATTRIBS_EXT__",
+        "__STDC_WANT_IEC_60559_BFP_EXT__",
+        "__STDC_WANT_IEC_60559_DFP_EXT__",
+        "__STDC_WANT_IEC_60559_FUNCS_EXT__",
+        "__STDC_WANT_IEC_60559_TYPES_EXT__",
+        "__STDC_WANT_LIB_EXT2__",
+        "__STDC_WANT_MATH_SPEC_FUNCS__",
+        "_TANDEM_SOURCE"
+      ]
 
 -- | The platform macros, C sizes, and byte order of the target.
 ghcplatformHeader :: HeaderTarget -> Text
