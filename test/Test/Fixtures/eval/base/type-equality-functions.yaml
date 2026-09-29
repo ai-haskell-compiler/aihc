@@ -1,0 +1,30 @@
+extensions: [GADTs, RankNTypes, TypeOperators, ExplicitNamespaces]
+modules:
+  - |
+    module Test where
+
+    import Data.Type.Equality (castWith, gcastWith, sym, trans, type (~), (:~:) (Refl))
+
+    symRefl :: Int :~: Int
+    symRefl = sym Refl
+
+    transRefl :: Bool :~: Bool
+    transRefl = trans Refl Refl
+
+    castInt :: Int
+    castInt = castWith symRefl 41 + 1
+
+    sameType :: (a ~ Int) => a -> Int
+    sameType value = value
+
+    gcastBool :: Bool
+    gcastBool = gcastWith transRefl True
+
+    answer :: Bool
+    answer = castInt + sameType (0 :: Int) == 42 && gcastBool
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: Data.Type.Equality exports sym, trans, castWith, gcastWith, and the type (~) as GHC does

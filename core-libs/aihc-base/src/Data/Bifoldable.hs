@@ -38,7 +38,7 @@ where
 import Control.Applicative (Alternative (..), Const (..))
 import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
-import Data.Semigroup (Semigroup (..))
+import Data.Semigroup (Arg (..), Semigroup (..))
 import Prelude
 
 -- | 'Bifoldable' identifies foldable structures with two different varieties
@@ -74,6 +74,18 @@ instance Bifoldable ((,,) x) where
 
 instance Bifoldable ((,,,) x y) where
   bifoldMap f g (_, _, a, b) = f a <> g b
+
+instance Bifoldable ((,,,,) x y z) where
+  bifoldMap f g (_, _, _, a, b) = f a <> g b
+
+instance Bifoldable ((,,,,,) x y z w) where
+  bifoldMap f g (_, _, _, _, a, b) = f a <> g b
+
+instance Bifoldable ((,,,,,,) x y z w v) where
+  bifoldMap f g (_, _, _, _, _, a, b) = f a <> g b
+
+instance Bifoldable Arg where
+  bifoldMap f g (Arg a b) = f a <> g b
 
 instance Bifoldable Either where
   bifoldMap f _ (Left a) = f a

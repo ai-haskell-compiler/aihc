@@ -82,6 +82,7 @@ import Prelude
     Functor (..),
     Int,
     Maybe (..),
+    Monad (..),
     Ord (..),
     Ordering (..),
     Read,
@@ -522,3 +523,49 @@ instance (Traversable f, Traversable g) => Traversable (f :*: g) where
 
 instance (Traversable f, Traversable g) => Traversable (f :.: g) where
   traverse f (Comp1 values) = fmap Comp1 (traverse (traverse f) values)
+
+-- * Applicative and Monad instances
+
+instance Applicative U1 where
+  pure _ = U1
+  _ <*> _ = U1
+
+instance Applicative Par1 where
+  pure = Par1
+  Par1 f <*> Par1 value = Par1 (f value)
+
+instance (Applicative f) => Applicative (Rec1 f) where
+  pure value = Rec1 (pure value)
+  Rec1 functions <*> Rec1 values = Rec1 (functions <*> values)
+
+instance (Applicative f) => Applicative (M1 i c f) where
+  pure value = M1 (pure value)
+  M1 functions <*> M1 values = M1 (functions <*> values)
+
+instance (Applicative f, Applicative g) => Applicative (f :*: g) where
+  pure value = pure value :*: pure value
+  (leftFunctions :*: rightFunctions) <*> (leftValues :*: rightValues) =
+    (leftFunctions <*> leftValues) :*: (rightFunctions <*> rightValues)
+
+instance (Applicative f, Applicative g) => Applicative (f :.: g) where
+  pure value = Comp1 (pure (pure value))
+  Comp1 functions <*> Comp1 values = Comp1 (fmap (<*>) functions <*> values)
+
+instance Monad U1 where
+  _ >>= _ = U1
+
+instance Monad Par1 where
+  Par1 value >>= f = f value
+
+instance (Monad f) => Monad (Rec1 f) where
+  Rec1 values >>= f = Rec1 (values >>= \value -> unRec1 (f value))
+
+instance (Monad f) => Monad (M1 i c f) where
+  M1 values >>= f = M1 (values >>= \value -> unM1 (f value))
+
+instance (Monad f, Monad g) => Monad (f :*: g) where
+  (left :*: right) >>= f =
+    (left >>= \value -> leftFactor (f value)) :*: (right >>= \value -> rightFactor (f value))
+    where
+      leftFactor (value :*: _) = value
+      rightFactor (_ :*: value) = value

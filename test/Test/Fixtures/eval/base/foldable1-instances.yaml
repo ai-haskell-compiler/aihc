@@ -1,0 +1,44 @@
+extensions: [TypeOperators]
+modules:
+  - |
+    module Test where
+
+    import Data.Complex (Complex (..))
+    import Data.Foldable1 (Foldable1 (fold1, toNonEmpty))
+    import qualified Data.Foldable1 as Foldable1
+    import Data.Functor.Compose (Compose (..))
+    import Data.Functor.Identity (Identity (..))
+    import qualified Data.Functor.Product as Functor
+    import qualified Data.Functor.Sum as Functor
+    import Data.List.NonEmpty (NonEmpty (..))
+    import Data.Monoid (Alt (..), Sum (..))
+    import Data.Ord (Down (..))
+    import Data.Semigroup (Max (..), Min (..))
+    import GHC.Generics (Par1 (..), (:*:) (..))
+
+    wrappers :: Bool
+    wrappers =
+      Foldable1.head (Down 'a') == 'a'
+        && toNonEmpty (Sum 'b') == 'b' :| []
+        && Foldable1.last (Max 'c') == 'c'
+        && fold1 (Min "d") == "d"
+        && toNonEmpty (1 :+ 2) == (1 :| [2 :: Double])
+        && Foldable1.head (Alt ('e' :| "fg")) == 'e'
+
+    functors :: Bool
+    functors =
+      toNonEmpty (Functor.Pair (Identity 'h') ('i' :| "j")) == 'h' :| "ij"
+        && Foldable1.head (Functor.InR ('k' :| []) :: Functor.Sum Identity NonEmpty Char) == 'k'
+        && toNonEmpty (Compose (('l' :| "m") :| ['n' :| []])) == 'l' :| "mn"
+
+    generics :: Bool
+    generics = toNonEmpty (Par1 'o' :*: Par1 'p') == 'o' :| "p"
+
+    answer :: Bool
+    answer = wrappers && functors && generics
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: Data.Foldable1 has the Foldable1 instances of base for the wrapper, functor, and generic representation types

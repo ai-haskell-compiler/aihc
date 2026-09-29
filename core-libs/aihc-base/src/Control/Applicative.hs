@@ -18,7 +18,7 @@ module Control.Applicative
   )
 where
 
-import Control.Arrow (Arrow (..), Kleisli (..), (>>>))
+import Control.Arrow (Arrow (..), ArrowPlus (..), ArrowZero (..), Kleisli (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
 import Foreign.Storable (Storable (..))
 import GHC.List (drop)
@@ -104,6 +104,10 @@ instance (Arrow a) => Applicative (WrappedArrow a b) where
   pure value = WrapArrow (arr (const value))
   WrapArrow functions <*> WrapArrow values =
     WrapArrow ((functions &&& values) >>> arr (\(function, value) -> function value))
+
+instance (ArrowZero a, ArrowPlus a) => Alternative (WrappedArrow a b) where
+  empty = WrapArrow zeroArrow
+  WrapArrow left <|> WrapArrow right = WrapArrow (left <+> right)
 
 newtype ZipList a = ZipList {getZipList :: [a]}
   deriving newtype (Eq, Ord, Functor)
