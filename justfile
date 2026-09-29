@@ -34,7 +34,7 @@ hlint-refactor:
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
   nix build .#vscode-lir --no-link
-  nix build .#user-guide --no-link
+  nix build .#manual --no-link
   nix develop --quiet --command bash -c 'failed=0; while IFS= read -r -d "" file; do cabal-gild --mode check --input "$file" || failed=1; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0); exit "$failed"'
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
@@ -43,9 +43,9 @@ check:
   nix develop --quiet --command scripts/update-wit-bindings.sh --check
   TASTY_HEDGEHOG_TESTS=1000 cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes'
 
-# Preview the user guide at http://127.0.0.1:8000/.
+# Preview the manual at http://127.0.0.1:8000/.
 docs:
-  nix develop --quiet --command mkdocs serve --config-file docs/aihc-users-guide/mkdocs.yml
+  nix develop --quiet --command mkdocs serve --config-file docs/aihc-manual/mkdocs.yml
 
 # Generate boot package interfaces for the resolver (requires GHC dev env)
 gen-boot-ifaces:

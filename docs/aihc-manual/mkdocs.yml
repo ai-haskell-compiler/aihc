@@ -1,0 +1,95 @@
+site_name: AIHC Manual
+site_description: Manual for the AI-written Haskell Compiler, for users and for developers
+site_url: https://docs.aihc.app/
+
+repo_name: ai-haskell-compiler/aihc
+repo_url: https://github.com/ai-haskell-compiler/aihc
+edit_uri: edit/main/docs/aihc-manual/src/
+
+docs_dir: src
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  font: false
+  palette:
+    - media: "(prefers-color-scheme)"
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-auto
+        name: Use the light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Use the dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Use the system mode
+  features:
+    - content.action.edit
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ai-haskell-compiler/aihc
+      name: Source code on GitHub
+    - icon: material/newspaper-variant-outline
+      link: https://blog.aihc.app/
+      name: Blog
+    - icon: material/chart-line
+      link: https://perf.aihc.app/
+      name: Performance
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - User guide:
+      - users/index.md
+      - Getting started: users/getting-started.md
+      - Command line: users/command-line.md
+      - Foreign callbacks: users/callbacks.md
+      - Libraries: users/libraries.md
+  - Developer manual:
+      - developers/index.md
+      - Compiler pipeline: developers/pipeline.md
+      - Info tables: developers/info-tables.md
