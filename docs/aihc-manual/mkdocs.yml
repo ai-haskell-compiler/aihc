@@ -52,6 +52,10 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
+# The hook highlights the fences of the AIHC intermediate languages.
+hooks:
+  - hooks.py
+
 extra:
   social:
     - icon: fontawesome/brands/github

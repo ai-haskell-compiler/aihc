@@ -10,11 +10,13 @@ on:
     paths:
       - .github/workflows/docs-preview.yml
       - docs/aihc-manual/**
+      - editors/grammars/**
       - flake.lock
       - flake.nix
       - bin/aihc/dev/src/Aihc/Dev/PipelineExamples.hs
       - scripts/nix/checks.nix
       - scripts/nix/docs.nix
+      - scripts/nix/editor-grammars.nix
       - scripts/nix/packages.nix
 
 permissions:

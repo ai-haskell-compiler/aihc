@@ -9,11 +9,13 @@ on:
       - .github/actions/setup-nix-ci/action.yml
       - .github/workflows/deploy-docs.yml
       - docs/aihc-manual/**
+      - editors/grammars/**
       - flake.lock
       - flake.nix
       - bin/aihc/dev/src/Aihc/Dev/PipelineExamples.hs
       - scripts/nix/checks.nix
       - scripts/nix/docs.nix
+      - scripts/nix/editor-grammars.nix
       - scripts/nix/packages.nix
   # The manual shows the output of the compiler. Thus, each change on main
   # can change the manual, and each push deploys it again.

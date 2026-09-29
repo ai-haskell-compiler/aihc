@@ -33,6 +33,7 @@ hlint-refactor:
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
+  nix build .#aihc-grammars --no-link
   nix build .#vscode-lir --no-link
   nix build .#manual --no-link
   nix develop --quiet --command bash -c 'failed=0; while IFS= read -r -d "" file; do cabal-gild --mode check --input "$file" || failed=1; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -not -path "./benchmarks/*" -print0); exit "$failed"'
@@ -45,7 +46,7 @@ check:
 
 # Preview the manual at http://127.0.0.1:8000/.
 docs: docs-examples
-  nix develop --quiet --command bash -c 'cd docs/aihc-manual && mkdocs serve'
+  AIHC_HIGHLIGHT="$(nix build --no-link --print-out-paths .#aihc-grammars)/bin/aihc-highlight" nix develop --quiet --command bash -c 'cd docs/aihc-manual && mkdocs serve'
 
 # Compile the pipeline examples of the manual with the local compiler.
 docs-examples:

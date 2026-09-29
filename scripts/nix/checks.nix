@@ -3,6 +3,7 @@
   sources,
   mkHsPkgsForChecks,
   mkWasiSysroot,
+  mkEditorGrammars,
   mkLirExtension,
   mkManual,
 }: pkgs: let
@@ -1010,7 +1011,9 @@
       --output "$out"
   '';
 
-  manual = mkManual pkgs pipelineExamples;
+  editorGrammars = mkEditorGrammars pkgs;
+
+  manual = mkManual pkgs pipelineExamples editorGrammars;
 
   # Every example uses LLVM and the available host-native backend. Nix
   # schedules independent examples in parallel against the immutable shared
@@ -1142,6 +1145,7 @@
 in {
   checks = {
     vscode-lir = mkLirExtension pkgs;
+    aihc-grammars = editorGrammars;
     resolve-tests = resolveTests;
     tc-tests = tcTests;
     testing-tests = testingTests;

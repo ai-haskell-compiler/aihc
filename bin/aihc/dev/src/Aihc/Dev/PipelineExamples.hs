@@ -5,6 +5,10 @@
 -- and Lir text of the module is written for the manual to include. The
 -- manual build runs this command, so the pages always show what the
 -- compiler of the same commit produces.
+--
+-- The Markdown puts each program in a fence with the language @aihc-fc@,
+-- @aihc-grin@ or @aihc-lir@. The manual highlights these fences with the
+-- TextMate grammars in @editors/grammars@.
 module Aihc.Dev.PipelineExamples
   ( PipelineExamplesOptions (..),
     ExampleOutput (..),
@@ -129,9 +133,9 @@ exampleSection description compiled source = do
   tabs <-
     sequence
       [ tab "Haskell" "haskell" source,
-        tab "System FC" "text" (exampleCore compiled),
-        tab "GRIN" "text" (exampleGrin compiled),
-        tab "Lir" "text" (exampleLir compiled)
+        tab "System FC" "aihc-fc" (exampleCore compiled),
+        tab "GRIN" "aihc-grin" (exampleGrin compiled),
+        tab "Lir" "aihc-lir" (exampleLir compiled)
       ]
   pure (T.stripEnd description <> "\n\n" <> T.concat tabs)
   where

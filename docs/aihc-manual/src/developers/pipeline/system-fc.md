@@ -61,7 +61,7 @@ This module has a recursive function on lists:
 
 The compiler makes this System FC program for the module:
 
-```text
+```aihc-fc
 --8<-- "03-recursion/core"
 ```
 

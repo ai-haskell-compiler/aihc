@@ -1,8 +1,8 @@
 {
   "name": "aihc-lir",
-  "displayName": "AIHC LIR",
-  "description": "Syntax highlighting for the AIHC low-level intermediate language.",
-  "version": "0.1.0",
+  "displayName": "AIHC Intermediate Languages",
+  "description": "Syntax highlighting for the AIHC intermediate languages: System FC, GRIN, and LIR.",
+  "version": "0.2.0",
   "publisher": "aihc",
   "license": "Unlicense",
   "engines": {
@@ -12,13 +12,37 @@
   "contributes": {
     "languages": [
       {
+        "id": "aihc-fc",
+        "aliases": ["AIHC System FC", "System FC"],
+        "extensions": [".fc"],
+        "filenames": ["core"],
+        "configuration": "./fc-language-configuration.json"
+      },
+      {
+        "id": "aihc-grin",
+        "aliases": ["AIHC GRIN", "GRIN"],
+        "extensions": [".grin"],
+        "filenames": ["grin"],
+        "configuration": "./grin-language-configuration.json"
+      },
+      {
         "id": "aihc-lir",
         "aliases": ["AIHC LIR", "LIR"],
         "extensions": [".lir"],
-        "configuration": "./language-configuration.json"
+        "configuration": "./lir-language-configuration.json"
       }
     ],
     "grammars": [
+      {
+        "language": "aihc-fc",
+        "scopeName": "source.aihc-fc",
+        "path": "./syntaxes/fc.tmLanguage.json"
+      },
+      {
+        "language": "aihc-grin",
+        "scopeName": "source.aihc-grin",
+        "path": "./syntaxes/grin.tmLanguage.json"
+      },
       {
         "language": "aihc-lir",
         "scopeName": "source.lir",
@@ -30,12 +54,5 @@
     "type": "git",
     "url": "https://github.com/ai-haskell-compiler/aihc.git",
     "directory": "editors/vscode-lir"
-  },
-  "scripts": {
-    "test": "node test/grammar.mjs"
-  },
-  "devDependencies": {
-    "vscode-oniguruma": "2.0.1",
-    "vscode-textmate": "9.3.2"
   }
 }

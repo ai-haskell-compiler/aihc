@@ -57,7 +57,7 @@ This module has a recursive function on lists:
 
 The compiler makes this GRIN program for the module:
 
-```text
+```aihc-grin
 --8<-- "03-recursion/grin"
 ```
 

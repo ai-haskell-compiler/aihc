@@ -38,6 +38,9 @@
     },
     {
       "include": "#bare-labels"
+    },
+    {
+      "include": "#invalid"
     }
   ],
   "repository": {
@@ -163,6 +166,10 @@
     "bare-labels": {
       "name": "entity.name.label.lir",
       "match": "(?<![A-Za-z0-9_.$%@])(?:[A-Za-z_][A-Za-z0-9_.$]*)(?![A-Za-z0-9_.$])"
+    },
+    "invalid": {
+      "name": "invalid.illegal.unrecognized.lir",
+      "match": "\\S"
     }
   }
 }

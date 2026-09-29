@@ -57,7 +57,7 @@ This module has a recursive function on lists:
 
 The compiler makes this Lir program for the module:
 
-```text
+```aihc-lir
 --8<-- "03-recursion/lir"
 ```
 

@@ -1,0 +1,220 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "AIHC GRIN",
+  "scopeName": "source.aihc-grin",
+  "patterns": [
+    {
+      "include": "#scope-line"
+    },
+    {
+      "include": "#node-tags"
+    },
+    {
+      "include": "#constructor-names"
+    },
+    {
+      "include": "#global-references"
+    },
+    {
+      "include": "#variables"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#characters"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#primitive-names"
+    },
+    {
+      "include": "#scoped-names"
+    },
+    {
+      "include": "#representations"
+    },
+    {
+      "include": "#foreign-types"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    },
+    {
+      "include": "#invalid"
+    }
+  ],
+  "repository": {
+    "scope-line": {
+      "match": "^(scope)\\s+(\\d+)\\s+(=)\\s+(\\\"(?:[^\\\"\\\\]|\\\\.)*\\\")\\s+(\\S+)\\s*$",
+      "captures": {
+        "1": {
+          "name": "keyword.control.aihc-grin"
+        },
+        "2": {
+          "name": "constant.numeric.aihc-grin"
+        },
+        "3": {
+          "name": "keyword.operator.aihc-grin"
+        },
+        "4": {
+          "name": "string.quoted.double.aihc-grin"
+        },
+        "5": {
+          "name": "entity.name.namespace.aihc-grin"
+        }
+      }
+    },
+    "node-tags": {
+      "patterns": [
+        {
+          "match": "(\\()(C)(\\d+\\.)?((?:\\\"(?:[^\\\"\\\\]|\\\\.)*\\\"|[^\\s\\\"()\\[\\],=/%]+))",
+          "captures": {
+            "1": {
+              "name": "punctuation.section.brackets.aihc-grin"
+            },
+            "2": {
+              "name": "storage.type.node-tag.aihc-grin"
+            },
+            "3": {
+              "name": "entity.name.namespace.aihc-grin"
+            },
+            "4": {
+              "name": "entity.name.constructor.aihc-grin"
+            }
+          }
+        },
+        {
+          "match": "(\\()([PF])(\\d+\\.)?((?:\\\"(?:[^\\\"\\\\]|\\\\.)*\\\"|[^\\s\\\"()\\[\\],=/%]+))",
+          "captures": {
+            "1": {
+              "name": "punctuation.section.brackets.aihc-grin"
+            },
+            "2": {
+              "name": "storage.type.node-tag.aihc-grin"
+            },
+            "3": {
+              "name": "entity.name.namespace.aihc-grin"
+            },
+            "4": {
+              "name": "entity.name.function.aihc-grin"
+            }
+          }
+        }
+      ]
+    },
+    "constructor-names": {
+      "match": "(?<![\\w$'-])(data|constructor)(\\s+)(\\d+\\.)?((?:\\\"(?:[^\\\"\\\\]|\\\\.)*\\\"|[^\\s\\\"()\\[\\],=/%]+))",
+      "captures": {
+        "1": {
+          "name": "keyword.control.aihc-grin"
+        },
+        "3": {
+          "name": "entity.name.namespace.aihc-grin"
+        },
+        "4": {
+          "name": "entity.name.constructor.aihc-grin"
+        }
+      }
+    },
+    "global-references": {
+      "match": "(?<![\\w$'-])(global-ref)(\\s+)(\\d+\\.)?((?:\\\"(?:[^\\\"\\\\]|\\\\.)*\\\"|[^\\s\\\"()\\[\\],=/%]+))",
+      "captures": {
+        "1": {
+          "name": "keyword.control.aihc-grin"
+        },
+        "3": {
+          "name": "entity.name.namespace.aihc-grin"
+        },
+        "4": {
+          "name": "variable.other.global.aihc-grin"
+        }
+      }
+    },
+    "variables": {
+      "match": "(?<![^\\s(,])(?!-?\\d|')((?:\\\"(?:[^\\\"\\\\]|\\\\.)*\\\"|[^\\s\\\"()\\[\\],=/%]+))(%\\d+)?(?=\\s+::)",
+      "captures": {
+        "1": {
+          "name": "variable.other.aihc-grin"
+        },
+        "2": {
+          "name": "constant.numeric.unique.aihc-grin"
+        }
+      }
+    },
+    "strings": {
+      "name": "string.quoted.double.aihc-grin",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.aihc-grin",
+          "match": "\\\\(?:[0-9]+|x[0-9A-Fa-f]+|o[0-7]+|\\^[A-Z@\\[\\\\\\]^_]|[A-Z][A-Z0-9]{1,2}|.)"
+        }
+      ]
+    },
+    "characters": {
+      "name": "string.quoted.single.aihc-grin",
+      "match": "'(?:\\\\(?:[0-9]+|x[0-9A-Fa-f]+|[A-Z][A-Z0-9]{1,2}|.)|[^'\\\\])'"
+    },
+    "keywords": {
+      "name": "keyword.control.aihc-grin",
+      "match": "(?<![\\w$'-])(?:store\\-rec\\-unchecked|cps\\-primitive\\-call|update\\-blackhole|store\\-unchecked|primitive\\-call|unsafe\\-dynamic|cps\\-eval\\-once|foreign\\-call|constructor|ensure\\-heap|global\\-ref|real\\-world|primitive|store\\-rec|eval\\-once|cps\\-apply|raise\\-cps|forwarded|constant|cps\\-eval|continue|foreign|forward|if\\-whnf|address|dynamic|wrapper|global|update|unsafe|scope|store|apply|throw|catch|fetch|eval|call|halt|exit|else|case|with|data|pure|pub|as|of|_)(?![\\w$'-])"
+    },
+    "primitive-names": {
+      "name": "support.function.primitive.aihc-grin",
+      "match": "(?<![^\\s(])[^\\s\\\"()\\[\\],=/%]+#(?![^\\s)])"
+    },
+    "scoped-names": {
+      "match": "(\\d+\\.)((?:\\\"(?:[^\\\"\\\\]|\\\\.)*\\\"|[^\\s\\\"()\\[\\],=/%]+))",
+      "captures": {
+        "1": {
+          "name": "entity.name.namespace.aihc-grin"
+        },
+        "2": {
+          "name": "entity.name.function.aihc-grin"
+        }
+      }
+    },
+    "representations": {
+      "name": "storage.type.aihc-grin",
+      "match": "(?<![\\w$'])[A-Z][A-Za-z0-9]*(?![\\w$'])"
+    },
+    "foreign-types": {
+      "name": "storage.type.aihc-grin",
+      "match": "(?<![\\w$'-])(?:closure|word16|word32|word64|double|int16|int32|int64|word8|float|int8|word|addr|void|int)(?![\\w$'-])"
+    },
+    "numbers": {
+      "name": "constant.numeric.aihc-grin",
+      "match": "(?<![\\w$'])-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?"
+    },
+    "operators": {
+      "name": "keyword.operator.aihc-grin",
+      "match": "<-|->|::|[=@/!#%]"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.brackets.aihc-grin",
+          "match": "[()\\[\\]]"
+        },
+        {
+          "name": "punctuation.separator.aihc-grin",
+          "match": ","
+        }
+      ]
+    },
+    "invalid": {
+      "name": "invalid.illegal.unrecognized.aihc-grin",
+      "match": "\\S"
+    }
+  }
+}
