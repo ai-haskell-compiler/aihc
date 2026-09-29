@@ -63,13 +63,14 @@ jobs:
 
       # `wrangler deploy --dry-run` does not send requests to Cloudflare.
       # Thus it cannot find a token that has incorrect permissions.
-      # This step sends read requests with the deployment token.
+      # This step sends the first deployment requests with the deployment token.
       # It fails on the PR, before the deployment on main can fail.
       - name: Check the Cloudflare token access
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DOCS_ZONE: aihc.app
+          DOCS_WORKER: aihc-manual
         run: |
           set -euo pipefail
 
@@ -97,6 +98,16 @@ jobs:
           # This request needs the "Workers Scripts" account permission.
           require "the Workers scripts of the account" \
             "$(cf_get "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")" \
+            '.success'
+          # The deployment starts with this request. It needs the
+          # "Workers Scripts: Edit" account permission. The session only
+          # lists the assets to upload. It does not make or change a Worker.
+          require "an asset upload session for the $DOCS_WORKER Worker" \
+            "$(curl --silent --show-error --request POST \
+              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data '{"manifest":{"/ci-token-check.txt":{"hash":"00000000000000000000000000000000","size":1}}}' \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$DOCS_WORKER/assets-upload-session")" \
             '.success'
           # The custom domain route needs access to the zone.
           require "the $DOCS_ZONE zone in the account" \
