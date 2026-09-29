@@ -23,14 +23,8 @@ source-repository-package
   location: https://github.com/ai-haskell-compiler/aihc-parser.git
   tag: 46420da73d505555b46c03c00bd7fe44cb72e331
 
--- Pinned to a git commit until the first aihc-cabal-syntax release is on
--- Hackage. Keep this commit equal to the rev in scripts/nix/haskell-packages.nix.
-source-repository-package
-  type: git
-  location: https://github.com/ai-haskell-compiler/aihc-cabal-syntax.git
-  tag: f0b792330d884841c0118f4d99ebdf6837b5c7ad
-
 constraints:
+  aihc-cabal-syntax ==1.0.0.1,
   aihc-cpp ==2.0.0.0
 
 package aihc-tc

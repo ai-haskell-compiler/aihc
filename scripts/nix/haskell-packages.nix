@@ -272,14 +272,11 @@ in rec {
             rev = "46420da73d505555b46c03c00bd7fe44cb72e331";
             hash = "sha256-TDBXKyMpgz81SKLbVS+eFzzNmjFNkbJdAaLs+1tYdl4=";
           }) {});
-          # Pinned to a git commit until the first aihc-cabal-syntax release
-          # is on Hackage. Keep this commit equal to the tag in cabal.project.
-          aihc-cabal-syntax = mkHackageLibrary hsLib (final.callCabal2nix "aihc-cabal-syntax" (pkgs.fetchFromGitHub {
-            owner = "ai-haskell-compiler";
-            repo = "aihc-cabal-syntax";
-            rev = "f0b792330d884841c0118f4d99ebdf6837b5c7ad";
-            hash = "sha256-X6ozEDuvYsC8cA5gEx0MneFGzpZV2PQAKsgkUzVveQw=";
-          }) {});
+          aihc-cabal-syntax = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "aihc-cabal-syntax";
+            ver = "1.0.0.1";
+            sha256 = "13pc9h96fx50l0n9537xs2x80zb9s40bnj5lcipdb1fq1n7xzyk6";
+          } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}

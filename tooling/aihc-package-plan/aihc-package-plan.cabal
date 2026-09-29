@@ -23,7 +23,7 @@ library
   hs-source-dirs: src
   build-depends:
     aeson >=2.0 && <2.3,
-    aihc-cabal-syntax >=0.1 && <0.2,
+    aihc-cabal-syntax >=1.0 && <1.1,
     aihc-cpp,
     aihc-hackage,
     aihc-parser,
