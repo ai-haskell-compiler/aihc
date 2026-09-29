@@ -17,68 +17,68 @@ program: |
 expected: |
   extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
-  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr)
 
   extern func @aihc_mutvar_new(ptr, i64) -> ptr cc c
 
   extern data @aihc_machine
 
-  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %$cps_return_3: ptr) {
   entry:
-    %roots_5 = stack.alloc 16 align 8
-    %heap_end_6 = ptr.add %hp_0, 40
-    %heap_fits_7 = le.u ptr %heap_end_6, %hp_limit_1
-    br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
+    %roots_4 = stack.alloc 16 align 8
+    %heap_end_5 = ptr.add %hp_0, 40
+    %heap_fits_6 = le.u ptr %heap_end_5, %hp_limit_1
+    br %heap_fits_6, gc_reserved_8(%$cps_return_3, %hp_0, %hp_limit_1), gc_collect_7
 
-  cold gc_collect_8:
-    store ptr %$cps_return_4, [%roots_5] align 8
+  cold gc_collect_7:
+    store ptr %$cps_return_3, [%roots_4] align 8
     store ptr %hp_0, [@aihc_machine + 24] align 1 word
     store ptr %sp_2, [@aihc_machine + 40] align 1 word
-    call @aihc_heap_collect(@aihc_machine, 5, 1, %roots_5, null)
-    %$cps_return$gc_13 = load ptr [%roots_5] align 8
-    %hp_14 = load ptr [@aihc_machine + 24] align 1 word
-    %hp_limit_15 = load ptr [@aihc_machine + 32] align 1 word
-    jump gc_reserved_9(%$cps_return$gc_13, %hp_14, %hp_limit_15)
+    call @aihc_heap_collect(@aihc_machine, 5, 1, %roots_4, null)
+    %$cps_return$gc_12 = load ptr [%roots_4] align 8
+    %hp_13 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_14 = load ptr [@aihc_machine + 32] align 1 word
+    jump gc_reserved_8(%$cps_return$gc_12, %hp_13, %hp_limit_14)
 
-  gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
-    %hp_16 = ptr.add %hp_11, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8
-    store i64 1, [%hp_11 + 8] align 8
-    %result_17 = add i64 2, 3
-    %result_18 = mul i64 %result_17, %result_17
-    %flag_19 = lt.s i64 %result_18, 30
-    %wide_20 = zext i1 %flag_19 to i64
-    %coerced_21 = ptr.to_int %hp_11
-    store ptr %hp_16, [@aihc_machine + 24] align 1 word
+  gc_reserved_8(%$cps_return$gc_9: ptr, %hp_10: ptr, %hp_limit_11: ptr):
+    %hp_15 = ptr.add %hp_10, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_10] align 8
+    store i64 1, [%hp_10 + 8] align 8
+    %result_16 = add i64 2, 3
+    %result_17 = mul i64 %result_16, %result_16
+    %flag_18 = lt.s i64 %result_17, 30
+    %wide_19 = zext i1 %flag_18 to i64
+    %coerced_20 = ptr.to_int %hp_10
+    store ptr %hp_15, [@aihc_machine + 24] align 1 word
     store ptr %sp_2, [@aihc_machine + 40] align 1 word
-    %result_22 = call @aihc_mutvar_new(@aihc_machine, %coerced_21)
-    %hp_23 = load ptr [@aihc_machine + 24] align 1 word
-    %hp_limit_24 = load ptr [@aihc_machine + 32] align 1 word
-    %heap_end_25 = ptr.add %hp_23, 40
-    %heap_fits_26 = le.u ptr %heap_end_25, %hp_limit_24
-    br %heap_fits_26, gc_reserved_28(%$cps_return$gc_10, %result_22, %hp_23, %hp_limit_24), gc_collect_27
+    %result_21 = call @aihc_mutvar_new(@aihc_machine, %coerced_20)
+    %hp_22 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_23 = load ptr [@aihc_machine + 32] align 1 word
+    %heap_end_24 = ptr.add %hp_22, 40
+    %heap_fits_25 = le.u ptr %heap_end_24, %hp_limit_23
+    br %heap_fits_25, gc_reserved_27(%$cps_return$gc_9, %result_21, %hp_22, %hp_limit_23), gc_collect_26
 
-  cold gc_collect_27:
-    store ptr %$cps_return$gc_10, [%roots_5] align 8
-    store ptr %result_22, [%roots_5 + 8] align 8
-    store ptr %hp_23, [@aihc_machine + 24] align 1 word
+  cold gc_collect_26:
+    store ptr %$cps_return$gc_9, [%roots_4] align 8
+    store ptr %result_21, [%roots_4 + 8] align 8
+    store ptr %hp_22, [@aihc_machine + 24] align 1 word
     store ptr %sp_2, [@aihc_machine + 40] align 1 word
-    call @aihc_heap_collect(@aihc_machine, 5, 2, %roots_5, null)
-    %$cps_return$gc$gc_33 = load ptr [%roots_5] align 8
-    %cell$gc_34 = load ptr [%roots_5 + 8] align 8
-    %hp_35 = load ptr [@aihc_machine + 24] align 1 word
-    %hp_limit_36 = load ptr [@aihc_machine + 32] align 1 word
-    jump gc_reserved_28(%$cps_return$gc$gc_33, %cell$gc_34, %hp_35, %hp_limit_36)
+    call @aihc_heap_collect(@aihc_machine, 5, 2, %roots_4, null)
+    %$cps_return$gc$gc_32 = load ptr [%roots_4] align 8
+    %cell$gc_33 = load ptr [%roots_4 + 8] align 8
+    %hp_34 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_35 = load ptr [@aihc_machine + 32] align 1 word
+    jump gc_reserved_27(%$cps_return$gc$gc_32, %cell$gc_33, %hp_34, %hp_limit_35)
 
-  gc_reserved_28(%$cps_return$gc$gc_29: ptr, %cell$gc_30: ptr, %hp_31: ptr, %hp_limit_32: ptr):
-    %hp_37 = ptr.add %hp_31, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_31] align 8
-    store i64 %wide_20, [%hp_31 + 8] align 8
-    %hp_38 = ptr.add %hp_37, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_37] align 8
-    store ptr %hp_31, [%hp_37 + 8] align 8
-    store ptr %cell$gc_30, [%hp_37 + 16] align 8
-    tailcall @aihc_lir_continue_p(%hp_38, %hp_limit_32, %sp_2, %sp_limit_3, %$cps_return$gc$gc_29, %hp_37)
+  gc_reserved_27(%$cps_return$gc$gc_28: ptr, %cell$gc_29: ptr, %hp_30: ptr, %hp_limit_31: ptr):
+    %hp_36 = ptr.add %hp_30, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_30] align 8
+    store i64 %wide_19, [%hp_30 + 8] align 8
+    %hp_37 = ptr.add %hp_36, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_36] align 8
+    store ptr %hp_30, [%hp_36 + 8] align 8
+    store ptr %cell$gc_29, [%hp_36 + 16] align 8
+    tailcall @aihc_lir_continue_p(%hp_37, %hp_limit_31, %sp_2, %$cps_return$gc$gc_28, %hp_36)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }

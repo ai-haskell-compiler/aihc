@@ -9,35 +9,35 @@ program: |
       data Just (payload%3 :: IntRep) ->
         constant (payload%3 :: IntRep)
 expected: |
-  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
 
   extern func @aihc_no_match() cc c
 
   extern data @aihc_machine
 
-  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: ptr, %$cps_return_5: ptr) {
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %value_3: ptr, %$cps_return_4: ptr) {
   entry:
-    %header_word_9 = load i64 [%value_4] align 8
-    %info_word_10 = and i64 %header_word_9, -4
-    %header_11 = ptr.from_int %info_word_10
-    %identity_12 = load ptr [%header_11] align 1 word
-    %matches_13 = eq ptr %identity_12, @aihc_c_aihc_entry_Nothing_0
-    br %matches_13, alt_6, check_14
+    %header_word_8 = load i64 [%value_3] align 8
+    %info_word_9 = and i64 %header_word_8, -4
+    %header_10 = ptr.from_int %info_word_9
+    %identity_11 = load ptr [%header_10] align 1 word
+    %matches_12 = eq ptr %identity_11, @aihc_c_aihc_entry_Nothing_0
+    br %matches_12, alt_5, check_13
 
-  check_14:
-    %matches_15 = eq ptr %identity_12, @aihc_c_aihc_entry_Just_0
-    br %matches_15, alt_7, no_match_8
+  check_13:
+    %matches_14 = eq ptr %identity_11, @aihc_c_aihc_entry_Just_0
+    br %matches_14, alt_6, no_match_7
 
-  no_match_8:
+  no_match_7:
     call @aihc_no_match()
     trap "no matching case alternative"
 
-  alt_6:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 0)
+  alt_5:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %$cps_return_4, 0)
 
-  alt_7:
-    %payload_16 = load i64 [%value_4 + 8] align 8
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, %payload_16)
+  alt_6:
+    %payload_15 = load i64 [%value_3 + 8] align 8
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %$cps_return_4, %payload_15)
   }
 
   data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }

@@ -14,9 +14,9 @@
 -- The @aihc@ calling convention passes the first eleven arguments in
 -- @rbx@, @r12@, @r13@, @r14@, @r15@, @rdi@, @rsi@, @rdx@, @rcx@, @r8@, and
 -- @r9@ and the rest in a 16-byte aligned block above the return address.
--- The first four arguments of a lowered function are the heap and stack
--- pointers with their limits, and the fifth is its first GRIN argument. A C
--- call preserves their registers, so these values stay in them across a C
+-- The first three arguments of a lowered function are the heap pointer, the
+-- heap limit, and the stack pointer, and the next two are its first GRIN
+-- arguments. A C call preserves their registers, so these values stay in them across a C
 -- call. The callee pops
 -- that block with @ret imm16@, so a tail call moves the return address and
 -- the outgoing block to the place of the incoming block and the stack does
@@ -270,9 +270,9 @@ trapStubLabel index = ".Llir_trap_" <> tshow index
 argumentRegisters :: [Amd64Register]
 argumentRegisters = [RDI, RSI, RDX, RCX, R8, R9]
 
--- | The argument registers of the aihc convention. The first four carry the
--- heap and stack context of a lowered function, and the fifth carries its
--- first GRIN argument. They are preserved registers, so a C call does not
+-- | The argument registers of the aihc convention. The first three carry the
+-- heap and stack context of a lowered function, and the next two carry its
+-- first GRIN arguments. They are preserved registers, so a C call does not
 -- move them. An aihc tail call
 -- with a stack block uses @rax@ after the argument moves, so @rax@ carries
 -- no argument.

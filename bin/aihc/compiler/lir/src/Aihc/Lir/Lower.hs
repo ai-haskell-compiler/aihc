@@ -3,8 +3,8 @@
 -- | Lower GC-GRIN to Lir.
 --
 -- Every GRIN function becomes a Lir function with the @aihc@ convention. The
--- first four parameters are the context of the running thread: the heap
--- pointer, the heap limit, the stack pointer, and the stack limit. A process
+-- first three parameters are the context of the running thread: the heap
+-- pointer, the heap limit, and the stack pointer. A process
 -- has one machine, so the code names it by its symbol, 'machineSymbol', and
 -- no function takes it as a parameter. A pointer representation becomes @ptr@, an
 -- address becomes @ptr@, and every other scalar becomes @i64@. Floats travel
@@ -376,30 +376,31 @@ data LowerState = LowerState
 --
 -- The machine holds a copy of the heap pointer and the stack pointer only
 -- while a C function can read them: the code stores them before such a
--- call. Lir code never changes the heap limit, and C code computes the stack
--- limit when it needs it, so the code does not store the two limits. After a
--- C call that can allocate or collect, the code loads the heap pointer and
--- the heap limit again. The stack pointer changes only at a push and at the
--- entry of a frame, and a C call made from compiled code does not change it.
+-- call. Lir code never changes the heap limit, so the code does not store
+-- it. After a C call that can allocate or collect, the code loads the heap
+-- pointer and the heap limit again. The stack pointer changes only at a
+-- push and at the entry of a frame, and a C call made from compiled code
+-- does not change it.
 --
--- A stack chunk is 'stackChunkBytes' long and has that alignment, so the
--- stack limit is the end of the chunk that holds the last pushed byte. A
--- push fits when the new stack pointer is not above the limit.
+-- A stack chunk is 'stackChunkBytes' long and has that alignment, and it
+-- starts with a header, so the stack pointer is never the start of a chunk.
+-- The end of the chunk that holds the byte before the stack pointer is the
+-- stack limit. A push computes it from the stack pointer, so no value
+-- carries it. See 'pushStackFrame'.
 data Context = Context
   { contextHeap :: !Operand,
     contextHeapLimit :: !Operand,
-    contextStack :: !Operand,
-    contextStackLimit :: !Operand
+    contextStack :: !Operand
   }
   deriving (Eq, Show)
 
 -- | The context values in the order of the parameters.
 contextOperands :: Context -> [Operand]
-contextOperands context = [contextHeap context, contextHeapLimit context, contextStack context, contextStackLimit context]
+contextOperands context = [contextHeap context, contextHeapLimit context, contextStack context]
 
 -- | The types of the context parameters.
 contextTypes :: [Type]
-contextTypes = [Ptr, Ptr, Ptr, Ptr]
+contextTypes = [Ptr, Ptr, Ptr]
 
 type LowerM = StateT LowerState (Either LowerError)
 
@@ -817,11 +818,6 @@ machineStackNextOffset target = machineHeapLimitOffset target + toInteger (lower
 stackChunkBytes :: Integer
 stackChunkBytes = 4096
 
--- | The bytes of the header of a stack chunk. The first frame of a chunk
--- follows it.
-stackChunkHeaderBytes :: Integer
-stackChunkHeaderBytes = 32
-
 -- Context
 
 -- | The C object of the machine. A process has one machine, so its address
@@ -839,9 +835,9 @@ machineOperand = do
 -- | Fresh parameters for a context.
 freshContext :: LowerM (Context, [(Var, Type)])
 freshContext = do
-  vars <- mapM fresh ["hp", "hp_limit", "sp", "sp_limit"]
+  vars <- mapM fresh ["hp", "hp_limit", "sp"]
   case map OperandVar vars of
-    [heap, heapLimit, stack, stackLimit] -> pure (Context heap heapLimit stack stackLimit, zip vars contextTypes)
+    [heap, heapLimit, stack] -> pure (Context heap heapLimit stack, zip vars contextTypes)
     _ -> failWith (LowerUnsupportedExpression "internal: context arity")
 
 -- | The context of the code under construction.
@@ -883,19 +879,7 @@ loadContext :: Operand -> LowerM Context
 loadContext machine = do
   target <- targetM
   stack <- emitValue "sp" Ptr (Load Ptr (byteAddress machine (machineStackNextOffset target)) (wordAlignment 1))
-  -- The stack pointer can be the end of a full chunk, so the limit comes
-  -- from the byte before it.
-  below <- emitValue "sp_below" Ptr (PtrAdd (typedOperand stack) (OperandLiteral (LitInt (-1))))
-  stackLimit <- chunkEnd (typedOperand below)
-  loadHeapContext machine (Context (OperandLiteral LitNull) (OperandLiteral LitNull) (typedOperand stack) stackLimit)
-
--- | The end of the stack chunk that holds an address.
-chunkEnd :: Operand -> LowerM Operand
-chunkEnd address = do
-  word <- emitValue "chunk_word" I64 (PtrToInt address)
-  last' <- emitValue "chunk_last" I64 (Binary Or I64 (typedOperand word) (OperandLiteral (LitInt (stackChunkBytes - 1))))
-  end <- emitValue "chunk_end" I64 (Binary Add I64 (typedOperand last') (OperandLiteral (LitInt 1)))
-  typedOperand <$> emitValue "sp_limit" Ptr (PtrFromInt (typedOperand end))
+  loadHeapContext machine (Context (OperandLiteral LitNull) (OperandLiteral LitNull) (typedOperand stack))
 
 -- | Store the context of the code under construction to the machine.
 syncMachine :: FunctionCtx -> LowerM ()
@@ -1697,40 +1681,43 @@ isFrameNode env node =
     _ -> False
 
 -- | Push the given words on the stack of the running thread and give back
--- the frame. The frame fits in the current chunk when the new stack pointer
--- is not above the stack limit. Otherwise the runtime continues the stack in
--- the next chunk, and the stack limit becomes the end of that chunk. Neither
--- path collects, so no root moves, and neither path reads the machine copy
+-- the frame. The frame fits in the current chunk when its last byte is in
+-- the chunk of the byte before the stack pointer. Otherwise the runtime
+-- continues the stack in the next chunk. Neither path collects, so no root moves, and neither path reads the machine copy
 -- of the context. The caller writes the header and every field.
 pushFrame :: Operand -> Int -> LowerM Typed
 pushFrame machine words' = do
   context <- currentContext
-  (frame, stack, stackLimit) <- pushStackFrame machine (contextStack context) (contextStackLimit context) words'
-  setContext context {contextStack = stack, contextStackLimit = stackLimit}
+  (frame, stack) <- pushStackFrame machine (contextStack context) words'
+  setContext context {contextStack = stack}
   pure (Typed frame Ptr)
 
--- | Push a frame on a stack with the given stack pointer and stack limit.
--- Give back the frame, the new stack pointer, and the new stack limit.
-pushStackFrame :: Operand -> Operand -> Operand -> Int -> LowerM (Operand, Operand, Operand)
-pushStackFrame machine stack stackLimit words' = do
+-- | Push a frame on a stack with the given stack pointer. Give back the
+-- frame and the new stack pointer.
+--
+-- The stack pointer is never the start of a chunk, so the byte before it is
+-- in the current chunk. The low bits of that byte give its offset in the
+-- chunk, and the frame fits when the offset leaves room for the bytes of
+-- the frame. The check does not depend on the new stack pointer.
+pushStackFrame :: Operand -> Operand -> Int -> LowerM (Operand, Operand)
+pushStackFrame machine stack words' = do
   let bytes = 8 * toInteger words'
   end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt bytes)))
-  fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) stackLimit)
+  stackWord <- emitValue "sp_word" I64 (PtrToInt stack)
+  used <- emitValue "sp_used" I64 (Binary Sub I64 (typedOperand stackWord) (OperandLiteral (LitInt 1)))
+  offset <- emitValue "chunk_offset" I64 (Binary And I64 (typedOperand used) (OperandLiteral (LitInt (stackChunkBytes - 1))))
+  fits <- emitValue "stack_fits" I1 (Compare LeU I64 (typedOperand offset) (OperandLiteral (LitInt (stackChunkBytes - 1 - bytes))))
   growLabel <- freshLabel "stack_grow"
   pushedLabel <- freshLabel "stack_pushed"
-  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit]) (Target growLabel []))
+  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end]) (Target growLabel []))
   beginColdBlock growLabel []
   grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64] [Ptr] [machine, stack, OperandLiteral (LitInt (toInteger words'))]
   grownEnd <- emitValue "sp" Ptr (PtrAdd grown (OperandLiteral (LitInt bytes)))
-  -- The runtime gives the first frame of a chunk, so the rest of the chunk
-  -- follows the frame.
-  grownLimit <- emitValue "sp_limit" Ptr (PtrAdd grown (OperandLiteral (LitInt (stackChunkBytes - stackChunkHeaderBytes))))
-  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownLimit]))
+  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd]))
   pushed <- fresh "frame"
   pushedStack <- fresh "sp"
-  pushedLimit <- fresh "sp_limit"
-  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedLimit, Ptr)]
-  pure (OperandVar pushed, OperandVar pushedStack, OperandVar pushedLimit)
+  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr)]
+  pure (OperandVar pushed, OperandVar pushedStack)
 
 -- | An unsaturated constructor spends field zero on its applied count, so its
 -- payload starts one slot later than every other object's.
@@ -3154,13 +3141,12 @@ generateHelper env helper =
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "enter") []
       -- Entering a frame pops it and every frame above it: the frame is
-      -- the new stack pointer, and its chunk gives the stack limit. The
-      -- stack pointer is a value of its own, so the frame can stay in the
-      -- register of the object argument and only the copy moves.
+      -- the new stack pointer. The stack pointer is a value of its own, so
+      -- the frame can stay in the register of the object argument and only
+      -- the copy moves.
       stack <- emitValue "sp" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 0)))
-      stackLimit <- chunkEnd (OperandVar current)
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
-      let entered = context {contextStack = typedOperand stack, contextStackLimit = stackLimit}
+      let entered = context {contextStack = typedOperand stack}
       terminate
         ( TailCallIndirect
             (typedOperand entry)
@@ -3310,13 +3296,13 @@ applyOverSaturated machine context function continuation header supplied held = 
   let heldTypes = map (map snd) held
       heldValues = concat held
   _ <- requireHelper (HelperApplyFrame heldTypes)
-  (frame, stack, stackLimit) <- pushStackFrame machine (contextStack context) (contextStackLimit context) (2 + length heldValues)
+  (frame, stack) <- pushStackFrame machine (contextStack context) (2 + length heldValues)
   storeSlot Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) frame 0
   storeSlot Ptr continuation frame 8
   forM_ (zip [0 :: Int ..] heldValues) $ \(index, (var, ty)) ->
     storeSlot ty (OperandVar var) frame (toInteger (8 * (index + 2)))
   entry <- loadInfoCode "entry" header infoBackendEntryIndex
-  let pushed = context {contextStack = stack, contextStackLimit = stackLimit}
+  let pushed = context {contextStack = stack}
   terminate
     ( TailCallIndirect
         (typedOperand entry)

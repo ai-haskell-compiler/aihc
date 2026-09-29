@@ -647,7 +647,7 @@ fixture also passes the linter and the pretty-printer round-trip.
 
 `Aihc.Lir.Lower` produces one Lir module for one GC-GRIN program. Every GRIN
 function becomes a Lir function with the `aihc` convention and no results.
-The first four parameters are the context of the running thread. The other
+The first three parameters are the context of the running thread. The other
 parameters are the GRIN parameters in order. No function takes the machine
 as a parameter. A process has one machine, the C object `aihc_machine`, and
 Lir code names it by the symbol `@aihc_machine`. Only the code next to a C
@@ -665,14 +665,13 @@ and `wasip3Target` for WebAssembly. Apple ARM64 preserves the original size
 of narrow C stack arguments. Narrow C register arguments retain their
 extension to 32 bits.
 
-The context of a thread is four `ptr` values:
+The context of a thread is three `ptr` values:
 
 | Parameter | Meaning |
 | --- | --- |
 | `%hp` | The heap pointer: the first free byte of the current space. |
 | `%hp_limit` | The heap limit: the end of the space the heap pointer runs into. |
 | `%sp` | The stack pointer: the first free byte of the stack of the thread. |
-| `%sp_limit` | The stack limit: the end of the stack chunk that holds the byte before `%sp`. |
 
 Every function that runs Haskell code takes the context first and gives it to each function it transfers control to, as it does with a
 continuation. The shared helpers of the runtime units and the generated
@@ -690,8 +689,7 @@ They hold a copy of the context only where C code can read it:
   load. A primitive that the lowering emits inline, such as an arithmetic
   operation or a comparison, touches neither the machine nor the context.
 - Lir code never changes the heap limit, so it never stores `%hp_limit`.
-  The runtime computes the chunk of a stack pointer when it needs it, so no
-  machine field holds `%sp_limit`.
+  No value holds the end of the stack chunk: a push computes it from `%sp`.
 - A C call from compiled code never changes the stack pointer of the
   running thread, so the code does not load `%sp` after one. A callback
   that a foreign call enters gives the stack back as it found it.
@@ -707,7 +705,8 @@ They hold a copy of the context only where C code can read it:
 
 A stack chunk has `AIHC_STACK_CHUNK_BYTES` bytes and the same alignment, so
 the end of the chunk of an address is the address with the low bits set,
-plus one. The stack limit is the end of the chunk of the byte before `%sp`.
+plus one. A chunk starts with its header, so `%sp` is never the start of a
+chunk, and the byte before `%sp` is in the chunk of the running frames.
 
 The lowering keeps the control model of CPS-GRIN:
 
@@ -734,14 +733,14 @@ The lowering keeps the control model of CPS-GRIN:
   writes the header and the fields. Neither step touches memory other than
   the object. The runtime exports no allocator.
 - A continuation frame goes on the stack of the thread. The push adds the
-  bytes of the frame to `%sp` and branches on whether the result is not
-  above `%sp_limit`. When it is above, `aihc_stack_grow` gives the first
-  frame of the next chunk, and the new limit is the end of that chunk. The
-  runtime function reads neither the heap nor the machine copy of the
+  bytes of the frame to `%sp` and branches on whether the last byte of the
+  frame is not above the last byte of the chunk. That byte is the byte
+  before `%sp` with the low bits set. When the frame does not fit,
+  `aihc_stack_grow` gives the first frame of the next chunk. The runtime
+  function reads neither the heap nor the machine copy of the
   context, so the push stores nothing in the machine.
-- A continue helper enters a frame: the frame becomes `%sp`, and the end of
-  its chunk becomes `%sp_limit`. That pops the frame and every frame above
-  it.
+- A continue helper enters a frame: the frame becomes `%sp`. That pops the
+  frame and every frame above it.
 - `GrinIfWhnf` loads the header, masks the two tag bits, loads the `needs_eval` byte, and branches on it.
   It does no allocation or suspension.
   A zero byte sends the object to its ready branch.
@@ -1024,7 +1023,7 @@ rather than as a change of some object bytes. Run the suite with
   `x19` to `x23`, the next eight in `x0` to `x7`, the next six in `x8` to
   `x13`, and the next five in `x24` to `x28`. The rest go in a 16-byte
   aligned block on the stack. The first five arguments of a lowered
-  function are the context and its first GRIN argument, and a C call
+  function are the context and its first two GRIN arguments, and a C call
   preserves their registers, so they stay in place across a C call. The callee pops the
   stack block. Results come back in `x0` to `x7`. An aihc function preserves no
   register, so one that calls nothing and spills nothing has no frame: it
@@ -1082,8 +1081,8 @@ design of the AArch64 backend:
 - The `aihc` convention passes the first eleven arguments in `rbx`, `r12`,
   `r13`, `r14`, `r15`, `rdi`, `rsi`, `rdx`, `rcx`, `r8`, and `r9` and the
   rest in a 16-byte aligned block above the return address. The first five
-  arguments of a lowered function are the context and its first GRIN
-  argument, and a C call preserves their registers, so they stay in place
+  arguments of a lowered function are the context and its first two GRIN
+  arguments, and a C call preserves their registers, so they stay in place
   across a C call. A
   tail call with a stack block uses `rax` after the argument moves, so `rax`
   carries no argument. The callee pops the block with `ret imm16`. Results

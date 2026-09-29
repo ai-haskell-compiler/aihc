@@ -1,0 +1,32 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Box/1 [IntRep]
+  constructor Total/1 [IntRep]
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+
+  $sum (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (cell :: BoxedRep Lifted) <- store (CBox (count :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $sum (next :: IntRep)
+        (partial :: IntRep) <- primitive-call @IntRep +# (rest :: IntRep) (count :: IntRep)
+        case (cell :: BoxedRep Lifted) as boxed :: BoxedRep Lifted of
+          data Box (value :: IntRep) ->
+            primitive-call @IntRep +# (value :: IntRep) (partial :: IntRep)
+
+  $entry -> BoxedRep Lifted =
+    (total :: IntRep) <- call @IntRep $sum (3000 :: IntRep)
+    store (CTotal (total :: IntRep))
+return: "@0"
+heap: |
+  @0 = CTotal 9003000
+allocated-bytes:
+  macos-arm64: 48016
+  linux-amd64: 48016
+status: pass
+reason: Each of 3000 nested calls keeps a heap cell and its count in its continuation frame, so a frame has three words. A chunk has room for 4064 bytes of frames, which is not a multiple of 24. Thus the last push into each chunk does not fit although the chunk is not full, and the stack continues in the next chunk. A collection at each reservation moves the cells.

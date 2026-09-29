@@ -1,14 +1,14 @@
-; The context of a lowered function and its first GRIN argument arrive in
+; The context of a lowered function and its first GRIN arguments arrive in
 ; the first five argument registers of the aihc convention. A C call
-; preserves these registers, so the function keeps the five values in place
+; preserves these registers, so the function keeps its values in place
 ; across a C call that does not take them, and the tail call passes them on
 ; without a move. The value that lives across the call is the first GRIN
 ; argument, so it also stays in its register. See "Lowering from GC-GRIN" in
 ; docs/lir.md.
 extern func @work(i64) -> i64 cc c
-extern func @next(ptr, ptr, ptr, ptr, i64)
+extern func @next(ptr, ptr, ptr, i64)
 
-func @step(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %x: i64) {
+func @step(%hp: ptr, %hp_limit: ptr, %sp: ptr, %x: i64) {
 entry:
   %y = add i64 %x, 1
   %z = call @work(%y)
@@ -17,9 +17,9 @@ entry:
   br %less, small, large
 
 small:
-  tailcall @next(%hp, %hp_limit, %sp, %sp_limit, %w)
+  tailcall @next(%hp, %hp_limit, %sp, %w)
 
 large:
   %v = sub i64 %w, 100
-  tailcall @next(%hp, %hp_limit, %sp, %sp_limit, %v)
+  tailcall @next(%hp, %hp_limit, %sp, %v)
 }

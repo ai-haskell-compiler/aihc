@@ -8,26 +8,26 @@ program: |
       _ ->
         constant (30 :: IntRep)
 expected: |
-  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
 
   extern data @aihc_machine
 
-  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %value_4: i64, %$cps_return_5: ptr) {
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %value_3: i64, %$cps_return_4: ptr) {
   entry:
-    switch i64 %value_4 {
-      0 -> alt_6
-      1 -> alt_7
-      default -> alt_8
+    switch i64 %value_3 {
+      0 -> alt_5
+      1 -> alt_6
+      default -> alt_7
     }
 
+  alt_5:
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %$cps_return_4, 10)
+
   alt_6:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 10)
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %$cps_return_4, 20)
 
   alt_7:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 20)
-
-  alt_8:
-    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_5, 30)
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %$cps_return_4, 30)
   }
 status: pass
 reason: |

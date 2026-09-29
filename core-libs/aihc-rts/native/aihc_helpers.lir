@@ -6,10 +6,11 @@
 ; functions of aihc_object.lir, which cost what they would written out.
 ; C code transfers scheduler records.
 ;
-; A helper that runs Haskell code takes the machine and then the context of
-; the running thread: the heap pointer %hp, the heap limit %hp_limit, the
-; stack pointer %sp, and the stack limit %sp_limit. It gives the context to
-; each function it transfers control to. The machine holds a copy of the
+; A helper that runs Haskell code takes the context of the running thread
+; first: the heap pointer %hp, the heap limit %hp_limit, and the stack
+; pointer %sp. It gives the context to each function it transfers control
+; to. The stack limit is the end of the stack chunk that holds the byte
+; before %sp, so no value carries it. The machine holds a copy of the
 ; heap pointer and the stack pointer only while a C call can read them. See
 ; "Lowering from GC-GRIN" in docs/lir.md.
 
@@ -30,44 +31,37 @@ extern func @aihc_raise(ptr, ptr, ptr) -> ptr cc c
 
 extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
 
-; The end of the stack chunk that holds an address. A chunk has
-; AIHC_STACK_CHUNK_BYTES bytes and the same alignment.
-inline func @aihc_stack_chunk_end(%address: ptr) -> ptr {
-entry:
-  %word = ptr.to_int %address
-  %last = or i64 %word, @AIHC_STACK_CHUNK_LAST
-  %end = add i64 %last, 1
-  %limit = ptr.from_int %end
-  return %limit
-}
-
 ; Push a frame of the given words on the stack of the running thread. Give
-; back the frame, the new stack pointer, and the new stack limit. The caller
-; writes the header and every field. The frame fits in the current chunk
-; when the new stack pointer is not above the stack limit. Otherwise the
-; runtime continues the stack in the next chunk. Neither path collects.
-inline func @aihc_stack_push_frame(%sp: ptr, %sp_limit: ptr, %words: i64) -> (ptr, ptr, ptr) {
+; back the frame and the new stack pointer. The caller writes the header and
+; every field. The frame fits in the current chunk when its last byte is in
+; the chunk of the byte before the stack pointer. A chunk has
+; AIHC_STACK_CHUNK_BYTES bytes and the same alignment, so the low bits of
+; that byte give its offset in the chunk. The stack pointer is never the
+; start of a chunk, because a chunk starts with its header. Otherwise the runtime continues the stack in the next chunk.
+; Neither path collects.
+inline func @aihc_stack_push_frame(%sp: ptr, %words: i64) -> (ptr, ptr) {
 entry:
   %bytes = mul i64 %words, 8
   %end = ptr.add %sp, %bytes
-  %fits = le.u ptr %end, %sp_limit
+  %sp_word = ptr.to_int %sp
+  %used = sub i64 %sp_word, 1
+  %offset = and i64 %used, @AIHC_STACK_CHUNK_LAST
+  %room = sub i64 @AIHC_STACK_CHUNK_LAST, %bytes
+  %fits = le.u i64 %offset, %room
   br %fits, fits, grow
 
 fits:
-  return %sp, %end, %sp_limit
+  return %sp, %end
 
-; The runtime gives the first frame of a chunk, so the rest of the chunk
-; follows the frame.
 cold grow:
   %grown = call @aihc_stack_grow(@aihc_machine, %sp, %words)
   %grown_end = ptr.add %grown, %bytes
-  %grown_limit = ptr.add %grown, @AIHC_STACK_CHUNK_FRAME_BYTES
-  return %grown, %grown_end, %grown_limit
+  return %grown, %grown_end
 }
 
 ; Only blackholes require a heap reservation. A thunk pushes its update
 ; frame on the stack of the thread, which never collects.
-export func @aihc_lir_eval(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %value: ptr, %continuation: ptr) {
+export func @aihc_lir_eval(%hp: ptr, %hp_limit: ptr, %sp: ptr, %value: ptr, %continuation: ptr) {
 entry:
   %roots = stack.alloc 16 align 8
   jump loop(%value)
@@ -88,7 +82,7 @@ inspect:
   }
 
 thunk:
-  %update, %pushed_sp, %pushed_sp_limit = call @aihc_stack_push_frame(%sp, %sp_limit, @AIHC_UPDATE_FRAME_WORDS)
+  %update, %pushed_sp = call @aihc_stack_push_frame(%sp, @AIHC_UPDATE_FRAME_WORDS)
   %update_info_word = ptr.to_int @aihc_lir_cps_update_info
   store i64 %update_info_word, [%update] align 8
   %parent_word = ptr.to_int %continuation
@@ -99,7 +93,7 @@ thunk:
   %entry = call @aihc_info_entry(%header)
   %marked = or i64 %header_word, @AIHC_HEADER_EVALUATING
   store i64 %marked, [%current] align 8
-  tailcall.indirect %entry(%hp, %hp_limit, %pushed_sp, %pushed_sp_limit, %current, %update) : (ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %pushed_sp, %current, %update) : (ptr, ptr, ptr, ptr, ptr)
 
 indirection:
   %next = call @aihc_indirection_target(%current)
@@ -134,7 +128,7 @@ block(%live_value: ptr, %live_continuation: ptr):
   tailcall @aihc_lir_resume(%result)
 
 ready:
-  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %continuation, %current)
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %continuation, %current)
 }
 
 ; Evaluate a value whose thunk, if it has one, no other evaluation reaches.
@@ -144,7 +138,7 @@ ready:
 ; the continuation of this evaluation. A value that the ordinary
 ; evaluation must look at, such as an indirection or a blackhole, goes to
 ; @aihc_lir_eval. These values do not occur when the proof is correct.
-export func @aihc_lir_eval_single_entry(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %value: ptr, %continuation: ptr) {
+export func @aihc_lir_eval_single_entry(%hp: ptr, %hp_limit: ptr, %sp: ptr, %value: ptr, %continuation: ptr) {
 entry:
   %header_word = call @aihc_object_header_word(%value)
   %evaluating = call @aihc_header_is_evaluating(%header_word)
@@ -162,13 +156,13 @@ inspect:
 
 enter:
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%hp, %hp_limit, %sp, %sp_limit, %value, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %sp, %value, %continuation) : (ptr, ptr, ptr, ptr, ptr)
 
 shared:
-  tailcall @aihc_lir_eval(%hp, %hp_limit, %sp, %sp_limit, %value, %continuation)
+  tailcall @aihc_lir_eval(%hp, %hp_limit, %sp, %value, %continuation)
 
 ready:
-  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %continuation, %value)
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %continuation, %value)
 }
 
 ; A null resumption returns control to the host. The machine holds the
@@ -199,10 +193,6 @@ dispatch:
   %hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
   %hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
   %sp = load ptr [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
-  ; The stack pointer can be the end of a full chunk, so the limit comes
-  ; from the byte before it.
-  %sp_below = ptr.add %sp, -1
-  %sp_limit = call @aihc_stack_chunk_end(%sp_below)
   switch i64 %kind {
     @AIHC_RESUME_APPLY -> apply
     @AIHC_RESUME_CONTINUE -> continue
@@ -218,10 +208,10 @@ apply:
   }
 
 apply_zero:
-  tailcall @aihc_lir_apply_(%hp, %hp_limit, %sp, %sp_limit, %function, %continuation)
+  tailcall @aihc_lir_apply_(%hp, %hp_limit, %sp, %function, %continuation)
 
 apply_one:
-  tailcall @aihc_lir_apply_slot(%hp, %hp_limit, %sp, %sp_limit, %function, %continuation, %value)
+  tailcall @aihc_lir_apply_slot(%hp, %hp_limit, %sp, %function, %continuation, %value)
 
 continue:
   switch i64 %count {
@@ -231,10 +221,10 @@ continue:
   }
 
 continue_zero:
-  tailcall @aihc_lir_continue_(%hp, %hp_limit, %sp, %sp_limit, %function)
+  tailcall @aihc_lir_continue_(%hp, %hp_limit, %sp, %function)
 
 continue_one:
-  tailcall @aihc_lir_continue_slot(%hp, %hp_limit, %sp, %sp_limit, %function, %value)
+  tailcall @aihc_lir_continue_slot(%hp, %hp_limit, %sp, %function, %value)
 
 raise:
   %result = call @aihc_raise(@aihc_machine, %function, %continuation)
@@ -295,7 +285,7 @@ finish(%length: i64):
   return %length
 }
 
-export func @aihc_lir_continue_(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr) {
+export func @aihc_lir_continue_(%hp: ptr, %hp_limit: ptr, %sp: ptr, %continuation: ptr) {
 entry:
   jump loop(%continuation)
 
@@ -310,16 +300,14 @@ indirection:
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
-  ; a value of its own, so the frame can stay in the register of the object
-  ; argument and only the copy moves.
+  ; stack pointer. The stack pointer is a value of its own, so the frame can
+  ; stay in the register of the object argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
-  %entered_limit = call @aihc_stack_chunk_end(%current)
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %current, null) : (ptr, ptr, ptr, ptr, ptr)
 }
 
-export func @aihc_lir_continue_i(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
+export func @aihc_lir_continue_i(%hp: ptr, %hp_limit: ptr, %sp: ptr, %continuation: ptr, %value: i64) {
 entry:
   jump loop(%continuation)
 
@@ -334,16 +322,14 @@ indirection:
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
-  ; a value of its own, so the frame can stay in the register of the object
-  ; argument and only the copy moves.
+  ; stack pointer. The stack pointer is a value of its own, so the frame can
+  ; stay in the register of the object argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
-  %entered_limit = call @aihc_stack_chunk_end(%current)
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, i64)
 }
 
-export func @aihc_lir_continue_p(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: ptr) {
+export func @aihc_lir_continue_p(%hp: ptr, %hp_limit: ptr, %sp: ptr, %continuation: ptr, %value: ptr) {
 entry:
   jump loop(%continuation)
 
@@ -358,18 +344,16 @@ indirection:
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
-  ; stack pointer, and its chunk gives the stack limit. The stack pointer is
-  ; a value of its own, so the frame can stay in the register of the object
-  ; argument and only the copy moves.
+  ; stack pointer. The stack pointer is a value of its own, so the frame can
+  ; stay in the register of the object argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
-  %entered_limit = call @aihc_stack_chunk_end(%current)
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
 ; Arity counts application stages, not the number of Lir values.
 ; Each common shape below supplies one application stage.
-export func @aihc_lir_apply_(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %function: ptr, %continuation: ptr) {
+export func @aihc_lir_apply_(%hp: ptr, %hp_limit: ptr, %sp: ptr, %function: ptr, %continuation: ptr) {
 entry:
   %slot = stack.alloc 8 align 8
   jump loop(%function)
@@ -393,7 +377,7 @@ apply:
 
 fast:
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %sp, %current, %continuation) : (ptr, ptr, ptr, ptr, ptr)
 
 ; The runtime can allocate and collect, so the machine gets the context
 ; first and the heap context comes back after.
@@ -405,10 +389,10 @@ slow:
   %adjusted = load ptr [%slot] align 8
   %applied_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
   %applied_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
-  tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %sp_limit, %adjusted, %result)
+  tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %adjusted, %result)
 }
 
-export func @aihc_lir_apply_i(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %function: ptr, %continuation: ptr, %value: i64) {
+export func @aihc_lir_apply_i(%hp: ptr, %hp_limit: ptr, %sp: ptr, %function: ptr, %continuation: ptr, %value: i64) {
 entry:
   %arguments = stack.alloc 8 align 8
   %slot = stack.alloc 8 align 8
@@ -433,7 +417,7 @@ apply:
 
 fast:
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  tailcall.indirect %entry(%hp, %hp_limit, %sp, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, i64)
 
 ; The runtime can allocate and collect, so the machine gets the context
 ; first and the heap context comes back after.
@@ -446,10 +430,10 @@ slow:
   %adjusted = load ptr [%slot] align 8
   %applied_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
   %applied_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
-  tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %sp_limit, %adjusted, %result)
+  tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %adjusted, %result)
 }
 
-export func @aihc_lir_apply_p(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %function: ptr, %continuation: ptr, %value: ptr) {
+export func @aihc_lir_apply_p(%hp: ptr, %hp_limit: ptr, %sp: ptr, %function: ptr, %continuation: ptr, %value: ptr) {
 entry:
   %arguments = stack.alloc 8 align 8
   %slot = stack.alloc 8 align 8
@@ -474,7 +458,7 @@ apply:
 
 fast:
   %entry = call @aihc_info_entry(%header)
-  tailcall.indirect %entry(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %hp_limit, %sp, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, ptr)
 
 ; The runtime can allocate and collect, so the machine gets the context
 ; first and the heap context comes back after.
@@ -488,12 +472,12 @@ slow:
   %adjusted = load ptr [%slot] align 8
   %applied_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
   %applied_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
-  tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %sp_limit, %adjusted, %result)
+  tailcall @aihc_lir_continue_p(%applied_hp, %applied_hp_limit, %sp, %adjusted, %result)
 }
 
 ; The next-stage bitmap selects a pointer or an integer argument.
 ; Follow indirections before the bitmap check.
-export func @aihc_lir_continue_slot(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
+export func @aihc_lir_continue_slot(%hp: ptr, %hp_limit: ptr, %sp: ptr, %continuation: ptr, %value: i64) {
 entry:
   jump loop(%continuation)
 
@@ -536,13 +520,13 @@ bitmap(%count_2: i64):
 
 pointer:
   %pointer = ptr.from_int %value
-  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %current, %pointer)
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %current, %pointer)
 
 word:
-  tailcall @aihc_lir_continue_i(%hp, %hp_limit, %sp, %sp_limit, %current, %value)
+  tailcall @aihc_lir_continue_i(%hp, %hp_limit, %sp, %current, %value)
 }
 
-export func @aihc_lir_apply_slot(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %function: ptr, %continuation: ptr, %value: i64) {
+export func @aihc_lir_apply_slot(%hp: ptr, %hp_limit: ptr, %sp: ptr, %function: ptr, %continuation: ptr, %value: i64) {
 entry:
   jump loop(%function)
 
@@ -582,10 +566,10 @@ bitmap(%count_2: i64):
 
 pointer:
   %pointer = ptr.from_int %value
-  tailcall @aihc_lir_apply_p(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation, %pointer)
+  tailcall @aihc_lir_apply_p(%hp, %hp_limit, %sp, %current, %continuation, %pointer)
 
 word:
-  tailcall @aihc_lir_apply_i(%hp, %hp_limit, %sp, %sp_limit, %current, %continuation, %value)
+  tailcall @aihc_lir_apply_i(%hp, %hp_limit, %sp, %current, %continuation, %value)
 }
 
 ; The update frame stores the parent continuation and the entered thunk.
@@ -595,12 +579,12 @@ word:
 ; does not need the context for it.
 extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
-extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr, ptr, ptr)
 
-export func @aihc_lir_cps_update(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
+export func @aihc_lir_cps_update(%hp: ptr, %hp_limit: ptr, %sp: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
 entry:
   call @aihc_update_blackhole(@aihc_machine, %blackhole, %result)
-  tailcall @aihc_lir_eval(%hp, %hp_limit, %sp, %sp_limit, %result, %outer)
+  tailcall @aihc_lir_eval(%hp, %hp_limit, %sp, %result, %outer)
 }
 
 data @aihc_lir_cps_update_bitmap align 1 = {

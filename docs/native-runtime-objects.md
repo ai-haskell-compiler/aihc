@@ -87,13 +87,13 @@ A chunk starts with a 32-byte header: the owner stack and the chunks below and a
 The frames of a chunk follow the header.
 
 The stack pointer is the first free byte of the stack of the running thread.
-The stack limit is the end of the chunk that holds the byte before the stack pointer.
-Compiled code keeps both values in registers and passes them to each function that it transfers control to.
+Compiled code keeps the stack pointer in a register and passes it to each function that it transfers control to.
 Refer to "Lowering from GC-GRIN" in [lir.md](lir.md).
 A push writes the frame at the stack pointer and increases it.
-The frame fits when the new stack pointer is not above the stack limit.
+The frame fits when its last byte is in the chunk of the byte before the stack pointer.
+The push computes the last byte of that chunk from the stack pointer: it sets the low 12 bits of the byte before the stack pointer.
+A chunk starts with its header, so the stack pointer is never the start of a chunk.
 If the frame does not fit, `aihc_stack_grow` puts it at the start of the next chunk.
-Then the stack limit is the end of that chunk.
 A new chunk comes from the C allocator, so a push never collects.
 A frame keeps the address of its parent in field zero, in any chunk.
 Thus a chunk boundary needs no link frame.
@@ -101,7 +101,6 @@ The largest frame has 256 words, so a frame always fits in an empty chunk.
 
 A continue helper sets the stack pointer to the address of the frame that it enters.
 This pops the frame and every frame above it.
-The stack limit becomes the end of the chunk of that frame.
 An application resume sets the stack pointer to the first byte after its continuation.
 These two rules are correct because code always pushes a frame directly above its current continuation.
 The current continuation is thus always the topmost live frame.
