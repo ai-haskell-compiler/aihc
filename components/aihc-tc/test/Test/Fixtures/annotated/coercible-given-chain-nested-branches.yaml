@@ -1,0 +1,168 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Keys (Key, Coercion (..), Maybe (..), Box (..), keyToInt, boxToBox) where
+  import GHC.Types (Coercible, Int (..))
+  newtype Key = Key Int
+          │     └─ type: GHC.Types.Int → Key
+          └─ type: Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  data Coercion a b where
+       └─ type: Type → Type → Type
+    Coercion :: Coercible a b => Coercion a b
+    └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ Coercion a b
+  newtype Box a = Box a
+          │       └─ type: ∀ a. a → Box a
+          └─ type: Type → Type
+  keyToInt :: Maybe (Coercion Key Int)
+  keyToInt = Just Coercion
+  │          │    └─ type: Coercion Key GHC.Types.Int; type-args: Key, Int; evidence: coercible @Key @Int
+  │          └─ type: Coercion Key GHC.Types.Int → Maybe (Coercion Key GHC.Types.Int); type-args: Coercion Key Int
+  └─ type: Maybe (Coercion Key GHC.Types.Int)
+  boxToBox :: Maybe (Coercion (Box Key) (Box Int))
+  boxToBox = Just Coercion
+  │          │    └─ type: Coercion (Box Key) (Box GHC.Types.Int); type-args: Box Key, Box Int; evidence: coercible @Box Key @Box Int
+  │          └─ type: Coercion (Box Key) (Box GHC.Types.Int) → Maybe (Coercion (Box Key) (Box GHC.Types.Int)); type-args: Coercion (Box Key) (Box Int)
+  └─ type: Maybe (Coercion (Box Key) (Box GHC.Types.Int))
+- |-
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  import Keys
+  data KeyFunction a where
+       └─ type: Type → Type
+    KeyCoerce :: Coercible Int a => KeyFunction a
+    └─ type: ∀ a. (GHC.Types.Coercible GHC.Types.Int a) ⇒ KeyFunction a
+    KeyText :: (Int -> a) -> KeyFunction a
+    └─ type: ∀ a. (GHC.Types.Int → a) → KeyFunction a
+  wrap :: (Key -> b) -> Key -> b
+  wrap f k = f k
+  │    │ └─ type: Keys.Key
+  │    └─ type: Keys.Key → b
+  └─ type: ∀ b. (Keys.Key → b) → Keys.Key → b
+  parse :: forall a. KeyFunction a -> Key -> a
+  parse kf = case kf of
+  │     │    └─ type: Keys.Key → a
+  │     └─ type: KeyFunction a
+  └─ type: ∀ a. KeyFunction a → Keys.Key → a
+      KeyCoerce -> wrap (case keyToInt of
+      │            │     └─ type: Keys.Key → a
+      │            └─ type: (Keys.Key → a) → Keys.Key → a; type-args: a
+      └─ type: KeyFunction a; type-args: a; evidence: given Coercible Int a
+        Nothing -> text
+        └─ type: Keys.Maybe (Keys.Coercion Keys.Key GHC.Types.Int)
+        Just Coercion -> case boxToBox of
+        │    │           └─ type: Keys.Key → a
+        │    └─ type: Keys.Coercion Keys.Key GHC.Types.Int; type-args: Key, Int; evidence: given Coercible Key Int
+        └─ type: Keys.Maybe (Keys.Coercion Keys.Key GHC.Types.Int)
+          Nothing -> text
+          └─ type: Keys.Maybe (Keys.Coercion (Keys.Box Keys.Key) (Keys.Box GHC.Types.Int))
+          Just Coercion -> uc)
+          │    │           └─ type: Keys.Key → a; evidence: coercible @Key @a
+          │    └─ type: Keys.Coercion (Keys.Box Keys.Key) (Keys.Box GHC.Types.Int); type-args: Box Key, Box Int; evidence: given Coercible Box Key Box Int
+          └─ type: Keys.Maybe (Keys.Coercion (Keys.Box Keys.Key) (Keys.Box GHC.Types.Int))
+      KeyText f -> wrap text
+      │       │    └─ type: (Keys.Key → a) → Keys.Key → a; type-args: a
+      │       └─ type: GHC.Types.Int → a
+      └─ type: KeyFunction a
+    where
+      uc :: Coercible Key a => Key -> a
+      uc = unsafeCoerce#
+      │    └─ type: Keys.Key → a; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, Key, a
+      └─ type: (GHC.Types.Coercible Keys.Key a) ⇒ Keys.Key → a
+      text k = parse kf k
+      │    │   └─ type: KeyFunction a → Keys.Key → a; type-args: a
+      │    └─ type: Keys.Key
+      └─ type: Keys.Key → a
+  class HasKey a where
+  └─ class methods: keyFunction ∷ ∀ a. (HasKey a) ⇒ KeyFunction a
+    keyFunction :: KeyFunction a
+  parseKey :: forall a. HasKey a => Key -> a
+  parseKey = case keyFunction of
+  │          │    └─ type: KeyFunction a; type-args: a; evidence: given HasKey a
+  │          └─ type: Keys.Key → a
+  └─ type: ∀ a. (HasKey a) ⇒ Keys.Key → a
+      KeyCoerce -> case keyToInt of
+      │            └─ type: Keys.Key → a
+      └─ type: KeyFunction a; type-args: a; evidence: given Coercible Int a
+        Nothing -> text
+        │          └─ type: Keys.Key → a; type-args: a; evidence: given HasKey a
+        └─ type: Keys.Maybe (Keys.Coercion Keys.Key GHC.Types.Int)
+        Just Coercion -> uc
+        │    │           └─ type: Keys.Key → a; evidence: coercible @Key @a
+        │    └─ type: Keys.Coercion Keys.Key GHC.Types.Int; type-args: Key, Int; evidence: given Coercible Key Int
+        └─ type: Keys.Maybe (Keys.Coercion Keys.Key GHC.Types.Int)
+      KeyText f -> \_ -> f (I# 0#)
+      │       │    │││          └─ type: GHC.Prim.Int#
+      │       │    │└─ type: Keys.Key
+      │       │    │└─ type: Keys.Key
+      │       │    └─ type: Keys.Key → a
+      │       └─ type: GHC.Types.Int → a
+      └─ type: KeyFunction a
+    where
+      uc :: Coercible Key a => Key -> a
+      uc = unsafeCoerce#
+      │    └─ type: Keys.Key → a; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, Key, a
+      └─ type: (GHC.Types.Coercible Keys.Key a) ⇒ Keys.Key → a
+      text k = parseKey k
+      │    │   └─ type: Keys.Key → a; type-args: a; evidence: given HasKey a
+      │    └─ type: Keys.Key
+      └─ type: ∀ a. (HasKey a) ⇒ Keys.Key → a
+extensions:
+- GADTs
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Keys (Key, Coercion (..), Maybe (..), Box (..), keyToInt, boxToBox) where
+  import GHC.Types (Coercible, Int (..))
+  newtype Key = Key Int
+  data Maybe a = Nothing | Just a
+  data Coercion a b where
+    Coercion :: Coercible a b => Coercion a b
+  newtype Box a = Box a
+  keyToInt :: Maybe (Coercion Key Int)
+  keyToInt = Just Coercion
+  boxToBox :: Maybe (Coercion (Box Key) (Box Int))
+  boxToBox = Just Coercion
+- |
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  import Keys
+  data KeyFunction a where
+    KeyCoerce :: Coercible Int a => KeyFunction a
+    KeyText :: (Int -> a) -> KeyFunction a
+  wrap :: (Key -> b) -> Key -> b
+  wrap f k = f k
+  parse :: forall a. KeyFunction a -> Key -> a
+  parse kf = case kf of
+      KeyCoerce -> wrap (case keyToInt of
+        Nothing -> text
+        Just Coercion -> case boxToBox of
+          Nothing -> text
+          Just Coercion -> uc)
+      KeyText f -> wrap text
+    where
+      uc :: Coercible Key a => Key -> a
+      uc = unsafeCoerce#
+      text k = parse kf k
+  class HasKey a where
+    keyFunction :: KeyFunction a
+  parseKey :: forall a. HasKey a => Key -> a
+  parseKey = case keyFunction of
+      KeyCoerce -> case keyToInt of
+        Nothing -> text
+        Just Coercion -> uc
+      KeyText f -> \_ -> f (I# 0#)
+    where
+      uc :: Coercible Key a => Key -> a
+      uc = unsafeCoerce#
+      text k = parseKey k
+reason: a chain of Coercible givens from nested branches solves the wanted of a local signature context that mentions a scoped type variable, also when a given of a branch waits for a meta variable
+status: pass

@@ -109,6 +109,10 @@ data DerivingReferences = DerivingReferences
     derivingEQ :: !DerivingReference,
     -- | The @GT@ constructor of @Ordering@.
     derivingGT :: !DerivingReference,
+    -- | The @Nothing@ constructor of @Maybe@.
+    derivingNothing :: !DerivingReference,
+    -- | The @Just@ constructor of @Maybe@.
+    derivingJust :: !DerivingReference,
     -- | The @I#@ constructor that boxes an @Int#@ into an @Int@.
     derivingIntCon :: !DerivingReference,
     -- | The primitive @Int#@ type, which types the precedence literals of
@@ -338,6 +342,8 @@ derivingReferenceList references =
     derivingLT references,
     derivingEQ references,
     derivingGT references,
+    derivingNothing references,
+    derivingJust references,
     derivingIntCon references,
     derivingIntPrimType references,
     derivingGreaterOrEqual references,

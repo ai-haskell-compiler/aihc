@@ -23,7 +23,7 @@ modules:
     compRep :: (Maybe :.: []) Int
     compRep = Comp1 (Just [3, 4])
 
-    metaRep :: M1 D ('MetaData 'False) (K1 R Bool) Int
+    metaRep :: M1 D ('MetaData "T" "Test" "main" 'False) (K1 R Bool) Int
     metaRep = M1 (K1 True)
 
     double :: Int -> Maybe Int

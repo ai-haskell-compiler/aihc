@@ -40,6 +40,7 @@ import Aihc.Parser.Syntax
     Type (..),
     TypeFamilyInst (..),
     TypeHeadForm (..),
+    TypeLiteral (..),
     TypePromotion (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -1049,30 +1050,42 @@ genericRepType gen dataType constructors =
         (genericType gen genericS1Type)
         [genericMetaSelType gen field, TApp (genericType gen genericRec0Type) fieldSurface]
 
--- | @'MetaData' isNewtype@. The datatype, module and package names that GHC
--- puts before it are type-level strings, which aihc does not have yet.
+-- | @'MetaData' name module package isNewtype@. The package is the unit
+-- that declares the datatype, as in GHC.
 genericMetaDataType :: Gen -> DataTypeInfo -> Type
 genericMetaDataType gen dataType =
-  TApp (genericPromoted gen genericMetaData) (promotedBool gen (dtiFlavor dataType == NewtypeTyCon))
+  applyTypes
+    (genericPromoted gen genericMetaData)
+    [ symbolLiteral (dtiName dataType),
+      symbolLiteral (tyConModuleName (dtiTyCon dataType)),
+      symbolLiteral (packageIdText (tyConPackageId (dtiTyCon dataType))),
+      promotedBool gen (dtiFlavor dataType == NewtypeTyCon)
+    ]
 
--- | @'MetaCons' fixity isRecord@, without the constructor name.
+-- | @'MetaCons' name fixity isRecord@.
 genericMetaConsType :: Gen -> DataConInfo -> Type
 genericMetaConsType gen constructor =
-  applyTypes (genericPromoted gen genericMetaCons) [fixity, promotedBool gen isRecord]
+  applyTypes (genericPromoted gen genericMetaCons) [symbolLiteral (dciName constructor), fixity, promotedBool gen isRecord]
   where
     isRecord = dciSourceForm constructor == RecordDataCon
     -- No fixity declaration reaches the generator, so an infix constructor
-    -- takes the default fixity, which is left associative.
+    -- takes the default fixity, @infixl 9@.
     fixity =
       case dciSourceForm constructor of
-        InfixDataCon -> TApp (genericPromoted gen genericInfixI) (genericPromoted gen genericLeftAssociative)
+        InfixDataCon ->
+          applyTypes (genericPromoted gen genericInfixI) [genericPromoted gen genericLeftAssociative, natLiteral 9]
         _ -> genericPromoted gen genericPrefixI
 
--- | @'MetaSel' unpackedness strictness decided@, without the field label.
+-- | @'MetaSel' label unpackedness strictness decided@. The label is
+-- @'Just@ the field name of a record field and @'Nothing@ otherwise.
 genericMetaSelType :: Gen -> DataConFieldInfo -> Type
 genericMetaSelType gen field =
-  applyTypes (genericPromoted gen genericMetaSel) [unpackedness, strictness, decided]
+  applyTypes (genericPromoted gen genericMetaSel) [label, unpackedness, strictness, decided]
   where
+    label =
+      case dcfiLabel field of
+        Just name -> TApp (TCon (referenceSyntax gen derivingJust) Promoted) (symbolLiteral name)
+        Nothing -> TCon (referenceSyntax gen derivingNothing) Promoted
     unpackedness =
       genericPromoted gen $ case dcfiUnpack field of
         NoFieldUnpack -> genericNoSourceUnpackedness
@@ -1215,6 +1228,14 @@ typeOperator gen select left right = applyTypes (genericType gen select) [left, 
 -- | A promoted constructor of @GHC.Generics@, as source syntax.
 genericPromoted :: Gen -> (GenericReferences -> DerivingReference) -> Type
 genericPromoted gen select = TCon (referenceSyntax gen (select . derivingGeneric)) Promoted
+
+-- | A type-level string, spelled as a string literal.
+symbolLiteral :: Text -> Type
+symbolLiteral value = TTypeLit (TypeLitSymbol value (T.pack (show (T.unpack value))))
+
+-- | A type-level natural number.
+natLiteral :: Integer -> Type
+natLiteral value = TTypeLit (TypeLitInteger value (T.pack (show value)))
 
 promotedBool :: Gen -> Bool -> Type
 promotedBool gen value = TCon (referenceSyntax gen (if value then derivingTrue else derivingFalse)) Promoted

@@ -1,0 +1,26 @@
+annotated:
+- |-
+  module Main where
+  class Combine a where
+        └─ t Main
+    infix 5 +++
+    (+++) :: a -> a -> a
+     └─ v Main
+  bad x = x +++ x +++ x
+  │   │   │ │   │ │   └─ v 0
+  │   │   │ │   │ └─ v Error ambiguous fixity
+  │   │   │ │   └─ v 0
+  │   │   │ └─ v Main
+  │   │   └─ v 0
+  │   └─ v 0
+  └─ v Main
+extensions: []
+modules:
+- |
+  module Main where
+  class Combine a where
+    infix 5 +++
+    (+++) :: a -> a -> a
+  bad x = x +++ x +++ x
+reason: uses the fixity that a class body declares for its method
+status: pass

@@ -1,0 +1,27 @@
+extensions:
+  - DeriveGeneric
+  - ScopedTypeVariables
+modules:
+  - |
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE ScopedTypeVariables #-}
+    module Test where
+
+    import GHC.Generics
+
+    data Colour = Red
+      deriving (Generic)
+
+    class ConstructorName f where
+      constructorName :: f p -> String
+
+    instance (Constructor c) => ConstructorName (M1 i c f) where
+      constructorName _ = conName (undefined :: t c f p)
+
+    result :: Bool
+    result = constructorName (unM1 (from Red)) == "Red"
+expression: result
+output: |
+  True
+status: pass
+reason: an implicit type variable of an expression signature takes a higher kind from its arguments

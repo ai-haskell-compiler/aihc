@@ -1,0 +1,41 @@
+annotated:
+- |-
+  module Main where
+  import Types (Options (..), defaultOptions)
+  f = level defaultOptions
+  │   │     └─ v Opts
+  │   └─ v Opts
+  └─ v Main
+  g = Options
+  │   └─ v Error unbound
+  └─ v Main
+- |-
+  module Opts (Unit (..), Options (level), defaultOptions) where
+  data Unit = Unit
+       │      └─ v Opts
+       └─ t Opts
+  data Options = Options {level :: Unit}
+       └─ t Opts └─ v Opts         └─ t Opts
+  defaultOptions = Options Unit
+  └─ v Opts        │       └─ v Opts
+                   └─ v Opts
+- |-
+  module Types (Options, level, defaultOptions) where
+  import Opts
+extensions: []
+modules:
+- |
+  module Opts (Unit (..), Options (level), defaultOptions) where
+  data Unit = Unit
+  data Options = Options {level :: Unit}
+  defaultOptions = Options Unit
+- |
+  module Types (Options, level, defaultOptions) where
+  import Opts
+- |
+  module Main where
+  import Types (Options (..), defaultOptions)
+  f = level defaultOptions
+  g = Options
+reason: imports with T(..) the record fields that the module exports without their type, but not the hidden constructor
+status: pass

@@ -105,7 +105,11 @@ data Ct = Ct
     ctEvVar :: !EvVar,
     ctOrigin :: !CtOrigin,
     ctProvenance :: !CtProvenance,
-    ctLoc :: !(Maybe SourceSpan)
+    ctLoc :: !(Maybe SourceSpan),
+    -- | The givens of the pattern branches that a wanted leaves because it
+    -- waits for a meta variable of an enclosing scope. The solver of that
+    -- scope uses them when the variable gets its solution.
+    ctBranchGivens :: ![Ct]
   }
   deriving (Show)
 
@@ -118,7 +122,8 @@ mkWantedCt p ev orig loc =
       ctEvVar = ev,
       ctOrigin = orig,
       ctProvenance = FromCtOrigin orig,
-      ctLoc = loc
+      ctLoc = loc,
+      ctBranchGivens = []
     }
 
 -- | Create a wanted equality constraint with expected-vs-actual diagnostic
@@ -139,7 +144,8 @@ mkWantedEqCt actual expected ev orig loc =
               eqContextOrigins = [],
               eqPrimarySpan = loc
             },
-      ctLoc = loc
+      ctLoc = loc,
+      ctBranchGivens = []
     }
 
 ctEqProvenance :: Ct -> Maybe EqProvenance
