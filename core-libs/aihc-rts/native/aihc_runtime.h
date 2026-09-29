@@ -132,11 +132,11 @@ struct AihcInfo {
   /* The static objects this object's code reaches, or null when it reaches
      none. The collector marks them whenever it traces the object. */
   const AihcSrt *srt;
-  /* The slots an object of this info table holds. A partial constructor is
-     the exception: every stage of one constructor shares a single info table,
-     so the count of the slots filled so far lives in the object and this byte
-     is zero. See aihc_value_count. The lowering rejects an object with more
-     than 255 slots. */
+  /* The slots an object of this info table holds. Both tables of a
+     constructor give the full width of the saturated object. Every partial
+     stage shares one info table, so a partial constructor keeps the count of
+     the slots filled so far in field zero. See aihc_value_count. The lowering
+     rejects an object with more than 255 slots. */
   uint8_t field_count;
   /* The lowering rejects a function that takes more than 255 arguments. */
   uint8_t remaining_arity;

@@ -6,7 +6,8 @@ Thus, an object does not contain a copy of its run-time description.
 
 Generated info tables are immutable.
 The collector temporarily uses the header as a forwarding address when it moves an object.
-The run-time system also makes temporary tables for blackholes.
+The run-time system marks a thunk under evaluation with bit 0 of its header.
+The header still points to the thunk table.
 
 The AMD64, ARM64, LLVM, and WebAssembly backends use the same info table model.
 They use the common `AihcInfo` layout from the native run-time system.
@@ -26,7 +27,7 @@ Each info table contains these fields:
 | `remaining_arity` | Gives the number of arguments that the object still requires. One byte: a function takes at most 255 arguments. |
 | `frame_kind` | Identifies a continuation frame for stack unwind operations. |
 | `object_kind` | Identifies a node, closure, thunk, partial constructor, or special run-time object. |
-| `needs_eval` | Is `1` for a thunk and a blackhole, `2` for an indirection, and `0` for a value. |
+| `needs_eval` | Is `1` for a thunk, `2` for an indirection, and `0` for a value. A thunk under evaluation keeps the value `1`. |
 
 The garbage collector uses `field_count` and `field_is_pointer` to find managed pointers.
 The application code uses `remaining_arity` and `next` to apply one source argument.
@@ -43,7 +44,8 @@ The `next` table gives the correct field layout for the next source argument.
 A function has one info table for each required application stage.
 An underapplication copies the object and its fields into a new object.
 The new object header points to the `next` table.
-A saturated closure can enter its generated code without this copy.
+An application that supplies all remaining arguments does not make this copy.
+It calls the backend entry of the object instead.
 
 The table sequence records these changes:
 
@@ -52,8 +54,19 @@ remaining arity:  2  ->  1  ->  0
 stored fields:    0  ->  1  ->  2
 ```
 
-The last table has no `next` value.
-A saturated function can enter its generated code.
+The backend entry of a stage takes all remaining arguments of that stage.
+One application supplies a maximum of four argument groups.
+Thus, a stage has a backend entry only when one to four argument groups remain.
+The last table has no `next` value and no backend entry.
+A saturated call of a known function calls the generated code directly.
+
+Use the example below to see each stage of a function.
+Change the number of supplied arguments with the slider.
+Change the representation of an argument to see how the field layout changes.
+
+<div class="info-explorer" data-kind="function" data-args="lifted int pair" markdown>
+Enable JavaScript to use the interactive example.
+</div>
 
 A constructor works differently.
 It has two tables however many arguments it takes: one for the saturated node,
@@ -66,6 +79,10 @@ The slots an unsaturated constructor has filled are a prefix of the slots the
 saturated one holds, so one pointer map serves both.
 A saturated constructor is a data node, does not enter code, and stores no
 count.
+
+<div class="info-explorer" data-kind="constructor" data-args="lifted int lifted" markdown>
+Enable JavaScript to use the interactive example.
+</div>
 
 ## Suspended function example
 
@@ -103,8 +120,16 @@ The byte is `1`, so the code calls the run-time evaluation code.
 After the update, the object is an indirection and the byte is `2`.
 The code then follows the indirection to the result without a call.
 That code reads the thunk kind and uses the backend entry to call the generated function.
-The run-time system sets the thunk state to blackhole during evaluation.
+During evaluation, the run-time system pushes an update frame and sets bit 0 of the header.
+The header still points to the thunk table.
+A second evaluation sees this bit and handles the object as a blackhole.
 After evaluation, the run-time system changes the thunk into an indirection to the result.
+
+Use the example below to see the thunk before, during, and after evaluation.
+
+<div class="info-explorer" data-kind="thunk" data-args="lifted lifted" markdown>
+Enable JavaScript to use the interactive example.
+</div>
 
 ## Constructor example
 
