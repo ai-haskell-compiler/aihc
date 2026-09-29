@@ -1,9 +1,9 @@
 {
-  mkUserGuide,
+  mkManual,
   mkLirExtension,
 }: pkgs: {
-  docs = mkUserGuide pkgs;
-  user-guide = mkUserGuide pkgs;
-  default = mkUserGuide pkgs;
+  docs = mkManual pkgs;
+  manual = mkManual pkgs;
+  default = mkManual pkgs;
   vscode-lir = mkLirExtension pkgs;
 }
