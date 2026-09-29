@@ -14,9 +14,10 @@
 -- The @aihc@ calling convention passes the first 24 arguments in registers:
 -- the first five in @x19@ to @x23@, the next ones in @x0@ to @x13@, and then
 -- @x24@ to @x28@. The rest go in a 16-byte aligned block on the stack. The
--- first five arguments of a lowered function are the machine and the heap
--- and stack pointers with their limits. A C call preserves @x19@ to @x23@,
--- so these values stay in their registers across a C call. The callee pops
+-- first four arguments of a lowered function are the heap and stack pointers
+-- with their limits, and the fifth is its first GRIN argument. A C call
+-- preserves @x19@ to @x23@, so these values stay in their registers across
+-- a C call. The callee pops
 -- that block, so a tail call restores the stack of the caller before it
 -- pushes its own block and the stack does not grow. Results come back in
 -- @x0@ to @x7@. An aihc function preserves no register: every call clobbers
@@ -217,9 +218,10 @@ arm64Backend =
 argumentRegisters :: [Arm64Register]
 argumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
 
--- | The argument registers of the aihc convention. The first five carry the
--- machine and the heap and stack context of a lowered function. They are
--- preserved registers, so a C call does not move them.
+-- | The argument registers of the aihc convention. The first four carry the
+-- heap and stack context of a lowered function, and the fifth carries its
+-- first GRIN argument. They are preserved registers, so a C call does not
+-- move them.
 aihcArgumentRegisters :: [Arm64Register]
 aihcArgumentRegisters =
   [X19, X20, X21, X22, X23]

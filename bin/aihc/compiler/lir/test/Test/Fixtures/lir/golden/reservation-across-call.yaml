@@ -12,80 +12,82 @@ program: |
 expected: |
   extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 
-  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, ptr, i64)
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
 
-  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
 
   extern func @aihc_stack_grow(ptr, ptr, i64) -> ptr cc c
 
-  func @aihc_f_aihc_entry___sother(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %$cps_return_5: ptr) {
+  extern data @aihc_machine
+
+  func @aihc_f_aihc_entry___sother(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
   entry:
-    tailcall @aihc_lir_continue_i(%machine_0, %hp_1, %hp_limit_2, %sp_3, %sp_limit_4, %$cps_return_5, 7)
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_4, 7)
   }
 
-  func @aihc_f_aihc_entry___sentry(%machine_6: ptr, %hp_7: ptr, %hp_limit_8: ptr, %sp_9: ptr, %sp_limit_10: ptr, %$cps_return_11: ptr) {
+  func @aihc_f_aihc_entry___sentry(%hp_5: ptr, %hp_limit_6: ptr, %sp_7: ptr, %sp_limit_8: ptr, %$cps_return_9: ptr) {
   entry:
-    %roots_12 = stack.alloc 8 align 8
-    %heap_end_13 = ptr.add %hp_7, 16
-    %heap_fits_14 = le.u ptr %heap_end_13, %hp_limit_8
-    br %heap_fits_14, gc_reserved_16(%$cps_return_11, %hp_7, %hp_limit_8), gc_collect_15
+    %roots_10 = stack.alloc 8 align 8
+    %heap_end_11 = ptr.add %hp_5, 16
+    %heap_fits_12 = le.u ptr %heap_end_11, %hp_limit_6
+    br %heap_fits_12, gc_reserved_14(%$cps_return_9, %hp_5, %hp_limit_6), gc_collect_13
 
-  cold gc_collect_15:
-    store ptr %$cps_return_11, [%roots_12] align 8
-    store ptr %hp_7, [%machine_6 + 24] align 1 word
-    store ptr %sp_9, [%machine_6 + 40] align 1 word
-    call @aihc_heap_collect(%machine_6, 2, 1, %roots_12, null)
-    %$cps_return$gc_20 = load ptr [%roots_12] align 8
-    %hp_21 = load ptr [%machine_6 + 24] align 1 word
-    %hp_limit_22 = load ptr [%machine_6 + 32] align 1 word
-    jump gc_reserved_16(%$cps_return$gc_20, %hp_21, %hp_limit_22)
+  cold gc_collect_13:
+    store ptr %$cps_return_9, [%roots_10] align 8
+    store ptr %hp_5, [@aihc_machine + 24] align 1 word
+    store ptr %sp_7, [@aihc_machine + 40] align 1 word
+    call @aihc_heap_collect(@aihc_machine, 2, 1, %roots_10, null)
+    %$cps_return$gc_18 = load ptr [%roots_10] align 8
+    %hp_19 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_20 = load ptr [@aihc_machine + 32] align 1 word
+    jump gc_reserved_14(%$cps_return$gc_18, %hp_19, %hp_limit_20)
 
-  gc_reserved_16(%$cps_return$gc_17: ptr, %hp_18: ptr, %hp_limit_19: ptr):
-    %hp_23 = ptr.add %hp_18, 16
-    store ptr @aihc_c_aihc_entry_Box_0, [%hp_18] align 8
-    store i64 1, [%hp_18 + 8] align 8
-    %sp_24 = ptr.add %sp_9, 24
-    %stack_fits_25 = le.u ptr %sp_24, %sp_limit_10
-    br %stack_fits_25, stack_pushed_27(%sp_9, %sp_24, %sp_limit_10), stack_grow_26
+  gc_reserved_14(%$cps_return$gc_15: ptr, %hp_16: ptr, %hp_limit_17: ptr):
+    %hp_21 = ptr.add %hp_16, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_16] align 8
+    store i64 1, [%hp_16 + 8] align 8
+    %sp_22 = ptr.add %sp_7, 24
+    %stack_fits_23 = le.u ptr %sp_22, %sp_limit_8
+    br %stack_fits_23, stack_pushed_25(%sp_7, %sp_22, %sp_limit_8), stack_grow_24
 
-  cold stack_grow_26:
-    %result_28 = call @aihc_stack_grow(%machine_6, %sp_9, 3)
-    %sp_29 = ptr.add %result_28, 24
-    %sp_limit_30 = ptr.add %result_28, 4064
-    jump stack_pushed_27(%result_28, %sp_29, %sp_limit_30)
+  cold stack_grow_24:
+    %result_26 = call @aihc_stack_grow(@aihc_machine, %sp_7, 3)
+    %sp_27 = ptr.add %result_26, 24
+    %sp_limit_28 = ptr.add %result_26, 4064
+    jump stack_pushed_25(%result_26, %sp_27, %sp_limit_28)
 
-  stack_pushed_27(%frame_31: ptr, %sp_32: ptr, %sp_limit_33: ptr):
-    store ptr @aihc_lir_info_0, [%frame_31] align 8
-    store ptr %$cps_return$gc_17, [%frame_31 + 8] align 8
-    store ptr %hp_18, [%frame_31 + 16] align 8
-    tailcall @aihc_f_aihc_entry___sother(%machine_6, %hp_23, %hp_limit_19, %sp_32, %sp_limit_33, %frame_31)
+  stack_pushed_25(%frame_29: ptr, %sp_30: ptr, %sp_limit_31: ptr):
+    store ptr @aihc_lir_info_0, [%frame_29] align 8
+    store ptr %$cps_return$gc_15, [%frame_29 + 8] align 8
+    store ptr %hp_16, [%frame_29 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sother(%hp_21, %hp_limit_17, %sp_30, %sp_limit_31, %frame_29)
   }
 
-  func @aihc_f_aihc_entry___sentry__ucont(%machine_34: ptr, %hp_35: ptr, %hp_limit_36: ptr, %sp_37: ptr, %sp_limit_38: ptr, %$cps_return_39: ptr, %first_40: ptr, %value_41: i64) {
+  func @aihc_f_aihc_entry___sentry__ucont(%hp_32: ptr, %hp_limit_33: ptr, %sp_34: ptr, %sp_limit_35: ptr, %$cps_return_36: ptr, %first_37: ptr, %value_38: i64) {
   entry:
-    %roots_42 = stack.alloc 16 align 8
-    %heap_end_43 = ptr.add %hp_35, 24
-    %heap_fits_44 = le.u ptr %heap_end_43, %hp_limit_36
-    br %heap_fits_44, gc_reserved_46(%$cps_return_39, %first_40, %hp_35, %hp_limit_36), gc_collect_45
+    %roots_39 = stack.alloc 16 align 8
+    %heap_end_40 = ptr.add %hp_32, 24
+    %heap_fits_41 = le.u ptr %heap_end_40, %hp_limit_33
+    br %heap_fits_41, gc_reserved_43(%$cps_return_36, %first_37, %hp_32, %hp_limit_33), gc_collect_42
 
-  cold gc_collect_45:
-    store ptr %$cps_return_39, [%roots_42] align 8
-    store ptr %first_40, [%roots_42 + 8] align 8
-    store ptr %hp_35, [%machine_34 + 24] align 1 word
-    store ptr %sp_37, [%machine_34 + 40] align 1 word
-    call @aihc_heap_collect(%machine_34, 3, 2, %roots_42, null)
-    %$cps_return$gc_51 = load ptr [%roots_42] align 8
-    %first$gc_52 = load ptr [%roots_42 + 8] align 8
-    %hp_53 = load ptr [%machine_34 + 24] align 1 word
-    %hp_limit_54 = load ptr [%machine_34 + 32] align 1 word
-    jump gc_reserved_46(%$cps_return$gc_51, %first$gc_52, %hp_53, %hp_limit_54)
+  cold gc_collect_42:
+    store ptr %$cps_return_36, [%roots_39] align 8
+    store ptr %first_37, [%roots_39 + 8] align 8
+    store ptr %hp_32, [@aihc_machine + 24] align 1 word
+    store ptr %sp_34, [@aihc_machine + 40] align 1 word
+    call @aihc_heap_collect(@aihc_machine, 3, 2, %roots_39, null)
+    %$cps_return$gc_48 = load ptr [%roots_39] align 8
+    %first$gc_49 = load ptr [%roots_39 + 8] align 8
+    %hp_50 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_51 = load ptr [@aihc_machine + 32] align 1 word
+    jump gc_reserved_43(%$cps_return$gc_48, %first$gc_49, %hp_50, %hp_limit_51)
 
-  gc_reserved_46(%$cps_return$gc_47: ptr, %first$gc_48: ptr, %hp_49: ptr, %hp_limit_50: ptr):
-    %hp_55 = ptr.add %hp_49, 24
-    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_49] align 8
-    store ptr %first$gc_48, [%hp_49 + 8] align 8
-    store ptr %first$gc_48, [%hp_49 + 16] align 8
-    tailcall @aihc_lir_continue_p(%machine_34, %hp_55, %hp_limit_50, %sp_37, %sp_limit_38, %$cps_return$gc_47, %hp_49)
+  gc_reserved_43(%$cps_return$gc_44: ptr, %first$gc_45: ptr, %hp_46: ptr, %hp_limit_47: ptr):
+    %hp_52 = ptr.add %hp_46, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_46] align 8
+    store ptr %first$gc_45, [%hp_46 + 8] align 8
+    store ptr %first$gc_45, [%hp_46 + 16] align 8
+    tailcall @aihc_lir_continue_p(%hp_52, %hp_limit_47, %sp_34, %sp_limit_35, %$cps_return$gc_44, %hp_46)
   }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
@@ -100,11 +102,11 @@ expected: |
 
   data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3, i8 0 }
 
-  func @aihc_lir_info_0_e(%machine_56: ptr, %hp_57: ptr, %hp_limit_58: ptr, %sp_59: ptr, %sp_limit_60: ptr, %object_61: ptr, %continuation_62: ptr, %supplied_63: i64) {
+  func @aihc_lir_info_0_e(%hp_53: ptr, %hp_limit_54: ptr, %sp_55: ptr, %sp_limit_56: ptr, %object_57: ptr, %continuation_58: ptr, %supplied_59: i64) {
   entry:
-    %stored_64 = load ptr [%object_61 + 8] align 8
-    %stored_65 = load ptr [%object_61 + 16] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_56, %hp_57, %hp_limit_58, %sp_59, %sp_limit_60, %stored_64, %stored_65, %supplied_63)
+    %stored_60 = load ptr [%object_57 + 8] align 8
+    %stored_61 = load ptr [%object_57 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_53, %hp_limit_54, %sp_55, %sp_limit_56, %stored_60, %stored_61, %supplied_59)
   }
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }

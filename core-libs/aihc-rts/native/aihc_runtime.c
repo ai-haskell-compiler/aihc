@@ -1124,7 +1124,9 @@ int64_t aihc_get_exit_status(const AihcMachine *machine) {
   return machine->exit_status;
 }
 
-static AihcMachine aihc_machine;
+/* The machine of the process. Lir code names it by its symbol, so it has
+   external linkage. */
+AihcMachine aihc_machine;
 
 AihcMachine *aihc_machine_initialize(void) {
   if (aihc_machine.heap_start == NULL) {
