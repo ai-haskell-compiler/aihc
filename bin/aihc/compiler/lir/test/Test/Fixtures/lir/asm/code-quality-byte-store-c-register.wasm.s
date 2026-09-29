@@ -27,15 +27,13 @@
 .Lmain:
 	.functype	.Lmain () -> (i32)
 	.local	i32, i32, i32, i64, f32, f64, i32, i32
+# entry
 	global.get	__stack_pointer
 	i32.const	16
 	i32.sub
 	local.tee	1
 	global.set	__stack_pointer
-# entry
 	local.get	1
-	i32.const	0
-	i32.add
 	local.set	6
 	local.get	6
 	i32.const	37

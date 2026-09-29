@@ -19,7 +19,9 @@
 -- calls are @return_call@.
 --
 -- @stack.alloc@ reserves memory on the shadow stack below
--- @__stack_pointer@. A trap calls @aihc_lir_trap@ with the message and its
+-- @__stack_pointer@. When each block that uses the memory writes it before
+-- it reads it, only those blocks make a frame, and the other paths do not
+-- touch @__stack_pointer@. Otherwise the frame lasts for the whole function. A trap calls @aihc_lir_trap@ with the message and its
 -- length and then executes @unreachable@; the host runtime provides that
 -- function.
 module Aihc.Wasm.Lir
@@ -39,10 +41,12 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.ByteString qualified as BS
 import Data.Either (fromRight)
+import Data.Functor.Const (Const (..))
 import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -291,12 +295,19 @@ data Fn = Fn
     fnBlockIndex :: !(Map Label Int),
     fnBlockParameters :: !(Map Label [(Var, Type)]),
     fnState :: !Int,
-    -- | The frame pointer local and the frame size when the function
-    -- allocates stack memory.
-    fnFrame :: !(Maybe (Int, Int)),
+    -- | The shadow-stack frame when the function allocates stack memory.
+    fnFrame :: !(Maybe Frame),
     fnAllocs :: !(Map Var Int),
     -- | Scratch locals: @i32@, @i64@, @f32@, and @f64@.
     fnScratch :: !(Map Text Int)
+  }
+
+data Frame = Frame
+  { frameLocal :: !Int,
+    frameSize :: !Int,
+    -- | The blocks that make and remove a frame of their own, or 'Nothing'
+    -- when one frame lasts for the whole function.
+    frameBlocks :: !(Maybe (Set Label))
   }
 
 unsupported :: Text -> M value
@@ -348,7 +359,7 @@ compileFunction ctx function = do
       hasFrame = not (null allocations)
       parameterCount = length parameters
       stateLocal = parameterCount
-      frameLocal = parameterCount + 1
+      frameLocalIndex = parameterCount + 1
       scratchBase = parameterCount + 2
       scratch = Map.fromList (zip ["i32", "i64", "f32", "f64"] [scratchBase ..])
       valueBase = scratchBase + 4
@@ -363,7 +374,16 @@ compileFunction ctx function = do
             fnBlockIndex = Map.fromList (zip (map blockLabel blocks) [0 ..]),
             fnBlockParameters = Map.fromList [(blockLabel block, blockParameters block) | block <- blocks],
             fnState = stateLocal,
-            fnFrame = if hasFrame then Just (frameLocal, frameSize) else Nothing,
+            fnFrame =
+              if hasFrame
+                then
+                  Just
+                    Frame
+                      { frameLocal = frameLocalIndex,
+                        frameSize = frameSize,
+                        frameBlocks = blockFrameLabels (Map.fromList [(var, size) | (var, size, _) <- allocations]) blocks
+                      }
+                else Nothing,
             fnAllocs = allocs,
             fnScratch = scratch
           }
@@ -384,6 +404,77 @@ compileFunction ctx function = do
         <> reverse (functionLinesRev final)
         <> ["\tend_function", ""]
     )
+
+-- | The blocks that use the stack allocations, when each of them can make
+-- a frame of its own.
+--
+-- A block frame is at the same address as a frame for the whole function.
+-- Between two block frames the memory is below the stack pointer, and only
+-- a call writes there. Thus one of these two conditions must be true:
+--
+-- * Each block that makes a call uses the memory, so it has a frame. Then
+--   no code writes the memory between two block frames.
+-- * The memory keeps no value from one block to another. Each use of the
+--   memory in a block reads only bytes that the block wrote before. A load
+--   reads its bytes. Any other use, such as a call that gets the address,
+--   can read all of the memory, and after it every byte counts as written.
+--
+-- A terminator must not use the memory, because the block removes its
+-- frame before it.
+blockFrameLabels :: Map Var Integer -> [Block] -> Maybe (Set Label)
+blockFrameLabels sizes blocks
+  | any (any isAllocation . terminatorVars . blockTerminator) blocks = Nothing
+  | all (`Set.member` labels) callers || all (selfContained . blockInstructions) users = Just labels
+  | otherwise = Nothing
+  where
+    isAllocation var = Map.member var sizes
+    users = [block | block <- blocks, any (any isAllocation . operationVars) (uses block)]
+    labels = Set.fromList (map blockLabel users)
+    callers = [blockLabel block | block <- blocks, any isCall (uses block)]
+    isCall operation = case operation of
+      Call _ _ -> True
+      CallIndirect {} -> True
+      _ -> False
+    uses block = [operation | Instruction _ operation <- blockInstructions block, not (isStackAlloc operation)]
+    isStackAlloc operation = case operation of
+      StackAlloc _ _ -> True
+      _ -> False
+    selfContained = go Map.empty
+    go _ [] = True
+    go written (Instruction _ operation : rest) =
+      case operation of
+        StackAlloc _ _ -> go written rest
+        Load ty address _
+          | Just (var, bytes) <- allocationBytes ty address ->
+              all (`Set.member` Map.findWithDefault Set.empty var written) bytes && go written rest
+        Store ty value address _
+          | Just (var, bytes) <- allocationBytes ty address,
+            not (any isAllocation (operandVars value)) ->
+              go (Map.insertWith Set.union var (Set.fromList bytes) written) rest
+        _ ->
+          let escaped = filter isAllocation (operationVars operation)
+           in all (complete written) escaped && go (foldr fill written escaped) rest
+    allocationBytes ty address =
+      case addressBase address of
+        OperandVar var
+          | isAllocation var ->
+              let start = addressByteOffset wordBytes address
+               in Just (var, [start .. start + accessBytes ty - 1])
+        _ -> Nothing
+    complete written var = Set.fromList [0 .. sizes Map.! var - 1] `Set.isSubsetOf` Map.findWithDefault Set.empty var written
+    fill var = Map.insert var (Set.fromList [0 .. sizes Map.! var - 1])
+    operationVars = getConst . forOperationOperands (Const . operandVars)
+    terminatorVars = getConst . forTerminatorOperands (Const . operandVars)
+    operandVars operand = case operand of
+      OperandVar var -> [var]
+      OperandLiteral _ -> []
+
+-- | The bytes of one memory access. A @ptr@ and a @code@ value are one
+-- word.
+accessBytes :: Type -> Integer
+accessBytes ty
+  | ty `elem` [Ptr, Code] = wordBytes
+  | otherwise = toInteger (typeBytes ty)
 
 placeAllocations :: [(Var, Integer, Integer)] -> (Map Var Int, Int)
 placeAllocations = go Map.empty 0
@@ -420,12 +511,7 @@ resultTypes ctx (Instruction results operation) =
 -- | The prologue and the bodies of the blocks.
 functionBody :: Fn -> M ()
 functionBody fn = do
-  forM_ (fnFrame fn) $ \(frameLocal, frameSize) -> do
-    emit ("global.get\t" <> stackPointer)
-    emit ("i32.const\t" <> tshow frameSize)
-    emit "i32.sub"
-    emit ("local.tee\t" <> tshow frameLocal)
-    emit ("global.set\t" <> stackPointer)
+  forM_ (fnFrame fn) $ \frame -> when (isNothing (frameBlocks frame)) (enterFrame frame)
   let blocks = functionBlocks (fnFunction fn)
   case (blocks, analyzeControlFlow blocks) of
     (entry : _, Just flow) -> structuredTree fn flow [] (blockLabel entry)
@@ -468,9 +554,7 @@ nodeWithin fn flow context label children =
       structuredTree fn flow context child
     [] -> do
       block <- maybe (unsupported ("unknown block " <> unLabel label)) pure (Map.lookup label (fnBlocks fn))
-      emitLabel ("# " <> unLabel label)
-      mapM_ (compileInstruction fn) (blockInstructions block)
-      compileTerminator fn (\opened -> structuredBranch fn flow (replicate opened EnclosingIf <> context) label) (blockTerminator block)
+      blockCode fn block (\opened -> structuredBranch fn flow (replicate opened EnclosingIf <> context) label)
 
 -- | A backward edge continues its loop. A forward edge to a merge node
 -- leaves the @block@ that the merge node follows. Any other forward edge is
@@ -503,9 +587,7 @@ dispatchBody fn = do
   emit ("br_table\t{" <> T.intercalate ", " (map tshow ([0 .. count - 1] <> [count - 1])) <> "}")
   forM_ (zip [0 ..] blocks) $ \(index, block) -> do
     emit "end_block"
-    emitLabel ("# " <> unLabel (blockLabel block))
-    mapM_ (compileInstruction fn) (blockInstructions block)
-    compileTerminator fn (\opened -> jumpTo fn (count - 1 - index + opened)) (blockTerminator block)
+    blockCode fn block (\opened -> jumpTo fn (count - 1 - index + opened))
   emit "end_loop"
   emit "unreachable"
 
@@ -571,14 +653,52 @@ signExtend ty =
     I16 -> emit "i32.extend16_s"
     _ -> pure ()
 
--- | Restore the shadow stack pointer before the function leaves.
-leaveFrame :: Fn -> M ()
-leaveFrame fn =
-  forM_ (fnFrame fn) $ \(frameLocal, frameSize) -> do
-    emit ("local.get\t" <> tshow frameLocal)
-    emit ("i32.const\t" <> tshow frameSize)
+-- | Restore the shadow stack pointer before the function leaves, when one
+-- frame lasts for the whole function. A block frame is already removed.
+leaveFunctionFrame :: Fn -> M ()
+leaveFunctionFrame fn =
+  forM_ (fnFrame fn) $ \frame -> when (isNothing (frameBlocks frame)) (leaveFrame frame)
+
+-- | The instructions and the terminator of one block. A block with a frame
+-- of its own makes the frame first and computes the address of each stack
+-- allocation. It removes the frame before its terminator.
+blockCode :: Fn -> Block -> (Int -> Target -> M ()) -> M ()
+blockCode fn block jump = do
+  emitLabel ("# " <> unLabel (blockLabel block))
+  let blockFrame = [frame | Just frame <- [fnFrame fn], Just labels <- [frameBlocks frame], Set.member (blockLabel block) labels]
+  forM_ blockFrame $ \frame -> do
+    enterFrame frame
+    forM_ (Map.toAscList (fnAllocs fn)) $ \(var, offset) -> do
+      allocationAddress frame offset
+      setVar fn var
+  mapM_ (compileInstruction fn) (blockInstructions block)
+  mapM_ leaveFrame blockFrame
+  compileTerminator fn jump (blockTerminator block)
+
+-- | Move the shadow stack pointer below the frame and keep the new value.
+enterFrame :: Frame -> M ()
+enterFrame frame = do
+  emit ("global.get\t" <> stackPointer)
+  emit ("i32.const\t" <> tshow (frameSize frame))
+  emit "i32.sub"
+  emit ("local.tee\t" <> tshow (frameLocal frame))
+  emit ("global.set\t" <> stackPointer)
+
+-- | Restore the shadow stack pointer.
+leaveFrame :: Frame -> M ()
+leaveFrame frame = do
+  emit ("local.get\t" <> tshow (frameLocal frame))
+  emit ("i32.const\t" <> tshow (frameSize frame))
+  emit "i32.add"
+  emit ("global.set\t" <> stackPointer)
+
+-- | Push the address of a stack allocation in the frame.
+allocationAddress :: Frame -> Int -> M ()
+allocationAddress frame offset = do
+  emit ("local.get\t" <> tshow (frameLocal frame))
+  when (offset /= 0) $ do
+    emit ("i32.const\t" <> tshow offset)
     emit "i32.add"
-    emit ("global.set\t" <> stackPointer)
 
 -- | Assign the parameters of the target. All arguments are on the stack
 -- before the first assignment, so an argument can name a parameter.
@@ -622,17 +742,17 @@ compileTerminator fn jump terminator =
         Just target -> jump 0 target
         Nothing -> trap "switch without a matching case"
     Return values -> do
-      leaveFrame fn
+      leaveFunctionFrame fn
       forM_ (zip (functionResults (fnFunction fn)) values) (uncurry (push fn))
       emit "return"
     TailCall symbol arguments -> do
       let signature = Map.findWithDefault (Signature [] [] AihcConvention) symbol (ctxSignatures (fnCtx fn))
-      leaveFrame fn
+      leaveFunctionFrame fn
       forM_ (zip (signatureParameters signature) arguments) (uncurry (push fn))
       emit ("return_call\t" <> symbolText (fnCtx fn) symbol)
     TailCallIndirect target arguments signature -> do
       guardCallee fn target
-      leaveFrame fn
+      leaveFunctionFrame fn
       forM_ (zip (signatureParameters signature) arguments) (uncurry (push fn))
       push fn Code target
       emit ("return_call_indirect\t__indirect_function_table, " <> renderSignature signature)
@@ -835,10 +955,10 @@ compileInstruction fn (Instruction results operation) =
       single
     StackAlloc _ _ ->
       case (results, fnFrame fn) of
-        ([var], Just (frameLocal, _)) | Just offset <- Map.lookup var (fnAllocs fn) -> do
-          emit ("local.get\t" <> tshow frameLocal)
-          emit ("i32.const\t" <> tshow offset)
-          emit "i32.add"
+        -- Each block frame computes the address when it starts.
+        (_, Just Frame {frameBlocks = Just _}) -> pure ()
+        ([var], Just frame) | Just offset <- Map.lookup var (fnAllocs fn) -> do
+          allocationAddress frame offset
           single
         _ -> unsupported "stack.alloc without a placed result"
     GlobalGet symbol -> emit ("global.get\t" <> symbolText (fnCtx fn) symbol) >> single
