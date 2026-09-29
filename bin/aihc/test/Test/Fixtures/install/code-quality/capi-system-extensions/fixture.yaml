@@ -1,0 +1,3 @@
+status: pass
+reason: HsFFI.h enables the system extensions before a system header, as GHC does, so a capi import of ptsname compiles on glibc.
+no-code: false
