@@ -1087,17 +1087,17 @@ The first letter of a node tag gives the sort of the node.</p>
 <tr>
 <td><code>C</code></td>
 <td>A data constructor and its fields</td>
-<td><code>(C7.IS (1 :: IntRep))</code></td>
+<td><code>(C2.: x xs)</code></td>
 </tr>
 <tr>
 <td><code>F</code></td>
-<td>A thunk: a function with no arguments that makes the value</td>
-<td><code>(F9.$main_thunk)</code></td>
+<td>A thunk: a function and its arguments, not yet evaluated</td>
+<td><code>(F1.$append xs y)</code></td>
 </tr>
 <tr>
 <td><code>P</code></td>
 <td>A partial application: a function and the number of arguments that it needs</td>
-<td><code>(P9.$square/1)</code></td>
+<td><code>(P1.$append/2)</code></td>
 </tr>
 </tbody>
 </table>
@@ -1133,88 +1133,32 @@ The first letter of a node tag gives the sort of the node.</p>
 <p>The Lir lowering takes the GC-GRIN program.
 This manual shows the first stage only.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
-<p>This program uses type classes:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kr">module</span><span class="w"> </span><span class="nn">Main</span><span class="w"> </span><span class="p">(</span><span class="nf">main</span><span class="p">)</span><span class="w"> </span><span class="kr">where</span>
+<p>This module has a recursive function on lists:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kr">module</span><span class="w"> </span><span class="nn">Example</span><span class="w"> </span><span class="kr">where</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nf">square</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Int</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nf">square</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">x</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nf">main</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">IO</span><span class="w"> </span><span class="nb">()</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nf">main</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">print</span><span class="w"> </span><span class="p">(</span><span class="n">sum</span><span class="w"> </span><span class="p">(</span><span class="n">map</span><span class="w"> </span><span class="n">square</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="w"> </span><span class="o">..</span><span class="w"> </span><span class="mi">10</span><span class="p">]))</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nf">append</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="p">[</span><span class="n">a</span><span class="p">]</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">[</span><span class="n">a</span><span class="p">]</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">[</span><span class="n">a</span><span class="p">]</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nf">append</span><span class="w"> </span><span class="kt">[]</span><span class="w"> </span><span class="n">ys</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">ys</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nf">append</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="kt">:</span><span class="w"> </span><span class="n">xs</span><span class="p">)</span><span class="w"> </span><span class="n">ys</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="kt">:</span><span class="w"> </span><span class="n">append</span><span class="w"> </span><span class="n">xs</span><span class="w"> </span><span class="n">ys</span>
 </code></pre></div>
-<p>The compiler makes this GRIN program for the module <code>Main</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>scope 1 = &quot;aihc-base-4.21.2.0&quot; GHC.Base
+<p>The compiler makes this GRIN program for the module:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>scope 1 = &quot;&quot; Example
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>scope 2 = &quot;aihc-base-4.21.2.0&quot; GHC.Enum
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>scope 2 = &quot;aihc-prim&quot; GHC.Types
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>scope 3 = &quot;aihc-base-4.21.2.0&quot; GHC.Internal.Foldable
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>pub global 1.append = (P1.$append/2)
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>scope 4 = &quot;aihc-base-4.21.2.0&quot; GHC.Show
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>scope 5 = &quot;aihc-base-4.21.2.0&quot; Prelude
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>scope 6 = &quot;aihc-prim-0.13.0&quot; GHC.Prim.Enum
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>scope 7 = &quot;aihc-prim-0.13.0&quot; GHC.Prim.Integer
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>scope 8 = &quot;aihc-prim-0.13.0&quot; GHC.Prim.Num
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>scope 9 = &quot;exe&quot; Main
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>pub global 9.main = (F9.$main_thunk)
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>global 9.square = (P9.$square/1)
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>9.$square (x :: BoxedRep Lifted) -&gt; BoxedRep Lifted =
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>  function_whnf :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>    eval @(BoxedRep Lifted) global-ref 8.*
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>  apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 8.$fNumInt (x :: BoxedRep Lifted) (x :: BoxedRep Lifted)
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>9.$main_argument_thunk_4 -&gt; BoxedRep Lifted =
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>  function_whnf :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>    eval @(BoxedRep Lifted) global-ref 8.fromInteger
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>  argument :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>    store (C7.IS (1 :: IntRep))
-<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>  apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 8.$fNumInt (argument :: BoxedRep Lifted)
-<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>
-<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>9.$main_argument_thunk_5 -&gt; BoxedRep Lifted =
-<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>  function_whnf :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>    eval @(BoxedRep Lifted) global-ref 8.fromInteger
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>  argument :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>    store (C7.IS (10 :: IntRep))
-<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>  apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 8.$fNumInt (argument :: BoxedRep Lifted)
-<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>
-<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>9.$main_argument_thunk_3 -&gt; BoxedRep Lifted =
-<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>  function_whnf :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>    eval @(BoxedRep Lifted) global-ref 6.enumFromTo
-<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>  argument :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>    store (F9.$main_argument_thunk_4)
-<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>  argument%1 :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>    store (F9.$main_argument_thunk_5)
-<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>  apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 2.$fEnumInt (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted)
-<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>
-<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>9.$main_argument_thunk_2 -&gt; BoxedRep Lifted =
-<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>  function_whnf :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>    eval @(BoxedRep Lifted) global-ref 1.map
-<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>  argument :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>    store (F9.$main_argument_thunk_3)
-<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>  apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 9.square (argument :: BoxedRep Lifted)
-<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>
-<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>9.$main_argument_thunk -&gt; BoxedRep Lifted =
-<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>  function_whnf :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>    eval @(BoxedRep Lifted) global-ref 3.sum
-<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>  argument :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>    store (F9.$main_argument_thunk_2)
-<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>  apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 3.&quot;$fFoldable[]&quot; global-ref 8.$fNumInt (argument :: BoxedRep Lifted)
-<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>
-<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>9.$main_thunk -&gt; BoxedRep Lifted =
-<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>  function_whnf :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>    eval @(BoxedRep Lifted) global-ref 5.print
-<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>  argument :: BoxedRep Lifted &lt;-
-<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>    store (F9.$main_argument_thunk)
-<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>  apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 4.$fShowInt (argument :: BoxedRep Lifted)
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>1.$append (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -&gt; BoxedRep Lifted =
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  case_value :: BoxedRep Lifted &lt;-
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    data 2.&quot;[]&quot; -&gt;
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>      eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    data 2.: (x%1 :: BoxedRep Lifted) (xs :: BoxedRep Lifted) -&gt;
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>      argument :: BoxedRep Lifted &lt;-
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        store (F1.$append (xs :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>      store (C2.: (x%1 :: BoxedRep Lifted) (argument :: BoxedRep Lifted))
 </code></pre></div>
-<p>The compiler made these programs for the target <code>linux-amd64</code> at the default optimization level.</p>
+<p>The compiler made these programs at the default optimization level. The Lir is for the target <code>linux-amd64</code>.</p>
 <p>The page <a href="../examples/">Examples</a> shows more programs.</p>
 
 
@@ -1233,8 +1177,6 @@ This manual shows the first stage only.</p>
             </div>
           
           
-  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
-
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
         </div>
         
@@ -1342,7 +1284,7 @@ This manual shows the first stage only.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["content.action.edit", "content.code.copy", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["content.action.edit", "content.code.copy", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>

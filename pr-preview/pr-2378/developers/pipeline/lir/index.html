@@ -1162,709 +1162,153 @@ Thus, the optimizer can see user code and runtime code as one program.</p>
 </table>
 <p><code>aihc build --keep-lir</code> writes the Lir of each module to <code>&lt;Module&gt;.o.lir</code> beside its object.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
-<p>This program uses type classes:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kr">module</span><span class="w"> </span><span class="nn">Main</span><span class="w"> </span><span class="p">(</span><span class="nf">main</span><span class="p">)</span><span class="w"> </span><span class="kr">where</span>
+<p>This module has a recursive function on lists:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kr">module</span><span class="w"> </span><span class="nn">Example</span><span class="w"> </span><span class="kr">where</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nf">square</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Int</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nf">square</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">x</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nf">main</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">IO</span><span class="w"> </span><span class="nb">()</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nf">main</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">print</span><span class="w"> </span><span class="p">(</span><span class="n">sum</span><span class="w"> </span><span class="p">(</span><span class="n">map</span><span class="w"> </span><span class="n">square</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="w"> </span><span class="o">..</span><span class="w"> </span><span class="mi">10</span><span class="p">]))</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nf">append</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="p">[</span><span class="n">a</span><span class="p">]</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">[</span><span class="n">a</span><span class="p">]</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">[</span><span class="n">a</span><span class="p">]</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nf">append</span><span class="w"> </span><span class="kt">[]</span><span class="w"> </span><span class="n">ys</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">ys</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nf">append</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="kt">:</span><span class="w"> </span><span class="n">xs</span><span class="p">)</span><span class="w"> </span><span class="n">ys</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="kt">:</span><span class="w"> </span><span class="n">append</span><span class="w"> </span><span class="n">xs</span><span class="w"> </span><span class="n">ys</span>
 </code></pre></div>
-<p>The compiler makes this Lir program for the module <code>Main</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>func @aihc_f_exe_Main___ssquare(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %x_5: ptr, %$cps_return_6: ptr) {
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>entry:
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  jump eval_check_7(@aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___a)
+<p>The compiler makes this Lir program for the module:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>eval_check_7(%current_10: ptr):
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  %header_word_11 = load i64 [%current_10] align 8
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  %info_word_12 = and i64 %header_word_11, -4
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  %header_13 = ptr.from_int %info_word_12
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  %needs_eval_14 = load i8 [%header_13 + 44] align 1
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  %needs_eval_15 = zext i8 %needs_eval_14 to i64
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  %not_value_16 = ne i64 %needs_eval_15, 0
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  br %not_value_16, eval_slow_9, eval_ready_8
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>eval_ready_8:
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  tailcall @aihc_f_exe_Main___ssquare__ucont(%machine_0, %hp_1, %hp_limit_2, %sp_3, %sp_limit_4, %$cps_return_6, %x_5, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___a)
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>extern func @aihc_lir_enter_0_2_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>extern func @aihc_lir_enter_1_1_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>extern func @aihc_lir_enter_2_0_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>extern func @aihc_lir_eval(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>extern func @aihc_no_match() cc c
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>eval_slow_9:
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>  %sp_17 = ptr.add %sp_3, 24
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>  %stack_fits_18 = le.u ptr %sp_17, %sp_limit_4
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>  br %stack_fits_18, stack_pushed_20(%sp_3, %sp_17, %sp_limit_4), stack_grow_19
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>cold stack_grow_19:
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>  %result_21 = call @aihc_stack_grow(%machine_0, %sp_3, 3)
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>  %sp_22 = ptr.add %result_21, 24
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>  %sp_limit_23 = ptr.add %result_21, 4064
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>  jump stack_pushed_20(%result_21, %sp_22, %sp_limit_23)
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>stack_pushed_20(%frame_24: ptr, %sp_25: ptr, %sp_limit_26: ptr):
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>  store ptr @aihc_lir_info_14, [%frame_24] align 8
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>  store ptr %$cps_return_6, [%frame_24 + 8] align 8
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>  store ptr %x_5, [%frame_24 + 16] align 8
-<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>  tailcall @aihc_lir_eval(%machine_0, %hp_1, %hp_limit_2, %sp_25, %sp_limit_26, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___a, %frame_24)
-<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>}
-<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>
-<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u4(%machine_27: ptr, %hp_28: ptr, %hp_limit_29: ptr, %sp_30: ptr, %sp_limit_31: ptr, %$cps_return_32: ptr) {
-<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>entry:
-<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>  jump eval_check_33(@aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger)
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>
-<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>eval_check_33(%current_36: ptr):
-<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>  %header_word_37 = load i64 [%current_36] align 8
-<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>  %info_word_38 = and i64 %header_word_37, -4
-<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>  %header_39 = ptr.from_int %info_word_38
-<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>  %needs_eval_40 = load i8 [%header_39 + 44] align 1
-<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>  %needs_eval_41 = zext i8 %needs_eval_40 to i64
-<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>  %not_value_42 = ne i64 %needs_eval_41, 0
-<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>  br %not_value_42, eval_slow_35, eval_ready_34
-<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>
-<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>eval_ready_34:
-<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>  tailcall @aihc_f_exe_Main___smain__uargument__uthunk__u4__ucont(%machine_27, %hp_28, %hp_limit_29, %sp_30, %sp_limit_31, %$cps_return_32, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger)
-<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>
-<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>eval_slow_35:
-<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>  %sp_43 = ptr.add %sp_30, 16
-<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>  %stack_fits_44 = le.u ptr %sp_43, %sp_limit_31
-<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>  br %stack_fits_44, stack_pushed_46(%sp_30, %sp_43, %sp_limit_31), stack_grow_45
-<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>
-<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>cold stack_grow_45:
-<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>  %result_47 = call @aihc_stack_grow(%machine_27, %sp_30, 2)
-<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>  %sp_48 = ptr.add %result_47, 16
-<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>  %sp_limit_49 = ptr.add %result_47, 4064
-<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>  jump stack_pushed_46(%result_47, %sp_48, %sp_limit_49)
-<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>
-<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>stack_pushed_46(%frame_50: ptr, %sp_51: ptr, %sp_limit_52: ptr):
-<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>  store ptr @aihc_lir_info_4, [%frame_50] align 8
-<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>  store ptr %$cps_return_32, [%frame_50 + 8] align 8
-<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>  tailcall @aihc_lir_eval(%machine_27, %hp_28, %hp_limit_29, %sp_51, %sp_limit_52, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger, %frame_50)
-<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>}
-<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>
-<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u5(%machine_53: ptr, %hp_54: ptr, %hp_limit_55: ptr, %sp_56: ptr, %sp_limit_57: ptr, %$cps_return_58: ptr) {
-<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>entry:
-<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>  jump eval_check_59(@aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger)
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>extern func @aihc_stack_grow(ptr, ptr, i64) -&gt; ptr cc c
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>extern data @aihc_c_aihc__mprim_GHC__dTypes___k__j_0
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>extern data @aihc_c_aihc__mprim_GHC__dTypes___o_0
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>func @aihc_f__Example___sappend(%machine_0: ptr, %hp_1: ptr, %hp_limit_2: ptr, %sp_3: ptr, %sp_limit_4: ptr, %x_5: ptr, %y_6: ptr, %$cps_return_7: ptr) {
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>entry:
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>  jump eval_check_8(%x_5)
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>eval_check_8(%current_11: ptr):
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>  %header_word_12 = load i64 [%current_11] align 8
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>  %info_word_13 = and i64 %header_word_12, -4
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>  %header_14 = ptr.from_int %info_word_13
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>  %needs_eval_15 = load i8 [%header_14 + 44] align 1
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>  %needs_eval_16 = zext i8 %needs_eval_15 to i64
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>  %not_value_17 = ne i64 %needs_eval_16, 0
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>  br %not_value_17, eval_not_value_18, eval_ready_9
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>
+<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>eval_not_value_18:
+<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>  %indirection_20 = eq i64 %needs_eval_16, 2
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>  br %indirection_20, eval_follow_19, eval_slow_10
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>eval_follow_19:
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>  %next_21 = load ptr [%current_11 + 8] align 8
+<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>  jump eval_check_8(%next_21)
+<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>
+<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>eval_ready_9:
+<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>  tailcall @aihc_f__Example___sappend__ucont(%machine_0, %hp_1, %hp_limit_2, %sp_3, %sp_limit_4, %$cps_return_7, %y_6, %current_11)
+<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>
+<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>eval_slow_10:
+<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>  %sp_22 = ptr.add %sp_3, 24
+<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>  %stack_fits_23 = le.u ptr %sp_22, %sp_limit_4
+<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>  br %stack_fits_23, stack_pushed_25(%sp_3, %sp_22, %sp_limit_4), stack_grow_24
+<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>
+<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>cold stack_grow_24:
+<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>  %result_26 = call @aihc_stack_grow(%machine_0, %sp_3, 3)
+<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>  %sp_27 = ptr.add %result_26, 24
+<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>  %sp_limit_28 = ptr.add %result_26, 4064
+<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>  jump stack_pushed_25(%result_26, %sp_27, %sp_limit_28)
+<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>
+<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>stack_pushed_25(%frame_29: ptr, %sp_30: ptr, %sp_limit_31: ptr):
+<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>  store ptr @aihc_lir_info_3, [%frame_29] align 8
+<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>  store ptr %$cps_return_7, [%frame_29 + 8] align 8
+<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>  store ptr %y_6, [%frame_29 + 16] align 8
+<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>  tailcall @aihc_lir_eval(%machine_0, %hp_1, %hp_limit_2, %sp_30, %sp_limit_31, %current_11, %frame_29)
+<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>}
+<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>
+<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>func @aihc_f__Example___sappend__ucont(%machine_32: ptr, %hp_33: ptr, %hp_limit_34: ptr, %sp_35: ptr, %sp_limit_36: ptr, %$cps_return_37: ptr, %y_38: ptr, %case_value_39: ptr) {
+<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>entry:
+<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>  %roots_40 = stack.alloc 24 align 8
+<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>  %heap_end_41 = ptr.add %hp_33, 48
+<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>  %heap_fits_42 = le.u ptr %heap_end_41, %hp_limit_34
+<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>  br %heap_fits_42, gc_reserved_44(%$cps_return_37, %case_value_39, %y_38, %hp_33, %hp_limit_34), gc_collect_43
 <a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a>
-<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>eval_check_59(%current_62: ptr):
-<a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>  %header_word_63 = load i64 [%current_62] align 8
-<a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a>  %info_word_64 = and i64 %header_word_63, -4
-<a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a>  %header_65 = ptr.from_int %info_word_64
-<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>  %needs_eval_66 = load i8 [%header_65 + 44] align 1
-<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>  %needs_eval_67 = zext i8 %needs_eval_66 to i64
-<a id="__codelineno-1-78" name="__codelineno-1-78" href="#__codelineno-1-78"></a>  %not_value_68 = ne i64 %needs_eval_67, 0
-<a id="__codelineno-1-79" name="__codelineno-1-79" href="#__codelineno-1-79"></a>  br %not_value_68, eval_slow_61, eval_ready_60
-<a id="__codelineno-1-80" name="__codelineno-1-80" href="#__codelineno-1-80"></a>
-<a id="__codelineno-1-81" name="__codelineno-1-81" href="#__codelineno-1-81"></a>eval_ready_60:
-<a id="__codelineno-1-82" name="__codelineno-1-82" href="#__codelineno-1-82"></a>  tailcall @aihc_f_exe_Main___smain__uargument__uthunk__u5__ucont(%machine_53, %hp_54, %hp_limit_55, %sp_56, %sp_limit_57, %$cps_return_58, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger)
-<a id="__codelineno-1-83" name="__codelineno-1-83" href="#__codelineno-1-83"></a>
-<a id="__codelineno-1-84" name="__codelineno-1-84" href="#__codelineno-1-84"></a>eval_slow_61:
-<a id="__codelineno-1-85" name="__codelineno-1-85" href="#__codelineno-1-85"></a>  %sp_69 = ptr.add %sp_56, 16
-<a id="__codelineno-1-86" name="__codelineno-1-86" href="#__codelineno-1-86"></a>  %stack_fits_70 = le.u ptr %sp_69, %sp_limit_57
-<a id="__codelineno-1-87" name="__codelineno-1-87" href="#__codelineno-1-87"></a>  br %stack_fits_70, stack_pushed_72(%sp_56, %sp_69, %sp_limit_57), stack_grow_71
-<a id="__codelineno-1-88" name="__codelineno-1-88" href="#__codelineno-1-88"></a>
-<a id="__codelineno-1-89" name="__codelineno-1-89" href="#__codelineno-1-89"></a>cold stack_grow_71:
-<a id="__codelineno-1-90" name="__codelineno-1-90" href="#__codelineno-1-90"></a>  %result_73 = call @aihc_stack_grow(%machine_53, %sp_56, 2)
-<a id="__codelineno-1-91" name="__codelineno-1-91" href="#__codelineno-1-91"></a>  %sp_74 = ptr.add %result_73, 16
-<a id="__codelineno-1-92" name="__codelineno-1-92" href="#__codelineno-1-92"></a>  %sp_limit_75 = ptr.add %result_73, 4064
-<a id="__codelineno-1-93" name="__codelineno-1-93" href="#__codelineno-1-93"></a>  jump stack_pushed_72(%result_73, %sp_74, %sp_limit_75)
-<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>
-<a id="__codelineno-1-95" name="__codelineno-1-95" href="#__codelineno-1-95"></a>stack_pushed_72(%frame_76: ptr, %sp_77: ptr, %sp_limit_78: ptr):
-<a id="__codelineno-1-96" name="__codelineno-1-96" href="#__codelineno-1-96"></a>  store ptr @aihc_lir_info_6, [%frame_76] align 8
-<a id="__codelineno-1-97" name="__codelineno-1-97" href="#__codelineno-1-97"></a>  store ptr %$cps_return_58, [%frame_76 + 8] align 8
-<a id="__codelineno-1-98" name="__codelineno-1-98" href="#__codelineno-1-98"></a>  tailcall @aihc_lir_eval(%machine_53, %hp_54, %hp_limit_55, %sp_77, %sp_limit_78, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger, %frame_76)
-<a id="__codelineno-1-99" name="__codelineno-1-99" href="#__codelineno-1-99"></a>}
-<a id="__codelineno-1-100" name="__codelineno-1-100" href="#__codelineno-1-100"></a>
-<a id="__codelineno-1-101" name="__codelineno-1-101" href="#__codelineno-1-101"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u3(%machine_79: ptr, %hp_80: ptr, %hp_limit_81: ptr, %sp_82: ptr, %sp_limit_83: ptr, %$cps_return_84: ptr) {
-<a id="__codelineno-1-102" name="__codelineno-1-102" href="#__codelineno-1-102"></a>entry:
-<a id="__codelineno-1-103" name="__codelineno-1-103" href="#__codelineno-1-103"></a>  jump eval_check_85(@aihc__mprim__m0__d13__d0_GHC__dPrim__dEnum_enumFromTo)
+<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>cold gc_collect_43:
+<a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>  store ptr %$cps_return_37, [%roots_40] align 8
+<a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a>  store ptr %case_value_39, [%roots_40 + 8] align 8
+<a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a>  store ptr %y_38, [%roots_40 + 16] align 8
+<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>  store ptr %hp_33, [%machine_32 + 24] align 1 word
+<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>  store ptr %sp_35, [%machine_32 + 40] align 1 word
+<a id="__codelineno-1-78" name="__codelineno-1-78" href="#__codelineno-1-78"></a>  call @aihc_heap_collect(%machine_32, 6, 3, %roots_40, null)
+<a id="__codelineno-1-79" name="__codelineno-1-79" href="#__codelineno-1-79"></a>  %$cps_return$gc_50 = load ptr [%roots_40] align 8
+<a id="__codelineno-1-80" name="__codelineno-1-80" href="#__codelineno-1-80"></a>  %case_value$gc_51 = load ptr [%roots_40 + 8] align 8
+<a id="__codelineno-1-81" name="__codelineno-1-81" href="#__codelineno-1-81"></a>  %y$gc_52 = load ptr [%roots_40 + 16] align 8
+<a id="__codelineno-1-82" name="__codelineno-1-82" href="#__codelineno-1-82"></a>  %hp_53 = load ptr [%machine_32 + 24] align 1 word
+<a id="__codelineno-1-83" name="__codelineno-1-83" href="#__codelineno-1-83"></a>  %hp_limit_54 = load ptr [%machine_32 + 32] align 1 word
+<a id="__codelineno-1-84" name="__codelineno-1-84" href="#__codelineno-1-84"></a>  jump gc_reserved_44(%$cps_return$gc_50, %case_value$gc_51, %y$gc_52, %hp_53, %hp_limit_54)
+<a id="__codelineno-1-85" name="__codelineno-1-85" href="#__codelineno-1-85"></a>
+<a id="__codelineno-1-86" name="__codelineno-1-86" href="#__codelineno-1-86"></a>gc_reserved_44(%$cps_return$gc_45: ptr, %case_value$gc_46: ptr, %y$gc_47: ptr, %hp_48: ptr, %hp_limit_49: ptr):
+<a id="__codelineno-1-87" name="__codelineno-1-87" href="#__codelineno-1-87"></a>  %header_word_58 = load i64 [%case_value$gc_46] align 8
+<a id="__codelineno-1-88" name="__codelineno-1-88" href="#__codelineno-1-88"></a>  %info_word_59 = and i64 %header_word_58, -4
+<a id="__codelineno-1-89" name="__codelineno-1-89" href="#__codelineno-1-89"></a>  %header_60 = ptr.from_int %info_word_59
+<a id="__codelineno-1-90" name="__codelineno-1-90" href="#__codelineno-1-90"></a>  %identity_61 = load ptr [%header_60] align 1 word
+<a id="__codelineno-1-91" name="__codelineno-1-91" href="#__codelineno-1-91"></a>  %matches_62 = eq ptr %identity_61, @aihc_c_aihc__mprim_GHC__dTypes___k__j_0
+<a id="__codelineno-1-92" name="__codelineno-1-92" href="#__codelineno-1-92"></a>  br %matches_62, alt_55, check_63
+<a id="__codelineno-1-93" name="__codelineno-1-93" href="#__codelineno-1-93"></a>
+<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>check_63:
+<a id="__codelineno-1-95" name="__codelineno-1-95" href="#__codelineno-1-95"></a>  %matches_64 = eq ptr %identity_61, @aihc_c_aihc__mprim_GHC__dTypes___o_0
+<a id="__codelineno-1-96" name="__codelineno-1-96" href="#__codelineno-1-96"></a>  br %matches_64, alt_56, no_match_57
+<a id="__codelineno-1-97" name="__codelineno-1-97" href="#__codelineno-1-97"></a>
+<a id="__codelineno-1-98" name="__codelineno-1-98" href="#__codelineno-1-98"></a>no_match_57:
+<a id="__codelineno-1-99" name="__codelineno-1-99" href="#__codelineno-1-99"></a>  call @aihc_no_match()
+<a id="__codelineno-1-100" name="__codelineno-1-100" href="#__codelineno-1-100"></a>  trap &quot;no matching case alternative&quot;
+<a id="__codelineno-1-101" name="__codelineno-1-101" href="#__codelineno-1-101"></a>
+<a id="__codelineno-1-102" name="__codelineno-1-102" href="#__codelineno-1-102"></a>alt_55:
+<a id="__codelineno-1-103" name="__codelineno-1-103" href="#__codelineno-1-103"></a>  tailcall @aihc_lir_eval(%machine_32, %hp_48, %hp_limit_49, %sp_35, %sp_limit_36, %y$gc_47, %$cps_return$gc_45)
 <a id="__codelineno-1-104" name="__codelineno-1-104" href="#__codelineno-1-104"></a>
-<a id="__codelineno-1-105" name="__codelineno-1-105" href="#__codelineno-1-105"></a>eval_check_85(%current_88: ptr):
-<a id="__codelineno-1-106" name="__codelineno-1-106" href="#__codelineno-1-106"></a>  %header_word_89 = load i64 [%current_88] align 8
-<a id="__codelineno-1-107" name="__codelineno-1-107" href="#__codelineno-1-107"></a>  %info_word_90 = and i64 %header_word_89, -4
-<a id="__codelineno-1-108" name="__codelineno-1-108" href="#__codelineno-1-108"></a>  %header_91 = ptr.from_int %info_word_90
-<a id="__codelineno-1-109" name="__codelineno-1-109" href="#__codelineno-1-109"></a>  %needs_eval_92 = load i8 [%header_91 + 44] align 1
-<a id="__codelineno-1-110" name="__codelineno-1-110" href="#__codelineno-1-110"></a>  %needs_eval_93 = zext i8 %needs_eval_92 to i64
-<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>  %not_value_94 = ne i64 %needs_eval_93, 0
-<a id="__codelineno-1-112" name="__codelineno-1-112" href="#__codelineno-1-112"></a>  br %not_value_94, eval_slow_87, eval_ready_86
-<a id="__codelineno-1-113" name="__codelineno-1-113" href="#__codelineno-1-113"></a>
-<a id="__codelineno-1-114" name="__codelineno-1-114" href="#__codelineno-1-114"></a>eval_ready_86:
-<a id="__codelineno-1-115" name="__codelineno-1-115" href="#__codelineno-1-115"></a>  tailcall @aihc_f_exe_Main___smain__uargument__uthunk__u3__ucont(%machine_79, %hp_80, %hp_limit_81, %sp_82, %sp_limit_83, %$cps_return_84, @aihc__mprim__m0__d13__d0_GHC__dPrim__dEnum_enumFromTo)
-<a id="__codelineno-1-116" name="__codelineno-1-116" href="#__codelineno-1-116"></a>
-<a id="__codelineno-1-117" name="__codelineno-1-117" href="#__codelineno-1-117"></a>eval_slow_87:
-<a id="__codelineno-1-118" name="__codelineno-1-118" href="#__codelineno-1-118"></a>  %sp_95 = ptr.add %sp_82, 16
-<a id="__codelineno-1-119" name="__codelineno-1-119" href="#__codelineno-1-119"></a>  %stack_fits_96 = le.u ptr %sp_95, %sp_limit_83
-<a id="__codelineno-1-120" name="__codelineno-1-120" href="#__codelineno-1-120"></a>  br %stack_fits_96, stack_pushed_98(%sp_82, %sp_95, %sp_limit_83), stack_grow_97
-<a id="__codelineno-1-121" name="__codelineno-1-121" href="#__codelineno-1-121"></a>
-<a id="__codelineno-1-122" name="__codelineno-1-122" href="#__codelineno-1-122"></a>cold stack_grow_97:
-<a id="__codelineno-1-123" name="__codelineno-1-123" href="#__codelineno-1-123"></a>  %result_99 = call @aihc_stack_grow(%machine_79, %sp_82, 2)
-<a id="__codelineno-1-124" name="__codelineno-1-124" href="#__codelineno-1-124"></a>  %sp_100 = ptr.add %result_99, 16
-<a id="__codelineno-1-125" name="__codelineno-1-125" href="#__codelineno-1-125"></a>  %sp_limit_101 = ptr.add %result_99, 4064
-<a id="__codelineno-1-126" name="__codelineno-1-126" href="#__codelineno-1-126"></a>  jump stack_pushed_98(%result_99, %sp_100, %sp_limit_101)
-<a id="__codelineno-1-127" name="__codelineno-1-127" href="#__codelineno-1-127"></a>
-<a id="__codelineno-1-128" name="__codelineno-1-128" href="#__codelineno-1-128"></a>stack_pushed_98(%frame_102: ptr, %sp_103: ptr, %sp_limit_104: ptr):
-<a id="__codelineno-1-129" name="__codelineno-1-129" href="#__codelineno-1-129"></a>  store ptr @aihc_lir_info_2, [%frame_102] align 8
-<a id="__codelineno-1-130" name="__codelineno-1-130" href="#__codelineno-1-130"></a>  store ptr %$cps_return_84, [%frame_102 + 8] align 8
-<a id="__codelineno-1-131" name="__codelineno-1-131" href="#__codelineno-1-131"></a>  tailcall @aihc_lir_eval(%machine_79, %hp_80, %hp_limit_81, %sp_103, %sp_limit_104, @aihc__mprim__m0__d13__d0_GHC__dPrim__dEnum_enumFromTo, %frame_102)
-<a id="__codelineno-1-132" name="__codelineno-1-132" href="#__codelineno-1-132"></a>}
-<a id="__codelineno-1-133" name="__codelineno-1-133" href="#__codelineno-1-133"></a>
-<a id="__codelineno-1-134" name="__codelineno-1-134" href="#__codelineno-1-134"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u2(%machine_105: ptr, %hp_106: ptr, %hp_limit_107: ptr, %sp_108: ptr, %sp_limit_109: ptr, %$cps_return_110: ptr) {
-<a id="__codelineno-1-135" name="__codelineno-1-135" href="#__codelineno-1-135"></a>entry:
-<a id="__codelineno-1-136" name="__codelineno-1-136" href="#__codelineno-1-136"></a>  jump eval_check_111(@aihc__mbase__m4__d21__d2__d0_GHC__dBase_map)
-<a id="__codelineno-1-137" name="__codelineno-1-137" href="#__codelineno-1-137"></a>
-<a id="__codelineno-1-138" name="__codelineno-1-138" href="#__codelineno-1-138"></a>eval_check_111(%current_114: ptr):
-<a id="__codelineno-1-139" name="__codelineno-1-139" href="#__codelineno-1-139"></a>  %header_word_115 = load i64 [%current_114] align 8
-<a id="__codelineno-1-140" name="__codelineno-1-140" href="#__codelineno-1-140"></a>  %info_word_116 = and i64 %header_word_115, -4
-<a id="__codelineno-1-141" name="__codelineno-1-141" href="#__codelineno-1-141"></a>  %header_117 = ptr.from_int %info_word_116
-<a id="__codelineno-1-142" name="__codelineno-1-142" href="#__codelineno-1-142"></a>  %needs_eval_118 = load i8 [%header_117 + 44] align 1
-<a id="__codelineno-1-143" name="__codelineno-1-143" href="#__codelineno-1-143"></a>  %needs_eval_119 = zext i8 %needs_eval_118 to i64
-<a id="__codelineno-1-144" name="__codelineno-1-144" href="#__codelineno-1-144"></a>  %not_value_120 = ne i64 %needs_eval_119, 0
-<a id="__codelineno-1-145" name="__codelineno-1-145" href="#__codelineno-1-145"></a>  br %not_value_120, eval_slow_113, eval_ready_112
-<a id="__codelineno-1-146" name="__codelineno-1-146" href="#__codelineno-1-146"></a>
-<a id="__codelineno-1-147" name="__codelineno-1-147" href="#__codelineno-1-147"></a>eval_ready_112:
-<a id="__codelineno-1-148" name="__codelineno-1-148" href="#__codelineno-1-148"></a>  tailcall @aihc_f_exe_Main___smain__uargument__uthunk__u2__ucont(%machine_105, %hp_106, %hp_limit_107, %sp_108, %sp_limit_109, %$cps_return_110, @aihc__mbase__m4__d21__d2__d0_GHC__dBase_map)
-<a id="__codelineno-1-149" name="__codelineno-1-149" href="#__codelineno-1-149"></a>
-<a id="__codelineno-1-150" name="__codelineno-1-150" href="#__codelineno-1-150"></a>eval_slow_113:
-<a id="__codelineno-1-151" name="__codelineno-1-151" href="#__codelineno-1-151"></a>  %sp_121 = ptr.add %sp_108, 16
-<a id="__codelineno-1-152" name="__codelineno-1-152" href="#__codelineno-1-152"></a>  %stack_fits_122 = le.u ptr %sp_121, %sp_limit_109
-<a id="__codelineno-1-153" name="__codelineno-1-153" href="#__codelineno-1-153"></a>  br %stack_fits_122, stack_pushed_124(%sp_108, %sp_121, %sp_limit_109), stack_grow_123
-<a id="__codelineno-1-154" name="__codelineno-1-154" href="#__codelineno-1-154"></a>
-<a id="__codelineno-1-155" name="__codelineno-1-155" href="#__codelineno-1-155"></a>cold stack_grow_123:
-<a id="__codelineno-1-156" name="__codelineno-1-156" href="#__codelineno-1-156"></a>  %result_125 = call @aihc_stack_grow(%machine_105, %sp_108, 2)
-<a id="__codelineno-1-157" name="__codelineno-1-157" href="#__codelineno-1-157"></a>  %sp_126 = ptr.add %result_125, 16
-<a id="__codelineno-1-158" name="__codelineno-1-158" href="#__codelineno-1-158"></a>  %sp_limit_127 = ptr.add %result_125, 4064
-<a id="__codelineno-1-159" name="__codelineno-1-159" href="#__codelineno-1-159"></a>  jump stack_pushed_124(%result_125, %sp_126, %sp_limit_127)
-<a id="__codelineno-1-160" name="__codelineno-1-160" href="#__codelineno-1-160"></a>
-<a id="__codelineno-1-161" name="__codelineno-1-161" href="#__codelineno-1-161"></a>stack_pushed_124(%frame_128: ptr, %sp_129: ptr, %sp_limit_130: ptr):
-<a id="__codelineno-1-162" name="__codelineno-1-162" href="#__codelineno-1-162"></a>  store ptr @aihc_lir_info_0, [%frame_128] align 8
-<a id="__codelineno-1-163" name="__codelineno-1-163" href="#__codelineno-1-163"></a>  store ptr %$cps_return_110, [%frame_128 + 8] align 8
-<a id="__codelineno-1-164" name="__codelineno-1-164" href="#__codelineno-1-164"></a>  tailcall @aihc_lir_eval(%machine_105, %hp_106, %hp_limit_107, %sp_129, %sp_limit_130, @aihc__mbase__m4__d21__d2__d0_GHC__dBase_map, %frame_128)
-<a id="__codelineno-1-165" name="__codelineno-1-165" href="#__codelineno-1-165"></a>}
-<a id="__codelineno-1-166" name="__codelineno-1-166" href="#__codelineno-1-166"></a>
-<a id="__codelineno-1-167" name="__codelineno-1-167" href="#__codelineno-1-167"></a>func @aihc_f_exe_Main___smain__uargument__uthunk(%machine_131: ptr, %hp_132: ptr, %hp_limit_133: ptr, %sp_134: ptr, %sp_limit_135: ptr, %$cps_return_136: ptr) {
-<a id="__codelineno-1-168" name="__codelineno-1-168" href="#__codelineno-1-168"></a>entry:
-<a id="__codelineno-1-169" name="__codelineno-1-169" href="#__codelineno-1-169"></a>  jump eval_check_137(@aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable_sum)
-<a id="__codelineno-1-170" name="__codelineno-1-170" href="#__codelineno-1-170"></a>
-<a id="__codelineno-1-171" name="__codelineno-1-171" href="#__codelineno-1-171"></a>eval_check_137(%current_140: ptr):
-<a id="__codelineno-1-172" name="__codelineno-1-172" href="#__codelineno-1-172"></a>  %header_word_141 = load i64 [%current_140] align 8
-<a id="__codelineno-1-173" name="__codelineno-1-173" href="#__codelineno-1-173"></a>  %info_word_142 = and i64 %header_word_141, -4
-<a id="__codelineno-1-174" name="__codelineno-1-174" href="#__codelineno-1-174"></a>  %header_143 = ptr.from_int %info_word_142
-<a id="__codelineno-1-175" name="__codelineno-1-175" href="#__codelineno-1-175"></a>  %needs_eval_144 = load i8 [%header_143 + 44] align 1
-<a id="__codelineno-1-176" name="__codelineno-1-176" href="#__codelineno-1-176"></a>  %needs_eval_145 = zext i8 %needs_eval_144 to i64
-<a id="__codelineno-1-177" name="__codelineno-1-177" href="#__codelineno-1-177"></a>  %not_value_146 = ne i64 %needs_eval_145, 0
-<a id="__codelineno-1-178" name="__codelineno-1-178" href="#__codelineno-1-178"></a>  br %not_value_146, eval_slow_139, eval_ready_138
-<a id="__codelineno-1-179" name="__codelineno-1-179" href="#__codelineno-1-179"></a>
-<a id="__codelineno-1-180" name="__codelineno-1-180" href="#__codelineno-1-180"></a>eval_ready_138:
-<a id="__codelineno-1-181" name="__codelineno-1-181" href="#__codelineno-1-181"></a>  tailcall @aihc_f_exe_Main___smain__uargument__uthunk__ucont(%machine_131, %hp_132, %hp_limit_133, %sp_134, %sp_limit_135, %$cps_return_136, @aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable_sum)
-<a id="__codelineno-1-182" name="__codelineno-1-182" href="#__codelineno-1-182"></a>
-<a id="__codelineno-1-183" name="__codelineno-1-183" href="#__codelineno-1-183"></a>eval_slow_139:
-<a id="__codelineno-1-184" name="__codelineno-1-184" href="#__codelineno-1-184"></a>  %sp_147 = ptr.add %sp_134, 16
-<a id="__codelineno-1-185" name="__codelineno-1-185" href="#__codelineno-1-185"></a>  %stack_fits_148 = le.u ptr %sp_147, %sp_limit_135
-<a id="__codelineno-1-186" name="__codelineno-1-186" href="#__codelineno-1-186"></a>  br %stack_fits_148, stack_pushed_150(%sp_134, %sp_147, %sp_limit_135), stack_grow_149
-<a id="__codelineno-1-187" name="__codelineno-1-187" href="#__codelineno-1-187"></a>
-<a id="__codelineno-1-188" name="__codelineno-1-188" href="#__codelineno-1-188"></a>cold stack_grow_149:
-<a id="__codelineno-1-189" name="__codelineno-1-189" href="#__codelineno-1-189"></a>  %result_151 = call @aihc_stack_grow(%machine_131, %sp_134, 2)
-<a id="__codelineno-1-190" name="__codelineno-1-190" href="#__codelineno-1-190"></a>  %sp_152 = ptr.add %result_151, 16
-<a id="__codelineno-1-191" name="__codelineno-1-191" href="#__codelineno-1-191"></a>  %sp_limit_153 = ptr.add %result_151, 4064
-<a id="__codelineno-1-192" name="__codelineno-1-192" href="#__codelineno-1-192"></a>  jump stack_pushed_150(%result_151, %sp_152, %sp_limit_153)
-<a id="__codelineno-1-193" name="__codelineno-1-193" href="#__codelineno-1-193"></a>
-<a id="__codelineno-1-194" name="__codelineno-1-194" href="#__codelineno-1-194"></a>stack_pushed_150(%frame_154: ptr, %sp_155: ptr, %sp_limit_156: ptr):
-<a id="__codelineno-1-195" name="__codelineno-1-195" href="#__codelineno-1-195"></a>  store ptr @aihc_lir_info_8, [%frame_154] align 8
-<a id="__codelineno-1-196" name="__codelineno-1-196" href="#__codelineno-1-196"></a>  store ptr %$cps_return_136, [%frame_154 + 8] align 8
-<a id="__codelineno-1-197" name="__codelineno-1-197" href="#__codelineno-1-197"></a>  tailcall @aihc_lir_eval(%machine_131, %hp_132, %hp_limit_133, %sp_155, %sp_limit_156, @aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable_sum, %frame_154)
-<a id="__codelineno-1-198" name="__codelineno-1-198" href="#__codelineno-1-198"></a>}
-<a id="__codelineno-1-199" name="__codelineno-1-199" href="#__codelineno-1-199"></a>
-<a id="__codelineno-1-200" name="__codelineno-1-200" href="#__codelineno-1-200"></a>func @aihc_f_exe_Main___smain__uthunk(%machine_157: ptr, %hp_158: ptr, %hp_limit_159: ptr, %sp_160: ptr, %sp_limit_161: ptr, %$cps_return_162: ptr) {
-<a id="__codelineno-1-201" name="__codelineno-1-201" href="#__codelineno-1-201"></a>entry:
-<a id="__codelineno-1-202" name="__codelineno-1-202" href="#__codelineno-1-202"></a>  jump eval_check_163(@aihc__mbase__m4__d21__d2__d0_Prelude_print)
-<a id="__codelineno-1-203" name="__codelineno-1-203" href="#__codelineno-1-203"></a>
-<a id="__codelineno-1-204" name="__codelineno-1-204" href="#__codelineno-1-204"></a>eval_check_163(%current_166: ptr):
-<a id="__codelineno-1-205" name="__codelineno-1-205" href="#__codelineno-1-205"></a>  %header_word_167 = load i64 [%current_166] align 8
-<a id="__codelineno-1-206" name="__codelineno-1-206" href="#__codelineno-1-206"></a>  %info_word_168 = and i64 %header_word_167, -4
-<a id="__codelineno-1-207" name="__codelineno-1-207" href="#__codelineno-1-207"></a>  %header_169 = ptr.from_int %info_word_168
-<a id="__codelineno-1-208" name="__codelineno-1-208" href="#__codelineno-1-208"></a>  %needs_eval_170 = load i8 [%header_169 + 44] align 1
-<a id="__codelineno-1-209" name="__codelineno-1-209" href="#__codelineno-1-209"></a>  %needs_eval_171 = zext i8 %needs_eval_170 to i64
-<a id="__codelineno-1-210" name="__codelineno-1-210" href="#__codelineno-1-210"></a>  %not_value_172 = ne i64 %needs_eval_171, 0
-<a id="__codelineno-1-211" name="__codelineno-1-211" href="#__codelineno-1-211"></a>  br %not_value_172, eval_slow_165, eval_ready_164
-<a id="__codelineno-1-212" name="__codelineno-1-212" href="#__codelineno-1-212"></a>
-<a id="__codelineno-1-213" name="__codelineno-1-213" href="#__codelineno-1-213"></a>eval_ready_164:
-<a id="__codelineno-1-214" name="__codelineno-1-214" href="#__codelineno-1-214"></a>  tailcall @aihc_f_exe_Main___smain__uthunk__ucont(%machine_157, %hp_158, %hp_limit_159, %sp_160, %sp_limit_161, %$cps_return_162, @aihc__mbase__m4__d21__d2__d0_Prelude_print)
-<a id="__codelineno-1-215" name="__codelineno-1-215" href="#__codelineno-1-215"></a>
-<a id="__codelineno-1-216" name="__codelineno-1-216" href="#__codelineno-1-216"></a>eval_slow_165:
-<a id="__codelineno-1-217" name="__codelineno-1-217" href="#__codelineno-1-217"></a>  %sp_173 = ptr.add %sp_160, 16
-<a id="__codelineno-1-218" name="__codelineno-1-218" href="#__codelineno-1-218"></a>  %stack_fits_174 = le.u ptr %sp_173, %sp_limit_161
-<a id="__codelineno-1-219" name="__codelineno-1-219" href="#__codelineno-1-219"></a>  br %stack_fits_174, stack_pushed_176(%sp_160, %sp_173, %sp_limit_161), stack_grow_175
-<a id="__codelineno-1-220" name="__codelineno-1-220" href="#__codelineno-1-220"></a>
-<a id="__codelineno-1-221" name="__codelineno-1-221" href="#__codelineno-1-221"></a>cold stack_grow_175:
-<a id="__codelineno-1-222" name="__codelineno-1-222" href="#__codelineno-1-222"></a>  %result_177 = call @aihc_stack_grow(%machine_157, %sp_160, 2)
-<a id="__codelineno-1-223" name="__codelineno-1-223" href="#__codelineno-1-223"></a>  %sp_178 = ptr.add %result_177, 16
-<a id="__codelineno-1-224" name="__codelineno-1-224" href="#__codelineno-1-224"></a>  %sp_limit_179 = ptr.add %result_177, 4064
-<a id="__codelineno-1-225" name="__codelineno-1-225" href="#__codelineno-1-225"></a>  jump stack_pushed_176(%result_177, %sp_178, %sp_limit_179)
-<a id="__codelineno-1-226" name="__codelineno-1-226" href="#__codelineno-1-226"></a>
-<a id="__codelineno-1-227" name="__codelineno-1-227" href="#__codelineno-1-227"></a>stack_pushed_176(%frame_180: ptr, %sp_181: ptr, %sp_limit_182: ptr):
-<a id="__codelineno-1-228" name="__codelineno-1-228" href="#__codelineno-1-228"></a>  store ptr @aihc_lir_info_10, [%frame_180] align 8
-<a id="__codelineno-1-229" name="__codelineno-1-229" href="#__codelineno-1-229"></a>  store ptr %$cps_return_162, [%frame_180 + 8] align 8
-<a id="__codelineno-1-230" name="__codelineno-1-230" href="#__codelineno-1-230"></a>  tailcall @aihc_lir_eval(%machine_157, %hp_158, %hp_limit_159, %sp_181, %sp_limit_182, @aihc__mbase__m4__d21__d2__d0_Prelude_print, %frame_180)
-<a id="__codelineno-1-231" name="__codelineno-1-231" href="#__codelineno-1-231"></a>}
-<a id="__codelineno-1-232" name="__codelineno-1-232" href="#__codelineno-1-232"></a>
-<a id="__codelineno-1-233" name="__codelineno-1-233" href="#__codelineno-1-233"></a>func @aihc_f_exe_Main___ssquare__ucont(%machine_183: ptr, %hp_184: ptr, %hp_limit_185: ptr, %sp_186: ptr, %sp_limit_187: ptr, %$cps_return_188: ptr, %x_189: ptr, %function_whnf_190: ptr) {
-<a id="__codelineno-1-234" name="__codelineno-1-234" href="#__codelineno-1-234"></a>entry:
-<a id="__codelineno-1-235" name="__codelineno-1-235" href="#__codelineno-1-235"></a>  tailcall @aihc_lir_apply_p_p_p(%machine_183, %hp_184, %hp_limit_185, %sp_186, %sp_limit_187, %function_whnf_190, %$cps_return_188, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt, %x_189, %x_189)
-<a id="__codelineno-1-236" name="__codelineno-1-236" href="#__codelineno-1-236"></a>}
-<a id="__codelineno-1-237" name="__codelineno-1-237" href="#__codelineno-1-237"></a>
-<a id="__codelineno-1-238" name="__codelineno-1-238" href="#__codelineno-1-238"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u4__ucont(%machine_191: ptr, %hp_192: ptr, %hp_limit_193: ptr, %sp_194: ptr, %sp_limit_195: ptr, %$cps_return_196: ptr, %function_whnf_197: ptr) {
-<a id="__codelineno-1-239" name="__codelineno-1-239" href="#__codelineno-1-239"></a>entry:
-<a id="__codelineno-1-240" name="__codelineno-1-240" href="#__codelineno-1-240"></a>  %roots_198 = stack.alloc 16 align 8
-<a id="__codelineno-1-241" name="__codelineno-1-241" href="#__codelineno-1-241"></a>  %heap_end_199 = ptr.add %hp_192, 16
-<a id="__codelineno-1-242" name="__codelineno-1-242" href="#__codelineno-1-242"></a>  %heap_fits_200 = le.u ptr %heap_end_199, %hp_limit_193
-<a id="__codelineno-1-243" name="__codelineno-1-243" href="#__codelineno-1-243"></a>  br %heap_fits_200, gc_reserved_202(%$cps_return_196, %function_whnf_197, %hp_192, %hp_limit_193), gc_collect_201
-<a id="__codelineno-1-244" name="__codelineno-1-244" href="#__codelineno-1-244"></a>
-<a id="__codelineno-1-245" name="__codelineno-1-245" href="#__codelineno-1-245"></a>cold gc_collect_201:
-<a id="__codelineno-1-246" name="__codelineno-1-246" href="#__codelineno-1-246"></a>  store ptr %$cps_return_196, [%roots_198] align 8
-<a id="__codelineno-1-247" name="__codelineno-1-247" href="#__codelineno-1-247"></a>  store ptr %function_whnf_197, [%roots_198 + 8] align 8
-<a id="__codelineno-1-248" name="__codelineno-1-248" href="#__codelineno-1-248"></a>  store ptr %hp_192, [%machine_191 + 24] align 1 word
-<a id="__codelineno-1-249" name="__codelineno-1-249" href="#__codelineno-1-249"></a>  store ptr %sp_194, [%machine_191 + 40] align 1 word
-<a id="__codelineno-1-250" name="__codelineno-1-250" href="#__codelineno-1-250"></a>  call @aihc_heap_collect(%machine_191, 2, 2, %roots_198, @aihc_lir_srt_6)
-<a id="__codelineno-1-251" name="__codelineno-1-251" href="#__codelineno-1-251"></a>  %$cps_return$gc_207 = load ptr [%roots_198] align 8
-<a id="__codelineno-1-252" name="__codelineno-1-252" href="#__codelineno-1-252"></a>  %function_whnf$gc_208 = load ptr [%roots_198 + 8] align 8
-<a id="__codelineno-1-253" name="__codelineno-1-253" href="#__codelineno-1-253"></a>  %hp_209 = load ptr [%machine_191 + 24] align 1 word
-<a id="__codelineno-1-254" name="__codelineno-1-254" href="#__codelineno-1-254"></a>  %hp_limit_210 = load ptr [%machine_191 + 32] align 1 word
-<a id="__codelineno-1-255" name="__codelineno-1-255" href="#__codelineno-1-255"></a>  jump gc_reserved_202(%$cps_return$gc_207, %function_whnf$gc_208, %hp_209, %hp_limit_210)
-<a id="__codelineno-1-256" name="__codelineno-1-256" href="#__codelineno-1-256"></a>
-<a id="__codelineno-1-257" name="__codelineno-1-257" href="#__codelineno-1-257"></a>gc_reserved_202(%$cps_return$gc_203: ptr, %function_whnf$gc_204: ptr, %hp_205: ptr, %hp_limit_206: ptr):
-<a id="__codelineno-1-258" name="__codelineno-1-258" href="#__codelineno-1-258"></a>  %hp_211 = ptr.add %hp_205, 16
-<a id="__codelineno-1-259" name="__codelineno-1-259" href="#__codelineno-1-259"></a>  store ptr @aihc_c_aihc__mprim__m0__d13__d0_GHC__dPrim__dInteger_IS_0, [%hp_205] align 8
-<a id="__codelineno-1-260" name="__codelineno-1-260" href="#__codelineno-1-260"></a>  store i64 1, [%hp_205 + 8] align 8
-<a id="__codelineno-1-261" name="__codelineno-1-261" href="#__codelineno-1-261"></a>  tailcall @aihc_lir_apply_p_p(%machine_191, %hp_211, %hp_limit_206, %sp_194, %sp_limit_195, %function_whnf$gc_204, %$cps_return$gc_203, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt, %hp_205)
-<a id="__codelineno-1-262" name="__codelineno-1-262" href="#__codelineno-1-262"></a>}
-<a id="__codelineno-1-263" name="__codelineno-1-263" href="#__codelineno-1-263"></a>
-<a id="__codelineno-1-264" name="__codelineno-1-264" href="#__codelineno-1-264"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u5__ucont(%machine_212: ptr, %hp_213: ptr, %hp_limit_214: ptr, %sp_215: ptr, %sp_limit_216: ptr, %$cps_return_217: ptr, %function_whnf_218: ptr) {
-<a id="__codelineno-1-265" name="__codelineno-1-265" href="#__codelineno-1-265"></a>entry:
-<a id="__codelineno-1-266" name="__codelineno-1-266" href="#__codelineno-1-266"></a>  %roots_219 = stack.alloc 16 align 8
-<a id="__codelineno-1-267" name="__codelineno-1-267" href="#__codelineno-1-267"></a>  %heap_end_220 = ptr.add %hp_213, 16
-<a id="__codelineno-1-268" name="__codelineno-1-268" href="#__codelineno-1-268"></a>  %heap_fits_221 = le.u ptr %heap_end_220, %hp_limit_214
-<a id="__codelineno-1-269" name="__codelineno-1-269" href="#__codelineno-1-269"></a>  br %heap_fits_221, gc_reserved_223(%$cps_return_217, %function_whnf_218, %hp_213, %hp_limit_214), gc_collect_222
-<a id="__codelineno-1-270" name="__codelineno-1-270" href="#__codelineno-1-270"></a>
-<a id="__codelineno-1-271" name="__codelineno-1-271" href="#__codelineno-1-271"></a>cold gc_collect_222:
-<a id="__codelineno-1-272" name="__codelineno-1-272" href="#__codelineno-1-272"></a>  store ptr %$cps_return_217, [%roots_219] align 8
-<a id="__codelineno-1-273" name="__codelineno-1-273" href="#__codelineno-1-273"></a>  store ptr %function_whnf_218, [%roots_219 + 8] align 8
-<a id="__codelineno-1-274" name="__codelineno-1-274" href="#__codelineno-1-274"></a>  store ptr %hp_213, [%machine_212 + 24] align 1 word
-<a id="__codelineno-1-275" name="__codelineno-1-275" href="#__codelineno-1-275"></a>  store ptr %sp_215, [%machine_212 + 40] align 1 word
-<a id="__codelineno-1-276" name="__codelineno-1-276" href="#__codelineno-1-276"></a>  call @aihc_heap_collect(%machine_212, 2, 2, %roots_219, @aihc_lir_srt_8)
-<a id="__codelineno-1-277" name="__codelineno-1-277" href="#__codelineno-1-277"></a>  %$cps_return$gc_228 = load ptr [%roots_219] align 8
-<a id="__codelineno-1-278" name="__codelineno-1-278" href="#__codelineno-1-278"></a>  %function_whnf$gc_229 = load ptr [%roots_219 + 8] align 8
-<a id="__codelineno-1-279" name="__codelineno-1-279" href="#__codelineno-1-279"></a>  %hp_230 = load ptr [%machine_212 + 24] align 1 word
-<a id="__codelineno-1-280" name="__codelineno-1-280" href="#__codelineno-1-280"></a>  %hp_limit_231 = load ptr [%machine_212 + 32] align 1 word
-<a id="__codelineno-1-281" name="__codelineno-1-281" href="#__codelineno-1-281"></a>  jump gc_reserved_223(%$cps_return$gc_228, %function_whnf$gc_229, %hp_230, %hp_limit_231)
-<a id="__codelineno-1-282" name="__codelineno-1-282" href="#__codelineno-1-282"></a>
-<a id="__codelineno-1-283" name="__codelineno-1-283" href="#__codelineno-1-283"></a>gc_reserved_223(%$cps_return$gc_224: ptr, %function_whnf$gc_225: ptr, %hp_226: ptr, %hp_limit_227: ptr):
-<a id="__codelineno-1-284" name="__codelineno-1-284" href="#__codelineno-1-284"></a>  %hp_232 = ptr.add %hp_226, 16
-<a id="__codelineno-1-285" name="__codelineno-1-285" href="#__codelineno-1-285"></a>  store ptr @aihc_c_aihc__mprim__m0__d13__d0_GHC__dPrim__dInteger_IS_0, [%hp_226] align 8
-<a id="__codelineno-1-286" name="__codelineno-1-286" href="#__codelineno-1-286"></a>  store i64 10, [%hp_226 + 8] align 8
-<a id="__codelineno-1-287" name="__codelineno-1-287" href="#__codelineno-1-287"></a>  tailcall @aihc_lir_apply_p_p(%machine_212, %hp_232, %hp_limit_227, %sp_215, %sp_limit_216, %function_whnf$gc_225, %$cps_return$gc_224, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt, %hp_226)
-<a id="__codelineno-1-288" name="__codelineno-1-288" href="#__codelineno-1-288"></a>}
-<a id="__codelineno-1-289" name="__codelineno-1-289" href="#__codelineno-1-289"></a>
-<a id="__codelineno-1-290" name="__codelineno-1-290" href="#__codelineno-1-290"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u3__ucont(%machine_233: ptr, %hp_234: ptr, %hp_limit_235: ptr, %sp_236: ptr, %sp_limit_237: ptr, %$cps_return_238: ptr, %function_whnf_239: ptr) {
-<a id="__codelineno-1-291" name="__codelineno-1-291" href="#__codelineno-1-291"></a>entry:
-<a id="__codelineno-1-292" name="__codelineno-1-292" href="#__codelineno-1-292"></a>  %roots_240 = stack.alloc 16 align 8
-<a id="__codelineno-1-293" name="__codelineno-1-293" href="#__codelineno-1-293"></a>  %heap_end_241 = ptr.add %hp_234, 32
-<a id="__codelineno-1-294" name="__codelineno-1-294" href="#__codelineno-1-294"></a>  %heap_fits_242 = le.u ptr %heap_end_241, %hp_limit_235
-<a id="__codelineno-1-295" name="__codelineno-1-295" href="#__codelineno-1-295"></a>  br %heap_fits_242, gc_reserved_244(%$cps_return_238, %function_whnf_239, %hp_234, %hp_limit_235), gc_collect_243
-<a id="__codelineno-1-296" name="__codelineno-1-296" href="#__codelineno-1-296"></a>
-<a id="__codelineno-1-297" name="__codelineno-1-297" href="#__codelineno-1-297"></a>cold gc_collect_243:
-<a id="__codelineno-1-298" name="__codelineno-1-298" href="#__codelineno-1-298"></a>  store ptr %$cps_return_238, [%roots_240] align 8
-<a id="__codelineno-1-299" name="__codelineno-1-299" href="#__codelineno-1-299"></a>  store ptr %function_whnf_239, [%roots_240 + 8] align 8
-<a id="__codelineno-1-300" name="__codelineno-1-300" href="#__codelineno-1-300"></a>  store ptr %hp_234, [%machine_233 + 24] align 1 word
-<a id="__codelineno-1-301" name="__codelineno-1-301" href="#__codelineno-1-301"></a>  store ptr %sp_236, [%machine_233 + 40] align 1 word
-<a id="__codelineno-1-302" name="__codelineno-1-302" href="#__codelineno-1-302"></a>  call @aihc_heap_collect(%machine_233, 4, 2, %roots_240, @aihc_lir_srt_4)
-<a id="__codelineno-1-303" name="__codelineno-1-303" href="#__codelineno-1-303"></a>  %$cps_return$gc_249 = load ptr [%roots_240] align 8
-<a id="__codelineno-1-304" name="__codelineno-1-304" href="#__codelineno-1-304"></a>  %function_whnf$gc_250 = load ptr [%roots_240 + 8] align 8
-<a id="__codelineno-1-305" name="__codelineno-1-305" href="#__codelineno-1-305"></a>  %hp_251 = load ptr [%machine_233 + 24] align 1 word
-<a id="__codelineno-1-306" name="__codelineno-1-306" href="#__codelineno-1-306"></a>  %hp_limit_252 = load ptr [%machine_233 + 32] align 1 word
-<a id="__codelineno-1-307" name="__codelineno-1-307" href="#__codelineno-1-307"></a>  jump gc_reserved_244(%$cps_return$gc_249, %function_whnf$gc_250, %hp_251, %hp_limit_252)
-<a id="__codelineno-1-308" name="__codelineno-1-308" href="#__codelineno-1-308"></a>
-<a id="__codelineno-1-309" name="__codelineno-1-309" href="#__codelineno-1-309"></a>gc_reserved_244(%$cps_return$gc_245: ptr, %function_whnf$gc_246: ptr, %hp_247: ptr, %hp_limit_248: ptr):
-<a id="__codelineno-1-310" name="__codelineno-1-310" href="#__codelineno-1-310"></a>  %hp_253 = ptr.add %hp_247, 16
-<a id="__codelineno-1-311" name="__codelineno-1-311" href="#__codelineno-1-311"></a>  store ptr @aihc_lir_info_19, [%hp_247] align 8
-<a id="__codelineno-1-312" name="__codelineno-1-312" href="#__codelineno-1-312"></a>  %hp_254 = ptr.add %hp_253, 16
-<a id="__codelineno-1-313" name="__codelineno-1-313" href="#__codelineno-1-313"></a>  store ptr @aihc_lir_info_20, [%hp_253] align 8
-<a id="__codelineno-1-314" name="__codelineno-1-314" href="#__codelineno-1-314"></a>  tailcall @aihc_lir_apply_p_p_p(%machine_233, %hp_254, %hp_limit_248, %sp_236, %sp_limit_237, %function_whnf$gc_246, %$cps_return$gc_245, @aihc__mbase__m4__d21__d2__d0_GHC__dEnum___sfEnumInt, %hp_247, %hp_253)
-<a id="__codelineno-1-315" name="__codelineno-1-315" href="#__codelineno-1-315"></a>}
-<a id="__codelineno-1-316" name="__codelineno-1-316" href="#__codelineno-1-316"></a>
-<a id="__codelineno-1-317" name="__codelineno-1-317" href="#__codelineno-1-317"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__u2__ucont(%machine_255: ptr, %hp_256: ptr, %hp_limit_257: ptr, %sp_258: ptr, %sp_limit_259: ptr, %$cps_return_260: ptr, %function_whnf_261: ptr) {
-<a id="__codelineno-1-318" name="__codelineno-1-318" href="#__codelineno-1-318"></a>entry:
-<a id="__codelineno-1-319" name="__codelineno-1-319" href="#__codelineno-1-319"></a>  %roots_262 = stack.alloc 16 align 8
-<a id="__codelineno-1-320" name="__codelineno-1-320" href="#__codelineno-1-320"></a>  %heap_end_263 = ptr.add %hp_256, 16
-<a id="__codelineno-1-321" name="__codelineno-1-321" href="#__codelineno-1-321"></a>  %heap_fits_264 = le.u ptr %heap_end_263, %hp_limit_257
-<a id="__codelineno-1-322" name="__codelineno-1-322" href="#__codelineno-1-322"></a>  br %heap_fits_264, gc_reserved_266(%$cps_return_260, %function_whnf_261, %hp_256, %hp_limit_257), gc_collect_265
-<a id="__codelineno-1-323" name="__codelineno-1-323" href="#__codelineno-1-323"></a>
-<a id="__codelineno-1-324" name="__codelineno-1-324" href="#__codelineno-1-324"></a>cold gc_collect_265:
-<a id="__codelineno-1-325" name="__codelineno-1-325" href="#__codelineno-1-325"></a>  store ptr %$cps_return_260, [%roots_262] align 8
-<a id="__codelineno-1-326" name="__codelineno-1-326" href="#__codelineno-1-326"></a>  store ptr %function_whnf_261, [%roots_262 + 8] align 8
-<a id="__codelineno-1-327" name="__codelineno-1-327" href="#__codelineno-1-327"></a>  store ptr %hp_256, [%machine_255 + 24] align 1 word
-<a id="__codelineno-1-328" name="__codelineno-1-328" href="#__codelineno-1-328"></a>  store ptr %sp_258, [%machine_255 + 40] align 1 word
-<a id="__codelineno-1-329" name="__codelineno-1-329" href="#__codelineno-1-329"></a>  call @aihc_heap_collect(%machine_255, 2, 2, %roots_262, @aihc_lir_srt_2)
-<a id="__codelineno-1-330" name="__codelineno-1-330" href="#__codelineno-1-330"></a>  %$cps_return$gc_271 = load ptr [%roots_262] align 8
-<a id="__codelineno-1-331" name="__codelineno-1-331" href="#__codelineno-1-331"></a>  %function_whnf$gc_272 = load ptr [%roots_262 + 8] align 8
-<a id="__codelineno-1-332" name="__codelineno-1-332" href="#__codelineno-1-332"></a>  %hp_273 = load ptr [%machine_255 + 24] align 1 word
-<a id="__codelineno-1-333" name="__codelineno-1-333" href="#__codelineno-1-333"></a>  %hp_limit_274 = load ptr [%machine_255 + 32] align 1 word
-<a id="__codelineno-1-334" name="__codelineno-1-334" href="#__codelineno-1-334"></a>  jump gc_reserved_266(%$cps_return$gc_271, %function_whnf$gc_272, %hp_273, %hp_limit_274)
-<a id="__codelineno-1-335" name="__codelineno-1-335" href="#__codelineno-1-335"></a>
-<a id="__codelineno-1-336" name="__codelineno-1-336" href="#__codelineno-1-336"></a>gc_reserved_266(%$cps_return$gc_267: ptr, %function_whnf$gc_268: ptr, %hp_269: ptr, %hp_limit_270: ptr):
-<a id="__codelineno-1-337" name="__codelineno-1-337" href="#__codelineno-1-337"></a>  %hp_275 = ptr.add %hp_269, 16
-<a id="__codelineno-1-338" name="__codelineno-1-338" href="#__codelineno-1-338"></a>  store ptr @aihc_lir_info_18, [%hp_269] align 8
-<a id="__codelineno-1-339" name="__codelineno-1-339" href="#__codelineno-1-339"></a>  tailcall @aihc_lir_apply_p_p(%machine_255, %hp_275, %hp_limit_270, %sp_258, %sp_limit_259, %function_whnf$gc_268, %$cps_return$gc_267, @exe_Main_square, %hp_269)
-<a id="__codelineno-1-340" name="__codelineno-1-340" href="#__codelineno-1-340"></a>}
-<a id="__codelineno-1-341" name="__codelineno-1-341" href="#__codelineno-1-341"></a>
-<a id="__codelineno-1-342" name="__codelineno-1-342" href="#__codelineno-1-342"></a>func @aihc_f_exe_Main___smain__uargument__uthunk__ucont(%machine_276: ptr, %hp_277: ptr, %hp_limit_278: ptr, %sp_279: ptr, %sp_limit_280: ptr, %$cps_return_281: ptr, %function_whnf_282: ptr) {
-<a id="__codelineno-1-343" name="__codelineno-1-343" href="#__codelineno-1-343"></a>entry:
-<a id="__codelineno-1-344" name="__codelineno-1-344" href="#__codelineno-1-344"></a>  %roots_283 = stack.alloc 16 align 8
-<a id="__codelineno-1-345" name="__codelineno-1-345" href="#__codelineno-1-345"></a>  %heap_end_284 = ptr.add %hp_277, 16
-<a id="__codelineno-1-346" name="__codelineno-1-346" href="#__codelineno-1-346"></a>  %heap_fits_285 = le.u ptr %heap_end_284, %hp_limit_278
-<a id="__codelineno-1-347" name="__codelineno-1-347" href="#__codelineno-1-347"></a>  br %heap_fits_285, gc_reserved_287(%$cps_return_281, %function_whnf_282, %hp_277, %hp_limit_278), gc_collect_286
-<a id="__codelineno-1-348" name="__codelineno-1-348" href="#__codelineno-1-348"></a>
-<a id="__codelineno-1-349" name="__codelineno-1-349" href="#__codelineno-1-349"></a>cold gc_collect_286:
-<a id="__codelineno-1-350" name="__codelineno-1-350" href="#__codelineno-1-350"></a>  store ptr %$cps_return_281, [%roots_283] align 8
-<a id="__codelineno-1-351" name="__codelineno-1-351" href="#__codelineno-1-351"></a>  store ptr %function_whnf_282, [%roots_283 + 8] align 8
-<a id="__codelineno-1-352" name="__codelineno-1-352" href="#__codelineno-1-352"></a>  store ptr %hp_277, [%machine_276 + 24] align 1 word
-<a id="__codelineno-1-353" name="__codelineno-1-353" href="#__codelineno-1-353"></a>  store ptr %sp_279, [%machine_276 + 40] align 1 word
-<a id="__codelineno-1-354" name="__codelineno-1-354" href="#__codelineno-1-354"></a>  call @aihc_heap_collect(%machine_276, 2, 2, %roots_283, @aihc_lir_srt_9)
-<a id="__codelineno-1-355" name="__codelineno-1-355" href="#__codelineno-1-355"></a>  %$cps_return$gc_292 = load ptr [%roots_283] align 8
-<a id="__codelineno-1-356" name="__codelineno-1-356" href="#__codelineno-1-356"></a>  %function_whnf$gc_293 = load ptr [%roots_283 + 8] align 8
-<a id="__codelineno-1-357" name="__codelineno-1-357" href="#__codelineno-1-357"></a>  %hp_294 = load ptr [%machine_276 + 24] align 1 word
-<a id="__codelineno-1-358" name="__codelineno-1-358" href="#__codelineno-1-358"></a>  %hp_limit_295 = load ptr [%machine_276 + 32] align 1 word
-<a id="__codelineno-1-359" name="__codelineno-1-359" href="#__codelineno-1-359"></a>  jump gc_reserved_287(%$cps_return$gc_292, %function_whnf$gc_293, %hp_294, %hp_limit_295)
-<a id="__codelineno-1-360" name="__codelineno-1-360" href="#__codelineno-1-360"></a>
-<a id="__codelineno-1-361" name="__codelineno-1-361" href="#__codelineno-1-361"></a>gc_reserved_287(%$cps_return$gc_288: ptr, %function_whnf$gc_289: ptr, %hp_290: ptr, %hp_limit_291: ptr):
-<a id="__codelineno-1-362" name="__codelineno-1-362" href="#__codelineno-1-362"></a>  %hp_296 = ptr.add %hp_290, 16
-<a id="__codelineno-1-363" name="__codelineno-1-363" href="#__codelineno-1-363"></a>  store ptr @aihc_lir_info_17, [%hp_290] align 8
-<a id="__codelineno-1-364" name="__codelineno-1-364" href="#__codelineno-1-364"></a>  tailcall @aihc_lir_apply_p_p_p(%machine_276, %hp_296, %hp_limit_291, %sp_279, %sp_limit_280, %function_whnf$gc_289, %$cps_return$gc_288, @aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable___sfFoldable__k__j, @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt, %hp_290)
-<a id="__codelineno-1-365" name="__codelineno-1-365" href="#__codelineno-1-365"></a>}
-<a id="__codelineno-1-366" name="__codelineno-1-366" href="#__codelineno-1-366"></a>
-<a id="__codelineno-1-367" name="__codelineno-1-367" href="#__codelineno-1-367"></a>func @aihc_f_exe_Main___smain__uthunk__ucont(%machine_297: ptr, %hp_298: ptr, %hp_limit_299: ptr, %sp_300: ptr, %sp_limit_301: ptr, %$cps_return_302: ptr, %function_whnf_303: ptr) {
-<a id="__codelineno-1-368" name="__codelineno-1-368" href="#__codelineno-1-368"></a>entry:
-<a id="__codelineno-1-369" name="__codelineno-1-369" href="#__codelineno-1-369"></a>  %roots_304 = stack.alloc 16 align 8
-<a id="__codelineno-1-370" name="__codelineno-1-370" href="#__codelineno-1-370"></a>  %heap_end_305 = ptr.add %hp_298, 16
-<a id="__codelineno-1-371" name="__codelineno-1-371" href="#__codelineno-1-371"></a>  %heap_fits_306 = le.u ptr %heap_end_305, %hp_limit_299
-<a id="__codelineno-1-372" name="__codelineno-1-372" href="#__codelineno-1-372"></a>  br %heap_fits_306, gc_reserved_308(%$cps_return_302, %function_whnf_303, %hp_298, %hp_limit_299), gc_collect_307
-<a id="__codelineno-1-373" name="__codelineno-1-373" href="#__codelineno-1-373"></a>
-<a id="__codelineno-1-374" name="__codelineno-1-374" href="#__codelineno-1-374"></a>cold gc_collect_307:
-<a id="__codelineno-1-375" name="__codelineno-1-375" href="#__codelineno-1-375"></a>  store ptr %$cps_return_302, [%roots_304] align 8
-<a id="__codelineno-1-376" name="__codelineno-1-376" href="#__codelineno-1-376"></a>  store ptr %function_whnf_303, [%roots_304 + 8] align 8
-<a id="__codelineno-1-377" name="__codelineno-1-377" href="#__codelineno-1-377"></a>  store ptr %hp_298, [%machine_297 + 24] align 1 word
-<a id="__codelineno-1-378" name="__codelineno-1-378" href="#__codelineno-1-378"></a>  store ptr %sp_300, [%machine_297 + 40] align 1 word
-<a id="__codelineno-1-379" name="__codelineno-1-379" href="#__codelineno-1-379"></a>  call @aihc_heap_collect(%machine_297, 2, 2, %roots_304, @aihc_lir_srt_11)
-<a id="__codelineno-1-380" name="__codelineno-1-380" href="#__codelineno-1-380"></a>  %$cps_return$gc_313 = load ptr [%roots_304] align 8
-<a id="__codelineno-1-381" name="__codelineno-1-381" href="#__codelineno-1-381"></a>  %function_whnf$gc_314 = load ptr [%roots_304 + 8] align 8
-<a id="__codelineno-1-382" name="__codelineno-1-382" href="#__codelineno-1-382"></a>  %hp_315 = load ptr [%machine_297 + 24] align 1 word
-<a id="__codelineno-1-383" name="__codelineno-1-383" href="#__codelineno-1-383"></a>  %hp_limit_316 = load ptr [%machine_297 + 32] align 1 word
-<a id="__codelineno-1-384" name="__codelineno-1-384" href="#__codelineno-1-384"></a>  jump gc_reserved_308(%$cps_return$gc_313, %function_whnf$gc_314, %hp_315, %hp_limit_316)
-<a id="__codelineno-1-385" name="__codelineno-1-385" href="#__codelineno-1-385"></a>
-<a id="__codelineno-1-386" name="__codelineno-1-386" href="#__codelineno-1-386"></a>gc_reserved_308(%$cps_return$gc_309: ptr, %function_whnf$gc_310: ptr, %hp_311: ptr, %hp_limit_312: ptr):
-<a id="__codelineno-1-387" name="__codelineno-1-387" href="#__codelineno-1-387"></a>  %hp_317 = ptr.add %hp_311, 16
-<a id="__codelineno-1-388" name="__codelineno-1-388" href="#__codelineno-1-388"></a>  store ptr @aihc_lir_info_16, [%hp_311] align 8
-<a id="__codelineno-1-389" name="__codelineno-1-389" href="#__codelineno-1-389"></a>  tailcall @aihc_lir_apply_p_p(%machine_297, %hp_317, %hp_limit_312, %sp_300, %sp_limit_301, %function_whnf$gc_310, %$cps_return$gc_309, @aihc__mbase__m4__d21__d2__d0_GHC__dShow___sfShowInt, %hp_311)
-<a id="__codelineno-1-390" name="__codelineno-1-390" href="#__codelineno-1-390"></a>}
-<a id="__codelineno-1-391" name="__codelineno-1-391" href="#__codelineno-1-391"></a>
-<a id="__codelineno-1-392" name="__codelineno-1-392" href="#__codelineno-1-392"></a>export data mut @exe_Main_main align 8 = { ptr @aihc_lir_info_21, zero 8 }
-<a id="__codelineno-1-393" name="__codelineno-1-393" href="#__codelineno-1-393"></a>
-<a id="__codelineno-1-394" name="__codelineno-1-394" href="#__codelineno-1-394"></a>data mut @exe_Main_square align 8 = { ptr @aihc_lir_info_12 }
-<a id="__codelineno-1-395" name="__codelineno-1-395" href="#__codelineno-1-395"></a>
-<a id="__codelineno-1-396" name="__codelineno-1-396" href="#__codelineno-1-396"></a>data @aihc_lir_bitmap_0 align 1 = { bytes &quot;\x01&quot; }
-<a id="__codelineno-1-397" name="__codelineno-1-397" href="#__codelineno-1-397"></a>
-<a id="__codelineno-1-398" name="__codelineno-1-398" href="#__codelineno-1-398"></a>data @aihc_lir_info_0 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u2__ucont, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_1, code @aihc_lir_enter_1_1, ptr @aihc_lir_srt_2, i8 1, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-399" name="__codelineno-1-399" href="#__codelineno-1-399"></a>
-<a id="__codelineno-1-400" name="__codelineno-1-400" href="#__codelineno-1-400"></a>data @aihc_lir_bitmap_1 align 1 = { bytes &quot;\x01\x01&quot; }
-<a id="__codelineno-1-401" name="__codelineno-1-401" href="#__codelineno-1-401"></a>
-<a id="__codelineno-1-402" name="__codelineno-1-402" href="#__codelineno-1-402"></a>data @aihc_lir_info_1 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u2__ucont, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr @aihc_lir_srt_2, i8 2, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-403" name="__codelineno-1-403" href="#__codelineno-1-403"></a>
-<a id="__codelineno-1-404" name="__codelineno-1-404" href="#__codelineno-1-404"></a>data @aihc_lir_info_2 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u3__ucont, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_3, code @aihc_lir_enter_1_1, ptr @aihc_lir_srt_4, i8 1, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-405" name="__codelineno-1-405" href="#__codelineno-1-405"></a>
-<a id="__codelineno-1-406" name="__codelineno-1-406" href="#__codelineno-1-406"></a>data @aihc_lir_info_3 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u3__ucont, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr @aihc_lir_srt_4, i8 2, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-407" name="__codelineno-1-407" href="#__codelineno-1-407"></a>
-<a id="__codelineno-1-408" name="__codelineno-1-408" href="#__codelineno-1-408"></a>data @aihc_lir_info_4 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u4__ucont, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_5, code @aihc_lir_enter_1_1, ptr @aihc_lir_srt_6, i8 1, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-409" name="__codelineno-1-409" href="#__codelineno-1-409"></a>
-<a id="__codelineno-1-410" name="__codelineno-1-410" href="#__codelineno-1-410"></a>data @aihc_lir_info_5 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u4__ucont, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr @aihc_lir_srt_6, i8 2, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-411" name="__codelineno-1-411" href="#__codelineno-1-411"></a>
-<a id="__codelineno-1-412" name="__codelineno-1-412" href="#__codelineno-1-412"></a>data @aihc_lir_info_6 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u5__ucont, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_7, code @aihc_lir_enter_1_1, ptr @aihc_lir_srt_8, i8 1, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-413" name="__codelineno-1-413" href="#__codelineno-1-413"></a>
-<a id="__codelineno-1-414" name="__codelineno-1-414" href="#__codelineno-1-414"></a>data @aihc_lir_info_7 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u5__ucont, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr @aihc_lir_srt_8, i8 2, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-415" name="__codelineno-1-415" href="#__codelineno-1-415"></a>
-<a id="__codelineno-1-416" name="__codelineno-1-416" href="#__codelineno-1-416"></a>data @aihc_lir_info_8 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__ucont, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_9, code @aihc_lir_enter_1_1, ptr @aihc_lir_srt_9, i8 1, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-417" name="__codelineno-1-417" href="#__codelineno-1-417"></a>
-<a id="__codelineno-1-418" name="__codelineno-1-418" href="#__codelineno-1-418"></a>data @aihc_lir_info_9 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__ucont, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr @aihc_lir_srt_9, i8 2, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-419" name="__codelineno-1-419" href="#__codelineno-1-419"></a>
-<a id="__codelineno-1-420" name="__codelineno-1-420" href="#__codelineno-1-420"></a>data @aihc_lir_info_10 align 8 = { code @aihc_f_exe_Main___smain__uthunk__ucont, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_11, code @aihc_lir_enter_1_1, ptr @aihc_lir_srt_11, i8 1, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-421" name="__codelineno-1-421" href="#__codelineno-1-421"></a>
-<a id="__codelineno-1-422" name="__codelineno-1-422" href="#__codelineno-1-422"></a>data @aihc_lir_info_11 align 8 = { code @aihc_f_exe_Main___smain__uthunk__ucont, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr @aihc_lir_srt_11, i8 2, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-423" name="__codelineno-1-423" href="#__codelineno-1-423"></a>
-<a id="__codelineno-1-424" name="__codelineno-1-424" href="#__codelineno-1-424"></a>data @aihc_lir_info_12 align 8 = { code @aihc_f_exe_Main___ssquare, ptr null, ptr @aihc_lir_info_13, code @aihc_lir_enter_0_1_k, ptr @aihc_lir_srt_12, i8 0, i8 1, i8 0, i8 1, i8 0 }
-<a id="__codelineno-1-425" name="__codelineno-1-425" href="#__codelineno-1-425"></a>
-<a id="__codelineno-1-426" name="__codelineno-1-426" href="#__codelineno-1-426"></a>data @aihc_lir_info_13 align 8 = { code @aihc_f_exe_Main___ssquare, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr @aihc_lir_srt_12, i8 1, i8 0, i8 0, i8 1, i8 0 }
-<a id="__codelineno-1-427" name="__codelineno-1-427" href="#__codelineno-1-427"></a>
-<a id="__codelineno-1-428" name="__codelineno-1-428" href="#__codelineno-1-428"></a>data @aihc_lir_info_14 align 8 = { code @aihc_f_exe_Main___ssquare__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_15, code @aihc_lir_enter_2_1, ptr @aihc_lir_srt_13, i8 2, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-429" name="__codelineno-1-429" href="#__codelineno-1-429"></a>
-<a id="__codelineno-1-430" name="__codelineno-1-430" href="#__codelineno-1-430"></a>data @aihc_lir_bitmap_2 align 1 = { bytes &quot;\x01\x01\x01&quot; }
-<a id="__codelineno-1-431" name="__codelineno-1-431" href="#__codelineno-1-431"></a>
-<a id="__codelineno-1-432" name="__codelineno-1-432" href="#__codelineno-1-432"></a>data @aihc_lir_info_15 align 8 = { code @aihc_f_exe_Main___ssquare__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr @aihc_lir_srt_13, i8 3, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-433" name="__codelineno-1-433" href="#__codelineno-1-433"></a>
-<a id="__codelineno-1-434" name="__codelineno-1-434" href="#__codelineno-1-434"></a>data @aihc_lir_info_16 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk, ptr null, ptr null, code @aihc_lir_enter_0_0_k, ptr @aihc_lir_srt_0, i8 0, i8 0, i8 0, i8 2, i8 1 }
-<a id="__codelineno-1-435" name="__codelineno-1-435" href="#__codelineno-1-435"></a>
-<a id="__codelineno-1-436" name="__codelineno-1-436" href="#__codelineno-1-436"></a>data @aihc_lir_info_17 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u2, ptr null, ptr null, code @aihc_lir_enter_0_0_k, ptr @aihc_lir_srt_1, i8 0, i8 0, i8 0, i8 2, i8 1 }
-<a id="__codelineno-1-437" name="__codelineno-1-437" href="#__codelineno-1-437"></a>
-<a id="__codelineno-1-438" name="__codelineno-1-438" href="#__codelineno-1-438"></a>data @aihc_lir_info_18 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u3, ptr null, ptr null, code @aihc_lir_enter_0_0_k, ptr @aihc_lir_srt_3, i8 0, i8 0, i8 0, i8 2, i8 1 }
-<a id="__codelineno-1-439" name="__codelineno-1-439" href="#__codelineno-1-439"></a>
-<a id="__codelineno-1-440" name="__codelineno-1-440" href="#__codelineno-1-440"></a>data @aihc_lir_info_19 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u4, ptr null, ptr null, code @aihc_lir_enter_0_0_k, ptr @aihc_lir_srt_5, i8 0, i8 0, i8 0, i8 2, i8 1 }
-<a id="__codelineno-1-441" name="__codelineno-1-441" href="#__codelineno-1-441"></a>
-<a id="__codelineno-1-442" name="__codelineno-1-442" href="#__codelineno-1-442"></a>data @aihc_lir_info_20 align 8 = { code @aihc_f_exe_Main___smain__uargument__uthunk__u5, ptr null, ptr null, code @aihc_lir_enter_0_0_k, ptr @aihc_lir_srt_7, i8 0, i8 0, i8 0, i8 2, i8 1 }
-<a id="__codelineno-1-443" name="__codelineno-1-443" href="#__codelineno-1-443"></a>
-<a id="__codelineno-1-444" name="__codelineno-1-444" href="#__codelineno-1-444"></a>data @aihc_lir_info_21 align 8 = { code @aihc_f_exe_Main___smain__uthunk, ptr null, ptr null, code @aihc_lir_enter_0_0_k, ptr @aihc_lir_srt_10, i8 0, i8 0, i8 0, i8 2, i8 1 }
-<a id="__codelineno-1-445" name="__codelineno-1-445" href="#__codelineno-1-445"></a>
-<a id="__codelineno-1-446" name="__codelineno-1-446" href="#__codelineno-1-446"></a>data mut @aihc_lir_srt_0 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable_sum, ptr @aihc_lir_srt_9 }
-<a id="__codelineno-1-447" name="__codelineno-1-447" href="#__codelineno-1-447"></a>
-<a id="__codelineno-1-448" name="__codelineno-1-448" href="#__codelineno-1-448"></a>data mut @aihc_lir_srt_1 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mbase__m4__d21__d2__d0_GHC__dBase_map, ptr @aihc_lir_srt_2 }
-<a id="__codelineno-1-449" name="__codelineno-1-449" href="#__codelineno-1-449"></a>
-<a id="__codelineno-1-450" name="__codelineno-1-450" href="#__codelineno-1-450"></a>data mut @aihc_lir_srt_2 align 8 = { i64 0, i64 1, i64 1, ptr @exe_Main_square, ptr @aihc_lir_srt_3 }
-<a id="__codelineno-1-451" name="__codelineno-1-451" href="#__codelineno-1-451"></a>
-<a id="__codelineno-1-452" name="__codelineno-1-452" href="#__codelineno-1-452"></a>data mut @aihc_lir_srt_3 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dEnum_enumFromTo, ptr @aihc_lir_srt_4 }
-<a id="__codelineno-1-453" name="__codelineno-1-453" href="#__codelineno-1-453"></a>
-<a id="__codelineno-1-454" name="__codelineno-1-454" href="#__codelineno-1-454"></a>data mut @aihc_lir_srt_4 align 8 = { i64 0, i64 1, i64 2, ptr @aihc__mbase__m4__d21__d2__d0_GHC__dEnum___sfEnumInt, ptr @aihc_lir_srt_5, ptr @aihc_lir_srt_7 }
-<a id="__codelineno-1-455" name="__codelineno-1-455" href="#__codelineno-1-455"></a>
-<a id="__codelineno-1-456" name="__codelineno-1-456" href="#__codelineno-1-456"></a>data mut @aihc_lir_srt_5 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger, ptr @aihc_lir_srt_6 }
-<a id="__codelineno-1-457" name="__codelineno-1-457" href="#__codelineno-1-457"></a>
-<a id="__codelineno-1-458" name="__codelineno-1-458" href="#__codelineno-1-458"></a>data mut @aihc_lir_srt_6 align 8 = { i64 0, i64 1, i64 0, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt }
-<a id="__codelineno-1-459" name="__codelineno-1-459" href="#__codelineno-1-459"></a>
-<a id="__codelineno-1-460" name="__codelineno-1-460" href="#__codelineno-1-460"></a>data mut @aihc_lir_srt_7 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger, ptr @aihc_lir_srt_8 }
-<a id="__codelineno-1-461" name="__codelineno-1-461" href="#__codelineno-1-461"></a>
-<a id="__codelineno-1-462" name="__codelineno-1-462" href="#__codelineno-1-462"></a>data mut @aihc_lir_srt_8 align 8 = { i64 0, i64 1, i64 0, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt }
-<a id="__codelineno-1-463" name="__codelineno-1-463" href="#__codelineno-1-463"></a>
-<a id="__codelineno-1-464" name="__codelineno-1-464" href="#__codelineno-1-464"></a>data mut @aihc_lir_srt_9 align 8 = { i64 0, i64 2, i64 1, ptr @aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable___sfFoldable__k__j, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt, ptr @aihc_lir_srt_1 }
-<a id="__codelineno-1-465" name="__codelineno-1-465" href="#__codelineno-1-465"></a>
-<a id="__codelineno-1-466" name="__codelineno-1-466" href="#__codelineno-1-466"></a>data mut @aihc_lir_srt_10 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mbase__m4__d21__d2__d0_Prelude_print, ptr @aihc_lir_srt_11 }
-<a id="__codelineno-1-467" name="__codelineno-1-467" href="#__codelineno-1-467"></a>
-<a id="__codelineno-1-468" name="__codelineno-1-468" href="#__codelineno-1-468"></a>data mut @aihc_lir_srt_11 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mbase__m4__d21__d2__d0_GHC__dShow___sfShowInt, ptr @aihc_lir_srt_0 }
-<a id="__codelineno-1-469" name="__codelineno-1-469" href="#__codelineno-1-469"></a>
-<a id="__codelineno-1-470" name="__codelineno-1-470" href="#__codelineno-1-470"></a>data mut @aihc_lir_srt_12 align 8 = { i64 0, i64 1, i64 1, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___a, ptr @aihc_lir_srt_13 }
-<a id="__codelineno-1-471" name="__codelineno-1-471" href="#__codelineno-1-471"></a>
-<a id="__codelineno-1-472" name="__codelineno-1-472" href="#__codelineno-1-472"></a>data mut @aihc_lir_srt_13 align 8 = { i64 0, i64 1, i64 0, ptr @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt }
-<a id="__codelineno-1-473" name="__codelineno-1-473" href="#__codelineno-1-473"></a>
-<a id="__codelineno-1-474" name="__codelineno-1-474" href="#__codelineno-1-474"></a>func @aihc_lir_apply_p_p(%machine_318: ptr, %hp_319: ptr, %hp_limit_320: ptr, %sp_321: ptr, %sp_limit_322: ptr, %function_323: ptr, %continuation_324: ptr, %value_325: ptr, %value_326: ptr) {
-<a id="__codelineno-1-475" name="__codelineno-1-475" href="#__codelineno-1-475"></a>entry:
-<a id="__codelineno-1-476" name="__codelineno-1-476" href="#__codelineno-1-476"></a>  %arguments_327 = stack.alloc 16 align 8
-<a id="__codelineno-1-477" name="__codelineno-1-477" href="#__codelineno-1-477"></a>  %slot_328 = stack.alloc 8 align 1 word
-<a id="__codelineno-1-478" name="__codelineno-1-478" href="#__codelineno-1-478"></a>  jump loop(%function_323)
-<a id="__codelineno-1-479" name="__codelineno-1-479" href="#__codelineno-1-479"></a>
-<a id="__codelineno-1-480" name="__codelineno-1-480" href="#__codelineno-1-480"></a>loop(%current_329: ptr):
-<a id="__codelineno-1-481" name="__codelineno-1-481" href="#__codelineno-1-481"></a>  %header_word_330 = load i64 [%current_329] align 8
-<a id="__codelineno-1-482" name="__codelineno-1-482" href="#__codelineno-1-482"></a>  %info_word_331 = and i64 %header_word_330, -4
-<a id="__codelineno-1-483" name="__codelineno-1-483" href="#__codelineno-1-483"></a>  %header_332 = ptr.from_int %info_word_331
-<a id="__codelineno-1-484" name="__codelineno-1-484" href="#__codelineno-1-484"></a>  %kind_333 = load i8 [%header_332 + 43] align 1
-<a id="__codelineno-1-485" name="__codelineno-1-485" href="#__codelineno-1-485"></a>  %kind_334 = zext i8 %kind_333 to i64
-<a id="__codelineno-1-486" name="__codelineno-1-486" href="#__codelineno-1-486"></a>  %indirection_335 = eq i64 %kind_334, 4
-<a id="__codelineno-1-487" name="__codelineno-1-487" href="#__codelineno-1-487"></a>  br %indirection_335, indirection, apply
-<a id="__codelineno-1-488" name="__codelineno-1-488" href="#__codelineno-1-488"></a>
-<a id="__codelineno-1-489" name="__codelineno-1-489" href="#__codelineno-1-489"></a>indirection:
-<a id="__codelineno-1-490" name="__codelineno-1-490" href="#__codelineno-1-490"></a>  %next_336 = load ptr [%current_329 + 8] align 8
-<a id="__codelineno-1-491" name="__codelineno-1-491" href="#__codelineno-1-491"></a>  jump loop(%next_336)
-<a id="__codelineno-1-492" name="__codelineno-1-492" href="#__codelineno-1-492"></a>
-<a id="__codelineno-1-493" name="__codelineno-1-493" href="#__codelineno-1-493"></a>apply:
-<a id="__codelineno-1-494" name="__codelineno-1-494" href="#__codelineno-1-494"></a>  %closure_337 = eq i64 %kind_334, 1
-<a id="__codelineno-1-495" name="__codelineno-1-495" href="#__codelineno-1-495"></a>  br %closure_337, arity, slow
-<a id="__codelineno-1-496" name="__codelineno-1-496" href="#__codelineno-1-496"></a>
-<a id="__codelineno-1-497" name="__codelineno-1-497" href="#__codelineno-1-497"></a>arity:
-<a id="__codelineno-1-498" name="__codelineno-1-498" href="#__codelineno-1-498"></a>  %arity_338 = load i8 [%header_332 + 41] align 1
-<a id="__codelineno-1-499" name="__codelineno-1-499" href="#__codelineno-1-499"></a>  %arity_339 = zext i8 %arity_338 to i64
-<a id="__codelineno-1-500" name="__codelineno-1-500" href="#__codelineno-1-500"></a>  switch i64 %arity_339 {
-<a id="__codelineno-1-501" name="__codelineno-1-501" href="#__codelineno-1-501"></a>    2 -&gt; exact
-<a id="__codelineno-1-502" name="__codelineno-1-502" href="#__codelineno-1-502"></a>    1 -&gt; over_1
-<a id="__codelineno-1-503" name="__codelineno-1-503" href="#__codelineno-1-503"></a>    default -&gt; slow
-<a id="__codelineno-1-504" name="__codelineno-1-504" href="#__codelineno-1-504"></a>  }
-<a id="__codelineno-1-505" name="__codelineno-1-505" href="#__codelineno-1-505"></a>
-<a id="__codelineno-1-506" name="__codelineno-1-506" href="#__codelineno-1-506"></a>exact:
-<a id="__codelineno-1-507" name="__codelineno-1-507" href="#__codelineno-1-507"></a>  %entry_340 = load code [%header_332 + 24] align 1 word
-<a id="__codelineno-1-508" name="__codelineno-1-508" href="#__codelineno-1-508"></a>  tailcall.indirect %entry_340(%machine_318, %hp_319, %hp_limit_320, %sp_321, %sp_limit_322, %current_329, %continuation_324, %value_325, %value_326) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-509" name="__codelineno-1-509" href="#__codelineno-1-509"></a>
-<a id="__codelineno-1-510" name="__codelineno-1-510" href="#__codelineno-1-510"></a>over_1:
-<a id="__codelineno-1-511" name="__codelineno-1-511" href="#__codelineno-1-511"></a>  %sp_341 = ptr.add %sp_321, 24
-<a id="__codelineno-1-512" name="__codelineno-1-512" href="#__codelineno-1-512"></a>  %stack_fits_342 = le.u ptr %sp_341, %sp_limit_322
-<a id="__codelineno-1-513" name="__codelineno-1-513" href="#__codelineno-1-513"></a>  br %stack_fits_342, stack_pushed_344(%sp_321, %sp_341, %sp_limit_322), stack_grow_343
-<a id="__codelineno-1-514" name="__codelineno-1-514" href="#__codelineno-1-514"></a>
-<a id="__codelineno-1-515" name="__codelineno-1-515" href="#__codelineno-1-515"></a>cold stack_grow_343:
-<a id="__codelineno-1-516" name="__codelineno-1-516" href="#__codelineno-1-516"></a>  %result_345 = call @aihc_stack_grow(%machine_318, %sp_321, 3)
-<a id="__codelineno-1-517" name="__codelineno-1-517" href="#__codelineno-1-517"></a>  %sp_346 = ptr.add %result_345, 24
-<a id="__codelineno-1-518" name="__codelineno-1-518" href="#__codelineno-1-518"></a>  %sp_limit_347 = ptr.add %result_345, 4064
-<a id="__codelineno-1-519" name="__codelineno-1-519" href="#__codelineno-1-519"></a>  jump stack_pushed_344(%result_345, %sp_346, %sp_limit_347)
-<a id="__codelineno-1-520" name="__codelineno-1-520" href="#__codelineno-1-520"></a>
-<a id="__codelineno-1-521" name="__codelineno-1-521" href="#__codelineno-1-521"></a>stack_pushed_344(%frame_348: ptr, %sp_349: ptr, %sp_limit_350: ptr):
-<a id="__codelineno-1-522" name="__codelineno-1-522" href="#__codelineno-1-522"></a>  store ptr @aihc_lir_apply_frame_p_info, [%frame_348] align 8
-<a id="__codelineno-1-523" name="__codelineno-1-523" href="#__codelineno-1-523"></a>  store ptr %continuation_324, [%frame_348 + 8] align 8
-<a id="__codelineno-1-524" name="__codelineno-1-524" href="#__codelineno-1-524"></a>  store ptr %value_326, [%frame_348 + 16] align 8
-<a id="__codelineno-1-525" name="__codelineno-1-525" href="#__codelineno-1-525"></a>  %entry_351 = load code [%header_332 + 24] align 1 word
-<a id="__codelineno-1-526" name="__codelineno-1-526" href="#__codelineno-1-526"></a>  tailcall.indirect %entry_351(%machine_318, %hp_319, %hp_limit_320, %sp_349, %sp_limit_350, %current_329, %frame_348, %value_325) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-527" name="__codelineno-1-527" href="#__codelineno-1-527"></a>
-<a id="__codelineno-1-528" name="__codelineno-1-528" href="#__codelineno-1-528"></a>slow:
-<a id="__codelineno-1-529" name="__codelineno-1-529" href="#__codelineno-1-529"></a>  store ptr %value_325, [%arguments_327] align 8
-<a id="__codelineno-1-530" name="__codelineno-1-530" href="#__codelineno-1-530"></a>  store ptr %value_326, [%arguments_327 + 8] align 8
-<a id="__codelineno-1-531" name="__codelineno-1-531" href="#__codelineno-1-531"></a>  store ptr %continuation_324, [%slot_328] align 1 word
-<a id="__codelineno-1-532" name="__codelineno-1-532" href="#__codelineno-1-532"></a>  store ptr %hp_319, [%machine_318 + 24] align 1 word
-<a id="__codelineno-1-533" name="__codelineno-1-533" href="#__codelineno-1-533"></a>  store ptr %sp_321, [%machine_318 + 40] align 1 word
-<a id="__codelineno-1-534" name="__codelineno-1-534" href="#__codelineno-1-534"></a>  %result_352 = call @aihc_apply_slow(%machine_318, %current_329, 2, 2, %arguments_327, %slot_328)
-<a id="__codelineno-1-535" name="__codelineno-1-535" href="#__codelineno-1-535"></a>  %hp_353 = load ptr [%machine_318 + 24] align 1 word
-<a id="__codelineno-1-536" name="__codelineno-1-536" href="#__codelineno-1-536"></a>  %hp_limit_354 = load ptr [%machine_318 + 32] align 1 word
-<a id="__codelineno-1-537" name="__codelineno-1-537" href="#__codelineno-1-537"></a>  %adjusted_355 = load ptr [%slot_328] align 1 word
-<a id="__codelineno-1-538" name="__codelineno-1-538" href="#__codelineno-1-538"></a>  tailcall @aihc_lir_continue_p(%machine_318, %hp_353, %hp_limit_354, %sp_321, %sp_limit_322, %adjusted_355, %result_352)
-<a id="__codelineno-1-539" name="__codelineno-1-539" href="#__codelineno-1-539"></a>}
-<a id="__codelineno-1-540" name="__codelineno-1-540" href="#__codelineno-1-540"></a>
-<a id="__codelineno-1-541" name="__codelineno-1-541" href="#__codelineno-1-541"></a>func @aihc_lir_apply_p_p_p(%machine_356: ptr, %hp_357: ptr, %hp_limit_358: ptr, %sp_359: ptr, %sp_limit_360: ptr, %function_361: ptr, %continuation_362: ptr, %value_363: ptr, %value_364: ptr, %value_365: ptr) {
-<a id="__codelineno-1-542" name="__codelineno-1-542" href="#__codelineno-1-542"></a>entry:
-<a id="__codelineno-1-543" name="__codelineno-1-543" href="#__codelineno-1-543"></a>  %arguments_366 = stack.alloc 24 align 8
-<a id="__codelineno-1-544" name="__codelineno-1-544" href="#__codelineno-1-544"></a>  %slot_367 = stack.alloc 8 align 1 word
-<a id="__codelineno-1-545" name="__codelineno-1-545" href="#__codelineno-1-545"></a>  jump loop(%function_361)
-<a id="__codelineno-1-546" name="__codelineno-1-546" href="#__codelineno-1-546"></a>
-<a id="__codelineno-1-547" name="__codelineno-1-547" href="#__codelineno-1-547"></a>loop(%current_368: ptr):
-<a id="__codelineno-1-548" name="__codelineno-1-548" href="#__codelineno-1-548"></a>  %header_word_369 = load i64 [%current_368] align 8
-<a id="__codelineno-1-549" name="__codelineno-1-549" href="#__codelineno-1-549"></a>  %info_word_370 = and i64 %header_word_369, -4
-<a id="__codelineno-1-550" name="__codelineno-1-550" href="#__codelineno-1-550"></a>  %header_371 = ptr.from_int %info_word_370
-<a id="__codelineno-1-551" name="__codelineno-1-551" href="#__codelineno-1-551"></a>  %kind_372 = load i8 [%header_371 + 43] align 1
-<a id="__codelineno-1-552" name="__codelineno-1-552" href="#__codelineno-1-552"></a>  %kind_373 = zext i8 %kind_372 to i64
-<a id="__codelineno-1-553" name="__codelineno-1-553" href="#__codelineno-1-553"></a>  %indirection_374 = eq i64 %kind_373, 4
-<a id="__codelineno-1-554" name="__codelineno-1-554" href="#__codelineno-1-554"></a>  br %indirection_374, indirection, apply
-<a id="__codelineno-1-555" name="__codelineno-1-555" href="#__codelineno-1-555"></a>
-<a id="__codelineno-1-556" name="__codelineno-1-556" href="#__codelineno-1-556"></a>indirection:
-<a id="__codelineno-1-557" name="__codelineno-1-557" href="#__codelineno-1-557"></a>  %next_375 = load ptr [%current_368 + 8] align 8
-<a id="__codelineno-1-558" name="__codelineno-1-558" href="#__codelineno-1-558"></a>  jump loop(%next_375)
-<a id="__codelineno-1-559" name="__codelineno-1-559" href="#__codelineno-1-559"></a>
-<a id="__codelineno-1-560" name="__codelineno-1-560" href="#__codelineno-1-560"></a>apply:
-<a id="__codelineno-1-561" name="__codelineno-1-561" href="#__codelineno-1-561"></a>  %closure_376 = eq i64 %kind_373, 1
-<a id="__codelineno-1-562" name="__codelineno-1-562" href="#__codelineno-1-562"></a>  br %closure_376, arity, slow
-<a id="__codelineno-1-563" name="__codelineno-1-563" href="#__codelineno-1-563"></a>
-<a id="__codelineno-1-564" name="__codelineno-1-564" href="#__codelineno-1-564"></a>arity:
-<a id="__codelineno-1-565" name="__codelineno-1-565" href="#__codelineno-1-565"></a>  %arity_377 = load i8 [%header_371 + 41] align 1
-<a id="__codelineno-1-566" name="__codelineno-1-566" href="#__codelineno-1-566"></a>  %arity_378 = zext i8 %arity_377 to i64
-<a id="__codelineno-1-567" name="__codelineno-1-567" href="#__codelineno-1-567"></a>  switch i64 %arity_378 {
-<a id="__codelineno-1-568" name="__codelineno-1-568" href="#__codelineno-1-568"></a>    3 -&gt; exact
-<a id="__codelineno-1-569" name="__codelineno-1-569" href="#__codelineno-1-569"></a>    1 -&gt; over_1
-<a id="__codelineno-1-570" name="__codelineno-1-570" href="#__codelineno-1-570"></a>    2 -&gt; over_2
-<a id="__codelineno-1-571" name="__codelineno-1-571" href="#__codelineno-1-571"></a>    default -&gt; slow
-<a id="__codelineno-1-572" name="__codelineno-1-572" href="#__codelineno-1-572"></a>  }
-<a id="__codelineno-1-573" name="__codelineno-1-573" href="#__codelineno-1-573"></a>
-<a id="__codelineno-1-574" name="__codelineno-1-574" href="#__codelineno-1-574"></a>exact:
-<a id="__codelineno-1-575" name="__codelineno-1-575" href="#__codelineno-1-575"></a>  %entry_379 = load code [%header_371 + 24] align 1 word
-<a id="__codelineno-1-576" name="__codelineno-1-576" href="#__codelineno-1-576"></a>  tailcall.indirect %entry_379(%machine_356, %hp_357, %hp_limit_358, %sp_359, %sp_limit_360, %current_368, %continuation_362, %value_363, %value_364, %value_365) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-577" name="__codelineno-1-577" href="#__codelineno-1-577"></a>
-<a id="__codelineno-1-578" name="__codelineno-1-578" href="#__codelineno-1-578"></a>over_1:
-<a id="__codelineno-1-579" name="__codelineno-1-579" href="#__codelineno-1-579"></a>  %sp_380 = ptr.add %sp_359, 32
-<a id="__codelineno-1-580" name="__codelineno-1-580" href="#__codelineno-1-580"></a>  %stack_fits_381 = le.u ptr %sp_380, %sp_limit_360
-<a id="__codelineno-1-581" name="__codelineno-1-581" href="#__codelineno-1-581"></a>  br %stack_fits_381, stack_pushed_383(%sp_359, %sp_380, %sp_limit_360), stack_grow_382
-<a id="__codelineno-1-582" name="__codelineno-1-582" href="#__codelineno-1-582"></a>
-<a id="__codelineno-1-583" name="__codelineno-1-583" href="#__codelineno-1-583"></a>cold stack_grow_382:
-<a id="__codelineno-1-584" name="__codelineno-1-584" href="#__codelineno-1-584"></a>  %result_384 = call @aihc_stack_grow(%machine_356, %sp_359, 4)
-<a id="__codelineno-1-585" name="__codelineno-1-585" href="#__codelineno-1-585"></a>  %sp_385 = ptr.add %result_384, 32
-<a id="__codelineno-1-586" name="__codelineno-1-586" href="#__codelineno-1-586"></a>  %sp_limit_386 = ptr.add %result_384, 4064
-<a id="__codelineno-1-587" name="__codelineno-1-587" href="#__codelineno-1-587"></a>  jump stack_pushed_383(%result_384, %sp_385, %sp_limit_386)
-<a id="__codelineno-1-588" name="__codelineno-1-588" href="#__codelineno-1-588"></a>
-<a id="__codelineno-1-589" name="__codelineno-1-589" href="#__codelineno-1-589"></a>stack_pushed_383(%frame_387: ptr, %sp_388: ptr, %sp_limit_389: ptr):
-<a id="__codelineno-1-590" name="__codelineno-1-590" href="#__codelineno-1-590"></a>  store ptr @aihc_lir_apply_frame_p_p_info, [%frame_387] align 8
-<a id="__codelineno-1-591" name="__codelineno-1-591" href="#__codelineno-1-591"></a>  store ptr %continuation_362, [%frame_387 + 8] align 8
-<a id="__codelineno-1-592" name="__codelineno-1-592" href="#__codelineno-1-592"></a>  store ptr %value_364, [%frame_387 + 16] align 8
-<a id="__codelineno-1-593" name="__codelineno-1-593" href="#__codelineno-1-593"></a>  store ptr %value_365, [%frame_387 + 24] align 8
-<a id="__codelineno-1-594" name="__codelineno-1-594" href="#__codelineno-1-594"></a>  %entry_390 = load code [%header_371 + 24] align 1 word
-<a id="__codelineno-1-595" name="__codelineno-1-595" href="#__codelineno-1-595"></a>  tailcall.indirect %entry_390(%machine_356, %hp_357, %hp_limit_358, %sp_388, %sp_limit_389, %current_368, %frame_387, %value_363) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-596" name="__codelineno-1-596" href="#__codelineno-1-596"></a>
-<a id="__codelineno-1-597" name="__codelineno-1-597" href="#__codelineno-1-597"></a>over_2:
-<a id="__codelineno-1-598" name="__codelineno-1-598" href="#__codelineno-1-598"></a>  %sp_391 = ptr.add %sp_359, 24
-<a id="__codelineno-1-599" name="__codelineno-1-599" href="#__codelineno-1-599"></a>  %stack_fits_392 = le.u ptr %sp_391, %sp_limit_360
-<a id="__codelineno-1-600" name="__codelineno-1-600" href="#__codelineno-1-600"></a>  br %stack_fits_392, stack_pushed_394(%sp_359, %sp_391, %sp_limit_360), stack_grow_393
-<a id="__codelineno-1-601" name="__codelineno-1-601" href="#__codelineno-1-601"></a>
-<a id="__codelineno-1-602" name="__codelineno-1-602" href="#__codelineno-1-602"></a>cold stack_grow_393:
-<a id="__codelineno-1-603" name="__codelineno-1-603" href="#__codelineno-1-603"></a>  %result_395 = call @aihc_stack_grow(%machine_356, %sp_359, 3)
-<a id="__codelineno-1-604" name="__codelineno-1-604" href="#__codelineno-1-604"></a>  %sp_396 = ptr.add %result_395, 24
-<a id="__codelineno-1-605" name="__codelineno-1-605" href="#__codelineno-1-605"></a>  %sp_limit_397 = ptr.add %result_395, 4064
-<a id="__codelineno-1-606" name="__codelineno-1-606" href="#__codelineno-1-606"></a>  jump stack_pushed_394(%result_395, %sp_396, %sp_limit_397)
-<a id="__codelineno-1-607" name="__codelineno-1-607" href="#__codelineno-1-607"></a>
-<a id="__codelineno-1-608" name="__codelineno-1-608" href="#__codelineno-1-608"></a>stack_pushed_394(%frame_398: ptr, %sp_399: ptr, %sp_limit_400: ptr):
-<a id="__codelineno-1-609" name="__codelineno-1-609" href="#__codelineno-1-609"></a>  store ptr @aihc_lir_apply_frame_p_info, [%frame_398] align 8
-<a id="__codelineno-1-610" name="__codelineno-1-610" href="#__codelineno-1-610"></a>  store ptr %continuation_362, [%frame_398 + 8] align 8
-<a id="__codelineno-1-611" name="__codelineno-1-611" href="#__codelineno-1-611"></a>  store ptr %value_365, [%frame_398 + 16] align 8
-<a id="__codelineno-1-612" name="__codelineno-1-612" href="#__codelineno-1-612"></a>  %entry_401 = load code [%header_371 + 24] align 1 word
-<a id="__codelineno-1-613" name="__codelineno-1-613" href="#__codelineno-1-613"></a>  tailcall.indirect %entry_401(%machine_356, %hp_357, %hp_limit_358, %sp_399, %sp_limit_400, %current_368, %frame_398, %value_363, %value_364) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-614" name="__codelineno-1-614" href="#__codelineno-1-614"></a>
-<a id="__codelineno-1-615" name="__codelineno-1-615" href="#__codelineno-1-615"></a>slow:
-<a id="__codelineno-1-616" name="__codelineno-1-616" href="#__codelineno-1-616"></a>  store ptr %value_363, [%arguments_366] align 8
-<a id="__codelineno-1-617" name="__codelineno-1-617" href="#__codelineno-1-617"></a>  store ptr %value_364, [%arguments_366 + 8] align 8
-<a id="__codelineno-1-618" name="__codelineno-1-618" href="#__codelineno-1-618"></a>  store ptr %value_365, [%arguments_366 + 16] align 8
-<a id="__codelineno-1-619" name="__codelineno-1-619" href="#__codelineno-1-619"></a>  store ptr %continuation_362, [%slot_367] align 1 word
-<a id="__codelineno-1-620" name="__codelineno-1-620" href="#__codelineno-1-620"></a>  store ptr %hp_357, [%machine_356 + 24] align 1 word
-<a id="__codelineno-1-621" name="__codelineno-1-621" href="#__codelineno-1-621"></a>  store ptr %sp_359, [%machine_356 + 40] align 1 word
-<a id="__codelineno-1-622" name="__codelineno-1-622" href="#__codelineno-1-622"></a>  %result_402 = call @aihc_apply_slow(%machine_356, %current_368, 3, 3, %arguments_366, %slot_367)
-<a id="__codelineno-1-623" name="__codelineno-1-623" href="#__codelineno-1-623"></a>  %hp_403 = load ptr [%machine_356 + 24] align 1 word
-<a id="__codelineno-1-624" name="__codelineno-1-624" href="#__codelineno-1-624"></a>  %hp_limit_404 = load ptr [%machine_356 + 32] align 1 word
-<a id="__codelineno-1-625" name="__codelineno-1-625" href="#__codelineno-1-625"></a>  %adjusted_405 = load ptr [%slot_367] align 1 word
-<a id="__codelineno-1-626" name="__codelineno-1-626" href="#__codelineno-1-626"></a>  tailcall @aihc_lir_continue_p(%machine_356, %hp_403, %hp_limit_404, %sp_359, %sp_limit_360, %adjusted_405, %result_402)
-<a id="__codelineno-1-627" name="__codelineno-1-627" href="#__codelineno-1-627"></a>}
-<a id="__codelineno-1-628" name="__codelineno-1-628" href="#__codelineno-1-628"></a>
-<a id="__codelineno-1-629" name="__codelineno-1-629" href="#__codelineno-1-629"></a>data @aihc_lir_apply_frame_p_info align 8 = { code @aihc_lir_apply_frame_p, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_apply_frame_p_applied_info, code @aihc_lir_enter_2_1, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-630" name="__codelineno-1-630" href="#__codelineno-1-630"></a>
-<a id="__codelineno-1-631" name="__codelineno-1-631" href="#__codelineno-1-631"></a>data @aihc_lir_apply_frame_p_applied_info align 8 = { code @aihc_lir_apply_frame_p, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-632" name="__codelineno-1-632" href="#__codelineno-1-632"></a>
-<a id="__codelineno-1-633" name="__codelineno-1-633" href="#__codelineno-1-633"></a>func @aihc_lir_apply_frame_p(%machine_406: ptr, %hp_407: ptr, %hp_limit_408: ptr, %sp_409: ptr, %sp_limit_410: ptr, %parent_411: ptr, %value_412: ptr, %applied_413: ptr) {
-<a id="__codelineno-1-634" name="__codelineno-1-634" href="#__codelineno-1-634"></a>entry:
-<a id="__codelineno-1-635" name="__codelineno-1-635" href="#__codelineno-1-635"></a>  tailcall @aihc_lir_apply_p(%machine_406, %hp_407, %hp_limit_408, %sp_409, %sp_limit_410, %applied_413, %parent_411, %value_412)
-<a id="__codelineno-1-636" name="__codelineno-1-636" href="#__codelineno-1-636"></a>}
-<a id="__codelineno-1-637" name="__codelineno-1-637" href="#__codelineno-1-637"></a>
-<a id="__codelineno-1-638" name="__codelineno-1-638" href="#__codelineno-1-638"></a>data @aihc_lir_apply_frame_p_p_info align 8 = { code @aihc_lir_apply_frame_p_p, ptr @aihc_lir_bitmap_2, ptr @aihc_lir_apply_frame_p_p_applied_info, code @aihc_lir_enter_3_1, ptr null, i8 3, i8 1, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-639" name="__codelineno-1-639" href="#__codelineno-1-639"></a>
-<a id="__codelineno-1-640" name="__codelineno-1-640" href="#__codelineno-1-640"></a>data @aihc_lir_bitmap_3 align 1 = { bytes &quot;\x01\x01\x01\x01&quot; }
-<a id="__codelineno-1-641" name="__codelineno-1-641" href="#__codelineno-1-641"></a>
-<a id="__codelineno-1-642" name="__codelineno-1-642" href="#__codelineno-1-642"></a>data @aihc_lir_apply_frame_p_p_applied_info align 8 = { code @aihc_lir_apply_frame_p_p, ptr @aihc_lir_bitmap_3, ptr null, code null, ptr null, i8 4, i8 0, i8 1, i8 1, i8 0 }
-<a id="__codelineno-1-643" name="__codelineno-1-643" href="#__codelineno-1-643"></a>
-<a id="__codelineno-1-644" name="__codelineno-1-644" href="#__codelineno-1-644"></a>func @aihc_lir_apply_frame_p_p(%machine_414: ptr, %hp_415: ptr, %hp_limit_416: ptr, %sp_417: ptr, %sp_limit_418: ptr, %parent_419: ptr, %value_420: ptr, %value_421: ptr, %applied_422: ptr) {
-<a id="__codelineno-1-645" name="__codelineno-1-645" href="#__codelineno-1-645"></a>entry:
-<a id="__codelineno-1-646" name="__codelineno-1-646" href="#__codelineno-1-646"></a>  tailcall @aihc_lir_apply_p_p(%machine_414, %hp_415, %hp_limit_416, %sp_417, %sp_limit_418, %applied_422, %parent_419, %value_420, %value_421)
-<a id="__codelineno-1-647" name="__codelineno-1-647" href="#__codelineno-1-647"></a>}
-<a id="__codelineno-1-648" name="__codelineno-1-648" href="#__codelineno-1-648"></a>
-<a id="__codelineno-1-649" name="__codelineno-1-649" href="#__codelineno-1-649"></a>extern func @aihc_apply_slow(ptr, ptr, i64, i64, ptr, ptr) -&gt; ptr cc c
-<a id="__codelineno-1-650" name="__codelineno-1-650" href="#__codelineno-1-650"></a>
-<a id="__codelineno-1-651" name="__codelineno-1-651" href="#__codelineno-1-651"></a>extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
-<a id="__codelineno-1-652" name="__codelineno-1-652" href="#__codelineno-1-652"></a>
-<a id="__codelineno-1-653" name="__codelineno-1-653" href="#__codelineno-1-653"></a>extern func @aihc_lir_apply_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-654" name="__codelineno-1-654" href="#__codelineno-1-654"></a>
-<a id="__codelineno-1-655" name="__codelineno-1-655" href="#__codelineno-1-655"></a>extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-656" name="__codelineno-1-656" href="#__codelineno-1-656"></a>
-<a id="__codelineno-1-657" name="__codelineno-1-657" href="#__codelineno-1-657"></a>extern func @aihc_lir_enter_0_0_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-658" name="__codelineno-1-658" href="#__codelineno-1-658"></a>
-<a id="__codelineno-1-659" name="__codelineno-1-659" href="#__codelineno-1-659"></a>extern func @aihc_lir_enter_0_1_k(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-660" name="__codelineno-1-660" href="#__codelineno-1-660"></a>
-<a id="__codelineno-1-661" name="__codelineno-1-661" href="#__codelineno-1-661"></a>extern func @aihc_lir_enter_1_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-662" name="__codelineno-1-662" href="#__codelineno-1-662"></a>
-<a id="__codelineno-1-663" name="__codelineno-1-663" href="#__codelineno-1-663"></a>extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-664" name="__codelineno-1-664" href="#__codelineno-1-664"></a>
-<a id="__codelineno-1-665" name="__codelineno-1-665" href="#__codelineno-1-665"></a>extern func @aihc_lir_enter_3_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-666" name="__codelineno-1-666" href="#__codelineno-1-666"></a>
-<a id="__codelineno-1-667" name="__codelineno-1-667" href="#__codelineno-1-667"></a>extern func @aihc_lir_eval(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
-<a id="__codelineno-1-668" name="__codelineno-1-668" href="#__codelineno-1-668"></a>
-<a id="__codelineno-1-669" name="__codelineno-1-669" href="#__codelineno-1-669"></a>extern func @aihc_stack_grow(ptr, ptr, i64) -&gt; ptr cc c
-<a id="__codelineno-1-670" name="__codelineno-1-670" href="#__codelineno-1-670"></a>
-<a id="__codelineno-1-671" name="__codelineno-1-671" href="#__codelineno-1-671"></a>extern data @aihc__mbase__m4__d21__d2__d0_GHC__dBase_map
-<a id="__codelineno-1-672" name="__codelineno-1-672" href="#__codelineno-1-672"></a>
-<a id="__codelineno-1-673" name="__codelineno-1-673" href="#__codelineno-1-673"></a>extern data @aihc__mbase__m4__d21__d2__d0_GHC__dEnum___sfEnumInt
-<a id="__codelineno-1-674" name="__codelineno-1-674" href="#__codelineno-1-674"></a>
-<a id="__codelineno-1-675" name="__codelineno-1-675" href="#__codelineno-1-675"></a>extern data @aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable___sfFoldable__k__j
-<a id="__codelineno-1-676" name="__codelineno-1-676" href="#__codelineno-1-676"></a>
-<a id="__codelineno-1-677" name="__codelineno-1-677" href="#__codelineno-1-677"></a>extern data @aihc__mbase__m4__d21__d2__d0_GHC__dInternal__dFoldable_sum
-<a id="__codelineno-1-678" name="__codelineno-1-678" href="#__codelineno-1-678"></a>
-<a id="__codelineno-1-679" name="__codelineno-1-679" href="#__codelineno-1-679"></a>extern data @aihc__mbase__m4__d21__d2__d0_GHC__dShow___sfShowInt
-<a id="__codelineno-1-680" name="__codelineno-1-680" href="#__codelineno-1-680"></a>
-<a id="__codelineno-1-681" name="__codelineno-1-681" href="#__codelineno-1-681"></a>extern data @aihc__mbase__m4__d21__d2__d0_Prelude_print
-<a id="__codelineno-1-682" name="__codelineno-1-682" href="#__codelineno-1-682"></a>
-<a id="__codelineno-1-683" name="__codelineno-1-683" href="#__codelineno-1-683"></a>extern data @aihc__mprim__m0__d13__d0_GHC__dPrim__dEnum_enumFromTo
-<a id="__codelineno-1-684" name="__codelineno-1-684" href="#__codelineno-1-684"></a>
-<a id="__codelineno-1-685" name="__codelineno-1-685" href="#__codelineno-1-685"></a>extern data @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___a
-<a id="__codelineno-1-686" name="__codelineno-1-686" href="#__codelineno-1-686"></a>
-<a id="__codelineno-1-687" name="__codelineno-1-687" href="#__codelineno-1-687"></a>extern data @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum___sfNumInt
-<a id="__codelineno-1-688" name="__codelineno-1-688" href="#__codelineno-1-688"></a>
-<a id="__codelineno-1-689" name="__codelineno-1-689" href="#__codelineno-1-689"></a>extern data @aihc__mprim__m0__d13__d0_GHC__dPrim__dNum_fromInteger
-<a id="__codelineno-1-690" name="__codelineno-1-690" href="#__codelineno-1-690"></a>
-<a id="__codelineno-1-691" name="__codelineno-1-691" href="#__codelineno-1-691"></a>extern data @aihc_c_aihc__mprim__m0__d13__d0_GHC__dPrim__dInteger_IS_0
+<a id="__codelineno-1-105" name="__codelineno-1-105" href="#__codelineno-1-105"></a>alt_56:
+<a id="__codelineno-1-106" name="__codelineno-1-106" href="#__codelineno-1-106"></a>  %x_65 = load ptr [%case_value$gc_46 + 8] align 8
+<a id="__codelineno-1-107" name="__codelineno-1-107" href="#__codelineno-1-107"></a>  %xs_66 = load ptr [%case_value$gc_46 + 16] align 8
+<a id="__codelineno-1-108" name="__codelineno-1-108" href="#__codelineno-1-108"></a>  %hp_67 = ptr.add %hp_48, 24
+<a id="__codelineno-1-109" name="__codelineno-1-109" href="#__codelineno-1-109"></a>  store ptr @aihc_lir_info_5, [%hp_48] align 8
+<a id="__codelineno-1-110" name="__codelineno-1-110" href="#__codelineno-1-110"></a>  store ptr %xs_66, [%hp_48 + 8] align 8
+<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>  store ptr %y$gc_47, [%hp_48 + 16] align 8
+<a id="__codelineno-1-112" name="__codelineno-1-112" href="#__codelineno-1-112"></a>  %hp_68 = ptr.add %hp_67, 24
+<a id="__codelineno-1-113" name="__codelineno-1-113" href="#__codelineno-1-113"></a>  store ptr @aihc_c_aihc__mprim_GHC__dTypes___o_0, [%hp_67] align 8
+<a id="__codelineno-1-114" name="__codelineno-1-114" href="#__codelineno-1-114"></a>  store ptr %x_65, [%hp_67 + 8] align 8
+<a id="__codelineno-1-115" name="__codelineno-1-115" href="#__codelineno-1-115"></a>  store ptr %hp_48, [%hp_67 + 16] align 8
+<a id="__codelineno-1-116" name="__codelineno-1-116" href="#__codelineno-1-116"></a>  tailcall @aihc_lir_continue_p(%machine_32, %hp_68, %hp_limit_49, %sp_35, %sp_limit_36, %$cps_return$gc_45, %hp_67)
+<a id="__codelineno-1-117" name="__codelineno-1-117" href="#__codelineno-1-117"></a>}
+<a id="__codelineno-1-118" name="__codelineno-1-118" href="#__codelineno-1-118"></a>
+<a id="__codelineno-1-119" name="__codelineno-1-119" href="#__codelineno-1-119"></a>export data mut @_Example_append align 8 = { ptr @aihc_lir_info_0 }
+<a id="__codelineno-1-120" name="__codelineno-1-120" href="#__codelineno-1-120"></a>
+<a id="__codelineno-1-121" name="__codelineno-1-121" href="#__codelineno-1-121"></a>data @aihc_lir_info_0 align 8 = { code @aihc_f__Example___sappend, ptr null, ptr @aihc_lir_info_1, code @aihc_lir_enter_0_2_k, ptr null, i8 0, i8 2, i8 0, i8 1, i8 0 }
+<a id="__codelineno-1-122" name="__codelineno-1-122" href="#__codelineno-1-122"></a>
+<a id="__codelineno-1-123" name="__codelineno-1-123" href="#__codelineno-1-123"></a>data @aihc_lir_bitmap_0 align 1 = { bytes &quot;\x01&quot; }
+<a id="__codelineno-1-124" name="__codelineno-1-124" href="#__codelineno-1-124"></a>
+<a id="__codelineno-1-125" name="__codelineno-1-125" href="#__codelineno-1-125"></a>data @aihc_lir_info_1 align 8 = { code @aihc_f__Example___sappend, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_2, code @aihc_lir_enter_1_1_k, ptr null, i8 1, i8 1, i8 0, i8 1, i8 0 }
+<a id="__codelineno-1-126" name="__codelineno-1-126" href="#__codelineno-1-126"></a>
+<a id="__codelineno-1-127" name="__codelineno-1-127" href="#__codelineno-1-127"></a>data @aihc_lir_bitmap_1 align 1 = { bytes &quot;\x01\x01&quot; }
+<a id="__codelineno-1-128" name="__codelineno-1-128" href="#__codelineno-1-128"></a>
+<a id="__codelineno-1-129" name="__codelineno-1-129" href="#__codelineno-1-129"></a>data @aihc_lir_info_2 align 8 = { code @aihc_f__Example___sappend, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 1, i8 0 }
+<a id="__codelineno-1-130" name="__codelineno-1-130" href="#__codelineno-1-130"></a>
+<a id="__codelineno-1-131" name="__codelineno-1-131" href="#__codelineno-1-131"></a>data @aihc_lir_info_3 align 8 = { code @aihc_f__Example___sappend__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_4, code @aihc_lir_enter_2_1, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0 }
+<a id="__codelineno-1-132" name="__codelineno-1-132" href="#__codelineno-1-132"></a>
+<a id="__codelineno-1-133" name="__codelineno-1-133" href="#__codelineno-1-133"></a>data @aihc_lir_bitmap_2 align 1 = { bytes &quot;\x01\x01\x01&quot; }
+<a id="__codelineno-1-134" name="__codelineno-1-134" href="#__codelineno-1-134"></a>
+<a id="__codelineno-1-135" name="__codelineno-1-135" href="#__codelineno-1-135"></a>data @aihc_lir_info_4 align 8 = { code @aihc_f__Example___sappend__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1, i8 0 }
+<a id="__codelineno-1-136" name="__codelineno-1-136" href="#__codelineno-1-136"></a>
+<a id="__codelineno-1-137" name="__codelineno-1-137" href="#__codelineno-1-137"></a>data @aihc_lir_info_5 align 8 = { code @aihc_f__Example___sappend, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_enter_2_0_k, ptr null, i8 2, i8 0, i8 0, i8 2, i8 1 }
 </code></pre></div>
-<p>The compiler made these programs for the target <code>linux-amd64</code> at the default optimization level.</p>
+<p>The compiler made these programs at the default optimization level. The Lir is for the target <code>linux-amd64</code>.</p>
 <p>The page <a href="../examples/">Examples</a> shows more programs.</p>
 
 
@@ -1883,8 +1327,6 @@ Thus, the optimizer can see user code and runtime code as one program.</p>
             </div>
           
           
-  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
-
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
         </div>
         
@@ -1992,7 +1434,7 @@ Thus, the optimizer can see user code and runtime code as one program.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["content.action.edit", "content.code.copy", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["content.action.edit", "content.code.copy", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
