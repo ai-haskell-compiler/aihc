@@ -5,15 +5,18 @@
 # AI-written Haskell Compiler (aihc)
 
 Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not but let's find out. We'll need:
-- [x] preprocessing (done, see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp)),
-- [x] parsing (done, see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser)),
-- [ ] name resolution (<!-- AUTO-GENERATED: START resolve-progress --> `120/120` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->),
-- [ ] type checking (<!-- AUTO-GENERATED: START tc-progress --> `702/707` (`99.29%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->),
-- [ ] desugaring (workable, incomplete),
-- [ ] code generation (can generate machine code, llvm ir, wasm),
-- [ ] `ghc-prim` shim (<!-- AUTO-GENERATED: START ghc-prim-progress --> `784/5013` (`15.64%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->),
-- [ ] `base` implementation (<!-- AUTO-GENERATED: START base-progress --> `2137/10061` (`21.24%`) ●○○○○ <!-- AUTO-GENERATED: END base-progress -->),
-- [ ] self-host (<!-- AUTO-GENERATED: START self-hosting-progress --> `64/80` (`80.00%`) ●●●●○ <!-- AUTO-GENERATED: END self-hosting-progress -->).
+
+| Stage | Progress | Notes |
+| --- | --- | --- |
+| Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
+| Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
+| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `120/120` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `702/707` (`99.29%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `938/960` (`97.70%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `232/232` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | fixture pass rate, targets machine code, LLVM IR, Wasm |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `784/5013` (`15.64%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2137/10061` (`21.24%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `64/80` (`80.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Latest News
 

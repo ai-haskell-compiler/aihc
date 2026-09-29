@@ -41,6 +41,8 @@ resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
 fixture_extension_markdown_cmd="${FIXTURE_EXTENSION_PROGRESS_CMD:-nix run .#fixture-extension-progress}"
 tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
+desugar_cmd="${DESUGAR_PROGRESS_CMD:-nix run .#fixture-progress -- desugar}"
+codegen_cmd="${CODEGEN_PROGRESS_CMD:-nix run .#fixture-progress -- codegen}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
 # The two self-hosting commands get their output file as the last argument.
 self_hosting_packages_cmd="${SELF_HOSTING_PACKAGES_CMD:-nix run .#self-hosting-packages -- --output}"
@@ -56,6 +58,8 @@ resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 fixture_extension_out="$tmpdir/fixture-extension-progress.md"
 tc_out="$tmpdir/tc-progress.txt"
+desugar_out="$tmpdir/desugar-progress.txt"
+codegen_out="$tmpdir/codegen-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 self_hosting_packages_out="$tmpdir/self-hosting-packages.md"
 self_hosting_report="$tmpdir/self-hosting-report.tsv"
@@ -64,6 +68,8 @@ run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
 run_cmd "$fixture_extension_markdown_cmd" | sed -n '/^# Test Fixture Extension Support Status/,$p' >"$fixture_extension_out"
 run_cmd "$tc_cmd" >"$tc_out"
+run_cmd "$desugar_cmd" >"$desugar_out"
+run_cmd "$codegen_cmd" >"$codegen_out"
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
 run_cmd "$self_hosting_packages_cmd $(printf '%q' "$self_hosting_packages_out")"
 # The progress is of the new package list, also in --check mode.
@@ -150,6 +156,22 @@ tc_total="${tc_vals[4]}"
 tc_implemented="${tc_vals[5]}"
 tc_complete="${tc_vals[6]}"
 
+desugar_vals=($(parse_progress "$desugar_out")) || {
+	echo "update-generated-content.sh: could not parse desugar fixture-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
+	exit 2
+}
+desugar_total="${desugar_vals[4]}"
+desugar_implemented="${desugar_vals[5]}"
+desugar_complete="${desugar_vals[6]}"
+
+codegen_vals=($(parse_progress "$codegen_out")) || {
+	echo "update-generated-content.sh: could not parse codegen fixture-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
+	exit 2
+}
+codegen_total="${codegen_vals[4]}"
+codegen_implemented="${codegen_vals[5]}"
+codegen_complete="${codegen_vals[6]}"
+
 ghc_prim_vals=($(parse_core_libs_progress "$core_libs_progress_out" "GHC_PRIM")) || {
 	echo "update-generated-content.sh: could not parse core-libs-progress output for GHC_PRIM (expected 'GHC_PRIM N M PCT' line on stdout)." >&2
 	exit 2
@@ -168,6 +190,8 @@ base_complete="${base_vals[2]}"
 
 resolve_circles="$(progress_circles "$resolve_complete")"
 tc_circles="$(progress_circles "$tc_complete")"
+desugar_circles="$(progress_circles "$desugar_complete")"
+codegen_circles="$(progress_circles "$codegen_complete")"
 ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
 base_circles="$(progress_circles "$base_complete")"
 
@@ -194,23 +218,31 @@ self_hosting_complete="${self_hosting_vals[4]}"
 self_hosting_circles="$(progress_circles "$self_hosting_complete")"
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
-\`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`) ${resolve_circles}
+${resolve_circles} \`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-root-tc.txt" <<EOF2
-\`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`) ${tc_circles}
+${tc_circles} \`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`)
+EOF2
+
+cat >"$tmpdir/readme-root-desugar.txt" <<EOF2
+${desugar_circles} \`${desugar_implemented}/${desugar_total}\` (\`${desugar_complete}%\`)
+EOF2
+
+cat >"$tmpdir/readme-root-codegen.txt" <<EOF2
+${codegen_circles} \`${codegen_implemented}/${codegen_total}\` (\`${codegen_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-root-ghc-prim.txt" <<EOF2
-\`${ghc_prim_implemented}/${ghc_prim_total}\` (\`${ghc_prim_complete}%\`) ${ghc_prim_circles}
+${ghc_prim_circles} \`${ghc_prim_implemented}/${ghc_prim_total}\` (\`${ghc_prim_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-root-base.txt" <<EOF2
-\`${base_implemented}/${base_total}\` (\`${base_complete}%\`) ${base_circles}
+${base_circles} \`${base_implemented}/${base_total}\` (\`${base_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-root-self-hosting.txt" <<EOF2
-\`${self_hosting_pass}/${self_hosting_total}\` (\`${self_hosting_complete}%\`) ${self_hosting_circles}
+${self_hosting_circles} \`${self_hosting_pass}/${self_hosting_total}\` (\`${self_hosting_complete}%\`)
 EOF2
 
 {
@@ -381,6 +413,8 @@ fi
 
 replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
+replace_marker_inline README.md "desugar-progress" "$tmpdir/readme-root-desugar.txt"
+replace_marker_inline README.md "codegen-progress" "$tmpdir/readme-root-codegen.txt"
 replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
 replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
 replace_marker_inline README.md "self-hosting-progress" "$tmpdir/readme-root-self-hosting.txt"
