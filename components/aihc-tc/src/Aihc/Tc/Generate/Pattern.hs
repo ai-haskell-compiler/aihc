@@ -917,7 +917,8 @@ constructorGiven sp constructorName predicate = do
         ctEvVar = evidence,
         ctOrigin = origin,
         ctProvenance = FromCtOrigin origin,
-        ctLoc = sp
+        ctLoc = sp,
+        ctBranchGivens = []
       }
 
 instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])

@@ -66,8 +66,10 @@ data DictResult
 solveDict :: Ct -> TcM DictResult
 solveDict = solveDictWithGivens []
 
+-- | A wanted that left a pattern branch keeps the givens of the branch,
+-- so they join the givens of the caller.
 solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
-solveDictWithGivens = solveDictWithGivensVisited []
+solveDictWithGivens givens ct = solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct)) ct
 
 solveDictWithGivensVisited :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveDictWithGivensVisited visited givens ct0 = do

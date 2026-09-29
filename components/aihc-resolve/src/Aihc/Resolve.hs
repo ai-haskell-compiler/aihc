@@ -653,7 +653,7 @@ resolveClassDeclItem classDeclItem =
     ClassItemDefault valueDecl -> do
       scope <- currentScope
       ClassItemDefault <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
-    ClassItemFixity {} -> ClassItemAnn <$> unhandledSyntax ResolutionNamespaceTerm classDeclItem <*> pure classDeclItem
+    ClassItemFixity {} -> pure classDeclItem
     ClassItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure classDeclItem
       | otherwise -> ClassItemAnn <$> unhandledSyntax ResolutionNamespaceTerm classDeclItem <*> pure classDeclItem

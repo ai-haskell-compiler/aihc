@@ -81,9 +81,10 @@ solveLoop wl inerts = case popWork wl of
   Just (Right impl, wl') -> do
     -- Solve the implication by using its given constraints to satisfy wanteds.
     -- A wanted that is stuck on a meta variable of the enclosing scope waits
-    -- in the inert set for the enclosing solve.
+    -- in the inert set for the enclosing solve. It keeps the givens of the
+    -- implication for the time when the variable gets its solution.
     deferred <- solveImplication impl
-    solveLoop wl' (foldr addInertDict inerts deferred)
+    solveLoop wl' (foldr (addInertDict . withBranchGivens impl) inerts deferred)
 
 improveDictionaries :: InertSet -> TcM SolveResult
 improveDictionaries inerts = do
@@ -206,6 +207,10 @@ solveImplication impl = do
   deferredDictionaries <- concat <$> mapM (solveWantedWithGivens skolems givenPredicates givenEqs) dictionaryWanteds
   pure (deferredEqualities <> deferredDictionaries)
 
+-- | A wanted that leaves an implication keeps the givens of it.
+withBranchGivens :: Implication -> Ct -> Ct
+withBranchGivens impl ct = ct {ctBranchGivens = implGivenCts impl <> ctBranchGivens ct}
+
 -- | Improve the dictionary wanteds of a branch from the givens of the
 -- branch until improvement solves no further meta variable.
 improveImplicationWanteds :: [Pred] -> [Ct] -> TcM ()
@@ -266,7 +271,7 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     result <- withGivenPredicates givenPredicates (solveEquality ct)
     case result of
       EqSolved -> pure []
-      EqStuck stuck -> deferOrReport skolems stuck
+      EqStuck stuck -> deferOrReport skolems givenPredicates stuck
       EqError errCt -> do
         case ctPred errCt of
           EqPred et1 et2 ->
@@ -282,21 +287,21 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
       DictSolved -> pure []
-      DictStuck stuck -> deferOrReport skolems stuck
+      DictStuck stuck -> deferOrReport skolems givenPredicates stuck
   quantified@QuantifiedPred {} -> do
     kinds <- getKinds
     let rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred kinds givenEqualities quantified})
     case result of
       DictSolved -> pure []
-      DictStuck stuck -> deferOrReport skolems stuck
+      DictStuck stuck -> deferOrReport skolems givenPredicates stuck
   irreducible@IrredPred {} -> do
     kinds <- getKinds
     let rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred kinds givenEqualities irreducible})
     case result of
       DictSolved -> pure []
-      DictStuck stuck -> deferOrReport skolems stuck
+      DictStuck stuck -> deferOrReport skolems givenPredicates stuck
   IParamPred name payload -> do
     kinds <- getKinds
     payload' <- zonkType payload
@@ -305,15 +310,20 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
       DictSolved -> pure []
-      DictStuck stuck -> deferOrReport skolems stuck
+      DictStuck stuck -> deferOrReport skolems givenPredicates stuck
 
--- | A stuck dictionary wanted that mentions a meta variable and no skolem
--- of the implication can still be solved by the enclosing scope, so it is
--- deferred. Every other stuck wanted is an error.
-deferOrReport :: [TyVarId] -> Ct -> TcM [Ct]
-deferOrReport skolems stuck = do
+-- | A stuck dictionary wanted that mentions no skolem of the implication
+-- can still be solved by the enclosing scope when it or one of its givens
+-- mentions a meta variable, so it is deferred. Every other stuck wanted is
+-- an error.
+deferOrReport :: [TyVarId] -> [Pred] -> Ct -> TcM [Ct]
+deferOrReport skolems givenPredicates stuck = do
   predicate <- zonkPred (ctPred stuck)
-  let deferrable = not (null (predMetaVars predicate)) && not (any (`elem` skolems) (predTyVars predicate))
+  givens <- mapM zonkPred givenPredicates
+  -- A given can also wait for a meta variable, as the given of a match on
+  -- a scrutinee whose type the enclosing scope fixes does.
+  let waits = not (null (predMetaVars predicate)) || not (all (null . predMetaVars) givens)
+      deferrable = waits && not (any (`elem` skolems) (predTyVars predicate))
   if deferrable
     then pure [stuck {ctPred = predicate}]
     else do

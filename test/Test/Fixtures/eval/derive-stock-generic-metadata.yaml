@@ -1,0 +1,72 @@
+extensions:
+  - DeriveGeneric
+  - DerivingStrategies
+  - FlexibleContexts
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE DerivingStrategies #-}
+    {-# LANGUAGE FlexibleContexts #-}
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import GHC.Generics
+
+    data Record = Record {left :: !Int, right :: Char}
+      deriving stock (Generic)
+
+    newtype Wrap = Wrap Char
+      deriving stock (Generic)
+
+    data Shape = Dot | Box Int Int
+      deriving stock (Generic)
+
+    class Names f where
+      names :: f p -> [String]
+
+    instance (Datatype d, Names f) => Names (D1 d f) where
+      names value = datatypeName value : show (isNewtype value) : names (unM1 value)
+
+    instance (Names f, Names g) => Names (f :+: g) where
+      names (L1 value) = names value
+      names (R1 value) = names value
+
+    instance (Constructor c, Names f) => Names (C1 c f) where
+      names value = conName value : show (conIsRecord value) : names (unM1 value)
+
+    instance (Names f, Names g) => Names (f :*: g) where
+      names (left' :*: right') = names left' ++ names right'
+
+    instance (Selector s) => Names (S1 s f) where
+      names value = [selName value, show (selSourceStrictness value)]
+
+    instance Names U1 where
+      names _ = []
+
+    nameList :: (Generic a, Names (Rep a)) => a -> [String]
+    nameList value = names (from value)
+
+    names' :: [String]
+    names' =
+      nameList (Record 1 'r')
+        ++ nameList (Wrap 'w')
+        ++ nameList Dot
+        ++ nameList (Box 1 2)
+        ++ nameList (Just 'j')
+
+    result :: Bool
+    result =
+      names'
+        == [ "Record", "False", "Record", "True",
+             "left", "SourceStrict", "right", "NoSourceStrictness",
+             "Wrap", "True", "Wrap", "False", "", "NoSourceStrictness",
+             "Shape", "False", "Dot", "False",
+             "Shape", "False", "Box", "False", "", "NoSourceStrictness", "", "NoSourceStrictness",
+             "Maybe", "False", "Just", "False", "", "NoSourceStrictness"
+           ]
+expression: result
+output: |
+  True
+status: pass
+reason: the metadata of a derived Generic instance gives the names of the datatype, its constructors and its record fields

@@ -218,6 +218,7 @@ addDeclarationContext name lintError =
    in case lintError of
         TypeMismatch context expected actual -> TypeMismatch (contextPrefix context) expected actual
         KindMismatch context expected actual -> KindMismatch (contextPrefix context) expected actual
+        LintFailure message -> LintFailure (contextPrefix message)
         other -> other
 
 lintTypeDecl :: TypeEnv -> TypeDecl -> [LintError]
