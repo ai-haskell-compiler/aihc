@@ -12,11 +12,11 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
 | Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `120/120` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
 | Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `702/707` (`99.29%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `938/960` (`97.70%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `944/966` (`97.72%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
 | Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `232/232` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | fixture pass rate, targets machine code, LLVM IR, Wasm |
 | `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `784/5013` (`15.64%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2137/10061` (`21.24%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
-| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `64/80` (`80.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2139/10061` (`21.26%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `66/80` (`82.50%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Latest News
 
@@ -50,7 +50,7 @@ AIHC compiling itself ("self hosting") is the next milestone. Expand the details
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 64 install, 3 fail, 13 wait for a dependency</summary>
+<summary>Self-compile packages: 66 install, 3 fail, 11 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -115,7 +115,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | time-compat | 1.9.9 | ✅ installs |
 | text-iso8601 | 0.1.1.2 | ✅ installs |
 | transformers-compat | 0.7.2 | ✅ installs |
-| unix | 2.8.8.0 | ❌ fails (invalid redefinition of function 'write') |
+| unix | 2.8.8.0 | ❌ fails (call to undeclared function 'ptsname'; ISO C99 and later do not support implicit function declarations [-Wimplicit-funct) |
 | file-io | 0.1.6 | ⏸️ needs `unix` |
 | directory | 1.3.10.1 | ⏸️ needs `file-io`, `unix` |
 | Cabal-syntax | 3.16.1.0 | ⏸️ needs `directory` |
@@ -126,14 +126,14 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | optparse-applicative | 0.18.1.0 | ⏸️ needs `process` |
 | unordered-containers | 0.2.21 | ✅ installs |
 | async | 2.2.6 | ✅ installs |
-| semigroupoids | 6.0.2 | ❌ fails (unbound term name ‘trans’) |
+| semigroupoids | 6.0.2 | ✅ installs |
 | uuid-types | 1.0.6.1 | ✅ installs |
 | vector-stream | 0.1.0.1 | ✅ installs |
 | vector | 0.13.2.0 | ✅ installs |
 | indexed-traversable-instances | 0.1.2.1 | ✅ installs |
-| semialign | 1.4 | ⏸️ needs `semigroupoids` |
+| semialign | 1.4 | ✅ installs |
 | witherable | 0.5 | ✅ installs |
-| aeson | 2.2.5.1 | ⏸️ needs `semialign` |
+| aeson | 2.2.5.1 | ❌ fails (unbound type name ‘Generically’) |
 | aihc-package-plan | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `directory` |
 | aihc | 0.1.0.0 | ⏸️ needs `Cabal-syntax`, `aeson`, `aihc-hackage`, `aihc-package-plan`, `aihc-resolve`, `aihc-tc`, `directory`, `haskeline`, `optparse-applicative`, `process`, `unix` |
 
