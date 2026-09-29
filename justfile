@@ -44,8 +44,24 @@ check:
   TASTY_HEDGEHOG_TESTS=1000 cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes'
 
 # Preview the manual at http://127.0.0.1:8000/.
-docs:
-  nix develop --quiet --command mkdocs serve --config-file docs/aihc-manual/mkdocs.yml
+docs: docs-examples
+  nix develop --quiet --command bash -c 'cd docs/aihc-manual && mkdocs serve'
+
+# Compile the pipeline examples of the manual with the local compiler.
+docs-examples:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) target=apple-arm64 ;;
+    Linux-x86_64) target=linux-amd64 ;;
+    *) target=llvm ;;
+  esac
+  cabal build -v0 exe:aihc
+  AIHC_CORE_LIBS_ROOT="$PWD" scripts/generate-pipeline-examples.sh \
+    --aihc "$(cabal list-bin -v0 exe:aihc)" \
+    --target "$target" \
+    --output docs/aihc-manual/generated \
+    docs/aihc-manual/pipeline-examples
 
 # Generate boot package interfaces for the resolver (requires GHC dev env)
 gen-boot-ifaces:

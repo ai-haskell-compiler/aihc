@@ -20,7 +20,6 @@
     mkWasiSysroot = import ./scripts/nix/wasi-sysroot.nix;
     mkLirExtension = import ./scripts/nix/vscode-lir.nix;
     mkPackages = import ./scripts/nix/packages.nix {
-      inherit (docs) mkManual;
       inherit mkLirExtension;
     };
     mkApps = import ./scripts/nix/apps.nix {
@@ -32,6 +31,7 @@
       inherit (core) projectHsPackages;
       inherit sources mkWasiSysroot mkLirExtension;
       inherit (haskell) mkHsPkgsForChecks;
+      inherit (docs) mkManual;
     };
     mkDevShells = import ./scripts/nix/dev-shells.nix {
       inherit mkWasiSysroot;

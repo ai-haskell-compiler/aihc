@@ -12,6 +12,8 @@ on:
       - docs/aihc-manual/**
       - flake.lock
       - flake.nix
+      - scripts/generate-pipeline-examples.sh
+      - scripts/nix/checks.nix
       - scripts/nix/docs.nix
       - scripts/nix/packages.nix
 

@@ -4,6 +4,7 @@
   mkHsPkgsForChecks,
   mkWasiSysroot,
   mkLirExtension,
+  mkManual,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
@@ -995,6 +996,29 @@
   ghcExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-ghc-example-test" ghcExampleCases;
 
+  # The manual shows the intermediate programs of its pipeline examples.
+  # This derivation compiles them with the compiler of this commit, so the
+  # manual always agrees with the compiler. A compiler change that cannot
+  # compile an example breaks this derivation and thus the manual build.
+  pipelineExamples =
+    pkgs.runCommand "aihc-manual-pipeline-examples" {
+      nativeBuildInputs = exampleTestInputs;
+    } ''
+      set -euo pipefail
+      export GHCRTS=-N
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      ${exportCoreLibsRoot}
+      bash ${../generate-pipeline-examples.sh} \
+        --aihc ${aihcExe} \
+        --target ${hostBackendTarget} \
+        --store ${exampleToolchainFor hostBackendTarget} \
+        --output "$out" \
+        ${../../docs/aihc-manual/pipeline-examples}
+    '';
+
+  manual = mkManual pkgs pipelineExamples;
+
   # Every example uses LLVM and the available host-native backend. Nix
   # schedules independent examples in parallel against the immutable shared
   # library and runtime artifacts.
@@ -1144,8 +1168,12 @@ in {
     hackage-install-tests = hackageInstallTests;
     examples-tests = examplesTests;
     wasip3-example-test = wasip3ExampleTest;
+    inherit manual;
   };
   packages = {
+    inherit manual pipelineExamples;
+    docs = manual;
+    default = manual;
     cross-examples-apple-arm64 = crossExampleBundlesFor "apple-arm64";
   };
 }

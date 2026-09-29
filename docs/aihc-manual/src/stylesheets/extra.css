@@ -253,3 +253,8 @@
 .md-footer-meta {
   border-top: 1px solid var(--aihc-rule);
 }
+
+/* Compiler dumps can have hundreds of lines. Scroll long code blocks. */
+.md-typeset pre > code {
+  max-height: 32rem;
+}
