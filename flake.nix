@@ -20,7 +20,7 @@
     mkWasiSysroot = import ./scripts/nix/wasi-sysroot.nix;
     mkLirExtension = import ./scripts/nix/vscode-lir.nix;
     mkPackages = import ./scripts/nix/packages.nix {
-      inherit (docs) mkUserGuide;
+      inherit (docs) mkManual;
       inherit mkLirExtension;
     };
     mkApps = import ./scripts/nix/apps.nix {
