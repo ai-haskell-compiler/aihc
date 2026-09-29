@@ -29,9 +29,9 @@ The first letter of a node tag gives the sort of the node.
 
 | Tag | Node | Example |
 | --- | --- | --- |
-| `C` | A data constructor and its fields | `(C7.IS (1 :: IntRep))` |
-| `F` | A thunk: a function with no arguments that makes the value | `(F9.$main_thunk)` |
-| `P` | A partial application: a function and the number of arguments that it needs | `(P9.$square/1)` |
+| `C` | A data constructor and its fields | `(C2.: x xs)` |
+| `F` | A thunk: a function and its arguments, not yet evaluated | `(F1.$append xs y)` |
+| `P` | A partial application: a function and the number of arguments that it needs | `(P1.$append/2)` |
 
 ## Stages
 
@@ -49,16 +49,16 @@ This manual shows the first stage only.
 
 ## Example
 
-This program uses type classes:
+This module has a recursive function on lists:
 
 ```haskell
---8<-- "01-type-classes/Main.hs"
+--8<-- "03-recursion/Example.hs"
 ```
 
-The compiler makes this GRIN program for the module `Main`:
+The compiler makes this GRIN program for the module:
 
 ```text
---8<-- "01-type-classes/grin"
+--8<-- "03-recursion/grin"
 ```
 
 --8<-- "settings.md"

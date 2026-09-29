@@ -49,19 +49,7 @@ docs: docs-examples
 
 # Compile the pipeline examples of the manual with the local compiler.
 docs-examples:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  case "$(uname -s)-$(uname -m)" in
-    Darwin-arm64) target=apple-arm64 ;;
-    Linux-x86_64) target=linux-amd64 ;;
-    *) target=llvm ;;
-  esac
-  cabal build -v0 exe:aihc
-  AIHC_CORE_LIBS_ROOT="$PWD" scripts/generate-pipeline-examples.sh \
-    --aihc "$(cabal list-bin -v0 exe:aihc)" \
-    --target "$target" \
-    --output docs/aihc-manual/generated \
-    docs/aihc-manual/pipeline-examples
+  cabal run -v0 aihc-dev -- pipeline-examples docs/aihc-manual/pipeline-examples --output docs/aihc-manual/generated
 
 # Generate boot package interfaces for the resolver (requires GHC dev env)
 gen-boot-ifaces:

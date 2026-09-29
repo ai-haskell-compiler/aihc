@@ -997,25 +997,18 @@
     pkgs.linkFarm "aihc-ghc-example-test" ghcExampleCases;
 
   # The manual shows the intermediate programs of its pipeline examples.
-  # This derivation compiles them with the compiler of this commit, so the
-  # manual always agrees with the compiler. A compiler change that cannot
-  # compile an example breaks this derivation and thus the manual build.
-  pipelineExamples =
-    pkgs.runCommand "aihc-manual-pipeline-examples" {
-      nativeBuildInputs = exampleTestInputs;
-    } ''
-      set -euo pipefail
-      export GHCRTS=-N
-      export LANG=C.UTF-8
-      export LC_ALL=C.UTF-8
-      ${exportCoreLibsRoot}
-      bash ${../generate-pipeline-examples.sh} \
-        --aihc ${aihcExe} \
-        --target ${hostBackendTarget} \
-        --store ${exampleToolchainFor hostBackendTarget} \
-        --output "$out" \
-        ${../../docs/aihc-manual/pipeline-examples}
-    '';
+  # `aihc-dev pipeline-examples` compiles them in memory with the compiler
+  # libraries of this commit, so the manual always agrees with the compiler.
+  # A compiler change that cannot compile an example breaks this derivation
+  # and thus the manual build.
+  pipelineExamples = pkgs.runCommand "aihc-manual-pipeline-examples" {} ''
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+    export AIHC_PRIM_SRC=${sources.primSrc pkgs}
+    ${pkgs.lib.getExe' hsPkgs.aihc "aihc-dev"} pipeline-examples \
+      ${../../docs/aihc-manual/pipeline-examples} \
+      --output "$out"
+  '';
 
   manual = mkManual pkgs pipelineExamples;
 

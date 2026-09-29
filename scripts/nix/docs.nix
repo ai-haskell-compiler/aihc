@@ -1,7 +1,7 @@
 {}: let
-  # The pipeline pages include the programs that
-  # scripts/generate-pipeline-examples.sh makes. `generated` is the output
-  # directory of that script. mkdocs reads it from the working directory.
+  # The pipeline pages include the programs that `aihc-dev pipeline-examples`
+  # makes. `generated` is the output directory of that command. mkdocs reads
+  # it from the working directory.
   mkManual = pkgs: generated:
     pkgs.runCommand "aihc-manual" {
       nativeBuildInputs = [pkgs.python3Packages.mkdocs-material];

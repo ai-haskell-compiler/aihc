@@ -1,5 +1,4 @@
-## Data types and pattern matches
+## A data type and a pattern match
 
-This program declares an algebraic data type and matches on its constructors.
-In System FC, the data type is a `type` declaration with its constructors.
-The pattern match is a `case` expression.
+`next` matches on the constructors of a data type.
+In System FC, the equations become one `case` expression.

@@ -53,16 +53,16 @@ If a local binder has the same name as an outer binder, the printer adds a numbe
 
 ## Example
 
-This program uses type classes:
+This module has a recursive function on lists:
 
 ```haskell
---8<-- "01-type-classes/Main.hs"
+--8<-- "03-recursion/Example.hs"
 ```
 
-The compiler makes this System FC program for the module `Main`:
+The compiler makes this System FC program for the module:
 
 ```text
---8<-- "01-type-classes/core"
+--8<-- "03-recursion/core"
 ```
 
 --8<-- "settings.md"

@@ -37,7 +37,6 @@ theme:
   features:
     - content.action.edit
     - content.code.copy
-    - content.tabs.link
     - navigation.footer
     - navigation.indexes
     - navigation.sections
@@ -76,7 +75,7 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   # The pipeline pages include the output of
-  # scripts/generate-pipeline-examples.sh. The build must run in this
+  # `aihc-dev pipeline-examples`. The build must run in this
   # directory, because base_path is relative to the working directory.
   - pymdownx.snippets:
       base_path:

@@ -18,7 +18,7 @@ The repository uses `just` as its command runner.
 | `just test` | Run all tests and hide successful results. |
 | `just check` | Run the format check, HLint, and the full test suite. |
 | `just docs` | Serve this manual at `http://127.0.0.1:8000/`. |
-| `just docs-examples` | Compile the [pipeline examples](pipeline/examples.md) of this manual with the local compiler. `just docs` does this first. |
+| `just docs-examples` | Compile the [pipeline examples](pipeline/examples.md) of this manual with `aihc-dev pipeline-examples`. `just docs` does this first. |
 
 Run `just fmt` and `just check` before each commit.
 The file [AGENTS.md](https://github.com/ai-haskell-compiler/aihc/blob/main/AGENTS.md) gives the full development rules.

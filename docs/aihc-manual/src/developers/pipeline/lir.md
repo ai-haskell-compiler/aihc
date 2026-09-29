@@ -49,16 +49,16 @@ Thus, the optimizer can see user code and runtime code as one program.
 
 ## Example
 
-This program uses type classes:
+This module has a recursive function on lists:
 
 ```haskell
---8<-- "01-type-classes/Main.hs"
+--8<-- "03-recursion/Example.hs"
 ```
 
-The compiler makes this Lir program for the module `Main`:
+The compiler makes this Lir program for the module:
 
 ```text
---8<-- "01-type-classes/lir"
+--8<-- "03-recursion/lir"
 ```
 
 --8<-- "settings.md"
