@@ -57,7 +57,7 @@ compileLirModule lirModule =
       (functions, ModuleState traps shims) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) (ModuleState Map.empty Map.empty)
       pure
         ( T.unlines
-            ( preamble
+            ( preamble externSymbols
                 <> concatMap declareExtern [external | ItemExternFunction external <- items]
                 <> [renderSymbol symbol <> " = external global i8" | ItemExternData symbol <- items]
                 <> [renderSymbol (globalName global) <> " = internal global " <> renderType (globalType global) <> " " <> zeroValue (globalType global) | ItemGlobal global <- items]
@@ -75,6 +75,7 @@ compileLirModule lirModule =
   where
     prepared = prepareCheckedModule wordBytes lirModule
     Module items = fromRight (Module []) prepared
+    externSymbols = [externFunctionName external | ItemExternFunction external <- items]
     ctx =
       Ctx
         { ctxSignatures =
@@ -91,16 +92,22 @@ data Ctx = Ctx
     ctxGlobals :: !(Map Symbol Type)
   }
 
-preamble :: [Text]
-preamble =
-  [ "; Lir module compiled by Aihc.Llvm.Lir.",
-    "declare i64 @write(i32, ptr, i64)",
-    "declare void @_exit(i32) noreturn",
-    "declare float @llvm.fabs.f32(float)",
-    "declare double @llvm.fabs.f64(double)",
-    "declare float @llvm.sqrt.f32(float)",
-    "declare double @llvm.sqrt.f64(double)"
-  ]
+-- | The declarations that every module needs. The trap blocks call @write@
+-- and @_exit@. A module can also import these functions as externs, and
+-- LLVM rejects a second declaration of a symbol. Thus the preamble does not
+-- declare a trap function that the module imports.
+preamble :: [Symbol] -> [Text]
+preamble externSymbols =
+  ["; Lir module compiled by Aihc.Llvm.Lir."]
+    <> [ declaration
+       | (symbol, declaration) <- trapFunctionDeclarations,
+         Symbol symbol `notElem` externSymbols
+       ]
+    <> [ "declare float @llvm.fabs.f32(float)",
+         "declare double @llvm.fabs.f64(double)",
+         "declare float @llvm.sqrt.f32(float)",
+         "declare double @llvm.sqrt.f64(double)"
+       ]
     <> concat
       [ [ "declare {" <> ty <> ", i1} @llvm.uadd.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
           "declare {" <> ty <> ", i1} @llvm.usub.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
@@ -113,6 +120,13 @@ preamble =
       | ty <- ["i8", "i16", "i32", "i64"]
       ]
     <> bitScatterHelpers
+
+-- | The C functions that the trap blocks call, with their declarations.
+trapFunctionDeclarations :: [(Text, Text)]
+trapFunctionDeclarations =
+  [ ("write", "declare i64 @write(i32, ptr, i64)"),
+    ("_exit", "declare void @_exit(i32) noreturn")
+  ]
 
 -- | The parallel bit deposit and extract of 64-bit values as loops over
 -- the set bits of the mask, since LLVM has no portable intrinsic for them.
