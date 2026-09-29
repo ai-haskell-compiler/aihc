@@ -1156,6 +1156,11 @@ Clang assembles:
 - Both conventions are the WebAssembly convention. A `tailcall` is
   `return_call`, and `call.indirect` states the signature.
 - `stack.alloc` reserves memory on the shadow stack below `__stack_pointer`.
+  When possible, only the blocks that use the memory make a frame. The other
+  paths do not touch `__stack_pointer`. This is possible when each block
+  that makes a call uses the memory, or when no block reads a byte of the
+  memory that it did not write before. Otherwise one frame lasts for the
+  whole function.
 - The full 64-bit multiplications are Lir helper functions that the backend
   adds to the module.
 - A trap calls `aihc_lir_trap` with the message and its length and then
