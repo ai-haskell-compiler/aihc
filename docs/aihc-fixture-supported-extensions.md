@@ -5,7 +5,7 @@
 - Total Extensions: 63
 - Supported: 48
 - In Progress: 15
-- Fixtures (eval): 657
+- Fixtures (eval): 659
 - Fixtures (fc): 309
 
 ## Extension Status
@@ -23,9 +23,9 @@
 | DeriveDataTypeable         |   🟢    | 1/1           |
 | DeriveFoldable             |   🟢    | 2/2           |
 | DeriveFunctor              |   🟢    | 2/2           |
-| DeriveGeneric              |   🟢    | 3/3           |
+| DeriveGeneric              |   🟢    | 5/5           |
 | DeriveTraversable          |   🟢    | 1/1           |
-| DerivingStrategies         |   🟡    | 43/46         |
+| DerivingStrategies         |   🟡    | 44/47         |
 | DerivingVia                |   🔴    | 21/24         |
 | EmptyCase                  |   🟢    | 1/1           |
 | EmptyDataDecls             |   🟢    | 2/2           |
@@ -33,7 +33,7 @@
 | ExplicitForAll             |   🟢    | 13/13         |
 | ExplicitNamespaces         |   🟢    | 5/5           |
 | ExtendedLiterals           |   🟢    | 13/13         |
-| FlexibleContexts           |   🟢    | 16/16         |
+| FlexibleContexts           |   🟢    | 17/17         |
 | FlexibleInstances          |   🟡    | 44/46         |
 | ForeignFunctionInterface   |   🟢    | 43/43         |
 | FunctionalDependencies     |   🔴    | 18/22         |
@@ -61,7 +61,7 @@
 | RecordWildCards            |   🟢    | 2/2           |
 | RecursiveDo                |   🔴    | 0/11          |
 | RoleAnnotations            |   🟢    | 4/4           |
-| ScopedTypeVariables        |   🟡    | 36/37         |
+| ScopedTypeVariables        |   🟡    | 37/38         |
 | StandaloneDeriving         |   🟡    | 10/11         |
 | StandaloneKindSignatures   |   🟢    | 6/6           |
 | StarIsType                 |   🟢    | 2/2           |
@@ -69,7 +69,7 @@
 | TypeApplications           |   🟢    | 13/13         |
 | TypeFamilies               |   🟡    | 47/49         |
 | TypeFamilyDependencies     |   🟢    | 1/1           |
-| TypeOperators              |   🟢    | 114/114       |
+| TypeOperators              |   🟢    | 115/115       |
 | UnboxedSums                |   🟢    | 10/10         |
 | UnboxedTuples              |   🟡    | 85/86         |
 | UndecidableInstances       |   🔴    | 11/14         |
