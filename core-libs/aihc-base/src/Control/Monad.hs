@@ -31,6 +31,7 @@ module Control.Monad
     replicateM_,
     zipWithM,
     zipWithM_,
+    mapAndUnzipM,
     filterM,
     guard,
     mzero,
@@ -61,6 +62,8 @@ import Prelude
     seq,
     sequence,
     sequence_,
+    traverse,
+    unzip,
     (<$>),
     (=<<),
   )
@@ -198,6 +201,9 @@ zipWithM _ _ _ = return []
 {- HLINT ignore zipWithM_ "Use zipWithM_" -}
 zipWithM_ :: (Monad m) => (a -> b -> m c) -> [a] -> [b] -> m ()
 zipWithM_ combine lefts rights = void (zipWithM combine lefts rights)
+
+mapAndUnzipM :: (Applicative m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
+mapAndUnzipM function values = unzip <$> traverse function values
 
 filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
 filterM _ [] = return []
