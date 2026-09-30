@@ -13,7 +13,7 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `122/122` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
 | Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `708/713` (`99.29%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
 | Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `946/968` (`97.72%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `232/232` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | fixture pass rate, targets machine code, LLVM IR, Wasm |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `232/232` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
 | `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `784/5013` (`15.64%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
 | `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2143/10061` (`21.30%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
 | Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `66/78` (`84.62%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |

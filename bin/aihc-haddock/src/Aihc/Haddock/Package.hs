@@ -18,6 +18,7 @@ where
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions)
 import Aihc.Hackage.Headers (HeaderTarget (..))
+import Aihc.Hackage.Package (parsePackageDescription)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Haddock.Build (BuildInput (..), buildModuleDoc)
@@ -30,7 +31,6 @@ import Data.ByteString qualified as BS
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import System.FilePath (dropExtension, makeRelative, normalise, splitDirectories)
 
 packageSpecOf :: FilePath -> IO PackageSpec
@@ -65,9 +65,9 @@ loadPackageDoc headerDir root dependencies = do
       files -> pure (HackageUtil.chooseBestCabalFile root files)
   cabalBytes <- BS.readFile cabalFile
   gpd <-
-    case runParseResult (parseGenericPackageDescription cabalBytes) of
-      (_, Right value) -> pure value
-      (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
+    case parsePackageDescription cabalBytes of
+      Right value -> pure value
+      Left errors -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> errors))
   spec <- packageSpecFromSource root
   files <- HackageCabal.collectLibraryFiles gpd root
   let exposed = HackageCabal.collectLibraryExposedModules gpd

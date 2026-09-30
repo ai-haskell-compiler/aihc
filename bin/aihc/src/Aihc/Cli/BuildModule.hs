@@ -5,7 +5,6 @@ module Aihc.Cli.BuildModule
     InstalledPackage (..),
     LinkBundle (..),
     PackageConstraint (..),
-    dependencyConstraint,
     finishExecutable,
     generatedEntryText,
     implicitConstraint,
@@ -42,6 +41,7 @@ import Aihc.Cli.Options (BuildOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Package (PackageName, VersionRange, anyVersion, mkPackageName, parseDependencyString, unPackageName)
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.PackagePlan (PackagePlan, PlanRequest (..), PlannedPackages (..), canonicalPackageName, planPackages)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -70,10 +70,6 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Distribution.Package (PackageName, mkPackageName, unPackageName)
-import Distribution.Parsec (simpleParsec)
-import Distribution.Types.Dependency (Dependency (..))
-import Distribution.Version (VersionRange)
 import System.Directory
   ( copyFile,
     createDirectory,
@@ -428,21 +424,13 @@ linkOrderedPackages packages =
            in (seenDeps, orderedDeps ++ [package])
 
 implicitConstraint :: Text -> PackageConstraint
-implicitConstraint name =
-  case simpleParsec (T.unpack name) of
-    Just (Dependency _ versionRange _) -> PackageConstraint name versionRange
-    Nothing -> error "invalid implicit package constraint"
+implicitConstraint name = PackageConstraint name anyVersion
 
 parsePackageConstraint :: String -> IO PackageConstraint
 parsePackageConstraint input =
-  case simpleParsec input of
-    Just dependency -> pure (dependencyConstraint dependency)
+  case parseDependencyString input of
+    Just (name, versionRange) -> pure (PackageConstraint (T.pack (unPackageName name)) versionRange)
     Nothing -> ioError (userError ("Invalid package constraint: " <> input))
-
--- | The constraint a Cabal @build-depends@ entry states.
-dependencyConstraint :: Dependency -> PackageConstraint
-dependencyConstraint (Dependency name versionRange _) =
-  PackageConstraint (T.pack (unPackageName name)) versionRange
 
 packageCObjects :: InstalledPackage -> IO [FilePath]
 packageCObjects package = do
