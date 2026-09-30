@@ -1,0 +1,35 @@
+extensions:
+  - NumDecimals
+modules:
+  - |
+    {-# LANGUAGE NumDecimals #-}
+    module Test where
+
+    import Prelude
+
+    nanoseconds :: Int -> Int -> Integer
+    nanoseconds seconds nanos = toInteger seconds * 1e12 + toInteger nanos * 1e3
+
+    isThousand :: Int -> Bool
+    isThousand 1e3 = True
+    isThousand _ = False
+
+    main :: IO ()
+    main = do
+      print (nanoseconds 7 3)
+      print (1.5e3 :: Int)
+      print (-2e2 :: Integer)
+      print (map isThousand [1000, 10])
+      print ((2.5e0 :: Double) == 2.5, (1e-2 :: Double) == 0.01, (1e3 :: Double) == 1000)
+stdout: |
+  7000000003000
+  1500
+  -200
+  [True,False]
+  (True,True,True)
+output: |
+  ()
+expression: main
+status: pass
+reason: under NumDecimals a literal in exponent form with an integral value is an
+  integer literal, and a literal with a fractional value stays fractional
