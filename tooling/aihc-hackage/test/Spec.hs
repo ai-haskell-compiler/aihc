@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Aihc.Cabal (Package, parseHookedBuildInfo, parseValue)
+import Aihc.Cabal (Package, cabalVersion, parseHookedBuildInfo, parseValue)
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (builtinCppMacros, cabalMacrosHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
@@ -206,7 +206,7 @@ test_ignoresInactiveHaskell98DefaultLanguage = do
 test_collectsCSources :: Assertion
 test_collectsCSources = do
   gpd <- parseTestCabal cSourcesCabal
-  let info = HC.collectLibraryCCompileInfo gpd "/pkg"
+  info <- expectRight (HC.collectLibraryCCompileInfo gpd "/pkg")
   assertEqual
     "expected C sources from the cabal file"
     ["/pkg/cbits/helper.c"]
@@ -229,7 +229,7 @@ test_collectsCSources = do
     (HC.cCompileCxxOptions info)
   assertEqual
     "expected Lir units from the x-aihc-lir-sources field"
-    ["/pkg/lir/helpers.lir", "/pkg/lir/enter.lir"]
+    ["/pkg/lir/helpers.lir", "/pkg/lir/enter.lir", "/pkg/lir/with space.lir"]
     (HC.cCompileLirSources info)
   assertBool
     "inactive javascript C source is not selected"
@@ -247,8 +247,8 @@ test_collectsCSources = do
 test_wasmTextSimdutfOverride :: Assertion
 test_wasmTextSimdutfOverride = do
   gpd <- parseTestCabal textSimdutfCabal
-  let hostInfo = HC.collectLibraryCCompileInfoFor buildOS buildArch gpd "/pkg"
-      wasmInfo = HC.collectLibraryCCompileInfoFor Wasi Wasm32 gpd "/pkg"
+  hostInfo <- expectRight (HC.collectLibraryCCompileInfoFor buildOS buildArch gpd "/pkg")
+  wasmInfo <- expectRight (HC.collectLibraryCCompileInfoFor Wasi Wasm32 gpd "/pkg")
   assertEqual "host compiles the C++ validator" ["/pkg/simdutf/simdutf.cpp"] (HC.cCompileCxxSources hostInfo)
   assertEqual "wasm32 compiles no C++" [] (HC.cCompileCxxSources wasmInfo)
   assertEqual "wasm32 compiles no C shim" [] (HC.cCompileSources wasmInfo)
@@ -278,8 +278,8 @@ test_configureBuildInfo = do
     Right parsed -> pure parsed
     Left errs -> assertFailure ("failed to parse test buildinfo: " <> show errs)
   let file = HC.FileInfo "/pkg/src/Demo.hs" [] ["-DFROM_CABAL"] ["/pkg/include"] Nothing [T.pack "base"] Nothing
-      cInfo = HC.collectLibraryCCompileInfo gpd "/pkg"
-      (files, cInfo') = HC.applyHookedBuildInfo "/build" hooked [HC.prependIncludeDirs ["/build/include"] file] cInfo
+  cInfo <- expectRight (HC.collectLibraryCCompileInfo gpd "/pkg")
+  (files, cInfo') <- expectRight (HC.applyHookedBuildInfo (cabalVersion gpd) "/build" hooked [HC.prependIncludeDirs ["/build/include"] file] cInfo)
   assertEqual "cpp options" [["-DFROM_CABAL", "-DHOOKED_HS"]] (map HC.fileInfoCppOptions files)
   assertEqual "include dirs" [["/build/generated", "/build/include", "/pkg/include"]] (map HC.fileInfoIncludeDirs files)
   assertEqual "cc options" ["-DHOOKED", "-std=c11"] (HC.cCompileCcOptions cInfo')
@@ -343,6 +343,9 @@ test_detectsCustomPreprocessorOptions = do
   assertBool "expected -F with -pgmF to require filtering" (HC.packageUsesCustomPreprocessor hsp)
   assertBool "expected inactive custom preprocessor options to be ignored" (not (HC.packageUsesCustomPreprocessor inactive))
   assertBool "expected -pgmF without -F not to enable preprocessing" (not (HC.packageUsesCustomPreprocessor pgmFOnly))
+
+expectRight :: Either String a -> IO a
+expectRight = either assertFailure pure
 
 parseTestCabal :: String -> IO Package
 parseTestCabal source =
@@ -504,7 +507,7 @@ cSourcesCabal =
       "  c-sources: cbits/helper.c",
       "  include-dirs: cbits",
       "  cc-options: -std=c11",
-      "  x-aihc-lir-sources: lir/helpers.lir, lir/enter.lir",
+      "  x-aihc-lir-sources: lir/helpers.lir, lir/enter.lir, \"lir/with space.lir\"",
       "  default-language: Haskell2010",
       "  cxx-sources: cbits/fast.cpp",
       "  cxx-options: -std=c++17",

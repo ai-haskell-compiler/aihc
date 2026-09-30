@@ -1,10 +1,10 @@
 -- | The vocabulary that the aihc tools use for Cabal packages: package
 -- names, flags, platforms, versions, and version ranges.
 --
--- "Aihc.Cabal" parses the Cabal files. It keeps names as text and it does
--- not know the host platform. This module gives the names their own types,
--- reads and shows versions and ranges in the Cabal notation, and names the
--- platforms that the conditions of a Cabal file test.
+-- "Aihc.Cabal" parses the Cabal files, the dependencies, and the version
+-- ranges. It keeps names as text and it does not know the host platform.
+-- This module gives the names their own types, gives 'String' forms of the
+-- parsers for the command line, and names the platforms of the targets.
 module Aihc.Hackage.Package
   ( -- * Cabal files
     parsePackageDescription,
@@ -32,8 +32,6 @@ module Aihc.Hackage.Package
     buildArch,
     osName,
     archName,
-    classifyOS,
-    classifyArch,
 
     -- * Versions
     Version,
@@ -57,11 +55,11 @@ module Aihc.Hackage.Package
   )
 where
 
-import Aihc.Cabal (FlagAssignment, Package, ParseResult (..), Position (..), Version, VersionRange (..), anyVersion, mkVersion, noVersion, parsePackage, parseVersion, parseVersionRange, thisVersion, versionNumbers, withinRange)
+import Aihc.Cabal (FlagAssignment, Package, ParseResult (..), Version, VersionRange (..), anyVersion, mkVersion, noVersion, parsePackage, parseVersion, parseVersionRange, thisVersion, versionNumbers, withinRange)
 import Aihc.Cabal qualified as Cabal
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
-import Data.List (intercalate, sortOn)
+import Data.Char (isDigit, isSpace, toLower)
+import Data.List (intercalate)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -73,9 +71,7 @@ parsePackageDescription :: BS.ByteString -> Either String Package
 parsePackageDescription bytes =
   case parseValue (parsePackage bytes) of
     Right package -> Right package
-    Left diagnostic -> Left (position (Cabal.diagnosticPosition diagnostic) <> T.unpack (Cabal.diagnosticMessage diagnostic))
-  where
-    position = maybe "" (\(Position row column) -> "line " <> show row <> ", column " <> show column <> ": ")
+    Left diagnostic -> Left (T.unpack (Cabal.renderDiagnostic diagnostic))
 
 -- | The name of a package.
 newtype PackageName = PackageName Text
@@ -117,7 +113,8 @@ unFlagAssignment = Map.toAscList
 lookupFlagAssignment :: FlagName -> FlagAssignment -> Maybe Bool
 lookupFlagAssignment = Map.lookup
 
--- | An operating system that the condition @os(...)@ can test.
+-- | The operating system of a target. 'osName' gives the name that the
+-- conditions of a Cabal file compare with.
 data OS
   = Linux
   | OSX
@@ -129,7 +126,8 @@ data OS
   | OtherOS String
   deriving (Eq, Ord, Show)
 
--- | An architecture that the condition @arch(...)@ can test.
+-- | The architecture of a target. 'archName' gives the name that the
+-- conditions of a Cabal file compare with.
 data Arch
   = X86_64
   | AArch64
@@ -165,49 +163,34 @@ archName arch =
     JavaScript -> "javascript"
     OtherArch name -> name
 
--- | The operating system of a name, with the aliases that Cabal accepts.
-classifyOS :: String -> OS
-classifyOS name =
-  case map toLower name of
+-- | The operating system that this program runs on. "Aihc.Cabal" applies
+-- the Cabal aliases for host names when it compares names, so only the
+-- names of the constructors must be known here.
+buildOS :: OS
+buildOS =
+  case map toLower Info.os of
     "linux" -> Linux
-    "osx" -> OSX
     "darwin" -> OSX
-    "windows" -> Windows
+    "osx" -> OSX
     "mingw32" -> Windows
-    "win32" -> Windows
-    "cygwin32" -> Windows
+    "windows" -> Windows
     "freebsd" -> FreeBSD
     "openbsd" -> OpenBSD
     "netbsd" -> NetBSD
     "wasi" -> Wasi
     other -> OtherOS other
 
--- | The architecture of a name, with the aliases that Cabal accepts.
-classifyArch :: String -> Arch
-classifyArch name =
-  case map toLower name of
+-- | The architecture that this program runs on.
+buildArch :: Arch
+buildArch =
+  case map toLower Info.arch of
     "x86_64" -> X86_64
-    "amd64" -> X86_64
-    "x86-64" -> X86_64
     "aarch64" -> AArch64
-    "arm64" -> AArch64
     "i386" -> I386
-    "i486" -> I386
-    "i586" -> I386
-    "i686" -> I386
-    "x86" -> I386
     "arm" -> Arm
     "wasm32" -> Wasm32
     "javascript" -> JavaScript
     other -> OtherArch other
-
--- | The operating system that this program runs on.
-buildOS :: OS
-buildOS = classifyOS Info.os
-
--- | The architecture that this program runs on.
-buildArch :: Arch
-buildArch = classifyArch Info.arch
 
 -- | A version from its components. An empty list gives version @0@.
 versionFromList :: [Int] -> Version
@@ -228,29 +211,10 @@ parseVersionString text
   | not (null text) && all (\character -> isDigit character || character == '.') text = either (const Nothing) Just (parseVersion (T.pack text))
   | otherwise = Nothing
 
--- | Parse @NAME@ or @NAME-VERSION@.
+-- | Parse @NAME@ or @NAME-VERSION@, as Cabal reads a package identifier.
 parsePackageIdentifier :: String -> Maybe (PackageName, Maybe Version)
 parsePackageIdentifier text =
-  case break (== '-') (reverse text) of
-    (reversedVersion, '-' : reversedName)
-      | Just version <- parseVersionString (reverse reversedVersion),
-        validPackageName (reverse reversedName) ->
-          Just (mkPackageName (reverse reversedName), Just version)
-    _
-      | validPackageName text -> Just (mkPackageName text, Nothing)
-      | otherwise -> Nothing
-
-validPackageName :: String -> Bool
-validPackageName name =
-  not (null name) && all validPart (splitOn '-' name)
-  where
-    validPart part = not (null part) && all isAlphaNum part && not (all isDigit part)
-
-splitOn :: Char -> String -> [String]
-splitOn separator text =
-  case break (== separator) text of
-    (part, []) -> [part]
-    (part, _ : rest) -> part : splitOn separator rest
+  either (const Nothing) (\(name, version) -> Just (PackageName name, version)) (Cabal.parsePackageIdentifier (T.pack text))
 
 intersectVersionRanges :: VersionRange -> VersionRange -> VersionRange
 intersectVersionRanges = Both
@@ -262,121 +226,18 @@ parseVersionRangeString text
   | all isSpace text = Just anyVersion
   | otherwise = either (const Nothing) Just (parseVersionRange (T.pack text))
 
--- | Parse a dependency such as @base >=4 && <5@ or @base>=4@.
+-- | Parse a dependency such as @base >=4 && <5@ or @base>=4@, as Cabal reads
+-- one @build-depends@ entry. Spaces around the text are permitted.
 parseDependencyString :: String -> Maybe (PackageName, VersionRange)
-parseDependencyString text = do
-  let (name, rest) = span (\character -> isAlphaNum character || character == '-') (dropWhile isSpace text)
-  if validPackageName name
-    then (,) (mkPackageName name) <$> parseVersionRangeString rest
-    else Nothing
+parseDependencyString text =
+  case Cabal.parseDependency (T.strip (T.pack text)) of
+    Right dependency -> Just (PackageName (Cabal.dependencyPackage dependency), Cabal.dependencyRange dependency)
+    Left _ -> Nothing
 
--- | One continuous part of a range: a lower bound and an upper bound. A
--- missing upper bound means no limit. The lower bound of every range is at
--- least version @0@, the smallest version.
-data Interval = Interval !Bound !(Maybe Bound)
-  deriving (Eq)
-
--- | A version, and whether the version itself is in the interval.
-data Bound = Bound !Version !Bool
-  deriving (Eq)
-
--- | The same set of versions as disjoint intervals in increasing order.
-intervals :: VersionRange -> [Interval]
-intervals range =
-  case range of
-    AnyVersion -> [Interval zeroBound Nothing]
-    Equal version -> [Interval (Bound version True) (Just (Bound version True))]
-    Later version -> [Interval (Bound version False) Nothing]
-    Earlier version -> normalize [Interval zeroBound (Just (Bound version False))]
-    AtLeast version -> [Interval (Bound version True) Nothing]
-    AtMost version -> normalize [Interval zeroBound (Just (Bound version True))]
-    MajorBound version -> [Interval (Bound version True) (Just (Bound (majorUpperBound version) False))]
-    EitherRange left right -> normalize (intervals left <> intervals right)
-    Both left right -> normalize [both a b | a <- intervals left, b <- intervals right]
-  where
-    zeroBound = Bound (versionFromList [0]) True
-    both (Interval low high) (Interval low' high') = Interval (maxLower low low') (minUpper high high')
-    maxLower a@(Bound x xIn) b@(Bound y yIn)
-      | x > y = a
-      | y > x = b
-      | otherwise = Bound x (xIn && yIn)
-    minUpper Nothing b = b
-    minUpper a Nothing = a
-    minUpper (Just a@(Bound x xIn)) (Just b@(Bound y yIn))
-      | x < y = Just a
-      | y < x = Just b
-      | otherwise = Just (Bound x (xIn && yIn))
-
-normalize :: [Interval] -> [Interval]
-normalize = merge . sortOn lowerKey . filter nonEmpty
-  where
-    lowerKey (Interval (Bound version inclusive) _) = (version, not inclusive)
-    merge (first : second : rest)
-      | touches first second = merge (union first second : rest)
-      | otherwise = first : merge (second : rest)
-    merge rest = rest
-    touches (Interval _ Nothing) _ = True
-    touches (Interval _ (Just (Bound upper upperIn))) (Interval (Bound lower lowerIn) _) =
-      lower < upper || (lower == upper && (upperIn || lowerIn))
-    union (Interval low high) (Interval _ high') = Interval low (maxUpper high high')
-    maxUpper Nothing _ = Nothing
-    maxUpper _ Nothing = Nothing
-    maxUpper (Just a@(Bound x xIn)) (Just b@(Bound y yIn))
-      | x > y = Just a
-      | y > x = Just b
-      | otherwise = Just (Bound x (xIn || yIn))
-
-nonEmpty :: Interval -> Bool
-nonEmpty (Interval _ Nothing) = True
-nonEmpty (Interval (Bound lower lowerIn) (Just (Bound upper upperIn))) =
-  lower < upper || (lower == upper && lowerIn && upperIn)
-
--- | The same set of versions in a canonical form: a union of disjoint
--- intervals in increasing order.
+-- | The same versions as a union of separate intervals in increasing order.
 simplifyVersionRange :: VersionRange -> VersionRange
-simplifyVersionRange range =
-  case map fromInterval (intervals range) of
-    [] -> noVersion
-    first : rest -> foldl EitherRange first rest
-  where
-    zero = versionFromList [0]
-    fromInterval (Interval (Bound lower lowerIn) upper)
-      | lowerIn, upper == Just (Bound lower True) = thisVersion lower
-      | otherwise =
-          case (lowerRange, upperRange) of
-            (Nothing, Nothing) -> anyVersion
-            (Just low, Nothing) -> low
-            (Nothing, Just high) -> high
-            (Just low, Just high) -> Both low high
-      where
-        lowerRange
-          | lowerIn && lower == zero = Nothing
-          | lowerIn = Just (AtLeast lower)
-          | otherwise = Just (Later lower)
-        upperRange = fmap (\(Bound version inclusive) -> if inclusive then AtMost version else Earlier version) upper
+simplifyVersionRange = Cabal.simplifyVersionRange
 
--- | A range in the notation that Cabal shows, such as @>=1.2 && <2@.
+-- | A range in the Cabal notation, such as @>=1.2 && <2@.
 showVersionRange :: VersionRange -> String
-showVersionRange = go (0 :: Int)
-  where
-    go precedence range =
-      case range of
-        AnyVersion -> ">=0"
-        Equal version -> "==" <> showVersion version
-        Later version -> ">" <> showVersion version
-        Earlier version -> "<" <> showVersion version
-        AtLeast version -> ">=" <> showVersion version
-        AtMost version -> "<=" <> showVersion version
-        MajorBound version -> "^>=" <> showVersion version
-        Both left right -> parenthesize (precedence > 1) (go 1 left <> " && " <> go 2 right)
-        EitherRange left right -> parenthesize (precedence > 0) (go 0 left <> " || " <> go 1 right)
-    parenthesize True text = "(" <> text <> ")"
-    parenthesize False text = text
-
--- | The first version after the major version of @^>=@: @1.3@ for @^>=1.2.4@.
-majorUpperBound :: Version -> Version
-majorUpperBound version =
-  case versionToList version of
-    [major] -> versionFromList [major, 1]
-    major : minor : _ -> versionFromList [major, minor + 1]
-    [] -> versionFromList [1]
+showVersionRange = T.unpack . Cabal.renderVersionRange

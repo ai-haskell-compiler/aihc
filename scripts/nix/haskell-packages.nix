@@ -274,8 +274,8 @@ in rec {
           }) {});
           aihc-cabal-syntax = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-cabal-syntax";
-            ver = "1.0.0.1";
-            sha256 = "13pc9h96fx50l0n9537xs2x80zb9s40bnj5lcipdb1fq1n7xzyk6";
+            ver = "2.0.0.0";
+            sha256 = "07h6l6q9bww86n2lrcniydlfaxfzrwd9dc826g9jfxdhkvz884iy";
           } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (

@@ -28,7 +28,7 @@ library
   build-depends:
     aeson >=2.0 && <2.3,
     aeson-pretty,
-    aihc-cabal-syntax >=1.0 && <1.1,
+    aihc-cabal-syntax >=2.0 && <2.1,
     aihc-hackage,
     aihc-hackage-fetch,
     aihc-package-plan,

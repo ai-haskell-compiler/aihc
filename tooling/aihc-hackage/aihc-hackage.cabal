@@ -25,7 +25,7 @@ library
 
   hs-source-dirs: src
   build-depends:
-    aihc-cabal-syntax >=1.0 && <1.1,
+    aihc-cabal-syntax >=2.0 && <2.1,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
     containers >=0.5 && <0.9,

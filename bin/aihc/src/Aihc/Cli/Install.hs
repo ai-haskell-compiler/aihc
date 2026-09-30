@@ -740,6 +740,7 @@ readPackageInputs config plan = do
         ioError (userError ("The package has build-type Configure but no configure script: " <> script))
       pure (Just script)
     _ -> pure Nothing
+  cCompileInfo <- either (ioError . userError . ((cabalFile <> ": ") <>)) pure (HackageCabal.collectLibraryCCompileInfoIn context gpd root)
   pure
     PackageInputs
       { inputCabalFile = cabalFile,
@@ -747,7 +748,7 @@ readPackageInputs config plan = do
         inputContext = context,
         inputRevision = planRevision plan,
         inputSources = files,
-        inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoIn context gpd root,
+        inputCCompileInfo = cCompileInfo,
         inputConfigureScript = configureScript,
         inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd
       }
@@ -2887,13 +2888,15 @@ configurePackage config root storePath packageName inputs =
             ]
       generatedDirs <- filterM doesDirectoryExist counterparts
       hooked <- readHookedBuildInfo buildDirectory packageName
-      let (files', cInfo') =
-            HackageCabal.applyHookedBuildInfo
-              buildDirectory
-              hooked
-              (map (HackageCabal.prependIncludeDirs generatedDirs) files)
-              cInfo {HackageCabal.cCompileIncludeDirs = nub (generatedDirs <> HackageCabal.cCompileIncludeDirs cInfo)}
-          searchDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files' <> HackageCabal.cCompileIncludeDirs cInfo')
+      (files', cInfo') <-
+        either (ioError . userError) pure $
+          HackageCabal.applyHookedBuildInfo
+            (Cabal.cabalVersion (inputDescription inputs))
+            buildDirectory
+            hooked
+            (map (HackageCabal.prependIncludeDirs generatedDirs) files)
+            cInfo {HackageCabal.cCompileIncludeDirs = nub (generatedDirs <> HackageCabal.cCompileIncludeDirs cInfo)}
+      let searchDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files' <> HackageCabal.cCompileIncludeDirs cInfo')
       forM_ (inputAutogenIncludes inputs) $ \header -> do
         found <- filterM (\directory -> doesFileExist (directory </> header)) searchDirs
         when (null found) $

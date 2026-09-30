@@ -74,6 +74,7 @@ import Aihc.Cabal
     buildTools,
     buildable,
     cSources,
+    cabalVersion,
     ccOptions,
     cppOptions,
     cxxOptions,
@@ -84,7 +85,7 @@ import Aihc.Cabal
     exposedModules,
     extensions,
     extraFields,
-    fieldText,
+    fieldPaths,
     flagDefault,
     flagName,
     ghcOptions,
@@ -97,6 +98,7 @@ import Aihc.Cabal
     packageComponents,
     packageFlags,
     packageVersion,
+    renderDiagnostic,
   )
 import Aihc.Cabal qualified as Cabal
 import Aihc.Hackage.Package
@@ -105,18 +107,18 @@ import Aihc.Hackage.Package
     FlagName,
     OS,
     PackageName,
+    Version,
+    archName,
     buildArch,
     buildOS,
-    classifyArch,
-    classifyOS,
     mkFlagAssignment,
     mkFlagName,
     mkPackageName,
+    osName,
     packageNameOf,
     unFlagAssignment,
     unPackageName,
     versionFromList,
-    withinRange,
   )
 import Aihc.Hackage.PathsModule (generatePathsModule, pathsModuleName)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
@@ -204,21 +206,23 @@ collectLibraryFilesIn context package packageRoot = do
   pure (dedupeFiles libraryFiles)
 
 -- | Collect C compile inputs from buildable library components for the host.
-collectLibraryCCompileInfo :: Package -> FilePath -> CCompileInfo
+-- The result is an error when a field of the inputs is not valid.
+collectLibraryCCompileInfo :: Package -> FilePath -> Either String CCompileInfo
 collectLibraryCCompileInfo = collectLibraryCCompileInfoFor buildOS buildArch
 
 -- | Collect C compile inputs from buildable library components for one platform.
-collectLibraryCCompileInfoFor :: OS -> Arch -> Package -> FilePath -> CCompileInfo
+collectLibraryCCompileInfoFor :: OS -> Arch -> Package -> FilePath -> Either String CCompileInfo
 collectLibraryCCompileInfoFor os arch = collectLibraryCCompileInfoIn (buildContextFor os arch)
 
 -- | Collect C compile inputs from buildable library components under the
 -- conditions of one build context.
-collectLibraryCCompileInfoIn :: BuildContext -> Package -> FilePath -> CCompileInfo
+collectLibraryCCompileInfoIn :: BuildContext -> Package -> FilePath -> Either String CCompileInfo
 collectLibraryCCompileInfoIn context package packageRoot =
   mergeCCompileInfo
-    [ cCompileInfoFromBuild packageRoot build
-    | build <- activeLibraryBuildInfos context package
-    ]
+    <$> sequence
+      [ cCompileInfoFromBuild (cabalVersion package) packageRoot build
+      | build <- activeLibraryBuildInfos context package
+      ]
 
 -- | The merged build information of each buildable library component that
 -- an install builds.
@@ -232,17 +236,21 @@ activeLibraryBuildInfos context package =
   where
     evalCond = conditionEvaluatorIn context package
 
-cCompileInfoFromBuild :: FilePath -> BuildInfo -> CCompileInfo
-cCompileInfoFromBuild packageRoot build =
-  CCompileInfo
-    { cCompileSources = extractCSources packageRoot build,
-      cCompileCxxSources = extractCxxSources packageRoot build,
-      cCompileLirSources = extractLirSources packageRoot build,
-      cCompileIncludeDirs = extractIncludeDirs packageRoot build,
-      cCompileInstallIncludes = installIncludes build,
-      cCompileCcOptions = map T.unpack (ccOptions build),
-      cCompileCxxOptions = map T.unpack (cxxOptions build)
-    }
+-- | The C compile inputs of one build information. The Cabal format version
+-- gives the list rules of the Lir source field.
+cCompileInfoFromBuild :: Version -> FilePath -> BuildInfo -> Either String CCompileInfo
+cCompileInfoFromBuild spec packageRoot build = do
+  lirSources <- extractLirSources spec packageRoot build
+  pure
+    CCompileInfo
+      { cCompileSources = extractCSources packageRoot build,
+        cCompileCxxSources = extractCxxSources packageRoot build,
+        cCompileLirSources = lirSources,
+        cCompileIncludeDirs = extractIncludeDirs packageRoot build,
+        cCompileInstallIncludes = installIncludes build,
+        cCompileCcOptions = map T.unpack (ccOptions build),
+        cCompileCxxOptions = map T.unpack (cxxOptions build)
+      }
 
 mergeCCompileInfo :: [CCompileInfo] -> CCompileInfo
 mergeCCompileInfo items =
@@ -288,14 +296,14 @@ collectLibraryAutogenIncludesIn context package =
 -- Read public headers, include directories, C sources, and C and CPP options.
 -- Resolve relative paths from the configure output directory.
 -- Ignore fields without a consumer, such as @extra-libraries@.
-applyHookedBuildInfo :: FilePath -> HookedBuildInfo -> [FileInfo] -> CCompileInfo -> ([FileInfo], CCompileInfo)
-applyHookedBuildInfo buildRoot hooked files cInfo =
+-- The Cabal format version is the version of the package.
+applyHookedBuildInfo :: Version -> FilePath -> HookedBuildInfo -> [FileInfo] -> CCompileInfo -> Either String ([FileInfo], CCompileInfo)
+applyHookedBuildInfo spec buildRoot hooked files cInfo =
   case hookedLibrary hooked of
-    Nothing -> (files, cInfo)
-    Just build ->
-      ( map (overlayFile build) files,
-        mergeCCompileInfo [cCompileInfoFromBuild buildRoot build, cInfo]
-      )
+    Nothing -> Right (files, cInfo)
+    Just build -> do
+      hookedInfo <- cCompileInfoFromBuild spec buildRoot build
+      pure (map (overlayFile build) files, mergeCCompileInfo [hookedInfo, cInfo])
   where
     overlayFile build file =
       file
@@ -397,12 +405,13 @@ collectExecutablesIn context package packageRoot =
     executableInfo exeName tree = do
       let build = collectMergedBuildInfo evalCond tree
       files <- executableFilesFor package evalCond packageRoot exeName tree
+      cInfo <- either (ioError . userError) pure (cCompileInfoFromBuild (cabalVersion package) packageRoot build)
       pure
         [ ExecutableInfo
             { executableInfoName = T.unpack exeName,
               executableInfoFiles = files,
               executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
-              executableInfoCCompileInfo = cCompileInfoFromBuild packageRoot build
+              executableInfoCCompileInfo = cInfo
             }
         | isBuildable build
         ]
@@ -600,27 +609,21 @@ packageFlagAssignment context package =
 
 -- | Evaluate cabal conditions under one build context.
 --
--- The names in @os(...)@ and @arch(...)@ take the aliases that Cabal
--- accepts, so @os(darwin)@ is true on macOS.
+-- "Aihc.Cabal" compares the names with the aliases of Cabal, so
+-- @os(darwin)@ is true on macOS, and @arch(arm64)@ is false, as in Cabal.
 conditionEvaluatorIn :: BuildContext -> Package -> Condition -> Bool
-conditionEvaluatorIn context package = eval
+conditionEvaluatorIn context package =
+  Cabal.evaluateCondition environment (packageFlagAssignment context package)
   where
-    flags = packageFlagAssignment context package
-
     -- aihc presents itself as the GHC release in "Aihc.Hackage.Release", the
     -- same one the CPP macros describe; the host compiler is irrelevant.
-    compilerVer = versionFromList (releaseCompilerVersion emulatedGhc)
-
-    eval condition =
-      case condition of
-        Literal b -> b
-        OS wanted -> classifyOS (T.unpack wanted) == contextOs context
-        Arch wanted -> classifyArch (T.unpack wanted) == contextArch context
-        FlagValue flag -> Map.findWithDefault False flag flags
-        Impl flavor range -> flavor == T.pack "ghc" && withinRange compilerVer range
-        Not c -> not (eval c)
-        Or a b -> eval a || eval b
-        And a b -> eval a && eval b
+    environment =
+      Cabal.Environment
+        { Cabal.targetOS = T.pack (osName (contextOs context)),
+          Cabal.targetArch = T.pack (archName (contextArch context)),
+          Cabal.compiler = T.pack "ghc",
+          Cabal.compilerVersion = versionFromList (releaseCompilerVersion emulatedGhc)
+        }
 
 -- | The flags of a package a target sets away from their defaults.
 --
@@ -695,19 +698,17 @@ extractCxxSources packageRoot bi =
 
 -- | The field naming the Lir units of a component. The parser keeps a field
 -- it does not know, so the units are listed like @c-sources@ and read from
--- here.
+-- here with the list rules of @c-sources@.
 lirSourcesField :: String
 lirSourcesField = "x-aihc-lir-sources"
 
 -- | Extract the Lir unit paths from a 'BuildInfo'. The field holds paths
 -- separated by whitespace or commas, as @c-sources@ does.
-extractLirSources :: FilePath -> BuildInfo -> [FilePath]
-extractLirSources packageRoot bi =
-  nub
-    [ packageRoot </> path
-    | value <- Map.findWithDefault [] (T.pack lirSourcesField) (extraFields bi),
-      path <- words (map (\character -> if character == ',' then ' ' else character) (T.unpack (fieldText value)))
-    ]
+extractLirSources :: Version -> FilePath -> BuildInfo -> Either String [FilePath]
+extractLirSources spec packageRoot bi =
+  case mapM (fieldPaths spec) (Map.findWithDefault [] (T.pack lirSourcesField) (extraFields bi)) of
+    Right paths -> Right (nub [packageRoot </> path | path <- concat paths])
+    Left diagnostic -> Left ("Invalid " <> lirSourcesField <> " field: " <> T.unpack (renderDiagnostic diagnostic))
 
 -- | Extract build dependency package names from a 'BuildInfo'.
 extractDependencies :: BuildInfo -> [Text]
