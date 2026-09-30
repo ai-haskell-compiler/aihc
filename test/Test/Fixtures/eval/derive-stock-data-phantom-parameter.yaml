@@ -1,0 +1,39 @@
+extensions:
+  - DeriveDataTypeable
+  - KindSignatures
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE PolyKinds #-}
+    module Test where
+
+    import Data.Data
+    import Data.Kind (Type)
+
+    -- The parameter b has no field, and its kind is polymorphic. The
+    -- superclass Typeable (Constant a b) still needs Typeable b.
+    newtype Constant a b = Constant a
+      deriving (Data)
+
+    -- Both parameters have kind Type, so the instance gets dataCast2, which
+    -- needs Data b although no field has type b.
+    newtype Tagged a (b :: Type) = Tagged a
+      deriving (Data)
+
+    sizeOf :: (Data a) => a -> Int
+    sizeOf x = 1 + sum (gmapQ sizeOf x)
+
+    results :: [Bool]
+    results =
+      [ showConstr (toConstr (Constant 'x' :: Constant Char Maybe)) == "Constant",
+        showConstr (toConstr (Constant True :: Constant Bool Int)) == "Constant",
+        sizeOf (Constant (Just 'x') :: Constant (Maybe Char) Either) == 3,
+        showConstr (toConstr (Tagged 'x' :: Tagged Char Bool)) == "Tagged",
+        sizeOf (Tagged 'x' :: Tagged Char Bool) == 2
+      ]
+output: ": True (: True (: True (: True (: True []))))"
+expression: results
+status: pass
+reason: a derived Data context asks Typeable of every datatype parameter and of an open parameter kind, and Data of every parameter of kind Type, as in GHC

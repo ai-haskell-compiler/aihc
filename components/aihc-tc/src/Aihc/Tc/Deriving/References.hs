@@ -12,10 +12,9 @@
 -- than a package identity, because the configuration is written once and a
 -- package identity is only known while compiling: the primitive package is
 -- the one of the configuration, and a helper that belongs to a class comes
--- from wherever that class was found. Only the first kind exists today, but
--- the classes of GHC that aihc does not generate code for yet -- @Lift@ in
--- the Template Haskell package, @Generic@ and @Data@ in the base one --
--- have their helpers next to themselves, outside the primitive package.
+-- from wherever that class was found. Some classes of GHC -- @Lift@ in the
+-- Template Haskell package, @Generic@ and @Data@ in the base one -- have
+-- their helpers next to themselves, outside the primitive package.
 --
 -- A reference of that kind has to be one the module deriving the class can
 -- already see. Only an identity a module imports, or that a module it
@@ -27,6 +26,7 @@ module Aihc.Tc.Deriving.References
     ReferencePackage (..),
     DerivingReferences (..),
     GenericReferences (..),
+    DataReferences (..),
     UnliftedFieldReferences (..),
     StockClassLocation (..),
     referenceIdentity,
@@ -34,6 +34,7 @@ module Aihc.Tc.Deriving.References
     stockClassLocationMatches,
     derivingReferenceList,
     genericTermReferences,
+    dataReferenceList,
   )
 where
 
@@ -176,6 +177,9 @@ data DerivingReferences = DerivingReferences
     -- | The representation types and the metadata of @GHC.Generics@, which
     -- a derived @Generic@ instance is written entirely out of.
     derivingGeneric :: !GenericReferences,
+    -- | The descriptions and casts of @Data.Data@, which a derived @Data@
+    -- instance builds its constructors and its data type with.
+    derivingData :: !DataReferences,
     -- | The classes that stock deriving writes code for, and where each is
     -- declared. A location that names a package makes all three agree, so a
     -- user module that repeats a core-library module name does not make its
@@ -209,6 +213,42 @@ data UnliftedFieldReferences = UnliftedFieldReferences
 -- | Every name of one 'UnliftedFieldReferences'.
 unliftedFieldReferenceList :: UnliftedFieldReferences -> [DerivingReference]
 unliftedFieldReferenceList field = [unliftedFieldType field, unliftedFieldEq field, unliftedFieldLt field]
+
+-- | The names of @Data.Data@ and @Data.Typeable@ that a derived @Data@
+-- instance mentions. All of them are terms, and a module that derives
+-- @Data@ imports @Data.Data@, which exports each of them.
+data DataReferences = DataReferences
+  { -- | @mkConstr@, which describes one constructor of a data type.
+    dataMkConstr :: !DerivingReference,
+    -- | @mkDataType@, which describes a data type by its constructors.
+    dataMkDataType :: !DerivingReference,
+    -- | @indexConstr@, which selects a constructor of a data type by index.
+    dataIndexConstr :: !DerivingReference,
+    -- | @constrIndex@, which gives the index of a constructor.
+    dataConstrIndex :: !DerivingReference,
+    -- | The @Prefix@ fixity of a constructor.
+    dataPrefix :: !DerivingReference,
+    -- | The @Infix@ fixity of a constructor.
+    dataInfix :: !DerivingReference,
+    -- | @gcast1@, which casts through a type constructor of one parameter.
+    dataGcast1 :: !DerivingReference,
+    -- | @gcast2@, which casts through a type constructor of two parameters.
+    dataGcast2 :: !DerivingReference
+  }
+  deriving (Eq, Show)
+
+-- | Every name of 'DataReferences'.
+dataReferenceList :: [DataReferences -> DerivingReference]
+dataReferenceList =
+  [ dataMkConstr,
+    dataMkDataType,
+    dataIndexConstr,
+    dataConstrIndex,
+    dataPrefix,
+    dataInfix,
+    dataGcast1,
+    dataGcast2
+  ]
 
 -- | The names of @GHC.Generics@ that a derived @Generic@ instance mentions.
 --
@@ -372,3 +412,4 @@ derivingReferenceList references =
   ]
     <> concatMap unliftedFieldReferenceList (derivingUnliftedFields references)
     <> genericReferenceList (derivingGeneric references)
+    <> map ($ derivingData references) dataReferenceList

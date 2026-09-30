@@ -35,7 +35,7 @@ module Aihc.Tc.Deriving.StockClass
 where
 
 import Aihc.Parser.Syntax (Extension (..))
-import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..), genericTermReferences)
+import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..), dataReferenceList, genericTermReferences)
 import Data.List (find)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -76,6 +76,7 @@ data StockMethods
   | StockFoldableMethods
   | StockTraversableMethods
   | StockGenericMethods
+  | StockDataMethods
   deriving (Eq, Show)
 
 -- | The shape of the context a derived instance needs.
@@ -88,6 +89,14 @@ data StockObligations
     -- positions to another instance needs. The instance head drops the
     -- parameter, so the fields are read against the remaining ones.
     FunctorialObligations
+  | -- | The obligations of a derived @Data@ instance, as GHC infers them:
+    -- the field obligations, the superclasses at the derived head, and the
+    -- class at each type argument of the head when all of them have kind
+    -- 'Type'. The superclass @Typeable@ asks for @Typeable@ at each
+    -- parameter, also at a parameter that no field uses. The class at each
+    -- argument is for @dataCast1@ and @dataCast2@, which the generator
+    -- writes when the arguments have kind 'Type'.
+    DataObligations
   | -- | Nothing. A derived @Generic@ instance stands on its own: its
     -- representation names the field types but asks nothing of them.
     NoObligations
@@ -159,7 +168,11 @@ stockClasses =
         stockClassMethods = Just StockTraversableMethods,
         stockClassReferences = [derivingPure, derivingApply]
       },
-    extension "Data" DeriveDataTypeable NewtypeNever,
+    (extension "Data" DeriveDataTypeable NewtypeNever)
+      { stockClassObligations = DataObligations,
+        stockClassMethods = Just StockDataMethods,
+        stockClassReferences = derivingIntCon : [select . derivingData | select <- dataReferenceList]
+      },
     extension "Typeable" DeriveDataTypeable NewtypeNever,
     (extension "Generic" DeriveGeneric NewtypeNever)
       { stockClassObligations = NoObligations,

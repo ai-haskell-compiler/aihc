@@ -37,6 +37,9 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
+    TyVarBSpecificity (..),
+    TyVarBVisibility (..),
+    TyVarBinder (..),
     Type (..),
     TypeFamilyInst (..),
     TypeHeadForm (..),
@@ -66,11 +69,13 @@ import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), generate
 import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..), TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Kind (zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (forM, zipWithM)
 import Data.Foldable (find, foldrM)
 import Data.Functor ((<&>))
+import Data.List (nub)
 import Data.Maybe (catMaybes, fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -132,7 +137,8 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
         TcDerivingInferContext -> pure Nothing
         TcDerivingExplicitContext context -> do
           available <- referencesAvailable gen
-          case (available, instanceHeader context) of
+          header <- instanceHeader context
+          case (available, header) of
             (Just missing, _) -> do
               emitError (genSpan gen) (OtherError (mechanism <> " needs " <> missing <> ", which is not available in this compilation"))
               pure Nothing
@@ -211,11 +217,55 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
     instanceHeader context =
       case sourceDecl of
         DeclStandaloneDeriving derivingDecl ->
-          Just (standaloneDerivingForall derivingDecl, standaloneDerivingContext derivingDecl, standaloneDerivingHead derivingDecl)
+          pure (Just (standaloneDerivingForall derivingDecl, standaloneDerivingContext derivingDecl, standaloneDerivingHead derivingDecl))
         _ -> do
-          surfaceContext <- mapM (surfacePred (genSpan gen)) context
-          headArguments <- mapM (surfaceType (genSpan gen)) (tcDerivingHeadTypes plan)
-          pure ([], surfaceContext, foldl TApp (TCon (tyConNameSyntax (genSpan gen) (tcDerivingClassTyCon plan)) Unpromoted) headArguments)
+          kindBinders <- openKindBinders plan context
+          pure $ do
+            surfaceContext <- mapM (surfacePred (genSpan gen)) context
+            headArguments <- mapM (surfaceType (genSpan gen)) (tcDerivingHeadTypes plan)
+            let (forallBinders, kindContext) = kindBinders
+            pure (forallBinders, surfaceContext <> kindContext, foldl TApp (TCon (tyConNameSyntax (genSpan gen) (tcDerivingClassTyCon plan)) Unpromoted) headArguments)
+
+-- | The explicit binders and the extra context of a derived instance whose
+-- context asks @Typeable@ of a parameter with an open kind.
+--
+-- The instance checker reads the rendered header again and generalizes
+-- such a parameter to a kind variable @k@. The representation of a type
+-- at that parameter then needs @Typeable k@ too, and the header can only
+-- name @k@ if it binds it. Thus the header becomes
+-- @forall k a (b :: k). (Typeable b, Typeable k, ...) => ...@, which is
+-- the context GHC infers. A header without such a parameter stays as it
+-- was, without binders.
+openKindBinders :: TcDerivingPlan -> [Pred] -> TcM ([TyVarBinder], [Type])
+openKindBinders plan context = do
+  kinds <- mapM (\tyVar -> (,) tyVar <$> zonkKind (tvKind tyVar)) (tcDerivingTyVars plan)
+  let openKind tyVar =
+        case lookup tyVar kinds of
+          Just (TcMetaTv unique) -> Just unique
+          _ -> Nothing
+      typeableParameters =
+        [ (classTyCon, unique)
+        | ClassPred classTyCon [TcTyVar tyVar] <- context,
+          tyConName classTyCon == "Typeable",
+          Just unique <- [openKind tyVar]
+        ]
+      openUniques = nub (map snd typeableParameters)
+      usedNames = map (tvName . fst) kinds
+      kindNames = zip openUniques (filter (`notElem` usedNames) [T.pack ("k" <> show index) | index <- [0 :: Int ..]])
+      kindVariable unique = TVar . mkUnqualifiedName NameVarId <$> lookup unique kindNames
+      binder name kind = TyVarBinder [] name kind TyVarBSpecified TyVarBVisible
+  pure $
+    if null openUniques
+      then ([], [])
+      else
+        ( [binder name Nothing | (_, name) <- kindNames]
+            <> [binder (tvName tyVar) (openKind tyVar >>= kindVariable) | (tyVar, _) <- kinds],
+          nub
+            [ TApp (TCon (tyConNameSyntax (tcDerivingSourceSpan plan) classTyCon) Unpromoted) kindType
+            | (classTyCon, unique) <- typeableParameters,
+              Just kindType <- [kindVariable unique]
+            ]
+        )
 
 -- | The method equations of a plan, or 'Nothing' after reporting why the
 -- datatype cannot be derived.
@@ -244,6 +294,7 @@ generateItems gen =
                 Just StockFoldableMethods -> functorialItems gen foldableItems constructors
                 Just StockTraversableMethods -> functorialItems gen traversableItems constructors
                 Just StockGenericMethods -> genericItems gen dataType
+                Just StockDataMethods -> dataItems gen dataType
                 Nothing -> failWith ("stock deriving of " <> T.unpack (tcDerivingClassName plan) <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
     TcDerivingVia viaType -> associatedItems gen viaType
@@ -789,6 +840,131 @@ constructorNameExpr gen constructor =
     [stringExpr gen (packageIdText packageId), stringExpr gen moduleName', stringExpr gen (dciName constructor)]
   where
     (packageId, moduleName') = dciOrigin constructor
+
+-- * Data
+
+-- | The @Data@ methods of a datatype, in the shape GHC derives them.
+--
+-- @gfoldl@ applies the constructor to its fields one at a time, and
+-- @gunfold@ does the same for the constructor that a description selects.
+-- @dataTypeOf@ describes the datatype by its qualified name and its
+-- constructors, each of which names the description that lists it, and
+-- @toConstr@ selects the description of a value from that list.
+--
+-- A type constructor of kind @Type -> Type@ or @Type -> Type -> Type@ also
+-- gets @dataCast1@ or @dataCast2@, as in GHC, so that a generic function
+-- can take a special case at the type constructor.
+dataItems :: Gen -> DataTypeInfo -> TcM (Maybe [InstanceDeclItem])
+dataItems gen dataType
+  | null constructors = do
+      emitError (genSpan gen) (OtherError "stock Data deriving requires a datatype with at least one constructor")
+      pure Nothing
+  | otherwise = do
+      gfoldlMatches <- mapM gfoldlMatch constructors
+      unfoldCombine <- freshLocal gen "k"
+      unfoldWrap <- freshLocal gen "z"
+      description <- freshLocal gen "c"
+      tag <- freshLocal gen "t"
+      value <- freshLocal gen "x"
+      dataTypeBinder <- freshLocal gen "d"
+      castItems <- dataCastItems
+      let unfold constructor =
+            iterate (\inner -> applyN gen (localExpr gen unfoldCombine) [inner]) (applyN gen (localExpr gen unfoldWrap) [constructorExpr gen constructor])
+              !! length (dciFields constructor)
+          gunfoldBody =
+            case constructors of
+              [constructor] -> unfold constructor
+              _ ->
+                caseOf
+                  gen
+                  (applyN gen (dataReference dataConstrIndex) [localExpr gen description])
+                  [ ( atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar tag)]),
+                      caseOf
+                        gen
+                        (localExpr gen tag)
+                        ( [(intHashPattern gen index, unfold constructor) | (index, constructor) <- init indexed]
+                            <> [(atPattern gen PWildcard, unfold (last constructors))]
+                        )
+                    )
+                  ]
+          toConstrBody =
+            caseOf
+              gen
+              (localExpr gen value)
+              [ ( constructorPattern gen constructor (map (const Nothing) (dciFields constructor)),
+                  applyN gen (dataReference dataIndexConstr) [methodApp gen "dataTypeOf" [localExpr gen value], intLiteral gen index]
+                )
+              | (index, constructor) <- indexed
+              ]
+          -- The description of the datatype is a knot: each constructor
+          -- description names the datatype description, which takes the
+          -- index of the constructor from the position of its name.
+          dataTypeBody =
+            at gen $
+              ELetDecls
+                [DeclValue (FunctionBind dataTypeBinder [simpleMatch gen [] (describeDataType dataTypeBinder)])]
+                (localExpr gen dataTypeBinder)
+      pure
+        ( Just
+            ( [ methodBind gen "gfoldl" gfoldlMatches,
+                methodBind gen "gunfold" [simpleMatch gen [atPattern gen (PVar unfoldCombine), atPattern gen (PVar unfoldWrap), atPattern gen (PVar description)] gunfoldBody],
+                methodBind gen "toConstr" [simpleMatch gen [atPattern gen (PVar value)] toConstrBody],
+                methodBind gen "dataTypeOf" [simpleMatch gen [atPattern gen PWildcard] dataTypeBody]
+              ]
+                <> castItems
+            )
+        )
+  where
+    constructors = dtiConstructors dataType
+    indexed = zip [1 :: Integer ..] constructors
+    dataReference select = referenceExpr gen (select . derivingData)
+    gfoldlMatch constructor = do
+      combine <- freshLocal gen "k"
+      wrap <- freshLocal gen "z"
+      fields <- fieldLocals gen "a" constructor
+      let body =
+            foldl
+              (\inner field -> applyN gen (localExpr gen combine) [inner, localExpr gen field])
+              (applyN gen (localExpr gen wrap) [constructorExpr gen constructor])
+              fields
+      pure
+        ( simpleMatch
+            gen
+            [atPattern gen (PVar combine), atPattern gen (PVar wrap), constructorPattern gen constructor (map Just fields)]
+            body
+        )
+    describeDataType dataTypeBinder =
+      applyN
+        gen
+        (dataReference dataMkDataType)
+        [ stringExpr gen (tyConModuleName (dtiTyCon dataType) <> "." <> dtiName dataType),
+          at gen (EList (map (describeConstructor dataTypeBinder) constructors))
+        ]
+    describeConstructor dataTypeBinder constructor =
+      applyN
+        gen
+        (dataReference dataMkConstr)
+        [ localExpr gen dataTypeBinder,
+          stringExpr gen (dciName constructor),
+          at gen (EList [stringExpr gen label | Just label <- map dcfiLabel (dciFields constructor)]),
+          dataReference (if isSymbolic (dciName constructor) then dataInfix else dataPrefix)
+        ]
+    -- GHC gives the casts only to a type constructor whose parameters and
+    -- result all have kind 'Type'.
+    dataCastItems
+      | all (isLiftedTypeKind . tvKind) (dtiTyVars dataType) && isLiftedTypeKind (dtiResultKind dataType) =
+          case length (dtiTyVars dataType) of
+            1 -> castItem "dataCast1" dataGcast1
+            2 -> castItem "dataCast2" dataGcast2
+            _ -> pure []
+      | otherwise = pure []
+    castItem name select = do
+      function <- freshLocal gen "f"
+      pure [methodBind gen name [simpleMatch gen [atPattern gen (PVar function)] (applyN gen (dataReference select) [localExpr gen function])]]
+    isLiftedTypeKind kind =
+      case kind of
+        KType -> True
+        _ -> False
 
 -- * Functor, Foldable and Traversable
 
