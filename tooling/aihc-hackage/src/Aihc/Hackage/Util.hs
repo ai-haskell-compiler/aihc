@@ -4,19 +4,21 @@ module Aihc.Hackage.Util
     findCabalFiles,
     chooseBestCabalFile,
     moduleFilesForBuildInfo,
+    moduleNameFilePath,
     sourceDirs,
   )
 where
 
+import Aihc.Cabal (BuildInfo)
+import Aihc.Cabal qualified as Cabal
 import Aihc.Hackage.Preprocessor (preprocessorExtensions)
 import Control.Monad (forM)
 import Data.Char (toLower)
 import Data.List (isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
-import Distribution.ModuleName (ModuleName, toFilePath)
-import Distribution.PackageDescription (BuildInfo, hsSourceDirs)
-import Distribution.Utils.Path (getSymbolicPath)
+import Data.Text (Text)
+import Data.Text qualified as T
 import System.Directory
   ( doesDirectoryExist,
     doesFileExist,
@@ -106,7 +108,7 @@ chooseBestCabalFile extractedRoot files =
 -- | Resolve module names to existing source files for a 'BuildInfo'.
 --
 -- Each module uses the first file that exists in @hs-source-dirs@ order.
-moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
+moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [Text] -> IO [FilePath]
 moduleFilesForBuildInfo packageRoot build modules = do
   let dirs = sourceDirs packageRoot build
   fmap catMaybes (mapM (firstExistingModule dirs) modules)
@@ -114,10 +116,10 @@ moduleFilesForBuildInfo packageRoot build modules = do
 -- | The file a module is found as. Like Cabal, the search covers the
 -- suffixes of the preprocessors after the plain Haskell ones, so a module
 -- that ships both @Foo.hs@ and @Foo.hsc@ takes the plain file.
-firstExistingModule :: [FilePath] -> ModuleName -> IO (Maybe FilePath)
+firstExistingModule :: [FilePath] -> Text -> IO (Maybe FilePath)
 firstExistingModule dirs modu =
   firstExisting
-    [ dir </> toFilePath modu <.> ext
+    [ dir </> moduleNameFilePath modu <.> ext
     | dir <- dirs,
       ext <- ["hs", "lhs"] <> preprocessorExtensions
     ]
@@ -130,9 +132,14 @@ firstExisting (candidate : rest) = do
     then pure (Just (normalise candidate))
     else firstExisting rest
 
+-- | The relative path of a module without a suffix: @Data/Map@ for
+-- @Data.Map@.
+moduleNameFilePath :: Text -> FilePath
+moduleNameFilePath = T.unpack . T.replace (T.pack ".") (T.pack "/")
+
 -- | Compute source directories from a 'BuildInfo'.
 sourceDirs :: FilePath -> BuildInfo -> [FilePath]
 sourceDirs packageRoot build =
-  case map getSymbolicPath (hsSourceDirs build) of
+  case Cabal.sourceDirs build of
     [] -> [packageRoot]
     dirs -> [packageRoot </> dir | dir <- dirs]

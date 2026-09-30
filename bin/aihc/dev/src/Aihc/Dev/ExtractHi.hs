@@ -12,8 +12,11 @@ module Aihc.Dev.ExtractHi
   )
 where
 
+import Aihc.Cabal (Component (..), ComponentKind (..), LibraryTarget (..), Package, exposedModules, packageComponents, unconditional)
 import Aihc.Dev.ExtractHi.GhcSession (withReadIface)
 import Aihc.Dev.ExtractHi.Types
+import Aihc.Hackage.Package (parsePackageDescription)
+import Aihc.Hackage.Util (moduleNameFilePath)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Pretty (prettyType)
 import Aihc.Parser.Syntax
@@ -57,10 +60,6 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Distribution.ModuleName qualified as CabalModuleName
-import Distribution.PackageDescription (GenericPackageDescription, condLibrary, exposedModules)
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
-import Distribution.Types.CondTree (CondTree (condTreeData))
 import GHC (Ghc, lookupName)
 import GHC.Builtin.Utils (ghcPrimExports, ghcPrimFixities)
 import GHC.Core.ConLike (ConLike (..), conLikeName)
@@ -576,16 +575,16 @@ exposedSourceModules root = do
   case cabalFiles of
     cabalFile : _ -> do
       contents <- BS.readFile (root </> cabalFile)
-      case runParseResult (parseGenericPackageDescription contents) of
-        (_, Right gpd) -> pure (genericPackageExposedModules gpd)
-        (_, Left (_, errors)) -> ioError (userError ("could not parse " <> cabalFile <> ": " <> show errors))
+      case parsePackageDescription contents of
+        Right gpd -> pure (genericPackageExposedModules gpd)
+        Left errors -> ioError (userError ("could not parse " <> cabalFile <> ": " <> errors))
     [] -> ioError (userError ("no Cabal file found under " <> root))
 
-genericPackageExposedModules :: GenericPackageDescription -> [String]
+genericPackageExposedModules :: Package -> [String]
 genericPackageExposedModules gpd =
-  [ CabalModuleName.toFilePath modName
-  | libTree <- maybe [] pure (condLibrary gpd),
-    modName <- exposedModules (condTreeData libTree)
+  [ moduleNameFilePath modName
+  | Component (Library MainLibrary) libTree <- packageComponents gpd,
+    modName <- exposedModules (unconditional libTree)
   ]
 
 extractSourceModule :: FilePath -> String -> IO ModuleInterface
