@@ -482,7 +482,8 @@ executableFilesFor :: PackageDescription -> (Condition ConfVar -> Bool) -> FileP
 executableFilesFor pkgDescr evalCond packageRoot exeName tree = do
   let executable = condTreeData tree
       build = collectMergedBuildInfo evalCond buildInfo tree
-      moduleNames = otherModules build <> exeModules executable <> autogenModules build
+      -- The merged build info and 'exeModules' both hold the other-modules.
+      moduleNames = nub (otherModules build <> exeModules executable <> autogenModules build)
       mainPath = getSymbolicPath (modulePath executable)
       exts = extractExtensions build
       cppOpts = cppOptions build

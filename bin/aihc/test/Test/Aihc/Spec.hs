@@ -27,7 +27,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
-import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf, nub, sort, stripPrefix)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -892,6 +892,12 @@ test_buildExecutables getStore =
       assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
     bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
     assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArchives bundle))
+    -- Cabal lists the other-modules of an executable in two places. The
+    -- build compiles each module one time, so the bundle lists it one time.
+    shoutBundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "shout"))
+    let shoutObjects = linkBundleObjects shoutBundle
+    assertBool "shout bundle lists the other module" (any ("Loud.o" `isSuffixOf`) shoutObjects)
+    assertEqual "shout bundle lists each object one time" (nub shoutObjects) shoutObjects
 
 -- | Two dependencies can each hold a module of one name, as @filepath@ and
 -- @os-string@ both hold @System.OsString.Internal.Types@. The facts of both
