@@ -1,0 +1,229 @@
+[
+ {
+  "line": 1,
+  "text": "scope",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 1,
+  "text": "1",
+  "scope": "constant.numeric.aihc-fc"
+ },
+ {
+  "line": 1,
+  "text": "\"\"",
+  "scope": "string.quoted.double.aihc-fc"
+ },
+ {
+  "line": 1,
+  "text": "Example",
+  "scope": "entity.name.namespace.aihc-fc"
+ },
+ {
+  "line": 2,
+  "text": "GHC.Types",
+  "scope": "entity.name.namespace.aihc-fc"
+ },
+ {
+  "line": 4,
+  "text": "import",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 4,
+  "text": "headers",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "pub",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "val",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "1.",
+  "scope": "entity.name.namespace.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "vappend",
+  "scope": "entity.name.function.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "::",
+  "scope": "keyword.operator.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "∀",
+  "scope": "keyword.operator.binder.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "sType",
+  "scope": "entity.name.type.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "t[]",
+  "scope": "entity.name.type.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "→",
+  "scope": "keyword.operator.arrow.aihc-fc"
+ },
+ {
+  "line": 20,
+  "text": "a",
+  "scope": "variable.other.aihc-fc",
+  "occurrence": 3
+ },
+ {
+  "line": 21,
+  "text": "Λ",
+  "scope": "keyword.operator.binder.aihc-fc"
+ },
+ {
+  "line": 22,
+  "text": "λ",
+  "scope": "keyword.operator.binder.aihc-fc"
+ },
+ {
+  "line": 24,
+  "text": "case",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 24,
+  "text": "as",
+  "scope": "keyword.control.aihc-fc",
+  "occurrence": 2
+ },
+ {
+  "line": 24,
+  "text": "_scrut",
+  "scope": "variable.other.aihc-fc"
+ },
+ {
+  "line": 24,
+  "text": "return",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 24,
+  "text": "of",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 25,
+  "text": "c[]",
+  "scope": "entity.name.constructor.aihc-fc"
+ },
+ {
+  "line": 27,
+  "text": "c:",
+  "scope": "entity.name.constructor.aihc-fc"
+ },
+ {
+  "line": 27,
+  "text": "x",
+  "scope": "variable.other.aihc-fc"
+ },
+ {
+  "line": 27,
+  "text": "{",
+  "scope": "punctuation.definition.unique.aihc-fc"
+ },
+ {
+  "line": 27,
+  "text": "1",
+  "scope": "constant.numeric.unique.aihc-fc"
+ },
+ {
+  "line": 28,
+  "text": "@",
+  "scope": "keyword.operator.aihc-fc"
+ },
+ {
+  "line": 31,
+  "text": "-- A line comment.",
+  "scope": "comment.line.double-dash.aihc-fc"
+ },
+ {
+  "line": 32,
+  "text": "{- A block comment. -}",
+  "scope": "comment.block.aihc-fc"
+ },
+ {
+  "line": 33,
+  "text": "axiom",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 33,
+  "text": "$ax$Age",
+  "scope": "entity.name.function.axiom.aihc-fc"
+ },
+ {
+  "line": 33,
+  "text": "~R",
+  "scope": "keyword.operator.aihc-fc"
+ },
+ {
+  "line": 36,
+  "text": "let",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 37,
+  "text": "as",
+  "scope": "variable.other.aihc-fc"
+ },
+ {
+  "line": 37,
+  "text": "0",
+  "scope": "constant.numeric.unique.aihc-fc"
+ },
+ {
+  "line": 38,
+  "text": "1",
+  "scope": "constant.numeric.aihc-fc"
+ },
+ {
+  "line": 38,
+  "text": "#",
+  "scope": "keyword.operator.aihc-fc"
+ },
+ {
+  "line": 38,
+  "text": "cIntRep",
+  "scope": "entity.name.constructor.aihc-fc"
+ },
+ {
+  "line": 39,
+  "text": "in",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 40,
+  "text": "'x'",
+  "scope": "string.quoted.single.aihc-fc"
+ },
+ {
+  "line": 40,
+  "text": "▷",
+  "scope": "keyword.operator.aihc-fc"
+ },
+ {
+  "line": 40,
+  "text": "sym",
+  "scope": "keyword.control.aihc-fc"
+ }
+]

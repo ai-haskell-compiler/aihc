@@ -182,11 +182,27 @@ representationParameter visited constructor index
   where
     next = (constructor, index) : visited
     checkConstructor parameter expected con
-      | null (dciTheta con),
-        null (dciExTyVars con),
+      | null (dciExTyVars con),
         Just substitution <- matchTypes [dciResTy con] [expected] = do
-          and <$> mapM (representationPosition next parameter . applySubst substitution . dcfiType) (dciFields con)
+          contextAllows <- and <$> mapM (contextPosition parameter . applySubstPred substitution) (dciTheta con)
+          fieldsAllow <- and <$> mapM (representationPosition next parameter . applySubst substitution . dcfiType) (dciFields con)
+          pure (contextAllows && fieldsAllow)
       | otherwise = pure False
+    -- Both arguments of a @Coercible@ context are representation
+    -- positions, as the role of @Coercible@ is representational. Any other
+    -- context that mentions the parameter makes it nominal.
+    contextPosition parameter predicate =
+      case predicate of
+        ClassPred className arguments@[_, _] -> do
+          coercible <- isCoercibleClass className
+          if coercible
+            then and <$> mapM (representationPosition next parameter) arguments
+            else pure (not (any (mentions parameter) arguments))
+        ClassPred _ arguments -> pure (not (any (mentions parameter) arguments))
+        EqPred left right -> pure (not (mentions parameter left || mentions parameter right))
+        IParamPred _ payload -> pure (not (mentions parameter payload))
+        IrredPred constraint -> pure (not (mentions parameter constraint))
+        QuantifiedPred {} -> pure False
 
 representationPosition :: [(TyCon, Int)] -> TyVarId -> TcType -> TcM Bool
 representationPosition visited variable ty = case ty of

@@ -1098,11 +1098,14 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
   scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
   let ForAll quantified _ resultKind = scheme
   let quantifiedUniques = map tvUnique quantified
-      (argumentSubstitution, remainingKind, skipped) = go quantifiedUniques 0 Map.empty resultKind arguments
+      (argumentSubstitution, remainingKind, skipped, leftover) = go quantifiedUniques 0 Map.empty resultKind arguments
+      -- A kind variable in the place of an arrow, as in @Any :: forall k.
+      -- k@, stands for the arrow from the kinds of the arguments that are
+      -- left over to the kind of the whole application.
       resultSubstitution =
-        case expectedKind of
-          Just expected -> matchKind quantifiedUniques remainingKind expected
-          Nothing -> Map.empty
+        case (expectedKind, mapM (typeKindInEnv kinds kindEnv) leftover) of
+          (Just expected, Right leftoverKinds) -> matchKind quantifiedUniques remainingKind (foldr KFun expected leftoverKinds)
+          _ -> Map.empty
       substitution = argumentSubstitution <> resultSubstitution
   pure (TcTypeApplicationKinds substitution (argumentKinds (applySubst substitution resultKind)) skipped)
   where
@@ -1114,9 +1117,9 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
           let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
            in go quantifiedUniques (position + 1) (substitution <> found) (applySubst found result) rest
         Left reason ->
-          let (substitution', kind, skipped) = go quantifiedUniques (position + 1) substitution result rest
-           in (substitution', kind, skippedArgument position reason : skipped)
-    go _ _ substitution kind _ = (substitution, applySubst substitution kind, [])
+          let (substitution', kind, skipped, leftover) = go quantifiedUniques (position + 1) substitution result rest
+           in (substitution', kind, skippedArgument position reason : skipped, leftover)
+    go _ _ substitution kind leftover = (substitution, applySubst substitution kind, [], leftover)
 
     -- The caller prints the arguments themselves, so name the one that
     -- failed by position rather than repeating it.

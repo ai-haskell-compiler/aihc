@@ -1,0 +1,114 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  data List a = Nil | Cons a (List a)
+       │        │     └─ type: ∀ a. a → List a → List a
+       │        └─ type: ∀ a. List a
+       └─ type: Type → Type
+  mapList :: (a -> b) -> List a -> List b
+  mapList f Nil = Nil
+  │       │ │     └─ type: List b; type-args: b
+  │       │ └─ type: List a
+  │       └─ type: a → b
+  └─ type: ∀ a b. (a → b) → List a → List b
+  mapList f (Cons x xs) = Cons (f x) (mapList f xs)
+  │       │  │    │ │     │           └─ type: (a → b) → List a → List b; type-args: a, b
+  │       │  │    │ │     └─ type: b → List b → List b; type-args: b
+  │       │  │    │ └─ type: List a
+  │       │  │    └─ type: a
+  │       │  └─ type: List a
+  │       └─ type: a → b
+  └─ type: ∀ a b. (a → b) → List a → List b
+  newtype Key = Key Int
+          │     └─ type: GHC.Types.Int → Key
+          └─ type: Type
+  data Coercion a b where
+       └─ type: Type → Type → Type
+    Coercion :: Coercible a b => Coercion a b
+    └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ Coercion a b
+  keyToInt :: Maybe (Coercion Key Int)
+  keyToInt = Just Coercion
+  │          │    └─ type: Coercion Key GHC.Types.Int; type-args: Key, Int; evidence: coercible @Key @Int
+  │          └─ type: Coercion Key GHC.Types.Int → Maybe (Coercion Key GHC.Types.Int); type-args: Coercion Key Int
+  └─ type: Maybe (Coercion Key GHC.Types.Int)
+  data KeyFunction a where
+       └─ type: Type → Type
+    KeyCoerce :: Coercible Int a => KeyFunction a
+    └─ type: ∀ a. (GHC.Types.Coercible GHC.Types.Int a) ⇒ KeyFunction a
+    KeyText :: (Int -> a) -> KeyFunction a
+    └─ type: ∀ a. (GHC.Types.Int → a) → KeyFunction a
+  parse :: KeyFunction a -> List Int -> List a
+  parse kf xs = case kf of
+  │     │  │    └─ type: List a
+  │     │  └─ type: List GHC.Types.Int
+  │     └─ type: KeyFunction a
+  └─ type: ∀ a. KeyFunction a → List GHC.Types.Int → List a
+      KeyCoerce -> case keyToInt of
+      │            └─ type: List a
+      └─ type: KeyFunction a; type-args: a; evidence: given Coercible Int a
+        Nothing -> text coerce
+        │               └─ type: GHC.Types.Int → a; type-args: Int, a; evidence: given Coercible Int a
+        └─ type: Maybe (Coercion Key GHC.Types.Int)
+        Just Coercion -> uc (mapList Key xs)
+        │    │           │   └─ type: (GHC.Types.Int → Key) → List GHC.Types.Int → List Key; type-args: Int, Key
+        │    │           └─ type: List Key → List a; type-args: a; evidence: coercible @Key @a
+        │    └─ type: Coercion Key GHC.Types.Int; type-args: Key, Int; evidence: given Coercible Key Int
+        └─ type: Maybe (Coercion Key GHC.Types.Int)
+      KeyText f -> text f
+      │       └─ type: GHC.Types.Int → a
+      └─ type: KeyFunction a
+    where
+      uc :: Coercible Key b => List Key -> List b
+      uc = unsafeCoerce#
+      │    └─ type: List Key → List b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, List Key, List b
+      └─ type: ∀ b. (GHC.Types.Coercible Key b) ⇒ List Key → List b
+      text g = mapList g xs
+      │    │   └─ type: (GHC.Types.Int → a) → List GHC.Types.Int → List a; type-args: Int, a
+      │    └─ type: GHC.Types.Int → a
+      └─ type: (GHC.Types.Int → a) → List a
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data Maybe a = Nothing | Just a
+  data List a = Nil | Cons a (List a)
+  mapList :: (a -> b) -> List a -> List b
+  mapList f Nil = Nil
+  mapList f (Cons x xs) = Cons (f x) (mapList f xs)
+  newtype Key = Key Int
+  data Coercion a b where
+    Coercion :: Coercible a b => Coercion a b
+  keyToInt :: Maybe (Coercion Key Int)
+  keyToInt = Just Coercion
+  data KeyFunction a where
+    KeyCoerce :: Coercible Int a => KeyFunction a
+    KeyText :: (Int -> a) -> KeyFunction a
+  parse :: KeyFunction a -> List Int -> List a
+  parse kf xs = case kf of
+      KeyCoerce -> case keyToInt of
+        Nothing -> text coerce
+        Just Coercion -> uc (mapList Key xs)
+      KeyText f -> text f
+    where
+      uc :: Coercible Key b => List Key -> List b
+      uc = unsafeCoerce#
+      text g = mapList g xs
+reason: a Coercible given of a branch solves a wanted whose type a later unification fixes, and a chain of givens solves a wanted
+status: pass

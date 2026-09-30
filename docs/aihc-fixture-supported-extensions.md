@@ -5,7 +5,7 @@
 - Total Extensions: 63
 - Supported: 48
 - In Progress: 15
-- Fixtures (eval): 651
+- Fixtures (eval): 657
 - Fixtures (fc): 309
 
 ## Extension Status
@@ -31,13 +31,13 @@
 | EmptyDataDecls             |   🟢    | 2/2           |
 | ExistentialQuantification  |   🟢    | 9/9           |
 | ExplicitForAll             |   🟢    | 13/13         |
-| ExplicitNamespaces         |   🟢    | 4/4           |
+| ExplicitNamespaces         |   🟢    | 5/5           |
 | ExtendedLiterals           |   🟢    | 13/13         |
 | FlexibleContexts           |   🟢    | 16/16         |
 | FlexibleInstances          |   🟡    | 44/46         |
 | ForeignFunctionInterface   |   🟢    | 43/43         |
 | FunctionalDependencies     |   🔴    | 18/22         |
-| GADTs                      |   🟢    | 103/103       |
+| GADTs                      |   🟢    | 104/104       |
 | GeneralizedNewtypeDeriving |   🟢    | 18/18         |
 | GHCForeignImportPrim       |   🔴    | 7/9           |
 | ImplicitParams             |   🟢    | 5/5           |
@@ -56,7 +56,7 @@
 | PatternSynonyms            |   🟢    | 27/27         |
 | PolyKinds                  |   🟢    | 30/30         |
 | QuantifiedConstraints      |   🟢    | 2/2           |
-| RankNTypes                 |   🟢    | 24/24         |
+| RankNTypes                 |   🟢    | 25/25         |
 | RebindableSyntax           |   🟡    | 19/20         |
 | RecordWildCards            |   🟢    | 2/2           |
 | RecursiveDo                |   🔴    | 0/11          |
@@ -69,7 +69,7 @@
 | TypeApplications           |   🟢    | 13/13         |
 | TypeFamilies               |   🟡    | 47/49         |
 | TypeFamilyDependencies     |   🟢    | 1/1           |
-| TypeOperators              |   🟢    | 111/111       |
+| TypeOperators              |   🟢    | 114/114       |
 | UnboxedSums                |   🟢    | 10/10         |
 | UnboxedTuples              |   🟡    | 85/86         |
 | UndecidableInstances       |   🔴    | 11/14         |

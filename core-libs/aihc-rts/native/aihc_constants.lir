@@ -19,6 +19,10 @@ const @AIHC_INFO_KIND_OFFSET = 5 words + 3
 const @AIHC_INFO_NEEDS_EVAL_OFFSET = 5 words + 4
 const @AIHC_INFO_BYTES = 5 words + 8
 
+; The machine of the process. A process has one machine, so Lir code names
+; it by this symbol and no function takes it as a parameter.
+extern data @aihc_machine
+
 ; AihcMachine fields used by evaluation. C assertions check these offsets.
 ; The heap pointer and the stack pointer of the machine are a copy of the
 ; context. The code stores them only before a C call that reads them.

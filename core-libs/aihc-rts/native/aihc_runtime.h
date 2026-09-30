@@ -58,9 +58,9 @@ typedef struct AihcStableName AihcStableName;
 typedef uint64_t AihcSlot;
 /* The portable entry of an info table. Reserved: Lir stores null until the
    runtime moves to Lir. The exit code of a machine has this type. */
-typedef void (*AihcEntry)(AihcMachine *machine);
+typedef void (*AihcEntry)(void);
 /* The backend entry is a Lir function with the signature
-   (machine, object, continuation, supplied values...). Common runtime code
+   (context, object, continuation, supplied values...). Common runtime code
    preserves it but never calls it. */
 typedef void (*AihcBackendEntry)(void);
 
@@ -132,11 +132,11 @@ struct AihcInfo {
   /* The static objects this object's code reaches, or null when it reaches
      none. The collector marks them whenever it traces the object. */
   const AihcSrt *srt;
-  /* The slots an object of this info table holds. A partial constructor is
-     the exception: every stage of one constructor shares a single info table,
-     so the count of the slots filled so far lives in the object and this byte
-     is zero. See aihc_value_count. The lowering rejects an object with more
-     than 255 slots. */
+  /* The slots an object of this info table holds. Both tables of a
+     constructor give the full width of the saturated object. Every partial
+     stage shares one info table, so a partial constructor keeps the count of
+     the slots filled so far in field zero. See aihc_value_count. The lowering
+     rejects an object with more than 255 slots. */
   uint8_t field_count;
   /* The lowering rejects a function that takes more than 255 arguments. */
   uint8_t remaining_arity;
@@ -356,6 +356,8 @@ void aihc_heap_collect(AihcMachine *machine, uint64_t words,
                        const AihcSrt *srt);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots, const AihcSrt *srt);
+/* The one machine of the process. Lir code names it by this symbol. */
+extern AihcMachine aihc_machine;
 AihcMachine *aihc_machine_initialize(void);
 AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);

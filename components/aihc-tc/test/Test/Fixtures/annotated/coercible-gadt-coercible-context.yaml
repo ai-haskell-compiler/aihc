@@ -1,0 +1,75 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  newtype Age = Age Int
+          │     └─ type: GHC.Types.Int → Age
+          └─ type: Type
+  data KeyFunction a where
+       └─ type: Type → Type
+    KeyCoerce :: Coercible Int a => KeyFunction a
+    └─ type: ∀ a. (GHC.Types.Coercible GHC.Types.Int a) ⇒ KeyFunction a
+    KeyText :: (Int -> a) -> KeyFunction a
+    └─ type: ∀ a. (GHC.Types.Int → a) → KeyFunction a
+  useKey :: KeyFunction a -> Int -> a
+  useKey KeyCoerce n = coerce n
+  │      │         │   └─ type: GHC.Types.Int → a; type-args: Int, a; evidence: given Coercible Int a
+  │      │         └─ type: GHC.Types.Int
+  │      └─ type: KeyFunction a; type-args: a; evidence: given Coercible Int a
+  └─ type: ∀ a. KeyFunction a → GHC.Types.Int → a
+  useKey (KeyText f) n = f n
+  │       │       │  └─ type: GHC.Types.Int
+  │       │       └─ type: GHC.Types.Int → a
+  │       └─ type: KeyFunction a
+  └─ type: ∀ a. KeyFunction a → GHC.Types.Int → a
+  coerceKey :: Coercible a b => KeyFunction a -> KeyFunction b
+  coerceKey = coerce
+  │           └─ type: KeyFunction a → KeyFunction b; type-args: KeyFunction a, KeyFunction b; evidence: coercible @KeyFunction a @KeyFunction b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ KeyFunction a → KeyFunction b
+  ageKey :: KeyFunction Int -> KeyFunction Age
+  ageKey = coerce
+  │        └─ type: KeyFunction GHC.Types.Int → KeyFunction Age; type-args: KeyFunction Int, KeyFunction Age; evidence: coercible @KeyFunction Int @KeyFunction Age
+  └─ type: KeyFunction GHC.Types.Int → KeyFunction Age
+  class Named a
+  └─ class methods:
+  data Tagged a where
+       └─ type: Type → Type
+    Tagged :: Named a => a -> Tagged a
+    └─ type: ∀ a. (Named a) ⇒ a → Tagged a
+  tagAge :: Tagged Int -> Tagged Age
+  tagAge = coerce
+           └─ error: unsolved constraint Coercible Tagged Int Tagged Age
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs, MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  newtype Age = Age Int
+  data KeyFunction a where
+    KeyCoerce :: Coercible Int a => KeyFunction a
+    KeyText :: (Int -> a) -> KeyFunction a
+  useKey :: KeyFunction a -> Int -> a
+  useKey KeyCoerce n = coerce n
+  useKey (KeyText f) n = f n
+  coerceKey :: Coercible a b => KeyFunction a -> KeyFunction b
+  coerceKey = coerce
+  ageKey :: KeyFunction Int -> KeyFunction Age
+  ageKey = coerce
+  class Named a
+  data Tagged a where
+    Tagged :: Named a => a -> Tagged a
+  tagAge :: Tagged Int -> Tagged Age
+  tagAge = coerce
+reason: a Coercible context of a constructor keeps its parameter representational and gives a Coercible given in a match, but another class context makes the parameter nominal
+status: pass

@@ -61,8 +61,8 @@ runtime does perform goes through the P3 bindings below instead.
 
 ## Runtime ABI
 
-Generated functions have the Lir signatures of the lowering: the machine, the
-GRIN parameters, and no results. Every CPS transfer is a `return_call`, so the
+Generated functions have the Lir signatures of the lowering: the context,
+the GRIN parameters, and no results. Every CPS transfer is a `return_call`, so the
 whole program runs inside the call that started it. Each Lir value is a
 WebAssembly local; values reach linear memory only at the boundaries that
 need an address, such as the live-root vector of a collection safepoint on the

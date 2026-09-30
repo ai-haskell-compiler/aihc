@@ -1,0 +1,7 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "aihc-manual",
+  "compatibility_date": "2026-09-07",
+  "assets": { "directory": "./site", "not_found_handling": "404-page" },
+  "routes": [{ "pattern": "docs.aihc.app", "custom_domain": true }]
+}

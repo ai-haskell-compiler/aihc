@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Golden assembly for the native backends.
+-- | Golden assembly for the native and WebAssembly backends.
 --
 -- Each fixture in @Test\/Fixtures\/lir\/asm@ is a Lir module with a companion
 -- file per backend holding the assembly that backend produces. The fixtures

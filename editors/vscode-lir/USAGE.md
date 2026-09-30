@@ -1,8 +1,14 @@
-# AIHC LIR for VS Code
+# AIHC Intermediate Languages for VS Code
 
-This extension supplies syntax highlighting for `.lir` files.
-It recognizes LIR keywords, instructions, types, labels, values, symbols, literals, and comments.
-It also supplies bracket pairs, quote pairs, and a line comment command.
+This extension supplies syntax highlighting for the intermediate languages of AIHC.
+
+| Language | Files |
+| --- | --- |
+| System FC | `.fc` files, and the `core` files of `--keep-core` |
+| GRIN | `.grin` files, and the `grin` files of `--keep-grin` |
+| LIR | `.lir` files |
+
+It also supplies bracket pairs, quote pairs, and the comment commands of each language.
 The active VS Code theme selects the colors.
 
 ## Install
@@ -13,15 +19,15 @@ From the repository root, build the extension:
 nix build .#vscode-lir
 ```
 
-This command checks the grammar fixtures and creates a VSIX package.
+This command creates a VSIX package.
 Install the package:
 
 ```sh
-code --install-extension result/aihc-lir-0.1.0.vsix
+code --install-extension result/aihc-lir-0.2.0.vsix
 ```
 
 If the `code` command is not available, use **Extensions: Install from VSIX...** in the VS Code command palette.
-Select `result/aihc-lir-0.1.0.vsix`.
+Select `result/aihc-lir-0.2.0.vsix`.
 Open a `.lir` file.
 The language mode must show **AIHC LIR**.
 If necessary, use **Developer: Reload Window**.
@@ -29,45 +35,17 @@ If necessary, use **Developer: Reload Window**.
 The package uses `aihc.aihc-lir` as its local extension identifier.
 A local installation does not require a Marketplace account.
 
-## Change the grammar
+## Change a grammar
 
-Use `docs/lir.md` and `bin/aihc/compiler/lir/src/Aihc/Lir/Parser.hs` as the language references.
-The grammar file is `syntaxes/lir.tmLanguage.json`.
-The grammar uses standard TextMate scopes so existing themes can select colors.
-It does not check types or report compiler errors.
+The grammars are in `editors/grammars/syntaxes`.
+The AIHC Manual uses the same grammars.
+The directory `syntaxes` of this extension is a link to that directory.
+See `editors/grammars/README.md` for the grammar tests.
 
 Open `editors/vscode-lir` as a folder in VS Code.
 Press **F5** to start an Extension Development Host.
-In that window, open a LIR file.
+In that window, open a file of one of the languages.
 Use **Developer: Inspect Editor Tokens and Scopes** to inspect the colors and scopes.
-
-## Check the grammar
-
-Each fixture has a `.lir` source file and a `.json` file with expected scopes.
-Line numbers start at one.
-Each assertion gives the source text and its most specific TextMate scope.
-An optional `parentScope` checks the string scope of a quoted name.
-This scope prevents automatic bracket pairs inside quoted names.
-For repeated text, set `occurrence` to select the required occurrence.
-Each file starts with a fresh tokenizer state.
-The state continues across lines to check multiline strings and quoted names.
-The fixtures include source fragments and incomplete source for editor use.
-
-From the repository root, install the test dependencies:
-
-```sh
-nix shell --inputs-from . nixpkgs#nodejs --command npm --prefix editors/vscode-lir ci
-```
-
-Run the fixture checks:
-
-```sh
-nix shell --inputs-from . nixpkgs#nodejs --command npm --prefix editors/vscode-lir test
-```
-
-The tests use `vscode-textmate` and `vscode-oniguruma`, which also supply the VS Code grammar engine.
-`just check` and `nix flake check` build the extension and run these checks.
-The VSIX package contains no test dependencies.
 
 References:
 

@@ -255,7 +255,7 @@ exportedScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
 exportedScope package exports extensions modu =
   case moduleExports modu of
     Nothing -> ownScope
-    Just specs -> withSeparatelyExportedMethods (List.foldl' unionScope emptyScope (map exportSpecScope specs))
+    Just specs -> withSeparatelyExportedFields (withSeparatelyExportedMethods (List.foldl' unionScope emptyScope (map exportSpecScope specs)))
   where
     (ownScope, imported) = ownAndImportedScopes package exports extensions modu
     availableScope = ownScope `unionScope` imported
@@ -281,6 +281,36 @@ exportedScope package exports extensions modu =
                       Map.lookup method (scopeTerms scope) == Just resolvedMethod
                     ],
               not (null exportedMethods)
+            ]
+
+    -- A type item without members exports the type alone, but a separate
+    -- item can export a record field of it. The field stays a field of the
+    -- type: an import item @T(..)@ names it (Haskell 2010 5.3.1). The
+    -- constructor becomes a member of the type again only so that the field
+    -- has an owner. The constructor term stays hidden.
+    withSeparatelyExportedFields scope =
+      scope
+        { scopeConstructors = Map.unionWith (\bundled separate -> List.nub (bundled <> separate)) (scopeConstructors scope) (Map.fromListWith (<>) [(typeName, [constructor]) | (typeName, constructor, _) <- separateFields]),
+          scopeRecordFields = Map.unionWith (\bundled separate -> List.nub (bundled <> separate)) (scopeRecordFields scope) (Map.fromListWith (<>) [(constructor, fields) | (_, constructor, fields) <- separateFields])
+        }
+      where
+        separateFields =
+          List.nub
+            [ (typeName, constructor, exportedFields)
+            | (typeName, resolvedType) <- Map.toList (scopeTypes scope),
+              candidate <- availableScope : Map.elems (scopeQualifiedModules availableScope),
+              lookupType typeName candidate == resolvedType,
+              constructor <- Map.findWithDefault [] typeName (scopeConstructors candidate),
+              let bundledFields = Map.findWithDefault [] constructor (scopeRecordFields scope),
+              Just fields <- [Map.lookup constructor (scopeRecordFields candidate)],
+              let exportedFields =
+                    [ field
+                    | field <- fields,
+                      field `notElem` bundledFields,
+                      Just resolvedField <- [Map.lookup field (scopeTerms candidate)],
+                      Map.lookup field (scopeTerms scope) == Just resolvedField
+                    ],
+              not (null exportedFields)
             ]
 
     exportSpecScope spec =
@@ -496,7 +526,7 @@ declExportedNames recordFields decl =
             Map.empty
             (Map.singleton (renderUnqualifiedName className) (map renderUnqualifiedName methodNames))
             (Map.singleton (renderUnqualifiedName className) (map renderUnqualifiedName associatedNames))
-            Map.empty
+            (classDeclFixities (classDeclItems classDecl))
     DeclTypeData dataDecl ->
       dataDeclExports (dataDeclHead dataDecl) (dataDeclConstructors dataDecl)
     DeclData dataDecl ->
@@ -622,6 +652,16 @@ classDeclMethodNames = concatMap go
     go (ClassItemAnn _ inner) = go inner
     go (ClassItemTypeSig names _) = names
     go (ClassItemDefaultSig name _) = [name]
+    go _ = []
+
+-- | The operator fixities that a class body declares for its methods.
+classDeclFixities :: [ClassDeclItem] -> Map.Map Text OperatorFixity
+classDeclFixities = Map.fromList . concatMap go
+  where
+    go (ClassItemAnn _ inner) = go inner
+    go (ClassItemFixity assoc mNamespace mPrec ops)
+      | mNamespace /= Just IEEntityNamespaceType =
+          [(renderUnqualifiedName op, OperatorFixity assoc (fromMaybe 9 mPrec)) | op <- ops]
     go _ = []
 
 -- | The associated type and data families that a class declares.

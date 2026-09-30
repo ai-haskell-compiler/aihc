@@ -203,8 +203,8 @@ A thunk under evaluation retains its original info table and payload.
 The Lir lowering gives each closure stage with a remaining arity from one to
 four an apply entry, the `backend_entry` of the info table. The entry takes
 the values of all remaining argument groups of the stage. Apply sites pass
-the machine, the context of the thread, the closure, the continuation, and
-the supplied values in the `aihc` convention and tail-call that entry. The entry loads captured fields
+the context of the thread, the closure, the continuation, and the supplied
+values in the `aihc` convention and tail-call that entry. The entry loads captured fields
 directly from the closure, takes the supplied values as parameters, and
 tail-calls the target function. A stage whose fields and supplied values are
 all pointers shares one of the runtime's enter functions, which reaches the

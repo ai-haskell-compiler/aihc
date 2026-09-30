@@ -1,0 +1,24 @@
+scope 1 = "" Example
+
+scope 2 = "aihc-prim" GHC.Types
+
+pub global 1.append = (P1.$append/2)
+
+1.$append (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+  case_value :: BoxedRep Lifted <-
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+  case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+    data 2."[]" ->
+      eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
+    data 2.: (x%1 :: BoxedRep Lifted) (xs :: BoxedRep Lifted) ->
+      argument :: BoxedRep Lifted <-
+        store (F1.$append (xs :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+      store (C2.: (x%1 :: BoxedRep Lifted) (argument :: BoxedRep Lifted))
+
+1.$add (store :: IntRep) -> IntRep =
+  result%1 :: IntRep <-
+    primitive-call @IntRep +# (store :: IntRep) (1 :: IntRep)
+  constant (result%1 :: IntRep)
+
+1.$chars -> CharRep =
+  constant ('c' :: CharRep) (-1 :: IntRep)

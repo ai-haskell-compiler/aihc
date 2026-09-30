@@ -6,6 +6,7 @@ import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.Frontend (FrontendOptions (..), runFrontend)
 import Aihc.Dev.Fuzz qualified as Fuzz
 import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
+import Aihc.Dev.PipelineExamples (PipelineExamplesOptions (..), runPipelineExamples)
 import Aihc.Native (parseNativeTarget)
 import Control.Monad (unless, when)
 import Data.Aeson (encode)
@@ -37,6 +38,7 @@ data Command
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Fuzz FuzzCLI.Command
   | Frontend FrontendOptions
+  | PipelineExamples PipelineExamplesOptions
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -99,7 +101,26 @@ commandParser =
               (Frontend <$> frontendParser <**> helper)
               (progDesc "Preprocess, parse, resolve and type check packages one phase at a time, timing each phase")
           )
+        <> command
+          "pipeline-examples"
+          ( info
+              (PipelineExamples <$> pipelineExamplesParser <**> helper)
+              (progDesc "Compile the pipeline examples of the AIHC Manual and write their System FC, GRIN and Lir programs")
+          )
     )
+
+pipelineExamplesParser :: Parser PipelineExamplesOptions
+pipelineExamplesParser =
+  PipelineExamplesOptions
+    <$> strArgument
+      ( metavar "EXAMPLES_DIR"
+          <> help "Directory with one directory for each example, each with Example.hs and description.md"
+      )
+    <*> strOption
+      ( long "output"
+          <> metavar "DIR"
+          <> help "Directory to replace with the generated programs and Markdown"
+      )
 
 frontendParser :: Parser FrontendOptions
 frontendParser =
@@ -214,3 +235,5 @@ runCommand (Fuzz fuzzCommand) =
   Fuzz.runCommand fuzzCommand
 runCommand (Frontend options) =
   runFrontend options
+runCommand (PipelineExamples options) =
+  runPipelineExamples options

@@ -1,0 +1,60 @@
+; expect: 42, 49995000
+; Each call of @scribble writes over the shadow stack below the stack
+; pointer. The memory of @kept crosses blocks, and a call in another block
+; is between the write and the read. Thus the frame of @kept must stay for
+; the whole function. The loop of @sum writes and reads its memory in one
+; block. That block can make and remove its frame in each iteration. The
+; loop runs more often than the shadow stack has room for a lost frame.
+
+func @scribble() -> i64 {
+entry:
+  %memory = stack.alloc 16 align 8
+  store i64 -1, [%memory] align 8
+  store i64 -1, [%memory + 8] align 8
+  %value = load i64 [%memory + 8] align 8
+  return %value
+}
+
+func @kept() -> i64 {
+entry:
+  %keep = stack.alloc 16 align 8
+  store i64 42, [%keep] align 8
+  store i64 7, [%keep + 8] align 8
+  jump middle
+
+middle:
+  %noise = call @scribble()
+  jump last
+
+last:
+  %value = load i64 [%keep] align 8
+  return %value
+}
+
+func @sum(%n: i64) -> i64 {
+entry:
+  %cell = stack.alloc 8 align 8
+  jump loop(0, 0)
+
+loop(%i: i64, %acc: i64):
+  %done = eq i64 %i, %n
+  br %done, exit(%acc), body
+
+body:
+  store i64 %i, [%cell] align 8
+  %noise = call @scribble()
+  %x = load i64 [%cell] align 8
+  %next_acc = add i64 %acc, %x
+  %next_i = add i64 %i, 1
+  jump loop(%next_i, %next_acc)
+
+exit(%result: i64):
+  return %result
+}
+
+func @main() -> (i64, i64) {
+entry:
+  %a = call @kept()
+  %b = call @sum(10000)
+  return %a, %b
+}

@@ -11,6 +11,7 @@ module Aihc.Cli.Backend
     compileGrinTo,
     lirModuleDefinesCode,
     lowerTargetFor,
+    renderLirModule,
     nativeSourceExtension,
     nativeSourceIsLir,
   )
