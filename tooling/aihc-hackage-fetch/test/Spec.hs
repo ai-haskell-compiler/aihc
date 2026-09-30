@@ -2,6 +2,7 @@ module Main (main) where
 
 import Aihc.Hackage.Index (IndexEntry (..), IndexScan (..), latestPreferredVersions, parseHackageIndex, parseHackageIndexUpdatedSince, parsePreferredRanges, readIndexEntry, scanIndex)
 import Aihc.Hackage.IndexCache (IndexTable (..), IndexVersion (..), indexTableFromScan, indexTableVersions, parseIndexTable, renderIndexTable)
+import Aihc.Hackage.Package (showVersion, showVersionRange)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
@@ -10,7 +11,6 @@ import Control.Exception (bracket)
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Map.Strict qualified as Map
-import Distribution.Pretty (prettyShow)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
@@ -124,11 +124,11 @@ test_readsPreferredRanges =
       assertEqual
         "alpha range"
         (Just "<1.2.0 || >1.2.0")
-        (prettyShow <$> Map.lookup "alpha" ranges)
+        (showVersionRange <$> Map.lookup "alpha" ranges)
       assertEqual
         "the later gamma entry wins"
         (Just ">=2.0")
-        (prettyShow <$> Map.lookup "gamma" ranges)
+        (showVersionRange <$> Map.lookup "gamma" ranges)
 
 test_skipsDeprecatedVersions :: Assertion
 test_skipsDeprecatedVersions =
@@ -138,7 +138,7 @@ test_skipsDeprecatedVersions =
       assertEqual
         "newest preferred version of each package"
         [("alpha", "1.1.0"), ("beta", "0.1"), ("delta", "1.0"), ("gamma", "2.0")]
-        (Map.toAscList (Map.map prettyShow versions))
+        (Map.toAscList (Map.map showVersion versions))
 
 -- The scan records each cabal entry with its revision and where it sits in
 -- the tarball, and the entry can be read back from that offset.
@@ -149,9 +149,9 @@ test_scansIndexEntries = do
   assertEqual
     "alpha entries in index order"
     [("1.0.0", 0), ("1.1.0", 0), ("1.0.0", 1), ("1.0.0", 2)]
-    [(prettyShow (indexEntryVersion entry), indexEntryRevision entry) | entry <- scanEntries scan Map.! "alpha"]
-  assertEqual "beta has one entry" [("0.1", 0)] [(prettyShow (indexEntryVersion entry), indexEntryRevision entry) | entry <- scanEntries scan Map.! "beta"]
-  assertEqual "the preferred range is kept" (Just "<1.1.0 || >1.1.0") (prettyShow <$> Map.lookup "alpha" (scanPreferredRanges scan))
+    [(showVersion (indexEntryVersion entry), indexEntryRevision entry) | entry <- scanEntries scan Map.! "alpha"]
+  assertEqual "beta has one entry" [("0.1", 0)] [(showVersion (indexEntryVersion entry), indexEntryRevision entry) | entry <- scanEntries scan Map.! "beta"]
+  assertEqual "the preferred range is kept" (Just "<1.1.0 || >1.1.0") (showVersionRange <$> Map.lookup "alpha" (scanPreferredRanges scan))
   assertEqual "the index state is the newest entry time" 300 (scanIndexState scan)
   withTempDir "aihc-hackage-index" $ \root -> do
     let tarball = root </> "01-index.tar"
@@ -164,7 +164,7 @@ test_scansIndexEntries = do
       (map (BSC.unpack . BSC.strip) contents)
   let table = indexTableFromScan scan
   versions <- maybe (assertFailure "alpha is missing from the table") pure (indexTableVersions table "alpha")
-  assertEqual "versions newest first" ["1.1.0", "1.0.0"] (map (prettyShow . indexVersionVersion) versions)
+  assertEqual "versions newest first" ["1.1.0", "1.0.0"] (map (showVersion . indexVersionVersion) versions)
   assertEqual "the newest version is deprecated" [True, False] (map indexVersionDeprecated versions)
   assertEqual "revisions oldest first" [[0], [0, 1, 2]] (map (map indexEntryRevision . indexVersionRevisions) versions)
   assertEqual "an unknown package has no versions" Nothing (indexTableVersions table "omega")

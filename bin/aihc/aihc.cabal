@@ -247,8 +247,8 @@ library
     compiler/wasm/src
 
   build-depends:
-    Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
+    aihc-cabal-syntax >=2.0 && <2.1,
     aihc-cpp,
     aihc-hackage,
     aihc-package-plan,
@@ -326,10 +326,10 @@ executable aihc-dev
     Test.Grin.Arbitrary
 
   build-depends:
-    Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc,
+    aihc-cabal-syntax >=2.0 && <2.1,
     aihc-hackage,
     aihc-package-plan,
     aihc-parser,
@@ -491,10 +491,10 @@ test-suite dev-spec
     Test.Grin.Arbitrary
 
   build-depends:
-    Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc,
+    aihc-cabal-syntax >=2.0 && <2.1,
     aihc-hackage,
     aihc-internal,
     aihc-package-plan,

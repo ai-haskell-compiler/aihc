@@ -12,10 +12,10 @@ module Aihc.Hackage.Source
   )
 where
 
+import Aihc.Hackage.Package (Version)
 import Aihc.Hackage.Types (PackageSpec)
 import Data.ByteString qualified as BS
 import Data.Int (Int64)
-import Distribution.Types.Version (Version)
 
 -- | One version of a package on Hackage.
 data HackageRelease = HackageRelease

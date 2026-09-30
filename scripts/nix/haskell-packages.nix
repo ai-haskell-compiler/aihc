@@ -272,6 +272,11 @@ in rec {
             rev = "46420da73d505555b46c03c00bd7fe44cb72e331";
             hash = "sha256-TDBXKyMpgz81SKLbVS+eFzzNmjFNkbJdAaLs+1tYdl4=";
           }) {});
+          aihc-cabal-syntax = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "aihc-cabal-syntax";
+            ver = "2.0.0.0";
+            sha256 = "07h6l6q9bww86n2lrcniydlfaxfzrwd9dc826g9jfxdhkvz884iy";
+          } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}

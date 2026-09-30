@@ -40,6 +40,7 @@ where
 
 import Aihc.Hackage.Cache (getHackageCacheDir)
 import Aihc.Hackage.Index (IndexEntry (..), IndexScan (..), readIndexEntry, scanIndex)
+import Aihc.Hackage.Package (Version, parseVersionRangeString, parseVersionString, showVersion, showVersionRange, withinRange)
 import Codec.Compression.GZip qualified as GZip
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
@@ -53,10 +54,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Ord (Down (..))
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
-import Distribution.Parsec (simpleParsec)
-import Distribution.Pretty (prettyShow)
-import Distribution.Types.Version (Version)
-import Distribution.Types.VersionRange (VersionRange, withinRange)
 import Network.HTTP.Client (Manager, Request (responseTimeout), brRead, newManager, parseRequest, responseBody, responseStatus, responseTimeoutMicro, withResponse)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
@@ -134,7 +131,7 @@ indexReadCabalFile :: HackageIndex -> String -> Version -> Maybe Int -> IO (Eith
 indexReadCabalFile index name version wantedRevision = do
   table <- loadTable index
   case [v | v <- concat (indexTableVersions table name), indexVersionVersion v == version] of
-    [] -> pure (Left ("The Hackage index has no version " <> prettyShow version <> " of " <> name))
+    [] -> pure (Left ("The Hackage index has no version " <> showVersion version <> " of " <> name))
     indexVersion : _ ->
       let revisions = indexVersionRevisions indexVersion
           chosen = case wantedRevision of
@@ -151,7 +148,7 @@ indexReadCabalFile index name version wantedRevision = do
                         <> " of "
                         <> name
                         <> "-"
-                        <> prettyShow version
+                        <> showVersion version
                         <> "; the newest is "
                         <> show (indexEntryRevision (last revisions))
                     )
@@ -174,7 +171,7 @@ indexPreferredVersion index name = do
         )
     Just candidates ->
       case [v | v <- candidates, not (indexVersionDeprecated v)] <> candidates of
-        version : _ -> Right (prettyShow (indexVersionVersion version))
+        version : _ -> Right (showVersion (indexVersionVersion version))
         [] -> Left ("The Hackage index lists no version of " ++ name)
 
 -- | The moment the cached index describes, in Unix seconds.
@@ -322,10 +319,10 @@ indexTableFromScan scan =
   IndexTable
     { indexTableEntries =
         Map.fromList
-          [ (BSC.pack name, [(BSC.pack (prettyShow (indexEntryVersion entry)), indexEntryRevision entry, fromIntegral (indexEntryOffset entry)) | entry <- entries])
+          [ (BSC.pack name, [(BSC.pack (showVersion (indexEntryVersion entry)), indexEntryRevision entry, fromIntegral (indexEntryOffset entry)) | entry <- entries])
           | (name, entries) <- Map.toList (scanEntries scan)
           ],
-      indexTableRanges = Map.fromList [(BSC.pack name, BSC.pack (prettyShow range)) | (name, range) <- Map.toList (scanPreferredRanges scan)],
+      indexTableRanges = Map.fromList [(BSC.pack name, BSC.pack (showVersionRange range)) | (name, range) <- Map.toList (scanPreferredRanges scan)],
       indexTableState = scanIndexState scan
     }
 
@@ -334,13 +331,13 @@ indexTableFromScan scan =
 indexTableVersions :: IndexTable -> String -> Maybe [IndexVersion]
 indexTableVersions table name = do
   entries <- Map.lookup key (indexTableEntries table)
-  let range = Map.lookup key (indexTableRanges table) >>= simpleParsec . BSC.unpack :: Maybe VersionRange
+  let range = Map.lookup key (indexTableRanges table) >>= parseVersionRangeString . BSC.unpack
       byVersion =
         Map.fromListWith
           (flip (<>))
           [ (version, [IndexEntry version revision (fromIntegral offset)])
           | (versionText, revision, offset) <- entries,
-            Just version <- [simpleParsec (BSC.unpack versionText)]
+            Just version <- [parseVersionString (BSC.unpack versionText)]
           ]
   pure
     [ IndexVersion

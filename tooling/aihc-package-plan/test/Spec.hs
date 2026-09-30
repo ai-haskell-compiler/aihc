@@ -1,9 +1,28 @@
 module Main (main) where
 
+import Aihc.Cabal (Package)
 import Aihc.Hackage.Cache (getHackageCacheDir)
 import Aihc.Hackage.Fetch (hackageSourceFor)
 import Aihc.Hackage.Index (scanIndex)
 import Aihc.Hackage.IndexCache (IndexOptions (..), defaultIndexOptions, getIndexCacheDir, indexTableFromScan, newHackageIndex, renderIndexTable)
+import Aihc.Hackage.Package
+  ( Arch (..),
+    OS (..),
+    PackageName,
+    Version,
+    VersionRange,
+    anyVersion,
+    mkFlagAssignment,
+    mkFlagName,
+    mkPackageName,
+    parsePackageDescription,
+    parseVersionRangeString,
+    parseVersionString,
+    showVersion,
+    unFlagAssignment,
+    unFlagName,
+    unPackageName,
+  )
 import Aihc.PackagePlan
 import Aihc.PackagePlan.Lock
 import Aihc.PackagePlan.Solver
@@ -16,15 +35,6 @@ import Data.Functor.Identity (Identity (..))
 import Data.List (isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
-import Distribution.Package (PackageName, mkPackageName, unPackageName)
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
-import Distribution.Parsec (simpleParsec)
-import Distribution.Pretty (prettyShow)
-import Distribution.System (Arch (..), OS (..))
-import Distribution.Types.Flag (mkFlagAssignment, mkFlagName, unFlagAssignment, unFlagName)
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
-import Distribution.Types.Version (Version)
-import Distribution.Types.VersionRange (VersionRange, anyVersion)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, doesFileExist, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
@@ -71,16 +81,16 @@ universe entries =
     ]
 
 version :: String -> Version
-version text = fromMaybe (error ("invalid test version " <> text)) (simpleParsec text)
+version text = fromMaybe (error ("invalid test version " <> text)) (parseVersionString text)
 
 range :: String -> VersionRange
-range text = fromMaybe (error ("invalid test range " <> text)) (simpleParsec text)
+range text = fromMaybe (error ("invalid test range " <> text)) (parseVersionRangeString text)
 
-parseCabal :: String -> GenericPackageDescription
+parseCabal :: String -> Package
 parseCabal source =
-  case snd (runParseResult (parseGenericPackageDescription (BSC.pack source))) of
+  case parsePackageDescription (BSC.pack source) of
     Right parsed -> parsed
-    Left (_, errs) -> error ("failed to parse test cabal file: " <> show errs)
+    Left err -> error ("failed to parse test cabal file: " <> err)
 
 inputsFor :: Universe -> SolverInputs Identity
 inputsFor packages =
@@ -135,7 +145,7 @@ baseEntry :: (String, String, Bool, CandidateSource, String)
 baseEntry = ("aihc-base", "4.21.2.0", False, core, cabalFile "aihc-base" "4.21.2.0" [] [])
 
 chosen :: Solution -> [(String, String)]
-chosen solution = [(unPackageName name, prettyShow (assignmentVersion assignment)) | (name, assignment) <- Map.toAscList solution]
+chosen solution = [(unPackageName name, showVersion (assignmentVersion assignment)) | (name, assignment) <- Map.toAscList solution]
 
 flagsOf :: Solution -> String -> [(String, Bool)]
 flagsOf solution name =

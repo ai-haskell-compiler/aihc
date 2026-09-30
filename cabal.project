@@ -24,6 +24,7 @@ source-repository-package
   tag: 46420da73d505555b46c03c00bd7fe44cb72e331
 
 constraints:
+  aihc-cabal-syntax ==2.0.0.0,
   aihc-cpp ==2.0.0.0
 
 package aihc-tc

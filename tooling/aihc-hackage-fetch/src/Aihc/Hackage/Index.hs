@@ -30,6 +30,7 @@ module Aihc.Hackage.Index
   )
 where
 
+import Aihc.Hackage.Package (Version, VersionRange, intersectVersionRanges, parseDependencyString, parseVersionString, showVersion, withinRange)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
@@ -42,11 +43,6 @@ import Data.Int (Int64)
 import Data.List (isPrefixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
-import Distribution.Parsec (simpleParsec)
-import Distribution.Pretty (prettyShow)
-import Distribution.Types.Dependency (Dependency, depVerRange)
-import Distribution.Types.Version (Version)
-import Distribution.Types.VersionRange (VersionRange, intersectVersionRanges, withinRange)
 import System.FilePath.Posix (splitDirectories)
 import System.IO (Handle)
 
@@ -73,7 +69,7 @@ parseHackageIndexWith keep bytes =
       | Map.null packages -> Left "No package versions found in Hackage index"
       | otherwise ->
           Right
-            [ PackageSpec name (prettyShow version)
+            [ PackageSpec name (showVersion version)
             | (name, (version, uploadedAt)) <- Map.toAscList packages,
               keep (version, uploadedAt)
             ]
@@ -137,7 +133,7 @@ parsePreferredVersionsEntry contents =
     parseConstraintLine line
       | null trimmed = Nothing
       | "--" `isPrefixOf` trimmed = Nothing
-      | otherwise = depVerRange <$> (simpleParsec trimmed :: Maybe Dependency)
+      | otherwise = snd <$> parseDependencyString trimmed
       where
         trimmed = dropWhile (== ' ') line
 
@@ -255,6 +251,6 @@ packageVersionFromEntryPath path =
   case splitDirectories path of
     [name, rawVersion, cabalFile]
       | cabalFile == name ++ ".cabal",
-        Just version <- simpleParsec rawVersion ->
+        Just version <- parseVersionString rawVersion ->
           Just (name, version)
     _ -> Nothing

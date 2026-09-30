@@ -99,7 +99,7 @@ runtimeSources target = do
   root <- runtimeSourceRoot
   gpd <- parseSourcePackageDescription root
   let (os, arch) = cabalPlatformForTarget target
-      info = HackageCabal.collectLibraryCCompileInfoFor os arch gpd root
+  info <- either (ioError . userError) pure (HackageCabal.collectLibraryCCompileInfoFor os arch gpd root)
   pure
     RuntimeSources
       { runtimeCSources = HackageCabal.cCompileSources info,
