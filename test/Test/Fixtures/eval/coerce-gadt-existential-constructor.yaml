@@ -1,0 +1,30 @@
+extensions:
+  - GADTs
+modules:
+  - |
+    {-# LANGUAGE GADTs #-}
+    module Test where
+
+    import Data.Coerce (coerce)
+
+    newtype Age = Age Int
+
+    data Coyoneda p a b where
+      Coyoneda :: (a -> x) -> (y -> b) -> p x y -> Coyoneda p a b
+
+    lower :: Coyoneda (->) a b -> a -> b
+    lower (Coyoneda l r p) = r . p . l
+
+    ages :: Coyoneda (->) Int Int -> Coyoneda (->) Age Age
+    ages = coerce
+
+    result :: Bool
+    result = case lower (ages (Coyoneda (+ 1) (* 2) (+ 3))) (Age 1) of
+      Age n -> n == 10
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a data type with an existential constructor keeps the parameters that its
+  fields use at representational positions representational

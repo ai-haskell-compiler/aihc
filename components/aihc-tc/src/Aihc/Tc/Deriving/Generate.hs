@@ -59,10 +59,10 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (UnliftedFieldType, newtypeRepresentation, stockFieldTypes, stockFunctorialFields, unliftedFieldReferences)
-import Aihc.Tc.Deriving.Functorial (FieldUse (..), fieldUse)
+import Aihc.Tc.Deriving.Context (UnliftedFieldType, functorialFieldUses, newtypeRepresentation, stockFieldTypes, unliftedFieldReferences)
+import Aihc.Tc.Deriving.Functorial (FieldUse (..))
 import Aihc.Tc.Deriving.References
-import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf)
+import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
 import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..), TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -805,12 +805,10 @@ functorialItems gen build constructors =
 
 -- | What every field of every constructor does with the last parameter.
 functorialUses :: TcDerivingPlan -> [DataConInfo] -> Either String [(DataConInfo, [FieldUse])]
-functorialUses plan constructors = do
-  (parameter, fieldTypes) <- stockFunctorialFields plan
-  uses <- mapM (mapM (fieldUse mechanism parameter)) fieldTypes
-  pure (zip constructors uses)
-  where
-    mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
+functorialUses plan constructors =
+  case stockClassObligationsOf (tcDerivingClassName plan) of
+    Just (FunctorialObligations functions) -> zip constructors <$> functorialFieldUses functions plan
+    _ -> Left ("stock " <> T.unpack (tcDerivingClassName plan) <> " deriving is not functor-like")
 
 functorItems :: Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]
 functorItems gen constructors = do
@@ -827,6 +825,9 @@ functorItems gen constructors = do
             [atPattern gen (PVar function), constructorPattern gen constructor (map Just fields)]
             (applyN gen (constructorExpr gen constructor) mapped)
         )
+    -- A position in a domain maps with the same code as a position in a
+    -- result. The two differ only at the parameter itself, and the
+    -- analysis rejects the parameter in a domain.
     mapField function use value =
       case use of
         FieldAbsent -> pure value
@@ -834,6 +835,12 @@ functorItems gen constructors = do
         FieldContainer _ inner -> do
           step <- fieldFunction gen (mapField function) function inner
           pure (methodApp gen "fmap" [step, value])
+        FieldFunction domain result -> do
+          argument <- freshLocal gen "x"
+          mappedArgument <- mapField function domain (localExpr gen argument)
+          body <- mapField function result (applyN gen value [mappedArgument])
+          pure (lambda gen argument body)
+        FieldForAll _ inner -> mapField function inner value
 
 foldableItems :: Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]
 foldableItems gen constructors = do
@@ -867,6 +874,8 @@ foldableItems gen constructors = do
         FieldContainer _ inner -> do
           step <- foldStep function inner
           pure (methodApp gen "foldr" [step, rest, value])
+        FieldFunction {} -> unvisitableField gen rest
+        FieldForAll {} -> unvisitableField gen rest
     -- The step of a nested fold takes the element and what follows it.
     foldStep function inner =
       case inner of
@@ -900,6 +909,16 @@ traversableItems gen constructors = do
         FieldContainer _ inner -> do
           step <- fieldFunction gen (visitField function) function inner
           pure (methodApp gen "traverse" [step, value])
+        FieldFunction {} -> unvisitableField gen value
+        FieldForAll {} -> unvisitableField gen value
+
+-- | Report a function or polymorphic field in a class that visits
+-- elements. The analysis does not give these uses to @Foldable@ or
+-- @Traversable@, so this is a defect in the compiler.
+unvisitableField :: Gen -> Expr -> TcM Expr
+unvisitableField gen value = do
+  emitError (genSpan gen) (OtherError "internal error: a derived element visit reached a function or polymorphic field")
+  pure value
 
 -- | The function a nested position is visited with: the function the method
 -- was given when the position is the parameter itself, and a lambda that

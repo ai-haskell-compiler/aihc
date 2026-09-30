@@ -181,9 +181,12 @@ representationParameter visited constructor index
         Nothing -> pure False
   where
     next = (constructor, index) : visited
+    -- An existential variable is not a parameter, so the fields decide
+    -- the role as they do in a constructor without one. An existential
+    -- whose kind mentions the parameter makes it nominal.
     checkConstructor parameter expected con
-      | null (dciExTyVars con),
-        Just substitution <- matchTypes [dciResTy con] [expected] = do
+      | Just substitution <- matchTypes [dciResTy con] [expected],
+        not (any (mentions parameter . applySubst substitution . tvKind) (dciExTyVars con)) = do
           contextAllows <- and <$> mapM (contextPosition parameter . applySubstPred substitution) (dciTheta con)
           fieldsAllow <- and <$> mapM (representationPosition next parameter . applySubst substitution . dcfiType) (dciFields con)
           pure (contextAllows && fieldsAllow)

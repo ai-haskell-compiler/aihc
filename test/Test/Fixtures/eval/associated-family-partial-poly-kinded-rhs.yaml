@@ -1,0 +1,33 @@
+extensions:
+  - TypeFamilies
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, PolyKinds #-}
+    module Test where
+
+    import Data.Functor.Const (Const (..))
+    import Data.Kind (Type)
+
+    newtype Forget r a b = Forget (a -> r)
+
+    class Representable p where
+      type Rep p :: Type -> Type
+      tabulate :: (d -> Rep p c) -> p d c
+
+    instance Representable (Forget r) where
+      type Rep (Forget r) = Const r
+      tabulate f = Forget (\d -> getConst (f d))
+
+    runForget :: Forget r a b -> a -> r
+    runForget (Forget f) = f
+
+    result :: Bool
+    result = runForget (tabulate (\n -> Const (n + 1)) :: Forget Int Int Bool) 4 == 5
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a family equation whose right-hand side is a partial application of a
+  poly-kinded constructor gets the kind argument from the family result kind

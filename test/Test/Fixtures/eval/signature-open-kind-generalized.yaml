@@ -1,0 +1,29 @@
+extensions:
+  - GADTs
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE GADTs, PolyKinds #-}
+    module Test where
+
+    data Procompose p q d c where
+      Procompose :: p x c -> q d x -> Procompose p q d c
+
+    reassociate :: Procompose p (Procompose q r) a b -> Procompose (Procompose p q) r a b
+    reassociate (Procompose f (Procompose g h)) = Procompose (Procompose f g) h
+
+    run :: Procompose (->) (->) a b -> a -> b
+    run (Procompose f g) = f . g
+
+    runThree :: Procompose (Procompose (->) (->)) (->) a b -> a -> b
+    runThree (Procompose (Procompose f g) h) = f . g . h
+
+    result :: Bool
+    result = runThree (reassociate (Procompose (+ 1) (Procompose (* 2) (+ 3)))) 1 == 9
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a top-level signature quantifies a kind that it leaves open, here the kind
+  of an existential in the middle of a composition

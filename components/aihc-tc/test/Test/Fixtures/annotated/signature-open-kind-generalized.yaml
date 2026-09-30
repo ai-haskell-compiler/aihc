@@ -1,0 +1,29 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, PolyKinds, KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  data Procompose p q d c where
+       └─ type: (k0 → k1 → Type) → (k2 → k0 → Type) → k2 → k1 → Type
+    Procompose :: p x c -> q d x -> Procompose p q d c
+    └─ type: ∀ k0 k1 k2 p q d c x. p x c → q d x → Procompose p q d c
+  swapInner :: Procompose p q a b -> Procompose p q a b
+  swapInner (Procompose f g) = Procompose f g
+  │          │          │ │    └─ type: p x b → q a x → Procompose p q a b; type-args: k0, k1, k2, p, q, a, b, x
+  │          │          │ └─ type: q a x
+  │          │          └─ type: p x b
+  │          └─ type: p x b → q a x → Procompose p q a b; type-args: k0, k1, k2, p, q, a, b, x
+  └─ type: ∀ k0 k1 k2 p q a b. Procompose p q a b → Procompose p q a b
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, PolyKinds, KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  data Procompose p q d c where
+    Procompose :: p x c -> q d x -> Procompose p q d c
+  swapInner :: Procompose p q a b -> Procompose p q a b
+  swapInner (Procompose f g) = Procompose f g
+reason: a kind that a top-level signature leaves open becomes a kind variable of
+  the signature
+status: pass
