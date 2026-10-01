@@ -29,7 +29,7 @@
   # An example that names Hackage packages waits for the install chain of
   # those packages, which ends well after every other check. The PR gate
   # runs the other examples; these run with the Hackage install matrix in
-  # the daily Hackage workflow, through the hackage-checks package.
+  # the daily Hackage workflow, through the daily-checks package.
   hackageExampleNames = builtins.filter (name: (exampleExtraHackagePackages.${name} or []) != []) exampleNames;
   gateExampleNames = builtins.filter (name: !builtins.elem name hackageExampleNames) exampleNames;
   # The test C sources include the runtime headers by name, as the tests
@@ -157,6 +157,16 @@
   };
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  # The PR gate compiles the examples for the native backend of the host and
+  # for wasm32-wasip3. The llvm backend runs in the daily checks: the
+  # llvm-spec snapshots cover it on every PR, and its toolchain and example
+  # derivations were a third of the load that slowed the test groups down.
+  # A host without a native backend keeps llvm.
+  gateBackends =
+    if nativeBackend == null
+    then ["llvm"]
+    else [nativeBackend];
+  dailyBackends = builtins.filter (backend: !builtins.elem backend gateBackends) backends;
   # Test.Aihc.SeedStore installs aihc-prim for llvm, for the native backend
   # of the host, and for wasm32-wasip3 when the toolchain supports it, which
   # it does inside the sandbox. No foreign native target: aihc-prim depends on
@@ -399,9 +409,18 @@
   # Backend tests do not retain that environment during garbage collection.
   aihcTestGroups = [
     {
+      # The build and install tests copy the seed store, which is ready
+      # about a minute after the compiler. Four workers: the tests run
+      # whole package builds, and the group is the last to finish.
       name = "cli";
-      pattern = ''$2 == "spec"'';
+      pattern = ''$2 == "spec" && ($4 == "build" || $4 == "install")'';
       seedStore = true;
+      threads = 4;
+    }
+    {
+      # The other CLI tests do not read a store, so they do not wait for it.
+      name = "cli-light";
+      pattern = ''$2 == "spec" && $4 != "build" && $4 != "install"'';
     }
     {
       name = "compiler";
@@ -858,10 +877,12 @@
   hackageInstallTests = assert hackage.packages != [];
     pkgs.linkFarm "aihc-hackage-install-tests" hackageInstallCases;
 
-  # The install matrix and the examples that use its packages. The daily
-  # Hackage workflow builds this; the PR gate does not, because the chain
-  # deepseq, bytestring, text was the last derivation of every run.
-  hackageChecks = pkgs.linkFarm "aihc-hackage-checks" (
+  # The checks that left the PR gate. The daily Hackage workflow builds
+  # this package. It holds the Hackage install matrix, which was the last
+  # derivation of every gate run because of the chain deepseq, bytestring,
+  # text, the examples that use its packages, and every example for the
+  # backends the gate does not compile for.
+  dailyChecks = pkgs.linkFarm "aihc-daily-checks" (
     [
       {
         name = "install";
@@ -881,6 +902,13 @@
         }
       ])
     hackageExampleNames
+    ++ pkgs.lib.concatMap (exampleName:
+      map (target: {
+        name = "example-${exampleName}-${target}";
+        path = mkExampleTest exampleName target;
+      })
+      dailyBackends)
+    gateExampleNames
   );
 
   # An example with no extra packages waits only for the toolchain, so it still
@@ -960,7 +988,7 @@
       name = "${exampleName}-${target}";
       path = mkExampleTest exampleName target;
     })
-    backends)
+    gateBackends)
   gateExampleNames;
 
   mkGhcExampleTest = exampleName:
@@ -1240,7 +1268,7 @@ in {
   };
   packages = {
     inherit manual pipelineExamples;
-    hackage-checks = hackageChecks;
+    daily-checks = dailyChecks;
     docs = manual;
     default = manual;
     cross-examples-apple-arm64 = crossExampleBundlesFor "apple-arm64";
