@@ -86,6 +86,19 @@ import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, hostPlatformMacros)
 import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceNonTermRootTyCons, interfaceTermTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
+import Aihc.Cli.ModuleProvider
+  ( InstanceProvider,
+    ModuleProvider,
+    PackageLocator,
+    ResolvedModuleFacts (..),
+    TypedModuleFacts (..),
+    moduleNameDirectory,
+    newStoreModuleProvider,
+    providerInstanceFacts,
+    providerPackagesOf,
+    providerResolved,
+    providerTyped,
+  )
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
@@ -154,7 +167,6 @@ import Aihc.Resolve
     Scope (..),
     collectModuleExportsWithDeps,
     emptyScope,
-    filterModuleExports,
     lookupImportedModule,
     lookupModuleExport,
     moduleExportKeys,
@@ -210,7 +222,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -272,29 +284,11 @@ data InstalledPackage = InstalledPackage
     -- | Whether the package lives in the store. A store package depends on
     -- store packages only.
     installedImmutable :: !Bool,
-    installedManifest :: !PackageManifest,
-    installedExports :: !ModuleExports,
-    installedTypes :: !(ByModule TcInterface),
-    installedScopeHashes :: !(ByModule Text),
-    installedTypeHashes :: !(ByModule Text),
-    -- | The digest of the instance facts of the unit of each module. It
-    -- covers the facts of every unit below that unit, in this package and
-    -- in the packages it depends on.
-    installedFactsDigests :: !(ByModule Text),
-    -- | The modules whose instances each module sees: its own unit and
-    -- every unit below it, across packages.
-    installedInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
+    installedManifest :: !PackageManifest
   }
   deriving (Generic)
 
 instance NFData InstalledPackage
-
-type InstanceProvider = (PackageId, Text)
-
--- | Where the package of each identity is. A consumer reads the instance
--- facts of a module from the unit that holds it, which can be in a package
--- below its dependencies.
-type PackageLocator = Map.Map PackageId FilePath
 
 installedPackageLocator :: [InstalledPackage] -> PackageLocator
 installedPackageLocator packages =
@@ -327,11 +321,6 @@ byModuleUnions = Map.unionsWith Map.union
 -- | The fact of the module of that name in each package that holds one.
 byModuleLookupName :: Text -> ByModule value -> [(Package, value)]
 byModuleLookupName name = maybe [] Map.toList . Map.lookup name
-
-byModuleFilter :: (ModuleKey -> Bool) -> ByModule value -> ByModule value
-byModuleFilter keep =
-  Map.filter (not . Map.null)
-    . Map.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name)))
 
 -- | The stamp inputs of a unit for the digests of the modules it imports
 -- from outside itself, one for each package that holds such a module.
@@ -412,9 +401,6 @@ data TypeUnitResult = TypeUnitResult
     -- when an instance anywhere below the unit changes.
     typeUnitFactsDigest :: !Text,
     typeUnitInstanceInterface :: !TcInterface,
-    -- | The modules whose instances the unit sees, as the facts artifact
-    -- records them for a consumer.
-    typeUnitInstanceProviders :: !(Set.Set InstanceProvider),
     typeUnitDiagnostics :: ![TcDiagnostic],
     typeUnitWritten :: !(Set.Set Text),
     typeUnitReused :: !(Set.Set Text),
@@ -500,12 +486,6 @@ data ModuleCompileResult = ModuleCompileResult
 
 data CompiledPackageModules = CompiledPackageModules
   { compiledSources :: ![SourceModule],
-    compiledExports :: !ModuleExports,
-    compiledTypes :: !(ByModule TcInterface),
-    compiledScopeHashes :: !(ByModule Text),
-    compiledTypeHashes :: !(ByModule Text),
-    compiledFactsDigests :: !(ByModule Text),
-    compiledInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
     compiledWritten :: !(Set.Set Text),
     compiledReused :: !(Set.Set Text)
   }
@@ -535,16 +515,9 @@ data PackageTaskContext = PackageTaskContext
     taskResolvePackage :: !Package,
     taskPrimIdentity :: !PackageId,
     taskPackageRoot :: !FilePath,
-    taskDependencyExports :: !ModuleExports,
-    taskDependencyScopeHashes :: !(ByModule Text),
-    taskDependencyTypes :: !(ByModule TcInterface),
-    taskDependencyTypeHashes :: !(ByModule Text),
-    -- | The facts digest of each module of the dependency packages. A unit
-    -- that imports a module takes the digest of the unit that holds it as
-    -- an input.
-    taskDependencyFactsDigests :: !(ByModule Text),
-    taskDependencyInstanceFacts :: !TcInterface,
-    taskDependencyInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
+    -- | The modules of the dependency packages. A unit reads the ones it
+    -- imports from here.
+    taskModuleProvider :: !ModuleProvider,
     taskCapiStubOptions :: !CapiStubOptions,
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
@@ -793,7 +766,7 @@ installStorePackage config locator named reinstall storeRoot dependencies plan =
   exists <- doesDirectoryExist storePath
   if exists && not reinstall
     then do
-      package <- loadInstalledPackage Set.empty True storePath
+      package <- loadInstalledPackage True storePath
       requireInstalledFlags config named package
       pure package
     else do
@@ -812,7 +785,7 @@ installStorePackage config locator named reinstall storeRoot dependencies plan =
         Left err -> do
           published <- doesDirectoryExist storePath
           if published
-            then loadInstalledPackage Set.empty True storePath
+            then loadInstalledPackage True storePath
             else throwIO (err :: IOException)
 
 -- | Build a local package in place under the build root.
@@ -880,10 +853,6 @@ installPackageDirect config locator packageDirectory unitIdentity immutable stor
   files <- preprocessPackage config dependencyVersions root storePath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
   compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies locator
   let parsed = compiledSources compiled
-      allExports = compiledExports compiled
-      allTypes = compiledTypes compiled
-      allScopeHashes = compiledScopeHashes compiled
-      allTypeHashes = compiledTypeHashes compiled
       written = compiledWritten compiled
       reused = compiledReused compiled
   unless (compileNoCode config) $ do
@@ -919,9 +888,6 @@ installPackageDirect config locator packageDirectory unitIdentity immutable stor
             packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources cCompileInfo))
           }
   writePackageManifest (packageManifestPath storePath) manifest
-  let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd)
-      exposedModule moduleKey = moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames
-      ownExports = filterModuleExports exposedModule allExports
   pure
     InstalledPackage
       { installedResult = InstallResult storePath (Set.toAscList written) (Set.toAscList reused),
@@ -929,13 +895,7 @@ installPackageDirect config locator packageDirectory unitIdentity immutable stor
         installedVersion = packageVersionText,
         installedIdentity = T.pack packageDirectory,
         installedImmutable = immutable,
-        installedManifest = manifest,
-        installedExports = ownExports,
-        installedTypes = byModuleFilter exposedModule allTypes,
-        installedScopeHashes = byModuleFilter exposedModule allScopeHashes,
-        installedTypeHashes = byModuleFilter exposedModule allTypeHashes,
-        installedFactsDigests = byModuleFilter exposedModule (compiledFactsDigests compiled),
-        installedInstanceProviders = Map.restrictKeys (compiledInstanceProviders compiled) exposedNames
+        installedManifest = manifest
       }
 
 readStampText :: FilePath -> IO (Maybe String)
@@ -1013,35 +973,17 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
   (parsed, importTimings) <- loadSourceModules (compileHeaderDirectory config) (max 1 capabilities) packageRoot versions files
-  -- The two serial stretches between the task graphs. Neither runs a task,
-  -- so both show as idle workers on the timeline, and both build their
-  -- result lazily: forcing them here is what puts the time on the line
-  -- that names the work rather than on whichever task first asks for it.
-  setupStart <- getMonotonicTimeNSec
-  loadedDependencies <- evaluate . force =<< loadRequiredDependencies parsed dependencies
-  let dependencyExports = mconcat (map installedExports loadedDependencies)
-      dependencyTypes = byModuleUnions (map installedTypes loadedDependencies)
-      dependencyScopeHashes = byModuleUnions (map installedScopeHashes loadedDependencies)
-      dependencyTypeHashes = byModuleUnions (map installedTypeHashes loadedDependencies)
-      dependencyFactsDigests = byModuleUnions (map installedFactsDigests loadedDependencies)
-      dependencyInstanceProviders = Map.unionsWith Set.union (map installedInstanceProviders loadedDependencies)
-      primIdentity = packagePrimIdentity resolvePackage dependencyExports
-  -- The instances the imported modules see come from units across the
-  -- closure of the plan, so their facts are read by unit, not by package.
-  dependencyInstanceFacts <- loadInstanceFacts locator (Set.unions (Map.elems dependencyInstanceProviders))
-  _ <-
-    evaluate
-      ( force
-          ( dependencyExports,
-            dependencyTypes,
-            dependencyScopeHashes,
-            dependencyTypeHashes,
-            dependencyFactsDigests,
-            dependencyInstanceFacts,
-            dependencyInstanceProviders
-          )
-      )
-  setupEnd <- getMonotonicTimeNSec
+  -- The modules of the dependencies are read by the units that import
+  -- them, so nothing of them is loaded before the graph starts.
+  provider <-
+    newStoreModuleProvider
+      locator
+      [(installedManifest dependency, installStorePath (installedResult dependency)) | dependency <- dependencies]
+  let primIdentity = dependencyPrimIdentity resolvePackage dependencies
+  -- The serial stretch between the parse tasks and the unit graph. It runs
+  -- no task, so it shows as idle workers on the timeline, and it builds its
+  -- result lazily: forcing it here is what puts the time on the line that
+  -- names the work rather than on whichever task first asks for it.
   depgraphStart <- getMonotonicTimeNSec
   units <- evaluate (sourceModuleUnits parsed)
   -- The graph this phase builds is which units there are and which units
@@ -1058,13 +1000,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
             taskResolvePackage = resolvePackage,
             taskPrimIdentity = primIdentity,
             taskPackageRoot = packageRoot,
-            taskDependencyExports = dependencyExports,
-            taskDependencyScopeHashes = dependencyScopeHashes,
-            taskDependencyTypes = dependencyTypes,
-            taskDependencyTypeHashes = dependencyTypeHashes,
-            taskDependencyFactsDigests = dependencyFactsDigests,
-            taskDependencyInstanceFacts = dependencyInstanceFacts,
-            taskDependencyInstanceProviders = dependencyInstanceProviders,
+            taskModuleProvider = provider,
             taskCapiStubOptions = capiOptions,
             taskBackendPhaseTimings = backendPhaseTimings
           }
@@ -1076,9 +1012,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
     config
     ( renderTaskTimeline
         (compileUseColor config)
-        [ ("Setup", setupEnd - setupStart),
-          ("Depgraph", depgraphEnd - depgraphStart)
-        ]
+        [("Depgraph", depgraphEnd - depgraphStart)]
         (importTimings <> taskTimings)
         <> renderBackendPhaseTotals phaseTimings
     )
@@ -1093,20 +1027,8 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
           ]
   frontendFailure <- renderFrontendFailure (excerptSourceLoader (compileHeaderDirectory config) packageRoot versions files) parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
-  let localExports = mconcat (map resolveUnitExports resolveResults)
-      localScopeHashes = byModuleUnions (map resolveUnitScopeHashes resolveResults)
-      localTypes = byModuleUnions (map typeUnitTypes typeResults)
+  let localScopeHashes = byModuleUnions (map resolveUnitScopeHashes resolveResults)
       localTypeHashes = byModuleUnions (map typeUnitHashes typeResults)
-      allExports = localExports <> dependencyExports
-      allScopeHashes = byModuleUnions [localScopeHashes, dependencyScopeHashes]
-      allTypes = byModuleUnions [localTypes, dependencyTypes]
-      allTypeHashes = byModuleUnions [localTypeHashes, dependencyTypeHashes]
-      instanceProviders =
-        Map.fromList
-          [ (sourceName source, typeUnitInstanceProviders result)
-          | (runtime, result) <- zip runtimes typeResults,
-            source <- sourceUnitSources (runtimeUnit runtime)
-          ]
       localFactsDigests =
         byModuleUnions
           [ ownModules resolvePackage (Map.fromList [(sourceName source, typeUnitFactsDigest result) | source <- sourceUnitSources (runtimeUnit runtime)])
@@ -1136,12 +1058,6 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   pure
     CompiledPackageModules
       { compiledSources = parsed,
-        compiledExports = allExports,
-        compiledTypes = allTypes,
-        compiledScopeHashes = allScopeHashes,
-        compiledTypeHashes = allTypeHashes,
-        compiledFactsDigests = localFactsDigests,
-        compiledInstanceProviders = instanceProviders,
         compiledWritten = Set.unions (map typeUnitWritten typeResults),
         compiledReused = Set.unions (map typeUnitReused typeResults)
       }
@@ -1161,6 +1077,20 @@ packagePrimIdentity resolvePackage dependencyExports =
           [ dependencyIdentity
           | ModuleKey (Package dependencyName dependencyIdentity) _ <- moduleExportKeys dependencyExports,
             dependencyName == "aihc-prim"
+          ]
+
+-- | The identity of the primitive package among the dependencies of a
+-- package, as 'packagePrimIdentity' finds it among the exports.
+dependencyPrimIdentity :: Package -> [InstalledPackage] -> PackageId
+dependencyPrimIdentity resolvePackage dependencies =
+  fromMaybe (PackageId "aihc-prim") $
+    if packageName resolvePackage == "aihc-prim"
+      then Just (packageId resolvePackage)
+      else
+        listToMaybe
+          [ PackageId (packageManifestUnitId (installedManifest dependency))
+          | dependency <- dependencies,
+            installedName dependency == "aihc-prim"
           ]
 
 -- | The directory name and unit identity of a package in the store.
@@ -1360,49 +1290,12 @@ setInstalledStorePath storePath installed =
           }
     }
 
-loadRequiredDependencies :: [SourceModule] -> [InstalledPackage] -> IO [InstalledPackage]
-loadRequiredDependencies sources = mapM loadDependency
-  where
-    requirements = requiredDependencyModules sources
-    loadDependency dependency = loadInstalledPackage requirements (installedImmutable dependency) (installStorePath (installedResult dependency))
-
-requiredDependencyModules :: [SourceModule] -> Set.Set (Maybe Text, Text)
-requiredDependencyModules sources =
-  Set.fromList
-    ( [ importDecl
-      | source <- sources,
-        importDecl <- sourceModuleImports source,
-        not (localImport importDecl)
-      ]
-        <> [(Nothing, "Prelude") | any moduleUsesImplicitPrelude sources]
-        <> [(Nothing, name) | name <- wiredInterfaceModules]
-    )
-  where
-    localNames = Set.fromList (map sourceName sources)
-    localImport (package, name) =
-      package == Just "this" || (isNothing package && name `Set.member` localNames)
-
-loadInstalledPackage :: Set.Set (Maybe Text, Text) -> Bool -> FilePath -> IO InstalledPackage
-loadInstalledPackage requirements immutable storePath = do
+-- | An installed package, from its manifest. The modules it holds are
+-- read on request through a 'ModuleProvider'.
+loadInstalledPackage :: Bool -> FilePath -> IO InstalledPackage
+loadInstalledPackage immutable storePath = do
   manifestResult <- readPackageManifest (packageManifestPath storePath)
   manifest <- either (ioError . userError . ("Invalid installed package manifest: " <>)) pure manifestResult
-  digests <-
-    readStamp (packageDigestsPath storePath)
-      >>= maybe (ioError (userError ("The installed package has no digests: " <> storePath))) pure
-  let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
-  entries <- mapM loadModule selectedModules
-  instanceProviders <- loadModuleProviders (packageDigestsModules digests) selectedModules
-  -- A written interface holds each of its parts once and names it
-  -- everywhere it is used, so the interfaces read above are already
-  -- shared within themselves; nothing here has to look for equal parts.
-  let interfaces = [interface | (_, _, interface) <- entries]
-      package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
-      exports = moduleExportsFromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
-      types = byModuleFromList (zip [ModuleKey package name | (name, _, _) <- entries] interfaces)
-      exposed = Map.restrictKeys (packageDigestsModules digests) (Set.fromList (packageManifestModules manifest))
-      scopeHashes = ownModules package (Map.map moduleScopeDigest exposed)
-      typeHashes = ownModules package (Map.map moduleTypeDigest exposed)
-      factsDigests = ownModules package (Map.map moduleFactsDigest exposed)
   pure
     InstalledPackage
       { installedResult = InstallResult storePath [] (packageManifestModules manifest),
@@ -1410,59 +1303,33 @@ loadInstalledPackage requirements immutable storePath = do
         installedVersion = packageManifestVersion manifest,
         installedIdentity = packageManifestIdentity manifest,
         installedImmutable = immutable,
-        installedManifest = manifest,
-        installedExports = exports,
-        installedTypes = types,
-        installedScopeHashes = scopeHashes,
-        installedTypeHashes = typeHashes,
-        installedFactsDigests = factsDigests,
-        installedInstanceProviders = instanceProviders
+        installedManifest = manifest
       }
-  where
-    moduleRequired manifest name =
-      any
-        (\(packageName', moduleName') -> moduleName' == name && maybe True (== packageManifestName manifest) packageName')
-        (Set.toList requirements)
 
-    loadModule name = do
-      let root = storePath </> moduleNameDirectory name
-          resolvePath = root </> "resolve.cbor"
-          typePath = root </> "type.cbor"
-      resolveBytes <- BS.readFile resolvePath
-      resolveArtifact <- either (ioError . userError . (("Invalid resolve artifact " <> resolvePath <> ": ") <>)) pure (decodeResolveArtifact resolveBytes)
-      typeBytes <- BL.readFile typePath
-      typeArtifact <- readTypeArtifact typePath typeBytes
-      unless (resolveArtifactModuleName resolveArtifact == name) (ioError (userError ("Resolve artifact module name does not match " <> resolvePath)))
-      unless (typeArtifactModuleName typeArtifact == name) (ioError (userError ("Type artifact module name does not match " <> typePath)))
-      pure (name, resolveArtifactScope resolveArtifact, typeArtifactInterface typeArtifact)
+-- | The keys of the modules a unit imports from the dependency packages:
+-- every package that exposes a module of an imported name, since the
+-- resolver sees them all and decides between them.
+externalModuleKeys :: ModuleProvider -> [Text] -> [Text] -> [ModuleKey]
+externalModuleKeys provider unitNames dependencyNames =
+  [ ModuleKey package name
+  | name <- dependencyNames,
+    name `notElem` unitNames,
+    package <- providerPackagesOf provider name
+  ]
 
-    -- The providers of a module are in the facts artifact of its unit,
-    -- which the modules of one unit share.
-    loadModuleProviders moduleDigests selected = do
-      let artifactPaths = nub [moduleFactsArtifact entry | name <- selected, Just entry <- [Map.lookup name moduleDigests]]
-      artifacts <- forM artifactPaths $ \path -> readTypeArtifactFile (storePath </> path)
-      let providers = Map.unions [Map.map Set.fromList (typeArtifactInstanceProviders artifact) | artifact <- artifacts]
-      pure (Map.restrictKeys providers (Set.fromList selected))
+-- | The resolve facts of the modules a unit imports from the dependency
+-- packages, read now if no unit read them before.
+externalResolvedFacts :: ModuleProvider -> [Text] -> [Text] -> IO [(ModuleKey, ResolvedModuleFacts)]
+externalResolvedFacts provider unitNames dependencyNames =
+  forM (externalModuleKeys provider unitNames dependencyNames) $ \key ->
+    (,) key <$> providerResolved provider key
 
--- | The instance facts of the units that hold the given modules, read from
--- the packages the locator names. Each facts artifact is read once. The
--- facts of a unit already carry what they refer to, so the units merge as
--- a unit merges the facts of the units below it.
-loadInstanceFacts :: PackageLocator -> Set.Set InstanceProvider -> IO TcInterface
-loadInstanceFacts locator providers = do
-  let byPackage = Map.fromListWith (<>) [(packageId, [name]) | (packageId, name) <- Set.toList providers]
-  interfaces <- forM (Map.toList byPackage) $ \(packageId, names) -> do
-    storePath <-
-      maybe
-        (ioError (userError ("The package that provides instances is not installed: " <> T.unpack (packageIdText packageId))))
-        pure
-        (Map.lookup packageId locator)
-    digests <-
-      readStamp (packageDigestsPath storePath)
-        >>= maybe (ioError (userError ("The installed package has no digests: " <> storePath))) pure
-    let artifactPaths = nub [moduleFactsArtifact entry | name <- names, Just entry <- [Map.lookup name (packageDigestsModules digests)]]
-    forM artifactPaths $ \path -> typeArtifactInterface <$> readTypeArtifactFile (storePath </> path)
-  pure (mergeTcInterfaces TrustMergedFacts (concat interfaces))
+-- | The type facts of the modules a unit imports from the dependency
+-- packages.
+externalTypedFacts :: ModuleProvider -> [Text] -> [Text] -> IO [(ModuleKey, TypedModuleFacts)]
+externalTypedFacts provider unitNames dependencyNames =
+  forM (externalModuleKeys provider unitNames dependencyNames) $ \key ->
+    (,) key <$> providerTyped provider key
 
 parseSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource headerDir root versions fileInfo = do
@@ -1862,13 +1729,14 @@ runResolveUnit context runtimes runtime = do
   let storePath = taskStorePath context
       resolvePackage = taskResolvePackage context
       root = taskPackageRoot context
-      dependencyExports = taskDependencyExports context
-      dependencyScopeHashes = taskDependencyScopeHashes context
       verbose = compileVerbose config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
+  externalResolved <- externalResolvedFacts (taskModuleProvider context) unitNames dependencyNames
+  let dependencyExports = moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
+      dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
       availableExports = mconcat (map resolveUnitExports dependencyResults) <> dependencyExports
       availableScopeHashes = byModuleUnions (map resolveUnitScopeHashes dependencyResults ++ [dependencyScopeHashes])
       scopeInputs = dependencyInputs "scope:" unitNames dependencyNames availableScopeHashes
@@ -1963,17 +1831,23 @@ runTypeUnit context runtimes runtime = do
       resolvePackage = taskResolvePackage context
       primIdentity = taskPrimIdentity context
       root = taskPackageRoot context
-      dependencyExports = taskDependencyExports context
-      dependencyScopeHashes = taskDependencyScopeHashes context
-      dependencyTypes = taskDependencyTypes context
-      dependencyTypeHashes = taskDependencyTypeHashes context
-      dependencyInstanceFacts = taskDependencyInstanceFacts context
-      dependencyInstanceProviders = taskDependencyInstanceProviders context
+      provider = taskModuleProvider context
       verbose = compileVerbose config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
+  externalResolved <- externalResolvedFacts provider unitNames dependencyNames
+  externalTyped <- externalTypedFacts provider unitNames dependencyNames
+  -- The instances a unit sees from the dependency packages come from the
+  -- providers of the modules it imports, which can be in packages below
+  -- the dependencies.
+  externalInstanceInterface <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
+  let dependencyExports = moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
+      dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
+      dependencyTypes = byModuleFromList [(key, typedModuleInterface facts) | (key, facts) <- externalTyped]
+      dependencyTypeHashes = byModuleFromList [(key, typedModuleTypeDigest facts) | (key, facts) <- externalTyped]
+      dependencyFactsDigests = byModuleFromList [(key, typedModuleFactsDigest facts) | (key, facts) <- externalTyped]
       availableTypes = byModuleUnions (map typeUnitTypes dependencyResults ++ [dependencyTypes])
       availableTypeHashes = byModuleUnions (map typeUnitHashes dependencyResults ++ [dependencyTypeHashes])
       availableExports = mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports
@@ -1990,7 +1864,7 @@ runTypeUnit context runtimes runtime = do
         ]
       -- The facts of a dependency package reach the unit through the units
       -- that hold the modules it imports, so their digests are its inputs.
-      packageFactsInputs = dependencyInputs "facts:" unitNames dependencyNames (taskDependencyFactsDigests context)
+      packageFactsInputs = dependencyInputs "facts:" unitNames dependencyNames dependencyFactsDigests
       inputs =
         sortOn fst $
           sourceHashes
@@ -2005,13 +1879,6 @@ runTypeUnit context runtimes runtime = do
       factsPath = unitFactsPath unit
       stampPath = storePath </> unitStampPath unit
       frontendFiles = factsPath : map typePath sources
-      externalInstanceProviders =
-        Set.unions
-          [ Map.findWithDefault Set.empty name dependencyInstanceProviders
-          | name <- dependencyNames,
-            name `notElem` unitNames
-          ]
-      externalInstanceInterface = selectInstanceProviders dependencyInstanceFacts externalInstanceProviders
       -- Each dependency carries the instance closure of its own dependencies,
       -- so the closures agree wherever they overlap.
       importedInstanceInterface =
@@ -2076,7 +1943,6 @@ runTypeUnit context runtimes runtime = do
                   typeUnitOwnInstanceInterface = emptyTcInterface,
                   typeUnitFactsDigest = "",
                   typeUnitInstanceInterface = importedInstanceInterface,
-                  typeUnitInstanceProviders = Set.empty,
                   typeUnitDiagnostics = [],
                   typeUnitWritten = Set.empty,
                   typeUnitReused = Set.empty,
@@ -2088,7 +1954,6 @@ runTypeUnit context runtimes runtime = do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       factsArtifact <- readTypeArtifactFile (storePath </> factsPath)
       let ownFacts = typeArtifactInterface factsArtifact
-          providers = Set.fromList (concat (Map.elems (typeArtifactInstanceProviders factsArtifact)))
           interfaces = map typeArtifactInterface artifacts
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
       atomically $ do
@@ -2100,7 +1965,6 @@ runTypeUnit context runtimes runtime = do
               typeUnitOwnInstanceInterface = ownFacts,
               typeUnitFactsDigest = unitStampFacts recorded,
               typeUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
-              typeUnitInstanceProviders = providers,
               typeUnitDiagnostics = [],
               typeUnitWritten = Set.empty,
               typeUnitReused = Set.fromList unitNames,
@@ -2180,7 +2044,6 @@ runTypeUnit context runtimes runtime = do
               typeUnitOwnInstanceInterface = ownInstanceInterface,
               typeUnitFactsDigest = factsDigest,
               typeUnitInstanceInterface = completeInstanceInterface,
-              typeUnitInstanceProviders = instanceProviders,
               typeUnitDiagnostics = diagnostics,
               typeUnitWritten = unitSet,
               typeUnitReused = Set.empty,
@@ -3450,9 +3313,6 @@ writeTypeArtifact verbose artifactPath source interface = do
   BL.writeFile path artifactBytes
   verbose ("Write type interface: " <> T.unpack name)
   pure (name, T.pack (stableHash [BL.toStrict interfaceBytes]))
-
-moduleNameDirectory :: Text -> FilePath
-moduleNameDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "."
 
 -- | Write the resolve artifact of a module and return the digest of the
 -- scope inside it, taken from the bytes as written.

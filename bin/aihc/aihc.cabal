@@ -145,6 +145,7 @@ library
     Aihc.Cli.Hackage
     Aihc.Cli.Install
     Aihc.Cli.Lto
+    Aihc.Cli.ModuleProvider
     Aihc.Cli.OptimizationPlan
     Aihc.Cli.Options
     Aihc.Cli.PackageManifest
