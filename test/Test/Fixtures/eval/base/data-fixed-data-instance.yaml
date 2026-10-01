@@ -1,0 +1,30 @@
+extensions:
+  - DeriveDataTypeable
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    module Test where
+
+    import Data.Data
+    import Data.Fixed
+
+    newtype DiffTime = MkDiffTime Pico
+      deriving (Eq, Data)
+
+    newtype Wrapped = Wrapped DiffTime
+      deriving (Eq, Data)
+
+    value :: Wrapped
+    value = Wrapped (MkDiffTime (MkFixed 1500))
+
+    results :: Bool
+    results =
+      showConstr (toConstr (MkFixed 7 :: Pico)) == "MkFixed"
+        && dataTypeName (dataTypeOf (MkFixed 7 :: Milli)) == "Data.Fixed.Fixed"
+        && showConstr (toConstr value) == "Wrapped"
+        && length (gmapQ (const ()) (MkFixed 7 :: Pico)) == 1
+        && gmapT id value == value
+output: "True"
+expression: results
+status: pass
+reason: Data.Fixed gives a Data instance, so derived Data instances that contain Pico are solved as in base
