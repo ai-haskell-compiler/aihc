@@ -1,17 +1,19 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MagicHash #-}
 
--- Lambdas over constructor, tuple and unboxed patterns; a constrained
--- existential; and Typeable casts.
+-- Lambdas over constructor, tuple and unboxed patterns; literal equations
+-- with guarded equations between them; a constrained existential; and
+-- Typeable casts.
 module Main where
 
 import Data.Coerce (coerce)
 import Data.Typeable (Typeable, cast, tyConName, typeOf, typeRepTyCon)
-import GHC.Exts (Int (I#), (*#), (+#))
+import GHC.Exts (Int (I#), isTrue#, (*#), (+#), (>#))
 
 main :: IO ()
 main = do
   lambdaPatterns
+  literalEquations
   existential
   typeableCasts
 
@@ -36,6 +38,22 @@ lambdaPatterns = do
   print (sumPair (10, 32))
   print (map (\(Just n) -> n + 1) [Just (1 :: Int), Just 2])
   print (nested (Just (6, 7)))
+
+-- | Literal equations with a guarded variable equation between them. The
+-- match compiler groups the equations by literal, and a variable equation
+-- belongs to every group in its own place: the guard runs before the
+-- literal equations after it and after the ones before it.
+describe :: Int -> String
+describe (I# n) = go n
+  where
+    go 1# = "one"
+    go x | isTrue# (x ># 2#) = "large"
+    go 2# = "two"
+    go 3# = "three"
+    go _ = "other"
+
+literalEquations :: IO ()
+literalEquations = mapM_ (putStrLn . describe) [1, 2, 3, 0]
 
 data Mark = Marked | Unmarked
 
