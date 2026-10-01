@@ -85,6 +85,7 @@ module Data.List
     nubBy,
     delete,
     deleteBy,
+    deleteFirstsBy,
     (\\),
     union,
     unionBy,
@@ -317,6 +318,10 @@ deleteBy same target (value : values) =
   if same target value
     then values
     else value : deleteBy same target values
+
+-- | Remove the first match of each element of the second list from the first list.
+deleteFirstsBy :: (a -> a -> Bool) -> [a] -> [a] -> [a]
+deleteFirstsBy same = foldl (flip (deleteBy same))
 
 (\\) :: (Eq a) => [a] -> [a] -> [a]
 (\\) = foldl (flip delete)

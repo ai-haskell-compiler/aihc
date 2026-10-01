@@ -502,6 +502,34 @@ done:
   return %required
 }
 
+; Install an immutable byte array as the environment. This operation cannot
+; allocate or collect.
+export func @aihc_program_environment_replace(%array: ptr, %length: i64) -> i64 cc c {
+entry:
+  %empty = eq i64 %length, 0
+  br %empty, clear, check
+clear:
+  call @aihc_rts_environment_install(null, 0)
+  return 0
+check:
+  %absent = eq ptr %array, null
+  br %absent, rejected, bounds
+bounds:
+  %size = call @aihc_byte_array_get_size(%array)
+  %outside = gt.u i64 %length, %size
+  br %outside, rejected, validate
+validate:
+  %buffer = call @aihc_byte_array_contents(%array)
+  %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
+  %malformed = eq i64 %valid, 0
+  br %malformed, rejected, install
+rejected:
+  return -1
+install:
+  call @aihc_rts_environment_install(%array, %length)
+  return 0
+}
+
 export func @aihc_program_arguments_size() -> i64 cc c {
 entry:
   %size = global.get @aihc_program_argument_bytes

@@ -338,7 +338,38 @@ static int64_t aihc_runtime_import(const void *buffer, int64_t length,
   return result;
 }
 
+/* The first program argument that the host gave. The host can release its
+   own copy of the arguments after the import, so the runtime keeps one. */
+static char *aihc_initial_program_name;
+
+const char *aihc_program_initial_name(void) {
+  return aihc_initial_program_name;
+}
+
+/* Copy the first string of an argument buffer. A buffer without a
+   terminated first string keeps no name: the import rejects it. */
+static void aihc_keep_initial_program_name(const void *buffer, int64_t length) {
+  free(aihc_initial_program_name);
+  aihc_initial_program_name = NULL;
+  if (buffer == NULL || length <= 0) {
+    return;
+  }
+  const char *end = memchr(buffer, 0, (size_t)length);
+  if (end == NULL) {
+    return;
+  }
+  size_t size = (size_t)(end - (const char *)buffer) + 1;
+  char *name = malloc(size);
+  if (name == NULL) {
+    aihc_fail("out of memory for the program name");
+  }
+  memcpy(name, buffer, size);
+  aihc_initial_program_name = name;
+}
+
 int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length) {
+  /* The import can collect and move the buffer, so copy the name first. */
+  aihc_keep_initial_program_name(buffer, length);
   return aihc_runtime_import(buffer, length, aihc_parse_runtime_arguments);
 }
 

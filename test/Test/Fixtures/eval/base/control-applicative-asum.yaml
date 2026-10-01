@@ -1,0 +1,24 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative (asum)
+    import Prelude
+
+    checks :: [Bool]
+    checks =
+      [ asum [Nothing, Just 1, Just 2] == Just (1 :: Int),
+        asum [Nothing, Nothing] == (Nothing :: Maybe Int),
+        asum [] == (Nothing :: Maybe Int),
+        asum [[1, 2], [], [3]] == [1, 2, 3 :: Int],
+        asum (Just [4 :: Int]) == [4]
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: Control.Applicative exports asum, as GHC base does

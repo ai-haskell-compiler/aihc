@@ -389,6 +389,11 @@ int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
 void aihc_runtime_statistics_report(void);
 int64_t aihc_program_environment_size(void);
 int64_t aihc_program_environment_copy(void *buffer, int64_t capacity);
+/* Install an immutable managed byte array without allocation. */
+int64_t aihc_program_environment_replace(const void *array, int64_t length);
+/* The first program argument that the host gave, or NULL when it gave no
+   arguments. withArgs and withProgName do not change it. */
+const char *aihc_program_initial_name(void);
 int64_t aihc_program_arguments_size(void);
 int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
 /* Install an immutable managed byte array without allocation. */

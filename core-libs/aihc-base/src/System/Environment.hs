@@ -1,11 +1,15 @@
 -- | Process argument and environment access. The scoped mutation operations
 -- update the same process-global vector observed by every Haskell thread.
 module System.Environment
-  ( getArgs,
+  ( executablePath,
+    getArgs,
     getEnv,
     getEnvironment,
+    getExecutablePath,
     getProgName,
     lookupEnv,
+    setEnv,
+    unsetEnv,
     withArgs,
     withProgName,
   )
@@ -13,7 +17,8 @@ where
 
 import Control.Exception.Base (SomeException, catch, throwIO)
 import GHC.IO.Exception (IOErrorType (..), ioError)
-import GHC.Internal.Environment (getFullArgs, getFullEnvironment, setFullArgs)
+import GHC.Internal.Environment (getFullArgs, getFullEnvironment, setFullArgs, setFullEnvironment)
+import System.Environment.ExecutablePath (executablePath, getExecutablePath)
 import System.IO.Error (mkIOError)
 import Prelude
 
@@ -39,6 +44,35 @@ getEnv name = do
 -- | Every environment variable of the process, paired with its value.
 getEnvironment :: IO [(String, String)]
 getEnvironment = map splitEntry <$> getFullEnvironment
+
+-- | Give a value to an environment variable. An empty value removes the
+-- variable, as in GHC. Each part stops at its first NUL character. The
+-- action fails when the name is empty or contains an equals sign.
+setEnv :: String -> String -> IO ()
+setEnv name value
+  | invalidName key = ioError (mkIOError InvalidArgument "setEnv" Nothing Nothing)
+  | null entryValue = unsetEnv key
+  | otherwise = do
+      entries <- getFullEnvironment
+      setFullEnvironment (removeName key entries ++ [key ++ "=" ++ entryValue])
+  where
+    key = takeWhile (/= '\NUL') name
+    entryValue = takeWhile (/= '\NUL') value
+
+-- | Remove an environment variable. The action fails when the name is empty
+-- or contains an equals sign.
+unsetEnv :: String -> IO ()
+unsetEnv name
+  | invalidName name = ioError (mkIOError InvalidArgument "unsetEnv" Nothing Nothing)
+  | otherwise = do
+      entries <- getFullEnvironment
+      setFullEnvironment (removeName name entries)
+
+invalidName :: String -> Bool
+invalidName name = null name || '=' `elem` name
+
+removeName :: String -> [String] -> [String]
+removeName name = filter (\entry -> fst (splitEntry entry) /= name)
 
 -- | Split a @NAME=VALUE@ entry. An entry without an equals sign is a name
 -- with an empty value, which is how @System.Posix.Env@ reads one too.

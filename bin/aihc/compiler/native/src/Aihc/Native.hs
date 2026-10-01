@@ -622,6 +622,7 @@ nativeRuntimePrimitiveCalls =
     call "takeIOResult#" "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt64,
     call "takeIOOpenResult#" "aihc_io_take_open_result" [GrinForeignAddr] GrinForeignAddr,
     call "setProgramArguments#" "aihc_program_arguments_replace" [GrinForeignAddr, GrinForeignInt64] GrinForeignInt64,
+    call "setProgramEnvironment#" "aihc_program_environment_replace" [GrinForeignAddr, GrinForeignInt64] GrinForeignInt64,
     machineCall "submitIORead#" "aihc_io_submit_read" [GrinForeignAddr, GrinForeignAddr, GrinForeignInt64, GrinForeignInt64] GrinForeignAddr,
     machineCall "submitIOWrite#" "aihc_io_submit_write" [GrinForeignAddr, GrinForeignAddr, GrinForeignInt64, GrinForeignInt64] GrinForeignAddr,
     machineCall "submitIOOpen#" "aihc_io_submit_open" [GrinForeignAddr, GrinForeignInt64, GrinForeignInt64] GrinForeignAddr,
