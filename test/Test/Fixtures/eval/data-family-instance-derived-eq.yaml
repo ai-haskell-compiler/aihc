@@ -1,0 +1,14 @@
+extensions: [TypeFamilies]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+    data family F a
+    data instance F Bool = C deriving Eq
+    result :: Bool
+    result = C == C
+expression: result
+output: 'True'
+status: xfail
+reason: >
+  GHC returns True. The type checker does not produce the Eq instance from the data family instance declaration.

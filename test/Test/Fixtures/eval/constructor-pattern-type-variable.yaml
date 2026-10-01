@@ -1,0 +1,15 @@
+extensions: [GADTs, TypeApplications, ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE GADTs, TypeApplications, ScopedTypeVariables #-}
+    module Test where
+    data Box where Box :: a -> Box
+    f :: forall a. a -> Box -> Bool
+    f _ (Box @a x) = const True (id @a x)
+    result = f True (Box ())
+expression: result
+output: 'True'
+status: xfail
+reason: >
+  GHC returns True. A constructor pattern type variable shadows the outer scoped type variable.
+  The type checker ignores the constructor pattern type argument and uses the outer type variable.
