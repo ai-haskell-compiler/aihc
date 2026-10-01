@@ -107,8 +107,7 @@ primTcWiring prim =
       tcWiringKindDataCon = types ResolutionNamespaceTerm,
       tcWiringTypeLitFamilyModules = typeLitFamilyModules,
       tcWiringTypeErrorFamily = ("GHC.TypeError", "TypeError"),
-      tcWiringErrorMessageCons = ("Text", "ShowType", ":<>:", ":$$:"),
-      tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
+      tcWiringErrorMessageCons = ("Text", "ShowType", ":<>:", ":$$:")
     }
   where
     unboxedTuple namespace arity =

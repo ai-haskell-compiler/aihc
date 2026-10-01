@@ -1639,11 +1639,6 @@ classPredicateArgKinds className argCount = do
     Nothing -> mapM (const freshKindMeta) [1 .. argCount]
 
 predicateClassKind :: TyConInfo -> TcM TcType
-predicateClassKind info
-  | tciName info == "Lift" = do
-      kinds <- getKinds
-      representation <- freshMetaTvOfKind (runtimeRepKind kinds)
-      pure (KFun (mkTYPEKind kinds representation) (constraintKind kinds))
 predicateClassKind info = do
   kind <- instantiateTyConKind info
   zonkKind kind

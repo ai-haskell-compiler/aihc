@@ -123,10 +123,7 @@ data TcWiring = TcWiring
     tcWiringTypeErrorFamily :: (Text, Text),
     -- | The constructors of @ErrorMessage@, in the order @Text@,
     -- @ShowType@, @:<>:@ and @:$$:@, so that a message can be rendered.
-    tcWiringErrorMessageCons :: (Text, Text, Text, Text),
-    -- | The Template Haskell @Lift@ class, as a module name and a class
-    -- name. Its parameters take implicit kind parameters.
-    tcWiringLiftClass :: (Text, Text)
+    tcWiringErrorMessageCons :: (Text, Text, Text, Text)
   }
 
 -- | The tables are functions, so a wiring shows as its name alone. The

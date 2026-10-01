@@ -1,0 +1,31 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  class Container (f :: Type -> Type) where
+  └─ class methods: size ∷ ∀ f a. (Container f) ⇒ f a → f a
+    size :: f a -> f a
+  class Lift (p :: Type -> Type -> Type) where
+  └─ class methods: lift ∷ ∀ p f a b. (Lift p, Container f) ⇒ p a b → p (f a) (f b)
+    lift :: Container f => p a b -> p (f a) (f b)
+  newtype N1 p a b = N1 (p a b)
+          │          └─ type: ∀ p a b. p a b → N1 p a b
+          └─ type: (Type → Type → Type) → Type → Type → Type
+  instance Lift q => Lift (N1 q)
+  │                  └─ warning: no implementation of lift, and class Lift gives no default; calling it raises at run time
+  └─ $fLiftN1q ∷ ∀ q. (Lift q) ⇒ Lift (N1 q)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  class Container (f :: Type -> Type) where
+    size :: f a -> f a
+  class Lift (p :: Type -> Type -> Type) where
+    lift :: Container f => p a b -> p (f a) (f b)
+  newtype N1 p a b = N1 (p a b)
+  instance Lift q => Lift (N1 q)
+reason: A user class with the name Lift is not the Template Haskell Lift class. Its declared kind applies.
+status: pass
