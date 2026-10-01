@@ -105,11 +105,27 @@ and casts that the second expansion leaves behind.
 
 The simplifier is its own module because it is a different thing from the
 inliner. It holds the rewrites that need no copy of a callee: beta reduction,
-a let in the head of an application, the case of a known constructor, a case
+a let, a recursive group or a case in the head of an application, a cast on
+such a head, the case of a known constructor, a case
 on a comparison with a literal, common strict primitive calls, case of case
 with join points, and cancelling casts. The inliner calls it on every copy it
 makes, and the plan runs it standalone. A new local rewrite goes there. A new
 rule about *which* copies to make goes in the inliner.
+
+A cast on a case, a let or a recursive group in the head of an application
+moves into the branches, and the application follows it there. The lowered
+code erases the cast, so a call in a branch then gives the arguments of the
+application in one call. This is what gives an `IO` loop its state token:
+the desugared body of `go m = act >> (case m of ... -> go m')` applies the
+state token to a cast of the case, and after the rewrite each alternative
+calls `go` with the state token, which the lowering compiles to one direct
+call instead of a partial application and a second application.
+
+The simplifier moves a binding with one use to that use, unless the use is
+under a lambda, where the work would repeat. A lambda over a state token is
+entered at most once, so a use under it is not repeated: this is GHC's
+state hack, which the arity pass applies as well. A binding whose one use
+is in the body of an `IO` action therefore moves into the action.
 
 For a default case on a variable, the simplifier uses the evaluated case
 binder in the case body. This gives a strict constructor field one use before

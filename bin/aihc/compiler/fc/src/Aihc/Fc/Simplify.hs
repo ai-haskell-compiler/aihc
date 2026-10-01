@@ -786,11 +786,41 @@ rebuildApp env headExpr' args' = do
           -- in scope, so the copies capture nothing.
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp env (altRhs alternative) args') alternatives
           pure (ExCase scrutinee binder resultType' alternatives')
+    ExRec binds body
+      | not (null args'),
+        all (either (const True) (\argument -> all ((`unused` argument) . binderName . bindBinder) binds)) args' -> do
+          inner <- simplifyApp env body args'
+          pure (ExRec binds inner)
+    -- A cast on a case, a let or a recursive group in the head of an
+    -- application moves into the branches, and the application follows
+    -- it there. The lowered code erases the cast, and a call in a branch
+    -- then gives the arguments of the application in one call: an @IO@
+    -- loop whose recursive call is a case alternative gets the state
+    -- token this way.
+    ExCast inner coercion
+      | not (null args'),
+        Just pushed <- castIntoBranches (spEnv env) inner coercion -> do
+          pushed' <- pushed
+          rebuildApp env pushed' args'
     _ -> do
       speculated <- speculateArguments env headExpr' args'
       case speculated of
         Just result -> pure result
         Nothing -> bindApplication env headExpr' args'
+
+-- | A cast of a case, a let or a recursive group as the same expression
+-- with the cast on each branch. The result type of the case becomes the
+-- right endpoint of the coercion. A cast under the cast composes with it.
+castIntoBranches :: TypeEnv -> Expr -> Coercion -> Maybe (SimplM Expr)
+castIntoBranches env inner coercion =
+  case inner of
+    ExCase scrutinee binder _ alternatives -> do
+      (_, right) <- coercionEndpoints env coercion
+      pure (ExCase scrutinee binder right <$> mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> mkCast (altRhs alternative) coercion) alternatives)
+    ExLet bind body -> Just (ExLet bind <$> mkCast body coercion)
+    ExRec binds body -> Just (ExRec binds <$> mkCast body coercion)
+    ExCast deeper outer -> castIntoBranches env deeper (CoTrans outer coercion)
+    _ -> Nothing
 
 -- | An application whose head is not copied, with the safe primitive calls
 -- in its lazy constructor arguments bound by strict lets first.
@@ -1936,7 +1966,12 @@ occurrences name = go
         ExLit {} -> mempty
         ExApp function argument -> go function <> go argument
         ExTyApp function _ -> go function
-        ExLam _ body -> repeated (go body)
+        -- GHC's state hack: a lambda over a state token is entered at
+        -- most once, so a use under it is not repeated. This is what lets
+        -- a binding move into the body of an @IO@ action.
+        ExLam binder body
+          | isStateTokenBinder binder -> go body
+          | otherwise -> repeated (go body)
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
         ExRec binds body -> repeated (foldMap (go . bindRhs) binds) <> go body
@@ -1947,6 +1982,14 @@ occurrences name = go
     coercionUses coercion =
       Occurrences (length (filter (== name) (coercionVariables coercion))) False
     repeated (Occurrences count _) = Occurrences count (count > 0)
+
+-- | Whether a binder is a state token, @State# s@. The desugarer writes
+-- the type as it is, so the head needs no reduction.
+isStateTokenBinder :: Binder -> Bool
+isStateTokenBinder binder =
+  case binderType binder of
+    TyApp (TyCon tyCon) _ -> nameText tyCon == "State#"
+    _ -> False
 
 coercionVariables :: Coercion -> [Name]
 coercionVariables coercion =
