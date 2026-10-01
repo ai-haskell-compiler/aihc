@@ -148,38 +148,48 @@ instance Aeson.FromJSON UnitStamp where
 -- | The digests of the interfaces of one module of an installed package.
 data ModuleDigests = ModuleDigests
   { moduleScopeDigest :: !Text,
-    moduleTypeDigest :: !Text
+    moduleTypeDigest :: !Text,
+    -- | The digest of the instance facts of the unit of the module. It
+    -- covers the facts of every unit below that unit, in the package and
+    -- in the packages it depends on.
+    moduleFactsDigest :: !Text,
+    -- | The facts artifact of the unit of the module, relative to the
+    -- package.
+    moduleFactsArtifact :: !FilePath
   }
   deriving (Eq, Show)
 
 instance Aeson.ToJSON ModuleDigests where
-  toJSON digests = Aeson.object ["scope" .= moduleScopeDigest digests, "type" .= moduleTypeDigest digests]
+  toJSON digests =
+    Aeson.object
+      [ "scope" .= moduleScopeDigest digests,
+        "type" .= moduleTypeDigest digests,
+        "facts" .= moduleFactsDigest digests,
+        "factsArtifact" .= moduleFactsArtifact digests
+      ]
 
 instance Aeson.FromJSON ModuleDigests where
   parseJSON = Aeson.withObject "ModuleDigests" $ \object ->
-    ModuleDigests <$> object .: "scope" <*> object .: "type"
+    ModuleDigests <$> object .: "scope" <*> object .: "type" <*> object .: "facts" <*> object .: "factsArtifact"
 
 -- | The digests of everything a consumer of an installed package reads.
-data PackageDigests = PackageDigests
-  { packageDigestsModules :: !(Map.Map Text ModuleDigests),
-    -- | The digest of the package instance artifact.
-    packageDigestsInstances :: !Text
+newtype PackageDigests = PackageDigests
+  { packageDigestsModules :: Map.Map Text ModuleDigests
   }
   deriving (Eq, Show)
 
 instance Aeson.ToJSON PackageDigests where
   toJSON digests =
     Aeson.object
-      [ "schemaVersion" .= (1 :: Int),
-        "modules" .= packageDigestsModules digests,
-        "instances" .= packageDigestsInstances digests
+      [ "schemaVersion" .= (2 :: Int),
+        "modules" .= packageDigestsModules digests
       ]
 
 instance Aeson.FromJSON PackageDigests where
   parseJSON = Aeson.withObject "PackageDigests" $ \object -> do
     schemaVersion <- object .: "schemaVersion"
     case schemaVersion :: Int of
-      1 -> PackageDigests <$> object .: "modules" <*> object .: "instances"
+      2 -> PackageDigests <$> object .: "modules"
       _ -> fail "unsupported package digests schema"
 
 packageDigestsPath :: FilePath -> FilePath

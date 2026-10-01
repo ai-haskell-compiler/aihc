@@ -1,0 +1,5 @@
+status: pass
+reason: An instance of a package that the installed package does not depend on must reach it through the package that imports the instance.
+input: demo
+workspace: workspace
+check-reinstall: true

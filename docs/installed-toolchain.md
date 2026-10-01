@@ -304,11 +304,11 @@ It builds in place under `<directory>/.aihc-target/<target>/<name>-<version>`, o
 `--immutable` installs a local package into the store instead, as a core library is published.
 
 In a build directory every unit keeps a stamp beside its artifacts: the digests of the inputs it was built from, the digests of the interfaces it wrote, and the size and modification time of each artifact file.
-The inputs of a unit are its sources, the scope and type interfaces of the modules it imports, the instance facts of the units below it, and the instance digest of each dependency package it imports from.
+The inputs of a unit are its sources, the scope and type interfaces of the modules it imports, and the instance facts of the units below it, in its package and in the packages it imports from.
 A later build parses the sources, walks the units in dependency order, and reuses a unit whose recorded inputs equal the current digests and whose artifacts are the recorded files.
 Everything else is rebuilt in place.
 No interface is encoded to learn its digest: source digests come from parsing, and artifact digests are taken from the bytes as they are written.
-Each package writes `digests.json` next to its manifest, from which consumers take the digests of its interfaces.
+Each package writes `digests.json` next to its manifest, from which consumers take the digests of its interfaces and find the facts artifact of each module.
 
 `aihc build` takes a main module, a local Cabal package directory, or a Hackage package name with an optional version, as `aihc install` takes it.
 An existing file is a main module; anything else is a package.
