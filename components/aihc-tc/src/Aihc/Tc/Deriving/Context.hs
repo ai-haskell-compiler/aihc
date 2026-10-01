@@ -52,6 +52,7 @@ import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), 
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Dict (matchInstanceKinds)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Types
 import Control.Monad (foldM)
@@ -305,7 +306,8 @@ simplifyReducedPredicate kinds environment owner predicate
     Just arguments <- typeableArguments predicate =
       simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)
   | otherwise = do
-      matched <- firstSuccessful (map simplifyExisting matchingExisting <> map simplifyDerived matchingDerived)
+      existing <- mapM withInstanceKinds matchingExisting
+      matched <- firstSuccessful (map simplifyExisting (concat existing) <> map simplifyDerived matchingDerived)
       pure $ case matched of
         Just context -> Right context
         Nothing
@@ -325,6 +327,11 @@ simplifyReducedPredicate kinds environment owner predicate
         predIsForPlan predicate candidate,
         Just substitution <- [matchTypes (tcDerivingHeadTypes candidate) (predArguments predicate)]
       ]
+    -- The head match binds only type variables. The kinds of the matched
+    -- types bind the implicit kind variables of the instance, such as @k@
+    -- in @instance (Typeable k, Typeable (a :: k)) => Data (Fixed a)@.
+    withInstanceKinds (instanceInfo, substitution) =
+      maybe [] (\kinded -> [(instanceInfo, kinded)]) <$> matchInstanceKinds (iiTyVars instanceInfo) substitution
     simplifyExisting (instanceInfo, substitution) =
       simplifyPredicates kinds environment owner (map (applySubstPred substitution) (iiContext instanceInfo))
     simplifyDerived (candidate, substitution) =

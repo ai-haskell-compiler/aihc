@@ -15,6 +15,7 @@ module Aihc.Tc.Solve.Dict
     reportUnsolvedDict,
     classFieldTypes,
     mostSpecificInstances,
+    matchInstanceKinds,
   )
 where
 

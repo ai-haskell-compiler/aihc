@@ -29,6 +29,7 @@ module Data.Fixed
   )
 where
 
+import Data.Data (Constr, Data (..), DataType, Fixity (..), Typeable, mkConstr, mkDataType)
 import GHC.Read (readListDefault, readListPrecDefault, readNumber)
 import Text.ParserCombinators.ReadPrec (ReadPrec, pfail)
 import Text.Read.Lex (Lexeme (..), numberToFixed)
@@ -54,6 +55,19 @@ mod' numeratorValue denominatorValue =
 -- | Fixed-point values store an integer count of resolution-sized units.
 newtype Fixed (a :: k) = MkFixed Integer
   deriving newtype (Eq, Ord, Enum)
+
+-- | As in base, the instance shows the constructor and its 'Integer' field.
+instance (Typeable k, Typeable (a :: k)) => Data (Fixed a) where
+  gfoldl k z (MkFixed value) = k (z MkFixed) value
+  gunfold k z _ = k (z MkFixed)
+  toConstr _ = fixedConstr
+  dataTypeOf _ = fixedDataType
+
+fixedConstr :: Constr
+fixedConstr = mkConstr fixedDataType "MkFixed" [] Prefix
+
+fixedDataType :: DataType
+fixedDataType = mkDataType "Data.Fixed.Fixed" [fixedConstr]
 
 -- | Types used as a fixed-point parameter supply its scaling factor.
 class HasResolution (a :: k) where
