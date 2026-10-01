@@ -51,6 +51,10 @@ module Aihc.Fc.Simplify
     -- * Substitution
     substExpr,
     substTypeExpr,
+
+    -- * Call arity
+    topCallArities,
+    ruleValueNames,
   )
 where
 
@@ -116,11 +120,15 @@ simplifyProgram phase program =
                 spRequestedSiteLimit = 0,
                 spReducingSiteLimit = 0,
                 spDiscount = 0,
-                spRules = ruleTable phase (programDecls program)
+                spRules = ruleTable phase (programDecls program),
+                spCredit = 0,
+                spInside = False
               }
+          escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
+          callArities = topCallArities escaping (Map.elems bodies)
           simplifyDecl decl =
             case decl of
-              DeclVal declaration -> (\body -> DeclVal declaration {valBody = body}) <$> simplifyExpr simpl (valBody declaration)
+              DeclVal declaration -> (\body -> DeclVal declaration {valBody = body}) <$> simplifyExpr simpl {spCredit = Map.findWithDefault 0 (valName declaration) callArities} (valBody declaration)
               _ -> pure decl
           (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
           result = tidyProgram (pruneImports program {programDecls = decls})
@@ -246,7 +254,17 @@ data Simpl = Simpl
     spDiscount :: !Int,
     -- | The rewrite rules that may fire, by the head of their left-hand
     -- side.
-    spRules :: !RuleTable
+    spRules :: !RuleTable,
+    -- | How many value arguments the expression under simplification
+    -- receives from every use, when it is a right-hand side in leading
+    -- position: the call arity of its binding, less the lambdas passed.
+    -- Zero anywhere else. See 'useArities'.
+    spCredit :: !Int,
+    -- | Whether a lambda of the binding has been passed. A lambda with a
+    -- credit is entered at most once per call only inside the first
+    -- lambda: the work before the first lambda belongs to the closure of
+    -- the binding, which every call shares.
+    spInside :: !Bool
   }
 
 data SimplState = SimplState
@@ -294,32 +312,33 @@ simplifyExpr env expr =
       | Just pushed <- pushHeadCasts expr -> simplifyExpr env pushed
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
-    ExLam binder body -> ExLam binder <$> simplifyExpr env body
+    ExLam binder body -> ExLam binder <$> simplifyExpr (passLambda env) body
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
-      rhs <- simplifyExpr env (bindRhs bind)
       let binder = bindBinder bind
+      rhs <- simplifyExpr (rhsEnv env (letCredit (spCredit env) (spInside env) binder (bindRhs bind) body)) (bindRhs bind)
       if isTrivial rhs
         then simplifyExpr env (substExpr (Map.singleton (binderName binder) rhs) body)
         else do
           body' <- simplifyExpr (bindingEnv env binder rhs) body
           mkLet env (Bind binder rhs) body'
     ExRec binds body -> do
-      binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr env (bindRhs bind)) binds
+      let credits = recCredits (spCredit env) (spInside env) binds body
+      binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv env (Map.findWithDefault 0 (binderName (bindBinder bind)) credits)) (bindRhs bind)) binds
       ExRec binds' <$> simplifyExpr env body
     ExCase scrutinee binder resultType alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args ->
-          inlineScrutinee env name candidate args binder resultType alternatives
+          inlineScrutinee (noOneShot env) name candidate args binder resultType alternatives
       | otherwise -> do
-          scrutinee' <- simplifyExpr env scrutinee
+          scrutinee' <- simplifyExpr (noOneShot env) scrutinee
           simplifyCase env scrutinee' binder resultType alternatives
     ExCast body coercion -> do
       body' <- simplifyExpr env body
       mkCast body' coercion
     ExForeignCall call types arguments -> do
-      arguments' <- mapM (simplifyExpr env) arguments
+      arguments' <- mapM (simplifyExpr (noOneShot env)) arguments
       let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
       pure (maybe call' ExVar (Map.lookup call' (spCse env)))
 
@@ -718,6 +737,24 @@ extendTypeBinder env binder = env {spEnv = extendBinder (spEnv env) binder}
 -- | Simplify an application spine. The head and the arguments are
 -- simplified first. A head that names a candidate is replaced by a copy of
 -- its body when the size rule accepts the reduced result.
+-- | The environment under a lambda: the result receives one argument
+-- fewer, and the first lambda of the binding has been passed.
+passLambda :: Simpl -> Simpl
+passLambda env = env {spCredit = max 0 (spCredit env - 1), spInside = True}
+
+-- | The environment of a part that is not in leading position, such as
+-- the head or an argument of an application: no lambda in it is known to
+-- be entered once.
+noOneShot :: Simpl -> Simpl
+noOneShot env = env {spCredit = 0, spInside = False}
+
+-- | The environment of a right-hand side with the given credit.
+rhsEnv :: Simpl -> Int -> Simpl
+rhsEnv env credit = env {spCredit = credit, spInside = False}
+
+-- | Simplify an application. The head and the arguments are not in
+-- leading position, but what the application becomes is: a copy of the
+-- callee that lands here keeps the credit of the position.
 simplifyApp :: Simpl -> Expr -> [Arg] -> SimplM Expr
 simplifyApp env headExpr args =
   case headExpr of
@@ -731,14 +768,14 @@ simplifyApp env headExpr args =
           if null args
             then pure copy
             else do
-              args' <- simplifyArgs env args
+              args' <- simplifyArgs (noOneShot env) args
               let (doneHead, doneArgs) = collectSpine copy
               rebuildApp env doneHead (doneArgs ++ args')
     _ -> do
       headExpr' <- case headExpr of
         ExVar {} -> pure headExpr
-        _ -> simplifyExpr env headExpr
-      args' <- simplifyArgs env args
+        _ -> simplifyExpr (noOneShot env) headExpr
+      args' <- simplifyArgs (noOneShot env) args
       rebuildApp env headExpr' args'
 
 simplifyArgs :: Simpl -> [Arg] -> SimplM [Arg]
@@ -1176,7 +1213,7 @@ mkLet env bind body
     binder = bindBinder bind
     name = binderName binder
     lifted = isLiftedBinder (spEnv env) binder
-    uses = occurrences name body
+    uses = occurrencesUnder (spCredit env) (spInside env) name body
 
 -- | Accept a growth of the program: always when nothing grows, and in
 -- budget mode while the allowance and the site limit permit it.
@@ -1956,40 +1993,139 @@ instance Monoid Occurrences where
   mempty = Occurrences 0 False
 
 occurrences :: Name -> Expr -> Occurrences
-occurrences name = go
+occurrences = occurrencesUnder 0 False
+
+-- | The occurrences of a name in an expression whose result receives the
+-- given number of arguments from every use, where the first lambda of
+-- its binding has been passed when the flag says so. A leading lambda
+-- inside the first one that still has a credit is entered at most once
+-- per call, so a use under it is not repeated. The leading lambdas are
+-- the ones on the path through type lambdas, casts, the body of a let or
+-- a recursive group, and the alternatives of a case.
+occurrencesUnder :: Int -> Bool -> Name -> Expr -> Occurrences
+occurrencesUnder credit0 inside0 name = go credit0 inside0
   where
-    go expr =
+    go credit inside expr =
       case expr of
         ExVar var
           | var == name -> Occurrences 1 False
           | otherwise -> mempty
         ExLit {} -> mempty
-        ExApp function argument -> go function <> go argument
-        ExTyApp function _ -> go function
-        -- GHC's state hack: a lambda over a state token is entered at
-        -- most once, so a use under it is not repeated. This is what lets
-        -- a binding move into the body of an @IO@ action.
-        ExLam binder body
-          | isStateTokenBinder binder -> go body
-          | otherwise -> repeated (go body)
-        ExTyLam _ body -> go body
-        ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> repeated (foldMap (go . bindRhs) binds) <> go body
-        ExCase scrutinee _ _ alternatives -> go scrutinee <> foldMap (go . altRhs) alternatives
-        ExCast body coercion -> go body <> coercionUses coercion
+        ExApp function argument -> go 0 False function <> go 0 False argument
+        ExTyApp function _ -> go 0 False function
+        ExLam _ body
+          | inside && credit > 0 -> go (credit - 1) True body
+          | otherwise -> repeated (go (max 0 (credit - 1)) True body)
+        ExTyLam _ body -> go credit inside body
+        ExLet bind body -> go 0 False (bindRhs bind) <> go credit inside body
+        ExRec binds body -> repeated (foldMap (go 0 False . bindRhs) binds) <> go credit inside body
+        ExCase scrutinee _ _ alternatives -> go 0 False scrutinee <> foldMap (go credit inside . altRhs) alternatives
+        ExCast body coercion -> go credit inside body <> coercionUses coercion
         ExCoercion coercion -> coercionUses coercion
-        ExForeignCall _ _ arguments -> foldMap go arguments
+        ExForeignCall _ _ arguments -> foldMap (go 0 False) arguments
     coercionUses coercion =
       Occurrences (length (filter (== name) (coercionVariables coercion))) False
     repeated (Occurrences count _) = Occurrences count (count > 0)
 
--- | Whether a binder is a state token, @State# s@. The desugarer writes
--- the type as it is, so the head needs no reduction.
-isStateTokenBinder :: Binder -> Bool
-isStateTokenBinder binder =
-  case binderType binder of
-    TyApp (TyCon tyCon) _ -> nameText tyCon == "State#"
+-- * Call arity
+
+-- | The fewest value arguments that every use of each name in an
+-- expression gives it, when the result of the expression itself receives
+-- the given number of arguments from every use, and the first lambda of
+-- its binding has been passed when the flag says so.
+--
+-- A use that is not a call, such as the name passed as an argument or
+-- returned, shares its closures and gives zero. A closure built by one
+-- of the first that many lambdas of a name, after its first lambda, is
+-- a partial application that no use shares, so that lambda is entered
+-- at most once per call. The arity lets a binding with one use under
+-- such a lambda move there, and lets a cast in the head of an
+-- application reach the calls under it. This is Breitner's call arity.
+--
+-- A let-bound function passes the arity of its uses on to the calls in
+-- its tails: @let y = λz. go x in y a@ calls @go@ with two arguments. A
+-- let-bound thunk passes it on only when the thunk is used once and not
+-- under a repeated lambda, because its value is a closure that every
+-- use shares. The functions of a recursive group get their arity by a
+-- fixpoint from the uses in the body and in the group, from the body
+-- down; a thunk in a group gets none.
+useArities :: Int -> Bool -> Expr -> Map Name Int
+useArities = go
+  where
+    go credit inside expr =
+      case expr of
+        ExVar name -> Map.singleton name credit
+        ExLit {} -> Map.empty
+        ExCoercion {} -> Map.empty
+        ExApp function argument -> Map.unionWith min (go (credit + 1) inside function) (go 0 False argument)
+        ExTyApp function _ -> go credit inside function
+        ExLam _ body -> go (max 0 (credit - 1)) True body
+        ExTyLam _ body -> go credit inside body
+        ExLet bind body ->
+          let inBody = go credit inside body
+              rhsCredit = letCredit credit inside (bindBinder bind) (bindRhs bind) body
+           in Map.unionWith min (Map.delete (binderName (bindBinder bind)) inBody) (go rhsCredit False (bindRhs bind))
+        ExRec binds body ->
+          let credits = recCredits credit inside binds body
+              names = map (binderName . bindBinder) binds
+              rhss = [go (Map.findWithDefault 0 name credits) False (bindRhs bind) | (name, bind) <- zip names binds]
+           in Map.withoutKeys (List.foldl' (Map.unionWith min) (go credit inside body) rhss) (Set.fromList names)
+        ExCase scrutinee _ _ alternatives -> List.foldl' (Map.unionWith min) (go 0 False scrutinee) (map (go credit inside . altRhs) alternatives)
+        ExCast body _ -> go credit inside body
+        ExForeignCall _ _ arguments -> List.foldl' (Map.unionWith min) Map.empty (map (go 0 False) arguments)
+
+-- | The credit of the right-hand side of a let: what its uses in the
+-- body give the binder, when the right-hand side is a function or a
+-- thunk used once on a path that is not repeated.
+letCredit :: Int -> Bool -> Binder -> Expr -> Expr -> Int
+letCredit credit inside binder rhs body
+  | fromUses == 0 = 0
+  | isFunctionRhs rhs = fromUses
+  | Occurrences 1 False <- occurrencesUnder credit inside name body = fromUses
+  | otherwise = 0
+  where
+    name = binderName binder
+    fromUses = Map.findWithDefault 0 name (useArities credit inside body)
+
+-- | The credit of each function of a recursive group: a fixpoint from
+-- the uses in the body, lowered by the uses in the group until the
+-- group agrees. A thunk of the group gets no credit.
+recCredits :: Int -> Bool -> [Bind] -> Expr -> Map Name Int
+recCredits credit inside binds body = settle (initial `Map.union` Map.map (const 0) functions)
+  where
+    names = map (binderName . bindBinder) binds
+    functions = Map.fromList [(name, ()) | (name, bind) <- zip names binds, isFunctionRhs (bindRhs bind)]
+    initial = Map.restrictKeys (useArities credit inside body) (Map.keysSet functions)
+    settle current =
+      let inGroup = [useArities (Map.findWithDefault 0 name current) False (bindRhs bind) | (name, bind) <- zip names binds]
+          next = Map.mapWithKey (\name assumed -> minimum (assumed : [arity | arities <- inGroup, Just arity <- [Map.lookup name arities]])) current
+       in if next == current then current else settle next
+
+-- | Whether a right-hand side is a function: a lambda under type
+-- lambdas and casts, so that each call runs it afresh.
+isFunctionRhs :: Expr -> Bool
+isFunctionRhs expr =
+  case expr of
+    ExLam {} -> True
+    ExTyLam _ body -> isFunctionRhs body
+    ExCast body _ -> isFunctionRhs body
     _ -> False
+
+-- | The call arity of every top-level value in the bodies, except the
+-- escaping ones, which another scope can use in any way: the exported
+-- values of a module and the values a rewrite rule names.
+topCallArities :: Set Name -> [Expr] -> Map Name Int
+topCallArities escaping bodies =
+  Map.filterWithKey (\name _ -> isTop name) (List.foldl' (Map.unionWith min) Map.empty (map (useArities 0 False) bodies)) `Map.withoutKeys` escaping
+  where
+    isTop candidate =
+      case nameOrigin candidate of
+        OriginTop {} -> True
+        OriginLocal {} -> False
+
+-- | The values that the rewrite rules of a program name.
+ruleValueNames :: [Decl] -> Set Name
+ruleValueNames decls = Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
 
 coercionVariables :: Coercion -> [Name]
 coercionVariables coercion =

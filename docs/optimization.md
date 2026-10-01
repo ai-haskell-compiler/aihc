@@ -122,10 +122,20 @@ calls `go` with the state token, which the lowering compiles to one direct
 call instead of a partial application and a second application.
 
 The simplifier moves a binding with one use to that use, unless the use is
-under a lambda, where the work would repeat. A lambda over a state token is
-entered at most once, so a use under it is not repeated: this is GHC's
-state hack, which the arity pass applies as well. A binding whose one use
-is in the body of an `IO` action therefore moves into the action.
+under a lambda, where the work would repeat. A lambda is entered at most
+once per closure when the closure is a partial application that no use
+shares. The call arity of a binding, the fewest value arguments that any
+use of it gives, says how many of its leading lambdas are such: every use
+of `go` in `go m s` gives two arguments, so no `go m` is ever shared, and
+a binding with one use under the second lambda moves there. A use that is
+not a call, such as the binding passed as an argument or returned, gives
+call arity zero. The arity holds for a local binding by a scan of its
+scope, and for a top-level value by a scan of the program, where an
+exported value and a value a rewrite rule names count as escaping. The
+simplifier carries the arity as a budget into the right-hand side of the
+binding, through its leading lambdas, casts, let bodies, and case
+alternatives. This is Breitner's call arity; the state hack, which GHC
+applies to a lambda over a state token by its type, is not used.
 
 For a default case on a variable, the simplifier uses the evaluated case
 binder in the case body. This gives a strict constructor field one use before

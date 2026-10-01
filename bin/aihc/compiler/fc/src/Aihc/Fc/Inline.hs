@@ -223,6 +223,14 @@ data Inliner = Inliner
     -- counts are kept by it, so that they stay comparable through the
     -- round.
     inArities :: !(Map Name Int),
+    -- | The call arity of each value at the start of the round, by
+    -- 'topCallArities'. A copy made in the round can only remove a use
+    -- or copy one with its arguments, so the arities hold for the round.
+    inCallArities :: !(Map Name Int),
+    -- | The values another scope can use in any way: the roots, the
+    -- exported values, and the values a rule names. Their call arity is
+    -- zero.
+    inEscaping :: !(Set Name),
     -- | The values no live body references any more. They are not
     -- simplified and their references count for nothing, so a value
     -- whose last use went with a dead original is free to go too.
@@ -253,6 +261,8 @@ initialInliner config env decls supply =
       inCounts = occurrenceCounts (Map.elems bodies),
       inCalls = callCounts arities (Map.elems bodies),
       inArities = arities,
+      inCallArities = topCallArities escaping (Map.elems bodies),
+      inEscaping = escaping,
       inDead = Set.empty,
       inSupply = supply,
       inSites = 0,
@@ -275,6 +285,7 @@ initialInliner config env decls supply =
           Just names -> Set.fromList names
     ruleReferences =
       Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
+    escaping = roots <> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
 
 -- | Whether a value's pragma lets a phase copy it. Without a pragma the
 -- policy decides. @INLINE@ and @INLINABLE@ allow the phases their
@@ -402,7 +413,9 @@ simplifyValue config known recursive st name
                             spRequestedSiteLimit = policyRequestedSiteLimit policy,
                             spReducingSiteLimit = policyReducingSiteLimit policy,
                             spDiscount = policyFunctionArgumentDiscount policy,
-                            spRules = inRules st
+                            spRules = inRules st,
+                            spCredit = Map.findWithDefault 0 name (inCallArities st),
+                            spInside = False
                           }
                       -- What this value may still grow by: its limit less
                       -- its size now. A value that shrank in an earlier
@@ -483,6 +496,7 @@ dropUnused st =
       inCounts = occurrenceCounts (Map.elems live),
       inCalls = callCounts arities (Map.elems live),
       inArities = arities,
+      inCallArities = topCallArities (inEscaping st) (Map.elems live),
       inDead = Set.empty
     }
   where

@@ -22,7 +22,7 @@ modules:
   tick x = returnIO x
 
   countDown :: Int -> IO Int
-  countDown n = go n
+  countDown n = IO (\s -> unIO (go n) s)
     where
       go m = tick m `thenIO` (case m of
         I# 0# -> returnIO m
@@ -96,6 +96,7 @@ expected: |-
                             }
                     }) ▷ sym (axiom-co 3.$ax$IO @3.tInt)
     } in
-        go x
+        (λ(s : 2.tState# 2.tRealWorld).
+          ((go x) ▷ axiom-co 3.$ax$IO @3.tInt) s) ▷ sym (axiom-co 3.$ax$IO @3.tInt)
 status: pass
-reason: The continuation of 'thenIO' is a case whose alternatives give IO actions. After the inliner copies 'thenIO', the state token is applied to a cast of that case. The simplifier moves the cast and the application into the alternatives, so the recursive call of 'go' gives the state token directly and the lowered loop calls it with all its arguments.
+reason: The continuation of 'thenIO' is a case whose alternatives give IO actions. After the inliner copies 'thenIO', the state token is applied to a cast of that case. The simplifier moves the cast and the application into the alternatives, so the recursive call of 'go' gives the state token directly and the lowered loop calls it with all its arguments. Every call of 'go' gives two arguments, so its second lambda is entered once per call, and the continuation moves under it from its let.
