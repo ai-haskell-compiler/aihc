@@ -1,0 +1,24 @@
+extensions:
+  - GADTs
+  - StandaloneDeriving
+modules:
+  - |
+    {-# LANGUAGE GADTs #-}
+    {-# LANGUAGE StandaloneDeriving #-}
+    module Test where
+
+    import Prelude
+
+    data Expr a where
+      Lit :: Int -> Expr Int
+
+    deriving instance Eq (Expr Int)
+
+    result :: Bool
+    result = Lit 1 == Lit 1
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: Standalone deriving accepts Eq for a refined GADT.

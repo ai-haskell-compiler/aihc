@@ -1,0 +1,17 @@
+extensions:
+  - TransformListComp
+modules:
+  - |
+    {-# LANGUAGE TransformListComp #-}
+    module Test where
+
+    import Prelude
+
+    result :: Bool
+    result = ([x | x <- [1, 2, 3, 4], then take 2] :: [Int]) == [1, 2]
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: TransformListComp accepts a then qualifier.

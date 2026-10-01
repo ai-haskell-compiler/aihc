@@ -1,0 +1,23 @@
+extensions:
+  - StrictData
+modules:
+  - |
+    {-# LANGUAGE StrictData #-}
+    module Test where
+
+    import Control.Exception (ErrorCall, catch, evaluate)
+    import Prelude
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Box = Box Int
+
+    result :: Bool
+    result =
+      unsafePerformIO
+        ((evaluate (Box undefined) >> pure True) `catch` (\(_ :: ErrorCall) -> pure False))
+output: |
+  False
+expression: |
+  result
+status: xfail
+reason: StrictData makes an unmarked field strict.

@@ -1,0 +1,24 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+
+    import Prelude
+
+    data family D a
+
+    data instance D Bool
+
+    ignore :: D Bool -> Bool
+    ignore _ = True
+
+    result :: Bool
+    result = ignore undefined
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: A data family instance can have no constructors.

@@ -1,0 +1,24 @@
+extensions:
+  - EmptyDataDecls
+  - EmptyDataDeriving
+modules:
+  - |
+    {-# LANGUAGE EmptyDataDecls #-}
+    {-# LANGUAGE EmptyDataDeriving #-}
+    module Test where
+
+    import Prelude
+
+    data Void deriving (Eq)
+
+    ignore :: (Eq a) => a -> Bool
+    ignore _ = True
+
+    result :: Bool
+    result = ignore (undefined :: Void)
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: Stock deriving accepts an empty data declaration.

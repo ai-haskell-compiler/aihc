@@ -1,0 +1,31 @@
+extensions:
+  - Arrows
+  - RebindableSyntax
+modules:
+  - |
+    {-# LANGUAGE Arrows #-}
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (False, True), Int, fromInteger, id, (==), (.), (+))
+
+    arr :: (b -> c) -> (b -> c)
+    arr f = f
+
+    (>>>) :: (b -> c) -> (c -> d) -> (b -> d)
+    f >>> g = g . f
+
+    first :: (b -> c) -> ((b, d) -> (c, d))
+    first f (b, d) = (f b, d)
+
+    returnA :: b -> b
+    returnA = id
+
+    result :: Bool
+    result = (proc x -> returnA -< x + 1) (2 :: Int) == 3
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: Name resolution accepts an arrow proc expression.
