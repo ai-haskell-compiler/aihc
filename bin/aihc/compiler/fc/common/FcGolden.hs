@@ -206,7 +206,7 @@ parseFcFixture path value = do
         casePasses = passes
       }
 
--- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @simplify@, @lift-constants@, or @inline@ with a
+-- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@, @specialise@, @simplify@, @lift-constants@, or @inline@ with a
 -- policy. The policy is @shrink@, @grow@, or an object that names one of
 -- the two under @policy@ and overrides its knobs: @callee-limit@,
 -- @site-limit@, @discount@, @value-growth@, @value-slack@,
@@ -218,6 +218,7 @@ parsePass value =
     Y.String "lift-constants" -> pure PassLiftConstants
     Y.String "eta" -> pure PassEtaExpand
     Y.String "worker-wrapper" -> pure PassWorkerWrapper
+    Y.String "specialise" -> pure PassSpecialise
     Y.String "demand" -> pure (PassDemand StrictLetsAndArguments)
     Y.Object obj | Just (Y.String "lets") <- KeyMap.lookup "demand" obj -> pure (PassDemand StrictLetsOnly)
     Y.String "simplify" -> pure (PassSimplify 0)
@@ -254,7 +255,7 @@ parsePass value =
                 phase
             )
         _ -> fail "inline must be shrink, grow, or an object with a policy"
-    _ -> fail "a pass must be eta, simplify, lift-constants, or an object with inline"
+    _ -> fail "a pass must be eta, demand, worker-wrapper, specialise, simplify, lift-constants, or an object with inline"
   where
     defaultRounds = 4
     -- The phases of the optimization plans: the shrinking inliner is

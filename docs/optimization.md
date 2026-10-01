@@ -63,6 +63,7 @@ after each pass under `--lint`.
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 | `PassWorkerWrapper` | Split each function that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. `Aihc.Fc.WorkerWrapper`. |
+| `PassSpecialise` | Copy each local recursive function whose calls give a constant dictionary, with the dictionary in place of the parameter. `Aihc.Fc.Specialise`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
@@ -74,9 +75,9 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], inline `growPolicy` [1], eta expand, simplify [0], lift constants |
+| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | eta expand, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
+| `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
@@ -91,7 +92,12 @@ pass and before the growing inliner, which copies the wrappers at their
 calls. A walk of the simplifier follows it, because the growing inliner
 does not walk a body that calls no candidate, and a new worker is not
 simplified yet. `-Os` does not split: the shrinking inliner would keep
-each wrapper as a call. Eta expansion runs before the
+each wrapper as a call. The specialisation pass runs before each inliner.
+The first run copies the loops whose source gives the dictionary. The
+second run copies the loops whose dictionary the shrinking inliner
+exposed, when it copied an overloaded function into a caller that gives
+the instance. Each run leaves a known dictionary in the body of a copy,
+which the inliner that follows resolves. Eta expansion runs before the
 inliner so that a value it turns into a function is a saturated call, and
 after it because a call of a class method hides the arity of the method until
 the selection is inlined. The final simplifying walk reduces the applications
@@ -323,6 +329,68 @@ such as `Box` too early.
 The report gives the number of workers, the number of parameters they
 take as fields, and the number of workers that return fields. The fixtures are the `worker-wrapper-*.yaml` files; a
 `worker-wrapper` entry in `passes:` runs the pass.
+
+## Specialisation
+
+`PassSpecialise` is `Aihc.Fc.Specialise`. The type checker generalizes a
+local function that has no signature, so a loop in a `where` clause that
+uses a class method gets a type parameter and a dictionary parameter:
+
+```text
+go : ∀a. $Dict$Storable a → ForeignPtr a → [a] → IO ()
+go = Λa. λ$d. λp. λxs. ... $d ... go @a $d p' xs' ...
+
+go @Word8 $fStorableWord8 p xs
+```
+
+Each recursive call passes the parameters on unchanged, and the call from
+outside gives a constant dictionary. The method selection in the body
+stays a selection from a parameter, which is an unknown call at each
+iteration, and the lowered loop builds a partial application for it. The
+pass copies the function once for each distinct static prefix that its
+calls give, with the prefix in place of the parameters:
+
+```text
+$sgo : ForeignPtr Word8 → [Word8] → IO ()
+$sgo = λp. λxs. ... $fStorableWord8 ... $sgo p' xs' ...
+
+$sgo p xs
+```
+
+The dictionary is then a known constructor in the body, and the case of
+known constructor in the simplifier resolves the selection to the
+instance method, which the inliner copies or calls directly.
+
+The static prefix of a binding is its leading type parameters and the
+value parameters that follow them while their type is a dictionary, an
+application of a `$Dict$` type constructor. A binding is specialised when
+all of these hold:
+
+- It is alone in its recursive group.
+- It has at least one dictionary parameter. A copy at a type alone
+  changes no code.
+- Every recursive call in its body gives its own prefix: the type
+  variables and the dictionary parameters themselves. Polymorphic
+  recursion gives a different dictionary, and such a binding stays.
+- Every call from outside gives the whole prefix, and every name in that
+  prefix is in scope where the binding is. A dictionary that a case
+  between the binding and the call binds, such as the dictionary of an
+  existential constructor, cannot move to the binding, and such a binding
+  stays.
+- The calls give at most `specialisationLimit` (4) distinct prefixes.
+
+Each copy gets the name of the binding with a `$s` prefix and the type of
+the binding at the types of its prefix, without the dictionary arrows.
+A dictionary argument that is trivial goes into the copy as it is; any
+other goes into a let before the copy, so the copy does not build it
+again on each iteration. The original binding has no call left and goes
+away. The report gives the number of bindings, of copies, and of calls
+that now name a copy.
+
+The pass copies local bindings only. A top-level overloaded function that
+a module calls with a constant dictionary gets no copy from this pass;
+the inliner copies it into the caller when its policy permits, and the
+pass then copies the local loop that the copy exposes.
 
 ## The inliner
 

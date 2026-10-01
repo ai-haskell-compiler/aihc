@@ -1,0 +1,118 @@
+---
+extensions:
+- MagicHash
+- ExistentialQuantification
+modules:
+- |
+  module Test (total) where
+
+  import GHC.Prim ((+#))
+  import GHC.Types (Bool (..), Int (..))
+
+  class Weight a where
+    weight :: a -> Int
+
+  data Some = forall a. Weight a => Some a
+
+  plus :: Int -> Int -> Int
+  plus x y = case x of
+    I# a -> case y of
+      I# b -> I# (a +# b)
+
+  total :: [Some] -> Int
+  total items = walk items
+    where
+      walk [] = I# 0#
+      walk (Some v : rest) = go (I# 3#) v (walk rest)
+      go n v acc = case n of
+        I# 0# -> acc
+        I# k -> go (I# (k +# -1#)) v (plus acc (weight v))
+passes:
+- specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.t$Dict$Weight (a : 3.sType) :: 3.sType {
+      1.c$Dict$Weight :: ∀(a : 3.sType). (a 3.→ 3.tInt) 3.→ 1.t$Dict$Weight a
+  }
+
+  type 1.tSome :: 3.sType {
+      1.cSome :: ∀(a : 3.sType). 1.t$Dict$Weight a 3.→ a 3.→ 1.tSome
+  }
+
+  val 1.vweight :: ∀(a : 3.sType). 1.t$Dict$Weight a 3.→ a 3.→ 3.tInt
+   = Λ(a : 3.sType).
+    λ($d0 : 1.t$Dict$Weight a).
+      case $d0 as ($dict : 1.t$Dict$Weight a) return (a 3.→ 3.tInt) of {
+          1.c$Dict$Weight ($method0 : a 3.→ 3.tInt) →
+              $method0
+      }
+
+  val 1.vplus :: 3.tInt 3.→ 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt).
+    λ(y : 3.tInt).
+      case x as (_scrut : 3.tInt) return (3.tInt) of {
+          3.cI# (a : 2.tInt#) →
+              case y as (_scrut{1} : 3.tInt) return (3.tInt) of {
+                  3.cI# (b : 2.tInt#) →
+                      3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} a b)
+              }
+      }
+
+  pub val 1.vtotal :: 3.t[] 1.tSome 3.→ 3.tInt
+   = λ(x : 3.t[] 1.tSome).
+    rec {
+        go : ∀(a : 3.sType). 1.t$Dict$Weight a 3.→ 3.tInt 3.→ a 3.→ 3.tInt 3.→ 3.tInt =
+            Λ(a : 3.sType).
+              λ($d0 : 1.t$Dict$Weight a).
+                λ(x{1} : 3.tInt).
+                  λ(y : a).
+                    λ(z : 3.tInt).
+                      case x{1} as (_scrut : 3.tInt) return (3.tInt) of {
+                          3.cI# (_pat : 2.tInt#) →
+                              case _pat as (_scrut{1} : 2.tInt#) return (3.tInt) of {
+                                  0#3.cIntRep →
+                                      z;
+                                  _ →
+                                      go @a $d0 (3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _pat -1#3.cIntRep)) y (1.vplus z (1.vweight @a $d0 y))
+                              }
+                      }
+    } in
+        rec {
+            walk : 3.t[] 1.tSome 3.→ 3.tInt =
+                λ(x{1} : 3.t[] 1.tSome).
+                  case x{1} as (_scrut : 3.t[] 1.tSome) return (3.tInt) of {
+                      3.c[] →
+                          3.cI# 0#3.cIntRep;
+                      3.c: (_pat : 1.tSome) (rest : 3.t[] 1.tSome) →
+                          case _pat as (_scrut{1} : 1.tSome) return (3.tInt) of {
+                              1.cSome @(a : 3.sType) ($pattern_d0 : 1.t$Dict$Weight a) (v : a) →
+                                  go @a $pattern_d0 (3.cI# 3#3.cIntRep) v (walk rest)
+                          }
+                  }
+        } in
+            walk x
+status: pass
+reason: The call of 'go' gives the dictionary that the constructor pattern binds, which is not in scope where 'go' is bound, so the pass makes no copy.
