@@ -1,0 +1,13 @@
+extensions: [ViewPatterns]
+modules:
+  - |
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+    f :: Bool -> Bool
+    f (x@(const x -> y)) = y
+    result = f True
+expression: result
+output: 'True'
+status: xfail
+reason: >
+  GHC returns True. The resolver does not put the as-pattern variable in scope for the inner view pattern.

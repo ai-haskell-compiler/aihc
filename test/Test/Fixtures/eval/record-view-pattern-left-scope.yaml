@@ -1,0 +1,14 @@
+extensions: [ViewPatterns]
+modules:
+  - |
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+    data Pair = Pair {first :: Bool, second :: Bool}
+    f :: Pair -> Bool
+    f Pair { first = x, second = (const x -> y) } = y
+    result = f (Pair True False)
+expression: result
+output: 'True'
+status: xfail
+reason: >
+  GHC returns True. The resolver does not put an earlier record field variable in scope for a later view pattern.
