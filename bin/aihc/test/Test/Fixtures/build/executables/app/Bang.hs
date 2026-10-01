@@ -1,0 +1,1 @@
+module Bang (String) where
