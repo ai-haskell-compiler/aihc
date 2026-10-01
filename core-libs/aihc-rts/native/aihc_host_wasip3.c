@@ -189,3 +189,12 @@ _Noreturn int64_t aihc_io_raise_error(int64_t error) {
   (void)error;
   __builtin_trap();
 }
+
+/* GHC's stg_sig_install. WASI has no signals, so each request gets the
+   STG_SIG_ERR code of GHC's rts/Signals.h. */
+int stg_sig_install(int signal_number, int action, void *mask) {
+  (void)signal_number;
+  (void)action;
+  (void)mask;
+  return -3;
+}

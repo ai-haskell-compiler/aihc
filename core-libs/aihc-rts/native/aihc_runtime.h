@@ -560,4 +560,9 @@ void stopTimer(void);
 void blockUserSignals(void);
 void unblockUserSignals(void);
 int rtsSupportsBoundThreads(void);
+/* System.Posix.Signals sets the default or ignore action of a signal through
+   stg_sig_install and reads or writes nocldstop. Each host defines
+   stg_sig_install, and aihc_runtime.c defines nocldstop. */
+int stg_sig_install(int signal_number, int action, void *mask);
+extern int64_t nocldstop;
 #endif

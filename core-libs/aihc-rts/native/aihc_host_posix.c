@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -440,4 +441,59 @@ void aihc_host_sleep_ns(uint64_t duration) {
       aihc_fail("STM timer wait failed");
     }
   }
+}
+
+/* The action codes of GHC's rts/Signals.h. Aihc.Hackage.Headers writes the
+   same values into the rts/Signals.h that package C code includes. */
+enum {
+  AIHC_SIGNAL_DEFAULT = -1,
+  AIHC_SIGNAL_IGNORE = -2,
+  AIHC_SIGNAL_ERROR = -3,
+  AIHC_SIGNAL_HANDLER = -4,
+  AIHC_SIGNAL_HANDLER_ONCE = -5
+};
+
+/* GHC's stg_sig_install, which System.Posix.Signals.installHandler calls.
+   The runtime sets the default and the ignore actions through sigaction.
+
+   The runtime refuses a Haskell handler (the codes AIHC_SIGNAL_HANDLER and
+   AIHC_SIGNAL_HANDLER_ONCE) and returns AIHC_SIGNAL_ERROR. GHC runs a Haskell
+   handler in a new thread that its C signal handler starts. aihc has no
+   dispatch from a C signal handler to Haskell code. If the runtime accepted the
+   code, the signal would stop the default action and no handler would run.
+   With the error code, the signal keeps its current action.
+
+   The previous action code comes from the operating system, not from a table.
+   Thus an action that the process inherits, for example an ignored SIGHUP
+   under nohup, gives AIHC_SIGNAL_IGNORE. A C handler that other code installed
+   gives AIHC_SIGNAL_DEFAULT, as an unknown signal does in GHC.
+
+   The mask is the set of signals that GHC blocks while its handler runs. The
+   default and ignore actions run no handler, so the runtime does not read the
+   mask. */
+int stg_sig_install(int signal_number, int action, void *mask) {
+  (void)mask;
+  struct sigaction requested;
+  struct sigaction previous;
+  memset(&requested, 0, sizeof requested);
+  sigemptyset(&requested.sa_mask);
+  switch (action) {
+  case AIHC_SIGNAL_DEFAULT:
+    requested.sa_handler = SIG_DFL;
+    break;
+  case AIHC_SIGNAL_IGNORE:
+    requested.sa_handler = SIG_IGN;
+    break;
+  default:
+    return AIHC_SIGNAL_ERROR;
+  }
+  if (signal_number == SIGCHLD && nocldstop != 0) {
+    requested.sa_flags |= SA_NOCLDSTOP;
+  }
+  if (signal_number <= 0 ||
+      sigaction(signal_number, &requested, &previous) != 0) {
+    return AIHC_SIGNAL_ERROR;
+  }
+  return previous.sa_handler == SIG_IGN ? AIHC_SIGNAL_IGNORE
+                                        : AIHC_SIGNAL_DEFAULT;
 }
