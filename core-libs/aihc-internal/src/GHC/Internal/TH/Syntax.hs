@@ -1000,19 +1000,19 @@ manyName = mkNameG DataName "ghc-prim" "GHC.Types" "Many"
 
 -- | The name of a module.
 newtype ModName = ModName String -- Module name
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | The name of a package.
 newtype PkgName = PkgName String -- package name
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Obtained from 'reifyModule' and 'Language.Haskell.TH.Lib.thisModule'.
 data Module = Module PkgName ModName -- package qualified module name
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | An "Occurence Name".
 newtype OccName = OccName String
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Smart constructor for 'ModName'
 mkModName :: String -> ModName
@@ -1124,7 +1124,7 @@ occString (OccName occ) = occ
 -- Names constructed using @newName@ and @mkName@ may be used in bindings
 -- (such as @let x = ...@ or @\x -> ...@), but names constructed using
 -- @lookupValueName@, @lookupTypeName@, @'f@, @''T@ may not.
-data Name = Name OccName NameFlavour deriving stock (Eq, Ord)
+data Name = Name OccName NameFlavour deriving stock (Eq, Ord, Data)
 
 data NameFlavour
   = -- | An unqualified name; dynamically bound
@@ -1140,7 +1140,7 @@ data NameFlavour
     -- Need the namespace too to be sure which
     -- thing we are naming
     NameG NameSpace PkgName ModName
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Eq, Ord, Show, Data)
 
 data NameSpace
   = -- | Variables
@@ -1158,7 +1158,7 @@ data NameSpace
         --   - For a field of a pattern synonym, this is the name of the pattern synonym.
         fldParent :: !String
       }
-  deriving stock (Ord, Show)
+  deriving stock (Ord, Show, Data)
 
 -- The compiler does not emit a stock Eq dictionary. This instance supplies $fEqNameSpace.
 instance Eq NameSpace where
@@ -1497,7 +1497,7 @@ data Loc
     loc_start :: CharPos,
     loc_end :: CharPos
   }
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 type CharPos =
   -- | Line and character position
@@ -1570,13 +1570,13 @@ data Info
     TyVarI -- Scoped type variable
       Name
       Type -- What it is bound to
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Obtained from 'reifyModule' in the 'Q' Monad.
 data ModuleInfo
   = -- | Contains the import list of the module.
     ModuleInfo [Module]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- |
 -- In 'ClassOpI' and 'DataConI', name of the parent class or type
@@ -1613,11 +1613,11 @@ type InstanceDec = Dec
 
 -- | Fixity, as specified in a @infix[lr] n@ declaration.
 data Fixity = Fixity Int FixityDirection
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Eq, Ord, Show, Data)
 
 -- | The associativity of an operator, as in an @infix@ declaration.
 data FixityDirection = InfixL | InfixR | InfixN
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Eq, Ord, Show, Data)
 
 -- | Highest allowed operator precedence for 'Fixity' constructor (answer: 9)
 maxPrecedence :: Int
@@ -1727,7 +1727,7 @@ data Lit
     BytesPrimL Bytes
   | -- | @\'c\'#@
     CharPrimL Char
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- We could add Int, Float, Double etc, as we do in HsLit,
 -- but that could complicate the
@@ -1745,6 +1745,7 @@ data Bytes = Bytes
     -- | Number of bytes
     bytesSize :: Word
   }
+  deriving stock (Data)
 
 -- Maybe someday:
 -- , bytesAlignement  :: Word -- ^ Alignement constraint
@@ -1855,7 +1856,7 @@ data Pat
     InvisP Type
   | -- | @{ p1; p2 }@
     OrP (NonEmpty Pat)
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A (field name, pattern) pair. See 'RecP'.
 type FieldPat = (Name, Pat)
@@ -1864,7 +1865,7 @@ type FieldPat = (Name, Pat)
 data Match
   = -- | @case e of { pat -> body where decs }@
     Match Pat Body [Dec]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A clause consists of patterns, guards, a body expression, and a list of
 -- declarations under a @where@. Clauses are seen in equations for function
@@ -1873,7 +1874,7 @@ data Match
 data Clause
   = -- | @f { p1 p2 = body where decs }@
     Clause [Pat] Body [Dec]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A Haskell expression.
 data Exp
@@ -2001,7 +2002,7 @@ data Exp
     ForallVisE [TyVarBndr ()] Exp
   | -- | @\<ctxt\> => \<expr\>@
     ConstrainedE [Exp] Exp
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A (field name, expression) pair. See 'RecConE' and 'RecUpdE'.
 type FieldExp = (Name, Exp)
@@ -2017,7 +2018,7 @@ data Body
     GuardedB [(Guard, Exp)]
   | -- | @f p { = e } where ds@
     NormalB Exp
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A single guard.
 data Guard
@@ -2025,7 +2026,7 @@ data Guard
     NormalG Exp
   | -- | @f x { | Just y <- x, Just z <- y } = z@
     PatG [Stmt]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A single statement, as in @do@-notation.
 data Stmt
@@ -2039,7 +2040,7 @@ data Stmt
     ParS [[Stmt]]
   | -- | @rec { s1; s2 }@
     RecS [Stmt]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A list/enum range expression.
 data Range
@@ -2051,7 +2052,7 @@ data Range
     FromToR Exp Exp
   | -- | @[n, m .. k]@
     FromThenToR Exp Exp Exp
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A single declaration.
 data Dec
@@ -2174,7 +2175,7 @@ data Dec
     -- Implicit parameter binding declaration. Can only be used in let
     -- and where clauses which consist entirely of implicit bindings.
     ImplicitParamBindD String Exp
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A way to specify a namespace to look in when GHC needs to find
 --   a name's source
@@ -2189,7 +2190,7 @@ data NamespaceSpecifier
   | -- | Name should be a term-level entity, such as a
     --   function, data constructor, or pattern synonym
     DataNamespaceSpecifier
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Varieties of allowed instance overlap.
 data Overlap
@@ -2203,13 +2204,13 @@ data Overlap
     -- pick an arbitrary one if multiple choices are
     -- available.
     Incoherent
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A single @deriving@ clause at the end of a datatype declaration.
 data DerivClause
   = -- | @{ deriving stock (Eq, Ord) }@
     DerivClause (Maybe DerivStrategy) Cxt
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | What the user explicitly requests when deriving an instance with
 -- @-XDerivingStrategies@.
@@ -2222,7 +2223,7 @@ data DerivStrategy
     NewtypeStrategy
   | -- | @deriving C {via T}@, @-XDerivingVia@
     ViaStrategy Type
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A pattern synonym's type. Note that a pattern synonym's /fully/
 -- specified type has a peculiar shape coming with two forall
@@ -2278,7 +2279,7 @@ type PatSynType = Type
 -- between @type family@ and @where@.
 data TypeFamilyHead
   = TypeFamilyHead Name [TyVarBndr BndrVis] FamilyResultSig (Maybe InjectivityAnn)
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | One equation of a type family instance or closed type family. The
 -- arguments are the left-hand-side type and the right-hand-side result.
@@ -2298,14 +2299,14 @@ data TypeFamilyHead
 --            ('VarT' a)
 -- @
 data TySynEqn = TySynEqn (Maybe [TyVarBndr ()]) Type Type
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | [Functional dependency](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/functional_dependencies.html)
 -- syntax, as in a class declaration.
 data FunDep
   = -- | @class C a b {| a -> b}@
     FunDep [Name] [Name]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A @foreign@ declaration.
 data Foreign
@@ -2313,17 +2314,17 @@ data Foreign
     ImportF Callconv Safety String Name Type
   | -- | @foreign export callconv "foreign_name" haskellName :: type@
     ExportF Callconv String Name Type
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- keep Callconv in sync with module ForeignCall in ghc/compiler/GHC/Types/ForeignCall.hs
 
 -- | A calling convention identifier, as in a 'Foreign' declaration.
 data Callconv = CCall | StdCall | CApi | Prim | JavaScript
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A safety level, as in a 'Foreign' declaration.
 data Safety = Unsafe | Safe | Interruptible
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 data Pragma
   = -- | @{ {\-\# [inline] [rule match] [phases] [phases] name #-} }@. See
@@ -2345,7 +2346,7 @@ data Pragma
     CompleteP [Name] (Maybe Name)
   | -- | @{ {\-\# SCC fun "optional_name" \#-} }@
     SCCP Name (Maybe String)
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | An inline pragma.
 data Inline
@@ -2355,7 +2356,7 @@ data Inline
     Inline
   | -- | @{ {\-\# INLINABLE ... #-} }@
     Inlinable
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A @CONLIKE@ modifier, as in one of the various inline pragmas, or lack
 -- thereof ('FunLike').
@@ -2364,7 +2365,7 @@ data RuleMatch
     ConLike
   | -- | @{ {\-\# [inline] ... #-} }@
     FunLike
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Phase control syntax.
 data Phases
@@ -2374,7 +2375,7 @@ data Phases
     FromPhase Int
   | -- | @[~n]@
     BeforePhase Int
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A binder found in the @forall@ of a @RULES@ pragma.
 data RuleBndr
@@ -2382,7 +2383,7 @@ data RuleBndr
     RuleVar Name
   | -- | @forall {(a :: t)} ... .@
     TypedRuleVar Name Type
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | The target of an @ANN@ pragma
 data AnnTarget
@@ -2392,7 +2393,7 @@ data AnnTarget
     TypeAnnotation Name
   | -- | @{\-\# ANN {name} ... #-}@
     ValueAnnotation Name
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A context, as found on the left side of a @=>@ in a type.
 type Cxt =
@@ -2415,7 +2416,7 @@ data SourceUnpackedness
     SourceNoUnpack
   | -- | @C { {\-\# UNPACK \#-\} } a@
     SourceUnpack
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | 'SourceStrictness' corresponds to strictness annotations found in the source code.
 --
@@ -2428,7 +2429,7 @@ data SourceStrictness
     SourceLazy
   | -- | @C {!}a@
     SourceStrict
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Unlike 'SourceStrictness' and 'SourceUnpackedness', 'DecidedStrictness'
 -- refers to the strictness annotations that the compiler chooses for a data constructor
@@ -2445,7 +2446,7 @@ data DecidedStrictness
     DecidedStrict
   | -- | Field inferred to be unpacked.
     DecidedUnpack
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A data constructor.
 --
@@ -2511,7 +2512,7 @@ data Con
       [VarBangType]
       -- | See Note [GADT return type]
       Type
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- Note [GADT return type]
 -- ~~~~~~~~~~~~~~~~~~~~~~~
@@ -2544,7 +2545,7 @@ data Con
 data Bang
   = -- | @C { {\-\# UNPACK \#-\} !}a@
     Bang SourceUnpackedness SourceStrictness
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A type with a strictness annotation, as in data constructors. See 'Con'.
 type BangType = (Bang, Type)
@@ -2571,7 +2572,7 @@ data PatSynDir
     ImplBidir
   | -- | @pattern P x {<-} p where P x = e@
     ExplBidir [Clause]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A pattern synonym's argument type.
 data PatSynArgs
@@ -2581,7 +2582,7 @@ data PatSynArgs
     InfixPatSyn Name Name
   | -- | @pattern P { {x,y,z} } = p@
     RecordPatSyn [Name]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | A Haskell type.
 data Type
@@ -2649,7 +2650,7 @@ data Type
     WildCardT
   | -- | @?x :: t@
     ImplicitParamT String Type
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | The specificity of a type variable in a @forall ...@.
 data Specificity
@@ -2657,7 +2658,7 @@ data Specificity
     SpecifiedSpec
   | -- | @{a}@
     InferredSpec
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | The @flag@ type parameter is instantiated to one of the following types:
 --
@@ -2669,7 +2670,7 @@ data TyVarBndr flag
     PlainTV Name flag
   | -- | @(a :: k)@
     KindedTV Name flag Kind
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- The flag is the last type argument, so GHC derives these three instances.
 -- aihc has no stock deriving of Functor, Foldable, or Traversable yet, so they
@@ -2692,7 +2693,7 @@ data BndrVis
     BndrReq
   | -- | @\@a@
     BndrInvis
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Type family result signature
 data FamilyResultSig
@@ -2702,11 +2703,11 @@ data FamilyResultSig
     KindSig Kind
   | -- | @= r, = (r :: k)@
     TyVarSig (TyVarBndr ())
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Injectivity annotation as in an [injective type family](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/type_families.html)
 data InjectivityAnn = InjectivityAnn Name [Name]
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Type-level literals.
 data TyLit
@@ -2716,7 +2717,7 @@ data TyLit
     StrTyLit String
   | -- | @\'C\'@, @since 4.16.0.0
     CharTyLit Char
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Role annotations
 data Role
@@ -2728,13 +2729,13 @@ data Role
     PhantomR
   | -- | @_@
     InferR
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | Annotation target for reifyAnnotations
 data AnnLookup
   = AnnLookupModule Module
   | AnnLookupName Name
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -- | To avoid duplication between kinds and types, they
 -- are defined to be the same. Naturally, you would never
@@ -2788,7 +2789,7 @@ data DocLoc
     ArgDoc Name Int
   | -- | At a class or family instance.
     InstDoc Type
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Data)
 
 -----------------------------------------------------
 --              Internal helper functions

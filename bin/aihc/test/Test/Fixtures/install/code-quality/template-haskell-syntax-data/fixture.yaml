@@ -1,0 +1,5 @@
+status: pass
+reason: The Template Haskell syntax types have Data instances, so a derived Data instance that contains them type-checks, as in th-abstraction.
+needs-base: true
+expect-type-constructors:
+  - [Shape, [Shape]]
