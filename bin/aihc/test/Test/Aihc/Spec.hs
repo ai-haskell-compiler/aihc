@@ -87,7 +87,7 @@ tests =
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
               testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
-              testCase "starts each executable with the function that -main-is names" (test_buildMainIsOption coreStore),
+              testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
@@ -911,18 +911,17 @@ test_buildSharedModuleName getStore =
     assertEqual "shared stdout" "2\n21\n" stdout
     assertEqual "shared stderr" "" stderr
 
--- | The @-main-is@ option in @ghc-options@ names the function that starts
--- an executable. The fixture has one executable for each of the three forms
--- that GHC accepts, and one option is in an @if impl(ghc)@ block.
-test_buildMainIsOption :: IO SeedStore -> Assertion
-test_buildMainIsOption getStore =
-  withBuildPackageSandbox getStore "aihc-build-main-is-option" $ \_ buildRoot options -> do
-    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/main-is-option"
+-- | The main module of an executable is the module that its @main-is@
+-- file declares, and the entry calls its function @main@. One main module
+-- has a module header that CPP selects.
+test_buildMainModule :: IO SeedStore -> Assertion
+test_buildMainModule getStore =
+  withBuildPackageSandbox getStore "aihc-build-main-module" $ \_ buildRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/main-module"
     let binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget options) </> "bin"
         expected =
-          [ ("module-main", "App.Run.main\n"),
-            ("module-function", "App.Run.start\n"),
-            ("main-function", "Main.start\n")
+          [ ("named-main", "App.Run.main\n"),
+            ("cpp-main", "App.Cpp.main\n")
           ]
     outputs <- build options {buildInput = fixtureRoot}
     assertEqual "built executables" [binDirectory </> name | (name, _) <- expected] outputs

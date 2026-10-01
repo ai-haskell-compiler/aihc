@@ -504,17 +504,18 @@ discoverSources sourceDirectories moduleIndex mainPath = do
         name = sourceDependencyModule dependency
 
 generatedEntryText :: Text
-generatedEntryText = entryModuleText HackageCabal.defaultMainEntry
+generatedEntryText = entryModuleText "Main"
 
--- | The generated module that starts an executable with its main entry.
-entryModuleText :: HackageCabal.MainEntry -> Text
-entryModuleText (HackageCabal.MainEntry entryModule function) =
+-- | The generated module that starts an executable with the function
+-- @main@ of its main module.
+entryModuleText :: Text -> Text
+entryModuleText mainModule =
   T.unlines
     [ "{-# LANGUAGE NoImplicitPrelude #-}",
       "module Aihc.Entry where",
-      "import qualified " <> entryModule,
+      "import qualified " <> mainModule,
       "import GHC.TopHandler (runMainIO)",
-      "entry = runMainIO " <> entryModule <> "." <> function
+      "entry = runMainIO " <> mainModule <> ".main"
     ]
 
 validateInstalledDependencies :: InstalledModuleIndex -> [SourceModule] -> IO ()

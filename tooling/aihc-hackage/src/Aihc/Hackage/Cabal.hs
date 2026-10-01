@@ -6,9 +6,6 @@ module Aihc.Hackage.Cabal
 
     -- * Component file discovery
     ExecutableInfo (..),
-    MainEntry (..),
-    defaultMainEntry,
-    mainEntryFromGhcOptions,
     lirSourcesField,
     collectComponentFiles,
     collectExecutablesFor,
@@ -127,11 +124,10 @@ import Aihc.Hackage.PathsModule (generatePathsModule, pathsModuleName)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFilePath, sourceDirs)
-import Data.Char (isLower)
 import Data.List (isPrefixOf, nub)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -391,43 +387,11 @@ data ExecutableInfo = ExecutableInfo
     executableInfoDependencies :: [PackageName],
     -- | The @c-sources@, @include-dirs@, and @cc-options@ of the executable.
     executableInfoCCompileInfo :: CCompileInfo,
-    -- | The function that starts the executable.
-    executableInfoMainEntry :: MainEntry
+    -- | The @main-is@ file of the executable, when it exists. It is also in
+    -- 'executableInfoFiles'.
+    executableInfoMainFile :: Maybe FileInfo
   }
   deriving (Show)
-
--- | The function that starts an executable, and the module that defines it.
-data MainEntry = MainEntry
-  { mainEntryModule :: Text,
-    mainEntryFunction :: Text
-  }
-  deriving (Eq, Show)
-
--- | The function @Main.main@, which starts an executable when no
--- @-main-is@ option names a different function.
-defaultMainEntry :: MainEntry
-defaultMainEntry = MainEntry (T.pack "Main") (T.pack "main")
-
--- | The main entry that the @-main-is@ options in @ghc-options@ give.
--- The last option applies, as in GHC. GHC reads the value in three forms:
--- @M.f@ is the function @f@ of module @M@, @M@ is the function @main@ of
--- module @M@, and @f@ is the function @f@ of module @Main@.
-mainEntryFromGhcOptions :: [Text] -> MainEntry
-mainEntryFromGhcOptions = go defaultMainEntry
-  where
-    go _ (option : value : rest)
-      | option == T.pack "-main-is" = go (parseMainIs value) rest
-    go entry (_ : rest) = go entry rest
-    go entry [] = entry
-    parseMainIs value =
-      let (prefix, suffix) = T.breakOnEnd (T.pack ".") value
-       in case (T.unsnoc prefix, T.uncons suffix) of
-            (Just (moduleName, _), Just (c, _))
-              | startsFunction c -> MainEntry moduleName suffix
-            _
-              | maybe False (startsFunction . fst) (T.uncons value) -> defaultMainEntry {mainEntryFunction = value}
-              | otherwise -> defaultMainEntry {mainEntryModule = value}
-    startsFunction c = isLower c || c == '_'
 
 -- | The buildable executables of a package for one platform, in the order
 -- the Cabal file declares them.
@@ -444,6 +408,7 @@ collectExecutablesIn context package packageRoot =
     executableInfo exeName tree = do
       let build = collectMergedBuildInfo evalCond tree
       files <- executableFilesFor package evalCond packageRoot exeName tree
+      mainFiles <- executableMainFiles packageRoot build
       cInfo <- either (ioError . userError) pure (cCompileInfoFromBuild (cabalVersion package) packageRoot build)
       pure
         [ ExecutableInfo
@@ -451,7 +416,7 @@ collectExecutablesIn context package packageRoot =
               executableInfoFiles = files,
               executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
               executableInfoCCompileInfo = cInfo,
-              executableInfoMainEntry = mainEntryFromGhcOptions (ghcOptions build)
+              executableInfoMainFile = listToMaybe mainFiles
             }
         | isBuildable build
         ]
@@ -490,11 +455,18 @@ executableFilesFor package evalCond packageRoot exeName tree = do
     then pure []
     else do
       moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
-      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build, mainPath <- maybe [] pure (mainIs build)]
+      mainFiles <- executableMainFiles packageRoot build
       generatedPaths <- generatedPathsFiles packageRoot package ("-exe-" <> T.unpack exeName) moduleNames
       pure $
-        [sourceFileInfo packageRoot build path | path <- moduleFiles <> mainFiles]
+        [sourceFileInfo packageRoot build path | path <- moduleFiles]
+          <> mainFiles
           <> [generatedPathsFileInfo path | path <- generatedPaths]
+
+-- | The @main-is@ file of an executable in each source directory that has it.
+executableMainFiles :: FilePath -> BuildInfo -> IO [FileInfo]
+executableMainFiles packageRoot build = do
+  paths <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build, mainPath <- maybe [] pure (mainIs build)]
+  pure [sourceFileInfo packageRoot build path | path <- paths]
 
 sourceFileInfo :: FilePath -> BuildInfo -> FilePath -> FileInfo
 sourceFileInfo packageRoot build path =
