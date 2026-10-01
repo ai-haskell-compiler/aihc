@@ -18,13 +18,11 @@ import Aihc.Resolve (PackageId (..))
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.DeepSeq (force)
-import Control.Exception (bracket_, evaluate)
+import Control.Exception (bracket_)
 import Control.Monad (forM_, unless, when)
 import Data.ByteString.Char8 qualified as BS8
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (takeDirectory, (</>))
 
@@ -82,7 +80,7 @@ compileLtoProgram config buildRoot corePaths = do
       -- The merged program is what the backend compiles, so it is the
       -- System FC that @--keep-core@ keeps for a @--lto@ build.
       when keepCore $ do
-        writeProgramFc corePath pruned
+        Fc.writeProgramFile corePath pruned
         verbose "Write FC: program"
       _ <- compileFcModules config verbose (const paths) [FcModule "program" pruned]
       writeFile stampPath current
@@ -122,33 +120,21 @@ entryName =
   where
     (package, moduleName, name) = executableEntryParts
 
-writeProgramFc :: FilePath -> Fc.Program -> IO ()
-writeProgramFc path program = do
-  let rendered = Fc.renderProgram program
-      output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
-  createDirectoryIfMissing True (takeDirectory path)
-  TIO.writeFile path output
-
--- | Read the System FC files of a program.
---
--- The whole program stays in memory until the backend takes it, so each
--- file is read to its smallest form before the next one starts. Only one
--- file for each capability is read at a time.
+-- | Read the System FC files of a program. Only one file for each
+-- capability is read at a time. The binary format gives a program that
+-- is fully evaluated and has one object for each distinct name and type.
 readPrograms :: [FilePath] -> IO [Fc.Program]
 readPrograms paths = do
   capabilities <- getNumCapabilities
   slots <- newQSem (max 1 capabilities)
   forConcurrently paths (bracket_ (waitQSem slots) (signalQSem slots) . readProgram)
 
--- | Read one System FC file. The program is shared and fully evaluated:
--- equal names and types become one object, and no part of the parser
--- stays in memory.
 readProgram :: FilePath -> IO Fc.Program
 readProgram path = do
-  source <- TIO.readFile path
-  case Fc.parseProgram source of
-    Left err -> ioError (userError ("Invalid System FC file " <> path <> ": " <> Fc.renderParseError err))
-    Right program -> evaluate (force (Fc.shareProgram program))
+  loaded <- Fc.readProgramFile path
+  case loaded of
+    Left message -> ioError (userError ("Invalid System FC file " <> T.unpack message))
+    Right program -> pure program
 
 readStamp :: FilePath -> IO (Maybe String)
 readStamp path = do

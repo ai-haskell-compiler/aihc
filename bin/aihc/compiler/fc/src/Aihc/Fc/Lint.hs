@@ -10,9 +10,9 @@ module Aihc.Fc.Lint
   )
 where
 
+import Aihc.Fc.Binary (readProgramFile)
 import Aihc.Fc.Imports (unusedImports)
 import Aihc.Fc.Name
-import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf hiding (coercionEndpoints)
@@ -27,7 +27,6 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 
@@ -153,9 +152,9 @@ storeModuleLoader storeRoot package moduleName = do
   if not exists
     then pure Nothing
     else do
-      source <- TIO.readFile path
-      case parseProgram source of
-        Left parseError -> fail ("Invalid core file " <> path <> ": " <> renderParseError parseError)
+      loaded <- readProgramFile path
+      case loaded of
+        Left message -> fail ("Invalid core file " <> T.unpack message)
         Right program -> pure (Just program)
 
 moduleDirectoryText :: Text -> FilePath

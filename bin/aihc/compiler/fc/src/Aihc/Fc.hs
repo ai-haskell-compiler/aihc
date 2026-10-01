@@ -3,6 +3,10 @@ module Aihc.Fc
   ( module Aihc.Fc.Syntax,
     module Aihc.Fc.Name,
     renderProgram,
+    encodeProgram,
+    decodeProgram,
+    readProgramFile,
+    writeProgramFile,
     parseProgram,
     renderParseError,
     FcParseError,
@@ -43,6 +47,7 @@ module Aihc.Fc
 where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
+import Aihc.Fc.Binary (decodeProgram, encodeProgram, readProgramFile, writeProgramFile)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)

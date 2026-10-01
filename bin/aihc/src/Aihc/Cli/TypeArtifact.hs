@@ -7,7 +7,7 @@ module Aihc.Cli.TypeArtifact
   )
 where
 
-import Aihc.Cli.Cbor (cborArray, cborInt, cborText, cborWord, getArrayLength, getInt, getText, getWord, (<*!>))
+import Aihc.Cbor (cborArray, cborInt, cborText, cborWord, getArrayLength, getInt, getText, getWord, (<*!>))
 import Aihc.Cli.InterfaceParts (InterfacePart (..), PartIndex (..), interfaceParts)
 import Aihc.Cli.InterfaceTyCons (interfaceTyCons)
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))

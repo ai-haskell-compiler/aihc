@@ -43,4 +43,5 @@ The page [Examples](examples.md) shows each intermediate program of some small H
 The manual build makes these programs with the current compiler.
 
 Use `--keep-core`, `--keep-grin`, and `--keep-lir` to inspect the intermediate programs of a build.
+The System FC files are binary. Use `aihc-dev fc-print FILE` to show one in the text format.
 See [Debug options](../../users/command-line.md#debug-options).

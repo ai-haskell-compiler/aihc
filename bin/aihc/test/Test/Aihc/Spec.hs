@@ -30,7 +30,6 @@ import Data.Char (isSpace)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
 import System.Directory
   ( createDirectory,
@@ -1026,13 +1025,13 @@ findFixtureRoot fixture = do
 assertCoreFile :: FilePath -> Assertion
 assertCoreFile = void . readCoreFile
 
--- | The System FC a kept @core@ file holds, which must parse.
+-- | The System FC a kept @core@ file holds, which must decode.
 readCoreFile :: FilePath -> IO Fc.Program
 readCoreFile path = do
   assertFileExists path
-  core <- TIO.readFile path
-  case Fc.parseProgram core of
-    Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
+  loaded <- Fc.readProgramFile path
+  case loaded of
+    Left message -> assertFailure ("invalid Core file " <> T.unpack message)
     Right program -> pure program
 
 test_installArchSourceDirs :: IO SeedStore -> Assertion
@@ -1043,7 +1042,7 @@ test_installArchSourceDirs getStore = do
     storeRoot <- sandboxStore sandbox "store"
     forM_ targets $ \target -> do
       result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False target Nothing defaultPlanOptions)
-      core <- readFile (installStorePath result </> "Payload" </> "core")
+      core <- T.unpack . Fc.renderProgram <$> readCoreFile (installStorePath result </> "Payload" </> "core")
       let expected = archSourceDirPayload target
           unexpected = if expected == "32#" then "64#" else "32#"
       assertBool

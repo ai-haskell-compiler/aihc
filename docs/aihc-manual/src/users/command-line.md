@@ -93,7 +93,7 @@ These options keep intermediate files or add run-time checks.
 
 | Option | Meaning |
 | --- | --- |
-| `--keep-core` | Keep the System FC files. |
+| `--keep-core` | Keep the System FC files. They are binary. Use `aihc-dev fc-print` to show one. |
 | `--keep-grin` | Keep the GRIN files. |
 | `--keep-lir` | Keep the Lir files. |
 | `--keep-native` | Keep the native output files. |

@@ -2424,14 +2424,8 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
     writeFcModule fcModule = do
       let name = fcModuleName fcModule
           path = outputFcPath (outputPaths name)
-      writeFcFile path (fcProgram fcModule)
+      Fc.writeProgramFile path (fcProgram fcModule)
       verbose ("Write FC: " <> T.unpack name)
-
-    writeFcFile path program = do
-      let rendered = Fc.renderProgram program
-          output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
-      createDirectoryIfMissing True (takeDirectory path)
-      TIO.writeFile path output
 
 -- | Compile the System FC of a unit to objects, and its capi wrappers
 -- beside them. Only the FC and the rendered wrappers come in: the frontend
@@ -3448,4 +3442,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-41"
+packageArtifactFormatVersion = "aihc-artifacts-42"

@@ -155,6 +155,7 @@ library
     Aihc.Cli.TypeArtifact
     Aihc.Fc
     Aihc.Fc.Arity
+    Aihc.Fc.Binary
     Aihc.Fc.ConstantLift
     Aihc.Fc.Convert
     Aihc.Fc.Demand
@@ -212,7 +213,7 @@ library
     Aihc.Wasm.Lir
 
   other-modules:
-    Aihc.Cli.Cbor
+    Aihc.Cbor
     Aihc.Cli.InterfaceParts
     Aihc.Cli.InterfaceTyCons
     Aihc.CompilerBuildIdentity

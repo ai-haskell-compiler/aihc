@@ -7,7 +7,7 @@ module Aihc.Cli.ResolveArtifact
   )
 where
 
-import Aihc.Cli.Cbor (cborArray, cborText, cborWord, getArrayLength, getText, getWord, (<*!>))
+import Aihc.Cbor (cborArray, cborText, cborWord, getArrayLength, getText, getWord, (<*!>))
 import Aihc.Parser.Syntax (FixityAssoc (..), Name (..), NameType (..), UnqualifiedName (..))
 import Aihc.Resolve (OperatorFixity (..), PackageId (..), ResolvedName (..), Scope (..))
 import Control.Monad (replicateM, when, (<$!>))
