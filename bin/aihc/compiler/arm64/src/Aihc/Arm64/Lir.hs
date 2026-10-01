@@ -309,6 +309,7 @@ instructionEffect instruction =
     ArmFcmp {} -> Writes []
     ArmAdr destination _ -> writes [destination]
     ArmAdrp destination _ -> writes [destination]
+    ArmAdrpGot destination _ -> writes [destination]
     ArmMov destination value ->
       case value of
         Arm64RegisterValue source
@@ -316,6 +317,7 @@ instructionEffect instruction =
         _ -> writes [destination]
     ArmLdrImmediate destination _ -> writes [destination]
     ArmAddPageOffset destination _ _ -> writes [destination]
+    ArmLdrGotPageOffset destination _ _ -> writes [destination]
     ArmAdd destination _ _ -> writes [destination]
     ArmAdds destination _ _ -> writes [destination]
     ArmSub destination _ _ -> writes [destination]
@@ -500,10 +502,15 @@ canonicalInteger ty value
   | typeBits ty >= 64 = value `mod` (2 ^ (64 :: Int))
   | otherwise = value `mod` (2 ^ typeBits ty)
 
+-- | The address of a symbol, through its Global Offset Table entry. A
+-- direct page address (@adrp@ and @add@) has no target when the symbol
+-- lives in a shared library, and the linker then stops with a fixup
+-- error. The linker relaxes the GOT load to a direct page address when
+-- the symbol lives in the executable, so a local symbol costs nothing.
 address :: Arm64Register -> Text -> [Arm64Statement]
 address register label =
-  [ arm64Instruction (ArmAdrp register label),
-    arm64Instruction (ArmAddPageOffset register register label)
+  [ arm64Instruction (ArmAdrpGot register label),
+    arm64Instruction (ArmLdrGotPageOffset register register label)
   ]
 
 immediate :: (Integral value) => Arm64Register -> value -> Arm64Statement

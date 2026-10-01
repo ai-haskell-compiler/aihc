@@ -85,6 +85,12 @@ data FixupKind
   | Arm64Adr21
   | Arm64Page21
   | Arm64PageOffset12
+  | -- | The page of the Global Offset Table entry of a symbol, and the
+    -- offset of that entry in its page. The linker gives a symbol from a
+    -- shared library an entry, and it relaxes the pair to a direct page
+    -- address for a symbol in the executable.
+    Arm64GotPage21
+  | Arm64GotPageOffset12
   | Absolute64
   | X86Pc32
   | X86Plt32

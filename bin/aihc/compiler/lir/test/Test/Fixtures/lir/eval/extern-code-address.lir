@@ -1,0 +1,14 @@
+; expect: 0.0, 1
+; The address of a function from a shared library goes through the Global
+; Offset Table. A direct page address has no target for such a function,
+; and the Mach-O linker then stops with a fixup error. The terminfo package
+; imports del_curterm as a function pointer in this way.
+
+extern func @sin(f64) -> f64 cc c
+
+func @main() -> (f64, i1) {
+entry:
+  %sine = call.indirect @sin(0.0) : (f64) -> f64 cc c
+  %nonNull = ne code @sin, null
+  return %sine, %nonNull
+}

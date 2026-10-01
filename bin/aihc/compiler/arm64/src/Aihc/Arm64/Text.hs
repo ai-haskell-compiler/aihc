@@ -72,8 +72,11 @@ instruction code =
     ArmCbnz register target -> "cbnz " <> reg register <> ", " <> T.unpack (nameText target)
     ArmAdr register target -> "adr " <> reg register <> ", " <> T.unpack (nameText target)
     ArmAdrp register target -> "adrp " <> reg register <> ", " <> T.unpack target <> "@PAGE"
+    ArmAdrpGot register target -> "adrp " <> reg register <> ", " <> T.unpack target <> "@GOTPAGE"
     ArmAddPageOffset destination source target ->
       "add " <> reg destination <> ", " <> reg source <> ", " <> T.unpack target <> "@PAGEOFF"
+    ArmLdrGotPageOffset destination source target ->
+      "ldr " <> reg destination <> ", [" <> reg source <> ", " <> T.unpack target <> "@GOTPAGEOFF]"
     ArmMov destination source -> "mov " <> reg destination <> ", " <> valueText source
     ArmLdr register target -> "ldr " <> reg register <> ", " <> address target
     ArmLdrImmediate register literal -> "ldr " <> reg register <> ", =" <> hex literal
