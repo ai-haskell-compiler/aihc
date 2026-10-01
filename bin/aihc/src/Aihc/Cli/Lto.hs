@@ -15,8 +15,11 @@ import Aihc.Cli.Install (FcModule (..), ModuleCompileConfig (..), ModuleOutputPa
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget, executableEntryParts)
 import Aihc.Resolve (PackageId (..))
+import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (forConcurrently)
-import Control.Exception (evaluate)
+import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+import Control.DeepSeq (force)
+import Control.Exception (bracket_, evaluate)
 import Control.Monad (forM_, unless, when)
 import Data.ByteString.Char8 qualified as BS8
 import Data.Text (Text)
@@ -55,7 +58,7 @@ compileLtoProgram config buildRoot corePaths = do
   if objectExists && coreKept && previous == Just current
     then verbose ("Reuse program object: " <> object)
     else do
-      programs <- forConcurrently corePaths readProgram
+      programs <- readPrograms corePaths
       -- Nothing outside a whole program can name anything in it but the
       -- entry, so every other declaration is demoted before it is pruned.
       -- Visibility is what the passes downstream read as the roots of
@@ -126,14 +129,26 @@ writeProgramFc path program = do
   createDirectoryIfMissing True (takeDirectory path)
   TIO.writeFile path output
 
+-- | Read the System FC files of a program.
+--
+-- The whole program stays in memory until the backend takes it, so each
+-- file is read to its smallest form before the next one starts. Only one
+-- file for each capability is read at a time.
+readPrograms :: [FilePath] -> IO [Fc.Program]
+readPrograms paths = do
+  capabilities <- getNumCapabilities
+  slots <- newQSem (max 1 capabilities)
+  forConcurrently paths (bracket_ (waitQSem slots) (signalQSem slots) . readProgram)
+
+-- | Read one System FC file. The program is shared and fully evaluated:
+-- equal names and types become one object, and no part of the parser
+-- stays in memory.
 readProgram :: FilePath -> IO Fc.Program
 readProgram path = do
   source <- TIO.readFile path
   case Fc.parseProgram source of
     Left err -> ioError (userError ("Invalid System FC file " <> path <> ": " <> Fc.renderParseError err))
-    Right program -> do
-      _ <- evaluate (length (Fc.programDecls program))
-      pure program
+    Right program -> evaluate (force (Fc.shareProgram program))
 
 readStamp :: FilePath -> IO (Maybe String)
 readStamp path = do
