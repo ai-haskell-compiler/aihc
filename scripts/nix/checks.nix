@@ -58,21 +58,28 @@
     src,
     # The package directory inside src, for packages built with --subpath.
     directory ? "",
-    testFlags ? [],
+    name ? "${drv.pname}-tests",
+    testSuites ? null,
+    testFlags ? ["--num-threads" "2" "+RTS" "-N2" "-A16m" "-RTS"],
     setup ? "",
   }: let
     packageDirectory =
       if directory == ""
       then ""
       else directory + "/";
-    suites = testSuiteNames "${src}/${packageDirectory}${drv.pname}.cabal";
+    availableSuites = testSuiteNames "${src}/${packageDirectory}${drv.pname}.cabal";
+    suites =
+      if testSuites == null
+      then availableSuites
+      else testSuites;
     buildDirectory = "${drv.intermediates}/share/haskell/${ghcVersion}/${drv.pname}-${drv.version}/dist/build";
   in
     assert suites != [];
+    assert builtins.all (suite: builtins.elem suite availableSuites) suites;
     # runCommandCC: the C toolchain of stdenv was on the path of the Cabal
     # check phase this replaces, and the native-backend suites link their
     # programs through it (clang runs dsymutil for a -g link on Darwin).
-      pkgs.runCommandCC "${drv.pname}-tests" {
+      pkgs.runCommandCC name {
         # GHC was on that path as well.
         nativeBuildInputs = [hsPkgs.ghc];
         # The binaries bake in the path of the data output of the package.
@@ -87,8 +94,8 @@
         cd "$TMPDIR/source/${directory}"
         ${setup}
         ${pkgs.lib.concatMapStrings (suite: ''
-            echo "Running test suite ${suite}"
-            ${buildDirectory}/${suite}/${suite} ${pkgs.lib.escapeShellArgs (["--hide-successes"] ++ testFlags)}
+            echo "Test suite ${suite}"
+            time ${buildDirectory}/${suite}/${suite} ${pkgs.lib.escapeShellArgs (["--hide-successes" "--hide-progress" "--ansi-tricks" "false"] ++ testFlags)}
           '')
           suites}
         touch "$out"
@@ -121,7 +128,6 @@
     export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
     export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
     export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
-    export AIHC_PREBUILT_STORE=${specSeedStore}
   '';
 
   mkSourceCheck = name: src: nativeBuildInputs: text:
@@ -380,24 +386,70 @@
     src = sources.testingSrc pkgs;
     directory = "tooling/aihc-testing";
   };
-  aihcTests = mkTestRunner {
+  # Each test belongs to exactly one group.
+  # The complementary patterns also include future test groups.
+  # Only CLI tests need the installed core library stores.
+  # Both evaluator modes reuse one core library environment.
+  # Backend tests do not retain that environment during garbage collection.
+  aihcTestGroups = [
+    {
+      name = "cli";
+      pattern = ''$2 == "spec"'';
+      seedStore = true;
+    }
+    {
+      name = "compiler";
+      pattern = ''$2 != "spec" && $2 != "grin-spec"'';
+      threads = 4;
+    }
+    {
+      name = "grin";
+      pattern = ''$2 == "grin-spec" && $4 != "shared evaluation fixtures via GRIN"'';
+    }
+    {
+      name = "grin-eval";
+      pattern = ''$2 == "grin-spec" && $4 == "shared evaluation fixtures via GRIN"'';
+      nursery = "64m";
+    }
+  ];
+  mkAihcTestGroup = group: let
+    threads = toString (group.threads or 2);
+    nursery = group.nursery or "16m";
+  in {
+    inherit (group) name;
+    path = mkTestRunner {
+      drv = hsPkgs.aihc;
+      src = sources.aihcSrc pkgs;
+      directory = "bin/aihc";
+      name = "aihc-tests-${group.name}";
+      testSuites = ["spec"];
+      testFlags = ["--pattern" group.pattern "--num-threads" threads "+RTS" "-N${threads}" "-A${nursery}" "-s" "-RTS"];
+      setup =
+        aihcTestSetup
+        + pkgs.lib.optionalString (group.seedStore or false) ''
+          export AIHC_PREBUILT_STORE=${specSeedStore}
+        '';
+    };
+  };
+  aihcDevTests = mkTestRunner {
     drv = hsPkgs.aihc;
     src = sources.aihcSrc pkgs;
     directory = "bin/aihc";
-    # Tasty defaults to one worker per processor and raises the RTS
-    # capability count to match. The eval fixtures allocate several
-    # gigabytes each, so on a 32-thread runner that many concurrent
-    # tests saturate memory bandwidth and the parallel GC: every
-    # fixture took ~30 s instead of ~2 s. Eight workers keep the
-    # machine busy without the collapse. The capability count is
-    # pinned to match, otherwise the -N default still runs one
-    # parallel-GC thread per processor. The RTS statistics stay in
-    # the log to keep an eye on GC time and capability counts, and
-    # successes stay hidden because fixtures that capture stdout
-    # would otherwise capture tasty's own progress output.
-    testFlags = ["--num-threads" "8" "+RTS" "-N8" "-s" "-RTS"];
+    name = "aihc-tests-dev";
+    testSuites = builtins.filter (suite: suite != "spec") (
+      testSuiteNames "${sources.aihcSrc pkgs}/bin/aihc/aihc.cabal"
+    );
     setup = aihcTestSetup;
   };
+  aihcTests = pkgs.linkFarm "aihc-tests" (
+    map mkAihcTestGroup aihcTestGroups
+    ++ [
+      {
+        name = "dev";
+        path = aihcDevTests;
+      }
+    ]
+  );
   fmtTests = mkTestRunner {
     drv = hsPkgs.aihc-fmt;
     src = sources.fmtSrc pkgs;
@@ -545,7 +597,7 @@
     wasmLd
   ];
   coreLibraryInstallSetup = ''
-    export GHCRTS=-N
+    export GHCRTS="-N4 -A16m"
     export LANG=C.UTF-8
     export LC_ALL=C.UTF-8
     export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -659,22 +711,9 @@
       nativeBuildInputs = coreLibraryInstallInputs ++ [pkgs.wit-bindgen];
     } ''
       cd "$src"
-      # Installing aihc-base parallelises well -- it is many independent
-      # modules rather than a few large ones -- and this install gates the whole
-      # chain for its target, so it is worth every core the machine has: 14.3s
-      # at -N1, 5.1s at -N4, 3.8s at -N8. Only the toolchains and the
-      # core-library derivations run in this window.
-      #
-      # What bounds memory is not the capability count but the -M2G that
-      # aihc-with-memory-limit puts on every invocation. Measured, this install
-      # peaks at 0.47 GB resident at -N1 against 0.53 GB at -N4, so the ceiling
-      # is jobs times that 2 GB cap, and a runaway becomes a heap-overflow
-      # failure rather than work for the OOM killer.
-      #
-      # Every other derivation that runs aihc uses -N too, for one rule rather
-      # than a per-site judgement. Note that packages do not all scale the way
-      # aihc-base does: containers measures 9.6s at -N4 against 14.7s with
-      # every core, where the parallel collector costs more than it returns.
+      # Core library modules can use four compiler workers.
+      # Concurrent package and example checks use two workers each.
+      # The compiler wrapper limits each process to a 2 GB heap.
       ${coreLibraryInstallSetup}
       ${extraSetup}
       mkdir -p "$out"
@@ -748,7 +787,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS=-N
+      export GHCRTS="-N2 -A16m"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -861,7 +900,7 @@
   mkExampleTest = exampleName: target:
     mkSourceCheck "aihc-example-${exampleName}-${target}" (exampleSources.${exampleName}) exampleTestInputs ''
       set -euo pipefail
-      export GHCRTS=-N
+      export GHCRTS="-N2 -A16m"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       ${exportCoreLibsRoot}
@@ -1035,7 +1074,7 @@
   mkWasip3ExampleTest = exampleName:
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (exampleSources.${exampleName}) wasip3ExampleInputs ''
       set -euo pipefail
-      export GHCRTS=-N
+      export GHCRTS="-N2 -A16m"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -1122,7 +1161,7 @@
       nativeBuildInputs = exampleTestInputs;
     } ''
       cd "$src"
-      export GHCRTS=-N
+      export GHCRTS="-N2 -A16m"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       ${crossSetupFor target}
