@@ -251,6 +251,9 @@ convertTypeWithExpectedKind env expectedKind ty =
     TcTyLit literal ->
       Right (TyLit (tyConNameFc env (Tc.tyLitKindTyCon (ceKinds env) literal)) (convertTyLit literal))
     TcMetaTv {} -> Left "type still has a meta variable"
+    -- A kind is also a type argument: @Proxy \@(Type -> Constraint)@. A
+    -- constraint erases to 'Type' there, as it does in 'convertKind'.
+    KConstraint -> Right (typeSynonym (cePrimPackage env))
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload

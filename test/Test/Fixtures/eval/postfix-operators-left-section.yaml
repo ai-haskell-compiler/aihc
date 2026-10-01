@@ -1,0 +1,24 @@
+extensions: [PostfixOperators]
+modules:
+  - |
+    {-# LANGUAGE PostfixOperators #-}
+    module Test where
+
+    import Prelude
+
+    -- A postfix operator takes one argument only.
+    (!) :: Integer -> Integer
+    (!) n = product [1 .. n]
+
+    -- The left section of a binary operator is still a function.
+    plusOne :: Integer -> Integer
+    plusOne = (1 +)
+
+    result :: Bool
+    result = (4 !) == 24 && plusOne 2 == 3 && map (2 *) [1, 2] == [2, 4]
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: with PostfixOperators, the left section (e op) is the application (op e), as in the exact-pi package

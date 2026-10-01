@@ -99,6 +99,7 @@ module Aihc.Tc.Monad
     getDataTypes,
     lookupDataType,
     tcMonoLocalBinds,
+    tcPostfixOperators,
     localDefaultTypes,
     getDefaultTypes,
     getUndecidableInstances,
@@ -221,6 +222,9 @@ data TcEnv = TcEnv
     -- | Whether UndecidableInstances is on. It relaxes the coverage
     -- condition that a functional dependency puts on an instance.
     tcEnvUndecidableInstances :: !Bool,
+    -- | Whether PostfixOperators is on. With it, the left section
+    -- @(e op)@ is the application @op e@ and not a function.
+    tcEnvPostfixOperators :: !Bool,
     -- | The package and module of every unit in the component that has
     -- PolyKinds on. An instance declared in one of them quantifies the
     -- kind variables its head leaves open instead of defaulting them.
@@ -466,6 +470,7 @@ emptyTcEnv config =
       tcEnvDefaultTypes = Nothing,
       tcEnvScopedTypeVariables = False,
       tcEnvUndecidableInstances = False,
+      tcEnvPostfixOperators = False,
       tcEnvPolyKindOrigins = [],
       tcEnvComponentTyCons = Set.empty,
       tcEnvGivenPredicates = [],
@@ -1157,6 +1162,9 @@ getTyVarTypes = asks tcEnvTyVarTypes
 
 tcMonoLocalBinds :: TcM Bool
 tcMonoLocalBinds = asks tcEnvMonoLocalBinds
+
+tcPostfixOperators :: TcM Bool
+tcPostfixOperators = asks tcEnvPostfixOperators
 
 -- | Emit a diagnostic (error or warning).
 emitDiagnostic :: TcDiagnostic -> TcM ()

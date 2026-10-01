@@ -3121,12 +3121,17 @@ desugarInfixOperator operator = do
       variable <- resolvedTermName operator
       desugarTermReference variable [] [] []
 
+-- | The type checker records no argument type for a PostfixOperators
+-- section. That section is the application of the operator to the operand.
 desugarSectionL :: TcAnnotation -> Syn.Expr -> Syn.Name -> ValueM Expr
-desugarSectionL annotation operand operator = do
-  binder <- freshBinder "_section" =<< sectionArgumentType annotation
-  operator' <- desugarInfixOperator operator
-  operand' <- desugarExpr operand
-  pure (ExLam binder (ExApp (ExApp operator' operand') (ExVar (binderName binder))))
+desugarSectionL annotation operand operator
+  | null (tcAnnTermArgTypes annotation) =
+      ExApp <$> desugarInfixOperator operator <*> desugarExpr operand
+  | otherwise = do
+      binder <- freshBinder "_section" =<< sectionArgumentType annotation
+      operator' <- desugarInfixOperator operator
+      operand' <- desugarExpr operand
+      pure (ExLam binder (ExApp (ExApp operator' operand') (ExVar (binderName binder))))
 
 desugarSectionR :: TcAnnotation -> Syn.Name -> Syn.Expr -> ValueM Expr
 desugarSectionR annotation operator operand = do

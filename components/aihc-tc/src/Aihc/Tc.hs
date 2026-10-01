@@ -248,7 +248,8 @@ typecheckModuleSccWithState config st units =
         { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleUnitExtensions) units,
           tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleUnitExtensions) units,
           tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleUnitExtensions) units,
-          tcEnvUndecidableInstances = any (elem UndecidableInstances . moduleUnitExtensions) units
+          tcEnvUndecidableInstances = any (elem UndecidableInstances . moduleUnitExtensions) units,
+          tcEnvPostfixOperators = any (elem PostfixOperators . moduleUnitExtensions) units
         }
 
 typecheckModuleWithState :: TcConfig -> TcState -> ModuleUnit -> (Module, TcState)
@@ -274,6 +275,7 @@ typecheckModuleWithState config st unit =
       (emptyTcEnv config)
         { tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
           tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions,
-          tcEnvScopedTypeVariables = ScopedTypeVariables `elem` enabledExtensions
+          tcEnvScopedTypeVariables = ScopedTypeVariables `elem` enabledExtensions,
+          tcEnvPostfixOperators = PostfixOperators `elem` enabledExtensions
         }
     enabledExtensions = moduleUnitExtensions unit

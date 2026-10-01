@@ -1,0 +1,48 @@
+extensions: [ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, ScopedTypeVariables, TypeFamilies, UndecidableInstances]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, ScopedTypeVariables, TypeFamilies, UndecidableInstances #-}
+    module Test where
+
+    import Data.Kind (Constraint, Type)
+    import Data.Proxy (Proxy (..))
+    import Prelude
+
+    data Level = Whole | Part
+
+    -- The family result is a class, which a signature applies to a type.
+    type family MinCtxt (l :: Level) :: Type -> Constraint where
+      MinCtxt 'Whole = Num
+      MinCtxt 'Part = Fractional
+
+    class KnownLevel (l :: Level) where
+      levelValue :: Proxy l -> Rational
+
+    instance KnownLevel 'Whole where
+      levelValue _ = 3
+
+    instance KnownLevel 'Part where
+      levelValue _ = 1 / 2
+
+    class KnownMinCtxt (c :: Type -> Constraint) where
+      inj :: c a => Proxy c -> Rational -> a
+
+    instance KnownMinCtxt Num where
+      inj _ = fromInteger . truncate
+
+    instance KnownMinCtxt Fractional where
+      inj _ = fromRational
+
+    -- The given @MinCtxt l a@ is a stuck family application with an
+    -- extra argument. It must solve the wanted @MinCtxt l a@ of 'inj'.
+    injMin :: forall l a. (KnownLevel l, MinCtxt l a, KnownMinCtxt (MinCtxt l)) => Proxy l -> a
+    injMin = inj (Proxy :: Proxy (MinCtxt l)) . levelValue
+
+    result :: Bool
+    result = injMin (Proxy :: Proxy 'Whole) == (3 :: Int) && injMin (Proxy :: Proxy 'Part) == (0.5 :: Double)
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a given that applies a stuck constraint family to an argument solves the same wanted, as in the exact-pi package

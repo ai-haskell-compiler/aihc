@@ -82,12 +82,15 @@ normalizeFamilyPred predicate = do
   pure (normalize predicate)
 
 -- | The ordinary predicate that a stuck constraint type has become, if
--- any. A saturated family application is still stuck. A class
+-- any. A saturated family application is still stuck. A family
+-- application with more arguments than the family arity is also still
+-- stuck: @MinCtxt v a@ applies the stuck @MinCtxt v@ to @a@. A class
 -- application is a class predicate: the head was a type family that
 -- reduced, or a class variable that an instantiation solved.
 irreduciblePred :: TcType -> TcM (Maybe Pred)
 irreduciblePred ty = do
-  stillStuck <- isTypeFamilyApplication ty
+  spine <- unsaturateFamilyApplication ty
+  stillStuck <- isTypeFamilyApplication (applicationHead spine)
   if stillStuck
     then pure Nothing
     else do
@@ -104,6 +107,13 @@ reclassifyIrreduciblePred predicate =
   case predicate of
     IrredPred constraint -> fromMaybe predicate <$> irreduciblePred constraint
     _ -> pure predicate
+
+-- | The head of an application spine.
+applicationHead :: TcType -> TcType
+applicationHead ty =
+  case ty of
+    TcAppTy function _ -> applicationHead function
+    _ -> ty
 
 -- | Whether a type constructor is a type family.
 isTypeFamilyTyCon :: TcM (TyCon -> Bool)

@@ -1152,8 +1152,29 @@ pendingTypeArgs expr =
     EPragma _ inner -> pendingTypeArgs inner
     _ -> []
 
+-- | Without PostfixOperators, the left section @(e op)@ is the function
+-- @\\y -> op e y@. Its annotation records the type of @y@.
+--
+-- With PostfixOperators, the left section is the application @op e@. Its
+-- annotation records no argument type, so the desugarer applies @op@ to
+-- @e@ only.
 inferSectionL :: Maybe SourceSpan -> Expr -> Name -> TcM (Expr, TcType, [Ct])
 inferSectionL sp inner op = do
+  postfix <- tcPostfixOperators
+  if postfix then inferPostfixSection sp inner op else inferBinarySectionL sp inner op
+
+inferPostfixSection :: Maybe SourceSpan -> Expr -> Name -> TcM (Expr, TcType, [Ct])
+inferPostfixSection sp inner op = do
+  (op', opTy, opCts) <- inferOperator sp op
+  (inner', innerTy, innerCts) <- inferExpr inner
+  resultTy <- freshMetaTv
+  evidence <- freshEvVar
+  let pending = pendingAnnotation resultTy [] [] []
+      wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy resultTy)) evidence (AppOrigin sp) sp
+  pure (annotatePendingExprAt sp pending (ESectionL inner' op'), resultTy, opCts <> innerCts <> [wanted])
+
+inferBinarySectionL :: Maybe SourceSpan -> Expr -> Name -> TcM (Expr, TcType, [Ct])
+inferBinarySectionL sp inner op = do
   (op', opTy, opCts) <- inferOperator sp op
   (inner', innerTy, innerCts) <- inferExpr inner
   argumentTy <- freshMetaTv
