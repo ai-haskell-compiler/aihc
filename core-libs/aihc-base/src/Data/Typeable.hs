@@ -1,12 +1,17 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Data.Typeable
   ( Typeable,
     TypeRep,
     TyCon,
     Proxy (..),
+    (:~:) (..),
+    (:~~:) (..),
     cast,
+    eqT,
+    heqT,
     gcast,
     gcast1,
     gcast2,
@@ -23,6 +28,7 @@ module Data.Typeable
 where
 
 import Data.Proxy (Proxy (..))
+import Data.Type.Equality ((:~:) (..), (:~~:) (..))
 import GHC.Base (Maybe (..))
 import GHC.Internal.Classes (Eq (..))
 import GHC.Types (Bool (..), Type)
@@ -60,6 +66,20 @@ castWith :: (Typeable a, Typeable b) => a -> Proxy b -> Maybe b
 castWith value target =
   if eqTypeRep (typeOf value) (typeRep target)
     then Just (unsafeCoerce value)
+    else Nothing
+
+-- | Extract a witness of equality of two types.
+eqT :: forall a b. (Typeable a, Typeable b) => Maybe (a :~: b)
+eqT =
+  if eqTypeRep (typeRep (Proxy :: Proxy a)) (typeRep (Proxy :: Proxy b))
+    then Just (unsafeCoerce (Refl :: a :~: a))
+    else Nothing
+
+-- | Extract a witness of heterogeneous equality of two types.
+heqT :: forall a b. (Typeable a, Typeable b) => Maybe (a :~~: b)
+heqT =
+  if eqTypeRep (typeRep (Proxy :: Proxy a)) (typeRep (Proxy :: Proxy b))
+    then Just (unsafeCoerce (HRefl :: a :~~: a))
     else Nothing
 
 -- | Cast a value under a type constructor.
