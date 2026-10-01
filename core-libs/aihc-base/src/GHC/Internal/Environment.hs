@@ -3,13 +3,16 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
--- | Access to the runtime-owned complete program argument vector and to the
--- process environment the host handed the runtime. Both ABIs use one UTF-8
--- byte string per entry, terminated by a zero byte.
+-- | Access to the runtime-owned complete program argument vector, to the
+-- process environment the host handed the runtime, and to the path of the
+-- executable. Each ABI uses one UTF-8 byte string per entry, terminated by a
+-- zero byte.
 module GHC.Internal.Environment
-  ( getFullArgs,
+  ( getExecutablePathMaybe,
+    getFullArgs,
     getFullEnvironment,
     setFullArgs,
+    setFullEnvironment,
   )
 where
 
@@ -40,45 +43,75 @@ foreign import ccall unsafe "aihc_program_environment_size"
 foreign import ccall unsafe "aihc_program_environment_copy"
   copyEnvironment :: Addr# -> Int -> IO Int
 
+foreign import prim setProgramEnvironment# :: ByteArray# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+
+foreign import ccall unsafe "aihc_executable_path_copy"
+  copyExecutablePath :: Addr# -> Int -> IO Int
+
 getFullArgs :: IO [String]
 getFullArgs = do
   required <- argumentSize
   readSnapshot copyArguments required
 
--- | Every environment entry of the process, as the @NAME=VALUE@ strings the
--- host handed the runtime. The runtime keeps one snapshot taken before the
--- machine starts, so the list does not change while the program runs.
+-- | Every environment entry of the process, as @NAME=VALUE@ strings. The
+-- runtime keeps one copy of the environment that the host handed it before
+-- the machine started. Only 'setFullEnvironment' changes this copy.
 getFullEnvironment :: IO [String]
 getFullEnvironment = do
   required <- environmentSize
   readSnapshot copyEnvironment required
 
+-- | The absolute path of the running executable, or 'Nothing' when the host
+-- cannot give it.
+getExecutablePathMaybe :: IO (Maybe String)
+getExecutablePathMaybe = do
+  paths <- readSnapshot copyExecutablePath 0
+  case paths of
+    [path] -> return (Just path)
+    _ -> return Nothing
+
 -- | Read the runtime's string buffer. The store may grow between the size
 -- query and the copy, so a short copy reports the size it needed and the read
--- starts over with it.
+-- starts over with it. A negative size tells that the runtime has no
+-- buffer to give, and the result is then empty.
 readSnapshot :: (Addr# -> Int -> IO Int) -> Int -> IO [String]
 readSnapshot copy requested = do
   buffer <- newArgumentBuffer (atLeastOne requested)
   actual <- copyBuffer copy buffer requested
-  case actual > requested of
-    True -> readSnapshot copy actual
-    False -> do
-      bytes <- readBytes buffer 0 actual
-      return (decodeArguments bytes)
+  case actual < 0 of
+    True -> return []
+    False ->
+      case actual > requested of
+        True -> readSnapshot copy actual
+        False -> do
+          bytes <- readBytes buffer 0 actual
+          return (decodeArguments bytes)
 
 setFullArgs :: [String] -> IO ()
-setFullArgs arguments =
-  case anyContainsNul arguments of
-    True -> ioError (mkIOError InvalidArgument "setArgs" Nothing Nothing)
+setFullArgs = replaceStrings "setArgs" setProgramArguments#
+
+-- | Replace every environment entry of the process with @NAME=VALUE@
+-- strings. Only the copy in the runtime changes.
+setFullEnvironment :: [String] -> IO ()
+setFullEnvironment = replaceStrings "setEnv" setProgramEnvironment#
+
+replaceStrings ::
+  String ->
+  (ByteArray# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)) ->
+  [String] ->
+  IO ()
+replaceStrings location replace strings =
+  case anyContainsNul strings of
+    True -> ioError (mkIOError InvalidArgument location Nothing Nothing)
     False -> do
-      let bytes = encodeArguments arguments
+      let bytes = encodeArguments strings
           size = byteCount bytes
       buffer <- newArgumentBuffer (atLeastOne size)
-      writeBytes buffer 0 bytes
-      result <- replaceArgumentBuffer buffer size
+      writeBytes location buffer 0 bytes
+      result <- replaceArgumentBuffer replace buffer size
       case result == 0 of
         True -> return ()
-        False -> ioError (mkIOError InvalidArgument "setArgs" Nothing Nothing)
+        False -> ioError (mkIOError InvalidArgument location Nothing Nothing)
 
 newArgumentBuffer :: Int -> IO ArgumentBuffer
 newArgumentBuffer (I# size) =
@@ -98,11 +131,15 @@ copyBuffer :: (Addr# -> Int -> IO Int) -> ArgumentBuffer -> Int -> IO Int
 copyBuffer copy (ArgumentBuffer buffer) size =
   withArgumentBuffer buffer (copy (mutableByteArrayContents# buffer) size)
 
-replaceArgumentBuffer :: ArgumentBuffer -> Int -> IO Int
-replaceArgumentBuffer (ArgumentBuffer buffer) (I# size) =
+replaceArgumentBuffer ::
+  (ByteArray# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)) ->
+  ArgumentBuffer ->
+  Int ->
+  IO Int
+replaceArgumentBuffer replace (ArgumentBuffer buffer) (I# size) =
   IO
     ( \state -> case unsafeFreezeByteArray# buffer state of
-        (# frozen, array #) -> case setProgramArguments# array size frozen of
+        (# frozen, array #) -> case replace array size frozen of
           (# next, result #) -> (# next, I# result #)
     )
 
@@ -127,13 +164,13 @@ readBytes buffer offset length =
       rest <- readBytes buffer (offset + 1) length
       return (byte : rest)
 
-writeBytes :: ArgumentBuffer -> Int -> [Int] -> IO ()
-writeBytes _ _ [] = return ()
-writeBytes buffer offset (byte : rest) = do
+writeBytes :: String -> ArgumentBuffer -> Int -> [Int] -> IO ()
+writeBytes _ _ _ [] = return ()
+writeBytes location buffer offset (byte : rest) = do
   result <- writeArgumentByte buffer offset byte
   case result == 0 of
-    True -> writeBytes buffer (offset + 1) rest
-    False -> ioError (mkIOError InvalidArgument "setArgs" Nothing Nothing)
+    True -> writeBytes location buffer (offset + 1) rest
+    False -> ioError (mkIOError InvalidArgument location Nothing Nothing)
 
 encodeArguments :: [String] -> [Int]
 encodeArguments [] = []

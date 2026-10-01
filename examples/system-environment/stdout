@@ -20,3 +20,12 @@ last
 variables:
 absent variable: Nothing
 every name is nonempty: True
+changed variables:
+changed variable: Just "first"
+changed variable: Just "second"
+entries with the name: 1
+changed variable: Nothing
+changed variable: Nothing
+name with an equals sign is rejected: True
+executable:
+absolute path or no path: True

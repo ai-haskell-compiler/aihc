@@ -25,7 +25,7 @@ module Data.Foldable
   )
 where
 
-import Control.Applicative (Alternative (..))
+import Control.Applicative (asum)
 import Control.Monad (MonadPlus (..))
 import GHC.Internal.Foldable (Foldable (..))
 import Prelude
@@ -75,9 +75,6 @@ for_ structure f = traverse_ f structure
 
 sequenceA_ :: (Foldable t, Applicative f) => t (f a) -> f ()
 sequenceA_ = foldr thenApplicative (pure ())
-
-asum :: (Foldable t, Alternative f) => t (f a) -> f a
-asum = foldr (<|>) empty
 
 forM_ :: (Foldable t, Monad m) => t a -> (a -> m b) -> m ()
 forM_ = for_

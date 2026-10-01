@@ -9,6 +9,7 @@ module Control.Applicative
     WrappedMonad (WrapMonad, unwrapMonad),
     WrappedArrow (WrapArrow, unwrapArrow),
     ZipList (..),
+    asum,
     liftA,
     liftA2,
     liftA3,
@@ -24,6 +25,10 @@ import Foreign.Storable (Storable (..))
 import GHC.List (drop)
 import GHC.Ptr (castPtr)
 import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Read (..), Show (..), Traversable (..), const, lex, readParen, showParen, showString, (++), (.), (<$>))
+
+-- | The first alternative that succeeds, from left to right.
+asum :: (Foldable t, Alternative f) => t (f a) -> f a
+asum = foldr (<|>) empty
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap

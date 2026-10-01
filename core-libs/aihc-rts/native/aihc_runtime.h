@@ -389,6 +389,12 @@ int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
 void aihc_runtime_statistics_report(void);
 int64_t aihc_program_environment_size(void);
 int64_t aihc_program_environment_copy(void *buffer, int64_t capacity);
+/* Install an immutable managed byte array without allocation. */
+int64_t aihc_program_environment_replace(const void *array, int64_t length);
+/* Copy the absolute path of the running executable, with a terminating zero
+   byte, into buffer when capacity holds it. The result is the size of the
+   path either way, or minus one when the host cannot give the path. */
+int64_t aihc_executable_path_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_size(void);
 int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
 /* Install an immutable managed byte array without allocation. */
