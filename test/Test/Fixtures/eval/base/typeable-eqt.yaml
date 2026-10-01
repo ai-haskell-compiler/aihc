@@ -1,0 +1,53 @@
+extensions: [TypeApplications, ScopedTypeVariables, GADTs]
+modules:
+  - |
+    {-# LANGUAGE TypeApplications, ScopedTypeVariables, GADTs #-}
+    module Test where
+
+    import Data.Typeable (Typeable, eqT, heqT, (:~:) (..), (:~~:) (..))
+
+    -- The type application selects the type, not its kind.
+    fromList :: forall f. (Typeable f) => f Int -> Maybe [Int]
+    fromList value =
+      case eqT @[] @f of
+        Just Refl -> Just value
+        Nothing -> Nothing
+
+    sameType :: Bool
+    sameType =
+      case eqT @Int @Int of
+        Just Refl -> True
+        Nothing -> False
+
+    differentType :: Bool
+    differentType =
+      case eqT @Int @Bool of
+        Just _ -> False
+        Nothing -> True
+
+    differentKind :: Bool
+    differentKind =
+      case heqT @Maybe @Int of
+        Just _ -> False
+        Nothing -> True
+
+    refinesList :: Bool
+    refinesList =
+      case fromList [1, 2] of
+        Just [1, 2] -> True
+        _ -> False
+
+    rejectsMaybe :: Bool
+    rejectsMaybe =
+      case fromList (Just 3) of
+        Just _ -> False
+        Nothing -> True
+
+    answer :: Bool
+    answer = sameType && differentType && differentKind && refinesList && rejectsMaybe
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: eqT and heqT give type equality witnesses that refine types in a match
