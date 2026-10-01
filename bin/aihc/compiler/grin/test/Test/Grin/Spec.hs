@@ -52,7 +52,9 @@ tests = do
   pointsToFixtures <- loadPointsToFixtures
   gcFixtures <- loadGcFixtures
   fixtures <- GrinGolden.loadGrinCases
-  evalFixtures <- filter (("grin" `elem`) . EvalFixture.evalCaseEvaluators) <$> EvalFixture.loadEvalCases
+  evalCases <- EvalFixture.loadEvalCases
+  let evalFixtures = filter (("grin" `elem`) . EvalFixture.evalCaseEvaluators) evalCases
+      pointsToFixtures' = filter (("grin-points-to" `elem`) . EvalFixture.evalCaseEvaluators) evalCases
   pure
     ( testGroup
         "aihc-grin"
@@ -70,11 +72,14 @@ tests = do
             testGroup
               "shared evaluation fixtures via GRIN"
               [ testGroup "separate core" (map (evalFixtureTest getEnvironment SeparateCore) evalFixtures),
-                -- The whole program of each fixture, with the rewrites of the
+                -- The whole program of a fixture, with the rewrites of the
                 -- points-to analysis. The interpreter fails an evaluation of
                 -- a thunk that a single-entry evaluation entered before, so
-                -- these runs check the sharing analysis too.
-                testGroup "whole program with points-to" (map (evalFixtureTest getEnvironment WholeProgramPointsTo) evalFixtures)
+                -- these runs check the sharing analysis too. Only the
+                -- fixtures that name the grin-points-to evaluator run here:
+                -- this mode costs as much as the separate-core mode, and
+                -- most fixtures do not exercise sharing.
+                testGroup "whole program with points-to" (map (evalFixtureTest getEnvironment WholeProgramPointsTo) pointsToFixtures')
               ]
         ]
     )

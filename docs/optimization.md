@@ -695,9 +695,11 @@ locations, single-entry thunks and widened set nodes, and the number of
 rewrites of each kind.
 
 The fixtures are in `compiler/grin/test/Test/Fixtures/grin-points-to`. The
-shared evaluation fixtures also run as whole programs with the rewrites, in
-the GRIN interpreter. The interpreter marks a thunk that a single-entry
-evaluation entered, and a second evaluation of it fails.
+shared evaluation fixtures that name the `grin-points-to` evaluator also run
+as whole programs with the rewrites, in the GRIN interpreter. The interpreter
+marks a thunk that a single-entry evaluation entered, and a second evaluation
+of it fails. A fixture that exercises sharing or evaluation order opts in with
+`evaluators: [fc, grin, grin-points-to]`.
 
 ## Invariants
 

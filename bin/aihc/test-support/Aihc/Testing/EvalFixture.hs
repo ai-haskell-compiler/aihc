@@ -225,11 +225,17 @@ parseEvalFixture root path value = do
             evalCaseReason = trim (T.unpack reasonText)
           }
 
+-- | The evaluators a fixture can name. The GRIN whole-program mode with the
+-- points-to rewrites costs as much as the separate-core mode, so only the
+-- fixtures that exercise sharing and evaluation order opt into it with
+-- @grin-points-to@. That name requires @grin@ as well.
 validateEvaluators :: FilePath -> [Text] -> Either String ()
 validateEvaluators path evaluators
   | null evaluators = Left ("Eval fixture evaluators must not be empty in " <> path)
+  | "grin-points-to" `elem` evaluators && "grin" `notElem` evaluators =
+      Left ("Eval fixture evaluator grin-points-to requires grin in " <> path)
   | otherwise =
-      case filter (`notElem` ["fc", "grin"]) evaluators of
+      case filter (`notElem` ["fc", "grin", "grin-points-to"]) evaluators of
         [] -> Right ()
         invalid -> Left ("Unknown eval fixture evaluators " <> show invalid <> " in " <> path)
 
