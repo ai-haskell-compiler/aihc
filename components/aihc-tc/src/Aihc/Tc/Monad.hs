@@ -854,9 +854,8 @@ lookupTyConQualifiedInNamespace namespace moduleName name =
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
   case typeUseResolution (nameAnns name) of
-    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} -> do
-      exact <- lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
-      maybe (lookupTyConInNamespace namespace (nameText name)) (pure . Just) exact
+    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} ->
+      lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
     Just ResolutionAnnotation {resolutionTarget = ResolvedError {}} -> pure Nothing
     Just ResolutionAnnotation {resolutionNamespace = namespace} ->
       maybe
@@ -884,17 +883,24 @@ lookupResolvedTypeSyntax resolution =
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
   case typeResolution (unqualifiedNameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} -> do
-      exact <- lookupTyConOrigin ResolutionNamespaceType packageId resolvedModule (nameText resolvedName)
-      maybe (lookupTyCon (unqualifiedNameText name)) (pure . Just) exact
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} ->
+      lookupTyConOrigin ResolutionNamespaceType packageId resolvedModule (nameText resolvedName)
     _ -> lookupTyCon (unqualifiedNameText name)
 
 lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
 lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup (tyConKey tyCon) . tcsGlobalTyCons
 
+-- | The type constructor that a resolver identity names. The resolver
+-- names the declaration of the list type, which is registered under the
+-- identity that 'wiredDeclarationIdentity' gives it.
 lookupTyConOrigin :: ResolutionNamespace -> PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
-lookupTyConOrigin namespace packageId moduleName name =
-  lift $ gets $ Map.lookup (TcTypeKey name packageId moduleName namespace) . tcsGlobalTyCons
+lookupTyConOrigin namespace packageId moduleName name = do
+  wiring <- getWiring
+  let key = TcTypeKey name packageId moduleName namespace
+      wiredKey
+        | key == tyConKey (tcWiringListDeclaration wiring) = tyConKey (tcWiringListTyCon wiring)
+        | otherwise = key
+  lift $ gets $ Map.lookup wiredKey . tcsGlobalTyCons
 
 typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
 typeResolution =
