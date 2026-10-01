@@ -1,0 +1,17 @@
+extensions:
+  - ExtendedDefaultRules
+modules:
+  - |
+    {-# LANGUAGE ExtendedDefaultRules #-}
+    module Test where
+
+    import Prelude
+
+    result :: Bool
+    result = show [] == "[]"
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: ExtendedDefaultRules defaults show of an empty list.

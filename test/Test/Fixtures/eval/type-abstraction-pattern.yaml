@@ -1,0 +1,24 @@
+extensions:
+  - ExplicitForAll
+  - ScopedTypeVariables
+  - TypeAbstractions
+modules:
+  - |
+    {-# LANGUAGE ExplicitForAll #-}
+    {-# LANGUAGE ScopedTypeVariables #-}
+    {-# LANGUAGE TypeAbstractions #-}
+    module Test where
+
+    import Prelude
+
+    poly :: forall a. a -> a
+    poly @t x = x :: t
+
+    result :: Bool
+    result = poly True
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: A type abstraction pattern binds its type variable.

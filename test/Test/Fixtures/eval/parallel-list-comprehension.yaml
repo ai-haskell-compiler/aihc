@@ -1,0 +1,17 @@
+extensions:
+  - ParallelListComp
+modules:
+  - |
+    {-# LANGUAGE ParallelListComp #-}
+    module Test where
+
+    import Prelude
+
+    result :: Bool
+    result = [(x, y) | x <- [1, 2] | y <- [3, 4]] == [(1, 3), (2, 4)]
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: Name resolution accepts a parallel list comprehension.

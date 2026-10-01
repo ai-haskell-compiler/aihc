@@ -1,0 +1,17 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Ix (Ix (inRange))
+    import Prelude
+
+    data Color = Red | Green | Blue deriving (Eq, Ord, Ix)
+
+    result :: Bool
+    result = inRange (Red, Blue) Green
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: Stock deriving generates an Ix instance.

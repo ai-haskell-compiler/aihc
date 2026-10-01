@@ -1,0 +1,18 @@
+extensions:
+  - QualifiedDo
+modules:
+  - |
+    {-# LANGUAGE QualifiedDo #-}
+    module Test where
+
+    import Prelude
+    import qualified Prelude as P
+
+    result :: Bool
+    result = (P.do x <- Just 1; Just (x + 1)) == Just 2
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: The type checker accepts a qualified do block.

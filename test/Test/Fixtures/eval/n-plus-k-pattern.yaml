@@ -1,0 +1,21 @@
+extensions:
+  - NPlusKPatterns
+modules:
+  - |
+    {-# LANGUAGE NPlusKPatterns #-}
+    module Test where
+
+    import Prelude
+
+    f :: Int -> Bool
+    f (n + 1) = n == 2
+    f _ = False
+
+    result :: Bool
+    result = f 3
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: An n+k pattern binds the variable n.

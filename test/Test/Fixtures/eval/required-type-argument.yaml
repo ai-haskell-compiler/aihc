@@ -1,0 +1,22 @@
+extensions:
+  - ExplicitForAll
+  - RequiredTypeArguments
+modules:
+  - |
+    {-# LANGUAGE ExplicitForAll #-}
+    {-# LANGUAGE RequiredTypeArguments #-}
+    module Test where
+
+    import Prelude
+
+    identity :: forall a -> a -> a
+    identity (type _) x = x
+
+    result :: Bool
+    result = identity Bool True
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: A required type argument fills a visible forall.

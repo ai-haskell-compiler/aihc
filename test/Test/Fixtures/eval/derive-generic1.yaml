@@ -1,0 +1,23 @@
+extensions:
+  - DeriveGeneric
+modules:
+  - |
+    {-# LANGUAGE DeriveGeneric #-}
+    module Test where
+
+    import GHC.Generics (Generic1)
+    import Prelude
+
+    data Pair a = Pair a a deriving (Generic1)
+
+    fromPair :: (Generic1 f) => f a -> Bool
+    fromPair _ = True
+
+    result :: Bool
+    result = fromPair (Pair True True)
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: Stock deriving generates a Generic1 instance.

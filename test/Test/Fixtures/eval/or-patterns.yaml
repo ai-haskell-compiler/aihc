@@ -1,0 +1,21 @@
+extensions:
+  - OrPatterns
+modules:
+  - |
+    {-# LANGUAGE OrPatterns #-}
+    module Test where
+
+    import Prelude
+
+    f :: Int -> Bool
+    f (1; 2) = True
+    f _ = False
+
+    result :: Bool
+    result = f 2 && not (f 3)
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: An or-pattern matches either alternative.

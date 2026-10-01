@@ -1,0 +1,27 @@
+extensions:
+  - ApplicativeDo
+modules:
+  - |
+    {-# LANGUAGE ApplicativeDo #-}
+    module Test where
+
+    import Prelude
+
+    data V a = V a
+
+    instance Functor V where
+      fmap f (V x) = V (f x)
+
+    instance Applicative V where
+      pure = V
+      V f <*> V x = V (f x)
+
+    result :: Bool
+    result = case (do x <- V True; y <- V True; pure (x && y)) of
+      V value -> value
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: ApplicativeDo accepts a do block with no Monad instance.

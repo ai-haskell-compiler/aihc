@@ -1,0 +1,17 @@
+extensions:
+  - MonadComprehensions
+modules:
+  - |
+    {-# LANGUAGE MonadComprehensions #-}
+    module Test where
+
+    import Prelude
+
+    result :: Bool
+    result = ([x + y | x <- Just 1, y <- Just 2] :: Maybe Int) == Just 3
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: MonadComprehensions accepts a comprehension over Maybe.
