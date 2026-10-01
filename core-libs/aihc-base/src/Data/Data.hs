@@ -27,6 +27,7 @@ import Data.Typeable
 import GHC.Base (Monad (..), String, const, id, otherwise)
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Float ()
+import GHC.ForeignPtr (ForeignPtr)
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
 import GHC.Internal.Classes (Eq (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -34,6 +35,7 @@ import GHC.Num ((+))
 import GHC.Num.Integer (Integer)
 import GHC.Num.Natural (Natural)
 import GHC.Prim.Real (Ratio (..))
+import GHC.Ptr (Ptr)
 import GHC.Real (Integral, (%))
 import GHC.Show (Show (..))
 import GHC.Types (Bool (..), Char, Double, Float, Ordering (..))
@@ -487,3 +489,17 @@ ratioConstr = mkConstr ratioDataType ":%" [] Infix
 
 ratioDataType :: DataType
 ratioDataType = mkDataType "GHC.Real.Ratio" [ratioConstr]
+
+-- As in GHC, pointers are abstract. They have no constructor to show or
+-- rebuild.
+instance (Data a) => Data (Ptr a) where
+  toConstr _ = errorWithoutStackTrace "Data.Data.toConstr(Ptr)"
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Ptr)"
+  dataTypeOf _ = mkNoRepType "GHC.Ptr.Ptr"
+  dataCast1 f = gcast1 f
+
+instance (Data a) => Data (ForeignPtr a) where
+  toConstr _ = errorWithoutStackTrace "Data.Data.toConstr(ForeignPtr)"
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(ForeignPtr)"
+  dataTypeOf _ = mkNoRepType "GHC.ForeignPtr.ForeignPtr"
+  dataCast1 f = gcast1 f

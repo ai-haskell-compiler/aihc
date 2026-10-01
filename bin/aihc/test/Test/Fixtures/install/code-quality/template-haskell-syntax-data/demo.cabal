@@ -1,0 +1,12 @@
+cabal-version: 3.0
+name: template-haskell-syntax-data
+version: 0.1.0.0
+
+library
+  exposed-modules: Shape
+  hs-source-dirs: src
+  build-depends:
+    base,
+    template-haskell,
+
+  default-language: Haskell2010
