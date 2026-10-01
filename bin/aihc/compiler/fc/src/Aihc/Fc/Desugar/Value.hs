@@ -76,6 +76,8 @@ import Aihc.Tc.Types
     addrRep,
     applySubst,
     applySubstPred,
+    doubleRep,
+    floatRep,
     int16Rep,
     int32Rep,
     int64Rep,
@@ -117,6 +119,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import GHC.Float (castDoubleToWord64, castFloatToWord32)
 
 data ValueState = ValueState
   { vsNextUnique :: !Int,
@@ -2968,6 +2971,11 @@ desugarAnnotatedExpr annotation inner = do
               kinds <- valueKinds
               representation <- convertRuntimeRep (numericRepresentation kinds numericType)
               pure (ExLit (LitInt representation value))
+        Syn.EFloat value floatType _
+          | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
+              kinds <- valueKinds
+              representation' <- convertRuntimeRep (representation kinds)
+              pure (ExLit (LitInt representation' bits))
         Syn.EChar value _ -> do
           kinds <- valueKinds
           constructor <- boxedCharConstructor
@@ -5095,6 +5103,7 @@ isPrimitiveLiteral :: Syn.Expr -> Bool
 isPrimitiveLiteral expression =
   case expression of
     Syn.EInt _ numericType _ -> numericType /= Syn.TInteger
+    Syn.EFloat _ floatType _ -> floatType /= Syn.TFractional
     Syn.ECharHash {} -> True
     Syn.EStringHash {} -> True
     _ -> False
@@ -5231,6 +5240,16 @@ convertRuntimeRep :: TcType -> ValueM Type
 convertRuntimeRep runtimeRep = do
   env <- gets vsConvertEnv
   liftEither (convertRep env runtimeRep)
+
+-- | The representation and the IEEE 754 bits of a 'Float#' or 'Double#'
+-- literal. A floating-point literal holds its bits, as the GRIN literals
+-- do. The value rounds to the nearest float, as in GHC.
+primitiveFloatLiteral :: Syn.FloatType -> Rational -> Maybe (TcKinds -> TcType, Integer)
+primitiveFloatLiteral floatType value =
+  case floatType of
+    Syn.TFractional -> Nothing
+    Syn.TFloatHash -> Just (floatRep, toInteger (castFloatToWord32 (fromRational value)))
+    Syn.TDoubleHash -> Just (doubleRep, toInteger (castDoubleToWord64 (fromRational value)))
 
 numericRepresentation :: TcKinds -> Syn.NumericType -> TcType
 numericRepresentation kinds numericType =

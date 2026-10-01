@@ -1,0 +1,32 @@
+extensions: [MagicHash]
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import GHC.Exts (Word#, plusWord#)
+    import GHC.Num.Integer (integerLog2#, integerShiftL#, integerShiftR#)
+
+    -- The shift count is a Word#, as in ghc-bignum.
+    shifts :: [Integer]
+    shifts =
+      [ integerShiftL# 3 4##,
+        integerShiftR# 100 3##,
+        integerShiftR# (-100) 3##,
+        integerShiftL# (2 ^ 70) 2##,
+        integerShiftR# (2 ^ 70) 66##,
+        integerShiftR# (-1) 200##,
+        integerShiftL# 1 (integerLog2# 1000 `plusWord#` 1##)
+      ]
+
+    expected :: [Integer]
+    expected = [48, 12, -13, 4722366482869645213696, 16, -1, 1024]
+
+    answer :: Bool
+    answer = shifts == expected
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: GHC.Num.Integer exports integerShiftL# and integerShiftR# with Word# shift counts

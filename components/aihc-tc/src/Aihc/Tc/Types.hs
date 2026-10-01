@@ -66,6 +66,8 @@ module Aihc.Tc.Types
     word16Rep,
     word32Rep,
     word64Rep,
+    floatRep,
+    doubleRep,
     addrRep,
     runtimeRepFromKind,
     isFixedRuntimeRep,
@@ -587,7 +589,7 @@ liftedRep :: TcKinds -> TcType
 liftedRep kinds = boxedRep kinds (nullaryRep kinds "Lifted")
 
 intRep, int8Rep, int16Rep, int32Rep, int64Rep :: TcKinds -> TcType
-wordRep, word8Rep, word16Rep, word32Rep, word64Rep, addrRep :: TcKinds -> TcType
+wordRep, word8Rep, word16Rep, word32Rep, word64Rep, floatRep, doubleRep, addrRep :: TcKinds -> TcType
 intRep kinds = nullaryRep kinds "IntRep"
 int8Rep kinds = nullaryRep kinds "Int8Rep"
 int16Rep kinds = nullaryRep kinds "Int16Rep"
@@ -603,6 +605,10 @@ word16Rep kinds = nullaryRep kinds "Word16Rep"
 word32Rep kinds = nullaryRep kinds "Word32Rep"
 
 word64Rep kinds = nullaryRep kinds "Word64Rep"
+
+floatRep kinds = nullaryRep kinds "FloatRep"
+
+doubleRep kinds = nullaryRep kinds "DoubleRep"
 
 addrRep kinds = nullaryRep kinds "AddrRep"
 
