@@ -20,8 +20,8 @@ where
 import Aihc.Cli.BuildModule
   ( ExecutableInputs (..),
     InstalledPackage (..),
+    entryModuleText,
     finishExecutable,
-    generatedEntryText,
     installedPackage,
     plannedPackage,
     requirePackageArchive,
@@ -44,6 +44,7 @@ import Aihc.Cli.Install
     installPlanPackages,
     installTargetRoot,
     planRequestFor,
+    sourceFileModuleName,
   )
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (BuildOptions (..))
@@ -190,7 +191,11 @@ buildPackage options = do
     mapM_ requirePackageArchive selected
     let outputRoot = buildRoot </> "exe" </> name
         dependencyNames = map (packageManifestName . installedManifest) selected
-    entryFile <- writeEntryModule outputRoot dependencyNames
+    -- The main module is the module that the @main-is@ file declares, as
+    -- MicroHs builds it. GHC instead needs @-main-is@ for a main module
+    -- that is not @Main@.
+    mainModule <- maybe (pure "Main") (sourceFileModuleName compileConfig root installed) (executableInfoMainFile executable)
+    entryFile <- writeEntryModule outputRoot mainModule dependencyNames
     headerDirs <- dependencyIncludeDirs installed
     let sourceFiles = executableInfoFiles executable <> [entryFile]
         ownCInfo = executableInfoCCompileInfo executable
@@ -241,12 +246,13 @@ executableFileName target name =
     _ -> name
 
 -- | Write the generated entry module of an executable and describe it the
--- way the Cabal file describes the executable's own sources.
-writeEntryModule :: FilePath -> [Text] -> IO HackageCabal.FileInfo
-writeEntryModule outputRoot dependencyNames = do
+-- way the Cabal file describes the executable's own sources. The entry
+-- calls the function @main@ of the main module.
+writeEntryModule :: FilePath -> Text -> [Text] -> IO HackageCabal.FileInfo
+writeEntryModule outputRoot mainModule dependencyNames = do
   let path = outputRoot </> "generated" </> "Aihc" </> "Entry.hs"
   createDirectoryIfMissing True (takeDirectory path)
-  TIO.writeFile path generatedEntryText
+  TIO.writeFile path (entryModuleText mainModule)
   pure
     HackageCabal.FileInfo
       { HackageCabal.fileInfoPath = path,

@@ -28,6 +28,7 @@ module Aihc.Cli.Install
     parsePackageTarget,
     planRequestFor,
     runInstall,
+    sourceFileModuleName,
 
     -- * The front end, one phase at a time
 
@@ -988,6 +989,16 @@ compileModules config request = do
   let names = map sourceName (compiledSources compiled)
   objects <- moduleObjectPaths (not (compileLto config)) (compileOutputRoot request) (compileTarget config) names
   pure ModuleCompileResult {compileObjectPaths = objects, compileModuleNames = names}
+
+-- | The module name that a source file declares. The file goes through the
+-- same preprocessing and parse as in 'compileModules'.
+sourceFileModuleName :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> HackageCabal.FileInfo -> IO Text
+sourceFileModuleName config packageRoot dependencies file = do
+  headerDirs <- dependencyIncludeDirs dependencies
+  let versions =
+        dependencyVersionsFromManifests
+          [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
+  sourceName <$> parseSource (compileHeaderDirectory config) packageRoot versions (appendIncludeDirs headerDirs file)
 
 -- | The objects of a set of modules: one for each module when the modules
 -- have objects, and the capi wrappers of those that declare any.

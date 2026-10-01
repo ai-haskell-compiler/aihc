@@ -86,6 +86,7 @@ tests =
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
               testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
+              testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
@@ -913,6 +914,26 @@ test_buildSharedModuleName getStore =
     assertEqual "shared exit status" ExitSuccess status
     assertEqual "shared stdout" "2\n21\n" stdout
     assertEqual "shared stderr" "" stderr
+
+-- | The main module of an executable is the module that its @main-is@
+-- file declares, and the entry calls its function @main@. One main module
+-- has a module header that CPP selects.
+test_buildMainModule :: IO SeedStore -> Assertion
+test_buildMainModule getStore =
+  withBuildPackageSandbox getStore "aihc-build-main-module" $ \_ buildRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/main-module"
+    let binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget options) </> "bin"
+        expected =
+          [ ("named-main", "App.Run.main\n"),
+            ("cpp-main", "App.Cpp.main\n")
+          ]
+    outputs <- build options {buildInput = fixtureRoot}
+    assertEqual "built executables" [binDirectory </> name | (name, _) <- expected] outputs
+    forM_ expected $ \(name, output) -> do
+      (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> name) [] ""
+      assertEqual (name <> " exit status") ExitSuccess status
+      assertEqual (name <> " stdout") output stdout
+      assertEqual (name <> " stderr") "" stderr
 
 -- A package with @cxx-sources@ compiles them as C++ with its
 -- @cxx-options@, records in its manifest that its objects need the C++

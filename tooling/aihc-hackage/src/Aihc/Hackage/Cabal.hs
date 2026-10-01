@@ -127,7 +127,7 @@ import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFile
 import Data.List (isPrefixOf, nub)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -386,7 +386,10 @@ data ExecutableInfo = ExecutableInfo
     -- | The packages in the @build-depends@ of the executable.
     executableInfoDependencies :: [PackageName],
     -- | The @c-sources@, @include-dirs@, and @cc-options@ of the executable.
-    executableInfoCCompileInfo :: CCompileInfo
+    executableInfoCCompileInfo :: CCompileInfo,
+    -- | The @main-is@ file of the executable, when it exists. It is also in
+    -- 'executableInfoFiles'.
+    executableInfoMainFile :: Maybe FileInfo
   }
   deriving (Show)
 
@@ -405,13 +408,15 @@ collectExecutablesIn context package packageRoot =
     executableInfo exeName tree = do
       let build = collectMergedBuildInfo evalCond tree
       files <- executableFilesFor package evalCond packageRoot exeName tree
+      mainFiles <- executableMainFiles packageRoot build
       cInfo <- either (ioError . userError) pure (cCompileInfoFromBuild (cabalVersion package) packageRoot build)
       pure
         [ ExecutableInfo
             { executableInfoName = T.unpack exeName,
               executableInfoFiles = files,
               executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
-              executableInfoCCompileInfo = cInfo
+              executableInfoCCompileInfo = cInfo,
+              executableInfoMainFile = listToMaybe mainFiles
             }
         | isBuildable build
         ]
@@ -450,11 +455,18 @@ executableFilesFor package evalCond packageRoot exeName tree = do
     then pure []
     else do
       moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
-      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build, mainPath <- maybe [] pure (mainIs build)]
+      mainFiles <- executableMainFiles packageRoot build
       generatedPaths <- generatedPathsFiles packageRoot package ("-exe-" <> T.unpack exeName) moduleNames
       pure $
-        [sourceFileInfo packageRoot build path | path <- moduleFiles <> mainFiles]
+        [sourceFileInfo packageRoot build path | path <- moduleFiles]
+          <> mainFiles
           <> [generatedPathsFileInfo path | path <- generatedPaths]
+
+-- | The @main-is@ file of an executable in each source directory that has it.
+executableMainFiles :: FilePath -> BuildInfo -> IO [FileInfo]
+executableMainFiles packageRoot build = do
+  paths <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build, mainPath <- maybe [] pure (mainIs build)]
+  pure [sourceFileInfo packageRoot build path | path <- paths]
 
 sourceFileInfo :: FilePath -> BuildInfo -> FilePath -> FileInfo
 sourceFileInfo packageRoot build path =

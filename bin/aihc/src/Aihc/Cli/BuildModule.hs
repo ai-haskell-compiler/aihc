@@ -5,8 +5,8 @@ module Aihc.Cli.BuildModule
     InstalledPackage (..),
     LinkBundle (..),
     PackageConstraint (..),
+    entryModuleText,
     finishExecutable,
-    generatedEntryText,
     implicitConstraint,
     installedPackage,
     linkBundleManifestPath,
@@ -504,13 +504,18 @@ discoverSources sourceDirectories moduleIndex mainPath = do
         name = sourceDependencyModule dependency
 
 generatedEntryText :: Text
-generatedEntryText =
+generatedEntryText = entryModuleText "Main"
+
+-- | The generated module that starts an executable with the function
+-- @main@ of its main module.
+entryModuleText :: Text -> Text
+entryModuleText mainModule =
   T.unlines
     [ "{-# LANGUAGE NoImplicitPrelude #-}",
       "module Aihc.Entry where",
-      "import qualified Main",
+      "import qualified " <> mainModule,
       "import GHC.TopHandler (runMainIO)",
-      "entry = runMainIO Main.main"
+      "entry = runMainIO " <> mainModule <> ".main"
     ]
 
 validateInstalledDependencies :: InstalledModuleIndex -> [SourceModule] -> IO ()
