@@ -3,6 +3,10 @@
 42
 [2,3]
 42
+one
+two
+large
+other
 existential dictionary
 -- same type
 Int -> Int: cast succeeded

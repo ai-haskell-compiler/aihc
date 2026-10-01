@@ -2297,12 +2297,20 @@ desugarScrutineePatterns :: TcType -> Maybe Expr -> Expr -> Binder -> Binder -> 
 desugarScrutineePatterns resultType fallback scrutinee caseBinder root arguments argumentTypes works = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   resultType' <- convertCheckedType resultType
-  let keys = patternKeys (map fst works)
-      defaultWorks = filter (firstPatternIsDefault . fst) works
+  -- Each row is keyed once, and each group takes the rows of its key and
+  -- the default rows, in their order. Keying the rows again for every
+  -- group would render every literal of a function of thousands of
+  -- literal equations once for each distinct literal.
+  let keyedWorks = [(index, firstPatternKey match, work) | (index, work@(match, _)) <- zip [0 :: Int ..] works]
+      keys = orderedUnique [key | (_, Just key, _) <- keyedWorks]
+      defaultRows = [(index, work) | (index, Nothing, work) <- keyedWorks]
+      defaultWorks = map snd defaultRows
+      rowsByKey = Map.map reverse (Map.fromListWith (<>) [(key, [(index, work)]) | (index, Just key, work) <- keyedWorks])
+      groupWorks key = map snd (mergeRows (Map.findWithDefault [] key rowsByKey) defaultRows)
   -- Every alternative can name the fallback, so bind it once outside the case
   -- instead of copying the later equations into each alternative.
   shareFailure resultType fallback $ \shared -> do
-    constructorAlternatives <- mapM (desugarPatternGroup resultType shared arguments restTypes scrutineeType root works) keys
+    constructorAlternatives <- mapM (\key -> desugarPatternGroup resultType shared arguments restTypes scrutineeType root (groupWorks key) key) keys
     defaultAlternatives <-
       case defaultWorks of
         [] -> pure [Alt AltDefault [] [] failure | Just failure <- [shared]]
@@ -2517,14 +2525,29 @@ patternTypeVariables = go
     annotationTypeVariables annotation =
       maybe [] tcAnnTypeBinders (Syn.fromAnnotation annotation :: Maybe TcAnnotation)
 
-patternKeys :: [Syn.Match] -> [Text]
-patternKeys matches =
-  List.nub
-    [ patternKey pattern'
-    | match <- matches,
-      pattern' : _ <- [Syn.matchPats match],
-      not (patternIsDefault pattern')
-    ]
+-- | The key of the first pattern of a row, or nothing for a default row.
+firstPatternKey :: Syn.Match -> Maybe Text
+firstPatternKey match =
+  case Syn.matchPats match of
+    pattern' : _ | not (patternIsDefault pattern') -> Just (patternKey pattern')
+    _ -> Nothing
+
+-- | The distinct values in the order of their first occurrence.
+orderedUnique :: (Ord a) => [a] -> [a]
+orderedUnique = go Set.empty
+  where
+    go _ [] = []
+    go seen (value : rest)
+      | value `Set.member` seen = go seen rest
+      | otherwise = value : go (Set.insert value seen) rest
+
+-- | Merge two lists of rows that are each in row order.
+mergeRows :: [(Int, a)] -> [(Int, a)] -> [(Int, a)]
+mergeRows [] rows = rows
+mergeRows rows [] = rows
+mergeRows left@(leftRow : leftRest) right@(rightRow : rightRest)
+  | fst leftRow <= fst rightRow = leftRow : mergeRows leftRest right
+  | otherwise = rightRow : mergeRows left rightRest
 
 patternKey :: Syn.Pattern -> Text
 patternKey pattern' =
