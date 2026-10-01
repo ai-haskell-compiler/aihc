@@ -2,7 +2,9 @@ name: Hackage Install
 
 # Install the pinned Hackage packages of docs/hackage-install-packages.md for
 # every backend at every optimization level, one job per configuration, then
-# open one issue per package that failed in any of them.
+# open one issue per package that failed in any of them. A separate job
+# builds the Nix Hackage checks: the install matrix of
+# scripts/nix/hackage-packages.nix and the examples that use its packages.
 
 on:
   schedule:
@@ -89,6 +91,30 @@ jobs:
       - name: Fail when a package failed to install
         if: steps.install.outcome == 'failure'
         run: exit 1
+
+  # The Nix install matrix and the examples that use Hackage packages. These
+  # left the PR gate because their install chain was the last derivation of
+  # every run.
+  nix-checks:
+    name: Build the Nix Hackage checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Build the Hackage checks
+        run: nix build .#hackage-checks --max-jobs 4 --print-build-logs
 
   report:
     name: Open an issue for each failed package

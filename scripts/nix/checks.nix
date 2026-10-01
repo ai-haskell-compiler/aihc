@@ -26,6 +26,12 @@
   # This example uses more than the temporary 100 MB heap limit.
   disabledExampleNames = ["unboxed-tail-recursion"];
   exampleNames = builtins.filter (name: !builtins.elem name disabledExampleNames) allExampleNames;
+  # An example that names Hackage packages waits for the install chain of
+  # those packages, which ends well after every other check. The PR gate
+  # runs the other examples; these run with the Hackage install matrix in
+  # the daily Hackage workflow, through the hackage-checks package.
+  hackageExampleNames = builtins.filter (name: (exampleExtraHackagePackages.${name} or []) != []) exampleNames;
+  gateExampleNames = builtins.filter (name: !builtins.elem name hackageExampleNames) exampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.
   cTidyCompilerFlags =
@@ -852,6 +858,31 @@
   hackageInstallTests = assert hackage.packages != [];
     pkgs.linkFarm "aihc-hackage-install-tests" hackageInstallCases;
 
+  # The install matrix and the examples that use its packages. The daily
+  # Hackage workflow builds this; the PR gate does not, because the chain
+  # deepseq, bytestring, text was the last derivation of every run.
+  hackageChecks = pkgs.linkFarm "aihc-hackage-checks" (
+    [
+      {
+        name = "install";
+        path = hackageInstallTests;
+      }
+    ]
+    ++ pkgs.lib.concatMap (exampleName:
+      map (target: {
+        name = "example-${exampleName}-${target}";
+        path = mkExampleTest exampleName target;
+      })
+      backends
+      ++ [
+        {
+          name = "wasip3-example-${exampleName}";
+          path = mkWasip3ExampleTest exampleName;
+        }
+      ])
+    hackageExampleNames
+  );
+
   # An example with no extra packages waits only for the toolchain, so it still
   # points at that rather than at the shared package store: making every example
   # wait for every package would put the whole install matrix on their path.
@@ -930,7 +961,7 @@
       path = mkExampleTest exampleName target;
     })
     backends)
-  exampleNames;
+  gateExampleNames;
 
   mkGhcExampleTest = exampleName:
     mkSourceCheck "aihc-ghc-example-${exampleName}" (exampleSources.${exampleName}) [pkgs.coreutils pkgs.diffutils (projectHsPackages pkgs).ghc] ''
@@ -1059,7 +1090,7 @@
   # Every example uses LLVM and the available host-native backend. Nix
   # schedules independent examples in parallel against the immutable shared
   # library and runtime artifacts.
-  examplesTests = assert exampleNames != [];
+  examplesTests = assert gateExampleNames != [];
     pkgs.linkFarm "aihc-examples-tests" exampleCases;
 
   wasip3ExampleInputs = [
@@ -1106,13 +1137,13 @@
       name = exampleName;
       path = mkWasip3ExampleTest exampleName;
     })
-    exampleNames;
+    gateExampleNames;
 
   # Every example gets one incremental WASI smoke test. Nix schedules these
   # derivations in parallel against the immutable shared library and runtime
   # artifacts. Whole-program linking has focused CLI coverage because it
   # intentionally recompiles the merged dependency bodies.
-  wasip3ExampleTest = assert exampleNames != [];
+  wasip3ExampleTest = assert gateExampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
   # Compile every example for one target without linking. Each example gets a
   # relocatable bundle that `aihc link-exe`, or the C driver for the target,
@@ -1203,13 +1234,13 @@ in {
     wit-bindings = witBindings;
     cabal-format = cabalFormat;
     core-libraries-install = coreLibrariesInstall;
-    hackage-install-tests = hackageInstallTests;
     examples-tests = examplesTests;
     wasip3-example-test = wasip3ExampleTest;
     inherit manual;
   };
   packages = {
     inherit manual pipelineExamples;
+    hackage-checks = hackageChecks;
     docs = manual;
     default = manual;
     cross-examples-apple-arm64 = crossExampleBundlesFor "apple-arm64";

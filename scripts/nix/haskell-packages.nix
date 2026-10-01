@@ -249,11 +249,22 @@ in rec {
       checksAdjusted =
         if prepareChecks
         then
-          hsLib.overrideCabal intermediatesAdjusted (_old: {
+          hsLib.overrideCabal intermediatesAdjusted (old: {
             # Build test components into the reusable intermediates, but leave
             # execution to the independently scheduled check derivations.
             doCheck = true;
             testFlags = ["--pattern" "__nix-build-tests-without-running__"];
+            # The suites build their test trees before the pattern applies,
+            # and the aihc suite reads the shared eval fixture directory for
+            # that. The package source does not carry the fixtures; the check
+            # derivations do. An empty directory keeps the tree construction
+            # independent of fixture edits.
+            preCheck =
+              (old.preCheck or "")
+              + ''
+                export AIHC_EVAL_FIXTURES="$TMPDIR/empty-eval-fixtures"
+                mkdir -p "$AIHC_EVAL_FIXTURES"
+              '';
           })
         else hsLib.dontCheck intermediatesAdjusted;
       haddockMode =

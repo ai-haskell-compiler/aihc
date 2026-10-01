@@ -65,8 +65,8 @@ capiChecks =
     && signed (c_isdigit (fromIntegral (fromEnum 'x'))) == 0
 
 -- Reading errno from a real C library call needs a call that fails the same
--- way everywhere, which WASI does not offer; test/Test/Fixtures/eval/base
--- covers that on POSIX. This checks what every target shares: that the
+-- way everywhere, which WASI does not offer. The daily Hackage install
+-- checks cover that on POSIX. This checks what every target shares: that the
 -- runtime shim behind getErrno and resetErrno links and reports what it was
 -- given, and that throwErrnoIfMinus1_ raises on -1 and nothing else.
 errnoReport :: IO String

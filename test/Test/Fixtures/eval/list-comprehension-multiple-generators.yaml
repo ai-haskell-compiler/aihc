@@ -1,3 +1,7 @@
+evaluators:
+  - fc
+  - grin
+  - grin-points-to
 expression: |
   [(x, y) | x <- xs, y <- ys]
 extensions: []

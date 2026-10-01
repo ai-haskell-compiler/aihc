@@ -4,6 +4,15 @@
   in
     builtins.any (suffix: pkgs.lib.hasSuffix suffix baseName) suffixes;
 
+  # A directory is kept only when it leads to one of the prefixes or lies
+  # under one. A filter that keeps every directory makes each new directory
+  # anywhere in the repository change every source hash, and that rebuilds
+  # every package.
+  keepsDirectory = pkgs: prefixes: relPath: let
+    directory = relPath + "/";
+  in
+    builtins.any (prefix: pkgs.lib.hasPrefix prefix directory || pkgs.lib.hasPrefix directory prefix) prefixes;
+
   mkComponentSrc = subpath: suffixes: pkgs:
     pkgs.lib.cleanSourceWith {
       src = root + subpath;
@@ -23,7 +32,9 @@
         inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
         matchesSourceSuffix = matchesSuffix pkgs suffixes path;
       in
-        type == "directory" || (inSubset && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+        if type == "directory"
+        then keepsDirectory pkgs prefixes relPath
+        else inSubset && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md");
     };
 
   exampleSourceSuffixes = [
@@ -111,10 +122,13 @@ in rec {
       filter = path: type: let
         baseName = baseNameOf path;
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
-        inTesting = pkgs.lib.hasPrefix "tooling/aihc-testing/" relPath;
+        prefixes = ["tooling/aihc-testing/"];
+        inTesting = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
         matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal"] path;
       in
-        type == "directory" || (inTesting && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+        if type == "directory"
+        then keepsDirectory pkgs prefixes relPath
+        else inTesting && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md");
     };
 
   primSrc = mkComponentSrc "/core-libs/aihc-prim" [
@@ -152,11 +166,16 @@ in rec {
       src = root;
       filter = path: type: let
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
-        inToolingCommon = pkgs.lib.hasPrefix "tooling/aihc-resolve-tooling-common/" relPath;
-        inResolveCommon = pkgs.lib.hasPrefix "components/aihc-resolve/common/" relPath;
+        prefixes = [
+          "tooling/aihc-resolve-tooling-common/"
+          "components/aihc-resolve/common/"
+        ];
+        inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
         matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal"] path;
       in
-        type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
+        if type == "directory"
+        then keepsDirectory pkgs prefixes relPath
+        else inSubset && matchesSourceSuffix;
     };
 
   tcToolingCommonSrc = pkgs:
@@ -164,13 +183,18 @@ in rec {
       src = root;
       filter = path: type: let
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
-        inToolingCommon = pkgs.lib.hasPrefix "tooling/aihc-tc-tooling-common/" relPath;
-        inTcCommon = pkgs.lib.hasPrefix "components/aihc-tc/common/" relPath;
-        inTcPrimWiring = pkgs.lib.hasPrefix "components/aihc-tc/prim-wiring/" relPath;
-        inTcTest = pkgs.lib.hasPrefix "components/aihc-tc/test/" relPath;
+        prefixes = [
+          "tooling/aihc-tc-tooling-common/"
+          "components/aihc-tc/common/"
+          "components/aihc-tc/prim-wiring/"
+          "components/aihc-tc/test/"
+        ];
+        inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
         matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal"] path;
       in
-        type == "directory" || ((inToolingCommon || inTcCommon || inTcPrimWiring || inTcTest) && matchesSourceSuffix);
+        if type == "directory"
+        then keepsDirectory pkgs prefixes relPath
+        else inSubset && matchesSourceSuffix;
     };
 
   aihcSrc =
@@ -250,17 +274,23 @@ in rec {
       filter = path: type: let
         baseName = baseNameOf path;
         pathStr = toString path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") pathStr;
         isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
         isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
         isHlintConfig = baseName == ".hlint.yaml";
         isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
-        inComponents = pkgs.lib.hasInfix "/components/" pathStr;
-        inTooling = pkgs.lib.hasInfix "/tooling/" pathStr;
-        inBin = pkgs.lib.hasInfix "/bin/" pathStr;
-        inCoreLibs = pkgs.lib.hasInfix "/core-libs/" pathStr;
-        inNixHaskell = pkgs.lib.hasInfix "/scripts/nix/ucd2haskell-aihc/" pathStr;
+        prefixes = [
+          "components/"
+          "tooling/"
+          "bin/"
+          "core-libs/"
+          "scripts/nix/ucd2haskell-aihc/"
+        ];
+        inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
       in
-        type == "directory" || isHlintConfig || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell) && (isCabal || (isHaskell && !isFixture)));
+        if type == "directory"
+        then keepsDirectory pkgs prefixes relPath && !isFixture
+        else isHlintConfig || (inSubset && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Each package has a separate cache entry for format and lint checks.
@@ -312,7 +342,7 @@ in rec {
         # only exists once the install under test has generated it.
         isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" (toString path);
       in
-        !isBuildOutput && (type == "directory" || ((isCSource || isCConfig) && !isFixture));
+        !isBuildOutput && !isFixture && (type == "directory" || isCSource || isCConfig);
     };
 
   # Filtered source for scripts - only shell scripts.

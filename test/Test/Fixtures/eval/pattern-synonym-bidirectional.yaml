@@ -1,3 +1,7 @@
+evaluators:
+  - fc
+  - grin
+  - grin-points-to
 extensions:
   - PatternSynonyms
 modules:
