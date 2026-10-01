@@ -74,6 +74,7 @@ module Data.List.NonEmpty
 where
 
 import Control.Applicative (Alternative (many))
+import Control.Monad.Fix (MonadFix (..), fix)
 import Data.Foldable (Foldable (..))
 import Data.Semigroup (Semigroup (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -133,6 +134,13 @@ instance Monad NonEmpty where
   values >>= next = bindNonEmpty values next
   values >> next = bindNonEmpty values (keepValue next)
   return = singleton
+
+instance MonadFix NonEmpty where
+  mfix f = case fix (f . neHead) of
+    ~(x :| _) -> x :| mfix (neTail . f)
+    where
+      neHead ~(a :| _) = a
+      neTail ~(_ :| as) = as
 
 instance Traversable NonEmpty where
   traverse f (value :| values) = liftA2 (:|) (f value) (traverse f values)
