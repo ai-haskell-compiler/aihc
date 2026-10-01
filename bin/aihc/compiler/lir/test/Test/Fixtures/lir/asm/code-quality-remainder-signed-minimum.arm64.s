@@ -20,8 +20,8 @@ _main:
 	.text
 	.p2align 2
 .Llir_trap_0:
-	adrp x0, .Llir_trap_message_0@PAGE
-	add x0, x0, .Llir_trap_message_0@PAGEOFF
+	adrp x0, .Llir_trap_message_0@GOTPAGE
+	ldr x0, [x0, .Llir_trap_message_0@GOTPAGEOFF]
 	mov x1, #25
 	b .Llir_trap
 	.p2align 2

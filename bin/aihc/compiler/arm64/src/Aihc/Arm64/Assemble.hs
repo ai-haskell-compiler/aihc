@@ -182,6 +182,9 @@ data Arm64Instruction
   | ArmCbnz !Arm64Register !Name
   | ArmAdr !Arm64Register !Name
   | ArmAdrp !Arm64Register !Text
+  | -- | @adrp xd, sym\@GOTPAGE@: the page of the Global Offset Table entry
+    -- of a symbol.
+    ArmAdrpGot !Arm64Register !Text
   | ArmMov !Arm64Register !Arm64Value
   | ArmLdr !Arm64Register !Arm64Address
   | ArmLdrImmediate !Arm64Register !Integer
@@ -190,6 +193,9 @@ data Arm64Instruction
   | ArmStp !Arm64Register !Arm64Register !Arm64Address
   | ArmAdd !Arm64Register !Arm64Register !Arm64Value
   | ArmAddPageOffset !Arm64Register !Arm64Register !Text
+  | -- | @ldr xd, [xn, sym\@GOTPAGEOFF]@: the address of a symbol from its
+    -- Global Offset Table entry.
+    ArmLdrGotPageOffset !Arm64Register !Arm64Register !Text
   | ArmAdds !Arm64Register !Arm64Register !Arm64Value
   | ArmSub !Arm64Register !Arm64Register !Arm64Value
   | ArmSubs !Arm64Register !Arm64Register !Arm64Value
@@ -350,6 +356,7 @@ encodeInstruction instruction =
     ArmCbnz source target -> compareBranch 0x35000000 source target
     ArmAdr destination target -> fixupItem (0x10000000 .|. registerNumber (registerInfo destination)) Arm64Adr21 target
     ArmAdrp destination symbol -> fixupItem (0x90000000 .|. registerNumber (registerInfo destination)) Arm64Page21 (SymbolName symbol)
+    ArmAdrpGot destination symbol -> fixupItem (0x90000000 .|. registerNumber (registerInfo destination)) Arm64GotPage21 (SymbolName symbol)
     ArmMov destination source -> encodeMove (registerInfo destination) source
     ArmLdr destination address -> encodeLoadStore True destination address
     ArmLdrImmediate destination value -> words32 (loadImmediate (registerInfo destination) value)
@@ -360,6 +367,10 @@ encodeInstruction instruction =
       let rd = registerInfo destination
           rn = registerInfo source
        in fixupItem (0x91000000 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd) Arm64PageOffset12 (SymbolName symbol)
+    ArmLdrGotPageOffset destination source symbol ->
+      let rd = registerInfo destination
+          rn = registerInfo source
+       in fixupItem (0xf9400000 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd) Arm64GotPageOffset12 (SymbolName symbol)
     ArmAdd destination source value -> encodeAddSub False False destination source value
     ArmAdds destination source value -> encodeAddSub False True destination source value
     ArmSub destination source value -> encodeAddSub True False destination source value

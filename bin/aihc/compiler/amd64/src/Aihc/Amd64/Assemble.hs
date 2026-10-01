@@ -199,6 +199,9 @@ data Amd64Instruction
   | -- | Zero-extend the low 16 bits of a register into a 64-bit register.
     AmdMovzxWord !Amd64Register !Amd64Rm
   | AmdLea !Amd64Register !Amd64Address
+  | -- | @mov reg, [rip + sym\@GOTPCREL]@: the address of a symbol from its
+    -- Global Offset Table entry.
+    AmdMovGot !Amd64Register !Text
   | AmdAdd !Amd64Rm !Amd64BinarySource
   | AmdSub !Amd64Rm !Amd64BinarySource
   | AmdAnd !Amd64Rm !Amd64BinarySource
@@ -422,6 +425,7 @@ encodeInstruction instruction =
     AmdMovzx destination source -> encodeRegisterSource True [0x0f, 0xb6] destination source
     AmdMovzxWord destination source -> encodeRegisterSource True [0x0f, 0xb7] destination source
     AmdLea destination source -> encodeLea destination source
+    AmdMovGot destination symbol -> encodeMovGot destination symbol
     AmdAdd destination source -> encodeBinary [0x01] 0 destination source
     AmdSub destination source -> encodeBinary [0x29] 5 destination source
     AmdAnd destination source -> encodeBinary [0x21] 4 destination source
@@ -551,6 +555,13 @@ encodeRegisterSource :: Bool -> [Word8] -> Amd64Register -> Amd64Rm -> [Item]
 encodeRegisterSource width64 destinationOpcode destinationSource source =
   let destination = registerInfo destinationSource
    in encodeRm width64 destinationOpcode (registerNumber destination) (rmOperand source) False []
+
+encodeMovGot :: Amd64Register -> Text -> [Item]
+encodeMovGot destinationSource target =
+  let destination = registerInfo destinationSource
+      prefix = rex True (registerNumber destination >= 8) False False
+      modrm = ((registerNumber destination .&. 7) `shiftL` 3) .|. 5
+   in [Bytes (BS.pack [prefix, 0x8b, modrm]), Apply (Fixup X86GotPcRelX (SymbolName target) (-4) 4 0)]
 
 encodeLea :: Amd64Register -> Amd64Address -> [Item]
 encodeLea destinationSource source =

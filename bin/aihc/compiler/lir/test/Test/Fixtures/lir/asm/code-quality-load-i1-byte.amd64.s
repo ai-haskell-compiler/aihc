@@ -1,10 +1,10 @@
 	.text
 	.p2align 4
 main:
-	lea r10, [rip + bytes]
+	mov r10, [rip + bytes@GOTPCREL]
 	movzx rax, [r10]
 	and rax, 0x1
-	lea r10, [rip + bytes]
+	mov r10, [rip + bytes@GOTPCREL]
 	movzx rdx, [r10 + 1]
 	and rdx, 0x1
 	ret

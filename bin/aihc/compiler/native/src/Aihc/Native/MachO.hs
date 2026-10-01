@@ -121,6 +121,8 @@ relocationRecordCount = fmap sum . mapM count
         Arm64Branch26 -> pure (if relocationAddend relocation == 0 then 1 else 2)
         Arm64Page21 -> pure (if relocationAddend relocation == 0 then 1 else 2)
         Arm64PageOffset12 -> pure (if relocationAddend relocation == 0 then 1 else 2)
+        Arm64GotPage21 -> pure 1
+        Arm64GotPageOffset12 -> pure 1
         kind -> Left (ObjectInvalidFixup kind)
 
 -- | The header sets @MH_SUBSECTIONS_VIA_SYMBOLS@: the linker can then
@@ -218,6 +220,8 @@ putSectionRelocations indexes section =
         Arm64Branch26 -> putArmInstruction relocation symbolIndex True 2 2 addend
         Arm64Page21 -> putArmInstruction relocation symbolIndex True 2 3 addend
         Arm64PageOffset12 -> putArmInstruction relocation symbolIndex False 2 4 addend
+        Arm64GotPage21 -> putRecord relocation symbolIndex True True 2 5
+        Arm64GotPageOffset12 -> putRecord relocation symbolIndex True False 2 6
         _ -> pure ()
     putArmInstruction :: Relocation -> Word32 -> Bool -> Word32 -> Word32 -> Int64 -> Put
     putArmInstruction relocation symbolIndex pcRelative lengthValue typeValue addend = do
