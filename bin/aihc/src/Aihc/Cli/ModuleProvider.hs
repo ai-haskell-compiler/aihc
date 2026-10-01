@@ -7,10 +7,11 @@
 module Aihc.Cli.ModuleProvider
   ( InstanceProvider,
     PackageLocator,
+    PackageSource (..),
     ModuleProvider,
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
-    newStoreModuleProvider,
+    newModuleProvider,
     providerPackagesOf,
     providerResolved,
     providerTyped,
@@ -20,7 +21,6 @@ module Aihc.Cli.ModuleProvider
 where
 
 import Aihc.Cli.BuildStamp (ModuleDigests (..), PackageDigests (..), packageDigestsPath, readStamp)
-import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope)
@@ -45,12 +45,25 @@ type InstanceProvider = (PackageId, Text)
 
 -- | Where the package of each identity is. The instances a module sees can
 -- come from a package below the dependencies of its own package.
-type PackageLocator = Map PackageId FilePath
+type PackageLocator = Map PackageId PackageSource
+
+-- | Where the facts of the modules of a package come from: its directory
+-- in the store, or the units that compile it in the same graph.
+data PackageSource
+  = StorePackage !FilePath
+  | GraphPackage
+      { graphResolved :: Text -> IO ResolvedModuleFacts,
+        graphTyped :: Text -> IO TypedModuleFacts,
+        -- | The instance facts the unit of the module declares itself.
+        graphOwnFacts :: Text -> IO TcInterface
+      }
 
 -- | What the resolve phase of a consumer takes from a module.
 data ResolvedModuleFacts = ResolvedModuleFacts
   { resolvedModuleScope :: !Scope,
-    resolvedModuleScopeDigest :: !Text
+    resolvedModuleScopeDigest :: !Text,
+    -- | Whether the module resolved. A module from the store did.
+    resolvedModuleSuccess :: !Bool
   }
 
 -- | What the type phase of a consumer takes from a module.
@@ -61,7 +74,9 @@ data TypedModuleFacts = TypedModuleFacts
     -- covers every unit below it.
     typedModuleFactsDigest :: !Text,
     -- | The modules whose instances the module sees.
-    typedModuleInstanceProviders :: !(Set InstanceProvider)
+    typedModuleInstanceProviders :: !(Set InstanceProvider),
+    -- | Whether the module type checked. A module from the store did.
+    typedModuleSuccess :: !Bool
   }
 
 -- | The modules of the dependency packages, by name, and their facts on
@@ -79,36 +94,37 @@ data ModuleProvider = ModuleProvider
 providerPackagesOf :: ModuleProvider -> Text -> [Package]
 providerPackagesOf provider name = Map.findWithDefault [] name (providerModules provider)
 
--- | A provider over installed packages: the dependencies, each with its
--- manifest and directory, and the locator for every package below them.
-newStoreModuleProvider :: PackageLocator -> [(PackageManifest, FilePath)] -> IO ModuleProvider
-newStoreModuleProvider locator dependencies = do
+-- | A provider over the dependencies of a package, each with the modules
+-- it exposes and where its facts come from, and the locator for every
+-- package below them.
+newModuleProvider :: PackageLocator -> [(Package, [Text], PackageSource)] -> IO ModuleProvider
+newModuleProvider locator dependencies = do
   digestsMemo <- newMemo
   resolvedMemo <- newMemo
   typedMemo <- newMemo
   factsMemo <- newMemo
-  let directories =
+  let sources =
         Map.fromList
-          [ (PackageId (packageManifestUnitId manifest), directory)
-          | (manifest, directory) <- dependencies
+          [ (packageId package, source)
+          | (package, _, source) <- dependencies
           ]
       modules =
         Map.fromListWith
           (flip (<>))
-          [ (name, [Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))])
-          | (manifest, _) <- dependencies,
-            name <- packageManifestModules manifest
+          [ (name, [package])
+          | (package, names, _) <- dependencies,
+            name <- names
           ]
-      locate packageId =
+      locate packageId' =
         maybe
-          (ioError (userError ("The package that provides instances is not installed: " <> T.unpack (packageIdText packageId))))
+          (ioError (userError ("The package that provides instances is not installed: " <> T.unpack (packageIdText packageId'))))
           pure
-          (Map.lookup packageId locator)
-      packageDirectory package =
+          (Map.lookup packageId' locator)
+      packageSource package =
         maybe
           (ioError (userError ("The module is not from a dependency package: " <> T.unpack (packageIdText (packageId package)))))
           pure
-          (Map.lookup (packageId package) directories)
+          (Map.lookup (packageId package) sources)
       packageDigests directory =
         digestsMemo directory $
           readStamp (packageDigestsPath directory)
@@ -126,30 +142,39 @@ newStoreModuleProvider locator dependencies = do
           pure artifact
       resolved key@(ModuleKey package name) =
         resolvedMemo key $ do
-          directory <- packageDirectory package
-          digests <- moduleDigests directory name
-          let path = directory </> moduleNameDirectory name </> "resolve.cbor"
-          bytes <- BS.readFile path
-          artifact <- either (ioError . userError . (("Invalid resolve artifact " <> path <> ": ") <>)) pure (decodeResolveArtifact bytes)
-          unless (resolveArtifactModuleName artifact == name) (ioError (userError ("Resolve artifact module name does not match " <> path)))
-          evaluate (force (ResolvedModuleFacts (resolveArtifactScope artifact) (moduleScopeDigest digests)))
+          source <- packageSource package
+          case source of
+            GraphPackage {graphResolved} -> graphResolved name
+            StorePackage directory -> do
+              digests <- moduleDigests directory name
+              let path = directory </> moduleNameDirectory name </> "resolve.cbor"
+              bytes <- BS.readFile path
+              artifact <- either (ioError . userError . (("Invalid resolve artifact " <> path <> ": ") <>)) pure (decodeResolveArtifact bytes)
+              unless (resolveArtifactModuleName artifact == name) (ioError (userError ("Resolve artifact module name does not match " <> path)))
+              evaluate (force (ResolvedModuleFacts (resolveArtifactScope artifact) (moduleScopeDigest digests) True))
       typed key@(ModuleKey package name) =
         typedMemo key $ do
-          directory <- packageDirectory package
-          digests <- moduleDigests directory name
-          let path = directory </> moduleNameDirectory name </> "type.cbor"
-          artifact <- readTypeArtifactFile path
-          unless (typeArtifactModuleName artifact == name) (ioError (userError ("Type artifact module name does not match " <> path)))
-          facts <- factsArtifact (directory </> moduleFactsArtifact digests)
-          let providers = Set.fromList (Map.findWithDefault [] name (typeArtifactInstanceProviders facts))
-          evaluate (force (TypedModuleFacts (typeArtifactInterface artifact) (moduleTypeDigest digests) (moduleFactsDigest digests) providers))
+          source <- packageSource package
+          case source of
+            GraphPackage {graphTyped} -> graphTyped name
+            StorePackage directory -> do
+              digests <- moduleDigests directory name
+              let path = directory </> moduleNameDirectory name </> "type.cbor"
+              artifact <- readTypeArtifactFile path
+              unless (typeArtifactModuleName artifact == name) (ioError (userError ("Type artifact module name does not match " <> path)))
+              facts <- factsArtifact (directory </> moduleFactsArtifact digests)
+              let providers = Set.fromList (Map.findWithDefault [] name (typeArtifactInstanceProviders facts))
+              evaluate (force (TypedModuleFacts (typeArtifactInterface artifact) (moduleTypeDigest digests) (moduleFactsDigest digests) providers True))
       instanceFacts providers = do
         let byPackage = Map.fromListWith (<>) [(packageId', [name]) | (packageId', name) <- Set.toList providers]
         interfaces <- forM (Map.toList byPackage) $ \(packageId', names) -> do
-          directory <- locate packageId'
-          digests <- packageDigests directory
-          let paths = nub [moduleFactsArtifact entry | name <- names, Just entry <- [Map.lookup name (packageDigestsModules digests)]]
-          forM paths $ \path -> typeArtifactInterface <$> factsArtifact (directory </> path)
+          source <- locate packageId'
+          case source of
+            GraphPackage {graphOwnFacts} -> mapM graphOwnFacts names
+            StorePackage directory -> do
+              digests <- packageDigests directory
+              let paths = nub [moduleFactsArtifact entry | name <- names, Just entry <- [Map.lookup name (packageDigestsModules digests)]]
+              forM paths $ \path -> typeArtifactInterface <$> factsArtifact (directory </> path)
         pure (mergeTcInterfaces TrustMergedFacts (concat interfaces))
   pure
     ModuleProvider
@@ -193,8 +218,8 @@ moduleNameDirectory :: Text -> FilePath
 moduleNameDirectory = foldl (</>) "" . map T.unpack . T.splitOn "."
 
 instance NFData ResolvedModuleFacts where
-  rnf (ResolvedModuleFacts scope digest) = rnf scope `seq` rnf digest
+  rnf (ResolvedModuleFacts scope digest success) = rnf scope `seq` rnf digest `seq` rnf success
 
 instance NFData TypedModuleFacts where
-  rnf (TypedModuleFacts interface typeDigest factsDigest providers) =
-    rnf interface `seq` rnf typeDigest `seq` rnf factsDigest `seq` rnf providers
+  rnf (TypedModuleFacts interface typeDigest factsDigest providers success) =
+    rnf interface `seq` rnf typeDigest `seq` rnf factsDigest `seq` rnf providers `seq` rnf success

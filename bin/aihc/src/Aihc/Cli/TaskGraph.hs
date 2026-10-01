@@ -1,11 +1,15 @@
 module Aihc.Cli.TaskGraph
   ( Task (..),
+    TaskGraph,
     TaskId (..),
     TaskKind (..),
     TaskTiming (..),
+    addTasks,
+    allocateTaskIds,
     renderDuration,
     renderTaskTimeline,
     runTaskGraph,
+    runTaskGraphWith,
   )
 where
 
@@ -17,10 +21,12 @@ import Control.Concurrent.STM
     modifyTVar',
     newTVarIO,
     readTVar,
+    readTVarIO,
     retry,
     writeTVar,
   )
 import Control.Exception (SomeException, throwIO, try)
+import Control.Monad (unless, when)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
@@ -39,7 +45,9 @@ newtype TaskId = TaskId Int
   deriving (Eq, Ord, Show)
 
 data TaskKind
-  = TaskTypeCheck
+  = -- | A task of a package as a whole: prepare, partition, or finish.
+    TaskPackage
+  | TaskTypeCheck
   | TaskResolve
   | TaskParse
   | TaskBackend
@@ -51,10 +59,11 @@ instance Ord TaskKind where
 taskKindPriority :: TaskKind -> Int
 taskKindPriority kind =
   case kind of
-    TaskTypeCheck -> 0
-    TaskResolve -> 1
-    TaskParse -> 2
-    TaskBackend -> 3
+    TaskPackage -> 0
+    TaskTypeCheck -> 1
+    TaskResolve -> 2
+    TaskParse -> 3
+    TaskBackend -> 4
 
 data Task = Task
   { taskId :: !TaskId,
@@ -80,46 +89,77 @@ data TaskState = TaskState
   { stateReady :: !(Set ReadyTask),
     stateWaitCounts :: !(Map TaskId Int),
     stateDependents :: !(Map TaskId [TaskId]),
+    -- | The tasks that ran, which a task added later can depend on.
+    stateCompleted :: !(Set TaskId),
+    -- | The tasks added and not yet run, the running ones among them.
     stateRemaining :: !Int
   }
 
+-- | A graph that runs. A task that runs can add tasks to it, each with
+-- dependencies on tasks already in the graph, run or not. The graph ends
+-- when every task added has run, so a task that adds tasks does so before
+-- it ends.
+data TaskGraph = TaskGraph
+  { graphTasks :: !(TVar (Map TaskId Task)),
+    graphState :: !(TVar TaskState),
+    graphNextId :: !(TVar Int),
+    graphTimings :: !(IORef [TaskTiming])
+  }
+
 runTaskGraph :: Int -> [Task] -> IO [TaskTiming]
-runTaskGraph requestedWorkers tasks = do
-  taskMap <- validateTasks tasks
-  state <- newTVarIO (initialTaskState tasks)
-  timings <- newIORef []
-  mapConcurrently_ (runWorker taskMap state timings) [1 .. max 1 requestedWorkers]
-  sortOn timingStart <$> readIORef timings
+runTaskGraph requestedWorkers tasks = runTaskGraphWith requestedWorkers (`addTasks` tasks)
 
--- | Check what the caller can get wrong when it numbers its tasks. A cycle
--- is not among it: the callers build their graphs from a dependency order
--- that is already acyclic, and a phase of a unit only ever waits on an
--- earlier phase of the same unit or on a unit before it.
-validateTasks :: [Task] -> IO (Map TaskId Task)
-validateTasks tasks = do
-  let taskMap = Map.fromList [(taskId task, task) | task <- tasks]
-      knownIds = Map.keysSet taskMap
-      duplicateCount = length tasks - Map.size taskMap
-      missingIds = Set.unions (map taskDependencies tasks) Set.\\ knownIds
-  case () of
-    _
-      | duplicateCount /= 0 -> ioError (userError "Task graph has duplicate task identifiers")
-      | not (Set.null missingIds) -> ioError (userError ("Task graph has missing dependencies: " <> show (Set.toAscList missingIds)))
-      | otherwise -> pure taskMap
+-- | Run a graph that the seed action fills. The seed runs before the
+-- workers start, and its tasks add the rest.
+runTaskGraphWith :: Int -> (TaskGraph -> IO ()) -> IO [TaskTiming]
+runTaskGraphWith requestedWorkers seed = do
+  graph <-
+    TaskGraph
+      <$> newTVarIO Map.empty
+      <*> newTVarIO (TaskState Set.empty Map.empty Map.empty Set.empty 0)
+      <*> newTVarIO 0
+      <*> newIORef []
+  seed graph
+  mapConcurrently_ (runWorker graph) [1 .. max 1 requestedWorkers]
+  sortOn timingStart <$> readIORef (graphTimings graph)
 
-initialTaskState :: [Task] -> TaskState
-initialTaskState tasks =
-  TaskState
-    { stateReady =
-        Set.fromList
-          [ readyTask task
-          | task <- tasks,
-            Set.null (taskDependencies task)
-          ],
-      stateWaitCounts = Map.fromList [(taskId task, Set.size (taskDependencies task)) | task <- tasks],
-      stateDependents = foldl' addTaskDependents Map.empty tasks,
-      stateRemaining = length tasks
-    }
+-- | A range of identifiers no other task of the graph has: the first of
+-- @count@ consecutive ones.
+allocateTaskIds :: TaskGraph -> Int -> IO Int
+allocateTaskIds graph count =
+  atomically $ do
+    next <- readTVar (graphNextId graph)
+    writeTVar (graphNextId graph) (next + count)
+    pure next
+
+-- | Add tasks to the graph. Each dependency is a task of the graph, added
+-- before or in this call. A cycle among the tasks is not checked: the
+-- callers build their graphs from a dependency order that is already
+-- acyclic, and a phase of a unit only ever waits on an earlier phase of
+-- the same unit or on a unit before it.
+addTasks :: TaskGraph -> [Task] -> IO ()
+addTasks graph tasks = do
+  known <- readTVarIO (graphTasks graph)
+  let added = Map.fromList [(taskId task, task) | task <- tasks]
+      duplicateCount = length tasks - Map.size added
+      duplicates = Map.keysSet (Map.intersection known added)
+      missingIds = Set.unions (map taskDependencies tasks) Set.\\ (Map.keysSet known <> Map.keysSet added)
+  when (duplicateCount /= 0 || not (Set.null duplicates)) $
+    ioError (userError "Task graph has duplicate task identifiers")
+  unless (Set.null missingIds) $
+    ioError (userError ("Task graph has missing dependencies: " <> show (Set.toAscList missingIds)))
+  atomically $ do
+    modifyTVar' (graphTasks graph) (Map.union added)
+    modifyTVar' (graphState graph) (\state -> foldl' addTask state tasks)
+  where
+    addTask state task =
+      let waiting = Set.size (taskDependencies task Set.\\ stateCompleted state)
+       in state
+            { stateReady = if waiting == 0 then Set.insert (readyTask task) (stateReady state) else stateReady state,
+              stateWaitCounts = Map.insert (taskId task) waiting (stateWaitCounts state),
+              stateDependents = addTaskDependents (stateDependents state) task,
+              stateRemaining = stateRemaining state + 1
+            }
 
 addTaskDependents :: Map TaskId [TaskId] -> Task -> Map TaskId [TaskId]
 addTaskDependents dependents task =
@@ -131,22 +171,23 @@ addTaskDependents dependents task =
 readyTask :: Task -> ReadyTask
 readyTask task = ReadyTask (taskKind task) (taskOrder task) (taskId task)
 
-runWorker :: Map TaskId Task -> TVar TaskState -> IORef [TaskTiming] -> Int -> IO ()
-runWorker taskMap state timings worker = do
-  next <- atomically (takeReadyTask state)
+runWorker :: TaskGraph -> Int -> IO ()
+runWorker graph worker = do
+  next <- atomically (takeReadyTask (graphState graph))
   case next of
     Nothing -> pure ()
     Just ready@(ReadyTask kind _ identifier) -> do
+      taskMap <- readTVarIO (graphTasks graph)
       let task = fromMaybe (error "missing ready task") (Map.lookup identifier taskMap)
       started <- getMonotonicTimeNSec
       result <- try (taskAction task)
       ended <- getMonotonicTimeNSec
-      atomicModifyIORef' timings (\items -> (TaskTiming worker identifier kind started ended : items, ()))
+      atomicModifyIORef' (graphTimings graph) (\items -> (TaskTiming worker identifier kind started ended : items, ()))
       case result of
         Left exception -> throwIO (exception :: SomeException)
         Right () -> do
-          atomically (completeTask taskMap state ready)
-          runWorker taskMap state timings worker
+          atomically (completeTask graph ready)
+          runWorker graph worker
 
 takeReadyTask :: TVar TaskState -> STM (Maybe ReadyTask)
 takeReadyTask stateVar = do
@@ -159,20 +200,23 @@ takeReadyTask stateVar = do
       | stateRemaining state == 0 -> pure Nothing
       | otherwise -> retry
 
-completeTask :: Map TaskId Task -> TVar TaskState -> ReadyTask -> STM ()
-completeTask taskMap stateVar (ReadyTask _ _ identifier) =
-  modifyTVar' stateVar complete
+completeTask :: TaskGraph -> ReadyTask -> STM ()
+completeTask graph (ReadyTask _ _ identifier) = do
+  taskMap <- readTVar (graphTasks graph)
+  modifyTVar' (graphState graph) (complete taskMap)
   where
-    complete state =
+    complete taskMap state =
       let dependents = Map.findWithDefault [] identifier (stateDependents state)
-          (waitCounts, newlyReady) = foldl' unlock (stateWaitCounts state, []) dependents
+          (waitCounts, newlyReady) = foldl' (unlock taskMap) (stateWaitCounts state, []) dependents
        in state
             { stateReady = stateReady state <> Set.fromList newlyReady,
               stateWaitCounts = waitCounts,
+              stateDependents = Map.delete identifier (stateDependents state),
+              stateCompleted = Set.insert identifier (stateCompleted state),
               stateRemaining = stateRemaining state - 1
             }
 
-    unlock (waitCounts, ready) dependent =
+    unlock taskMap (waitCounts, ready) dependent =
       let nextCount = Map.findWithDefault 0 dependent waitCounts - 1
           nextWaitCounts = Map.insert dependent nextCount waitCounts
        in if nextCount == 0
@@ -194,7 +238,7 @@ renderTaskTimeline useColor phases timings =
         <> [ "Frontend time: " <> renderDuration frontend,
              "Compile time: " <> renderDuration total
            ]
-        <> map renderKindTotal [TaskParse, TaskResolve, TaskTypeCheck, TaskBackend]
+        <> map renderKindTotal [TaskPackage, TaskParse, TaskResolve, TaskTypeCheck, TaskBackend]
     )
   where
     start = minimum (map timingStart timings)
@@ -228,7 +272,8 @@ renderTaskTimeline useColor phases timings =
     axis = replicate (7 + labelWidth + 2) ' ' <> "0" <> replicate (width - 2) ' ' <> renderDuration total
     renderLegend =
       unwords
-        [ kindSymbol useColor TaskParse <> "=parse",
+        [ kindSymbol useColor TaskPackage <> "=package",
+          kindSymbol useColor TaskParse <> "=parse",
           kindSymbol useColor TaskResolve <> "=resolve",
           kindSymbol useColor TaskTypeCheck <> "=type-check",
           kindSymbol useColor TaskBackend <> "=backend",
@@ -256,6 +301,7 @@ kindSymbol useColor kind = colorize useColor (kindColor kind) [kindGlyph kind]
 kindGlyph :: TaskKind -> Char
 kindGlyph kind =
   case kind of
+    TaskPackage -> '▆'
     TaskParse -> '▁'
     TaskResolve -> '▂'
     TaskTypeCheck -> '▄'
@@ -264,6 +310,7 @@ kindGlyph kind =
 kindColor :: TaskKind -> String
 kindColor kind =
   case kind of
+    TaskPackage -> "33"
     TaskParse -> "37"
     TaskResolve -> "32"
     TaskTypeCheck -> "34"
