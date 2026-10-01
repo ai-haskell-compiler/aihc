@@ -91,6 +91,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-backend = {
+      src = sources.backendSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc = {
       src = sources.aihcSrc;
       cabal2nixOptions = {

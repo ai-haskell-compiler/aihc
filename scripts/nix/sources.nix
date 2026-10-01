@@ -232,6 +232,12 @@ in rec {
       ".hsc"
     ];
 
+  backendSrc = mkComponentSrc "/bin/aihc-backend" [
+    ".hs"
+    ".hs-boot"
+    ".cabal"
+  ];
+
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
 
   coreLibrariesSrc = mkRootSubsetSrc ["core-libs/"] coreLibrarySourceSuffixes;

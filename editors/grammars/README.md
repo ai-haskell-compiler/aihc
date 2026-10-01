@@ -6,8 +6,8 @@ The VS Code extension in `editors/vscode-lir` and the AIHC Manual use them.
 | Language | Grammar | Scope name | Reference |
 | --- | --- | --- | --- |
 | System FC | `syntaxes/fc.tmLanguage.json` | `source.aihc-fc` | `bin/aihc/compiler/fc/src/Aihc/Fc/Pretty.hs` |
-| GRIN | `syntaxes/grin.tmLanguage.json` | `source.aihc-grin` | `bin/aihc/compiler/grin/src/Aihc/Grin/Pretty.hs` |
-| LIR | `syntaxes/lir.tmLanguage.json` | `source.lir` | `docs/lir.md` and `bin/aihc/compiler/lir/src/Aihc/Lir/Parser.hs` |
+| GRIN | `syntaxes/grin.tmLanguage.json` | `source.aihc-grin` | `bin/aihc-backend/grin/src/Aihc/Grin/Pretty.hs` |
+| LIR | `syntaxes/lir.tmLanguage.json` | `source.lir` | `docs/lir.md` and `bin/aihc-backend/lir/src/Aihc/Lir/Parser.hs` |
 
 The grammars use standard TextMate scopes, so existing themes can select colors.
 They do not check types or report compiler errors.

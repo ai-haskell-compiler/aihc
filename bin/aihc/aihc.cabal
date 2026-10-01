@@ -130,12 +130,6 @@ custom-setup
 
 library
   exposed-modules:
-    Aihc.Amd64.Assemble
-    Aihc.Amd64.Lir
-    Aihc.Amd64.Text
-    Aihc.Arm64.Assemble
-    Aihc.Arm64.Lir
-    Aihc.Arm64.Text
     Aihc.Capi
     Aihc.Cli
     Aihc.Cli.ArtifactCache
@@ -186,32 +180,7 @@ library
     Aihc.Fc.Wired
     Aihc.Fc.WorkerWrapper
     Aihc.Grin
-    Aihc.Grin.Anf
-    Aihc.Grin.Cps
-    Aihc.Grin.Dce
-    Aihc.Grin.Gc
-    Aihc.Grin.Heap
-    Aihc.Grin.Lint
     Aihc.Grin.Lower
-    Aihc.Grin.Parser
-    Aihc.Grin.PointsTo
-    Aihc.Grin.Pretty
-    Aihc.Grin.Primitive
-    Aihc.Grin.Simplify
-    Aihc.Grin.Srt
-    Aihc.Grin.Syntax
-    Aihc.Grin.Tidy
-    Aihc.Lir
-    Aihc.Lir.Inline
-    Aihc.Lir.Lint
-    Aihc.Lir.Lower
-    Aihc.Lir.Parser
-    Aihc.Lir.Pretty
-    Aihc.Lir.RegAlloc
-    Aihc.Lir.Resolve
-    Aihc.Lir.Syntax
-    Aihc.Llvm.Lir
-    Aihc.Native
     Aihc.Prim.Wiring
     Aihc.Wasm
     Aihc.Wasm.ControlFlow
@@ -224,16 +193,6 @@ library
     Aihc.CompilerBuildIdentity
     Aihc.DataFiles
     Aihc.Fc.Desugar.Value
-    Aihc.Grin.Analysis
-    Aihc.Lir.Convert
-    Aihc.Lir.Flat
-    Aihc.Native.Elf
-    Aihc.Native.Emit
-    Aihc.Native.Lir
-    Aihc.Native.MachO
-    Aihc.Native.Move
-    Aihc.Native.Object
-    Aihc.Native.ObjectWriter
     Paths_aihc
 
   autogen-modules:
@@ -243,17 +202,13 @@ library
   hs-source-dirs:
     src
     ../../components/aihc-tc/prim-wiring
-    compiler/amd64/src
-    compiler/arm64/src
     compiler/fc/src
     compiler/grin/src
-    compiler/lir/src
-    compiler/llvm/src
-    compiler/native/src
     compiler/wasm/src
 
   build-depends:
     aeson >=2.0 && <2.3,
+    aihc-backend,
     aihc-cabal-syntax >=2.0 && <2.1,
     aihc-cpp,
     aihc-hackage,
@@ -335,6 +290,7 @@ executable aihc-dev
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc,
+    aihc-backend,
     aihc-cabal-syntax >=2.0 && <2.1,
     aihc-hackage,
     aihc-package-plan,
@@ -444,6 +400,7 @@ test-suite spec
   build-depends:
     aeson,
     aihc,
+    aihc-backend,
     aihc-hackage,
     aihc-package-plan,
     aihc-parser,
@@ -500,6 +457,7 @@ test-suite dev-spec
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc,
+    aihc-backend,
     aihc-cabal-syntax >=2.0 && <2.1,
     aihc-hackage,
     aihc-internal,
