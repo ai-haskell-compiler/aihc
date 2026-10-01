@@ -43,6 +43,7 @@ Do not put the same domain in two components.
 | `aihc-tc` | Resolved surface AST | The same surface AST with types, kinds, evidence, and type diagnostics | Haskell type checks only |
 | `aihc:compiler` FC modules | Type-checked surface AST | System FC program and System FC diagnostics | Desugaring and System FC only |
 | `aihc:compiler` GRIN modules | System FC program | Strict GRIN program and GRIN diagnostics | Closure conversion, runtime operations, and GRIN transformations only |
+| `aihc-backend` | GRIN program | Lir program, object code, LLVM IR, and backend diagnostics | GRIN transformations, Lir, and code generation only |
 
 Do not duplicate an upstream responsibility in a downstream component.
 Do not do name resolution in `aihc-tc`.
@@ -53,6 +54,11 @@ If a downstream component needs upstream facts, change the upstream component.
 Then, use its output in the downstream component.
 For example, an FC feature can need new Haskell type information.
 In this case, change `aihc-tc` and do not add local type checks to the FC modules.
+
+The `aihc-backend` package holds the GRIN transformations, Lir, and the backends.
+It must not depend on `aihc-tc` or `aihc-resolve`.
+The lowering from System FC to GRIN stays in `aihc`, because it reads System FC.
+A type checker change then does not rebuild `aihc-backend`.
 
 The GRIN modules must keep the semantics that System FC gives.
 It can remove types and coercions.

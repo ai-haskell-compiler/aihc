@@ -1,0 +1,86 @@
+cabal-version: 3.8
+name: aihc-backend
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: The AIHC backends from GRIN to object code
+description:
+  The GRIN transformations, the Lir intermediate language, and the native,
+  LLVM, and assembler backends of AIHC. The package does not depend on the
+  type checker, so a type checker change does not rebuild it.
+
+library
+  exposed-modules:
+    Aihc.Amd64.Assemble
+    Aihc.Amd64.Lir
+    Aihc.Amd64.Text
+    Aihc.Arm64.Assemble
+    Aihc.Arm64.Lir
+    Aihc.Arm64.Text
+    Aihc.Grin.Analysis
+    Aihc.Grin.Anf
+    Aihc.Grin.Cps
+    Aihc.Grin.Dce
+    Aihc.Grin.Gc
+    Aihc.Grin.Heap
+    Aihc.Grin.Lint
+    Aihc.Grin.Parser
+    Aihc.Grin.PointsTo
+    Aihc.Grin.Pretty
+    Aihc.Grin.Primitive
+    Aihc.Grin.Simplify
+    Aihc.Grin.Srt
+    Aihc.Grin.Syntax
+    Aihc.Grin.Tidy
+    Aihc.Lir
+    Aihc.Lir.Convert
+    Aihc.Lir.Flat
+    Aihc.Lir.Inline
+    Aihc.Lir.Lint
+    Aihc.Lir.Lower
+    Aihc.Lir.Parser
+    Aihc.Lir.Pretty
+    Aihc.Lir.RegAlloc
+    Aihc.Lir.Resolve
+    Aihc.Lir.Syntax
+    Aihc.Llvm.Lir
+    Aihc.Native
+    Aihc.Native.Elf
+    Aihc.Native.Emit
+    Aihc.Native.Lir
+    Aihc.Native.MachO
+    Aihc.Native.Move
+    Aihc.Native.Object
+    Aihc.Native.ObjectWriter
+
+  hs-source-dirs:
+    amd64/src
+    arm64/src
+    grin/src
+    lir/src
+    llvm/src
+    native/src
+
+  build-depends:
+    array >=0.5 && <0.6,
+    base >=4.16 && <5,
+    binary >=0.8 && <0.9,
+    bytestring >=0.10.8 && <0.13,
+    containers >=0.5 && <0.9,
+    directory >=1.2.3 && <1.5,
+    filepath >=1.3.0.1 && <1.6,
+    megaparsec >=9.0 && <10,
+    prettyprinter,
+    primitive >=0.9 && <0.10,
+    process >=1.6 && <1.8,
+    text >=2.1.4 && <2.2,
+    transformers,
+    vector >=0.13 && <0.14,
+
+  default-extensions: OverloadedStrings
+  ghc-options: -Wall
+  default-language: GHC2021

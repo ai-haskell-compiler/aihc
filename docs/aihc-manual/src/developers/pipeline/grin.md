@@ -4,7 +4,7 @@ GRIN (Graph Reduction Intermediate Notation) is a strict, first-order language w
 The GRIN modules lower System FC to GRIN.
 Then, they lower GRIN to Lir.
 
-The code is in `bin/aihc/compiler/grin/src/Aihc/Grin/`.
+The code is in `bin/aihc-backend/grin/src/Aihc/Grin/`, and the lowering from System FC is in `bin/aihc/compiler/grin/src/Aihc/Grin/Lower.hs`.
 The design document is [docs/cps-grin.md](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/cps-grin.md).
 
 ## Properties

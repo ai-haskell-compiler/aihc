@@ -13,7 +13,7 @@ units that have moved. After the move, the optimizer sees one program without a
 boundary between user code and runtime code.
 
 This document is the specification. The implementation lives in
-`bin/aihc/compiler/lir`. The specification and the implementation change
+`bin/aihc-backend/lir`. The specification and the implementation change
 together.
 
 Every target consumes Lir. The module `Aihc.Lir.Lower` lowers GC-GRIN to Lir.

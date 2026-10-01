@@ -5,6 +5,7 @@ packages:
   core-libs/aihc-rts
   core-libs/aihc-template-haskell
   bin/aihc
+  bin/aihc-backend
   components/aihc-resolve
   components/aihc-tc
   bin/aihc-fmt
