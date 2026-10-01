@@ -1,0 +1,107 @@
+extensions:
+  - ConstraintKinds
+  - DataKinds
+  - FlexibleContexts
+  - KindSignatures
+  - PolyKinds
+  - ScopedTypeVariables
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, PolyKinds, ScopedTypeVariables, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Bool (..))
+    data Proxy (t :: k) = Proxy
+    class Truthy a where
+      truthy :: a -> Bool
+    instance Truthy Bool where
+      truthy b = b
+    -- The kind of @c@ comes from the constraint @c a@: it is
+    -- @Type -> Constraint@, and @Proxy c@ instantiates @k@ to it.
+    class KnownCtxt c where
+      inj :: c a => Proxy c -> a -> Bool
+    instance KnownCtxt Truthy where
+      inj _ = truthy
+    -- The result kind of the family comes from its equation: it is
+    -- @Type -> Constraint@, and @Proxy (Ctxt b)@ instantiates @k@ to it.
+    type family Ctxt (b :: Bool) where
+      Ctxt b = Truthy
+    injCtxt :: forall b a. (Ctxt b a, KnownCtxt (Ctxt b)) => Proxy b -> a -> Bool
+    injCtxt _ = inj (Proxy :: Proxy (Ctxt b))
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: 2.sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tProxy (k : 2.sType) (t : k) :: 2.sType {
+      pub 1.cProxy :: ∀(k : 2.sType) (t : k). 1.tProxy k t
+  }
+
+  pub type 1.t$Dict$Truthy (a : 2.sType) :: 2.sType {
+      pub 1.c$Dict$Truthy :: ∀(a : 2.sType). (a 2.→ 2.tBool) 2.→ 1.t$Dict$Truthy a
+  }
+
+  pub type 1.t$Dict$KnownCtxt (c : 2.sType 2.→ 2.sType) :: 2.sType {
+      pub 1.c$Dict$KnownCtxt :: ∀(c : 2.sType 2.→ 2.sType). (∀(a : 2.sType). c a 2.→ 1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.sType) c 2.→ a 2.→ 2.tBool) 2.→ 1.t$Dict$KnownCtxt c
+  }
+
+  pub type 1.tCtxt (b : 2.tBool) :: 2.sType 2.→ 2.sType @N {}
+
+  axiom 1.$ax$Ctxt$0 (b : 2.tBool) : 1.tCtxt b ~N 1.t$Dict$Truthy
+
+  pub val 1.vtruthy :: ∀(a : 2.sType). 1.t$Dict$Truthy a 2.→ a 2.→ 2.tBool
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$Truthy a).
+      case $d0 as ($dict : 1.t$Dict$Truthy a) return (a 2.→ 2.tBool) of {
+          1.c$Dict$Truthy ($method0 : a 2.→ 2.tBool) →
+              $method0
+      }
+
+  pub val 1.vinj :: ∀(c : 2.sType 2.→ 2.sType) (a : 2.sType). 1.t$Dict$KnownCtxt c 2.→ c a 2.→ 1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.sType) c 2.→ a 2.→ 2.tBool
+   = Λ(c : 2.sType 2.→ 2.sType).
+    Λ(a : 2.sType).
+      λ($d0 : 1.t$Dict$KnownCtxt c).
+        λ($d1 : c a).
+          case $d0 as ($dict : 1.t$Dict$KnownCtxt c) return (1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.sType) c 2.→ a 2.→ 2.tBool) of {
+              1.c$Dict$KnownCtxt ($method0 : ∀(a{1} : 2.sType). c a{1} 2.→ 1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.sType) c 2.→ a{1} 2.→ 2.tBool) →
+                  $method0 @a $d1
+          }
+
+  pub val 1.v$fTruthyBool :: 1.t$Dict$Truthy 2.tBool
+   = 1.c$Dict$Truthy @2.tBool 1.v$fTruthyBool$ctruthy
+
+  val 1.v$fTruthyBool$ctruthy :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    x
+
+  pub val 1.v$fKnownCtxtTruthy :: 1.t$Dict$KnownCtxt 1.t$Dict$Truthy
+   = 1.c$Dict$KnownCtxt @1.t$Dict$Truthy 1.v$fKnownCtxtTruthy$cinj
+
+  val 1.v$fKnownCtxtTruthy$cinj :: ∀(a : 2.sType). 1.t$Dict$Truthy a 2.→ 1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.sType) 1.t$Dict$Truthy 2.→ a 2.→ 2.tBool
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$Truthy a).
+      λ(x : 1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.sType) 1.t$Dict$Truthy).
+        1.vtruthy @a $d0
+
+  pub val 1.vinjCtxt :: ∀(b : 2.tBool) (a : 2.sType). 1.tCtxt b a 2.→ 1.t$Dict$KnownCtxt (1.tCtxt b) 2.→ 1.tProxy 2.tBool b 2.→ a 2.→ 2.tBool
+   = Λ(b : 2.tBool).
+    Λ(a : 2.sType).
+      λ($d0 : 1.tCtxt b a).
+        λ($d1 : 1.t$Dict$KnownCtxt (1.tCtxt b)).
+          λ(x : 1.tProxy 2.tBool b).
+            1.vinj @1.t$Dict$Truthy @a $d1 $d0 (1.cProxy @(2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.sType) @1.t$Dict$Truthy)
+status: pass
+reason: a kind argument with a constraint in it, as Proxy takes for a class variable or a constraint family, erases the constraint to Type, and the lint accepts it

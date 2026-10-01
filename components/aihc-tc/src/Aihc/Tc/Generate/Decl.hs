@@ -146,6 +146,7 @@ import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
+import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
@@ -2485,11 +2486,15 @@ methodExpectedScheme classInfo headTys methodName =
                 | tyVar <- tyVars,
                   not (Map.member (tvUnique tyVar) subst)
                 ]
+          -- A method context can apply a class variable: @c a@ in
+          -- @class KnownMinCtxt c where inj :: c a => ...@. At the head
+          -- @Num@, it is the class predicate @Num a@.
+          predicates' <- mapM (reclassifyIrreduciblePred . applySubstPred subst) methodPredicates
           pure
             ( Scheme
                 (unsubstituted inferred)
                 (unsubstituted specified)
-                (map (applySubstPred subst) methodPredicates)
+                predicates'
                 (applySubst subst body)
             )
         Nothing -> missingTypeInfo ("class method receiver for " <> T.unpack methodName)
