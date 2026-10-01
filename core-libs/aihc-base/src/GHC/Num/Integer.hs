@@ -18,6 +18,8 @@ module GHC.Num.Integer
     integerPowMod#,
     integerLog2#,
     integerLogBase#,
+    integerShiftL#,
+    integerShiftR#,
     integerSizeInBase#,
     integerFromAddr#,
     integerToAddr#,
@@ -27,9 +29,10 @@ module GHC.Num.Integer
 where
 
 import GHC.Internal.Integer (Integer (..), integerFromMagnitude#, integerFromWord#, integerLog2#, integerLogBase#)
+import GHC.Internal.Integer qualified as Internal
 import GHC.Num.BigNat (BigNat (..), BigNat#, bigNatCheck#, bigNatFromAddr#, bigNatFromByteArray#, bigNatFromWord#, bigNatSizeInBase#, bigNatToAddr#, bigNatToMutableByteArray#, bigNatZero)
 import GHC.Num.Primitives (Bool#)
-import GHC.Prim (Addr#, ByteArray#, MutableByteArray#, State#, Word#, int2Word#, (<#))
+import GHC.Prim (Addr#, ByteArray#, MutableByteArray#, State#, Word#, int2Word#, word2Int#, (<#))
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
 import Prelude (Eq (..), Integral (..), Num (..), Ord (..), gcd, lcm, odd, otherwise)
 
@@ -75,6 +78,15 @@ integerMagnitude# value = integerToBigNatClamp# (abs value)
 -- | The non-positive 'Integer' with the magnitude of a word.
 integerFromWordNeg# :: Word# -> Integer
 integerFromWordNeg# word = negate (integerFromWord# 1# word)
+
+-- | Shift an 'Integer' to the left by a number of bits.
+integerShiftL# :: Integer -> Word# -> Integer
+integerShiftL# value count = Internal.integerShiftL# value (word2Int# count)
+
+-- | Shift an 'Integer' to the right by a number of bits.
+-- The result rounds to negative infinity.
+integerShiftR# :: Integer -> Word# -> Integer
+integerShiftR# value count = Internal.integerShiftR# value (word2Int# count)
 
 -- | The 'Integer' with the same value as a 'Natural'.
 integerFromNatural :: Natural -> Integer

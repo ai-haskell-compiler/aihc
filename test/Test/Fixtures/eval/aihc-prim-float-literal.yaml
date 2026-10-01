@@ -1,0 +1,32 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int
+
+    doubleBits :: Double# -> Int
+    doubleBits value = I# (word2Int# (word64ToWord# (castDoubleToWord64# value)))
+
+    floatBits :: Float# -> Int
+    floatBits value = I# (word2Int# (word32ToWord# (castFloatToWord32# value)))
+
+    results :: Results
+    results =
+      Results
+        (doubleBits 1.0##)
+        (doubleBits 0.1##)
+        (doubleBits (negateDouble# 2.5##))
+        (floatBits 1.5#)
+        (floatBits 0.1#)
+        (I# (double2Int# (int2Double# 9# **## (1.0## /## 3.0##))))
+output: |
+  Results (I# 4607182418800017408) (I# 4591870180066957722) (I# -4610560118520545280) (I# 1069547520) (I# 1036831949) (I# 2)
+expression: |
+  results
+status: pass
+reason: a Float# or Double# literal holds the IEEE 754 bits of the nearest value
