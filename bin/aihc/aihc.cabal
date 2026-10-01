@@ -42,6 +42,9 @@ extra-source-files:
   test/Test/Fixtures/build/executables/src/Words.hs
   test/Test/Fixtures/build/generated-entry-collision/Aihc/Entry.hs
   test/Test/Fixtures/build/generated-entry-collision/Main.hs
+  test/Test/Fixtures/build/main-is-option/app/App/Run.hs
+  test/Test/Fixtures/build/main-is-option/app/Start.hs
+  test/Test/Fixtures/build/main-is-option/main-is-option.cabal
   test/Test/Fixtures/build/shared-module-name/app/Main.hs
   test/Test/Fixtures/build/shared-module-name/shared-module-name.cabal
   test/Test/Fixtures/build/source-directories/BlackholeChecks.hs

@@ -1,0 +1,37 @@
+cabal-version: 3.0
+name: main-is-option
+version: 0.1.0.0
+build-type: Simple
+
+-- The option names a module. The entry is its function main.
+executable module-main
+  main-is: App/Run.hs
+  hs-source-dirs: app
+  build-depends: base
+  default-language: Haskell2010
+
+  if impl(ghc)
+    ghc-options:
+      -Wall
+      -main-is
+      App.Run
+
+-- The option names a function of a module.
+executable module-function
+  main-is: App/Run.hs
+  hs-source-dirs: app
+  build-depends: base
+  default-language: Haskell2010
+  ghc-options:
+    -main-is
+    App.Run.start
+
+-- The option names a function of module Main.
+executable main-function
+  main-is: Start.hs
+  hs-source-dirs: app
+  build-depends: base
+  default-language: Haskell2010
+  ghc-options:
+    -main-is
+    start

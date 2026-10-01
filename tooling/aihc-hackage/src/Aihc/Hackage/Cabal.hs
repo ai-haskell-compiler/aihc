@@ -6,6 +6,9 @@ module Aihc.Hackage.Cabal
 
     -- * Component file discovery
     ExecutableInfo (..),
+    MainEntry (..),
+    defaultMainEntry,
+    mainEntryFromGhcOptions,
     lirSourcesField,
     collectComponentFiles,
     collectExecutablesFor,
@@ -124,6 +127,7 @@ import Aihc.Hackage.PathsModule (generatePathsModule, pathsModuleName)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFilePath, sourceDirs)
+import Data.Char (isLower)
 import Data.List (isPrefixOf, nub)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -386,9 +390,44 @@ data ExecutableInfo = ExecutableInfo
     -- | The packages in the @build-depends@ of the executable.
     executableInfoDependencies :: [PackageName],
     -- | The @c-sources@, @include-dirs@, and @cc-options@ of the executable.
-    executableInfoCCompileInfo :: CCompileInfo
+    executableInfoCCompileInfo :: CCompileInfo,
+    -- | The function that starts the executable.
+    executableInfoMainEntry :: MainEntry
   }
   deriving (Show)
+
+-- | The function that starts an executable, and the module that defines it.
+data MainEntry = MainEntry
+  { mainEntryModule :: Text,
+    mainEntryFunction :: Text
+  }
+  deriving (Eq, Show)
+
+-- | The function @Main.main@, which starts an executable when no
+-- @-main-is@ option names a different function.
+defaultMainEntry :: MainEntry
+defaultMainEntry = MainEntry (T.pack "Main") (T.pack "main")
+
+-- | The main entry that the @-main-is@ options in @ghc-options@ give.
+-- The last option applies, as in GHC. GHC reads the value in three forms:
+-- @M.f@ is the function @f@ of module @M@, @M@ is the function @main@ of
+-- module @M@, and @f@ is the function @f@ of module @Main@.
+mainEntryFromGhcOptions :: [Text] -> MainEntry
+mainEntryFromGhcOptions = go defaultMainEntry
+  where
+    go _ (option : value : rest)
+      | option == T.pack "-main-is" = go (parseMainIs value) rest
+    go entry (_ : rest) = go entry rest
+    go entry [] = entry
+    parseMainIs value =
+      let (prefix, suffix) = T.breakOnEnd (T.pack ".") value
+       in case (T.unsnoc prefix, T.uncons suffix) of
+            (Just (moduleName, _), Just (c, _))
+              | startsFunction c -> MainEntry moduleName suffix
+            _
+              | maybe False (startsFunction . fst) (T.uncons value) -> defaultMainEntry {mainEntryFunction = value}
+              | otherwise -> defaultMainEntry {mainEntryModule = value}
+    startsFunction c = isLower c || c == '_'
 
 -- | The buildable executables of a package for one platform, in the order
 -- the Cabal file declares them.
@@ -411,7 +450,8 @@ collectExecutablesIn context package packageRoot =
             { executableInfoName = T.unpack exeName,
               executableInfoFiles = files,
               executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
-              executableInfoCCompileInfo = cInfo
+              executableInfoCCompileInfo = cInfo,
+              executableInfoMainEntry = mainEntryFromGhcOptions (ghcOptions build)
             }
         | isBuildable build
         ]

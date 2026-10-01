@@ -5,8 +5,8 @@ module Aihc.Cli.BuildModule
     InstalledPackage (..),
     LinkBundle (..),
     PackageConstraint (..),
+    entryModuleText,
     finishExecutable,
-    generatedEntryText,
     implicitConstraint,
     installedPackage,
     linkBundleManifestPath,
@@ -504,13 +504,17 @@ discoverSources sourceDirectories moduleIndex mainPath = do
         name = sourceDependencyModule dependency
 
 generatedEntryText :: Text
-generatedEntryText =
+generatedEntryText = entryModuleText HackageCabal.defaultMainEntry
+
+-- | The generated module that starts an executable with its main entry.
+entryModuleText :: HackageCabal.MainEntry -> Text
+entryModuleText (HackageCabal.MainEntry entryModule function) =
   T.unlines
     [ "{-# LANGUAGE NoImplicitPrelude #-}",
       "module Aihc.Entry where",
-      "import qualified Main",
+      "import qualified " <> entryModule,
       "import GHC.TopHandler (runMainIO)",
-      "entry = runMainIO Main.main"
+      "entry = runMainIO " <> entryModule <> "." <> function
     ]
 
 validateInstalledDependencies :: InstalledModuleIndex -> [SourceModule] -> IO ()

@@ -20,8 +20,8 @@ where
 import Aihc.Cli.BuildModule
   ( ExecutableInputs (..),
     InstalledPackage (..),
+    entryModuleText,
     finishExecutable,
-    generatedEntryText,
     installedPackage,
     plannedPackage,
     requirePackageArchive,
@@ -190,7 +190,7 @@ buildPackage options = do
     mapM_ requirePackageArchive selected
     let outputRoot = buildRoot </> "exe" </> name
         dependencyNames = map (packageManifestName . installedManifest) selected
-    entryFile <- writeEntryModule outputRoot dependencyNames
+    entryFile <- writeEntryModule outputRoot (executableInfoMainEntry executable) dependencyNames
     headerDirs <- dependencyIncludeDirs installed
     let sourceFiles = executableInfoFiles executable <> [entryFile]
         ownCInfo = executableInfoCCompileInfo executable
@@ -241,12 +241,13 @@ executableFileName target name =
     _ -> name
 
 -- | Write the generated entry module of an executable and describe it the
--- way the Cabal file describes the executable's own sources.
-writeEntryModule :: FilePath -> [Text] -> IO HackageCabal.FileInfo
-writeEntryModule outputRoot dependencyNames = do
+-- way the Cabal file describes the executable's own sources. The entry
+-- calls the function that the @-main-is@ option of the executable names.
+writeEntryModule :: FilePath -> HackageCabal.MainEntry -> [Text] -> IO HackageCabal.FileInfo
+writeEntryModule outputRoot mainEntry dependencyNames = do
   let path = outputRoot </> "generated" </> "Aihc" </> "Entry.hs"
   createDirectoryIfMissing True (takeDirectory path)
-  TIO.writeFile path generatedEntryText
+  TIO.writeFile path (entryModuleText mainEntry)
   pure
     HackageCabal.FileInfo
       { HackageCabal.fileInfoPath = path,
