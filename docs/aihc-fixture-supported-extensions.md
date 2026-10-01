@@ -2,10 +2,10 @@
 
 ## Summary
 
-- Total Extensions: 63
-- Supported: 48
+- Total Extensions: 64
+- Supported: 49
 - In Progress: 15
-- Fixtures (eval): 659
+- Fixtures (eval): 670
 - Fixtures (fc): 309
 
 ## Extension Status
@@ -20,9 +20,9 @@
 | DataKinds                  |   🟡    | 27/28         |
 | DefaultSignatures          |   🟢    | 8/8           |
 | DeriveAnyClass             |   🟢    | 6/6           |
-| DeriveDataTypeable         |   🟢    | 1/1           |
+| DeriveDataTypeable         |   🟢    | 3/3           |
 | DeriveFoldable             |   🟢    | 2/2           |
-| DeriveFunctor              |   🟢    | 2/2           |
+| DeriveFunctor              |   🟢    | 3/3           |
 | DeriveGeneric              |   🟢    | 5/5           |
 | DeriveTraversable          |   🟢    | 1/1           |
 | DerivingStrategies         |   🟡    | 44/47         |
@@ -37,37 +37,38 @@
 | FlexibleInstances          |   🟡    | 44/46         |
 | ForeignFunctionInterface   |   🟢    | 43/43         |
 | FunctionalDependencies     |   🔴    | 18/22         |
-| GADTs                      |   🟢    | 104/104       |
+| GADTs                      |   🟢    | 106/106       |
 | GeneralizedNewtypeDeriving |   🟢    | 18/18         |
 | GHCForeignImportPrim       |   🔴    | 7/9           |
 | ImplicitParams             |   🟢    | 5/5           |
 | ImportQualifiedPost        |   🟢    | 7/7           |
 | InstanceSigs               |   🟢    | 3/3           |
 | InterruptibleFFI           |   🟢    | 1/1           |
-| KindSignatures             |   🟢    | 51/51         |
+| KindSignatures             |   🟢    | 52/52         |
 | LambdaCase                 |   🟢    | 6/6           |
 | MagicHash                  |   🟡    | 251/252       |
 | MultiParamTypeClasses      |   🔴    | 35/39         |
 | MultiWayIf                 |   🟢    | 2/2           |
 | NamedFieldPuns             |   🟢    | 3/3           |
+| NumDecimals                |   🟢    | 1/1           |
 | OverloadedStrings          |   🟢    | 4/4           |
 | PackageImports             |   🟢    | 1/1           |
 | PartialTypeSignatures      |   🟢    | 2/2           |
 | PatternSynonyms            |   🟢    | 27/27         |
-| PolyKinds                  |   🟢    | 30/30         |
+| PolyKinds                  |   🟢    | 34/34         |
 | QuantifiedConstraints      |   🟢    | 2/2           |
-| RankNTypes                 |   🟢    | 25/25         |
+| RankNTypes                 |   🟢    | 29/29         |
 | RebindableSyntax           |   🟡    | 19/20         |
 | RecordWildCards            |   🟢    | 2/2           |
 | RecursiveDo                |   🔴    | 0/11          |
 | RoleAnnotations            |   🟢    | 4/4           |
-| ScopedTypeVariables        |   🟡    | 37/38         |
+| ScopedTypeVariables        |   🟡    | 38/39         |
 | StandaloneDeriving         |   🟡    | 10/11         |
 | StandaloneKindSignatures   |   🟢    | 6/6           |
 | StarIsType                 |   🟢    | 2/2           |
 | TemplateHaskellQuotes      |   🟢    | 1/1           |
 | TypeApplications           |   🟢    | 13/13         |
-| TypeFamilies               |   🟡    | 47/49         |
+| TypeFamilies               |   🟡    | 48/50         |
 | TypeFamilyDependencies     |   🟢    | 1/1           |
 | TypeOperators              |   🟢    | 115/115       |
 | UnboxedSums                |   🟢    | 10/10         |
