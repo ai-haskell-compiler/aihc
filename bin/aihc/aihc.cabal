@@ -178,6 +178,7 @@ library
     Aihc.Fc.Share
     Aihc.Fc.Simplify
     Aihc.Fc.Size
+    Aihc.Fc.Specialise
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf

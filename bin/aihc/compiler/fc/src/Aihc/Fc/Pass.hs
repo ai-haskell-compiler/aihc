@@ -25,6 +25,7 @@ import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), 
 import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
+import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram)
 import Aihc.Fc.Syntax (Program)
 import Aihc.Fc.WorkerWrapper (WorkerWrapperReport (..), workerWrapperProgram)
 import Data.List qualified as List
@@ -51,6 +52,10 @@ data Pass
     -- with one constructor into a worker that takes the fields and an
     -- @INLINE@ wrapper. @Aihc.Fc.WorkerWrapper@.
     PassWorkerWrapper
+  | -- | Copy each local recursive function whose calls give a constant
+    -- dictionary, with the dictionary in place of the parameter.
+    -- @Aihc.Fc.Specialise@.
+    PassSpecialise
   deriving (Eq, Show)
 
 -- | The phase a pass runs in. Phases count down as GHC's do, from 2 to
@@ -62,6 +67,7 @@ passPhase pass =
     PassEtaExpand -> Nothing
     PassDemand _ -> Nothing
     PassWorkerWrapper -> Nothing
+    PassSpecialise -> Nothing
     PassInline _ _ phase -> Just phase
     PassSimplify phase -> Just phase
 
@@ -82,6 +88,7 @@ passName pass =
     PassDemand StrictLetsOnly -> "demand"
     PassDemand StrictLetsAndArguments -> "demand arguments"
     PassWorkerWrapper -> "worker/wrapper"
+    PassSpecialise -> "specialise"
     PassEtaExpand -> "eta expand"
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
     PassSimplify phase -> "simplify [" <> T.pack (show phase) <> "]"
@@ -119,6 +126,16 @@ runPass roots pass program =
                 reportBefore = programSize program,
                 reportAfter = programSize split,
                 reportDetail = count (reportWorkers report) "workers" <> ", " <> count (reportUnboxedParameters report) "unboxed parameters" <> ", " <> count (reportConstructedResults report) "constructed results"
+              }
+          )
+    PassSpecialise ->
+      let (specialised, report) = specialiseProgram program
+       in ( specialised,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize program,
+                reportAfter = programSize specialised,
+                reportDetail = count (reportSpecialisedBindings report) "bindings" <> ", " <> count (reportCopies report) "copies" <> ", " <> count (reportRewrittenCalls report) "calls"
               }
           )
     PassEtaExpand ->

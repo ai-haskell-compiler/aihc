@@ -47,6 +47,10 @@ module Aihc.Fc.Simplify
     exprValueNames,
     maxLocalUnique,
     freshenExprFrom,
+
+    -- * Substitution
+    substExpr,
+    substTypeExpr,
   )
 where
 
