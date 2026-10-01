@@ -146,7 +146,7 @@ data DerivingEnv = DerivingEnv
 
 derivingEnv :: TcKinds -> [UnliftedFieldType] -> [InstanceInfo] -> [TcDerivingPlan] -> TcM DerivingEnv
 derivingEnv kinds unlifted existingInstances plans = do
-  contexts <- solveContexts (length inferable + 2) (Map.fromList (map initialContext inferable))
+  contexts <- solveContexts Map.empty
   pure base {derivingEnvContexts = contexts}
   where
     base =
@@ -158,27 +158,51 @@ derivingEnv kinds unlifted existingInstances plans = do
     groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
 
     inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds unlifted plan]]
+    reusing = [plan | (plan, _) <- inferable, reusesInstance (tcDerivingStrategy plan)]
 
-    -- Reject cycles for the plans that reuse an instance.
-    -- Stock plans can use recursive structural instances.
-    initialContext (plan, _)
-      | reusesInstance (tcDerivingStrategy plan) = (planKey plan, Left (planPredicate plan))
-      | otherwise = (planKey plan, Right [])
+    -- A structural instance can be recursive, so every plan starts from an
+    -- empty context and the iteration only removes what the batch cannot
+    -- give. A plan that reuses an instance must not stand on itself through
+    -- reused instances only. The second iteration finds these plans: each
+    -- reusing plan starts blocked and the structural contexts stay fixed,
+    -- so a structural instance breaks a cycle and a reused one does not.
+    -- A rejected plan keeps its blocked context, which can block other
+    -- plans, so the search starts again until no new plan is rejected.
+    solveContexts :: Map PlanKey (Either Pred [Pred]) -> TcM (Map PlanKey (Either Pred [Pred]))
+    solveContexts rejected = do
+      let isOpen plan = not (Map.member (planKey plan) rejected)
+      structural <-
+        iterateContexts isOpen (length inferable + 2) $
+          rejected `Map.union` Map.fromList [(planKey plan, Right []) | (plan, _) <- inferable]
+      grounded <-
+        iterateContexts (\plan -> isOpen plan && reusesInstance (tcDerivingStrategy plan)) (length reusing + 2) $
+          Map.fromList [(planKey plan, Left (planPredicate plan)) | plan <- reusing, isOpen plan] `Map.union` structural
+      let newlyRejected =
+            Map.fromList
+              [ (planKey plan, Left blocked)
+              | plan <- reusing,
+                isOpen plan,
+                Just (Left blocked) <- [Map.lookup (planKey plan) grounded]
+              ]
+      if Map.null newlyRejected
+        then pure structural
+        else solveContexts (rejected `Map.union` newlyRejected)
 
     -- Contexts are inferred simultaneously, so a plan can refer to a plan
     -- declared later, or to itself through a cycle, without the search
-    -- re-deriving the same plan once per path through the batch.
-    solveContexts :: Int -> Map PlanKey (Either Pred [Pred]) -> TcM (Map PlanKey (Either Pred [Pred]))
-    solveContexts fuel contexts
+    -- re-deriving the same plan once per path through the batch. Only the
+    -- selected plans change. The other contexts stay as they are.
+    iterateContexts :: (TcDerivingPlan -> Bool) -> Int -> Map PlanKey (Either Pred [Pred]) -> TcM (Map PlanKey (Either Pred [Pred]))
+    iterateContexts selected fuel contexts
       | fuel <= 0 = pure contexts
       | otherwise = do
           let environment = base {derivingEnvContexts = contexts}
-          next <-
-            Map.fromList
-              <$> mapM
-                (\(plan, obligations) -> (,) (planKey plan) . fmap nub <$> simplifyPredicates kinds environment plan obligations)
-                inferable
-          if next == contexts then pure contexts else solveContexts (fuel - 1) next
+          updates <-
+            mapM
+              (\(plan, obligations) -> (,) (planKey plan) . fmap nub <$> simplifyPredicates kinds environment plan obligations)
+              [entry | entry@(plan, _) <- inferable, selected plan]
+          let next = Map.fromList updates `Map.union` contexts
+          if next == contexts then pure contexts else iterateContexts selected (fuel - 1) next
 
 -- | The obligations of a plan whose context the compiler has to infer, or
 -- 'Nothing' when the plan carries its context or needs no inference. A
@@ -226,8 +250,8 @@ derivingObligations kinds unlifted plan =
 
 -- | Whether a strategy reuses the instance of another type instead of
 -- generating a structural one. A structural instance can be recursive, so a
--- context that refers to the plan itself is admissible there; a reused one
--- would stand on itself. Anyclass deriving generates a structural instance:
+-- context that refers to the plan itself is admissible there. A reused one
+-- would stand on itself, unless a structural instance is in the cycle. Anyclass deriving generates a structural instance:
 -- a generic default walks the representation of the datatype, so the
 -- obligation of a recursive field is the instance being derived, exactly as
 -- for a stock one.

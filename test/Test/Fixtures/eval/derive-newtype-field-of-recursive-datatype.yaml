@@ -1,0 +1,41 @@
+extensions:
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies #-}
+    {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+    module Test where
+
+    -- A stock Eq on a newtype reuses the Eq of its representation. The
+    -- recursive datatype asks both that instance and its own instance.
+    newtype Version = Version Integer
+      deriving (Eq, Ord)
+
+    data Range
+      = AnyVersion
+      | Equal Version
+      | Both Range Range
+      deriving (Eq)
+
+    -- The newtype reuses the instance of a recursive datatype that asks
+    -- the newtype instance again. The stock instance is a structural step,
+    -- so the cycle is admissible.
+    newtype Forest = Forest Tree
+      deriving newtype (Eq)
+
+    data Tree = Leaf | Node Int Forest
+      deriving stock (Eq)
+
+    result :: Bool
+    result =
+      Both AnyVersion (Equal (Version 1)) == Both AnyVersion (Equal (Version 1))
+        && Both AnyVersion (Equal (Version 1)) /= Both AnyVersion (Equal (Version 2))
+        && Version 1 < Version 2
+        && Node 1 (Forest Leaf) == Node 1 (Forest Leaf)
+        && Node 1 (Forest Leaf) /= Node 1 (Forest (Node 2 (Forest Leaf)))
+expression: result
+output: |
+  True
+status: pass
+reason: a recursive datatype with a field of a newtype that reuses an instance, and a newtype that reuses the instance of a recursive datatype that asks it again, both derive their instances
