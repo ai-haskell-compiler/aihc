@@ -22,6 +22,7 @@ module GHC.TypeNats
   ( Natural,
     Nat,
     KnownNat,
+    natSing,
     natVal,
     natVal',
     SNat,
@@ -47,20 +48,25 @@ type Nat = Natural
 
 -- | A type-level natural whose value is known.
 --
--- GHC gives the method the type @SNat n@. Here it is the value itself: the
--- compiler builds this dictionary directly, and a singleton wrapper around
--- the value would cost it a coercion for nothing.
+-- GHC gives the method the name @natSing@ and the type @SNat n@. Here the
+-- method is the value itself: the compiler builds this dictionary
+-- directly, and a singleton wrapper around the value would cost it a
+-- coercion for nothing. The function 'natSing' gives the singleton.
 type KnownNat :: Nat -> Constraint
 class KnownNat n where
-  natSing :: Natural
+  knownNatValue :: Natural
+
+-- | The singleton for a known type-level natural.
+natSing :: forall n. (KnownNat n) => SNat n
+natSing = UnsafeSNat (knownNatValue @n)
 
 -- | The value of a known type-level natural.
 natVal :: forall n proxy. (KnownNat n) => proxy n -> Natural
-natVal _ = natSing @n
+natVal _ = knownNatValue @n
 
 -- | The value of a known type-level natural, through an unlifted proxy.
 natVal' :: forall n. (KnownNat n) => Proxy# n -> Natural
-natVal' _ = natSing @n
+natVal' _ = knownNatValue @n
 
 -- | Comparison of two type-level naturals. The solver computes it.
 type CmpNat :: Nat -> Nat -> Ordering

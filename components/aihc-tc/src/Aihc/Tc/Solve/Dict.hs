@@ -126,6 +126,7 @@ solveNormalizedDict visited givens ct
                 ("Typeable", [ty]) -> tryTypeable className ty
                 ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
                 ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
+                ("KnownChar", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownChar" isCharLiteral ty
                 _ -> do
                   instances <- getClassInstances className
                   result <- tryInstances (ctPred ct : visited) className args' (mostSpecificInstances args' instances)
@@ -374,7 +375,7 @@ solveNormalizedDict visited givens ct
         DictSolved -> pure DictSolved
         DictStuck _ -> solveThroughGivenEqualities visited' zonkedGivens className args
 
-    -- A @KnownNat@ or @KnownSymbol@ constraint is solved when its argument
+    -- A @KnownNat@, @KnownSymbol@, or @KnownChar@ constraint is solved when its argument
     -- is a literal of the matching sort. The dictionary carries the
     -- literal's value, which the desugarer builds; nothing here needs the
     -- class declaration beyond where it comes from.
@@ -698,6 +699,11 @@ isNatLiteral literal = case literal of
 isSymbolLiteral :: TyLit -> Bool
 isSymbolLiteral literal = case literal of
   TyLitSymbol {} -> True
+  _ -> False
+
+isCharLiteral :: TyLit -> Bool
+isCharLiteral literal = case literal of
+  TyLitChar {} -> True
   _ -> False
 
 reportUnsolvedDict :: Ct -> TcM ()

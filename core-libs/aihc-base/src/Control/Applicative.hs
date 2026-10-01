@@ -15,6 +15,7 @@ module Control.Applicative
     liftA3,
     optional,
     (<$>),
+    (<$),
     (<**>),
   )
 where

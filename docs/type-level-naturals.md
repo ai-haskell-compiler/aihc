@@ -91,8 +91,9 @@ The literal plumbing is one change for all three sorts; splitting it would
 mean touching the same thirty files twice. `Symbol` is also wanted by the
 parallel `GHC.Generics` metadata work, so `TyLitSymbol`, `KnownSymbol` and
 `symbolVal` ride along in the same stack (PR 3). `TyLitChar` gets the
-constructor and the kind, but `KnownChar`/`charVal` are deferred — nothing
-needs them yet.
+constructor and the kind. `KnownChar`, `charVal` and `SChar` came later,
+for the `boring` package. The solver and the desugarer treat them as they
+treat `KnownSymbol`.
 
 ### `KnownNat` is solver-synthesized, like `Typeable`
 
@@ -286,11 +287,13 @@ unlifted-expression-signature fix. PR 3 does not block on it; PR 5 does.
 
 **What landed differs from the sketch above in three ways.**
 
-The class method holds the value rather than a singleton: `natSing ::
-Natural` where GHC has `natSing :: SNat n`. The compiler builds the
-dictionary directly, so a singleton wrapper would buy it a coercion for
-nothing. `SNat` still exists, with `fromSNat`. The method is not exported,
-as in GHC.
+The class method holds the value rather than a singleton:
+`knownNatValue :: Natural` where GHC has `natSing :: SNat n`. The compiler
+builds the dictionary directly, so a singleton wrapper would buy it a
+coercion for nothing. The method is not exported. `natSing`, `symbolSing`
+and `charSing` are ordinary functions that wrap the method's value in
+`SNat`, `SSymbol` and `SChar`, so code that names them, as the `boring`
+package does, compiles as with GHC.
 
 `someNatVal`, `SomeNat` and `withSomeSNat` are **not** here. GHC writes
 them by coercing a constrained value to a function of its dictionary, which
