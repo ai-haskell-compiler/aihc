@@ -91,10 +91,11 @@ import Aihc.Cli.ModuleProvider
   ( InstanceProvider,
     ModuleProvider,
     PackageLocator,
+    PackageSource (..),
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
     moduleNameDirectory,
-    newStoreModuleProvider,
+    newModuleProvider,
     providerInstanceFacts,
     providerPackagesOf,
     providerResolved,
@@ -107,12 +108,14 @@ import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, en
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
   ( Task (..),
+    TaskGraph,
     TaskId (..),
     TaskKind (..),
-    TaskTiming,
+    addTasks,
+    allocateTaskIds,
     renderDuration,
     renderTaskTimeline,
-    runTaskGraph,
+    runTaskGraphWith,
   )
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
@@ -209,9 +212,9 @@ import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TcTypeKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
-import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar, takeTMVar)
+import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (IOException, bracket, evaluate, throwIO, try)
+import Control.Exception (IOException, SomeException, evaluate, finally, throwIO, try)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -219,7 +222,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
@@ -294,7 +297,7 @@ instance NFData InstalledPackage
 installedPackageLocator :: [InstalledPackage] -> PackageLocator
 installedPackageLocator packages =
   Map.fromList
-    [ (PackageId (packageManifestUnitId (installedManifest package)), installStorePath (installedResult package))
+    [ (PackageId (packageManifestUnitId (installedManifest package)), StorePackage (installStorePath (installedResult package)))
     | package <- packages
     ]
 
@@ -402,6 +405,9 @@ data TypeUnitResult = TypeUnitResult
     -- when an instance anywhere below the unit changes.
     typeUnitFactsDigest :: !Text,
     typeUnitInstanceInterface :: !TcInterface,
+    -- | The modules whose instances the unit sees, as a consumer in the
+    -- same graph takes them.
+    typeUnitInstanceProviders :: !(Set.Set InstanceProvider),
     typeUnitDiagnostics :: ![TcDiagnostic],
     typeUnitWritten :: !(Set.Set Text),
     typeUnitReused :: !(Set.Set Text),
@@ -426,6 +432,9 @@ data PendingStamp = PendingStamp
 -- as soon as the next phase has them.
 data UnitRuntime = UnitRuntime
   { runtimeUnit :: !SourceUnit,
+    runtimeResolveTask :: !TaskId,
+    runtimeTypeTask :: !TaskId,
+    runtimeBackendTask :: !TaskId,
     runtimeResolveResult :: !(TMVar ResolveUnitResult),
     runtimeTypeInput :: !(TMVar TypeInput),
     runtimeTypeResult :: !(TMVar TypeUnitResult),
@@ -668,38 +677,345 @@ data InstallLocations = InstallLocations
     locationReinstall :: !Bool
   }
 
+-- | What every package of one install shares.
+data InstallShared = InstallShared
+  { sharedConfig :: !ModuleCompileConfig,
+    sharedLocations :: !InstallLocations,
+    -- | The temporary store roots of the packages that build. A package is
+    -- published from its root when the graph ends, and what is left after
+    -- that is removed.
+    sharedTemporaryRoots :: !(IORef (Set.Set FilePath)),
+    sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings)
+  }
+
+-- | One package of a plan, as the graph installs it. The package has three
+-- tasks of its own. Prepare reads, configures, and preprocesses it, or
+-- takes it from the store. Partition cuts its modules into units and adds
+-- their tasks. Finish collects the results and archives it. A dependent
+-- waits on each of the three, and its units wait on the units they import.
+data PackageSlot = PackageSlot
+  { slotPlan :: !PackagePlan,
+    slotRoot :: !Bool,
+    slotDependencies :: ![PackageSlot],
+    -- | The dependencies and every package below them, each once. A unit
+    -- reads the instance facts of any of them, through the locator.
+    slotClosure :: ![PackageSlot],
+    -- | The place of the package in the plan, after its dependencies.
+    slotOrder :: !Int,
+    slotPrepareTask :: !TaskId,
+    slotPartitionTask :: !TaskId,
+    slotFinishTask :: !TaskId,
+    slotPrepared :: !(TMVar PreparedPackage),
+    -- | The unit of each compiled module, once the package is partitioned.
+    -- Empty for a package the store already holds.
+    slotUnits :: !(TMVar (Map.Map Text UnitRuntime)),
+    -- | The package once its finish task ran, in the directory it built in.
+    slotBuilt :: !(TMVar InstalledPackage),
+    -- | The package once it is published.
+    slotInstalled :: !(TMVar InstalledPackage),
+    -- | The packages that still read the unit results: the package itself
+    -- until it finishes, and each package above it until that finishes.
+    slotReaders :: !(TVar Int)
+  }
+
+-- | A package after its prepare task.
+data PreparedPackage = PreparedPackage
+  { -- | The package as its dependents see it while it builds, in the
+    -- directory it builds in. A store package moves when it is published.
+    preparedPackage :: !InstalledPackage,
+    preparedExposedModules :: ![Text],
+    -- | Where the facts of the modules of this package and of every
+    -- package below it come from.
+    preparedLocator :: !PackageLocator,
+    -- | What the package builds from, or nothing when the store holds it.
+    preparedBuild :: !(Maybe PackageBuild)
+  }
+
+data PackageBuild = PackageBuild
+  { buildSourceRoot :: !FilePath,
+    -- | Where the artifacts are written: the build directory of a local
+    -- package, or a temporary root beside the store entry.
+    buildPath :: !FilePath,
+    -- | The store entry the package is published to.
+    buildPublishPath :: !FilePath,
+    -- | Whether the store entry exists and is replaced on publish.
+    buildReplaces :: !Bool,
+    buildPackageDirectory :: !FilePath,
+    buildUnitIdentity :: !Text,
+    buildImmutable :: !Bool,
+    buildInputs :: !PackageInputs,
+    buildFiles :: ![HackageCabal.FileInfo],
+    buildCCompileInfo :: !HackageCabal.CCompileInfo,
+    buildHeaderHash :: !String,
+    -- | The dependencies as they are while they build.
+    buildDependencies :: ![InstalledPackage]
+  }
+
 installPackagePlan :: ModuleCompileConfig -> InstallLocations -> PackagePlan -> IO InstalledPackage
 installPackagePlan config locations plan = do
-  installed <- newIORef Map.empty
-  installPlanNode config locations installed True plan
+  (roots, _) <- installPlanSlots config locations [plan]
+  case roots of
+    [slot] -> atomically (readTMVar (slotInstalled slot))
+    _ -> ioError (userError "The plan has no root")
 
 -- | Install every package of the plans and return the closure, each package
 -- once.
 installPlanPackages :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO [InstalledPackage]
 installPlanPackages config locations plans = do
-  installed <- newIORef Map.empty
-  mapM_ (installPlanNode config locations installed True) plans
-  Map.elems <$> readIORef installed
+  (_, slots) <- installPlanSlots config locations plans
+  mapM (atomically . readTMVar . slotInstalled) (Map.elems slots)
 
-installPlanNode :: ModuleCompileConfig -> InstallLocations -> IORef (Map.Map FilePath InstalledPackage) -> Bool -> PackagePlan -> IO InstalledPackage
-installPlanNode config locations installed root plan = do
+-- | Install the closure of the plans in one task graph. A unit of a package
+-- waits on the units it imports and on nothing else of the packages
+-- below. The result is the slots of the roots, and of every package by
+-- source path.
+--
+-- A store package is published when the graph ends, not when its own
+-- tasks end: a dependent reads its headers from the directory it builds in
+-- while the graph runs. When a package fails, the packages that finished
+-- are published all the same.
+installPlanSlots :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO ([PackageSlot], Map.Map FilePath PackageSlot)
+installPlanSlots config locations plans = do
+  capabilities <- getNumCapabilities
+  slotsRef <- newIORef Map.empty
+  rootsRef <- newIORef []
+  temporaryRoots <- newIORef Set.empty
+  phaseTimings <- newIORef mempty
+  let shared =
+        InstallShared
+          { sharedConfig = config,
+            sharedLocations = locations,
+            sharedTemporaryRoots = temporaryRoots,
+            sharedBackendPhaseTimings = phaseTimings
+          }
+      removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
+      publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
+  outcome <- try (runTaskGraphWith (max 1 capabilities) (\graph -> mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef))
+  timings <- case outcome of
+    Right timings -> do
+      publishFinished `finally` removeTemporaryRoots
+      pure timings
+    Left failure -> do
+      -- The failure is the one to report, whatever the publish does.
+      _ <- try (publishFinished `finally` removeTemporaryRoots) :: IO (Either SomeException ())
+      throwIO (failure :: SomeException)
+  totals <- readIORef phaseTimings
+  compilePrintTimings config (renderTaskTimeline (compileUseColor config) [] timings <> renderBackendPhaseTotals totals)
+  roots <- readIORef rootsRef
+  slots <- readIORef slotsRef
+  pure (roots, slots)
+
+-- | The slot of a package, made after the slots of its dependencies, with
+-- its prepare task in the graph.
+planSlot :: InstallShared -> TaskGraph -> IORef (Map.Map FilePath PackageSlot) -> Bool -> PackagePlan -> IO PackageSlot
+planSlot shared graph slotsRef root plan = do
   key <- canonicalizePath (planSourcePath plan)
-  known <- Map.lookup key <$> readIORef installed
+  known <- Map.lookup key <$> readIORef slotsRef
   case known of
-    Just package -> pure package
+    Just slot -> pure slot
     Nothing -> do
+      dependencies <- mapM (planSlot shared graph slotsRef False) (planDependencyPlans plan)
+      order <- Map.size <$> readIORef slotsRef
+      base <- allocateTaskIds graph 3
+      let closure = Map.elems (Map.fromList [(slotOrder below, below) | dependency <- dependencies, below <- dependency : slotClosure dependency])
+      slot <-
+        PackageSlot plan root dependencies closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2))
+          <$> newEmptyTMVarIO
+          <*> newEmptyTMVarIO
+          <*> newEmptyTMVarIO
+          <*> newEmptyTMVarIO
+          <*> newTVarIO 1
+      forM_ closure $ \below -> atomically (modifyTVar' (slotReaders below) (+ 1))
+      modifyIORef' slotsRef (Map.insert key slot)
+      addTasks
+        graph
+        [ Task
+            { taskId = slotPrepareTask slot,
+              taskKind = TaskPackage,
+              taskOrder = order,
+              taskDependencies = Set.fromList (map slotPrepareTask dependencies),
+              taskAction = preparePackage shared graph slot
+            }
+        ]
+      pure slot
+
+-- | Read, configure, and preprocess a package, or take it from the store.
+-- A package that builds gets its parse tasks and its partition task here;
+-- one the store holds gets a partition task and a finish task that do
+-- nothing, so that its dependents wait on the same tasks either way.
+preparePackage :: InstallShared -> TaskGraph -> PackageSlot -> IO ()
+preparePackage shared graph slot = do
+  prepared <- mapM (atomically . readTMVar . slotPrepared) (slotDependencies slot)
+  let config = sharedConfig shared
+      locations = sharedLocations shared
+      plan = slotPlan slot
+      dependencies = map preparedPackage prepared
       -- Only the package the user named is reinstalled.
-      let reinstall = root && locationReinstall locations
-      dependencies <- mapM (installPlanNode config locations installed False) (planDependencyPlans plan)
-      -- The packages installed so far hold the closure of the dependencies,
-      -- which is where the instance facts the modules see come from.
-      locator <- installedPackageLocator . Map.elems <$> readIORef installed
-      package <-
-        if locationImmutable locations || planOrigin plan /= PlanLocal
-          then installStorePackage config locator root reinstall (locationStoreRoot locations) dependencies plan
-          else installLocalPackage config locator reinstall (locationBuildRoot locations) dependencies plan
-      modifyIORef' installed (Map.insert key package)
-      pure package
+      reinstall = slotRoot slot && locationReinstall locations
+      order = slotOrder slot
+  inputs <- readPackageInputs config plan
+  (installed, build) <-
+    if locationImmutable locations || planOrigin plan /= PlanLocal
+      then prepareStorePackage shared (slotRoot slot) reinstall dependencies plan inputs
+      else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies plan inputs
+  let identity = PackageId (packageManifestUnitId (installedManifest installed))
+      package = Package (installedName installed) identity
+      source = case build of
+        Nothing -> StorePackage (installStorePath (installedResult installed))
+        Just _ -> graphPackageSource package (slotUnits slot)
+  atomically $
+    putTMVar
+      (slotPrepared slot)
+      PreparedPackage
+        { preparedPackage = installed,
+          preparedExposedModules = packageManifestModules (installedManifest installed),
+          preparedLocator = Map.insert identity source (Map.unions (map preparedLocator prepared)),
+          preparedBuild = build
+        }
+  case build of
+    Nothing -> do
+      atomically $ do
+        putTMVar (slotUnits slot) Map.empty
+        putTMVar (slotBuilt slot) installed
+      addTasks
+        graph
+        [ Task
+            { taskId = slotPartitionTask slot,
+              taskKind = TaskPackage,
+              taskOrder = order,
+              taskDependencies = Set.fromList (map slotPartitionTask (slotDependencies slot)),
+              taskAction = pure ()
+            },
+          Task
+            { taskId = slotFinishTask slot,
+              taskKind = TaskPackage,
+              taskOrder = order,
+              -- A package the store holds can have a dependency that
+              -- builds, whose finish task is not in the graph yet.
+              taskDependencies = Set.singleton (slotPartitionTask slot),
+              taskAction = releasePackage slot
+            }
+        ]
+    Just packageBuild -> addModuleBuild graph (sharedBackendPhaseTimings shared) (packageModuleBuild shared slot installed packageBuild)
+
+-- | The modules of a package of the plan, as the graph compiles them.
+packageModuleBuild :: InstallShared -> PackageSlot -> InstalledPackage -> PackageBuild -> ModuleBuild
+packageModuleBuild shared slot installed build =
+  ModuleBuild
+    { moduleBuildConfig = sharedConfig shared,
+      moduleBuildOutputRoot = buildPath build,
+      moduleBuildPackageRoot = buildSourceRoot build,
+      moduleBuildPackage = package,
+      moduleBuildFiles = buildFiles build,
+      moduleBuildVersions = dependencyVersionsFromManifests [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
+      moduleBuildCapiOptions = capiStubOptions (buildFiles build) (buildCCompileInfo build),
+      moduleBuildPrimIdentity = dependencyPrimIdentity package dependencies,
+      moduleBuildOrder = slotOrder slot,
+      moduleBuildPartitionTask = slotPartitionTask slot,
+      moduleBuildFinishTask = slotFinishTask slot,
+      moduleBuildPartitionAfter = map slotPartitionTask (slotDependencies slot),
+      moduleBuildFinishAfter = map slotFinishTask (slotDependencies slot),
+      moduleBuildDependencies = mapM preparedDependency (slotDependencies slot),
+      moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
+      moduleBuildFinished = \compiled -> do
+        built <- finishPackageBuild shared build compiled
+        atomically (putTMVar (slotBuilt slot) built)
+        releasePackage slot
+    }
+  where
+    package = Package (installedName installed) (PackageId (buildUnitIdentity build))
+    dependencies = buildDependencies build
+    preparedDependency dependency = do
+      prepared <- atomically (readTMVar (slotPrepared dependency))
+      units <- atomically (readTMVar (slotUnits dependency))
+      let installedDependency = preparedPackage prepared
+          identity = PackageId (packageManifestUnitId (installedManifest installedDependency))
+      pure
+        PreparedDependency
+          { dependencyPackage = Package (installedName installedDependency) identity,
+            dependencyExposed = Set.fromList (preparedExposedModules prepared),
+            dependencySource = fromMaybe (StorePackage (installStorePath (installedResult installedDependency))) (Map.lookup identity (preparedLocator prepared)),
+            dependencyUnits = units,
+            dependencyLocator = preparedLocator prepared
+          }
+
+-- | Release the unit results of a package that finished and of every
+-- package below it: a package no reader waits on drops them, so that the
+-- interfaces of a package die once the last package above it is done.
+releasePackage :: PackageSlot -> IO ()
+releasePackage slot = mapM_ releaseReader (slot : slotClosure slot)
+  where
+    releaseReader reader = do
+      remaining <- atomically $ do
+        count <- readTVar (slotReaders reader)
+        writeTVar (slotReaders reader) (count - 1)
+        pure (count - 1)
+      when (remaining == 0) $ do
+        units <- atomically (readTMVar (slotUnits reader))
+        forM_ (Map.elems units) $ \runtime ->
+          atomically $ do
+            void (tryTakeTMVar (runtimeResolveResult runtime))
+            void (tryTakeTMVar (runtimeTypeResult runtime))
+
+-- | Publish a package that finished: a store package moves from its
+-- temporary root to its store entry. A package that did not finish is
+-- left as it is, and its temporary root goes with the others.
+publishSlot :: InstallShared -> PackageSlot -> IO ()
+publishSlot shared slot = do
+  prepared <- atomically (tryReadTMVar (slotPrepared slot))
+  built <- atomically (tryReadTMVar (slotBuilt slot))
+  case (prepared >>= preparedBuild, built) of
+    (Just build, Just package)
+      | buildImmutable build -> publishStorePackage shared build package >>= atomically . putTMVar (slotInstalled slot)
+    (_, Just package) -> atomically (putTMVar (slotInstalled slot) package)
+    _ -> pure ()
+
+-- | The facts of the modules of a package that compiles in the graph,
+-- from the results of its units.
+graphPackageSource :: Package -> TMVar (Map.Map Text UnitRuntime) -> PackageSource
+graphPackageSource package unitsVar =
+  GraphPackage
+    { graphResolved = \name -> do
+        runtime <- unitOf name
+        result <- unitResult name (runtimeResolveResult runtime)
+        scope <-
+          maybe
+            (ioError (userError ("The unit of the module has no exports for it: " <> T.unpack name)))
+            pure
+            (lookupModuleExport (ModuleKey package name) (resolveUnitExports result))
+        pure
+          ResolvedModuleFacts
+            { resolvedModuleScope = scope,
+              resolvedModuleScopeDigest = fromMaybe "" (lookup package (byModuleLookupName name (resolveUnitScopeHashes result))),
+              resolvedModuleSuccess = resolveUnitSuccess result
+            },
+      graphTyped = \name -> do
+        runtime <- unitOf name
+        result <- unitResult name (runtimeTypeResult runtime)
+        pure
+          TypedModuleFacts
+            { typedModuleInterface = fromMaybe emptyTcInterface (lookup package (byModuleLookupName name (typeUnitTypes result))),
+              typedModuleTypeDigest = fromMaybe "" (lookup package (byModuleLookupName name (typeUnitHashes result))),
+              typedModuleFactsDigest = typeUnitFactsDigest result,
+              typedModuleInstanceProviders = typeUnitInstanceProviders result,
+              typedModuleSuccess = typeUnitSuccess result
+            },
+      graphOwnFacts = \name -> do
+        runtime <- unitOf name
+        typeUnitOwnInstanceInterface <$> unitResult name (runtimeTypeResult runtime)
+    }
+  where
+    -- A result the unit has: a task waits on the task that writes it, so
+    -- an absent result is one that was released, which is a defect.
+    unitResult name var =
+      atomically (tryReadTMVar var)
+        >>= maybe (ioError (userError ("The results of the unit of the module were released: " <> T.unpack name))) pure
+    unitOf name = do
+      units <- atomically (readTMVar unitsVar)
+      maybe
+        (ioError (userError ("The package " <> T.unpack (packageName package) <> " has no compiled module " <> T.unpack name)))
+        pure
+        (Map.lookup name units)
 
 data PackageInputs = PackageInputs
   { inputCabalFile :: !FilePath,
@@ -747,10 +1063,11 @@ readPackageInputs config plan = do
         inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd
       }
 
--- | Install an immutable package into the store, unless the store has it.
-installStorePackage :: ModuleCompileConfig -> PackageLocator -> Bool -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
-installStorePackage config locator named reinstall storeRoot dependencies plan = do
-  inputs <- readPackageInputs config plan
+-- | Prepare an immutable package for the store, unless the store has it.
+prepareStorePackage :: InstallShared -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
+prepareStorePackage shared named reinstall dependencies plan inputs = do
+  let config = sharedConfig shared
+      storeRoot = locationStoreRoot (sharedLocations shared)
   (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
   forM_ dependencies $ \dependency ->
     unless (installedImmutable dependency) $
@@ -769,37 +1086,40 @@ installStorePackage config locator named reinstall storeRoot dependencies plan =
     then do
       package <- loadInstalledPackage True storePath
       requireInstalledFlags config named package
-      pure package
+      pure (package, Nothing)
     else do
       createDirectoryIfMissing True storeRoot
-      bracket
-        (createTemporaryStoreRoot storeRoot packageDirectory)
-        removeTemporaryStoreRoot
-        (buildAndPublish inputs packageDirectory unitIdentity storePath exists)
-  where
-    buildAndPublish inputs packageDirectory unitIdentity storePath exists temporaryRoot = do
-      built <- installPackageDirect config locator packageDirectory unitIdentity True temporaryRoot dependencies (planSourcePath plan) inputs
-      when exists (removeDirectoryRecursive storePath)
-      publishResult <- try (renameDirectory (installStorePath (installedResult built)) storePath)
-      case publishResult of
-        Right () -> pure (setInstalledStorePath storePath built)
-        Left err -> do
-          published <- doesDirectoryExist storePath
-          if published
-            then loadInstalledPackage True storePath
-            else throwIO (err :: IOException)
+      temporaryRoot <- createTemporaryStoreRoot storeRoot packageDirectory
+      atomicModifyIORef' (sharedTemporaryRoots shared) (\roots -> (Set.insert temporaryRoot roots, ()))
+      preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies plan inputs
 
--- | Build a local package in place under the build root.
-installLocalPackage :: ModuleCompileConfig -> PackageLocator -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
-installLocalPackage config locator reinstall buildRoot dependencies plan = do
-  let root = planSourcePath plan
-  inputs <- readPackageInputs config plan
+-- | Move a built package from its temporary root to its store entry.
+publishStorePackage :: InstallShared -> PackageBuild -> InstalledPackage -> IO InstalledPackage
+publishStorePackage shared build built = do
+  let storePath = buildPublishPath build
+      temporaryRoot = buildPath build
+  when (buildReplaces build) (removeDirectoryRecursive storePath)
+  publishResult <- try (renameDirectory temporaryRoot storePath)
+  package <- case publishResult of
+    Right () -> pure (setInstalledStorePath storePath built)
+    Left err -> do
+      published <- doesDirectoryExist storePath
+      if published
+        then loadInstalledPackage True storePath
+        else throwIO (err :: IOException)
+  removeTemporaryStoreRoot temporaryRoot
+  atomicModifyIORef' (sharedTemporaryRoots shared) (\roots -> (Set.delete temporaryRoot roots, ()))
+  pure package
+
+-- | Prepare a local package to build in place under the build root.
+prepareLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
+prepareLocalPackage config reinstall buildRoot dependencies plan inputs = do
   let (packageDirectory, unitIdentity) = localPackageIdentity inputs
       buildPath = buildRoot </> packageDirectory
   exists <- doesDirectoryExist buildPath
   when (exists && reinstall) (removeDirectoryRecursive buildPath)
   createDirectoryIfMissing True buildPath
-  installPackageDirect config locator packageDirectory unitIdentity False buildRoot dependencies root inputs
+  preparePackageBuild config packageDirectory unitIdentity False buildPath buildPath False dependencies plan inputs
 
 -- | The flags the store entry was built with must cover the flags of this
 -- install: the entry is never changed, so a missing output stays missing.
@@ -832,17 +1152,16 @@ requireInstalledFlags config named package = do
           )
       )
 
-installPackageDirect :: ModuleCompileConfig -> PackageLocator -> FilePath -> Text -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
-installPackageDirect config locator packageDirectory unitIdentity immutable storeRoot dependencies root inputs = do
-  let target = compileTarget config
+-- | Configure and preprocess a package, and record what its finish needs.
+-- The package is returned as its dependents see it while it builds.
+preparePackageBuild :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> FilePath -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
+preparePackageBuild config packageDirectory unitIdentity immutable buildPath publishPath replaces dependencies plan inputs = do
+  let root = planSourcePath plan
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
   let gpd = inputDescription inputs
-  let packageNameText = HackagePackage.packageNameText (packageNameOf gpd)
-      packageVersionText = T.pack (showVersion (Cabal.packageVersion gpd))
-  let storePath = storeRoot </> packageDirectory
-      resolvePackage = Package packageNameText (PackageId unitIdentity)
-  (configuredFiles, configuredCInfo) <- configurePackage config root storePath packageNameText inputs
+      packageNameText = HackagePackage.packageNameText (packageNameOf gpd)
+  (configuredFiles, configuredCInfo) <- configurePackage config root buildPath packageNameText inputs
   headerDirs <- dependencyIncludeDirs dependencies
   headerHash <- includeDirectoriesHash headerDirs
   let dependencyVersions =
@@ -850,10 +1169,70 @@ installPackageDirect config locator packageDirectory unitIdentity immutable stor
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
       cCompileInfo = configuredCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs configuredCInfo <> headerDirs)}
       sourceFiles = map (appendIncludeDirs headerDirs) configuredFiles
-  installPackageHeaders root storePath configuredCInfo
-  files <- preprocessPackage config dependencyVersions root storePath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
-  compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies locator
-  let parsed = compiledSources compiled
+  installPackageHeaders root buildPath configuredCInfo
+  files <- preprocessPackage config dependencyVersions root buildPath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
+  let build =
+        PackageBuild
+          { buildSourceRoot = root,
+            buildPath = buildPath,
+            buildPublishPath = publishPath,
+            buildReplaces = replaces,
+            buildPackageDirectory = packageDirectory,
+            buildUnitIdentity = unitIdentity,
+            buildImmutable = immutable,
+            buildInputs = inputs,
+            buildFiles = files,
+            buildCCompileInfo = cCompileInfo,
+            buildHeaderHash = headerHash,
+            buildDependencies = dependencies
+          }
+      -- The compiled modules are known once the modules are parsed; the
+      -- manifest written at the finish names them.
+      manifest = packageBuildManifest config build []
+  pure (installedPackageOf build (InstallResult buildPath [] []) manifest, Just build)
+
+installedPackageOf :: PackageBuild -> InstallResult -> PackageManifest -> InstalledPackage
+installedPackageOf build result manifest =
+  InstalledPackage
+    { installedResult = result,
+      installedName = packageManifestName manifest,
+      installedVersion = packageManifestVersion manifest,
+      installedIdentity = T.pack (buildPackageDirectory build),
+      installedImmutable = buildImmutable build,
+      installedManifest = manifest
+    }
+
+packageBuildManifest :: ModuleCompileConfig -> PackageBuild -> [Text] -> PackageManifest
+packageBuildManifest config build compiledModules =
+  PackageManifest
+    { packageManifestName = HackagePackage.packageNameText (packageNameOf gpd),
+      packageManifestVersion = T.pack (showVersion (Cabal.packageVersion gpd)),
+      packageManifestIdentity = T.pack (buildPackageDirectory build),
+      packageManifestUnitId = buildUnitIdentity build,
+      packageManifestDependencies = sortOn id (map installedIdentity (buildDependencies build)),
+      packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd),
+      packageManifestCompiledModules = sortOn id compiledModules,
+      packageManifestFlags = compileFlagNames config,
+      packageManifestCabalFlags = Map.fromList [(T.pack (unFlagName flag), value) | (flag, value) <- unFlagAssignment (HackageCabal.contextFlags (inputContext inputs))],
+      packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources (buildCCompileInfo build)))
+    }
+  where
+    inputs = buildInputs build
+    gpd = inputDescription inputs
+
+-- | Archive the compiled modules of a package and write its manifest.
+finishPackageBuild :: InstallShared -> PackageBuild -> CompiledPackageModules -> IO InstalledPackage
+finishPackageBuild shared build compiled = do
+  let config = sharedConfig shared
+      target = compileTarget config
+      verbose = compileVerbose config
+      inputs = buildInputs build
+      root = buildSourceRoot build
+      storePath = buildPath build
+      dependencies = buildDependencies build
+      cCompileInfo = buildCCompileInfo build
+      packageNameText = HackagePackage.packageNameText (packageNameOf (inputDescription inputs))
+      parsed = compiledSources compiled
       written = compiledWritten compiled
       reused = compiledReused compiled
   unless (compileNoCode config) $ do
@@ -864,7 +1243,7 @@ installPackageDirect config locator packageDirectory unitIdentity immutable stor
     -- The archive follows its objects and the C sources. Both are known
     -- without reading the objects: a unit that wrote an object says so, and
     -- the C sources are hashed for the archive stamp.
-    archiveInputs <- archiveInputsHash config root dependencies inputs headerHash
+    archiveInputs <- archiveInputsHash config root dependencies inputs (buildHeaderHash build)
     let stampPath = storePath </> "lib" </> "archive.hash"
     previous <- readStampText stampPath
     archiveExists <- doesFileExist archive
@@ -875,29 +1254,9 @@ installPackageDirect config locator packageDirectory unitIdentity immutable stor
         buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
-  let manifest =
-        PackageManifest
-          { packageManifestName = packageNameText,
-            packageManifestVersion = packageVersionText,
-            packageManifestIdentity = T.pack packageDirectory,
-            packageManifestUnitId = unitIdentity,
-            packageManifestDependencies = sortOn id (map installedIdentity dependencies),
-            packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd),
-            packageManifestCompiledModules = sortOn id (map sourceName parsed),
-            packageManifestFlags = compileFlagNames config,
-            packageManifestCabalFlags = Map.fromList [(T.pack (unFlagName flag), value) | (flag, value) <- unFlagAssignment (HackageCabal.contextFlags (inputContext inputs))],
-            packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources cCompileInfo))
-          }
+  let manifest = packageBuildManifest config build (map sourceName parsed)
   writePackageManifest (packageManifestPath storePath) manifest
-  pure
-    InstalledPackage
-      { installedResult = InstallResult storePath (Set.toAscList written) (Set.toAscList reused),
-        installedName = packageNameText,
-        installedVersion = packageVersionText,
-        installedIdentity = T.pack packageDirectory,
-        installedImmutable = immutable,
-        installedManifest = manifest
-      }
+  pure (installedPackageOf build (InstallResult storePath (Set.toAscList written) (Set.toAscList reused)) manifest)
 
 readStampText :: FilePath -> IO (Maybe String)
 readStampText path = do
@@ -975,58 +1334,236 @@ moduleObjectPaths withModuleObjects root target names = do
   where
     paths = moduleOutputPaths root target
 
+-- | The modules of one package, compiled in a graph: parse tasks at once,
+-- the unit tasks once the partition task has cut the modules into units,
+-- and a finish task that collects the results.
+data ModuleBuild = ModuleBuild
+  { moduleBuildConfig :: !ModuleCompileConfig,
+    moduleBuildOutputRoot :: !FilePath,
+    moduleBuildPackageRoot :: !FilePath,
+    moduleBuildPackage :: !Package,
+    moduleBuildFiles :: ![HackageCabal.FileInfo],
+    moduleBuildVersions :: !DependencyVersions,
+    moduleBuildCapiOptions :: !CapiStubOptions,
+    moduleBuildPrimIdentity :: !PackageId,
+    -- | The place of the package among the packages of the graph, which
+    -- orders its tasks against theirs.
+    moduleBuildOrder :: !Int,
+    moduleBuildPartitionTask :: !TaskId,
+    moduleBuildFinishTask :: !TaskId,
+    -- | The tasks the partition waits on besides the parse tasks: the
+    -- partitions of the dependencies, whose units it links to.
+    moduleBuildPartitionAfter :: ![TaskId],
+    moduleBuildFinishAfter :: ![TaskId],
+    -- | The dependencies, read by the partition task.
+    moduleBuildDependencies :: !(IO [PreparedDependency]),
+    -- | Takes the unit of each compiled module, before the partition task ends.
+    moduleBuildPartitioned :: !(Map.Map Text UnitRuntime -> IO ()),
+    moduleBuildFinished :: !(CompiledPackageModules -> IO ())
+  }
+
+-- | A dependency of a module build, as its partition task sees it.
+data PreparedDependency = PreparedDependency
+  { dependencyPackage :: !Package,
+    dependencyExposed :: !(Set.Set Text),
+    dependencySource :: !PackageSource,
+    -- | The unit of each module, for a dependency that compiles in the
+    -- same graph; empty for one the store holds.
+    dependencyUnits :: !(Map.Map Text UnitRuntime),
+    dependencyLocator :: !PackageLocator
+  }
+
+-- | Compile the modules of one package against installed packages, in a
+-- graph of their own.
 compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> PackageLocator -> IO CompiledPackageModules
 compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage files dependencies locator = do
-  let verbose = compileVerbose config
-  verbose ("Parse " <> show (length files) <> " modules")
   capabilities <- getNumCapabilities
-  let versions =
-        dependencyVersionsFromManifests
-          [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
-  (parsed, importTimings) <- loadSourceModules (compileHeaderDirectory config) (max 1 capabilities) packageRoot versions files
-  -- The modules of the dependencies are read by the units that import
-  -- them, so nothing of them is loaded before the graph starts.
-  provider <-
-    newStoreModuleProvider
-      locator
-      [(installedManifest dependency, installStorePath (installedResult dependency)) | dependency <- dependencies]
-  let primIdentity = dependencyPrimIdentity resolvePackage dependencies
-  -- The serial stretch between the parse tasks and the unit graph. It runs
-  -- no task, so it shows as idle workers on the timeline, and it builds its
-  -- result lazily: forcing it here is what puts the time on the line that
-  -- names the work rather than on whichever task first asks for it.
-  depgraphStart <- getMonotonicTimeNSec
+  phaseTimings <- newIORef mempty
+  result <- newEmptyTMVarIO
+  let storeDependency dependency =
+        PreparedDependency
+          { dependencyPackage = Package (installedName dependency) (PackageId (packageManifestUnitId (installedManifest dependency))),
+            dependencyExposed = Set.fromList (packageManifestModules (installedManifest dependency)),
+            dependencySource = StorePackage (installStorePath (installedResult dependency)),
+            dependencyUnits = Map.empty,
+            dependencyLocator = locator
+          }
+  timings <-
+    runTaskGraphWith (max 1 capabilities) $ \graph -> do
+      base <- allocateTaskIds graph 2
+      addModuleBuild
+        graph
+        phaseTimings
+        ModuleBuild
+          { moduleBuildConfig = config,
+            moduleBuildOutputRoot = outputRoot,
+            moduleBuildPackageRoot = packageRoot,
+            moduleBuildPackage = resolvePackage,
+            moduleBuildFiles = files,
+            moduleBuildVersions =
+              dependencyVersionsFromManifests
+                [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
+            moduleBuildCapiOptions = capiOptions,
+            moduleBuildPrimIdentity = dependencyPrimIdentity resolvePackage dependencies,
+            moduleBuildOrder = 0,
+            moduleBuildPartitionTask = TaskId base,
+            moduleBuildFinishTask = TaskId (base + 1),
+            moduleBuildPartitionAfter = [],
+            moduleBuildFinishAfter = [],
+            moduleBuildDependencies = pure (map storeDependency dependencies),
+            moduleBuildPartitioned = const (pure ()),
+            moduleBuildFinished = atomically . putTMVar result
+          }
+  totals <- readIORef phaseTimings
+  compilePrintTimings config (renderTaskTimeline (compileUseColor config) [] timings <> renderBackendPhaseTotals totals)
+  atomically (readTMVar result)
+
+-- | Add the parse tasks and the partition task of a module build.
+addModuleBuild :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> IO ()
+addModuleBuild graph phaseTimings build = do
+  let config = moduleBuildConfig build
+      files = moduleBuildFiles build
+      order = moduleBuildOrder build
+  compileVerbose config ("Parse " <> show (length files) <> " modules")
+  sourceSlots <- mapM (const newEmptyTMVarIO) files
+  parseBase <- allocateTaskIds graph (length files)
+  let parseTasks =
+        [ Task
+            { taskId = TaskId (parseBase + index),
+              taskKind = TaskParse,
+              taskOrder = order,
+              taskDependencies = Set.empty,
+              taskAction = do
+                source <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
+                -- The header fields of the module are strict, so the import
+                -- list is known once the source exists. The tree is forced
+                -- here, in the parse task, and not by the first task that
+                -- reads it.
+                modu <- readMVar (sourceModuleParsed source)
+                evaluate (rnf (modu, sourceModuleParseDiagnostics source))
+                atomically (putTMVar slot source)
+            }
+        | (index, file, slot) <- zip3 [0 ..] files sourceSlots
+        ]
+      partitionTask =
+        Task
+          { taskId = moduleBuildPartitionTask build,
+            taskKind = TaskPackage,
+            taskOrder = order,
+            taskDependencies = Set.fromList (map taskId parseTasks <> moduleBuildPartitionAfter build),
+            taskAction = partitionModules graph phaseTimings build sourceSlots
+          }
+  addTasks graph (parseTasks <> [partitionTask])
+
+-- | Cut the parsed modules into units and add the tasks of each unit and
+-- the finish task. A unit waits on the units of its own package it
+-- imports, and on the units of the dependencies that hold the modules it
+-- imports.
+partitionModules :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> [TMVar SourceModule] -> IO ()
+partitionModules graph phaseTimings build sourceSlots = do
+  let config = moduleBuildConfig build
+      resolvePackage = moduleBuildPackage build
+      order = moduleBuildOrder build
+      noCode = compileNoCode config
+  parsed <- mapM (atomically . readTMVar) sourceSlots
+  dependencies <- moduleBuildDependencies build
   units <- evaluate (sourceModuleUnits parsed)
-  -- The graph this phase builds is which units there are and which units
+  -- The graph this task builds is which units there are and which units
   -- each waits on. The modules in them are its input, forced when they
   -- were parsed; forcing them here would only move that work out of the
   -- parse tasks that run in parallel.
   _ <- evaluate (force [(sourceUnitId unit, sourceUnitDependencies unit) | unit <- units])
-  depgraphEnd <- getMonotonicTimeNSec
-  backendPhaseTimings <- newIORef mempty
-  let taskContext =
+  compileVerbose config ("Compute " <> show (length units) <> " SCC units")
+  provider <-
+    newModuleProvider
+      (Map.unions (map dependencyLocator dependencies))
+      [(dependencyPackage dependency, Set.toAscList (dependencyExposed dependency), dependencySource dependency) | dependency <- dependencies]
+  unitBase <- allocateTaskIds graph (3 * length units)
+  runtimes <-
+    forM (zip [0 ..] units) $ \(index, unit) ->
+      UnitRuntime unit (TaskId (unitBase + 3 * index)) (TaskId (unitBase + 3 * index + 1)) (TaskId (unitBase + 3 * index + 2))
+        <$> newEmptyTMVarIO
+        <*> newEmptyTMVarIO
+        <*> newEmptyTMVarIO
+        <*> newEmptyTMVarIO
+  let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
+      context =
         PackageTaskContext
           { taskModuleCompileConfig = config,
-            taskStorePath = outputRoot,
+            taskStorePath = moduleBuildOutputRoot build,
             taskResolvePackage = resolvePackage,
-            taskPrimIdentity = primIdentity,
-            taskPackageRoot = packageRoot,
+            taskPrimIdentity = moduleBuildPrimIdentity build,
+            taskPackageRoot = moduleBuildPackageRoot build,
             taskModuleProvider = provider,
-            taskCapiStubOptions = capiOptions,
-            taskBackendPhaseTimings = backendPhaseTimings
+            taskCapiStubOptions = moduleBuildCapiOptions build,
+            taskBackendPhaseTimings = phaseTimings
           }
-  verbose ("Compute " <> show (length units) <> " SCC units")
-  (runtimes, taskTimings) <- runPackageTasks taskContext (max 1 capabilities) units
+      localRuntimes unit = map (lookupRuntime runtimeMap) (sourceUnitDependencies unit)
+      -- The units of the dependencies that hold the modules the unit
+      -- imports, as the provider finds them.
+      importedRuntimes unit =
+        [ runtime
+        | name <- unitExternalNames unit,
+          dependency <- dependencies,
+          name `Set.member` dependencyExposed dependency,
+          Just runtime <- [Map.lookup name (dependencyUnits dependency)]
+        ]
+      unitExternalNames unit =
+        let sources = sourceUnitSources unit
+            names = map sourceName sources
+         in [name | name <- nub (concatMap sourceDependencyNames sources <> wiredInterfaceModules), name `notElem` names]
+      unitTasks runtime =
+        let unit = runtimeUnit runtime
+            unitOrder = order * 1000000 + sourceUnitOrder unit
+            below = localRuntimes unit <> importedRuntimes unit
+         in [ Task
+                { taskId = runtimeResolveTask runtime,
+                  taskKind = TaskResolve,
+                  taskOrder = unitOrder,
+                  taskDependencies = Set.fromList (map runtimeResolveTask below),
+                  taskAction = runResolveUnit context runtimeMap runtime
+                },
+              Task
+                { taskId = runtimeTypeTask runtime,
+                  taskKind = TaskTypeCheck,
+                  taskOrder = unitOrder,
+                  taskDependencies = Set.fromList (runtimeResolveTask runtime : map runtimeTypeTask below),
+                  taskAction = runTypeUnit context runtimeMap runtime
+                }
+            ]
+              <> [ Task
+                     { taskId = runtimeBackendTask runtime,
+                       taskKind = TaskBackend,
+                       taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources unit))),
+                       taskDependencies = Set.singleton (runtimeTypeTask runtime),
+                       taskAction = runBackendUnit context runtime
+                     }
+                 | not noCode
+                 ]
+      finishTask =
+        Task
+          { taskId = moduleBuildFinishTask build,
+            taskKind = TaskPackage,
+            taskOrder = order,
+            taskDependencies =
+              Set.fromList
+                ( concat [runtimeTypeTask runtime : [runtimeBackendTask runtime | not noCode] | runtime <- runtimes]
+                    <> moduleBuildFinishAfter build
+                ),
+            taskAction = finishModules build runtimes parsed >>= moduleBuildFinished build
+          }
+  addTasks graph (concatMap unitTasks runtimes <> [finishTask])
+  moduleBuildPartitioned build (Map.fromList [(sourceName source, runtime) | runtime <- runtimes, source <- sourceUnitSources (runtimeUnit runtime)])
+
+-- | Collect the results of the units of a module build: report the
+-- diagnostics, and write the digests a consumer reads.
+finishModules :: ModuleBuild -> [UnitRuntime] -> [SourceModule] -> IO CompiledPackageModules
+finishModules build runtimes parsed = do
+  let config = moduleBuildConfig build
+      outputRoot = moduleBuildOutputRoot build
+      packageRoot = moduleBuildPackageRoot build
+      resolvePackage = moduleBuildPackage build
   resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  phaseTimings <- readIORef backendPhaseTimings
-  compilePrintTimings
-    config
-    ( renderTaskTimeline
-        (compileUseColor config)
-        [("Depgraph", depgraphEnd - depgraphStart)]
-        (importTimings <> taskTimings)
-        <> renderBackendPhaseTotals phaseTimings
-    )
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
@@ -1036,7 +1573,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
           [ [(unitLabel (runtimeUnit runtime), diagnostic) | diagnostic <- typeUnitDiagnostics result, diagSeverity diagnostic == TcError]
           | (runtime, result) <- zip runtimes typeResults
           ]
-  frontendFailure <- renderFrontendFailure (excerptSourceLoader (compileHeaderDirectory config) packageRoot versions files) parseDiagnostics resolveDiagnostics typeDiagnostics
+  frontendFailure <- renderFrontendFailure (excerptSourceLoader (compileHeaderDirectory config) packageRoot (moduleBuildVersions build) (moduleBuildFiles build)) parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
   let localScopeHashes = byModuleUnions (map resolveUnitScopeHashes resolveResults)
       localTypeHashes = byModuleUnions (map typeUnitHashes typeResults)
@@ -1387,25 +1924,6 @@ isCppWarning :: Value -> Bool
 isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
 isCppWarning _ = False
 
-loadSourceModules :: FilePath -> Int -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
-loadSourceModules headerDir workers root versions files = do
-  results <- mapM (const newEmptyTMVarIO) files
-  let tasks = zipWith3 loadTask [0 ..] files results
-  timings <- runTaskGraph workers tasks
-  sources <- mapM (atomically . readTMVar) results
-  pure (sources, timings)
-  where
-    loadTask order fileInfo result =
-      Task
-        { taskId = TaskId order,
-          taskKind = TaskParse,
-          taskOrder = order,
-          taskDependencies = Set.empty,
-          -- The header fields of the module are strict, so the import
-          -- list is known once the source exists.
-          taskAction = parseSource headerDir root versions fileInfo >>= atomically . putTMVar result
-        }
-
 sourceModuleUnits :: [SourceModule] -> [SourceUnit]
 sourceModuleUnits sources = zipWith makeUnit [0 ..] orderedComponents
   where
@@ -1615,95 +2133,6 @@ renderTypeErrorKind kind =
     OtherError message ->
       message
 
-runPackageTasks :: PackageTaskContext -> Int -> [SourceUnit] -> IO ([UnitRuntime], [TaskTiming])
-runPackageTasks context workers units = do
-  runtimes <-
-    forM units $ \unit ->
-      UnitRuntime unit <$> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO
-  let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
-      -- The task numbering of the package. The parse tasks take the indices
-      -- of the modules, which the units partition in order, and the three
-      -- phases of a unit take three indices each above them.
-      sourceBases = scanl (+) 0 (map (length . sourceUnitSources) units)
-      sourceCount = sum (map (length . sourceUnitSources) units)
-      tasks = concat (zipWith (unitTasks runtimeMap sourceCount) sourceBases runtimes)
-  timings <- runTaskGraph workers tasks
-  pure (runtimes, timings)
-  where
-    unitTasks runtimeMap sourceCount sourceBase runtime =
-      zipWith (parseTask runtime) [sourceBase ..] (sourceUnitSources unit)
-        <> [ resolveTask runtimeMap sourceCount sourceBase runtime,
-             typeTask runtimeMap sourceCount runtime
-           ]
-        <> [backendTask sourceCount runtime | not (compileNoCode config)]
-      where
-        unit = runtimeUnit runtime
-
-    parseTask runtime index source =
-      Task
-        { taskId = TaskId index,
-          taskKind = TaskParse,
-          taskOrder = sourceUnitOrder (runtimeUnit runtime),
-          taskDependencies = Set.empty,
-          taskAction = do
-            modu <- readMVar (sourceModuleParsed source)
-            evaluate (rnf (modu, sourceModuleParseDiagnostics source))
-        }
-
-    resolveTask runtimeMap sourceCount sourceBase runtime =
-      Task
-        { taskId = resolveTaskId sourceCount (sourceUnitId (runtimeUnit runtime)),
-          taskKind = TaskResolve,
-          taskOrder = sourceUnitOrder (runtimeUnit runtime),
-          taskDependencies =
-            Set.fromList
-              ( [TaskId index | index <- take (length (sourceUnitSources (runtimeUnit runtime))) [sourceBase ..]]
-                  <> map (resolveTaskId sourceCount) (sourceUnitDependencies (runtimeUnit runtime))
-              ),
-          taskAction =
-            runResolveUnit
-              context
-              runtimeMap
-              runtime
-        }
-
-    typeTask runtimeMap sourceCount runtime =
-      Task
-        { taskId = typeTaskId sourceCount (sourceUnitId (runtimeUnit runtime)),
-          taskKind = TaskTypeCheck,
-          taskOrder = sourceUnitOrder (runtimeUnit runtime),
-          taskDependencies =
-            Set.fromList
-              ( resolveTaskId sourceCount (sourceUnitId (runtimeUnit runtime))
-                  : map (typeTaskId sourceCount) (sourceUnitDependencies (runtimeUnit runtime))
-              ),
-          taskAction =
-            runTypeUnit
-              context
-              runtimeMap
-              runtime
-        }
-
-    backendTask sourceCount runtime =
-      Task
-        { taskId = backendTaskId sourceCount (sourceUnitId (runtimeUnit runtime)),
-          taskKind = TaskBackend,
-          taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources (runtimeUnit runtime)))),
-          taskDependencies = Set.singleton (typeTaskId sourceCount (sourceUnitId (runtimeUnit runtime))),
-          taskAction = runBackendUnit context runtime
-        }
-    config = taskModuleCompileConfig context
-
--- | The three task indices a unit owns, above the indices of the modules.
-resolveTaskId :: Int -> UnitId -> TaskId
-resolveTaskId sourceCount (UnitId order) = TaskId (sourceCount + 3 * order)
-
-typeTaskId :: Int -> UnitId -> TaskId
-typeTaskId sourceCount (UnitId order) = TaskId (sourceCount + 3 * order + 1)
-
-backendTaskId :: Int -> UnitId -> TaskId
-backendTaskId sourceCount (UnitId order) = TaskId (sourceCount + 3 * order + 2)
-
 unitLabel :: SourceUnit -> Text
 unitLabel = T.intercalate "+" . map sourceName . sourceUnitSources
 
@@ -1756,7 +2185,7 @@ runResolveUnit context runtimes runtime = do
       resolvePath source = sourceModuleDirectory source </> "resolve.cbor"
       stampPath = storePath </> unitResolveStampPath unit
       parseSuccess = all (null . sourceModuleParseDiagnostics) sources
-      dependenciesSucceeded = all resolveUnitSuccess dependencyResults
+      dependenciesSucceeded = all resolveUnitSuccess dependencyResults && all (resolvedModuleSuccess . snd) externalResolved
   -- This task owns the parse trees from here: they leave with the type
   -- input, and nothing else holds them.
   packageModules <- takePackageModuleUnits resolvePackage sources
@@ -1925,7 +2354,7 @@ runTypeUnit context runtimes runtime = do
             checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)
         _ <- evaluate (length checkedDiagnostics)
         pure (checked, checkedDiagnostics)
-      dependencySuccess = all typeUnitSuccess dependencyResults
+      dependencySuccess = all typeUnitSuccess dependencyResults && all (typedModuleSuccess . snd) externalTyped
       resolveSuccess = resolveUnitSuccess resolvedOutput
   reused <-
     if resolveSuccess && dependencySuccess
@@ -1954,6 +2383,7 @@ runTypeUnit context runtimes runtime = do
                   typeUnitOwnInstanceInterface = emptyTcInterface,
                   typeUnitFactsDigest = "",
                   typeUnitInstanceInterface = importedInstanceInterface,
+                  typeUnitInstanceProviders = Set.empty,
                   typeUnitDiagnostics = [],
                   typeUnitWritten = Set.empty,
                   typeUnitReused = Set.empty,
@@ -1965,6 +2395,7 @@ runTypeUnit context runtimes runtime = do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       factsArtifact <- readTypeArtifactFile (storePath </> factsPath)
       let ownFacts = typeArtifactInterface factsArtifact
+          providers = Set.fromList (concat (Map.elems (typeArtifactInstanceProviders factsArtifact)))
           interfaces = map typeArtifactInterface artifacts
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
       atomically $ do
@@ -1976,6 +2407,7 @@ runTypeUnit context runtimes runtime = do
               typeUnitOwnInstanceInterface = ownFacts,
               typeUnitFactsDigest = unitStampFacts recorded,
               typeUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
+              typeUnitInstanceProviders = providers,
               typeUnitDiagnostics = [],
               typeUnitWritten = Set.empty,
               typeUnitReused = Set.fromList unitNames,
@@ -2055,6 +2487,7 @@ runTypeUnit context runtimes runtime = do
               typeUnitOwnInstanceInterface = ownInstanceInterface,
               typeUnitFactsDigest = factsDigest,
               typeUnitInstanceInterface = completeInstanceInterface,
+              typeUnitInstanceProviders = instanceProviders,
               typeUnitDiagnostics = diagnostics,
               typeUnitWritten = unitSet,
               typeUnitReused = Set.empty,
