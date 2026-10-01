@@ -1,0 +1,34 @@
+extensions:
+  - PolyKinds
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, RankNTypes #-}
+    module Test where
+
+    import Prelude hiding (id, (.))
+    import Control.Category
+
+    newtype Rift p q a b = Rift { runRift :: forall x. p b x -> q a x }
+
+    instance p ~ q => Category (Rift p q) where
+      id = Rift id
+      Rift f . Rift g = Rift (g . f)
+
+    newtype Forget r a b = Forget (a -> r)
+
+    unRift :: Rift p q a b -> p b c -> q a c
+    unRift (Rift g) = g
+
+    shift :: Rift (->) (->) Int Int
+    shift = Rift (\k -> k . (+ 1))
+
+    result :: Bool
+    result = unRift (shift . shift) (* 10) 1 == 30 && unRift id show (5 :: Int) == "5"
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a match on a poly-kinded newtype instantiates the kind of a variable that
+  its field quantifies, and an instance head keeps the kind that it leaves open

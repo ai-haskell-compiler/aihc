@@ -1,0 +1,41 @@
+extensions:
+  - DeriveFunctor
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE DeriveFunctor, RankNTypes #-}
+    module Test where
+
+    newtype Reader r a = Reader (r -> a)
+      deriving Functor
+
+    newtype Bar t b a = Bar ((a -> b) -> t)
+      deriving Functor
+
+    newtype Bazaar a b t = Bazaar (forall f. Applicative f => (a -> f b) -> f t)
+      deriving Functor
+
+    runReader :: Reader r a -> r -> a
+    runReader (Reader f) = f
+
+    runBar :: Bar t b a -> (a -> b) -> t
+    runBar (Bar f) = f
+
+    runBazaar :: Applicative f => Bazaar a b t -> (a -> f b) -> f t
+    runBazaar (Bazaar f) = f
+
+    sell :: a -> Bazaar a b b
+    sell a = Bazaar (\k -> k a)
+
+    result :: Bool
+    result =
+      runReader (fmap (+ 1) (Reader (* 2))) 5 == 11
+        && runBar (fmap (* 3) (Bar (\k -> k 2))) (+ 1) == 7
+        && runBazaar (fmap show (sell 4)) Just == Just "4"
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: derived fmap composes with the result of a function field, maps the
+  domain of its domain, and goes through a quantified field

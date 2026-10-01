@@ -35,6 +35,7 @@ module Aihc.Tc.Deriving.StockClass
 where
 
 import Aihc.Parser.Syntax (Extension (..))
+import Aihc.Tc.Deriving.Functorial (FunctionFields (..))
 import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..), dataReferenceList, genericTermReferences)
 import Data.List (find)
 import Data.Maybe (isJust)
@@ -87,8 +88,9 @@ data StockObligations
   | -- | The class at every type that stands between a field and the last
     -- parameter of the datatype, which is what a body that hands nested
     -- positions to another instance needs. The instance head drops the
-    -- parameter, so the fields are read against the remaining ones.
-    FunctorialObligations
+    -- parameter, so the fields are read against the remaining ones. The
+    -- argument tells whether the class goes through function fields.
+    FunctorialObligations !FunctionFields
   | -- | The obligations of a derived @Data@ instance, as GHC infers them:
     -- the field obligations, the superclasses at the derived head, and the
     -- class at each type argument of the head when all of them have kind
@@ -156,15 +158,15 @@ stockClasses =
       },
     report "Ix" NewtypeAlways,
     (extension "Functor" DeriveFunctor NewtypeWithGnd)
-      { stockClassObligations = FunctorialObligations,
+      { stockClassObligations = FunctorialObligations FunctionFieldsMapped,
         stockClassMethods = Just StockFunctorMethods
       },
     (extension "Foldable" DeriveFoldable NewtypeWithGnd)
-      { stockClassObligations = FunctorialObligations,
+      { stockClassObligations = FunctorialObligations FunctionFieldsRejected,
         stockClassMethods = Just StockFoldableMethods
       },
     (extension "Traversable" DeriveTraversable NewtypeNever)
-      { stockClassObligations = FunctorialObligations,
+      { stockClassObligations = FunctorialObligations FunctionFieldsRejected,
         stockClassMethods = Just StockTraversableMethods,
         stockClassReferences = [derivingPure, derivingApply]
       },

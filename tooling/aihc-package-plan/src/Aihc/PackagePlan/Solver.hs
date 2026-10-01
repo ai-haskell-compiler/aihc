@@ -66,7 +66,47 @@ module Aihc.PackagePlan.Solver
   )
 where
 
-import Aihc.Hackage.Cabal (BuildContext (..), collectCondTreeData, conditionEvaluatorIn, installedLibraryTrees, targetFlagOverrides)
+import Aihc.Cabal
+  ( Branch (..),
+    BuildInfo,
+    Component (..),
+    ComponentKind (..),
+    Condition (..),
+    Conditional (..),
+    Dependency (..),
+    Package,
+    ToolDependency (..),
+    buildTools,
+    dependencies,
+    flagDefault,
+    flagManual,
+    flagName,
+    packageComponents,
+    packageFlags,
+  )
+import Aihc.Hackage.Cabal (BuildContext (..), collectMergedBuildInfo, conditionEvaluatorIn, installedLibraryTrees, isBuildable, targetFlagOverrides)
+import Aihc.Hackage.Package
+  ( Arch,
+    FlagAssignment,
+    FlagName,
+    OS,
+    PackageName,
+    Version,
+    VersionRange,
+    anyVersion,
+    intersectVersionRanges,
+    lookupFlagAssignment,
+    mkFlagAssignment,
+    mkPackageName,
+    packageNameOf,
+    showVersion,
+    showVersionRange,
+    simplifyVersionRange,
+    unFlagAssignment,
+    unFlagName,
+    unPackageName,
+    withinRange,
+  )
 import Aihc.Hackage.Preprocessor (Preprocessor, preprocessorToolName)
 import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift)
@@ -77,45 +117,8 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Ord (Down (..), comparing)
 import Data.Set qualified as Set
-import Distribution.Package (PackageName, packageName, unPackageName)
-import Distribution.PackageDescription
-  ( BuildInfo,
-    Executable,
-    FlagName,
-    Library,
-    benchmarkBuildInfo,
-    buildInfo,
-    buildToolDepends,
-    buildTools,
-    buildable,
-    condBenchmarks,
-    condExecutables,
-    condLibrary,
-    condSubLibraries,
-    condTestSuites,
-    flagDefault,
-    flagManual,
-    flagName,
-    libBuildInfo,
-    packageDescription,
-    testBuildInfo,
-    unFlagName,
-  )
-import Distribution.Pretty (prettyShow)
-import Distribution.System (Arch, OS)
-import Distribution.Types.BuildInfo (targetBuildDepends)
-import Distribution.Types.CondTree (CondBranch (..), CondTree (..))
-import Distribution.Types.Condition (Condition (..))
-import Distribution.Types.ConfVar (ConfVar (..))
-import Distribution.Types.Dependency (Dependency (..))
-import Distribution.Types.ExeDependency (ExeDependency (..))
-import Distribution.Types.Flag (FlagAssignment, lookupFlagAssignment, mkFlagAssignment, unFlagAssignment)
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
-import Distribution.Types.LegacyExeDependency (LegacyExeDependency (..))
-import Distribution.Types.UnqualComponentName (UnqualComponentName, unUnqualComponentName)
-import Distribution.Types.Version (Version)
-import Distribution.Types.VersionRange (VersionRange, anyVersion, intersectVersionRanges, withinRange)
-import Distribution.Version (simplifyVersionRange)
+import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Where a candidate's sources come from.
 data CandidateSource
@@ -147,7 +150,7 @@ data SolverInputs m = SolverInputs
     -- there is one, names the revision to read for the version it prefers.
     inputsCandidates :: PackageName -> Maybe Preference -> m [Candidate],
     -- | The cabal file of a candidate at its revision.
-    inputsDescription :: Candidate -> m GenericPackageDescription
+    inputsDescription :: Candidate -> m Package
   }
 
 -- | The optional components of a root package that contribute
@@ -157,7 +160,7 @@ data Stanzas = Stanzas
     stanzasBenchmarks :: !Bool,
     -- | The executables that contribute. 'Nothing' selects every
     -- executable.
-    stanzasExecutables :: !(Maybe (Set.Set UnqualComponentName))
+    stanzasExecutables :: !(Maybe (Set.Set Text))
   }
   deriving (Eq, Show)
 
@@ -166,12 +169,20 @@ noStanzas :: Stanzas
 noStanzas = Stanzas False False Nothing
 
 -- | The executables of a root package that its stanzas select.
-selectedExecutableTrees :: Stanzas -> GenericPackageDescription -> [CondTree ConfVar [Dependency] Executable]
+selectedExecutableTrees :: Stanzas -> Package -> [Conditional BuildInfo]
 selectedExecutableTrees stanzas gpd =
   [ tree
-  | (name, tree) <- condExecutables gpd,
+  | Component (Executable name) tree <- packageComponents gpd,
     maybe True (Set.member name) (stanzasExecutables stanzas)
   ]
+
+-- | The trees of the test suites of a package.
+testSuiteTrees :: Package -> [Conditional BuildInfo]
+testSuiteTrees gpd = [tree | Component (TestSuite _) tree <- packageComponents gpd]
+
+-- | The trees of the benchmarks of a package.
+benchmarkTrees :: Package -> [Conditional BuildInfo]
+benchmarkTrees gpd = [tree | Component (Benchmark _) tree <- packageComponents gpd]
 
 -- | A restriction from the command line, or from the lock file when the
 -- lock is being kept.
@@ -276,9 +287,9 @@ renderSolveFailure = intercalate "\n" . render
         NoCandidates name range dependents outside failures ->
           ( if range == anyVersion
               then "Every version of " <> unPackageName name <> " was rejected; it is needed by " <> renderDependents dependents
-              else "No version of " <> unPackageName name <> " satisfies " <> prettyShow range <> ", needed by " <> renderDependents dependents
+              else "No version of " <> unPackageName name <> " satisfies " <> showVersionRange range <> ", needed by " <> renderDependents dependents
           )
-            : [ "  versions outside the range: " <> intercalate ", " (map prettyShow (take listedVersions outside)) <> more
+            : [ "  versions outside the range: " <> intercalate ", " (map showVersion (take listedVersions outside)) <> more
               | not (null outside),
                 let more = if length outside > listedVersions then ", and " <> show (length outside - listedVersions) <> " more" else ""
               ]
@@ -288,7 +299,7 @@ renderSolveFailure = intercalate "\n" . render
       let label = "  " <> renderCandidateName candidate flags
        in case rejection of
             RejectedDependency dependency range assigned ->
-              [label <> " needs " <> unPackageName dependency <> " " <> prettyShow range <> ", but " <> unPackageName dependency <> "-" <> prettyShow assigned <> " is chosen"]
+              [label <> " needs " <> unPackageName dependency <> " " <> showVersionRange range <> ", but " <> unPackageName dependency <> "-" <> showVersion assigned <> " is chosen"]
             RejectedSubtree inner ->
               (label <> " was tried, and then:") : map ("    " <>) (render inner)
 
@@ -301,7 +312,7 @@ renderDependents dependents =
   where
     rangeSuffix range
       | range == anyVersion = ""
-      | otherwise = " (" <> prettyShow range <> ")"
+      | otherwise = " (" <> showVersionRange range <> ")"
     renderDependent dependent =
       case dependent of
         DependentRoot -> "the root"
@@ -312,7 +323,7 @@ renderCandidateName :: Candidate -> FlagAssignment -> String
 renderCandidateName candidate flags =
   unPackageName (candidateName candidate)
     <> "-"
-    <> prettyShow (candidateVersion candidate)
+    <> showVersion (candidateVersion candidate)
     <> concat [" " <> (if value then "+" else "-") <> unFlagName flag | (flag, value) <- unFlagAssignment flags]
 
 -- | Every package that the roots and goals reach and that has no
@@ -387,7 +398,7 @@ dependentNames goal = Set.fromList [name | (DependentPackage name _ _, _) <- goa
 -- cabal files it already fetched, and how often it backtracked.
 data Memo = Memo
   { memoCandidates :: !(Map PackageName [Candidate]),
-    memoDescriptions :: !(Map (PackageName, Version, Int, CandidateSource) GenericPackageDescription),
+    memoDescriptions :: !(Map (PackageName, Version, Int, CandidateSource) Package),
     memoBacktracks :: !Int
   }
 
@@ -450,7 +461,7 @@ candidatesOf inputs config name = do
       modify' (\memo -> memo {memoCandidates = Map.insert name candidates (memoCandidates memo)})
       pure candidates
 
-descriptionOf :: (Monad m) => SolverInputs m -> Candidate -> Solve m GenericPackageDescription
+descriptionOf :: (Monad m) => SolverInputs m -> Candidate -> Solve m Package
 descriptionOf inputs candidate = do
   let key = (candidateName candidate, candidateVersion candidate, candidateRevision candidate, candidateSource candidate)
   known <- gets (Map.lookup key . memoDescriptions)
@@ -585,13 +596,13 @@ search inputs config state = do
 -- default, then every assignment in increasing number of flips. Each
 -- assignment covers the searched flags and the constrained ones, so it is
 -- exactly what the plan decided.
-flagAssignments :: SolverConfig -> PackageName -> GenericPackageDescription -> Maybe Stanzas -> [FlagAssignment]
+flagAssignments :: SolverConfig -> PackageName -> Package -> Maybe Stanzas -> [FlagAssignment]
 flagAssignments config name gpd root =
   dedupe (preferred <> [mkFlagAssignment (Map.toAscList (Map.union fixed (Map.fromList flips))) | flips <- flipOrders])
   where
-    fixed = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageName (packageDescription gpd))))
+    fixed = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageNameOf gpd)))
     searched = [flag | flag <- searchableFlags (configPlatform config) root gpd, not (Map.member flag fixed)]
-    defaults = Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+    defaults = Map.fromList [(flagName flag, flagDefault flag) | flag <- packageFlags gpd]
     flipOrders =
       [ [(flag, if flag `elem` flipped then not (defaults Map.! flag) else defaults Map.! flag) | flag <- searched]
       | flipped <- sortOn length (subsequences searched)
@@ -619,81 +630,82 @@ flagAssignments config name gpd root =
 -- | The automatic flags of a package that guard a @build-depends@ clause
 -- in a component that contributes dependencies. Only these can change the
 -- plan, so only these are searched.
-searchableFlags :: (OS, Arch) -> Maybe Stanzas -> GenericPackageDescription -> [FlagName]
+searchableFlags :: (OS, Arch) -> Maybe Stanzas -> Package -> [FlagName]
 searchableFlags _ root gpd =
   [ flagName flag
-  | flag <- genPackageFlags gpd,
+  | flag <- packageFlags gpd,
     not (flagManual flag),
     flagName flag `Set.member` guarding
   ]
   where
     guarding =
       Set.unions
-        ( map (guardingFlags libBuildInfo) (allLibraryTrees gpd)
+        ( map guardingFlags (allLibraryTrees gpd)
             <> concat
-              [ map (guardingFlags buildInfo) (selectedExecutableTrees stanzas gpd)
-                  <> [guardingFlags testBuildInfo tree | stanzasTests stanzas, tree <- map snd (condTestSuites gpd)]
-                  <> [guardingFlags benchmarkBuildInfo tree | stanzasBenchmarks stanzas, tree <- map snd (condBenchmarks gpd)]
+              [ map guardingFlags (selectedExecutableTrees stanzas gpd)
+                  <> [guardingFlags tree | stanzasTests stanzas, tree <- testSuiteTrees gpd]
+                  <> [guardingFlags tree | stanzasBenchmarks stanzas, tree <- benchmarkTrees gpd]
               | Just stanzas <- [root]
               ]
         )
 
 -- | The flags in the conditions of the branches under which some node
 -- states a dependency.
-guardingFlags :: (a -> BuildInfo) -> CondTree ConfVar c a -> Set.Set FlagName
-guardingFlags toBuildInfo tree =
-  Set.unions (map branch (condTreeComponents tree))
+guardingFlags :: Conditional BuildInfo -> Set.Set FlagName
+guardingFlags tree =
+  Set.unions (map branch (branches tree))
   where
-    branch (CondBranch condition thenTree elseTree) =
+    branch (Branch condition thenTree elseTree) =
       Set.unions
         ( [conditionFlags condition | hasDependencies thenTree || maybe False hasDependencies elseTree]
-            <> [guardingFlags toBuildInfo thenTree]
-            <> [guardingFlags toBuildInfo subtree | Just subtree <- [elseTree]]
+            <> [guardingFlags thenTree]
+            <> [guardingFlags subtree | Just subtree <- [elseTree]]
         )
     hasDependencies subtree =
-      not (null (targetBuildDepends (toBuildInfo (condTreeData subtree))))
-        || any (\(CondBranch _ t e) -> hasDependencies t || maybe False hasDependencies e) (condTreeComponents subtree)
+      not (null (dependencies (unconditional subtree)))
+        || any (\(Branch _ t e) -> hasDependencies t || maybe False hasDependencies e) (branches subtree)
 
-conditionFlags :: Condition ConfVar -> Set.Set FlagName
+conditionFlags :: Condition -> Set.Set FlagName
 conditionFlags condition =
   case condition of
-    Var (PackageFlag flag) -> Set.singleton flag
-    Var _ -> Set.empty
-    Lit _ -> Set.empty
-    CNot inner -> conditionFlags inner
-    COr left right -> Set.union (conditionFlags left) (conditionFlags right)
-    CAnd left right -> Set.union (conditionFlags left) (conditionFlags right)
+    FlagValue flag -> Set.singleton flag
+    Literal _ -> Set.empty
+    OS _ -> Set.empty
+    Arch _ -> Set.empty
+    Impl _ _ -> Set.empty
+    Not inner -> conditionFlags inner
+    Or left right -> Set.union (conditionFlags left) (conditionFlags right)
+    And left right -> Set.union (conditionFlags left) (conditionFlags right)
 
 -- | All library trees. A flag can change which sub-libraries an install
 -- builds, so the flag search examines each of them.
-allLibraryTrees :: GenericPackageDescription -> [CondTree ConfVar [Dependency] Library]
-allLibraryTrees gpd = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+allLibraryTrees :: Package -> [Conditional BuildInfo]
+allLibraryTrees gpd = [tree | Component (Library _) tree <- packageComponents gpd]
 
 -- | The build infos of the components that contribute dependencies under
 -- one flag assignment: the buildable libraries that an install builds, and for a root package its
 -- executables and requested stanzas as well.
-contributingBuildInfos :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> GenericPackageDescription -> [BuildInfo]
+contributingBuildInfos :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> Package -> [BuildInfo]
 contributingBuildInfos (os, arch) flags root gpd =
   filter
-    buildable
-    ( map (merged libBuildInfo . snd) (installedLibraryTrees evalCond gpd)
+    isBuildable
+    ( map (merged . snd) (installedLibraryTrees evalCond gpd)
         <> concat
-          [ map (merged buildInfo) (selectedExecutableTrees stanzas gpd)
-              <> [merged testBuildInfo tree | stanzasTests stanzas, tree <- map snd (condTestSuites gpd)]
-              <> [merged benchmarkBuildInfo tree | stanzasBenchmarks stanzas, tree <- map snd (condBenchmarks gpd)]
+          [ map merged (selectedExecutableTrees stanzas gpd)
+              <> [merged tree | stanzasTests stanzas, tree <- testSuiteTrees gpd]
+              <> [merged tree | stanzasBenchmarks stanzas, tree <- benchmarkTrees gpd]
           | Just stanzas <- [root]
           ]
     )
   where
     evalCond = conditionEvaluatorIn (BuildContext os arch flags) gpd
-    merged :: (a -> BuildInfo) -> CondTree ConfVar c a -> BuildInfo
-    merged toBuildInfo tree = mconcat (map toBuildInfo (collectCondTreeData evalCond tree))
+    merged = collectMergedBuildInfo evalCond
 
 -- | The packages a candidate needs under one flag assignment, after
 -- aliasing, each with the intersection of the ranges the components
 -- demand. A dependency on the package itself, which a sub-library or an
 -- executable states, is not a dependency of the plan.
-candidateDependencies :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Maybe Stanzas -> GenericPackageDescription -> Map PackageName VersionRange
+candidateDependencies :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Maybe Stanzas -> Package -> Map PackageName VersionRange
 candidateDependencies platform aliases flags root gpd =
   Map.map
     simplifyVersionRange
@@ -701,26 +713,25 @@ candidateDependencies platform aliases flags root gpd =
         intersectVersionRanges
         [ (resolved, range)
         | build <- contributingBuildInfos platform flags root gpd,
-          Dependency name range _ <- targetBuildDepends build,
-          let resolved = fromMaybe name (Map.lookup name aliases),
+          Dependency packageName range _ <- dependencies build,
+          let name = mkPackageName (T.unpack packageName)
+              resolved = fromMaybe name (Map.lookup name aliases),
           resolved /= self
         ]
     )
   where
-    self = fromMaybe (packageName (packageDescription gpd)) (Map.lookup (packageName (packageDescription gpd)) aliases)
+    self = fromMaybe (packageNameOf gpd) (Map.lookup (packageNameOf gpd) aliases)
 
 -- | The build tools the contributing components ask for that the host
 -- cannot run. Tools run on the build host, so they are checked against the
 -- preprocessor table rather than solved against the target plan.
-unknownBuildTools :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> GenericPackageDescription -> [String]
+unknownBuildTools :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> Package -> [String]
 unknownBuildTools platform flags root gpd =
   Set.toAscList
     ( Set.fromList
         [ tool
         | build <- contributingBuildInfos platform flags root gpd,
-          tool <-
-            [unUnqualComponentName exe | ExeDependency _ exe _ <- buildToolDepends build]
-              <> [tool | LegacyExeDependency tool _ <- buildTools build],
+          tool <- [T.unpack (toolName dependency) | dependency <- buildTools build],
           tool `notElem` knownTools
         ]
     )
@@ -750,13 +761,13 @@ verifySolution inputs config recorded = do
             candidate : _
               | maybe True (== candidateRevision candidate) revision ->
                   pure (Right (Map.insert name (candidate, flags) chosen))
-              | otherwise -> pure (Left (unPackageName name <> "-" <> prettyShow version <> " has no revision " <> maybe "" show revision))
-            [] -> pure (Left ("no candidate " <> unPackageName name <> "-" <> prettyShow version))
+              | otherwise -> pure (Left (unPackageName name <> "-" <> showVersion version <> " has no revision " <> maybe "" show revision))
+            [] -> pure (Left ("no candidate " <> unPackageName name <> "-" <> showVersion version))
 
     assignmentFor name (candidate, flags) = do
       gpd <- inputsDescription inputs candidate
       let root = Map.lookup name (configRoots config)
-          decided = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageName (packageDescription gpd))))
+          decided = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageNameOf gpd)))
           full = mkFlagAssignment (Map.toAscList (Map.union decided (Map.fromList (unFlagAssignment flags))))
       pure
         Assignment
@@ -787,7 +798,7 @@ verifySolution inputs config recorded = do
              Just assignment <- [Map.lookup (alias config name) solution]
            ]
     dependencyChecks solution =
-      [ satisfied solution (unPackageName name <> "-" <> prettyShow (assignmentVersion assignment)) dependency range
+      [ satisfied solution (unPackageName name <> "-" <> showVersion (assignmentVersion assignment)) dependency range
       | (name, assignment) <- Map.toAscList solution,
         (dependency, range) <- Map.toAscList (assignmentDependencies assignment)
       ]
@@ -808,4 +819,4 @@ verifySolution inputs config recorded = do
         Nothing -> Just (who <> " needs " <> unPackageName name <> ", which is not listed")
         Just assignment
           | withinRange (assignmentVersion assignment) range -> Nothing
-          | otherwise -> Just (who <> " needs " <> unPackageName name <> " " <> prettyShow range <> ", but " <> prettyShow (assignmentVersion assignment) <> " is listed")
+          | otherwise -> Just (who <> " needs " <> unPackageName name <> " " <> showVersionRange range <> ", but " <> showVersion (assignmentVersion assignment) <> " is listed")

@@ -21,14 +21,13 @@ where
 import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install (cabalPlatformForTarget, installTargetRoot, planRequestFor)
 import Aihc.Cli.Options (PlanCommandOptions (..), PlanOptions (..), defaultPlanOptions)
+import Aihc.Hackage.Package (PackageName, showVersion, unPackageName)
 import Aihc.PackagePlan (PlanRequest (..), PlannedPackages (..), planPackages)
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..))
 import Control.Monad (when)
 import Data.List (intercalate, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Distribution.Package (PackageName, unPackageName)
-import Distribution.Pretty (prettyShow)
 
 -- | One package of a plan.
 data PlanRow = PlanRow
@@ -83,7 +82,7 @@ planRow :: PackageName -> Assignment -> PlanRow
 planRow name assignment =
   PlanRow
     { planRowName = unPackageName name,
-      planRowVersion = prettyShow (assignmentVersion assignment),
+      planRowVersion = showVersion (assignmentVersion assignment),
       planRowSource =
         case assignmentSource assignment of
           CandidateCore _ -> PlanRowCore

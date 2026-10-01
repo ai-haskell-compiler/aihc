@@ -64,6 +64,8 @@ module Aihc.Cli.Install
   )
 where
 
+import Aihc.Cabal (HookedBuildInfo (..), parseHookedBuildInfo, parseValue)
+import Aihc.Cabal qualified as Cabal
 import Aihc.Capi (moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
 import Aihc.Cli.Backend (compileGrinTo, compileLirObject, lirModuleDefinesCode, nativeSourceExtension, nativeSourceIsLir)
@@ -104,6 +106,8 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
+import Aihc.Hackage.Package (Arch, OS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
+import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Resolve qualified as Lir
@@ -214,15 +218,6 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
-import Distribution.Package (mkPackageName)
-import Distribution.Package qualified as CabalPackage
-import Distribution.PackageDescription (GenericPackageDescription, HookedBuildInfo, emptyHookedBuildInfo, package, packageDescription)
-import Distribution.PackageDescription.Parsec (parseHookedBuildInfo, runParseResult)
-import Distribution.Parsec (simpleParsec)
-import Distribution.Pretty (prettyShow)
-import Distribution.System (Arch, OS)
-import Distribution.Types.Flag (unFlagAssignment, unFlagName)
-import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
@@ -629,18 +624,14 @@ installTargetRoot target = do
           )
       Just (name, requestedVersion) -> do
         version <- forM requestedVersion $ \text ->
-          maybe (ioError (userError ("Invalid version " <> text))) pure (simpleParsec text)
+          maybe (ioError (userError ("Invalid version " <> text))) pure (parseVersionString text)
         pure (RootHackage name version, PlanHackage, Nothing)
 
 -- | Split a Hackage target into its package name and optional version.
 parsePackageTarget :: String -> Maybe (String, Maybe String)
 parsePackageTarget target = do
-  packageId <- simpleParsec target :: Maybe CabalPackage.PackageIdentifier
-  let version = CabalPackage.pkgVersion packageId
-  pure
-    ( CabalPackage.unPackageName (CabalPackage.pkgName packageId),
-      if version == nullVersion then Nothing else Just (prettyShow version)
-    )
+  (name, version) <- parsePackageIdentifier target
+  pure (unPackageName name, showVersion <$> version)
 
 -- | The plan request the command-line plan options describe, without its
 -- roots and goals. A local target uses @aihc.lock@ in the given directory.
@@ -718,7 +709,7 @@ installPlanNode config locations installed root plan = do
 
 data PackageInputs = PackageInputs
   { inputCabalFile :: !FilePath,
-    inputDescription :: !GenericPackageDescription,
+    inputDescription :: !Cabal.Package,
     -- | The platform and the cabal flags the plan decided, which close
     -- the conditions of the cabal file.
     inputContext :: !HackageCabal.BuildContext,
@@ -749,6 +740,7 @@ readPackageInputs config plan = do
         ioError (userError ("The package has build-type Configure but no configure script: " <> script))
       pure (Just script)
     _ -> pure Nothing
+  cCompileInfo <- either (ioError . userError . ((cabalFile <> ": ") <>)) pure (HackageCabal.collectLibraryCCompileInfoIn context gpd root)
   pure
     PackageInputs
       { inputCabalFile = cabalFile,
@@ -756,7 +748,7 @@ readPackageInputs config plan = do
         inputContext = context,
         inputRevision = planRevision plan,
         inputSources = files,
-        inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoIn context gpd root,
+        inputCCompileInfo = cCompileInfo,
         inputConfigureScript = configureScript,
         inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd
       }
@@ -852,9 +844,8 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
   let gpd = inputDescription inputs
-  let packageId = package (packageDescription gpd)
-      packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
-      packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
+  let packageNameText = HackagePackage.packageNameText (packageNameOf gpd)
+      packageVersionText = T.pack (showVersion (Cabal.packageVersion gpd))
   let storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId unitIdentity)
   (configuredFiles, configuredCInfo) <- configurePackage config root storePath packageNameText inputs
@@ -1200,9 +1191,8 @@ localPackageIdentity inputs =
 
 packageUnitIdentity :: PackageInputs -> (Text, Text, Text)
 packageUnitIdentity inputs =
-  let packageId = package (packageDescription (inputDescription inputs))
-      packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
-      packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
+  let packageNameText = HackagePackage.packageNameText (packageNameOf (inputDescription inputs))
+      packageVersionText = T.pack (showVersion (Cabal.packageVersion (inputDescription inputs)))
    in (packageNameText <> "-" <> packageVersionText, packageNameText, packageVersionText)
 
 -- | What the package archive depends on besides the module objects.
@@ -2898,13 +2888,15 @@ configurePackage config root storePath packageName inputs =
             ]
       generatedDirs <- filterM doesDirectoryExist counterparts
       hooked <- readHookedBuildInfo buildDirectory packageName
-      let (files', cInfo') =
-            HackageCabal.applyHookedBuildInfo
-              buildDirectory
-              hooked
-              (map (HackageCabal.prependIncludeDirs generatedDirs) files)
-              cInfo {HackageCabal.cCompileIncludeDirs = nub (generatedDirs <> HackageCabal.cCompileIncludeDirs cInfo)}
-          searchDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files' <> HackageCabal.cCompileIncludeDirs cInfo')
+      (files', cInfo') <-
+        either (ioError . userError) pure $
+          HackageCabal.applyHookedBuildInfo
+            (Cabal.cabalVersion (inputDescription inputs))
+            buildDirectory
+            hooked
+            (map (HackageCabal.prependIncludeDirs generatedDirs) files)
+            cInfo {HackageCabal.cCompileIncludeDirs = nub (generatedDirs <> HackageCabal.cCompileIncludeDirs cInfo)}
+      let searchDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files' <> HackageCabal.cCompileIncludeDirs cInfo')
       forM_ (inputAutogenIncludes inputs) $ \header -> do
         found <- filterM (\directory -> doesFileExist (directory </> header)) searchDirs
         when (null found) $
@@ -3150,12 +3142,12 @@ readHookedBuildInfo buildDirectory packageName = do
   let path = buildDirectory </> T.unpack packageName <.> "buildinfo"
   exists <- doesFileExist path
   if not exists
-    then pure emptyHookedBuildInfo
+    then pure (HookedBuildInfo Nothing Map.empty)
     else do
       bytes <- BS.readFile path
-      case runParseResult (parseHookedBuildInfo bytes) of
-        (_, Right value) -> pure value
-        (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> path <> ": " <> show errors))
+      case parseValue (parseHookedBuildInfo bytes) of
+        Right value -> pure value
+        Left errors -> ioError (userError ("Failed to parse " <> path <> ": " <> show errors))
 
 wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
 wasmSysrootIncludeArguments target =

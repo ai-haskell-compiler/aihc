@@ -1,0 +1,73 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  class Container (f :: Type -> Type) where
+  └─ class methods: size ∷ ∀ f a. (Container f) ⇒ f a → f a
+    size :: f a -> f a
+  newtype Compose f g a = Compose { getCompose :: f (g a) }
+          │               └─ type: ∀ f g a. f (g a) → Compose f g a
+          └─ type: (Type → Type) → (Type → Type) → Type → Type
+  instance (Container f, Container g) => Container (Compose f g) where
+  └─ $fContainerComposefg ∷ ∀ f g. (Container f, Container g) ⇒ Container (Compose f g)
+    size x = x
+    │    └─ type: Compose f g a
+    └─ size ∷ ∀ a. Compose f g a → Compose f g a
+  class Traversing (p :: Type -> Type -> Type) where
+  └─ class methods: traverse' ∷ ∀ p f a b. (Traversing p, Container f) ⇒ p a b → p (f a) (f b), dimap ∷ ∀ p a b c d. (Traversing p) ⇒ (a → b) → (c → d) → p b c → p a d
+    traverse' :: Container f => p a b -> p (f a) (f b)
+    dimap :: (a -> b) -> (c -> d) -> p b c -> p a d
+  newtype Cofree p a b = Cofree { runCofree :: forall f. Container f => p (f a) (f b) }
+          │              └─ type: ∀ p a b. (∀ f. (Container f) ⇒ p (f a) (f b)) → Cofree p a b
+          └─ type: (Type → Type → Type) → Type → Type → Type
+  instance Traversing q => Traversing (Cofree q) where
+  │                        └─ warning: no implementation of dimap, and class Traversing gives no default; calling it raises at run time
+  └─ $fTraversingCofreeq ∷ ∀ q. (Traversing q) ⇒ Traversing (Cofree q)
+    traverse' (Cofree p) = Cofree (dimap Compose getCompose p)
+    │          │      │    ││       │     │       │          └─ type: q (Compose f f a) (Compose f f b); type-args: Compose f f; evidence: $fContainerComposefg @f @f (given Container f, given Container f)
+    │          │      │    ││       │     │       └─ type: Compose f f b → f (f b); type-args: f, f, b
+    │          │      │    ││       │     └─ type: f (f a) → Compose f f a; type-args: f, f, a
+    │          │      │    ││       └─ type: (f (f a) → Compose f f a) → (Compose f f b → f (f b)) → q (Compose f f a) (Compose f f b) → q (f (f a)) (f (f b)); type-args: q, f (f a), Compose f f a, Compose f f b, f (f b); evidence: given Traversing q
+    │          │      │    └─ type: (∀ f. (Container f) ⇒ q (f (f a)) (f (f b))) → Cofree q (f a) (f b); type-args: q, f a, f b
+    │          │      │    └─ type: ∀ f. (Container f) ⇒ q (f (f a)) (f (f b))
+    │          │      └─ type: ∀ f. (Container f) ⇒ q (f a) (f b)
+    │          └─ type: Cofree q a b
+    └─ traverse' ∷ ∀ f a b. (Container f) ⇒ Cofree q a b → Cofree q (f a) (f b)
+  newtype Poly a = Poly (forall h. Container h => h a -> h a)
+          │        └─ type: ∀ a. (∀ h. (Container h) ⇒ h a → h a) → Poly a
+          └─ type: Type → Type
+  outer :: Container g => (forall h. Container h => h a -> h a) -> Poly (g a)
+  outer k = Poly (\x -> getCompose (k (Compose x)))
+  │     │   ││     ││    │           │  └─ type: h (g a) → Compose h g a; type-args: h, g, a
+  │     │   ││     ││    │           └─ type: Compose h g a → Compose h g a; type-args: Compose h g; evidence: $fContainerComposefg @h @g (given Container h, given Container g)
+  │     │   ││     ││    └─ type: Compose h g a → h (g a); type-args: h, g, a
+  │     │   ││     │└─ type: h (g a)
+  │     │   ││     └─ type: h (g a) → h (g a)
+  │     │   └─ type: ∀ h. (Container h) ⇒ h (g a) → h (g a)
+  │     │   └─ type: (∀ h. (Container h) ⇒ h (g a) → h (g a)) → Poly (g a); type-args: g a
+  │     └─ type: ∀ h. (Container h) ⇒ h a → h a
+  └─ type: ∀ g a. (Container g) ⇒ (∀ h. (Container h) ⇒ h a → h a) → Poly (g a)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE RankNTypes, KindSignatures #-}
+  module Main where
+  import GHC.Types (Type)
+  class Container (f :: Type -> Type) where
+    size :: f a -> f a
+  newtype Compose f g a = Compose { getCompose :: f (g a) }
+  instance (Container f, Container g) => Container (Compose f g) where
+    size x = x
+  class Traversing (p :: Type -> Type -> Type) where
+    traverse' :: Container f => p a b -> p (f a) (f b)
+    dimap :: (a -> b) -> (c -> d) -> p b c -> p a d
+  newtype Cofree p a b = Cofree { runCofree :: forall f. Container f => p (f a) (f b) }
+  instance Traversing q => Traversing (Cofree q) where
+    traverse' (Cofree p) = Cofree (dimap Compose getCompose p)
+  newtype Poly a = Poly (forall h. Container h => h a -> h a)
+  outer :: Container g => (forall h. Container h => h a -> h a) -> Poly (g a)
+  outer k = Poly (\x -> getCompose (k (Compose x)))
+reason: an instance context inside a higher-rank argument needs the givens of the
+  argument type and the givens of the enclosing signature together
+status: pass

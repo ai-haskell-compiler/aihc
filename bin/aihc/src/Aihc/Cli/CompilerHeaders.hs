@@ -14,11 +14,10 @@ where
 
 import Aihc.Cli.ArtifactCache (hashChunks)
 import Aihc.Hackage.Headers (HeaderTarget (..), compilerHeaderTexts, writeCompilerHeaders)
+import Aihc.Hackage.Package (Arch (..), OS (..), archName, buildArch, buildOS, osName)
 import Aihc.Native (NativeTarget (..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Distribution.Pretty (prettyShow)
-import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
 
 -- | The platform a target's code runs on. The @llvm@ target has no platform
 -- of its own: its C is compiled for the host that runs the compiler.
@@ -40,10 +39,10 @@ hostPlatformMacros target =
 platformNames :: NativeTarget -> (String, String)
 platformNames target =
   let (os, arch) = cabalPlatformForTarget target
-      osName = case os of
+      macroOsName = case os of
         OSX -> "darwin"
-        other -> prettyShow other
-   in (osName, prettyShow arch)
+        other -> osName other
+   in (macroOsName, archName arch)
 
 -- | What the headers of a target say.
 --

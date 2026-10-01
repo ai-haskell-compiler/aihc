@@ -18,6 +18,7 @@ module Aihc.Dev.Frontend
   )
 where
 
+import Aihc.Cabal qualified as Cabal
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install
@@ -55,6 +56,7 @@ import Aihc.Cli.Install
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph (Task (..), TaskId (..), TaskKind (..), renderDuration, runTaskGraph)
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Package (mkFlagAssignment, packageNameOf, packageNameText, showVersion)
 import Aihc.Hackage.Source (HackageSource (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget, defaultOptimizationLevel, hostNativeTarget, nativeTargetStoreDirectory)
@@ -97,10 +99,6 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
-import Distribution.Package qualified as CabalPackage
-import Distribution.PackageDescription (GenericPackageDescription, package, packageDescription)
-import Distribution.Pretty (prettyShow)
-import Distribution.Types.Flag (mkFlagAssignment)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Directory (doesDirectoryExist, getTemporaryDirectory, removeDirectoryRecursive)
 import System.Exit (die, exitFailure)
@@ -245,7 +243,7 @@ runPackage config jobs headerDirectory dependencies root = do
   (cabalFile, gpd) <- parseSourcePackageDescriptionAt root
   let plan =
         PackagePlan
-          { planName = CabalPackage.packageName (package (packageDescription gpd)),
+          { planName = packageNameOf gpd,
             planSourcePath = root,
             planCabalFile = cabalFile,
             planDescription = gpd,
@@ -323,12 +321,11 @@ runPackage config jobs headerDirectory dependencies root = do
           }
       )
 
-packageNameAndVersion :: GenericPackageDescription -> (Text, Text)
+packageNameAndVersion :: Cabal.Package -> (Text, Text)
 packageNameAndVersion gpd =
-  let packageId = package (packageDescription gpd)
-   in ( T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId)),
-        T.pack (prettyShow (CabalPackage.packageVersion packageId))
-      )
+  ( packageNameText (packageNameOf gpd),
+    T.pack (showVersion (Cabal.packageVersion gpd))
+  )
 
 -- | Parse every source of the package, each on its own task, and force
 -- the whole tree of each: the parser is lazy past the module header, and

@@ -6,6 +6,8 @@ module Aihc.Tc.Kind
     checkSurfaceType,
     checkRuntimeType,
     floatResultQuantifiers,
+    substituteAvoidingCapture,
+    substitutePredAvoidingCapture,
     unboxedSumType,
     convertSurfaceTypeWithKinds,
     defaultKindMetas,
@@ -377,7 +379,9 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       pure (TcTyLit converted, tyLitKind kinds converted)
     TForall telescope inner -> do
       params <- makeParamEnvWith tvEnv (forallTelescopeBinders telescope)
-      let tvEnv' = tvEnv <> Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params]
+      -- A binder shadows an outer variable of the same name. The union is
+      -- left-biased, so the binders come first.
+      let tvEnv' = Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params] <> tvEnv
       (innerTy, innerKind) <- convertSurfaceTypeWithKinds tvEnv' inner
       pure (foldr (TcForAllTy . paramTyVar) innerTy params, innerKind)
     _ -> do
@@ -643,8 +647,12 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
           pure (meta, typeKind kinds)
         else do
           checkedArguments <- zipWithM checkArgument params synonymArguments
+          -- A synonym from another module numbers the variables that its
+          -- body quantifies in the run of that module, so an argument can
+          -- mention a variable of the same unique.
           let substitution = Map.fromList (zip (map tvUnique params) checkedArguments)
-          expandedBody <- expandTcTypeSynonyms Set.empty (applySubst substitution body)
+          substituted <- substituteAvoidingCapture substitution body
+          expandedBody <- expandTcTypeSynonyms Set.empty substituted
           expandedKind <- tcTypeKind expandedBody
           applyRemainingArguments (expandedBody, expandedKind) remainingArguments
   where
@@ -657,6 +665,100 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
       unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
       zonkedResultKind <- zonkKind resultKind
       applyRemainingArguments (mkAppTy functionType argumentType, zonkedResultKind) rest
+
+-- | Apply a substitution without capture. A binder of the type that has
+-- the unique of a variable in a substituted type gets a fresh unique.
+-- Other binders keep their uniques. The walk does not go into the types
+-- that it substitutes.
+--
+-- A unique names one variable only in the run that made it. A synonym
+-- from another module can thus quantify a variable with the unique of a
+-- local variable in an argument, and a plain substitution would capture
+-- the argument variable.
+substituteAvoidingCapture :: Map Unique TcType -> TcType -> TcM TcType
+substituteAvoidingCapture substitution = captureAvoidingType (rangeUniques substitution) substitution
+
+-- | 'substituteAvoidingCapture' for a predicate.
+substitutePredAvoidingCapture :: Map Unique TcType -> Pred -> TcM Pred
+substitutePredAvoidingCapture substitution = captureAvoidingPred (rangeUniques substitution) substitution
+
+rangeUniques :: Map Unique TcType -> Set.Set Unique
+rangeUniques substitution = Set.fromList (concatMap typeVariableUniques (Map.elems substitution))
+
+captureAvoidingType :: Set.Set Unique -> Map Unique TcType -> TcType -> TcM TcType
+captureAvoidingType avoid substitution ty =
+  case ty of
+    TcTyVar tyVar ->
+      pure (Map.findWithDefault (TcTyVar (setTyVarKind (applySubst substitution (tvKind tyVar)) tyVar)) (tvUnique tyVar) substitution)
+    TcMetaTv {} -> pure ty
+    TcArrowTy -> pure ty
+    TcTyLit {} -> pure ty
+    TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM go arguments
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM go kindArguments
+    TcFunTy argument result -> TcFunTy <$> go argument <*> go result
+    TcAppTy function argument -> mkAppTy <$> go function <*> go argument
+    TcForAllTy tyVar body -> do
+      (binder, inner) <- bindAvoidingCapture avoid substitution tyVar
+      TcForAllTy binder <$> captureAvoidingType avoid inner body
+    TcQualTy predicates body -> TcQualTy <$> mapM (captureAvoidingPred avoid substitution) predicates <*> go body
+  where
+    go = captureAvoidingType avoid substitution
+
+captureAvoidingPred :: Set.Set Unique -> Map Unique TcType -> Pred -> TcM Pred
+captureAvoidingPred avoid substitution predicate =
+  case predicate of
+    ClassPred className arguments -> ClassPred className <$> mapM go arguments
+    EqPred left right -> EqPred <$> go left <*> go right
+    IParamPred name payload -> IParamPred name <$> go payload
+    IrredPred constraint -> IrredPred <$> go constraint
+    QuantifiedPred variables antecedents consequent -> do
+      (binders, inner) <-
+        foldM
+          ( \(done, scope) variable -> do
+              (binder, scope') <- bindAvoidingCapture avoid scope variable
+              pure (done <> [binder], scope')
+          )
+          ([], substitution)
+          variables
+      QuantifiedPred binders <$> mapM (captureAvoidingPred avoid inner) antecedents <*> captureAvoidingPred avoid inner consequent
+  where
+    go = captureAvoidingType avoid substitution
+
+-- | A binder under a substitution. It gets a fresh unique when a
+-- substituted type mentions its unique, and it shadows a substituted
+-- variable of the same unique.
+bindAvoidingCapture :: Set.Set Unique -> Map Unique TcType -> TyVarId -> TcM (TyVarId, Map Unique TcType)
+bindAvoidingCapture avoid substitution tyVar = do
+  let kind = applySubst substitution (tvKind tyVar)
+  binder <-
+    if tvUnique tyVar `Set.member` avoid
+      then freshSkolemTvOfKind (tvName tyVar) kind
+      else pure (setTyVarKind kind tyVar)
+  pure (binder, Map.insert (tvUnique tyVar) (TcTyVar binder) substitution)
+
+-- | The uniques of the type variables in a type and in their kinds.
+typeVariableUniques :: TcType -> [Unique]
+typeVariableUniques ty =
+  case ty of
+    TcTyVar tyVar -> tvUnique tyVar : typeVariableUniques (tvKind tyVar)
+    TcMetaTv {} -> []
+    TcArrowTy -> []
+    TcTyLit {} -> []
+    TcTyCon _ arguments -> concatMap typeVariableUniques arguments
+    TcKindedTyCon _ kindArguments -> concatMap typeVariableUniques kindArguments
+    TcFunTy argument result -> typeVariableUniques argument <> typeVariableUniques result
+    TcAppTy function argument -> typeVariableUniques function <> typeVariableUniques argument
+    TcForAllTy tyVar body -> tvUnique tyVar : typeVariableUniques (tvKind tyVar) <> typeVariableUniques body
+    TcQualTy predicates body -> concatMap predicateUniques predicates <> typeVariableUniques body
+  where
+    predicateUniques predicate =
+      case predicate of
+        ClassPred _ arguments -> concatMap typeVariableUniques arguments
+        EqPred left right -> typeVariableUniques left <> typeVariableUniques right
+        IParamPred _ payload -> typeVariableUniques payload
+        IrredPred constraint -> typeVariableUniques constraint
+        QuantifiedPred variables antecedents consequent ->
+          map tvUnique variables <> concatMap predicateUniques (consequent : antecedents)
 
 typeApplicationSpine :: Type -> (Type, [Type])
 typeApplicationSpine = go []
@@ -1444,12 +1546,13 @@ surfacePredToPreds tvEnv ty = do
     then surfaceAtomicPredToPred tvEnv consequentType
     else do
       params <- makeParamEnvWith tvEnv binders
+      -- A binder shadows an outer variable of the same name.
       let quantifiedEnv =
-            tvEnv
-              <> Map.fromList
-                [ (paramName param, (paramTyVar param, paramKind param))
-                | param <- params
-                ]
+            Map.fromList
+              [ (paramName param, (paramTyVar param, paramKind param))
+              | param <- params
+              ]
+              <> tvEnv
       antecedents <- surfaceContextToPreds quantifiedEnv antecedentTypes
       consequents <- concat <$> mapM (surfaceAtomicPredToPred quantifiedEnv) (flattenSurfaceContext [consequentType])
       pure [QuantifiedPred (map paramTyVar params) antecedents consequent | consequent <- consequents]

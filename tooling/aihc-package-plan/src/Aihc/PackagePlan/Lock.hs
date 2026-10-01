@@ -29,6 +29,7 @@ module Aihc.PackagePlan.Lock
   )
 where
 
+import Aihc.Hackage.Package (Arch, FlagAssignment, OS, PackageName, Version, archName, mkFlagAssignment, mkFlagName, mkPackageName, osName, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..), Preference (..), Solution)
 import Data.Aeson ((.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
@@ -42,12 +43,6 @@ import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
-import Distribution.Package (PackageName, mkPackageName, unPackageName)
-import Distribution.Parsec (simpleParsec)
-import Distribution.Pretty (prettyShow)
-import Distribution.System (Arch, OS)
-import Distribution.Types.Flag (FlagAssignment, mkFlagAssignment, mkFlagName, unFlagAssignment, unFlagName)
-import Distribution.Types.Version (Version)
 import System.Directory (doesFileExist)
 
 -- | The file is called @aihc.lock@ wherever it lives.
@@ -85,7 +80,7 @@ data LockFile = LockFile
 
 -- | The key of a platform in the file, as @linux-x86_64@.
 platformKey :: OS -> Arch -> String
-platformKey os arch = prettyShow os <> "-" <> prettyShow arch
+platformKey os arch = osName os <> "-" <> archName arch
 
 -- | The lock beside a package, if there is one. A file that does not parse
 -- is reported rather than ignored, since a hand edit that broke it should
@@ -136,7 +131,7 @@ renderEntry entry =
     <> BLC.intercalate
       (BLC.pack ", ")
       ( [ pair "name" (Aeson.encode (unPackageName (lockName entry))),
-          pair "version" (Aeson.encode (prettyShow (lockVersion entry))),
+          pair "version" (Aeson.encode (showVersion (lockVersion entry))),
           pair "source" (Aeson.encode (sourceText (lockSource entry)))
         ]
           <> [pair "revision" (Aeson.encode revision) | Just revision <- [lockRevision entry]]
@@ -176,7 +171,7 @@ parseLockFile bytes = do
     parseEntry = Aeson.withObject "package" $ \object -> do
       name <- object .: "name"
       versionText <- object .: "version"
-      version <- maybe (fail ("invalid version " <> versionText)) pure (simpleParsec versionText)
+      version <- maybe (fail ("invalid version " <> versionText)) pure (parseVersionString versionText)
       sourceName <- object .: "source"
       source <- case sourceName :: String of
         "core" -> pure LockCore

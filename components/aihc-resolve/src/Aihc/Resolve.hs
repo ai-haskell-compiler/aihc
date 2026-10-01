@@ -127,6 +127,7 @@ import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
+import Data.Ratio (denominator, numerator)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -896,6 +897,11 @@ resolveExpr expr =
     ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
     EInt _ TInteger _ -> resolveIntegerLiteral expr
     EInt _ numericType _ -> resolvePrimitiveLiteralType numericType expr
+    EFloat value TFractional text -> do
+      integral <- numDecimalsIntegralValue value
+      case integral of
+        Just integer -> resolveIntegerLiteral (EInt integer TInteger text)
+        Nothing -> resolveFractionalLiteral expr
     EFloat _ floatType _ ->
       maybe (resolveFractionalLiteral expr) (`resolvePrimitiveLiteralTypeName` expr) (primitiveFloatTypeName floatType)
     EChar {} -> pure expr
@@ -1012,6 +1018,30 @@ resolveIntegerLiteral expr = do
 resolveFractionalLiteral :: Expr -> ResolveM Expr
 resolveFractionalLiteral = annotateSyntaxTerm "fromRational"
 
+-- | The integer value of a fractional literal under NumDecimals.
+--
+-- GHC's renamer changes a fractional literal with an integral value, such
+-- as @1e12@, into an integer literal. The literal then has the type
+-- @Num a => a@. The result is 'Nothing' without the extension or for a
+-- value that is not integral.
+numDecimalsIntegralValue :: Rational -> ResolveM (Maybe Integer)
+numDecimalsIntegralValue value = do
+  info <- currentModuleInfo
+  pure $
+    if NumDecimals `elem` moduleInfoExtensions info && denominator value == 1
+      then Just (numerator value)
+      else Nothing
+
+-- | A fractional literal in a pattern with the NumDecimals change of
+-- 'numDecimalsIntegralValue'. The annotations of the literal stay.
+numDecimalsLiteral :: Literal -> ResolveM Literal
+numDecimalsLiteral lit =
+  case lit of
+    LitAnn ann inner -> LitAnn ann <$> numDecimalsLiteral inner
+    LitFloat value TFractional text ->
+      maybe lit (\integer -> LitInt integer TInteger text) <$> numDecimalsIntegralValue value
+    _ -> pure lit
+
 -- | OverloadedStrings applies fromString to a String literal.
 --
 -- The argument type comes from the type of the method, so the literal gets
@@ -1115,8 +1145,10 @@ annotateRebindableIf expr = do
 -- An overloaded integer pattern gets the syntax terms that compare it.
 -- A string pattern gets them only under OverloadedStrings.
 -- A primitive literal pattern gets the resolution of its primitive type.
-annotatePatternLiteral :: Pattern -> Literal -> ResolveM Pattern
-annotatePatternLiteral pat lit = do
+annotatePatternLiteral :: (Literal -> Pattern) -> Literal -> ResolveM Pattern
+annotatePatternLiteral mkPattern sourceLit = do
+  lit <- numDecimalsLiteral sourceLit
+  let pat = mkPattern lit
   sp <- (literalSpan lit <|>) <$> currentSpan
   case primitiveLiteralTypeName lit of
     Just typeName -> do
@@ -1142,7 +1174,7 @@ annotatePatternLiteral pat lit = do
   where
     -- A negated literal pattern also negates the converted literal.
     overloadedPatternMethods conversion =
-      case peelPatternAnn pat of
+      case peelPatternAnn (mkPattern sourceLit) of
         PNegLit {} -> [conversion, "negate", "=="]
         _ -> [conversion, "=="]
 
@@ -1448,7 +1480,7 @@ bindPattern pat =
       pure (emptyScope, PTypeSyntax form ty')
     PWildcard -> pure (emptyScope, pat)
     PLit lit -> do
-      pat' <- annotatePatternLiteral (PLit lit) lit
+      pat' <- annotatePatternLiteral PLit lit
       pure (emptyScope, pat')
     PTuple flavor pats -> do
       (scope, pats') <- bindPatterns pats
@@ -1531,7 +1563,7 @@ bindPattern pat =
       ty' <- resolveType ty
       pure (scope, PTypeSig inner' ty')
     PNegLit lit -> do
-      pat' <- annotatePatternLiteral (PNegLit lit) lit
+      pat' <- annotatePatternLiteral PNegLit lit
       pure (emptyScope, pat')
     PSplice expr -> do
       expr' <- resolveExpr expr
@@ -1563,7 +1595,7 @@ resolvePatternDefinition termDefinition pat =
     PTypeSyntax form ty ->
       PTypeSyntax form <$> resolveType ty
     PWildcard -> pure pat
-    PLit lit -> annotatePatternLiteral (PLit lit) lit
+    PLit lit -> annotatePatternLiteral PLit lit
     PQuasiQuote {} -> PAnn <$> unhandledSyntax ResolutionNamespaceTerm pat <*> pure pat
     PTuple flavor pats ->
       PTuple flavor <$> mapM (resolvePatternDefinition termDefinition) pats
@@ -1587,7 +1619,7 @@ resolvePatternDefinition termDefinition pat =
       PStrict <$> resolvePatternDefinition termDefinition inner
     PIrrefutable inner ->
       PIrrefutable <$> resolvePatternDefinition termDefinition inner
-    PNegLit lit -> annotatePatternLiteral (PNegLit lit) lit
+    PNegLit lit -> annotatePatternLiteral PNegLit lit
     PParen inner ->
       PParen <$> resolvePatternDefinition termDefinition inner
     PRecord name fields wildcard -> do

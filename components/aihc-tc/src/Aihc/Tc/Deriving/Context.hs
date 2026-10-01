@@ -22,7 +22,7 @@ module Aihc.Tc.Deriving.Context
     unliftedFieldReferences,
     newtypeRepresentation,
     stockFieldTypes,
-    stockFunctorialFields,
+    functorialFieldUses,
     typeTyVars,
     moduleDerivingPlans,
     replaceModulePlans,
@@ -45,7 +45,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
   )
 import Aihc.Tc.Constraint (CtOrigin (..))
-import Aihc.Tc.Deriving.Functorial (fieldUse, fieldUseObligations)
+import Aihc.Tc.Deriving.Functorial (FieldUse, FunctionFields, fieldUse, fieldUseObligations)
 import Aihc.Tc.Deriving.References (DerivingReferences (..), UnliftedFieldReferences (..), referenceIdentity)
 import Aihc.Tc.Deriving.StockClass (StockMethods (..), StockObligations (..), generatesStockMethods, stockClassMethodsOf, stockClassObligationsOf)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
@@ -200,7 +200,7 @@ derivingObligations kinds unlifted plan =
           Just $ case shape of
             FieldObligations -> fieldObligations
             DataObligations -> ((superclassObligations kinds plan <> argumentObligations) <>) <$> fieldObligations
-            FunctorialObligations -> functorialObligations plan
+            FunctorialObligations functions -> functorialObligations functions plan
             NoObligations -> Right []
       | otherwise -> Nothing
     TcDerivingNewtype ->
@@ -369,11 +369,17 @@ anyClassObligations kinds plan =
 
 -- | The classes that the fields of a functor-like plan need at the types
 -- that stand between them and the last datatype parameter.
-functorialObligations :: TcDerivingPlan -> Either String [Pred]
-functorialObligations plan = do
+functorialObligations :: FunctionFields -> TcDerivingPlan -> Either String [Pred]
+functorialObligations functions plan = do
+  uses <- functorialFieldUses functions plan
+  pure (nub (concatMap (fieldUseObligations (tcDerivingClassTyCon plan)) (concat uses)))
+
+-- | What every field of every constructor of a functor-like plan does with
+-- the last datatype parameter.
+functorialFieldUses :: FunctionFields -> TcDerivingPlan -> Either String [[FieldUse]]
+functorialFieldUses functions plan = do
   (parameter, fields) <- stockFunctorialFields plan
-  uses <- mapM (fieldUse mechanism parameter) (concat fields)
-  pure (nub (concatMap (fieldUseObligations (tcDerivingClassTyCon plan)) uses))
+  mapM (mapM (fieldUse mechanism functions parameter)) fields
   where
     mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
 

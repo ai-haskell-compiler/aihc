@@ -41,7 +41,6 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | splitmix | 0.1.3.2 | hackage:0 | deepseq |
 | stm | 2.5.3.1 | hackage:1 | array |
 | tagged | 0.8.11 | hackage:0 | deepseq |
-| terminfo | 0.4.1.7 | hackage:0 |  |
 | text | 2.1.4 | hackage:0 | array, binary, bytestring, deepseq |
 | prettyprinter | 1.7.2 | hackage:0 | text |
 | prettyprinter-ansi-terminal | 1.1.4 | hackage:0 | ansi-terminal, prettyprinter, text |
