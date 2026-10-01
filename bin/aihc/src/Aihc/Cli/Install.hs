@@ -277,8 +277,12 @@ data InstalledPackage = InstalledPackage
     installedTypes :: !(ByModule TcInterface),
     installedScopeHashes :: !(ByModule Text),
     installedTypeHashes :: !(ByModule Text),
-    installedInstanceDigest :: !Text,
-    installedInstanceFacts :: !TcInterface,
+    -- | The digest of the instance facts of the unit of each module. It
+    -- covers the facts of every unit below that unit, in this package and
+    -- in the packages it depends on.
+    installedFactsDigests :: !(ByModule Text),
+    -- | The modules whose instances each module sees: its own unit and
+    -- every unit below it, across packages.
     installedInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
   }
   deriving (Generic)
@@ -286,6 +290,18 @@ data InstalledPackage = InstalledPackage
 instance NFData InstalledPackage
 
 type InstanceProvider = (PackageId, Text)
+
+-- | Where the package of each identity is. A consumer reads the instance
+-- facts of a module from the unit that holds it, which can be in a package
+-- below its dependencies.
+type PackageLocator = Map.Map PackageId FilePath
+
+installedPackageLocator :: [InstalledPackage] -> PackageLocator
+installedPackageLocator packages =
+  Map.fromList
+    [ (PackageId (packageManifestUnitId (installedManifest package)), installStorePath (installedResult package))
+    | package <- packages
+    ]
 
 -- | A fact of each module of several packages, by module name and then by
 -- package. Two packages can each hold a module of one name, as @filepath@
@@ -396,6 +412,9 @@ data TypeUnitResult = TypeUnitResult
     -- when an instance anywhere below the unit changes.
     typeUnitFactsDigest :: !Text,
     typeUnitInstanceInterface :: !TcInterface,
+    -- | The modules whose instances the unit sees, as the facts artifact
+    -- records them for a consumer.
+    typeUnitInstanceProviders :: !(Set.Set InstanceProvider),
     typeUnitDiagnostics :: ![TcDiagnostic],
     typeUnitWritten :: !(Set.Set Text),
     typeUnitReused :: !(Set.Set Text),
@@ -485,8 +504,7 @@ data CompiledPackageModules = CompiledPackageModules
     compiledTypes :: !(ByModule TcInterface),
     compiledScopeHashes :: !(ByModule Text),
     compiledTypeHashes :: !(ByModule Text),
-    compiledInstanceDigest :: !Text,
-    compiledInstanceFacts :: !TcInterface,
+    compiledFactsDigests :: !(ByModule Text),
     compiledInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
     compiledWritten :: !(Set.Set Text),
     compiledReused :: !(Set.Set Text)
@@ -521,11 +539,10 @@ data PackageTaskContext = PackageTaskContext
     taskDependencyScopeHashes :: !(ByModule Text),
     taskDependencyTypes :: !(ByModule TcInterface),
     taskDependencyTypeHashes :: !(ByModule Text),
-    -- | The instance digest of each dependency package, with the modules
-    -- it exposes. A unit that imports one of the modules takes the digest
-    -- as an input, because the instances the package supplies come from
-    -- the package as a whole.
-    taskDependencyPackages :: ![(Text, Text, Set.Set Text)],
+    -- | The facts digest of each module of the dependency packages. A unit
+    -- that imports a module takes the digest of the unit that holds it as
+    -- an input.
+    taskDependencyFactsDigests :: !(ByModule Text),
     taskDependencyInstanceFacts :: !TcInterface,
     taskDependencyInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
     taskCapiStubOptions :: !CapiStubOptions,
@@ -700,10 +717,13 @@ installPlanNode config locations installed root plan = do
       -- Only the package the user named is reinstalled.
       let reinstall = root && locationReinstall locations
       dependencies <- mapM (installPlanNode config locations installed False) (planDependencyPlans plan)
+      -- The packages installed so far hold the closure of the dependencies,
+      -- which is where the instance facts the modules see come from.
+      locator <- installedPackageLocator . Map.elems <$> readIORef installed
       package <-
         if locationImmutable locations || planOrigin plan /= PlanLocal
-          then installStorePackage config root reinstall (locationStoreRoot locations) dependencies plan
-          else installLocalPackage config reinstall (locationBuildRoot locations) dependencies plan
+          then installStorePackage config locator root reinstall (locationStoreRoot locations) dependencies plan
+          else installLocalPackage config locator reinstall (locationBuildRoot locations) dependencies plan
       modifyIORef' installed (Map.insert key package)
       pure package
 
@@ -754,8 +774,8 @@ readPackageInputs config plan = do
       }
 
 -- | Install an immutable package into the store, unless the store has it.
-installStorePackage :: ModuleCompileConfig -> Bool -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
-installStorePackage config named reinstall storeRoot dependencies plan = do
+installStorePackage :: ModuleCompileConfig -> PackageLocator -> Bool -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
+installStorePackage config locator named reinstall storeRoot dependencies plan = do
   inputs <- readPackageInputs config plan
   (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
   forM_ dependencies $ \dependency ->
@@ -784,7 +804,7 @@ installStorePackage config named reinstall storeRoot dependencies plan = do
         (buildAndPublish inputs packageDirectory unitIdentity storePath exists)
   where
     buildAndPublish inputs packageDirectory unitIdentity storePath exists temporaryRoot = do
-      built <- installPackageDirect config packageDirectory unitIdentity True temporaryRoot dependencies (planSourcePath plan) inputs
+      built <- installPackageDirect config locator packageDirectory unitIdentity True temporaryRoot dependencies (planSourcePath plan) inputs
       when exists (removeDirectoryRecursive storePath)
       publishResult <- try (renameDirectory (installStorePath (installedResult built)) storePath)
       case publishResult of
@@ -796,8 +816,8 @@ installStorePackage config named reinstall storeRoot dependencies plan = do
             else throwIO (err :: IOException)
 
 -- | Build a local package in place under the build root.
-installLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
-installLocalPackage config reinstall buildRoot dependencies plan = do
+installLocalPackage :: ModuleCompileConfig -> PackageLocator -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
+installLocalPackage config locator reinstall buildRoot dependencies plan = do
   let root = planSourcePath plan
   inputs <- readPackageInputs config plan
   let (packageDirectory, unitIdentity) = localPackageIdentity inputs
@@ -805,7 +825,7 @@ installLocalPackage config reinstall buildRoot dependencies plan = do
   exists <- doesDirectoryExist buildPath
   when (exists && reinstall) (removeDirectoryRecursive buildPath)
   createDirectoryIfMissing True buildPath
-  installPackageDirect config packageDirectory unitIdentity False buildRoot dependencies root inputs
+  installPackageDirect config locator packageDirectory unitIdentity False buildRoot dependencies root inputs
 
 -- | The flags the store entry was built with must cover the flags of this
 -- install: the entry is never changed, so a missing output stays missing.
@@ -838,8 +858,8 @@ requireInstalledFlags config named package = do
           )
       )
 
-installPackageDirect :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
-installPackageDirect config packageDirectory unitIdentity immutable storeRoot dependencies root inputs = do
+installPackageDirect :: ModuleCompileConfig -> PackageLocator -> FilePath -> Text -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> PackageInputs -> IO InstalledPackage
+installPackageDirect config locator packageDirectory unitIdentity immutable storeRoot dependencies root inputs = do
   let target = compileTarget config
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
@@ -858,7 +878,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
       sourceFiles = map (appendIncludeDirs headerDirs) configuredFiles
   installPackageHeaders root storePath configuredCInfo
   files <- preprocessPackage config dependencyVersions root storePath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
-  compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies
+  compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies locator
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
       allTypes = compiledTypes compiled
@@ -914,8 +934,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
         installedTypes = byModuleFilter exposedModule allTypes,
         installedScopeHashes = byModuleFilter exposedModule allScopeHashes,
         installedTypeHashes = byModuleFilter exposedModule allTypeHashes,
-        installedInstanceDigest = compiledInstanceDigest compiled,
-        installedInstanceFacts = compiledInstanceFacts compiled,
+        installedFactsDigests = byModuleFilter exposedModule (compiledFactsDigests compiled),
         installedInstanceProviders = Map.restrictKeys (compiledInstanceProviders compiled) exposedNames
       }
 
@@ -965,6 +984,7 @@ compileModules config request = do
       (compilePackage request)
       (map (appendIncludeDirs headerDirs) (compileSourceFiles request))
       (compileDependencies request)
+      (installedPackageLocator (compileDependencies request))
   let names = map sourceName (compiledSources compiled)
   objects <- moduleObjectPaths (not (compileLto config)) (compileOutputRoot request) (compileTarget config) names
   pure ModuleCompileResult {compileObjectPaths = objects, compileModuleNames = names}
@@ -984,8 +1004,8 @@ moduleObjectPaths withModuleObjects root target names = do
   where
     paths = moduleOutputPaths root target
 
-compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> IO CompiledPackageModules
-compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage files dependencies = do
+compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> PackageLocator -> IO CompiledPackageModules
+compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage files dependencies locator = do
   let verbose = compileVerbose config
   verbose ("Parse " <> show (length files) <> " modules")
   capabilities <- getNumCapabilities
@@ -1003,13 +1023,12 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
       dependencyTypes = byModuleUnions (map installedTypes loadedDependencies)
       dependencyScopeHashes = byModuleUnions (map installedScopeHashes loadedDependencies)
       dependencyTypeHashes = byModuleUnions (map installedTypeHashes loadedDependencies)
-      dependencyPackages =
-        [ (installedName dependency, installedInstanceDigest dependency, Map.keysSet (installedTypeHashes dependency))
-        | dependency <- loadedDependencies
-        ]
-      dependencyInstanceFacts = mergeTcInterfaces (configMergeCheck config) (map installedInstanceFacts loadedDependencies)
+      dependencyFactsDigests = byModuleUnions (map installedFactsDigests loadedDependencies)
       dependencyInstanceProviders = Map.unionsWith Set.union (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
+  -- The instances the imported modules see come from units across the
+  -- closure of the plan, so their facts are read by unit, not by package.
+  dependencyInstanceFacts <- loadInstanceFacts locator (Set.unions (Map.elems dependencyInstanceProviders))
   _ <-
     evaluate
       ( force
@@ -1017,7 +1036,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
             dependencyTypes,
             dependencyScopeHashes,
             dependencyTypeHashes,
-            dependencyPackages,
+            dependencyFactsDigests,
             dependencyInstanceFacts,
             dependencyInstanceProviders
           )
@@ -1043,7 +1062,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
             taskDependencyScopeHashes = dependencyScopeHashes,
             taskDependencyTypes = dependencyTypes,
             taskDependencyTypeHashes = dependencyTypeHashes,
-            taskDependencyPackages = dependencyPackages,
+            taskDependencyFactsDigests = dependencyFactsDigests,
             taskDependencyInstanceFacts = dependencyInstanceFacts,
             taskDependencyInstanceProviders = dependencyInstanceProviders,
             taskCapiStubOptions = capiOptions,
@@ -1082,27 +1101,37 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
       allScopeHashes = byModuleUnions [localScopeHashes, dependencyScopeHashes]
       allTypes = byModuleUnions [localTypes, dependencyTypes]
       allTypeHashes = byModuleUnions [localTypeHashes, dependencyTypeHashes]
-      packageInstanceInterface = mergeTcInterfaces (configMergeCheck config) (dependencyInstanceFacts : map typeUnitOwnInstanceInterface typeResults)
       instanceProviders =
         Map.fromList
-          [ (sourceName source, interfaceInstanceProviders (typeUnitInstanceInterface result))
+          [ (sourceName source, typeUnitInstanceProviders result)
           | (runtime, result) <- zip runtimes typeResults,
             source <- sourceUnitSources (runtimeUnit runtime)
           ]
-  instanceDigest <- writePackageInstanceArtifact verbose outputRoot instanceProviders packageInstanceInterface
+      localFactsDigests =
+        byModuleUnions
+          [ ownModules resolvePackage (Map.fromList [(sourceName source, typeUnitFactsDigest result) | source <- sourceUnitSources (runtimeUnit runtime)])
+          | (runtime, result) <- zip runtimes typeResults
+          ]
+      factsArtifacts =
+        Map.fromList
+          [ (sourceName source, unitFactsPath (runtimeUnit runtime))
+          | runtime <- runtimes,
+            source <- sourceUnitSources (runtimeUnit runtime)
+          ]
   -- A consumer takes the digests from here rather than encoding the
-  -- interfaces again.
+  -- interfaces again, and finds the facts artifact of each module here.
   writeStamp
     (packageDigestsPath outputRoot)
     PackageDigests
       { packageDigestsModules =
           Map.fromList
-            [ (sourceName source, ModuleDigests scopeDigest typeDigest)
+            [ (sourceName source, ModuleDigests scopeDigest typeDigest factsDigest factsArtifact)
             | source <- parsed,
               Just scopeDigest <- [lookup resolvePackage (byModuleLookupName (sourceName source) localScopeHashes)],
-              Just typeDigest <- [lookup resolvePackage (byModuleLookupName (sourceName source) localTypeHashes)]
-            ],
-        packageDigestsInstances = instanceDigest
+              Just typeDigest <- [lookup resolvePackage (byModuleLookupName (sourceName source) localTypeHashes)],
+              Just factsDigest <- [lookup resolvePackage (byModuleLookupName (sourceName source) localFactsDigests)],
+              Just factsArtifact <- [Map.lookup (sourceName source) factsArtifacts]
+            ]
       }
   pure
     CompiledPackageModules
@@ -1111,8 +1140,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
         compiledTypes = allTypes,
         compiledScopeHashes = allScopeHashes,
         compiledTypeHashes = allTypeHashes,
-        compiledInstanceDigest = instanceDigest,
-        compiledInstanceFacts = packageInstanceInterface,
+        compiledFactsDigests = localFactsDigests,
         compiledInstanceProviders = instanceProviders,
         compiledWritten = Set.unions (map typeUnitWritten typeResults),
         compiledReused = Set.unions (map typeUnitReused typeResults)
@@ -1363,21 +1391,18 @@ loadInstalledPackage requirements immutable storePath = do
       >>= maybe (ioError (userError ("The installed package has no digests: " <> storePath))) pure
   let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
   entries <- mapM loadModule selectedModules
-  (decodedFacts, instanceProviders) <-
-    if null selectedModules
-      then pure (emptyTcInterface, Map.empty)
-      else loadPackageInstances selectedModules
+  instanceProviders <- loadModuleProviders (packageDigestsModules digests) selectedModules
   -- A written interface holds each of its parts once and names it
   -- everywhere it is used, so the interfaces read above are already
   -- shared within themselves; nothing here has to look for equal parts.
-  let instanceFacts' = decodedFacts
-      interfaces = [interface | (_, _, interface) <- entries]
+  let interfaces = [interface | (_, _, interface) <- entries]
       package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
       exports = moduleExportsFromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
       types = byModuleFromList (zip [ModuleKey package name | (name, _, _) <- entries] interfaces)
       exposed = Map.restrictKeys (packageDigestsModules digests) (Set.fromList (packageManifestModules manifest))
       scopeHashes = ownModules package (Map.map moduleScopeDigest exposed)
       typeHashes = ownModules package (Map.map moduleTypeDigest exposed)
+      factsDigests = ownModules package (Map.map moduleFactsDigest exposed)
   pure
     InstalledPackage
       { installedResult = InstallResult storePath [] (packageManifestModules manifest),
@@ -1390,8 +1415,7 @@ loadInstalledPackage requirements immutable storePath = do
         installedTypes = types,
         installedScopeHashes = scopeHashes,
         installedTypeHashes = typeHashes,
-        installedInstanceDigest = packageDigestsInstances digests,
-        installedInstanceFacts = instanceFacts',
+        installedFactsDigests = factsDigests,
         installedInstanceProviders = instanceProviders
       }
   where
@@ -1412,18 +1436,33 @@ loadInstalledPackage requirements immutable storePath = do
       unless (typeArtifactModuleName typeArtifact == name) (ioError (userError ("Type artifact module name does not match " <> typePath)))
       pure (name, resolveArtifactScope resolveArtifact, typeArtifactInterface typeArtifact)
 
-    loadPackageInstances selected = do
-      let path = storePath </> "instances.cbor"
-      exists <- doesFileExist path
-      if not exists
-        then pure (emptyTcInterface, Map.empty)
-        else do
-          bytes <- BL.readFile path
-          artifact <- readTypeArtifact path bytes
-          unless (typeArtifactModuleName artifact == "$package-instances") (ioError (userError ("Package instance artifact name does not match " <> path)))
-          let providers = Map.restrictKeys (Map.map Set.fromList (typeArtifactInstanceProviders artifact)) (Set.fromList selected)
-              visibleProviders = Set.unions (Map.elems providers)
-          pure (selectInstanceProviders (typeArtifactInterface artifact) visibleProviders, providers)
+    -- The providers of a module are in the facts artifact of its unit,
+    -- which the modules of one unit share.
+    loadModuleProviders moduleDigests selected = do
+      let artifactPaths = nub [moduleFactsArtifact entry | name <- selected, Just entry <- [Map.lookup name moduleDigests]]
+      artifacts <- forM artifactPaths $ \path -> readTypeArtifactFile (storePath </> path)
+      let providers = Map.unions [Map.map Set.fromList (typeArtifactInstanceProviders artifact) | artifact <- artifacts]
+      pure (Map.restrictKeys providers (Set.fromList selected))
+
+-- | The instance facts of the units that hold the given modules, read from
+-- the packages the locator names. Each facts artifact is read once. The
+-- facts of a unit already carry what they refer to, so the units merge as
+-- a unit merges the facts of the units below it.
+loadInstanceFacts :: PackageLocator -> Set.Set InstanceProvider -> IO TcInterface
+loadInstanceFacts locator providers = do
+  let byPackage = Map.fromListWith (<>) [(packageId, [name]) | (packageId, name) <- Set.toList providers]
+  interfaces <- forM (Map.toList byPackage) $ \(packageId, names) -> do
+    storePath <-
+      maybe
+        (ioError (userError ("The package that provides instances is not installed: " <> T.unpack (packageIdText packageId))))
+        pure
+        (Map.lookup packageId locator)
+    digests <-
+      readStamp (packageDigestsPath storePath)
+        >>= maybe (ioError (userError ("The installed package has no digests: " <> storePath))) pure
+    let artifactPaths = nub [moduleFactsArtifact entry | name <- names, Just entry <- [Map.lookup name (packageDigestsModules digests)]]
+    forM artifactPaths $ \path -> typeArtifactInterface <$> readTypeArtifactFile (storePath </> path)
+  pure (mergeTcInterfaces TrustMergedFacts (concat interfaces))
 
 parseSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource headerDir root versions fileInfo = do
@@ -1949,18 +1988,16 @@ runTypeUnit context runtimes runtime = do
         [ ("facts:" <> unitLabel (runtimeUnit (lookupRuntime runtimes dependency)), typeUnitFactsDigest result)
         | (dependency, result) <- zip (sourceUnitDependencies unit) dependencyResults
         ]
-      packageInputs =
-        [ ("package:" <> name, digest)
-        | (name, digest, modules) <- taskDependencyPackages context,
-          any (`Set.member` modules) dependencyNames
-        ]
+      -- The facts of a dependency package reach the unit through the units
+      -- that hold the modules it imports, so their digests are its inputs.
+      packageFactsInputs = dependencyInputs "facts:" unitNames dependencyNames (taskDependencyFactsDigests context)
       inputs =
         sortOn fst $
           sourceHashes
             <> scopeInputs
             <> typeInputs
             <> factsInputs
-            <> packageInputs
+            <> packageFactsInputs
             <> [ ("options:frontend", T.pack (frontendOptionsKey config)),
                  ("options:extensions", T.pack (show (map sourceModuleExtensions sources)))
                ]
@@ -2039,6 +2076,7 @@ runTypeUnit context runtimes runtime = do
                   typeUnitOwnInstanceInterface = emptyTcInterface,
                   typeUnitFactsDigest = "",
                   typeUnitInstanceInterface = importedInstanceInterface,
+                  typeUnitInstanceProviders = Set.empty,
                   typeUnitDiagnostics = [],
                   typeUnitWritten = Set.empty,
                   typeUnitReused = Set.empty,
@@ -2048,8 +2086,9 @@ runTypeUnit context runtimes runtime = do
             putTMVar (runtimeBackendInput runtime) Nothing
     Just recorded -> do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
-      decodedFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
-      let ownFacts = decodedFacts
+      factsArtifact <- readTypeArtifactFile (storePath </> factsPath)
+      let ownFacts = typeArtifactInterface factsArtifact
+          providers = Set.fromList (concat (Map.elems (typeArtifactInstanceProviders factsArtifact)))
           interfaces = map typeArtifactInterface artifacts
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
       atomically $ do
@@ -2061,6 +2100,7 @@ runTypeUnit context runtimes runtime = do
               typeUnitOwnInstanceInterface = ownFacts,
               typeUnitFactsDigest = unitStampFacts recorded,
               typeUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
+              typeUnitInstanceProviders = providers,
               typeUnitDiagnostics = [],
               typeUnitWritten = Set.empty,
               typeUnitReused = Set.fromList unitNames,
@@ -2075,18 +2115,22 @@ runTypeUnit context runtimes runtime = do
           ownInstanceInterface = addReferencedFacts (typeLiteralKindTyCons (primKinds primIdentity)) (typeLiteralSupportTerms primIdentity) completeInterface (instanceFacts checkedInterface)
           unitTypes = map (moduleTypeInterface (primKinds primIdentity) (typeLiteralSupportTerms primIdentity) (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
           completeInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownInstanceInterface]
+          instanceProviders = interfaceInstanceProviders completeInstanceInterface
           typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
           success = resolveSuccess && dependencySuccess && typeSuccess
       (ownTypeHashes, factsDigest) <-
         if success
           then do
             typeHashes <- Map.fromList <$> zipWithM (writeTypeArtifact verbose ((storePath </>) . typePath)) sources unitTypes
-            let factsBytes = encodeTypeArtifact (TypeArtifact "$unit" Map.empty ownInstanceInterface)
+            -- The artifact names the providers of each module of the unit,
+            -- so a consumer finds the facts the module sees without the
+            -- closure in memory.
+            let factsBytes = encodeTypeArtifact (TypeArtifact "$unit" (Map.fromList [(name, Set.toAscList instanceProviders) | name <- unitNames]) ownInstanceInterface)
             createDirectoryIfMissing True (takeDirectory (storePath </> factsPath))
             BL.writeFile (storePath </> factsPath) factsBytes
             -- The facts digest covers the facts digests of the units below
             -- this one, so it changes with any of them.
-            pure (typeHashes, T.pack (stableHash [BL.toStrict factsBytes, BS8.pack (show (sortOn fst (factsInputs <> packageInputs)))]))
+            pure (typeHashes, T.pack (stableHash [BL.toStrict factsBytes, BS8.pack (show (sortOn fst (factsInputs <> packageFactsInputs)))]))
           else pure (Map.empty, "")
       -- The unit goes all the way to System FC here, so the checked AST
       -- ends with this task: the backend takes the FC and nothing else.
@@ -2136,6 +2180,7 @@ runTypeUnit context runtimes runtime = do
               typeUnitOwnInstanceInterface = ownInstanceInterface,
               typeUnitFactsDigest = factsDigest,
               typeUnitInstanceInterface = completeInstanceInterface,
+              typeUnitInstanceProviders = instanceProviders,
               typeUnitDiagnostics = diagnostics,
               typeUnitWritten = unitSet,
               typeUnitReused = Set.empty,
@@ -2288,15 +2333,6 @@ selectInstanceProviders complete providers
   where
     first transform (left, right) = (transform left, right)
     tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
-
-writePackageInstanceArtifact :: (String -> IO ()) -> FilePath -> Map.Map Text (Set.Set InstanceProvider) -> TcInterface -> IO Text
-writePackageInstanceArtifact verbose storePath providers interface = do
-  let path = storePath </> "instances.cbor"
-      bytes = encodeTypeArtifact (TypeArtifact "$package-instances" (Map.map Set.toAscList providers) interface)
-  createDirectoryIfMissing True storePath
-  BL.writeFile path bytes
-  verbose ("Write package instances: " <> path)
-  pure (T.pack (stableHash [BL.toStrict bytes]))
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]

@@ -427,6 +427,9 @@ data InstallFixture = InstallFixture
     installFixtureImmutable :: Bool,
     installFixtureNoCode :: Bool,
     installFixtureReinstall :: Bool,
+    -- | A directory of local packages the installed package can depend on,
+    -- relative to the fixture.
+    installFixtureWorkspace :: Maybe FilePath,
     -- | Variables set in the environment of the test process while the
     -- package installs, for a fixture about what the tools aihc runs
     -- inherit.
@@ -449,6 +452,7 @@ instance FromJSON InstallFixture where
           <*> obj .:? "immutable" .!= False
           <*> obj .:? "no-code" .!= True
           <*> obj .:? "check-reinstall" .!= False
+          <*> obj .:? "workspace"
           <*> (Map.toList <$> obj .:? "environment" .!= Map.empty)
           <*> obj .:? "needs-base" .!= False
       else fail "install fixtures require pass status"
@@ -468,7 +472,8 @@ testInstallFixtures getPrimStore getCoreStore = do
           options =
             (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget Nothing defaultPlanOptions)
               { installImmutable = installFixtureImmutable fixture,
-                installNoCode = installFixtureNoCode fixture
+                installNoCode = installFixtureNoCode fixture,
+                installWorkspace = (directory </>) <$> installFixtureWorkspace fixture
               }
       outcome <- try $ withEnvironment (installFixtureEnvironment fixture) $ do
         first <- install options
