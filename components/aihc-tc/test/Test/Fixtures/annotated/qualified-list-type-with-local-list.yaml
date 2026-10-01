@@ -1,0 +1,33 @@
+annotated:
+- |-
+  module Main where
+  import GHC.Types (Bool (..))
+  import qualified GHC.Types as T
+  data List a = Nil
+       │        └─ type: ∀ a. List a
+       └─ type: Type → Type
+  isEmpty :: T.List a -> Bool
+  isEmpty [] = True
+  │       └─ type: [a]
+  └─ type: ∀ a. [a] → GHC.Types.Bool
+  isEmpty _ = False
+  │       └─ type: [a]
+  └─ type: ∀ a. [a] → GHC.Types.Bool
+  local :: List Bool -> Bool
+  local Nil = True
+  │     └─ type: List GHC.Types.Bool
+  └─ type: List GHC.Types.Bool → GHC.Types.Bool
+extensions: []
+modules:
+- |
+  module Main where
+  import GHC.Types (Bool (..))
+  import qualified GHC.Types as T
+  data List a = Nil
+  isEmpty :: T.List a -> Bool
+  isEmpty [] = True
+  isEmpty _ = False
+  local :: List Bool -> Bool
+  local Nil = True
+reason: the qualified name T.List identifies the wired list type, and a local data type with the name List does not replace it
+status: pass
