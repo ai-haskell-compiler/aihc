@@ -968,10 +968,14 @@ sourceFileModuleName config packageRoot dependencies file = do
 -- still has the wrapper object it built before.  A module that no longer
 -- declares a capi import has had its wrapper object removed, so what is there
 -- is what belongs in the link.
+--
+-- A module with no declarations has an empty object file. The linker
+-- refuses an empty file, so these objects are not in the list.
 moduleObjectPaths :: Bool -> FilePath -> NativeTarget -> [Text] -> IO [FilePath]
 moduleObjectPaths withModuleObjects root target names = do
   capiObjects <- filterM doesFileExist [outputCapiObjectPath (paths name) | name <- names]
-  pure (sortOn id ([outputObjectPath (paths name) | withModuleObjects, name <- names] <> capiObjects))
+  moduleObjects <- filterM (fmap (> 0) . getFileSize) [outputObjectPath (paths name) | withModuleObjects, name <- names]
+  pure (sortOn id (moduleObjects <> capiObjects))
   where
     paths = moduleOutputPaths root target
 
