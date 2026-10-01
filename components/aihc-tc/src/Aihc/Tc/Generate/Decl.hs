@@ -139,7 +139,7 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -618,14 +618,30 @@ checkModuleSignatures extensions signatures = do
 -- defaulting them to 'Type'. A meta whose own kind is not 'Type' is
 -- representation-polymorphic and defaults as before.
 generalizeTyVarKinds :: [TyVarId] -> TcM ()
-generalizeTyVarKinds variables = do
+generalizeTyVarKinds = generalizeKindMetas DeclarationKindMetas
+
+-- | Which open kind meta-variables a binder quantifies.
+data GeneralizedKindMetas
+  = -- | Only the metas that the declaration allocated. A use-site meta
+    -- can still get a solution from the rest of the declaration.
+    DeclarationKindMetas
+  | -- | Also the metas of the use sites in the declaration. An instance
+    -- head or a top-level signature is complete after its check, so a kind
+    -- argument that it leaves open is a kind variable of it: in
+    -- @instance Category (Rift p p)@ the middle kind of @p@ is free.
+    AllKindMetas
+  deriving (Eq)
+
+generalizeKindMetas :: GeneralizedKindMetas -> [TyVarId] -> TcM ()
+generalizeKindMetas scope variables = do
   kinds <- getKinds
   reserved <- reservedKindMetas
   variableKinds <- mapM (zonkKind . tvKind) variables
   forM_ (zip [0 :: Int ..] (nub (concatMap collectMetaVars variableKinds))) $ \(index, Unique meta) -> do
     metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
     tracked <- isTrackedKindMeta (Unique meta)
-    when (tracked && metaKind == typeKind kinds && not (IntSet.member meta reserved)) $ do
+    let quantified = tracked || scope == AllKindMetas
+    when (quantified && metaKind == typeKind kinds && not (IntSet.member meta reserved)) $ do
       variable <- freshSkolemTv ("k" <> T.pack (show index))
       writeMetaTv (Unique meta) (TcTyVar variable)
 
@@ -633,7 +649,9 @@ generalizeTyVarKinds variables = do
 generalizeSignatureKinds :: CheckedSig -> TcM CheckedSig
 generalizeSignatureKinds signature = do
   let Scheme inferred specified predicates body = checkedSigScheme signature
-  generalizeTyVarKinds (inferred <> specified)
+  -- A top-level signature is complete after its check, as an instance
+  -- head is.
+  generalizeKindMetas AllKindMetas (inferred <> specified)
   inferred' <- mapM defaultTyVarKinds inferred
   specified' <- mapM defaultTyVarKinds specified
   body' <- zonkType body
@@ -2203,9 +2221,10 @@ tcInstanceDeclBodies (DeclAnn ann inner)
           headTys = tcInstanceHeadTypes annotation
       let givens = map tcDictBinderPred (tcInstanceContextDicts annotation)
       classInfo <- lookupClass (tcInstanceClassTyCon annotation) >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
+      schemes <- freshMethodSchemes classInfo headTys
       items <-
         withScopedTyVars (tyVarScope (tcInstanceTyVars annotation)) $
-          mapM (tcInstanceItemBody classInfo givens headTys (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
+          mapM (tcInstanceItemBody schemes givens (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
       pure (DeclAnn ann (DeclInstance (instanceDecl {instanceDeclItems = items})))
   | otherwise = DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
@@ -2222,9 +2241,10 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       headTys <- mapM defaultTypeKinds rawHeadTys
       givens <- mapM defaultPredKinds rawGivens
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
+      schemes <- freshMethodSchemes classInfo headTys
       items <-
         withScopedTyVars tvEnv $
-          mapM (tcInstanceItemBody classInfo givens headTys (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
+          mapM (tcInstanceItemBody schemes givens (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
       pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
 tcInstanceDeclBodies decl =
   pure decl
@@ -2277,13 +2297,16 @@ instanceMethodScope signatures name givens (ForAll _ predicates expected) matche
             ]
         )
 
-tcInstanceItemBody :: ClassInfo -> [Pred] -> [TcType] -> Map Text Type -> InstanceDeclItem -> TcM InstanceDeclItem
-tcInstanceItemBody classInfo givens headTys signatures item =
+-- | Check one method binding of an instance. The expected types come from
+-- 'freshMethodSchemes', so the equations of one method that the source
+-- splits over several items share one type.
+tcInstanceItemBody :: Map Text TypeScheme -> [Pred] -> Map Text Type -> InstanceDeclItem -> TcM InstanceDeclItem
+tcInstanceItemBody schemes givens signatures item =
   case item of
     InstanceItemAnn ann inner ->
-      InstanceItemAnn ann <$> tcInstanceItemBody classInfo givens headTys signatures inner
+      InstanceItemAnn ann <$> tcInstanceItemBody schemes givens signatures inner
     InstanceItemBind (FunctionBind name matches) -> do
-      scheme <- methodExpectedScheme classInfo headTys (unqualifiedNameText name)
+      scheme <- instanceMethodScheme schemes (unqualifiedNameText name)
       let ForAll methodTyVars methodGivens methodTy = scheme
       scope <- instanceMethodScope signatures (unqualifiedNameText name) givens scheme matches
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
@@ -2307,7 +2330,7 @@ tcInstanceItemBody classInfo givens headTys signatures item =
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
         Just (methodName, _) -> do
-          scheme <- methodExpectedScheme classInfo headTys methodName
+          scheme <- instanceMethodScheme schemes methodName
           let ForAll methodTyVars methodGivens methodTy = scheme
           scope <- instanceMethodScope signatures methodName givens scheme [zeroArgMatch (patternSpan pat) rhs]
           (results, failed) <-
@@ -2415,6 +2438,34 @@ bindingType key = do
 binderType :: TcBinder -> TcType
 binderType (TcIdBinder scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder ty) = ty
+
+-- | The expected type of every method of a class at an instance head,
+-- with fresh variables for the ones that stay quantified, also inside the
+-- type. A class from another module numbers its variables in the run of
+-- that module, so they could have the uniques of local variables of the
+-- instance body.
+freshMethodSchemes :: ClassInfo -> [TcType] -> TcM (Map Text TypeScheme)
+freshMethodSchemes classInfo headTys =
+  Map.fromList <$> mapM (\(name, _) -> (name,) <$> freshMethodScheme name) (ciMethods classInfo)
+  where
+    freshMethodScheme name = do
+      Scheme inferred specified predicates body <- methodExpectedScheme classInfo headTys name
+      (inferred', afterInferred) <- freshBinders Map.empty inferred
+      (specified', substitution) <- freshBinders afterInferred specified
+      predicates' <- mapM (substitutePredAvoidingCapture substitution) predicates
+      body' <- substituteAvoidingCapture substitution body
+      pure (Scheme inferred' specified' predicates' body')
+    freshBinders substitution =
+      foldM
+        ( \(done, current) tyVar -> do
+            fresh <- freshSkolemTvOfKind (tvName tyVar) (applySubst current (tvKind tyVar))
+            pure (done <> [fresh], Map.insert (tvUnique tyVar) (TcTyVar fresh) current)
+        )
+        ([], substitution)
+
+instanceMethodScheme :: Map Text TypeScheme -> Text -> TcM TypeScheme
+instanceMethodScheme schemes methodName =
+  maybe (missingTypeInfo ("class method " <> T.unpack methodName)) pure (Map.lookup methodName schemes)
 
 methodExpectedScheme :: ClassInfo -> [TcType] -> Text -> TcM TypeScheme
 methodExpectedScheme classInfo headTys methodName =
@@ -2615,7 +2666,7 @@ resolveInstanceTyVars origin rawTyVars = do
   polyKinds <- isPolyKindOrigin origin
   if polyKinds
     then do
-      generalizeTyVarKinds rawTyVars
+      generalizeKindMetas AllKindMetas rawTyVars
       tyVars <- mapM defaultTyVarKinds rawTyVars
       pure (orderTyVarsByKind (closeKindVariables tyVars))
     else orderTyVarsByKind <$> mapM defaultTyVarKinds rawTyVars

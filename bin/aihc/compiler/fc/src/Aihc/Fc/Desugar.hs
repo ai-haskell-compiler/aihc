@@ -870,7 +870,11 @@ convertTypeFamilyEquation env info = do
       TcAxiomKey package moduleName' axiomName = typeFamilyAxiomKey info
   binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
   left <- convertType bindersEnv (tfiiLeft info)
-  right <- convertNestedType bindersEnv (tfiiRight info)
+  -- The right-hand side has the kind of the family application. That kind
+  -- gives the invisible kind argument of a partial application, as in
+  -- @type Rep (Forget r) = Const r@ at the kind @Type -> Type@.
+  let rightKind = either (const Nothing) Just (typeKindInEnv bindersEnv (tfiiLeft info))
+  right <- convertNestedTypeWithExpectedKind bindersEnv rightKind (tfiiRight info)
   pure
     ( DeclAxiom
         AxiomDecl

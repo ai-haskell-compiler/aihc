@@ -1,0 +1,113 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveFunctor, RankNTypes #-}
+  module Main where
+  import GHC.Prim.Base (Applicative, Functor)
+  import GHC.Types (Bool)
+  newtype Reader r a = Reader (r -> a)
+  │       │            └─ type: ∀ r a. (r → a) → Reader r a
+  │       └─ type: Type → Type → Type
+  └─ deriving plans: stock Functor (Reader r) [context: ()] [methods: fmap, <$]
+    deriving Functor
+             └─ $fFunctorReaderr ∷ ∀ r. () ⇒ Functor (Reader r)
+             └─ type: r → b
+             └─ fmap ∷ ∀ a b. (a → b) → Reader r a → Reader r b
+             └─ type: r → a
+             └─ type: (r → b) → Reader r b; type-args: r, b
+             └─ type: r
+             └─ type: Reader r a
+             └─ type: a → b
+  newtype Bar t b a = Bar ((a -> b) -> t)
+  │       │           └─ type: ∀ t b a. ((a → b) → t) → Bar t b a
+  │       └─ type: Type → Type → Type → Type
+  └─ deriving plans: stock Functor (Bar t b) [context: ()] [methods: fmap, <$]
+    deriving Functor
+             └─ $fFunctorBartb ∷ ∀ t b. () ⇒ Functor (Bar t b)
+             └─ type: b → b
+             └─ fmap ∷ ∀ a b. (a → b) → Bar t b a → Bar t b b
+             └─ type: a → b
+             └─ type: ((b → b) → t) → Bar t b b; type-args: t, b, b
+             └─ type: a → b
+             └─ type: (a → b) → t
+             └─ type: a
+             └─ type: (b → b) → t
+             └─ type: Bar t b a
+  newtype Bazaar a b t = Bazaar (forall f. Applicative f => (a -> f b) -> f t)
+  │       │              └─ type: ∀ a b t. (∀ f. (GHC.Prim.Base.Applicative f) ⇒ (a → f b) → f t) → Bazaar a b t
+  │       └─ type: Type → Type → Type → Type
+  └─ deriving plans: stock Functor (Bazaar a b) [context: ()] [methods: fmap, <$]
+    deriving Functor
+             └─ $fFunctorBazaarab ∷ ∀ a b. () ⇒ Functor (Bazaar a b)
+             └─ type: ∀ f. (GHC.Prim.Base.Applicative f) ⇒ (a → f b) → f b
+             └─ fmap ∷ ∀ a b. (a → b) → Bazaar a b a → Bazaar a b b
+             └─ type: ∀ f. (GHC.Prim.Base.Applicative f) ⇒ (a → f b) → f a
+             └─ type: (a → b) → f a → f b; type-args: f, a, b; evidence: super[0](given Applicative f)
+             └─ type: a → f b
+             └─ type: (a → f b) → f a; type-args: f; evidence: given Applicative f
+             └─ type: a → b
+             └─ type: (a → f b) → f b
+             └─ type: Bazaar a b a
+             └─ type: (∀ f. (GHC.Prim.Base.Applicative f) ⇒ (a → f b) → f b) → Bazaar a b b; type-args: a, b, b
+  newtype Baz t b a = Baz (forall f. Applicative f => (a -> f b) -> f t)
+  │       │           └─ type: ∀ t b a. (∀ f. (GHC.Prim.Base.Applicative f) ⇒ (a → f b) → f t) → Baz t b a
+  │       └─ type: Type → Type → Type → Type
+  └─ deriving plans: stock Functor (Baz t b) [context: ()] [methods: fmap, <$]
+    deriving Functor
+             └─ $fFunctorBaztb ∷ ∀ t b. () ⇒ Functor (Baz t b)
+             └─ type: ∀ f. (GHC.Prim.Base.Applicative f) ⇒ (b → f b) → f t
+             └─ fmap ∷ ∀ a b. (a → b) → Baz t b a → Baz t b b
+             └─ type: ∀ f. (GHC.Prim.Base.Applicative f) ⇒ (a → f b) → f t
+             └─ type: (a → f b) → f t; type-args: f; evidence: given Applicative f
+             └─ type: b → f b
+             └─ type: (b → f b) → f t
+             └─ type: a → f b
+             └─ type: (∀ f. (GHC.Prim.Base.Applicative f) ⇒ (b → f b) → f t) → Baz t b b; type-args: t, b, b
+             └─ type: a → b
+             └─ type: Baz t b a
+             └─ type: a
+  data Wrapped g a = Wrapped (Bool -> g a)
+  │    │             └─ type: ∀ g a. (GHC.Types.Bool → g a) → Wrapped g a
+  │    └─ type: (Type → Type) → Type → Type
+  └─ deriving plans: stock Functor (Wrapped g) [context: Functor g] [methods: fmap, <$]
+    deriving Functor
+             └─ $fFunctorWrappedg ∷ ∀ g. (Functor g) ⇒ Functor (Wrapped g)
+             └─ type: a → b
+             └─ fmap ∷ ∀ a b. (a → b) → Wrapped g a → Wrapped g b
+             └─ type: Wrapped g a
+             └─ type: (GHC.Types.Bool → g b) → Wrapped g b; type-args: g, b
+             └─ type: GHC.Types.Bool → g b
+             └─ type: (a → b) → g a → g b; type-args: g, a, b; evidence: given Functor g
+             └─ type: GHC.Types.Bool → g a
+             └─ type: GHC.Types.Bool
+  newtype Contra a = Contra (a -> Bool)
+  │       │          └─ type: ∀ a. (a → GHC.Types.Bool) → Contra a
+  │       └─ type: Type → Type
+  └─ deriving plans: stock Functor Contra [context: infer] [methods: fmap, <$]
+    deriving Functor
+             └─ error: stock Functor deriving requires a to appear only as the last argument of a type or in a covariant position of a function, but a constructor field has type a → Bool
+extensions:
+- DeriveFunctor
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE DeriveFunctor, RankNTypes #-}
+  module Main where
+  import GHC.Prim.Base (Applicative, Functor)
+  import GHC.Types (Bool)
+  newtype Reader r a = Reader (r -> a)
+    deriving Functor
+  newtype Bar t b a = Bar ((a -> b) -> t)
+    deriving Functor
+  newtype Bazaar a b t = Bazaar (forall f. Applicative f => (a -> f b) -> f t)
+    deriving Functor
+  newtype Baz t b a = Baz (forall f. Applicative f => (a -> f b) -> f t)
+    deriving Functor
+  data Wrapped g a = Wrapped (Bool -> g a)
+    deriving Functor
+  newtype Contra a = Contra (a -> Bool)
+    deriving Functor
+reason: stock Functor deriving maps the result of a function field and the domain
+  of its domain, and goes through a quantifier; a forall-bound functor gets its
+  instance from the field givens and not from the instance context; the parameter
+  alone in a domain is rejected
+status: pass

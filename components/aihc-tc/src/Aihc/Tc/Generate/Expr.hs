@@ -1040,8 +1040,13 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   let (equalityCts, dictionaryCts) = partition isEqualityConstraint (argCts <> deferredCts)
   residualEqualities <- concat <$> mapM (solveEqualityConstraint predicates) equalityCts
   residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
-  let annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) arg'
-  pure (annotatedArg, residualEqualities <> residualDictionaries)
+  -- A dictionary that the local givens do not solve can need them and
+  -- the givens of the enclosing scope together, as an instance context
+  -- does. It leaves with the local givens, as a wanted that leaves a
+  -- pattern branch does.
+  let withArgumentGivens ct = ct {ctBranchGivens = givenCts <> ctBranchGivens ct}
+      annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) arg'
+  pure (annotatedArg, residualEqualities <> map withArgumentGivens residualDictionaries)
   where
     deferredConstraint (left, right) = do
       evidence <- freshEvVar

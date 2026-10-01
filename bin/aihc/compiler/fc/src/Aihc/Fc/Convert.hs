@@ -10,6 +10,7 @@ module Aihc.Fc.Convert
     withKindEnv,
     withClassTyCons,
     convertNestedType,
+    convertNestedTypeWithExpectedKind,
     withSynonymTyCons,
     withExportedNames,
     exportedVis,

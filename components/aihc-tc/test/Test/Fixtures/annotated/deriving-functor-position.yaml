@@ -12,13 +12,13 @@ annotated:
   │    └─ type: Type → Type
   └─ deriving plans: stock Functor Swapped [context: infer] [methods: fmap, <$]
     deriving Functor
-             └─ error: stock Functor deriving requires a to appear only as the last argument of a type, but a constructor field has type Pair a Bool
+             └─ error: stock Functor deriving requires a to appear only as the last argument of a type or in a covariant position of a function, but a constructor field has type Pair a Bool
   data Argument a = Argument (a -> Bool)
   │    │            └─ type: ∀ a. (a → GHC.Types.Bool) → Argument a
   │    └─ type: Type → Type
   └─ deriving plans: stock Functor Argument [context: infer] [methods: fmap, <$]
     deriving Functor
-             └─ error: stock Functor deriving requires a to appear only as the last argument of a type, but a constructor field has type a → Bool
+             └─ error: stock Functor deriving requires a to appear only as the last argument of a type or in a covariant position of a function, but a constructor field has type a → Bool
   data Nested f a = Nested (f a) (f (f a)) Bool
   │    │            └─ type: ∀ f a. f a → f (f a) → GHC.Types.Bool → Nested f a
   │    └─ type: (Type → Type) → Type → Type

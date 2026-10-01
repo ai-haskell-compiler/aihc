@@ -1,0 +1,60 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, MagicHash, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  newtype Age = Age Int
+          │     └─ type: GHC.Types.Int → Age
+          └─ type: Type
+  data Coyoneda p a b where
+       └─ type: (Type → Type → Type) → Type → Type → Type
+    Coyoneda :: (a -> x) -> (y -> b) -> p x y -> Coyoneda p a b
+    └─ type: ∀ p a b x y. (a → x) → (y → b) → p x y → Coyoneda p a b
+  data Plain p a b = forall x y. Plain (a -> x) (y -> b) (p x y)
+       │             └─ type: ∀ p a b x y. (a → x) → (y → b) → p x y → Plain p a b
+       └─ type: (Type → Type → Type) → Type → Type → Type
+  left :: Coyoneda p Int b -> Coyoneda p Age b
+  left = coerce
+  │      └─ type: Coyoneda p GHC.Types.Int b → Coyoneda p Age b; type-args: Coyoneda p Int b, Coyoneda p Age b; evidence: coercible @Coyoneda p Int b @Coyoneda p Age b
+  └─ type: ∀ p b. Coyoneda p GHC.Types.Int b → Coyoneda p Age b
+  right :: Coyoneda p a Int -> Coyoneda p a Age
+  right = coerce
+  │       └─ type: Coyoneda p a GHC.Types.Int → Coyoneda p a Age; type-args: Coyoneda p a Int, Coyoneda p a Age; evidence: coercible @Coyoneda p a Int @Coyoneda p a Age
+  └─ type: ∀ p a. Coyoneda p a GHC.Types.Int → Coyoneda p a Age
+  plain :: Plain p Int Int -> Plain p Age Age
+  plain = coerce
+  │       └─ type: Plain p GHC.Types.Int GHC.Types.Int → Plain p Age Age; type-args: Plain p Int Int, Plain p Age Age; evidence: coercible @Plain p Int Int @Plain p Age Age
+  └─ type: ∀ p. Plain p GHC.Types.Int GHC.Types.Int → Plain p Age Age
+  given :: Coercible b a => Coyoneda p b c -> Coyoneda p a c
+  given = coerce
+  │       └─ type: Coyoneda p b c → Coyoneda p a c; type-args: Coyoneda p b c, Coyoneda p a c; evidence: coercible @Coyoneda p b c @Coyoneda p a c
+  └─ type: ∀ b a p c. (GHC.Types.Coercible b a) ⇒ Coyoneda p b c → Coyoneda p a c
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, MagicHash, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Coercible, Int (..))
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  newtype Age = Age Int
+  data Coyoneda p a b where
+    Coyoneda :: (a -> x) -> (y -> b) -> p x y -> Coyoneda p a b
+  data Plain p a b = forall x y. Plain (a -> x) (y -> b) (p x y)
+  left :: Coyoneda p Int b -> Coyoneda p Age b
+  left = coerce
+  right :: Coyoneda p a Int -> Coyoneda p a Age
+  right = coerce
+  plain :: Plain p Int Int -> Plain p Age Age
+  plain = coerce
+  given :: Coercible b a => Coyoneda p b c -> Coyoneda p a c
+  given = coerce
+reason: an existential constructor with a GADT signature keeps the parameters that
+  its result type names only as variables representational
+status: pass

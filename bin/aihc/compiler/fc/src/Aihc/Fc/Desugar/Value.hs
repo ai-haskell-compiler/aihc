@@ -2407,12 +2407,22 @@ desugarNewtypePatterns resultType fallback argument remaining argumentTypes work
 mapMaybeM :: (a -> ValueM (Maybe b)) -> [a] -> ValueM [b]
 mapMaybeM action values = catMaybes <$> mapM action values
 
+-- | The field type of a newtype pattern at the scrutinee type. The kind
+-- variables of a poly-kinded newtype are not arguments of the scrutinee
+-- type, so the kinds of its arguments give them: a field
+-- @forall x. p b x -> q a x@ quantifies @x@ at a kind variable.
 newtypeFieldType :: DataTypeInfo -> TcType -> Syn.Pattern -> ValueM TcType
 newtypeFieldType dataType scrutineeType child = do
+  env <- gets vsConvertEnv
+  let kindSubstitution =
+        case scrutineeType of
+          TcTyCon tyCon arguments ->
+            either (const Map.empty) Tc.tcInvisibleKindSubstitution (Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments Nothing)
+          _ -> Map.empty
   case dtiConstructors dataType of
     [constructor]
       | Just (Just fieldType) <- foreignConstructorField scrutineeType constructor ->
-          pure fieldType
+          pure (applySubst kindSubstitution fieldType)
     _ -> requiredPatternType child
 
 newtypePatternArguments :: Syn.Pattern -> ValueM [TcType]

@@ -35,6 +35,7 @@ module Aihc.Tc.Deriving.StockClass
 where
 
 import Aihc.Parser.Syntax (Extension (..))
+import Aihc.Tc.Deriving.Functorial (FunctionFields (..))
 import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..), genericTermReferences)
 import Data.List (find)
 import Data.Maybe (isJust)
@@ -86,8 +87,9 @@ data StockObligations
   | -- | The class at every type that stands between a field and the last
     -- parameter of the datatype, which is what a body that hands nested
     -- positions to another instance needs. The instance head drops the
-    -- parameter, so the fields are read against the remaining ones.
-    FunctorialObligations
+    -- parameter, so the fields are read against the remaining ones. The
+    -- argument tells whether the class goes through function fields.
+    FunctorialObligations !FunctionFields
   | -- | Nothing. A derived @Generic@ instance stands on its own: its
     -- representation names the field types but asks nothing of them.
     NoObligations
@@ -147,15 +149,15 @@ stockClasses =
       },
     report "Ix" NewtypeAlways,
     (extension "Functor" DeriveFunctor NewtypeWithGnd)
-      { stockClassObligations = FunctorialObligations,
+      { stockClassObligations = FunctorialObligations FunctionFieldsMapped,
         stockClassMethods = Just StockFunctorMethods
       },
     (extension "Foldable" DeriveFoldable NewtypeWithGnd)
-      { stockClassObligations = FunctorialObligations,
+      { stockClassObligations = FunctorialObligations FunctionFieldsRejected,
         stockClassMethods = Just StockFoldableMethods
       },
     (extension "Traversable" DeriveTraversable NewtypeNever)
-      { stockClassObligations = FunctorialObligations,
+      { stockClassObligations = FunctorialObligations FunctionFieldsRejected,
         stockClassMethods = Just StockTraversableMethods,
         stockClassReferences = [derivingPure, derivingApply]
       },
