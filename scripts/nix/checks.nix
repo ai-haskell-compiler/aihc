@@ -409,6 +409,7 @@
     {
       name = "grin-eval";
       pattern = ''$2 == "grin-spec" && $4 == "shared evaluation fixtures via GRIN"'';
+      threads = 4;
       nursery = "64m";
     }
   ];
@@ -597,7 +598,7 @@
     wasmLd
   ];
   coreLibraryInstallSetup = ''
-    export GHCRTS="-N4 -A16m"
+    export GHCRTS="-N4 -A64m"
     export LANG=C.UTF-8
     export LC_ALL=C.UTF-8
     export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -712,7 +713,8 @@
     } ''
       cd "$src"
       # Core library modules can use four compiler workers.
-      # Concurrent package and example checks use two workers each.
+      # Package checks also use four compiler workers.
+      # Example checks use two compiler workers each.
       # The compiler wrapper limits each process to a 2 GB heap.
       ${coreLibraryInstallSetup}
       ${extraSetup}
@@ -787,7 +789,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS="-N2 -A16m"
+      export GHCRTS="-N4 -A64m"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
