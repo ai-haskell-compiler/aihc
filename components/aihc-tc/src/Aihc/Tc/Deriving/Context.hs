@@ -198,7 +198,8 @@ derivingObligations kinds unlifted plan =
       | generatesStockMethods (tcDerivingClassName plan),
         Just shape <- stockClassObligationsOf (tcDerivingClassName plan) ->
           Just $ case shape of
-            FieldObligations -> map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concatMap (filter (not . comparedPrimitively)) <$> stockFieldTypes plan
+            FieldObligations -> fieldObligations
+            DataObligations -> ((superclassObligations kinds plan <> argumentObligations) <>) <$> fieldObligations
             FunctorialObligations functions -> functorialObligations functions plan
             NoObligations -> Right []
       | otherwise -> Nothing
@@ -206,6 +207,16 @@ derivingObligations kinds unlifted plan =
       Just (coercedObligations kinds plan <$> newtypeRepresentation plan)
     TcDerivingVia viaType -> Just (Right (coercedObligations kinds plan viaType))
   where
+    argumentObligations =
+      case reverse (tcDerivingHeadTypes plan) of
+        TcTyCon _ arguments : _
+          | all hasLiftedTypeKind arguments -> map (ClassPred (tcDerivingClassTyCon plan) . (: [])) arguments
+        _ -> []
+    hasLiftedTypeKind argument =
+      case argument of
+        TcTyVar tyVar | KType <- tvKind tyVar -> True
+        _ -> False
+    fieldObligations = map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concatMap (filter (not . comparedPrimitively)) <$> stockFieldTypes plan
     -- A derived Eq or Ord compares an unlifted field with the primitive
     -- operators of its type, so the field asks nothing of the context.
     comparedPrimitively ty =
@@ -233,11 +244,16 @@ reusesInstance strategy =
 -- from. Newtype deriving coerces from the representation, deriving via from
 -- the via type.
 coercedObligations :: TcKinds -> TcDerivingPlan -> TcType -> [Pred]
-coercedObligations kinds plan source = supers <> methods
+coercedObligations kinds plan source = superclassObligations kinds plan <> methods
+  where
+    methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [source]) | not (null (tcDerivingClassMethods plan))]
+
+-- | The superclasses of the class at the derived head.
+superclassObligations :: TcKinds -> TcDerivingPlan -> [Pred]
+superclassObligations kinds plan =
+  mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
   where
     substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
-    supers = mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
-    methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [source]) | not (null (tcDerivingClassMethods plan))]
 
 inferPlanContext :: TcKinds -> [UnliftedFieldType] -> DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
 inferPlanContext kinds unlifted environment plan =

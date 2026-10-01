@@ -1,0 +1,110 @@
+extensions:
+  - DeriveDataTypeable
+  - RankNTypes
+  - ScopedTypeVariables
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    {-# LANGUAGE RankNTypes #-}
+    {-# LANGUAGE ScopedTypeVariables #-}
+    module Test where
+
+    import Data.Data
+
+    data Colour = Red | Green | Blue
+      deriving (Eq, Show, Data)
+
+    data Pair a = Pair a Bool
+      deriving (Eq, Show, Data)
+
+    data Record = Record {left :: Int, right :: Char}
+      deriving (Eq, Show, Data)
+
+    data Expr = Lit Int | Expr :+: Expr | Neg Expr
+      deriving (Eq, Show, Data)
+
+    newtype Wrap = Wrap Int
+      deriving (Eq, Show, Data)
+
+    data Two a b = Two a b
+      deriving (Eq, Show, Data)
+
+    newtype Id a = Id {runId :: a}
+
+    -- The first constructor of a type, with the first constructor of each
+    -- field, built with gunfold.
+    defaultValue :: forall a. (Data a) => a
+    defaultValue =
+      case dataTypeConstrs (dataTypeOf (undefined :: a)) of
+        constr : _ -> fromConstrWith constr
+        [] -> error "no constructors"
+
+    fill :: (Data b) => Id (b -> r) -> Id r
+    fill (Id function) = Id (function defaultValue)
+
+    fromConstrWith :: (Data a) => Constr -> a
+    fromConstrWith constr = runId (gunfold fill Id constr)
+
+    sizeOf :: (Data a) => a -> Int
+    sizeOf x = 1 + sum (gmapQ sizeOf x)
+
+    bumpInts :: (Data a) => a -> a
+    bumpInts x = case cast x of
+      Just n -> case cast (n + 1 :: Int) of
+        Just y -> y
+        Nothing -> x
+      Nothing -> gmapT bumpInts x
+
+    constrNames :: (Data a) => a -> [String]
+    constrNames = gmapQr (:) [] (showConstr . toConstr)
+
+    isInfix :: Constr -> Bool
+    isInfix constr =
+      case constrFixity constr of
+        Infix -> True
+        Prefix -> False
+
+    newtype Q r a = Q {unQ :: a -> r}
+
+    ext1Q :: (Data d, Typeable t) => (d -> r) -> (forall e. (Data e) => t e -> r) -> d -> r
+    ext1Q fallback special = unQ (maybe (Q fallback) id (dataCast1 (Q special)))
+
+    ext2Q :: (Data d, Typeable t) => (d -> r) -> (forall e f. (Data e, Data f) => t e f -> r) -> d -> r
+    ext2Q fallback special = unQ (maybe (Q fallback) id (dataCast2 (Q special)))
+
+    isPair :: (Data d) => d -> Bool
+    isPair = ext1Q (const False) (\(Pair _ _) -> True)
+
+    isTwo :: (Data d) => d -> Bool
+    isTwo = ext2Q (const False) (\(Two _ _) -> True)
+
+    results :: [Bool]
+    results =
+      [ map (showConstr . toConstr) [Red, Green, Blue] == ["Red", "Green", "Blue"],
+        map (constrIndex . toConstr) [Red, Green, Blue] == [1, 2, 3],
+        dataTypeName (dataTypeOf Red) == "Test.Colour",
+        map showConstr (dataTypeConstrs (dataTypeOf (Lit 1))) == ["Lit", ":+:", "Neg"],
+        map constrIndex (dataTypeConstrs (dataTypeOf (Lit 1))) == [1, 2, 3],
+        constrFields (toConstr (Record 1 'x')) == ["left", "right"],
+        constrFields (toConstr (Lit 1)) == [],
+        isInfix (toConstr (Lit 1 :+: Lit 2)),
+        not (isInfix (toConstr (Neg (Lit 1)))),
+        constrNames (Lit 1 :+: Neg (Lit 2)) == ["Lit", "Neg"],
+        sizeOf (Lit 1 :+: Neg (Lit 2)) == 6,
+        bumpInts (Lit 1 :+: Neg (Lit 2)) == (Lit 2 :+: Neg (Lit 3)),
+        bumpInts (Pair (1 :: Int) True) == Pair 2 True,
+        bumpInts (Record 4 'r') == Record 5 'r',
+        bumpInts (Wrap 7) == Wrap 8,
+        gmapM Just (Pair 'p' False) == Just (Pair 'p' False),
+        (fromConstrWith (toConstr Green) :: Colour) == Green,
+        (fromConstrWith (toConstr Blue) :: Colour) == Blue,
+        (fromConstrWith (toConstr (Pair Blue True)) :: Pair Colour) == Pair Red False,
+        isPair (Pair 'a' True),
+        not (isPair Red),
+        isTwo (Two 'a' True),
+        not (isTwo (Pair 'a' True))
+      ]
+expression: results
+output: ": True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True (: True []))))))))))))))))))))))"
+status: pass
+reason: a derived Data instance folds, unfolds and describes every constructor as GHC derives it

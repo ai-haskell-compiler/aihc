@@ -29,7 +29,8 @@ where
 import Aihc.Parser.Syntax (NameType (..))
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc
-  ( DerivingReference (..),
+  ( DataReferences (..),
+    DerivingReference (..),
     DerivingReferences (..),
     GenericReferences (..),
     ReferencePackage (..),
@@ -209,6 +210,7 @@ primDerivingReferences prim =
       derivingLiftDataConName = classTerm thSyntaxModule NameVarId "mkNameG_d",
       derivingLiftCodeCoerce = classTerm thSyntaxModule NameVarId "unsafeCodeCoerce",
       derivingGeneric = genericReferences,
+      derivingData = dataReferences,
       derivingStockClasses = coreStockClasses prim,
       derivingRecognizedClasses = coreRecognizedClasses
     }
@@ -277,6 +279,29 @@ genericReferences =
     tyCon = reference NameConId ResolutionNamespaceType
     tyOperator = reference NameConSym ResolutionNamespaceType
 
+-- | The names of @Data.Data@ and @Data.Typeable@ that a derived @Data@
+-- instance is built from. They sit beside the class, so the table cannot
+-- name their package.
+dataReferences :: DataReferences
+dataReferences =
+  DataReferences
+    { dataMkConstr = value dataModule "mkConstr",
+      dataMkDataType = value dataModule "mkDataType",
+      dataIndexConstr = value dataModule "indexConstr",
+      dataConstrIndex = value dataModule "constrIndex",
+      dataPrefix = constructor dataModule "Prefix",
+      dataInfix = constructor dataModule "Infix",
+      dataGcast1 = value typeableModule "gcast1",
+      dataGcast2 = value typeableModule "gcast2"
+    }
+  where
+    dataModule = "Data.Data"
+    typeableModule = "Data.Typeable"
+    reference nameType moduleName name =
+      DerivingReference ReferenceClassPackage moduleName name nameType ResolutionNamespaceTerm
+    constructor = reference NameConId
+    value = reference NameVarId
+
 -- | The stock classes that the aihc core libraries declare in the primitive
 -- package, where each is defined. GHC keeps the same list as known-key
 -- names, which carry a unit id; the package here plays that part.
@@ -295,7 +320,8 @@ coreStockClasses prim =
     coreClass "GHC.Internal.Foldable" "Foldable",
     coreClass "GHC.Internal.Traversable" "Traversable",
     coreClass "GHC.Internal.TH.Lift" "Lift",
-    coreClass "GHC.Generics" "Generic"
+    coreClass "GHC.Generics" "Generic",
+    coreClass "Data.Data" "Data"
   ]
   where
     primClass = StockClassLocation (Just prim)
@@ -307,7 +333,6 @@ coreStockClasses prim =
 coreRecognizedClasses :: [(Text, Text)]
 coreRecognizedClasses =
   [ ("GHC.Ix", "Ix"),
-    ("Data.Data", "Data"),
     ("Type.Reflection", "Typeable"),
     ("Type.Reflection.Internal", "Typeable"),
     ("GHC.Generics", "Generic1")

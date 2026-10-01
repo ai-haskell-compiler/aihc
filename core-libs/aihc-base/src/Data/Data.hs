@@ -12,6 +12,7 @@ module Data.Data
     constrIndex,
     dataTypeConstrs,
     dataTypeName,
+    indexConstr,
     mkConstr,
     mkDataType,
     mkNoRepType,
@@ -20,16 +21,23 @@ module Data.Data
 where
 
 import Control.Monad (MonadPlus (..))
+import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Typeable
-import GHC.Base (Monad (..), String, const, id)
+import GHC.Base (Monad (..), String, const, id, otherwise)
 import GHC.Err (errorWithoutStackTrace)
-import GHC.Int (Int)
+import GHC.Float ()
+import GHC.Int (Int, Int16, Int32, Int64, Int8)
 import GHC.Internal.Classes (Eq (..))
+import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num ((+))
+import GHC.Num.Integer (Integer)
+import GHC.Num.Natural (Natural)
+import GHC.Prim.Real (Ratio (..))
+import GHC.Real (Integral, (%))
 import GHC.Show (Show (..))
-import GHC.Types (Bool (..), Char)
-import GHC.Word (Word, Word8)
+import GHC.Types (Bool (..), Char, Double, Float, Ordering (..))
+import GHC.Word (Word, Word16, Word32, Word64, Word8)
 
 -- | Generic operations on a data type.
 class (Typeable a) => Data a where
@@ -141,16 +149,28 @@ mkNoRepType :: String -> DataType
 mkNoRepType name = DataType name []
 
 -- | Make a constructor description.
--- The standin gives the constructor the index that comes after the
--- constructors that the data type already lists. A no-rep data type lists no
+-- As in GHC, the index is the position of the constructor name in the list
+-- of the data type. Thus a constructor can name the data type that lists
+-- it. If the list does not have the name, the standin gives the index that
+-- comes after the listed constructors. A no-rep data type lists no
 -- constructors, thus its first constructor gets index 1.
 mkConstr :: DataType -> String -> [String] -> Fixity -> Constr
 mkConstr dataType name fields fixity =
-  Constr name fields fixity (countConstrs (dataTypeConstrs dataType) + 1)
+  Constr name fields fixity (constrPosition 1 (dataTypeConstrs dataType))
+  where
+    constrPosition index [] = index
+    constrPosition index (constr : rest)
+      | showConstr constr == name = index
+      | otherwise = constrPosition (index + 1) rest
 
-countConstrs :: [Constr] -> Int
-countConstrs [] = 0
-countConstrs (_ : rest) = 1 + countConstrs rest
+-- | Give the constructor that has an index in a data type.
+indexConstr :: DataType -> Int -> Constr
+indexConstr dataType index = select 1 (dataTypeConstrs dataType)
+  where
+    select _ [] = errorWithoutStackTrace "Data.Data.indexConstr: index out of range"
+    select position (constr : rest)
+      | position == index = constr
+      | otherwise = select (position + 1) rest
 
 -- | Give the name of a data type.
 dataTypeName :: DataType -> String
@@ -263,3 +283,207 @@ pairConstr = mkConstr (mkNoRepType "Prelude.(,)") "(,)" [] Infix
 
 pairDataType :: DataType
 pairDataType = mkDataType "Prelude.(,)" [pairConstr]
+
+-- The standin describes the other primitive number types in the same way.
+instance Data Int8 where
+  toConstr x = mkConstr int8Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int8)"
+  dataTypeOf _ = int8Type
+
+int8Type :: DataType
+int8Type = mkNoRepType "Data.Int.Int8"
+
+instance Data Int16 where
+  toConstr x = mkConstr int16Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int16)"
+  dataTypeOf _ = int16Type
+
+int16Type :: DataType
+int16Type = mkNoRepType "Data.Int.Int16"
+
+instance Data Int32 where
+  toConstr x = mkConstr int32Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int32)"
+  dataTypeOf _ = int32Type
+
+int32Type :: DataType
+int32Type = mkNoRepType "Data.Int.Int32"
+
+instance Data Int64 where
+  toConstr x = mkConstr int64Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int64)"
+  dataTypeOf _ = int64Type
+
+int64Type :: DataType
+int64Type = mkNoRepType "Data.Int.Int64"
+
+instance Data Word16 where
+  toConstr x = mkConstr word16Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word16)"
+  dataTypeOf _ = word16Type
+
+word16Type :: DataType
+word16Type = mkNoRepType "Data.Word.Word16"
+
+instance Data Word32 where
+  toConstr x = mkConstr word32Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word32)"
+  dataTypeOf _ = word32Type
+
+word32Type :: DataType
+word32Type = mkNoRepType "Data.Word.Word32"
+
+instance Data Word64 where
+  toConstr x = mkConstr word64Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word64)"
+  dataTypeOf _ = word64Type
+
+word64Type :: DataType
+word64Type = mkNoRepType "Data.Word.Word64"
+
+instance Data Integer where
+  toConstr x = mkConstr integerType (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Integer)"
+  dataTypeOf _ = integerType
+
+integerType :: DataType
+integerType = mkNoRepType "Prelude.Integer"
+
+instance Data Natural where
+  toConstr x = mkConstr naturalType (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Natural)"
+  dataTypeOf _ = naturalType
+
+naturalType :: DataType
+naturalType = mkNoRepType "Numeric.Natural.Natural"
+
+instance Data Float where
+  toConstr x = mkConstr floatType (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Float)"
+  dataTypeOf _ = floatType
+
+floatType :: DataType
+floatType = mkNoRepType "Prelude.Float"
+
+instance Data Double where
+  toConstr x = mkConstr doubleType (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Double)"
+  dataTypeOf _ = doubleType
+
+doubleType :: DataType
+doubleType = mkNoRepType "Prelude.Double"
+
+-- GHC derives the instances of these algebraic types. Stock deriving
+-- cannot write them here, because the generated code names the
+-- descriptions of this module, and they are not available before the
+-- module is checked. Thus the instances have the shape that GHC derives.
+instance Data () where
+  toConstr () = unitConstr
+  gunfold _ z _ = z ()
+  dataTypeOf _ = unitDataType
+
+unitConstr :: Constr
+unitConstr = mkConstr unitDataType "()" [] Prefix
+
+unitDataType :: DataType
+unitDataType = mkDataType "Prelude.()" [unitConstr]
+
+instance Data Ordering where
+  toConstr LT = ltConstr
+  toConstr EQ = eqConstr
+  toConstr GT = gtConstr
+  gunfold _ z c = case constrIndex c of
+    1 -> z LT
+    2 -> z EQ
+    _ -> z GT
+  dataTypeOf _ = orderingDataType
+
+ltConstr :: Constr
+ltConstr = mkConstr orderingDataType "LT" [] Prefix
+
+eqConstr :: Constr
+eqConstr = mkConstr orderingDataType "EQ" [] Prefix
+
+gtConstr :: Constr
+gtConstr = mkConstr orderingDataType "GT" [] Prefix
+
+orderingDataType :: DataType
+orderingDataType = mkDataType "Prelude.Ordering" [ltConstr, eqConstr, gtConstr]
+
+instance (Data a) => Data (Maybe a) where
+  gfoldl _ z Nothing = z Nothing
+  gfoldl k z (Just x) = z Just `k` x
+  toConstr Nothing = nothingConstr
+  toConstr (Just _) = justConstr
+  gunfold k z c = case constrIndex c of
+    1 -> z Nothing
+    _ -> k (z Just)
+  dataTypeOf _ = maybeDataType
+  dataCast1 f = gcast1 f
+
+nothingConstr :: Constr
+nothingConstr = mkConstr maybeDataType "Nothing" [] Prefix
+
+justConstr :: Constr
+justConstr = mkConstr maybeDataType "Just" [] Prefix
+
+maybeDataType :: DataType
+maybeDataType = mkDataType "Prelude.Maybe" [nothingConstr, justConstr]
+
+instance (Data a, Data b) => Data (Either a b) where
+  gfoldl k z (Left x) = z Left `k` x
+  gfoldl k z (Right x) = z Right `k` x
+  toConstr (Left _) = leftConstr
+  toConstr (Right _) = rightConstr
+  gunfold k z c = case constrIndex c of
+    1 -> k (z Left)
+    _ -> k (z Right)
+  dataTypeOf _ = eitherDataType
+  dataCast2 f = gcast2 f
+
+leftConstr :: Constr
+leftConstr = mkConstr eitherDataType "Left" [] Prefix
+
+rightConstr :: Constr
+rightConstr = mkConstr eitherDataType "Right" [] Prefix
+
+eitherDataType :: DataType
+eitherDataType = mkDataType "Prelude.Either" [leftConstr, rightConstr]
+
+instance (Data a) => Data (NonEmpty a) where
+  gfoldl k z (x :| xs) = z (:|) `k` x `k` xs
+  toConstr _ = nonEmptyConstr
+  gunfold k z _ = k (k (z (:|)))
+  dataTypeOf _ = nonEmptyDataType
+  dataCast1 f = gcast1 f
+
+nonEmptyConstr :: Constr
+nonEmptyConstr = mkConstr nonEmptyDataType ":|" [] Infix
+
+nonEmptyDataType :: DataType
+nonEmptyDataType = mkDataType "GHC.Internal.Base.NonEmpty" [nonEmptyConstr]
+
+instance (Data a, Data b, Data c) => Data (a, b, c) where
+  gfoldl k z (a, b, c) = z (,,) `k` a `k` b `k` c
+  toConstr _ = tripleConstr
+  gunfold k z _ = k (k (k (z (,,))))
+  dataTypeOf _ = tripleDataType
+
+tripleConstr :: Constr
+tripleConstr = mkConstr tripleDataType "(,,)" [] Infix
+
+tripleDataType :: DataType
+tripleDataType = mkDataType "Prelude.(,,)" [tripleConstr]
+
+-- As in GHC, the instance rebuilds a ratio with '(%)', which reduces it.
+instance (Data a, Integral a) => Data (Ratio a) where
+  gfoldl k z (Ratio numerator denominator) = z (%) `k` numerator `k` denominator
+  toConstr _ = ratioConstr
+  gunfold k z _ = k (k (z (%)))
+  dataTypeOf _ = ratioDataType
+
+ratioConstr :: Constr
+ratioConstr = mkConstr ratioDataType ":%" [] Infix
+
+ratioDataType :: DataType
+ratioDataType = mkDataType "GHC.Real.Ratio" [ratioConstr]
