@@ -28,4 +28,5 @@ changed variable: Nothing
 changed variable: Nothing
 name with an equals sign is rejected: True
 executable:
-absolute path or no path: True
+absolute path or program name: True
+executablePath agrees: True

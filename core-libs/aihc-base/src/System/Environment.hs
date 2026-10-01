@@ -17,7 +17,8 @@ where
 
 import Control.Exception.Base (SomeException, catch, throwIO)
 import GHC.IO.Exception (IOErrorType (..), ioError)
-import GHC.Internal.Environment (getExecutablePathMaybe, getFullArgs, getFullEnvironment, setFullArgs, setFullEnvironment)
+import GHC.Internal.Environment (getFullArgs, getFullEnvironment, setFullArgs, setFullEnvironment)
+import System.Environment.ExecutablePath (executablePath, getExecutablePath)
 import System.IO.Error (mkIOError)
 import Prelude
 
@@ -72,20 +73,6 @@ invalidName name = null name || '=' `elem` name
 
 removeName :: String -> [String] -> [String]
 removeName name = filter (\entry -> fst (splitEntry entry) /= name)
-
--- | The absolute path of the running executable. The action fails when the
--- host cannot give the path.
-getExecutablePath :: IO FilePath
-getExecutablePath = do
-  path <- getExecutablePathMaybe
-  case path of
-    Just found -> return found
-    Nothing -> ioError (mkIOError UnsupportedOperation "getExecutablePath" Nothing Nothing)
-
--- | The action that gives the absolute path of the running executable, or
--- 'Nothing' when the host cannot give the path.
-executablePath :: Maybe (IO (Maybe FilePath))
-executablePath = Just getExecutablePathMaybe
 
 -- | Split a @NAME=VALUE@ entry. An entry without an equals sign is a name
 -- with an empty value, which is how @System.Posix.Env@ reads one too.

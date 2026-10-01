@@ -3,13 +3,11 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
--- | Access to the runtime-owned complete program argument vector, to the
--- process environment the host handed the runtime, and to the path of the
--- executable. Each ABI uses one UTF-8 byte string per entry, terminated by a
--- zero byte.
+-- | Access to the runtime-owned complete program argument vector and to the
+-- process environment the host handed the runtime. Both ABIs use one UTF-8
+-- byte string per entry, terminated by a zero byte.
 module GHC.Internal.Environment
-  ( getExecutablePathMaybe,
-    getFullArgs,
+  ( getFullArgs,
     getFullEnvironment,
     setFullArgs,
     setFullEnvironment,
@@ -45,9 +43,6 @@ foreign import ccall unsafe "aihc_program_environment_copy"
 
 foreign import prim setProgramEnvironment# :: ByteArray# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
-foreign import ccall unsafe "aihc_executable_path_copy"
-  copyExecutablePath :: Addr# -> Int -> IO Int
-
 getFullArgs :: IO [String]
 getFullArgs = do
   required <- argumentSize
@@ -61,31 +56,18 @@ getFullEnvironment = do
   required <- environmentSize
   readSnapshot copyEnvironment required
 
--- | The absolute path of the running executable, or 'Nothing' when the host
--- cannot give it.
-getExecutablePathMaybe :: IO (Maybe String)
-getExecutablePathMaybe = do
-  paths <- readSnapshot copyExecutablePath 0
-  case paths of
-    [path] -> return (Just path)
-    _ -> return Nothing
-
 -- | Read the runtime's string buffer. The store may grow between the size
 -- query and the copy, so a short copy reports the size it needed and the read
--- starts over with it. A negative size tells that the runtime has no
--- buffer to give, and the result is then empty.
+-- starts over with it.
 readSnapshot :: (Addr# -> Int -> IO Int) -> Int -> IO [String]
 readSnapshot copy requested = do
   buffer <- newArgumentBuffer (atLeastOne requested)
   actual <- copyBuffer copy buffer requested
-  case actual < 0 of
-    True -> return []
-    False ->
-      case actual > requested of
-        True -> readSnapshot copy actual
-        False -> do
-          bytes <- readBytes buffer 0 actual
-          return (decodeArguments bytes)
+  case actual > requested of
+    True -> readSnapshot copy actual
+    False -> do
+      bytes <- readBytes buffer 0 actual
+      return (decodeArguments bytes)
 
 setFullArgs :: [String] -> IO ()
 setFullArgs = replaceStrings "setArgs" setProgramArguments#

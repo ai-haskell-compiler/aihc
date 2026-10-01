@@ -34,13 +34,6 @@ _Noreturn void aihc_host_fail(const char *message) {
    docs/native-runtime-objects.md. */
 void aihc_program_environment_initialize(void) {}
 
-/* A component has no executable file, so this host has no path to give. */
-int64_t aihc_executable_path_copy(void *buffer, int64_t capacity) {
-  (void)buffer;
-  (void)capacity;
-  return -1;
-}
-
 uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 
 int aihc_host_write_file(const char *path, const void *bytes, size_t length) {

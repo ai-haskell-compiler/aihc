@@ -2,7 +2,7 @@ module Main (main) where
 
 import Control.Exception (IOException, try)
 import Data.List (isPrefixOf)
-import System.Environment (getArgs, getEnvironment, getExecutablePath, getProgName, lookupEnv, setEnv, unsetEnv, withArgs, withProgName)
+import System.Environment (executablePath, getArgs, getEnvironment, getExecutablePath, getProgName, lookupEnv, setEnv, unsetEnv, withArgs, withProgName)
 
 main :: IO ()
 main = do
@@ -52,11 +52,16 @@ printChangedVariables = do
       putStrLn ("changed variable: " ++ show value)
 
 -- | The path depends on where the program runs, so only its form is
--- printed. A host without an executable file cannot give a path.
+-- printed. A native program gives an absolute path. WebAssembly has no
+-- executable file, so the path is the first argument that the host gave,
+-- and 'executablePath' is 'Nothing'.
 printExecutable :: IO ()
 printExecutable = do
-  path <- try getExecutablePath :: IO (Either IOException FilePath)
-  putStrLn ("absolute path or no path: " ++ show (either (const True) ("/" `isPrefixOf`) path))
+  path <- getExecutablePath
+  programName <- getProgName
+  putStrLn ("absolute path or program name: " ++ show ("/" `isPrefixOf` path || path == programName))
+  agrees <- maybe (return True) (fmap (== Just path)) executablePath
+  putStrLn ("executablePath agrees: " ++ show agrees)
 
 printEnvironment :: IO ()
 printEnvironment = do

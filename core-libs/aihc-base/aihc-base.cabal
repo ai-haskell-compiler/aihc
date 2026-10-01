@@ -273,6 +273,7 @@ library
     GHC.Internal.Utf8
     GHC.Read.Lex
     System.CPUTime.Clock
+    System.Environment.ExecutablePath
     System.Posix.Internals.Repr
     System.Posix.Internals.Syscalls
     System.Posix.Internals.Types

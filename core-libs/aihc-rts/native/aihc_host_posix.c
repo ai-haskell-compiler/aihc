@@ -17,10 +17,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#if defined(__APPLE__)
-#include <mach-o/dyld.h>
-#endif
-
 extern char **environ;
 
 static AihcIoHandle aihc_standard_input = {.backend_token = 0,
@@ -42,42 +38,6 @@ _Noreturn void aihc_exit_process(int64_t status) {
 
 void aihc_program_environment_initialize(void) {
   aihc_environment_initialize(environ);
-}
-
-/* Write the absolute path of the running executable into path. The result
-   is zero, or minus one when the path is not available. */
-static int aihc_posix_executable_path(char path[PATH_MAX]) {
-#if defined(__APPLE__)
-  char unresolved[PATH_MAX];
-  uint32_t size = sizeof(unresolved);
-  if (_NSGetExecutablePath(unresolved, &size) != 0) {
-    return -1;
-  }
-  return realpath(unresolved, path) == NULL ? -1 : 0;
-#elif defined(__linux__)
-  ssize_t length = readlink("/proc/self/exe", path, PATH_MAX - 1);
-  if (length < 0) {
-    return -1;
-  }
-  path[length] = 0;
-  return 0;
-#else
-  (void)path;
-  return -1;
-#endif
-}
-
-int64_t aihc_executable_path_copy(void *buffer, int64_t capacity) {
-  char path[PATH_MAX];
-  if (capacity < 0 || (capacity != 0 && buffer == NULL) ||
-      aihc_posix_executable_path(path) != 0) {
-    return -1;
-  }
-  int64_t required = (int64_t)strlen(path) + 1;
-  if (capacity >= required) {
-    memcpy(buffer, path, (size_t)required);
-  }
-  return required;
 }
 
 uint64_t aihc_host_monotonic_ns(void) {
