@@ -1,0 +1,44 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Monad.Fix (mfix)
+    import Data.List.NonEmpty (NonEmpty (..))
+
+    -- The function monad ties the knot at the same environment value.
+    doubles :: Int -> [Int]
+    doubles = mfix (\xs n -> n : map (* 2) xs)
+
+    ones :: Maybe [Int]
+    ones = mfix (\xs -> Just (1 : xs))
+
+    rights :: Either String [Int]
+    rights = mfix (\xs -> Right (2 : xs))
+
+    columns :: [[Int]]
+    columns = mfix (\xs -> [1 : xs, 2 : xs])
+
+    nonEmpty :: NonEmpty [Int]
+    nonEmpty = mfix (\xs -> (3 : xs) :| [4 : xs])
+
+    main :: IO ()
+    main = do
+      print (take 4 (doubles 3))
+      print (take 3 (mfix (\xs _ -> 5 : xs) ()))
+      print (fmap (take 3) ones)
+      print (fmap (take 3) rights)
+      print (map (take 3) columns)
+      case nonEmpty of
+        first :| rest -> print (take 3 first, map (take 3) rest)
+expression: main
+stdout: |
+  [3,6,12,24]
+  [5,5,5]
+  Just [1,1,1]
+  Right [2,2,2]
+  [[1,1,1],[2,2,2]]
+  ([3,3,3],[[4,4,4]])
+output: |
+  ()
+status: pass
+reason: base gives MonadFix instances for functions, Maybe, Either, lists, and NonEmpty
