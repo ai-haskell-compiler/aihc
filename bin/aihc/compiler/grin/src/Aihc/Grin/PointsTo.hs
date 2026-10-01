@@ -143,8 +143,13 @@ data PointsToStats = PointsToStats
 -- is the only location. A variable that can point at this many places
 -- gives none of them, and the sets of such variables, copied along every
 -- edge, were what held the memory of a large whole program.
+--
+-- On the aihc-parser-stackage benchmark, a limit of 512 in place of 1024
+-- decreased the peak memory of the analysis from 402 MB to 243 MB and
+-- lost 8 of about 17,900 rewrites. On three smaller benchmarks it lost
+-- none. A limit of 256 lost 10% of the dead alternatives of sha-digest.
 widenLimit :: Int
-widenLimit = 1024
+widenLimit = 512
 
 -- | The number of rewrites of each kind.
 data PointsToRewrites = PointsToRewrites
@@ -277,6 +282,12 @@ data Solver s = Solver
     solverSets :: !(STRef s (MV.MVector s IntSet)),
     solverDeltas :: !(STRef s (MV.MVector s IntSet)),
     solverSuccessors :: !(STRef s (MV.MVector s IntSet)),
+    -- | The number of set nodes with an edge to each set node.
+    solverPredecessorCount :: !(STRef s (MU.MVector s Int)),
+    -- | The predecessor of each set node that has one.
+    solverPredecessor :: !(STRef s (MU.MVector s Int)),
+    -- | Whether a set node got a location that no edge gave.
+    solverOwnInput :: !(STRef s (MU.MVector s Bool)),
     solverTriggers :: !(STRef s (MV.MVector s [Trigger])),
     solverQueued :: !(STRef s (MU.MVector s Bool)),
     solverWorklist :: !(STRef s [Int]),
@@ -428,6 +439,9 @@ newSolver limit = do
     <*> (newSTRef =<< MV.replicate capacity IntSet.empty)
     <*> (newSTRef =<< MV.replicate capacity IntSet.empty)
     <*> (newSTRef =<< MV.replicate capacity IntSet.empty)
+    <*> (newSTRef =<< MU.replicate capacity 0)
+    <*> (newSTRef =<< MU.replicate capacity 0)
+    <*> (newSTRef =<< MU.replicate capacity False)
     <*> (newSTRef =<< MV.replicate capacity [])
     <*> (newSTRef =<< MU.replicate capacity False)
     <*> newSTRef []
@@ -473,6 +487,9 @@ newNode solver = do
   ensureSize (solverDeltas solver) IntSet.empty (node + 1)
   ensureSize (solverSuccessors solver) IntSet.empty (node + 1)
   ensureSize (solverTriggers solver) [] (node + 1)
+  ensureUnboxedSize (solverPredecessorCount solver) 0 (node + 1)
+  ensureUnboxedSize (solverPredecessor solver) 0 (node + 1)
+  ensureUnboxedSize (solverOwnInput solver) False (node + 1)
   ensureUnboxedSize (solverQueued solver) False (node + 1)
   ensureUnboxedSize (solverWidened solver) False (node + 1)
   pure node
@@ -520,9 +537,16 @@ modifyAt ref index f = do
 lookupFunction :: Solver s -> FunctionName -> ST s (Maybe FunctionInfo)
 lookupFunction solver name = Map.lookup name <$> readSTRef (solverFunctions solver)
 
--- | Add locations to the pending set of a set node.
+-- | Add locations to the pending set of a set node. No edge gives them.
 addLocations :: Solver s -> Int -> IntSet -> ST s ()
 addLocations solver node locations = do
+  ownInput <- readSTRef (solverOwnInput solver)
+  MU.write ownInput node True
+  addPending solver node locations
+
+-- | Add locations to the pending set of a set node.
+addPending :: Solver s -> Int -> IntSet -> ST s ()
+addPending solver node locations = do
   current <- readAt (solverSets solver) node
   let new = locations `IntSet.difference` current
   unless (IntSet.null new) $ do
@@ -543,8 +567,12 @@ addEdge solver from to =
     successors <- readAt (solverSuccessors solver) from
     unless (IntSet.member to successors) $ do
       writeAt (solverSuccessors solver) from (IntSet.insert to successors)
+      counts <- readSTRef (solverPredecessorCount solver)
+      MU.modify counts (+ 1) to
+      predecessors <- readSTRef (solverPredecessor solver)
+      MU.write predecessors to from
       current <- readAt (solverSets solver) from
-      unless (IntSet.null current) (addLocations solver to current)
+      unless (IntSet.null current) (addPending solver to current)
 
 edgeToSlot :: Solver s -> Int -> Slot -> ST s ()
 edgeToSlot solver from slot =
@@ -590,16 +618,37 @@ solve solver = do
           then escapeLocations solver new
           else do
             modifySTRef' (solverIterations solver) (+ 1)
-            let merged = current <> new
+            merged <- mergedSet solver node current new
             if node /= escapeNode && IntSet.size merged > solverWidenLimit solver
               then widen solver node merged
               else do
                 writeAt (solverSets solver) node merged
                 successors <- readAt (solverSuccessors solver) node
-                forM_ (IntSet.toList successors) $ \successor -> addLocations solver successor new
+                forM_ (IntSet.toList successors) $ \successor -> addPending solver successor new
                 triggers <- readAt (solverTriggers solver) node
                 forM_ triggers $ \trigger -> forM_ (IntSet.toList new) (seeLocation solver trigger)
       solve solver
+
+-- | The set of a set node after it gets new locations.
+--
+-- A set node whose one input is an edge from one predecessor holds the
+-- set of that predecessor: the predecessor gave it each of its locations,
+-- and nothing else gave it any. Such a node takes the set of its
+-- predecessor as the same object, so a chain of copies holds one set.
+-- Most set nodes of a whole program are such nodes, and their sets were
+-- most of the memory of the solver.
+mergedSet :: Solver s -> Int -> IntSet -> IntSet -> ST s IntSet
+mergedSet solver node current new = do
+  counts <- readSTRef (solverPredecessorCount solver)
+  count <- MU.read counts node
+  ownInputs <- readSTRef (solverOwnInput solver)
+  ownInput <- MU.read ownInputs node
+  if count == 1 && not ownInput
+    then do
+      predecessors <- readSTRef (solverPredecessor solver)
+      predecessor <- MU.read predecessors node
+      readAt (solverSets solver) predecessor
+    else pure (current <> new)
 
 -- | Widen a set node to the unknown location. The locations it held
 -- escape, so what code could do with them through this node is what the
