@@ -215,10 +215,22 @@ in rec {
         if spec.disableProfiling
         then hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling baseDrv)
         else baseDrv;
+      linkingAdjusted =
+        if enableSeparateIntermediates
+        then
+          hsLib.dontHaddock (
+            hsLib.overrideCabal profilingAdjusted (_old: {
+              # Check executables use static Haskell libraries.
+              # The checks do not use Haskell API documentation.
+              # Do not compile a second copy for shared libraries.
+              enableSharedLibraries = false;
+            })
+          )
+        else profilingAdjusted;
       optimizationAdjusted =
         if disableOptimization && spec.optimizeForChecks
-        then hsLib.disableOptimization profilingAdjusted
-        else profilingAdjusted;
+        then hsLib.disableOptimization linkingAdjusted
+        else linkingAdjusted;
       coverageAdjusted =
         if enableCoverage && spec.supportsCoverage
         then enableCoverageWithExport hsLib optimizationAdjusted
