@@ -414,9 +414,11 @@ simplifyValue config known recursive st name
                             spReducingSiteLimit = policyReducingSiteLimit policy,
                             spDiscount = policyFunctionArgumentDiscount policy,
                             spRules = inRules st,
-                            spCredit = Map.findWithDefault 0 name (inCallArities st),
-                            spInside = False
+                            spCredit = credit,
+                            spInside = False,
+                            spCredits = snd (callArityAnalysis credit False body)
                           }
+                      credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less
                       -- its size now. A value that shrank in an earlier
                       -- round may grow back to the limit.
