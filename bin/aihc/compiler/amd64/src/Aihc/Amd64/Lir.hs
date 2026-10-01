@@ -377,6 +377,7 @@ instructionEffect instruction =
     AmdMovzx destination _ -> writes [destination]
     AmdMovzxWord destination _ -> writes [destination]
     AmdLea destination _ -> writes [destination]
+    AmdMovGot destination _ -> writes [destination]
     AmdAdd destination _ -> modifies destination
     AmdSub destination _ -> modifies destination
     AmdAnd destination _ -> modifies destination
@@ -540,8 +541,13 @@ canonicalInteger ty value
   | typeBits ty >= 64 = value `mod` (2 ^ (64 :: Int))
   | otherwise = value `mod` (2 ^ typeBits ty)
 
+-- | The address of a symbol, through its Global Offset Table entry. A
+-- RIP-relative @lea@ of a symbol from a shared library cannot link into a
+-- position-independent executable. The linker relaxes the GOT load to a
+-- @lea@ when the symbol lives in the executable, so a local symbol costs
+-- nothing.
 address :: Amd64Register -> Text -> Amd64Statement
-address register label = amd64Instruction (AmdLea register (Amd64RipAddress label))
+address register label = amd64Instruction (AmdMovGot register label)
 
 immediate :: (Integral value) => Amd64Register -> value -> Amd64Statement
 immediate register value

@@ -94,6 +94,10 @@ data FixupKind
   | Absolute64
   | X86Pc32
   | X86Plt32
+  | -- | A RIP-relative load from the Global Offset Table entry of a symbol
+    -- (@R_X86_64_REX_GOTPCRELX@). The linker relaxes the load to @lea@ for
+    -- a symbol in the executable.
+    X86GotPcRelX
   deriving (Enum, Eq, Show)
 
 -- | What a label or a fixup names: a symbol, by its text, or a label private

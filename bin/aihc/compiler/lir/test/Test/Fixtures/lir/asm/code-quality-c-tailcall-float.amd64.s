@@ -78,7 +78,7 @@ main:
 	call forward
 	movq rax, xmm0
 	mov rbx, rax
-	lea r10, [rip + table]
+	mov r10, [rip + table@GOTPCREL]
 	mov rdi, [r10]
 	mov r11d, 0x3f800000
 	movd xmm0, r11d

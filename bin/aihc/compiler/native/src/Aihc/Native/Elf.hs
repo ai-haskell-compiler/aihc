@@ -238,6 +238,7 @@ validateRelocations section = mapM_ validate (imageSectionRelocations section)
         Absolute64 -> pure ()
         X86Pc32 -> pure ()
         X86Plt32 -> pure ()
+        X86GotPcRelX -> pure ()
         kind -> Left (ObjectInvalidFixup kind)
 
 placePiece :: Word64 -> Piece -> (Word64, PlacedPiece)
@@ -296,6 +297,7 @@ putRelocation (offset, kind, (symbolIndex, addend)) = do
           Absolute64 -> 1
           X86Pc32 -> 2
           X86Plt32 -> 4
+          X86GotPcRelX -> 42
           _ -> 0
   putWord64le offset
   putWord64le (fromIntegral symbolIndex `shiftL` 32 .|. relocationType)

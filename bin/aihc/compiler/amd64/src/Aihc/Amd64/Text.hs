@@ -73,6 +73,7 @@ instruction code =
     AmdMovzx destination source -> two "movzx" destination source
     AmdMovzxWord destination source -> two "movzx" destination source
     AmdLea destination source -> "lea " <> reg destination <> ", " <> addressText source
+    AmdMovGot destination symbol -> "mov " <> reg destination <> ", [rip + " <> T.unpack symbol <> "@GOTPCREL]"
     AmdAdd destination source -> binary "add" destination source
     AmdSub destination source -> binary "sub" destination source
     AmdAnd destination source -> binary "and" destination source
