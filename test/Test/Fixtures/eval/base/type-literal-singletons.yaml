@@ -1,0 +1,55 @@
+extensions:
+  - DataKinds
+  - FlexibleInstances
+  - GADTs
+  - MagicHash
+  - PolyKinds
+  - ScopedTypeVariables
+  - TypeOperators
+modules:
+  - |
+    module Test where
+
+    import Control.Applicative ((<$))
+    import Data.Proxy (Proxy (..))
+    import qualified Data.Type.Equality as Eq
+    import GHC.Exts (Proxy#, proxy#)
+    import qualified GHC.TypeLits as TypeLits
+    import qualified GHC.TypeNats as TypeNats
+
+    -- The singleton class shape that the boring package uses.
+    class Boring a where
+      boring :: a
+
+    instance (a Eq.~~ b) => Boring (a Eq.:~~: b) where
+      boring = Eq.HRefl
+
+    instance (TypeLits.KnownChar n) => Boring (TypeLits.SChar n) where
+      boring = TypeLits.charSing
+
+    instance (TypeLits.KnownSymbol n) => Boring (TypeLits.SSymbol n) where
+      boring = TypeLits.symbolSing
+
+    instance (TypeNats.KnownNat n) => Boring (TypeNats.SNat n) where
+      boring = TypeNats.natSing
+
+    heterogeneous :: Bool
+    heterogeneous = case (boring :: Int Eq.:~~: Int) of
+      Eq.HRefl -> True
+
+    matches :: Bool
+    matches =
+      TypeLits.fromSChar (boring :: TypeLits.SChar 'x') == 'x'
+        && TypeLits.charVal (Proxy :: Proxy 'y') == 'y'
+        && TypeLits.charVal' (proxy# :: Proxy# 'z') == 'z'
+        && TypeLits.fromSSymbol (boring :: TypeLits.SSymbol "hello") == "hello"
+        && show (TypeNats.fromSNat (boring :: TypeNats.SNat 42)) == "42"
+        && show (TypeLits.fromSNat (TypeLits.natSing :: TypeLits.SNat 5)) == "5"
+        && (1 <$ Just 'a') == Just (1 :: Int)
+        && heterogeneous
+output: |
+  True
+expression: |
+  matches
+status: pass
+reason: the type-literal singletons, KnownChar, heterogeneous equality, and the (<$) export from Control.Applicative are available as in GHC

@@ -6,6 +6,7 @@
 module Data.Type.Equality
   ( (:~:) (..),
     type (~),
+    type (~~),
     (:~~:) (..),
     sym,
     trans,
@@ -14,7 +15,7 @@ module Data.Type.Equality
   )
 where
 
-import GHC.Types (type (~))
+import GHC.Types (type (~), type (~~))
 
 infix 4 :~:, :~~:
 

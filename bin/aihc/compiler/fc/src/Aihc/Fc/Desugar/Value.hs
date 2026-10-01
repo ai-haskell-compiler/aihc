@@ -4619,7 +4619,8 @@ compactStringValues declarations = do
           _ -> pure declaration
   mapM compactDecl declarations
 
--- | The dictionary of a @KnownNat@ or @KnownSymbol@ constraint.
+-- | The dictionary of a @KnownNat@, @KnownSymbol@, or @KnownChar@
+-- constraint.
 --
 -- The class has one field, which is the literal's value, so the dictionary
 -- is its constructor applied to the literal type and that value. A natural
@@ -4634,7 +4635,11 @@ desugarTypeLitEvidence origin ty literal = do
         convert <- primitiveName "GHC.Prim.Natural" "naturalFromInteger#" SortValue
         pure ("KnownNat", ExApp (ExVar convert) integer)
       Tc.TyLitSymbol symbol -> ("KnownSymbol",) <$> desugarStringValue symbol
-      Tc.TyLitChar {} -> failValue "a character literal has no known-literal class"
+      Tc.TyLitChar character -> do
+        kinds <- valueKinds
+        constructor <- boxedCharConstructor
+        representation <- convertRuntimeRep (wordRep kinds)
+        pure ("KnownChar", ExApp (ExVar constructor) (ExLit (LitChar representation character)))
   classOrigin <-
     case origin of
       Just (packageName, moduleName') -> pure (PackageId packageName, moduleName')
