@@ -18,6 +18,7 @@ module Aihc.Cli.Install
     compileModules,
     compilePackageCFiles,
     moduleOutputPaths,
+    packageLinkArguments,
     buildEnvironmentIdentity,
     defaultBuildRoot,
     dependencyIncludeDirs,
@@ -128,7 +129,7 @@ import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Resolve qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyVersions,
     LockMode (..),
@@ -1214,11 +1215,17 @@ packageBuildManifest config build compiledModules =
       packageManifestCompiledModules = sortOn id compiledModules,
       packageManifestFlags = compileFlagNames config,
       packageManifestCabalFlags = Map.fromList [(T.pack (unFlagName flag), value) | (flag, value) <- unFlagAssignment (HackageCabal.contextFlags (inputContext inputs))],
-      packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources (buildCCompileInfo build)))
+      packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources (buildCCompileInfo build))),
+      packageManifestLinkArguments = map T.pack (packageLinkArguments (compileTarget config) (buildCCompileInfo build))
     }
   where
     inputs = buildInputs build
     gpd = inputDescription inputs
+
+-- | The arguments that link the system libraries a package names in its
+-- Cabal file, for the linker of the target.
+packageLinkArguments :: NativeTarget -> HackageCabal.CCompileInfo -> [String]
+packageLinkArguments target = HackageCabal.cCompileLinkArguments (nativeTargetHasFrameworks target)
 
 -- | Archive the compiled modules of a package and write its manifest.
 finishPackageBuild :: InstallShared -> PackageBuild -> CompiledPackageModules -> IO InstalledPackage
@@ -3786,4 +3793,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-42"
+packageArtifactFormatVersion = "aihc-artifacts-43"

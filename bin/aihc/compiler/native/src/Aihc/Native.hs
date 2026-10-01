@@ -12,6 +12,7 @@ module Aihc.Native
     backendCompiler,
     cxxStandardLibraryArguments,
     executableLinkArguments,
+    nativeTargetHasFrameworks,
     handwrittenCArguments,
     handwrittenCOverrideArguments,
     buildAddrLiteralPool,
@@ -372,6 +373,17 @@ executableLinkArguments target =
   where
     appleArguments = ["-Wl,-dead_strip", "-Wl,-no_exported_symbols"]
     elfArguments = ["-Wl,--gc-sections"]
+
+-- | Whether the linker of a target takes macOS frameworks. Cabal gives the
+-- @frameworks@ of a package to the linker on macOS only. The @llvm@ target
+-- compiles for the host, so the host decides.
+nativeTargetHasFrameworks :: NativeTarget -> Bool
+nativeTargetHasFrameworks target =
+  case target of
+    AppleArm64 -> True
+    LinuxAmd64 -> False
+    Llvm -> System.os == "darwin"
+    Wasm32Wasip3 -> False
 
 -- | The link arguments that add the C++ standard library of a target, for a
 -- program that links a package with @cxx-sources@. The C driver links only

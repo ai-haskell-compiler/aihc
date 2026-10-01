@@ -43,6 +43,7 @@ import Aihc.Cli.Install
     dependencyIncludeDirs,
     installPlanPackages,
     installTargetRoot,
+    packageLinkArguments,
     planRequestFor,
     sourceFileModuleName,
   )
@@ -225,6 +226,7 @@ buildPackage options = do
           executableModules = compiled,
           executableExtraObjects = cObjects,
           executableCxxStdLib = not (null (HackageCabal.cCompileCxxSources cCompileInfo)),
+          executableLibraryArguments = packageLinkArguments target cCompileInfo,
           executablePackages = selected
         }
     pure output

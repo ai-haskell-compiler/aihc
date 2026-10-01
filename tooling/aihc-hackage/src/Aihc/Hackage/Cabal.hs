@@ -3,6 +3,7 @@ module Aihc.Hackage.Cabal
   ( -- * File info
     FileInfo (..),
     CCompileInfo (..),
+    cCompileLinkArguments,
 
     -- * Component file discovery
     ExecutableInfo (..),
@@ -85,9 +86,13 @@ import Aihc.Cabal
     exposedModules,
     extensions,
     extraFields,
+    extraFrameworkDirs,
+    extraLibDirs,
     fieldPaths,
+    fieldText,
     flagDefault,
     flagName,
+    frameworks,
     ghcOptions,
     includeDirs,
     installIncludes,
@@ -159,7 +164,9 @@ filePreprocessor :: FilePath -> Maybe Preprocessor
 filePreprocessor path = preprocessorForExtension (drop 1 (takeExtension path))
 
 -- | C compile inputs from the active library @c-sources@, @cxx-sources@,
--- @include-dirs@, @cc-options@, and @cxx-options@ fields.
+-- @include-dirs@, @cc-options@, and @cxx-options@ fields, and the link
+-- inputs from its @extra-libraries@, @extra-lib-dirs@, @frameworks@,
+-- @extra-framework-dirs@, and @ld-options@ fields.
 data CCompileInfo = CCompileInfo
   { cCompileSources :: [FilePath],
     -- | The @cxx-sources@ of the package. They are compiled as C++ with
@@ -174,7 +181,18 @@ data CCompileInfo = CCompileInfo
     -- | Public headers, relative to the include directories.
     cCompileInstallIncludes :: [FilePath],
     cCompileCcOptions :: [String],
-    cCompileCxxOptions :: [String]
+    cCompileCxxOptions :: [String],
+    -- | The system libraries that an executable which links the package
+    -- must also link, from @extra-libraries@.
+    cCompileExtraLibraries :: [String],
+    -- | The directories the linker searches for the extra libraries.
+    cCompileExtraLibDirs :: [FilePath],
+    -- | The macOS frameworks that the package links, from @frameworks@.
+    cCompileFrameworks :: [String],
+    cCompileExtraFrameworkDirs :: [FilePath],
+    -- | The options that the C compiler driver gives to the linker, from
+    -- @ld-options@.
+    cCompileLdOptions :: [String]
   }
   deriving (Eq, Show)
 
@@ -241,6 +259,7 @@ activeLibraryBuildInfos context package =
 cCompileInfoFromBuild :: Version -> FilePath -> BuildInfo -> Either String CCompileInfo
 cCompileInfoFromBuild spec packageRoot build = do
   lirSources <- extractLirSources spec packageRoot build
+  extraLibraries <- extractExtraLibraries spec build
   pure
     CCompileInfo
       { cCompileSources = extractCSources packageRoot build,
@@ -249,7 +268,12 @@ cCompileInfoFromBuild spec packageRoot build = do
         cCompileIncludeDirs = extractIncludeDirs packageRoot build,
         cCompileInstallIncludes = installIncludes build,
         cCompileCcOptions = map T.unpack (ccOptions build),
-        cCompileCxxOptions = map T.unpack (cxxOptions build)
+        cCompileCxxOptions = map T.unpack (cxxOptions build),
+        cCompileExtraLibraries = extraLibraries,
+        cCompileExtraLibDirs = nub [packageRoot </> path | path <- extraLibDirs build],
+        cCompileFrameworks = map T.unpack (frameworks build),
+        cCompileExtraFrameworkDirs = nub [packageRoot </> path | path <- extraFrameworkDirs build],
+        cCompileLdOptions = extractLdOptions build
       }
 
 mergeCCompileInfo :: [CCompileInfo] -> CCompileInfo
@@ -261,8 +285,30 @@ mergeCCompileInfo items =
       cCompileIncludeDirs = nub (concatMap cCompileIncludeDirs items),
       cCompileInstallIncludes = nub (concatMap cCompileInstallIncludes items),
       cCompileCcOptions = concatMap cCompileCcOptions items,
-      cCompileCxxOptions = concatMap cCompileCxxOptions items
+      cCompileCxxOptions = concatMap cCompileCxxOptions items,
+      cCompileExtraLibraries = nub (concatMap cCompileExtraLibraries items),
+      cCompileExtraLibDirs = nub (concatMap cCompileExtraLibDirs items),
+      cCompileFrameworks = nub (concatMap cCompileFrameworks items),
+      cCompileExtraFrameworkDirs = nub (concatMap cCompileExtraFrameworkDirs items),
+      cCompileLdOptions = concatMap cCompileLdOptions items
     }
+
+-- | The arguments that give the link inputs of the package to a C compiler
+-- driver, in the order GHC gives them. The search directories come before
+-- the libraries. Frameworks exist only on macOS, so the caller selects
+-- them with the first argument, as Cabal ignores them on other systems.
+cCompileLinkArguments :: Bool -> CCompileInfo -> [String]
+cCompileLinkArguments withFrameworks info =
+  ["-L" <> directory | directory <- cCompileExtraLibDirs info]
+    <> ["-l" <> library | library <- cCompileExtraLibraries info]
+    <> frameworkArguments
+    <> cCompileLdOptions info
+  where
+    frameworkArguments
+      | withFrameworks =
+          ["-F" <> directory | directory <- cCompileExtraFrameworkDirs info]
+            <> concat [["-framework", framework] | framework <- cCompileFrameworks info]
+      | otherwise = []
 
 -- | How a package is built.
 data BuildType = Simple | Configure | Custom | Make | Hooks
@@ -295,7 +341,7 @@ collectLibraryAutogenIncludesIn context package =
 -- | Apply the library build information from @<package>.buildinfo@.
 -- Read public headers, include directories, C sources, and C and CPP options.
 -- Resolve relative paths from the configure output directory.
--- Ignore fields without a consumer, such as @extra-libraries@.
+-- Read the link inputs, such as @extra-libraries@ and @extra-lib-dirs@.
 -- The Cabal format version is the version of the package.
 applyHookedBuildInfo :: Version -> FilePath -> HookedBuildInfo -> [FileInfo] -> CCompileInfo -> Either String ([FileInfo], CCompileInfo)
 applyHookedBuildInfo spec buildRoot hooked files cInfo =
@@ -721,6 +767,20 @@ extractLirSources spec packageRoot bi =
   case mapM (fieldPaths spec) (Map.findWithDefault [] (T.pack lirSourcesField) (extraFields bi)) of
     Right paths -> Right (nub [packageRoot </> path | path <- concat paths])
     Left diagnostic -> Left ("Invalid " <> lirSourcesField <> " field: " <> T.unpack (renderDiagnostic diagnostic))
+
+-- | Extract the @extra-libraries@ of a 'BuildInfo'. The parser keeps the
+-- field as text. The names are separated by whitespace or commas.
+extractExtraLibraries :: Version -> BuildInfo -> Either String [String]
+extractExtraLibraries spec bi =
+  case mapM (fieldPaths spec) (Map.findWithDefault [] (T.pack "extra-libraries") (extraFields bi)) of
+    Right names -> Right (nub (concat names))
+    Left diagnostic -> Left ("Invalid extra-libraries field: " <> T.unpack (renderDiagnostic diagnostic))
+
+-- | Extract the @ld-options@ of a 'BuildInfo'. The parser keeps the field
+-- as text. The options are separated by whitespace.
+extractLdOptions :: BuildInfo -> [String]
+extractLdOptions bi =
+  concatMap (words . T.unpack . fieldText) (Map.findWithDefault [] (T.pack "ld-options") (extraFields bi))
 
 -- | Extract build dependency package names from a 'BuildInfo'.
 extractDependencies :: BuildInfo -> [Text]
