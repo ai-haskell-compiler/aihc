@@ -13,7 +13,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendCompiler, hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, backendCompiler, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
@@ -56,6 +56,7 @@ import Test.Aihc.SeedStore
     acquireLtoStore,
     acquirePrimStore,
     buildHostTarget,
+    copyWritable,
     installTestTargets,
     releaseSeedStore,
     seededPackagePath,
@@ -88,6 +89,7 @@ tests =
               testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
               testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
               testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
+              testCase "links the extra-libraries of a package" (test_buildExtraLibraries coreStore),
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
               -- which the other stores do not hold.
@@ -992,6 +994,74 @@ test_buildCxxSources getStore = do
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
     assertEqual "linked executable exit status" ExitSuccess linkedStatus
     assertEqual "linked executable stdout" "55\n" linkedStdout
+
+-- A package that names a C archive in @extra-libraries@ and
+-- @extra-lib-dirs@ records the link arguments in its manifest, and an
+-- executable that links the package links the archive, directly and
+-- through a bundle. The fixture's Haskell calls a function that only the
+-- archive defines, so the link fails without the arguments. The test
+-- compiles the archive in a copy of the fixture, because a binary file
+-- cannot be a fixture.
+test_buildExtraLibraries :: IO SeedStore -> Assertion
+test_buildExtraLibraries getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/extra-libraries"
+  withSandbox getStore "aihc-build-extra-libraries" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox
+        packageSource = root </> "package"
+        libraryDirectory = packageSource </> "lib"
+        buildRoot = root </> "build"
+        targetRoot = buildRoot </> nativeTargetStoreDirectory buildHostTarget
+        options =
+          BuildOptions
+            { buildInput = packageSource,
+              buildSourceDirectories = [],
+              buildPackageConstraints = [],
+              buildTarget = buildHostTarget,
+              buildStoreRoot = Just storeRoot,
+              buildBuildRoot = Just buildRoot,
+              buildWorkspace = Nothing,
+              buildKeepCore = False,
+              buildKeepGrin = False,
+              buildKeepLir = False,
+              buildKeepNative = False,
+              buildLint = False,
+              buildCheckPrimBounds = False,
+              buildLto = False,
+              buildOptimization = O0,
+              buildNoLink = False,
+              buildVerbose = False,
+              buildOutput = Nothing,
+              buildExecutables = [],
+              buildPlanOptions = defaultPlanOptions
+            }
+    copyWritable fixtureRoot packageSource
+    createDirectoryIfMissing True libraryDirectory
+    (compiler, compilerArguments) <- backendCompiler buildHostTarget
+    archiver <- backendArchiver buildHostTarget
+    let archiveObject = root </> "answer.o"
+    void (readProcess compiler (compilerArguments <> ["-c", packageSource </> "archive" </> "answer.c", "-o", archiveObject]) "")
+    void (readProcess archiver ["rcs", libraryDirectory </> "libanswer.a", archiveObject] "")
+    outputs <- build options
+    assertEqual "built executables" [targetRoot </> "bin" </> "answer"] outputs
+    (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> "answer") [] ""
+    assertEqual "answer exit status" ExitSuccess status
+    assertEqual "answer stdout" "42\n" stdout
+    assertEqual "answer stderr" "" stderr
+    let packageRoot = targetRoot </> "extra-libraries-0.1.0.0"
+        expectedArguments = ["-L" <> libraryDirectory, "-lanswer"]
+    manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath packageRoot)
+    assertEqual "the package manifest records its link arguments" (map T.pack expectedArguments) (packageManifestLinkArguments manifest)
+    let bundles = root </> "bundles"
+    bundleOutputs <- build options {buildNoLink = True, buildOutput = Just bundles}
+    assertEqual "written bundles" [bundles </> "answer"] bundleOutputs
+    bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "answer"))
+    assertEqual "the bundle records the link arguments" expectedArguments (linkBundleLinkArguments bundle)
+    let linked = root </> "linked" </> "answer"
+    runLinkExe LinkExeOptions {linkExeBundle = bundles </> "answer", linkExeOutputFile = linked}
+    (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
+    assertEqual "linked executable exit status" ExitSuccess linkedStatus
+    assertEqual "linked executable stdout" "42\n" linkedStdout
 
 -- | The @--keep-*@ flags of @build@ keep the output of each phase beside
 -- the object of the module. They name the modules of the executable alone:

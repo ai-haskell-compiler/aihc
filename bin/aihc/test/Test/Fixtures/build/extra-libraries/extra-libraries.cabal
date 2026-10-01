@@ -1,0 +1,21 @@
+cabal-version: 3.0
+name: extra-libraries
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Answer
+  hs-source-dirs: src
+  extra-libraries: answer
+  extra-lib-dirs: lib
+  build-depends: base
+  default-language: Haskell2010
+
+executable answer
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    extra-libraries,
+
+  default-language: Haskell2010

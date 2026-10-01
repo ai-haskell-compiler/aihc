@@ -211,6 +211,7 @@ runBuildModule options = do
         executableModules = compiled,
         executableExtraObjects = [],
         executableCxxStdLib = False,
+        executableLibraryArguments = [],
         executablePackages = selected
       }
   pure output
@@ -234,6 +235,9 @@ data ExecutableInputs = ExecutableInputs
     -- | The executable has C++ sources of its own, so its link needs the
     -- C++ standard library whether or not a package of its does.
     executableCxxStdLib :: !Bool,
+    -- | The arguments that link the system libraries of the executable
+    -- itself, from its Cabal file.
+    executableLibraryArguments :: ![String],
     executablePackages :: ![InstalledPackage]
   }
 
@@ -277,9 +281,17 @@ finishExecutable compileConfig inputs = do
   -- A package with cxx-sources says so in its manifest, and its objects
   -- need the C++ standard library however the program reaches them.
   let cxxStdLib = executableCxxStdLib inputs || any (packageManifestCxxStdLib . installedManifest) orderedPackages
+      -- The system libraries come after every archive, so the members of
+      -- each archive can resolve their symbols from them.
+      linkArguments =
+        nub
+          ( executableLibraryArguments inputs
+              <> concatMap (map T.unpack . packageManifestLinkArguments . installedManifest) orderedPackages
+          )
+      libraries = LinkLibraries {linkCxxStdLib = cxxStdLib, linkArguments}
   if executableNoLink inputs
-    then writeLinkBundle target output cxxStdLib objects archives
-    else linkExecutable target output cxxStdLib objects archives
+    then writeLinkBundle target output libraries objects archives
+    else linkExecutable target output libraries objects archives
 
 -- | The plan of one package, which the solver must have chosen.
 plannedPackage :: PlannedPackages -> PackageName -> IO PackagePlan
@@ -312,7 +324,8 @@ validateSelectedPackageNames selected =
 -- cannot run the compiler, or that lacks the linker for the target the
 -- compiler ran on, can still produce the executable with @link-exe@.
 --
--- Schema 3 adds whether the link needs the C++ standard library. Schema 2
+-- Schema 4 adds the arguments that link the system libraries of the
+-- packages. Schema 3 adds whether the link needs the C++ standard library. Schema 2
 -- lists objects and archives only. Schema 1 also named an entry and a
 -- runtime archive, which are now an object among the objects and the
 -- archive and C objects of the @aihc-rts@ package.
@@ -321,6 +334,8 @@ data LinkBundle = LinkBundle
     -- | An input was compiled from @cxx-sources@, so the link adds the
     -- C++ standard library of the target.
     linkBundleCxxStdLib :: !Bool,
+    -- | The arguments that link the system libraries the packages name.
+    linkBundleLinkArguments :: ![String],
     linkBundleObjects :: ![FilePath],
     linkBundleArchives :: ![FilePath]
   }
@@ -329,9 +344,10 @@ data LinkBundle = LinkBundle
 instance Aeson.ToJSON LinkBundle where
   toJSON bundle =
     Aeson.object
-      [ "schemaVersion" .= (3 :: Int),
+      [ "schemaVersion" .= (4 :: Int),
         "target" .= renderNativeTarget (linkBundleTarget bundle),
         "cxxStdLib" .= linkBundleCxxStdLib bundle,
+        "linkArguments" .= linkBundleLinkArguments bundle,
         "objects" .= linkBundleObjects bundle,
         "archives" .= linkBundleArchives bundle
       ]
@@ -342,13 +358,21 @@ instance Aeson.FromJSON LinkBundle where
     case schemaVersion :: Int of
       2 -> do
         target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target False
+        LinkBundle target False []
           <$> object .: "objects"
           <*> object .: "archives"
       3 -> do
         target <- object .: "target" >>= either fail pure . parseNativeTarget
         LinkBundle target
           <$> object .: "cxxStdLib"
+          <*> pure []
+          <*> object .: "objects"
+          <*> object .: "archives"
+      4 -> do
+        target <- object .: "target" >>= either fail pure . parseNativeTarget
+        LinkBundle target
+          <$> object .: "cxxStdLib"
+          <*> object .: "linkArguments"
           <*> object .: "objects"
           <*> object .: "archives"
       _ -> fail "unsupported link bundle schema"
@@ -359,8 +383,8 @@ linkBundleManifestPath bundle = bundle </> "link.json"
 -- | Copy the link inputs into the bundle directory and describe them in the
 -- manifest. Each copy carries its position in the link order as a prefix, so
 -- inputs from different packages that share a file name never collide.
-writeLinkBundle :: NativeTarget -> FilePath -> Bool -> [FilePath] -> [FilePath] -> IO ()
-writeLinkBundle target bundle cxxStdLib objects archives = do
+writeLinkBundle :: NativeTarget -> FilePath -> LinkLibraries -> [FilePath] -> [FilePath] -> IO ()
+writeLinkBundle target bundle libraries objects archives = do
   let inputs = bundle </> "inputs"
   createDirectoryIfMissing True inputs
   copied <- forM (zip [0 :: Int ..] (objects <> archives)) $ \(index, source) -> do
@@ -373,7 +397,8 @@ writeLinkBundle target bundle cxxStdLib objects archives = do
     ( Aeson.encode
         LinkBundle
           { linkBundleTarget = target,
-            linkBundleCxxStdLib = cxxStdLib,
+            linkBundleCxxStdLib = linkCxxStdLib libraries,
+            linkBundleLinkArguments = linkArguments libraries,
             linkBundleObjects = copiedObjects,
             linkBundleArchives = copiedArchives
           }
@@ -389,13 +414,13 @@ runLinkExe options = do
   exists <- doesFileExist manifest
   unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
   decoded <- Aeson.eitherDecode <$> BL.readFile manifest
-  LinkBundle {linkBundleTarget, linkBundleCxxStdLib, linkBundleObjects, linkBundleArchives} <-
+  LinkBundle {linkBundleTarget, linkBundleCxxStdLib, linkBundleLinkArguments, linkBundleObjects, linkBundleArchives} <-
     either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
   createDirectoryIfMissing True (takeDirectory output)
   linkExecutable
     linkBundleTarget
     output
-    linkBundleCxxStdLib
+    LinkLibraries {linkCxxStdLib = linkBundleCxxStdLib, linkArguments = linkBundleLinkArguments}
     (map (bundle </>) linkBundleObjects)
     (map (bundle </>) linkBundleArchives)
 
@@ -647,15 +672,27 @@ sourceExtensions source = effectiveExtensions language (headerExtensionSettings 
     header = readModuleHeaderPragmas source
     language = fromMaybe Haskell98Edition (headerLanguageEdition header)
 
+-- | The libraries that a link adds after the objects and archives of the
+-- program.
+data LinkLibraries = LinkLibraries
+  { -- | An input was compiled from @cxx-sources@, so the link adds the
+    -- C++ standard library of the target.
+    linkCxxStdLib :: !Bool,
+    -- | The arguments that link the system libraries the packages name in
+    -- their Cabal files.
+    linkArguments :: ![String]
+  }
+
 -- | Link the objects and archives into the executable. The runtime units
 -- and the entry are among the objects: the C and Lir objects of every
 -- package are linked as they are, so nothing of the runtime is left to a
 -- member search. A program with an input from @cxx-sources@ also links
--- the C++ standard library of the target.
-linkExecutable :: NativeTarget -> FilePath -> Bool -> [FilePath] -> [FilePath] -> IO ()
-linkExecutable Wasm32Wasip3 output cxxStdLib objects archives =
+-- the C++ standard library of the target. The system libraries of the
+-- packages follow the archives.
+linkExecutable :: NativeTarget -> FilePath -> LinkLibraries -> [FilePath] -> [FilePath] -> IO ()
+linkExecutable Wasm32Wasip3 output LinkLibraries {linkCxxStdLib, linkArguments} objects archives =
   withTemporaryDirectory "aihc-wasm-link" $ \directory -> do
-    when cxxStdLib (either (ioError . userError) (const (pure ())) (cxxStandardLibraryArguments Wasm32Wasip3))
+    when linkCxxStdLib (either (ioError . userError) (const (pure ())) (cxxStandardLibraryArguments Wasm32Wasip3))
     sysroot <- wasmSysroot
     world <- wasip3WorldPath
     let coreModule = directory </> "program.wasm"
@@ -669,6 +706,7 @@ linkExecutable Wasm32Wasip3 output cxxStdLib objects archives =
       ( ["--no-entry", "--export-memory", "--allow-undefined"]
           <> objects
           <> archives
+          <> linkArguments
           <> [wasmSysrootLibc sysroot, "-o", coreModule]
       )
     -- The component type of the world the runtime implements. wit-bindgen
@@ -678,13 +716,13 @@ linkExecutable Wasm32Wasip3 output cxxStdLib objects archives =
     runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
     buildComponent typedModule output
     runTool "wasm-tools" ["validate", output]
-linkExecutable target output cxxStdLib objects archives = do
+linkExecutable target output LinkLibraries {linkCxxStdLib, linkArguments} objects archives = do
   (compiler, arguments) <- backendCompiler target
-  cxxArguments <- if cxxStdLib then either (ioError . userError) pure (cxxStandardLibraryArguments target) else pure []
+  cxxArguments <- if linkCxxStdLib then either (ioError . userError) pure (cxxStandardLibraryArguments target) else pure []
   -- The runtime takes the functions of the Floating class from libm. Recent
   -- platforms carry it inside libc, and -lm is how the older ones that keep
   -- it apart still resolve them.
-  runTool compiler (arguments <> executableLinkArguments target <> objects <> archives <> ["-lm"] <> cxxArguments <> ["-o", output])
+  runTool compiler (arguments <> executableLinkArguments target <> objects <> archives <> linkArguments <> ["-lm"] <> cxxArguments <> ["-o", output])
 
 -- | Encode the linked core module as a component. The component model has no
 -- way to describe a WASI preview 1 import, so a runtime unit that reaches a

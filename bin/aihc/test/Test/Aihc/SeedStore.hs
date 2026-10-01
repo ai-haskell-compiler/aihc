@@ -24,6 +24,7 @@ module Test.Aihc.SeedStore
     acquireLtoStore,
     releaseSeedStore,
     withSandbox,
+    copyWritable,
     seededPackagePath,
     installTestTargets,
     buildHostTarget,
