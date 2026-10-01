@@ -2271,3 +2271,8 @@ void blockUserSignals(void) {}
 void unblockUserSignals(void) {}
 
 int rtsSupportsBoundThreads(void) { return 0; }
+
+/* A non-zero value tells stg_sig_install to give SA_NOCLDSTOP to a SIGCHLD
+   action, so that a stopped child does not send SIGCHLD. The type is HsInt,
+   because System.Posix.Signals reads and writes it as a Ptr Int. */
+int64_t nocldstop = 0;
