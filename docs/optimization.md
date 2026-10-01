@@ -105,11 +105,37 @@ and casts that the second expansion leaves behind.
 
 The simplifier is its own module because it is a different thing from the
 inliner. It holds the rewrites that need no copy of a callee: beta reduction,
-a let in the head of an application, the case of a known constructor, a case
+a let, a recursive group or a case in the head of an application, a cast on
+such a head, the case of a known constructor, a case
 on a comparison with a literal, common strict primitive calls, case of case
 with join points, and cancelling casts. The inliner calls it on every copy it
 makes, and the plan runs it standalone. A new local rewrite goes there. A new
 rule about *which* copies to make goes in the inliner.
+
+A cast on a case, a let or a recursive group in the head of an application
+moves into the branches, and the application follows it there. The lowered
+code erases the cast, so a call in a branch then gives the arguments of the
+application in one call. This is what gives an `IO` loop its state token:
+the desugared body of `go m = act >> (case m of ... -> go m')` applies the
+state token to a cast of the case, and after the rewrite each alternative
+calls `go` with the state token, which the lowering compiles to one direct
+call instead of a partial application and a second application.
+
+The simplifier moves a binding with one use to that use, unless the use is
+under a lambda, where the work would repeat. A lambda is entered at most
+once per closure when the closure is a partial application that no use
+shares. The call arity of a binding, the fewest value arguments that any
+use of it gives, says how many of its leading lambdas are such: every use
+of `go` in `go m s` gives two arguments, so no `go m` is ever shared, and
+a binding with one use under the second lambda moves there. A use that is
+not a call, such as the binding passed as an argument or returned, gives
+call arity zero. The arity holds for a local binding by a scan of its
+scope, and for a top-level value by a scan of the program, where an
+exported value and a value a rewrite rule names count as escaping. The
+simplifier carries the arity as a budget into the right-hand side of the
+binding, through its leading lambdas, casts, let bodies, and case
+alternatives. This is Breitner's call arity; the state hack, which GHC
+applies to a lambda over a state token by its type, is not used.
 
 For a default case on a variable, the simplifier uses the evaluated case
 binder in the case body. This gives a strict constructor field one use before
