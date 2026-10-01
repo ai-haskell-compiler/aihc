@@ -1,4 +1,9 @@
 -- | Make System FC local names easier to read.
+--
+-- Each optimizer pass ends with a tidy, so a whole program goes through
+-- this module many times. Two rules keep that cheap in memory. A part that
+-- the tidy does not change stays the same heap object. The result is built
+-- strictly, so no unevaluated tidy keeps the program of an earlier pass.
 module Aihc.Fc.Tidy
   ( tidyProgram,
     tidyProgramWithTidiedImports,
@@ -17,207 +22,353 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 
 data TidyEnv = TidyEnv
-  { tidyNames :: Map Name Name,
-    tidyUsed :: Map Text (Set Int)
+  { tidyNames :: !(Map Name Name),
+    tidyUsed :: !(Map Text (Set Int))
   }
 
 emptyTidyEnv :: TidyEnv
 emptyTidyEnv = TidyEnv Map.empty Map.empty
 
+-- | The tidy of one part: the part does not change, or it is a new object.
+data Tidied a
+  = Same
+  | Changed !a
+
+-- | The part after its tidy.
+result :: a -> Tidied a -> a
+result old part =
+  case part of
+    Same -> old
+    Changed new -> new
+
+-- | Keep a part that did not change, else tidy it.
+tidied :: (a -> Tidied a) -> a -> a
+tidied tidy old = result old (tidy old)
+
+-- | Make a new object from its parts when a part changed. The parts go
+-- into the object evaluated, so the object does not keep the old parts.
+rebuild1 :: (a -> r) -> a -> Tidied a -> Tidied r
+rebuild1 make _ ta =
+  case ta of
+    Same -> Same
+    Changed a' -> Changed (make a')
+
+rebuild2 :: (a -> b -> r) -> a -> Tidied a -> b -> Tidied b -> Tidied r
+rebuild2 make a ta b tb =
+  case (ta, tb) of
+    (Same, Same) -> Same
+    _ ->
+      let !a' = result a ta
+          !b' = result b tb
+       in Changed (make a' b')
+
+rebuild3 :: (a -> b -> c -> r) -> a -> Tidied a -> b -> Tidied b -> c -> Tidied c -> Tidied r
+rebuild3 make a ta b tb c tc =
+  case (ta, tb, tc) of
+    (Same, Same, Same) -> Same
+    _ ->
+      let !a' = result a ta
+          !b' = result b tb
+          !c' = result c tc
+       in Changed (make a' b' c')
+
+rebuild4 :: (a -> b -> c -> d -> r) -> a -> Tidied a -> b -> Tidied b -> c -> Tidied c -> d -> Tidied d -> Tidied r
+rebuild4 make a ta b tb c tc d td =
+  case (ta, tb, tc, td) of
+    (Same, Same, Same, Same) -> Same
+    _ ->
+      let !a' = result a ta
+          !b' = result b tb
+          !c' = result c tc
+          !d' = result d td
+       in Changed (make a' b' c' d')
+
+-- | Tidy each element of a list.
+tidyList :: (a -> Tidied a) -> [a] -> Tidied [a]
+tidyList tidy olds = collect olds (map tidy olds)
+
+-- | Join the tidies of the elements of a list. Each tidy is evaluated
+-- before the list is known to be the same or new.
+collect :: [a] -> [Tidied a] -> Tidied [a]
+collect olds parts = go False parts
+  where
+    go changed remaining =
+      case remaining of
+        [] -> if changed then Changed (rebuildList olds parts) else Same
+        Same : rest -> go changed rest
+        Changed _ : rest -> go True rest
+
+rebuildList :: [a] -> [Tidied a] -> [a]
+rebuildList olds parts =
+  case (olds, parts) of
+    (old : restOlds, part : restParts) ->
+      let !new = result old part
+          !rest = rebuildList restOlds restParts
+       in new : rest
+    _ -> []
+
 -- | Give each local name the lowest number that its lexical scope permits.
 tidyProgram :: Program -> Program
 tidyProgram program =
-  program
-    { programImports = tidyImports (programImports program),
-      programDecls = map tidyDecl (programDecls program)
-    }
+  let !imports = tidyImports (programImports program)
+      !decls = tidyDecls (programDecls program)
+   in program {programImports = imports, programDecls = decls}
 
 tidyProgramWithTidiedImports :: Program -> Program
 tidyProgramWithTidiedImports program =
-  program {programDecls = map tidyDecl (programDecls program)}
+  let !decls = tidyDecls (programDecls program)
+   in program {programDecls = decls}
+
+tidyDecls :: [Decl] -> [Decl]
+tidyDecls decls = result decls (tidyList tidyDecl decls)
 
 tidyTypeEnv :: TypeEnv -> TypeEnv
 tidyTypeEnv env =
-  env
-    { teHeaders = Map.map (tidyType emptyTidyEnv) (teHeaders env),
-      teSynonyms = Map.map (tidyType emptyTidyEnv) (teSynonyms env),
-      teAxioms = Map.map tidyAxiomDecl (teAxioms env),
-      teBinders = Map.map (tidyType emptyTidyEnv) (teBinders env)
-    }
+  let !headers = Map.map (tidied (tidyType emptyTidyEnv)) (teHeaders env)
+      !synonyms = Map.map (tidied (tidyType emptyTidyEnv)) (teSynonyms env)
+      !axioms = Map.map (tidied tidyAxiomDecl) (teAxioms env)
+      !binders = Map.map (tidied (tidyType emptyTidyEnv)) (teBinders env)
+   in env
+        { teHeaders = headers,
+          teSynonyms = synonyms,
+          teAxioms = axioms,
+          teBinders = binders
+        }
 
 tidyImports :: Imports -> Imports
 tidyImports imports =
-  imports
-    { importHeaders = Map.map (tidyType emptyTidyEnv) (importHeaders imports),
-      importSynonyms = Map.map (tidyType emptyTidyEnv) (importSynonyms imports),
-      importAxioms = Map.map tidyAxiomDecl (importAxioms imports),
-      importBinders = Map.map (tidyType emptyTidyEnv) (importBinders imports)
-    }
+  let !headers = Map.map (tidied (tidyType emptyTidyEnv)) (importHeaders imports)
+      !synonyms = Map.map (tidied (tidyType emptyTidyEnv)) (importSynonyms imports)
+      !axioms = Map.map (tidied tidyAxiomDecl) (importAxioms imports)
+      !binders = Map.map (tidied (tidyType emptyTidyEnv)) (importBinders imports)
+   in imports
+        { importHeaders = headers,
+          importSynonyms = synonyms,
+          importAxioms = axioms,
+          importBinders = binders
+        }
 
-tidyDecl :: Decl -> Decl
+tidyDecl :: Decl -> Tidied Decl
 tidyDecl decl =
   case decl of
     DeclType declaration ->
       let (binders, env) = tidyBinders emptyTidyEnv (typeBinders declaration)
-       in DeclType
-            declaration
-              { typeBinders = binders,
-                typeResult = tidyType env (typeResult declaration),
-                typeCons = map tidyConDecl (typeCons declaration)
-              }
+       in rebuild3
+            (\binders' result' constructors' -> DeclType declaration {typeBinders = binders', typeResult = result', typeCons = constructors'})
+            (typeBinders declaration)
+            binders
+            (typeResult declaration)
+            (tidyType env (typeResult declaration))
+            (typeCons declaration)
+            (tidyList tidyConDecl (typeCons declaration))
     DeclSynonym declaration ->
       let (binders, env) = tidyBinders emptyTidyEnv (synBinders declaration)
-       in DeclSynonym
-            declaration
-              { synBinders = binders,
-                synResult = tidyType env (synResult declaration),
-                synBody = tidyType env (synBody declaration)
-              }
-    DeclAxiom declaration -> DeclAxiom (tidyAxiomDecl declaration)
+       in rebuild3
+            (\binders' result' body' -> DeclSynonym declaration {synBinders = binders', synResult = result', synBody = body'})
+            (synBinders declaration)
+            binders
+            (synResult declaration)
+            (tidyType env (synResult declaration))
+            (synBody declaration)
+            (tidyType env (synBody declaration))
+    DeclAxiom declaration -> rebuild1 DeclAxiom declaration (tidyAxiomDecl declaration)
     DeclVal declaration ->
-      DeclVal
-        declaration
-          { valType = tidyType emptyTidyEnv (valType declaration),
-            valBody = tidyExpr emptyTidyEnv (valBody declaration)
-          }
+      rebuild2
+        (\type' body' -> DeclVal declaration {valType = type', valBody = body'})
+        (valType declaration)
+        (tidyType emptyTidyEnv (valType declaration))
+        (valBody declaration)
+        (tidyExpr emptyTidyEnv (valBody declaration))
     DeclRule declaration ->
       let (typeBinders, typeEnv) = tidyBinders emptyTidyEnv (ruleTypeBinders declaration)
           (binders, env) = tidyBinders typeEnv (ruleBinders declaration)
-       in DeclRule
-            declaration
-              { ruleTypeBinders = typeBinders,
-                ruleBinders = binders,
-                ruleType = tidyType env (ruleType declaration),
-                ruleLhs = tidyExpr env (ruleLhs declaration),
-                ruleRhs = tidyExpr env (ruleRhs declaration)
-              }
+          types = rebuild2 (,) (ruleTypeBinders declaration) typeBinders (ruleBinders declaration) binders
+       in rebuild4
+            ( \(typeBinders', binders') type' lhs' rhs' ->
+                DeclRule
+                  declaration
+                    { ruleTypeBinders = typeBinders',
+                      ruleBinders = binders',
+                      ruleType = type',
+                      ruleLhs = lhs',
+                      ruleRhs = rhs'
+                    }
+            )
+            (ruleTypeBinders declaration, ruleBinders declaration)
+            types
+            (ruleType declaration)
+            (tidyType env (ruleType declaration))
+            (ruleLhs declaration)
+            (tidyExpr env (ruleLhs declaration))
+            (ruleRhs declaration)
+            (tidyExpr env (ruleRhs declaration))
 
-tidyConDecl :: ConDecl -> ConDecl
+tidyConDecl :: ConDecl -> Tidied ConDecl
 tidyConDecl declaration =
-  declaration {conType = tidyType emptyTidyEnv (conType declaration)}
+  rebuild1 (\type' -> declaration {conType = type'}) (conType declaration) (tidyType emptyTidyEnv (conType declaration))
 
-tidyAxiomDecl :: AxiomDecl -> AxiomDecl
+tidyAxiomDecl :: AxiomDecl -> Tidied AxiomDecl
 tidyAxiomDecl declaration =
   let (binders, env) = tidyBinders emptyTidyEnv (axiomBinders declaration)
-   in declaration
-        { axiomBinders = binders,
-          axiomLeft = tidyType env (axiomLeft declaration),
-          axiomRight = tidyType env (axiomRight declaration)
-        }
+   in rebuild3
+        (\binders' left' right' -> declaration {axiomBinders = binders', axiomLeft = left', axiomRight = right'})
+        (axiomBinders declaration)
+        binders
+        (axiomLeft declaration)
+        (tidyType env (axiomLeft declaration))
+        (axiomRight declaration)
+        (tidyType env (axiomRight declaration))
 
-tidyType :: TidyEnv -> Type -> Type
+tidyType :: TidyEnv -> Type -> Tidied Type
 tidyType env ty =
   case ty of
-    TyVar name -> TyVar (tidyUse env name)
-    TyCon name -> TyCon (tidyUse env name)
-    TyApp function argument -> TyApp (tidyType env function) (tidyType env argument)
-    TyFun r1 r2 argument result ->
-      TyFun (tidyType env r1) (tidyType env r2) (tidyType env argument) (tidyType env result)
+    TyVar name -> rebuild1 TyVar name (tidyUse env name)
+    TyCon name -> rebuild1 TyCon name (tidyUse env name)
+    TyApp function argument ->
+      rebuild2 TyApp function (tidyType env function) argument (tidyType env argument)
+    TyFun r1 r2 argument resultType ->
+      rebuild4
+        TyFun
+        r1
+        (tidyType env r1)
+        r2
+        (tidyType env r2)
+        argument
+        (tidyType env argument)
+        resultType
+        (tidyType env resultType)
     TyForAll binder body ->
       let (binder', bodyEnv) = tidyBinder env binder
-       in TyForAll binder' (tidyType bodyEnv body)
-    TyEq left right -> TyEq (tidyType env left) (tidyType env right)
-    TyLit kindName literal -> TyLit (tidyUse env kindName) literal
+       in rebuild2 TyForAll binder binder' body (tidyType bodyEnv body)
+    TyEq left right -> rebuild2 TyEq left (tidyType env left) right (tidyType env right)
+    TyLit kindName literal -> rebuild1 (`TyLit` literal) kindName (tidyUse env kindName)
 
-tidyExpr :: TidyEnv -> Expr -> Expr
+tidyExpr :: TidyEnv -> Expr -> Tidied Expr
 tidyExpr env expr =
   case expr of
-    ExVar name -> ExVar (tidyUse env name)
-    ExLit literal -> ExLit (tidyLiteral env literal)
-    ExApp function argument -> ExApp (tidyExpr env function) (tidyExpr env argument)
-    ExTyApp function argument -> ExTyApp (tidyExpr env function) (tidyType env argument)
+    ExVar name -> rebuild1 ExVar name (tidyUse env name)
+    ExLit literal -> rebuild1 ExLit literal (tidyLiteral env literal)
+    ExApp function argument ->
+      rebuild2 ExApp function (tidyExpr env function) argument (tidyExpr env argument)
+    ExTyApp function argument ->
+      rebuild2 ExTyApp function (tidyExpr env function) argument (tidyType env argument)
     ExForeignCall call types arguments ->
-      ExForeignCall
+      rebuild3
+        ExForeignCall
+        call
         -- The foreign type is closed, but its binders take names that no
         -- enclosing binder has, so that no binder of the declaration repeats.
-        call {foreignCallType = tidyType env (foreignCallType call)}
-        (map (tidyType env) types)
-        (map (tidyExpr env) arguments)
+        (rebuild1 (\type' -> call {foreignCallType = type'}) (foreignCallType call) (tidyType env (foreignCallType call)))
+        types
+        (tidyList (tidyType env) types)
+        arguments
+        (tidyList (tidyExpr env) arguments)
     ExLam binder body ->
       let (binder', bodyEnv) = tidyBinder env binder
-       in ExLam binder' (tidyExpr bodyEnv body)
+       in rebuild2 ExLam binder binder' body (tidyExpr bodyEnv body)
     ExTyLam binder body ->
       let (binder', bodyEnv) = tidyBinder env binder
-       in ExTyLam binder' (tidyExpr bodyEnv body)
+       in rebuild2 ExTyLam binder binder' body (tidyExpr bodyEnv body)
     ExLet bind body ->
       let (binder', bodyEnv) = tidyBinder env (bindBinder bind)
-          bind' = Bind binder' (tidyExpr env (bindRhs bind))
-       in ExLet bind' (tidyExpr bodyEnv body)
+          bind' = rebuild2 Bind (bindBinder bind) binder' (bindRhs bind) (tidyExpr env (bindRhs bind))
+       in rebuild2 ExLet bind bind' body (tidyExpr bodyEnv body)
     ExRec binds body ->
-      let (binders, bodyEnv) = tidyBinders env (map bindBinder binds)
+      let (binders, bodyEnv) = tidyEachBinder env (map bindBinder binds)
           binds' = zipWith (tidyRecBind bodyEnv) binders binds
-       in ExRec binds' (tidyExpr bodyEnv body)
+       in rebuild2 ExRec binds (collect binds binds') body (tidyExpr bodyEnv body)
     ExCase scrutinee binder resultType alternatives ->
       let (binder', caseEnv) = tidyBinder env binder
-       in ExCase
+       in rebuild4
+            ExCase
+            scrutinee
             (tidyExpr env scrutinee)
+            binder
             binder'
+            resultType
             (tidyType env resultType)
-            (map (tidyAlt caseEnv) alternatives)
-    ExCoercion proof -> ExCoercion (tidyCoercion env proof)
-    ExCast body coercion -> ExCast (tidyExpr env body) (tidyCoercion env coercion)
+            alternatives
+            (tidyList (tidyAlt caseEnv) alternatives)
+    ExCoercion proof -> rebuild1 ExCoercion proof (tidyCoercion env proof)
+    ExCast body coercion ->
+      rebuild2 ExCast body (tidyExpr env body) coercion (tidyCoercion env coercion)
 
-tidyRecBind :: TidyEnv -> Binder -> Bind -> Bind
+tidyRecBind :: TidyEnv -> Tidied Binder -> Bind -> Tidied Bind
 tidyRecBind env binder bind =
-  Bind binder (tidyExpr env (bindRhs bind))
+  rebuild2 Bind (bindBinder bind) binder (bindRhs bind) (tidyExpr env (bindRhs bind))
 
-tidyAlt :: TidyEnv -> Alt -> Alt
+tidyAlt :: TidyEnv -> Alt -> Tidied Alt
 tidyAlt env alternative =
   let (typeBinders, typeEnv) = tidyBinders env (altTypeBinders alternative)
       (binders, rhsEnv) = tidyBinders typeEnv (altBinders alternative)
-   in alternative
-        { altCon = tidyAltCon env (altCon alternative),
-          altTypeBinders = typeBinders,
-          altBinders = binders,
-          altRhs = tidyExpr rhsEnv (altRhs alternative)
-        }
+   in rebuild4
+        Alt
+        (altCon alternative)
+        (tidyAltCon env (altCon alternative))
+        (altTypeBinders alternative)
+        typeBinders
+        (altBinders alternative)
+        binders
+        (altRhs alternative)
+        (tidyExpr rhsEnv (altRhs alternative))
 
-tidyAltCon :: TidyEnv -> AltCon -> AltCon
+tidyAltCon :: TidyEnv -> AltCon -> Tidied AltCon
 tidyAltCon env alternative =
   case alternative of
-    AltData name -> AltData (tidyUse env name)
-    AltLit literal -> AltLit (tidyLiteral env literal)
-    AltDefault -> AltDefault
+    AltData name -> rebuild1 AltData name (tidyUse env name)
+    AltLit literal -> rebuild1 AltLit literal (tidyLiteral env literal)
+    AltDefault -> Same
 
-tidyLiteral :: TidyEnv -> Literal -> Literal
+tidyLiteral :: TidyEnv -> Literal -> Tidied Literal
 tidyLiteral env literal =
   case literal of
-    LitInt representation value -> LitInt (tidyType env representation) value
-    LitChar representation value -> LitChar (tidyType env representation) value
-    LitAddr representation value -> LitAddr (tidyType env representation) value
+    LitInt representation value -> rebuild1 (`LitInt` value) representation (tidyType env representation)
+    LitChar representation value -> rebuild1 (`LitChar` value) representation (tidyType env representation)
+    LitAddr representation value -> rebuild1 (`LitAddr` value) representation (tidyType env representation)
 
-tidyCoercion :: TidyEnv -> Coercion -> Coercion
+tidyCoercion :: TidyEnv -> Coercion -> Tidied Coercion
 tidyCoercion env coercion =
   case coercion of
-    CoVar name -> CoVar (tidyUse env name)
-    CoRefl ty -> CoRefl (tidyType env ty)
-    CoSym inner -> CoSym (tidyCoercion env inner)
-    CoTrans left right -> CoTrans (tidyCoercion env left) (tidyCoercion env right)
-    CoApp function argument -> CoApp (tidyCoercion env function) (tidyCoercion env argument)
-    CoNth index proof -> CoNth index (tidyCoercion env proof)
-    CoFun domain range -> CoFun (tidyCoercion env domain) (tidyCoercion env range)
+    CoVar name -> rebuild1 CoVar name (tidyUse env name)
+    CoRefl ty -> rebuild1 CoRefl ty (tidyType env ty)
+    CoSym inner -> rebuild1 CoSym inner (tidyCoercion env inner)
+    CoTrans left right ->
+      rebuild2 CoTrans left (tidyCoercion env left) right (tidyCoercion env right)
+    CoApp function argument ->
+      rebuild2 CoApp function (tidyCoercion env function) argument (tidyCoercion env argument)
+    CoNth index proof -> rebuild1 (CoNth index) proof (tidyCoercion env proof)
+    CoFun domain range ->
+      rebuild2 CoFun domain (tidyCoercion env domain) range (tidyCoercion env range)
     CoForAll binder body ->
       let (binder', bodyEnv) = tidyBinder env binder
-       in CoForAll binder' (tidyCoercion bodyEnv body)
+       in rebuild2 CoForAll binder binder' body (tidyCoercion bodyEnv body)
     CoTyConApp name arguments ->
-      CoTyConApp (tidyUse env name) (map (tidyCoercion env) arguments)
+      rebuild2 CoTyConApp name (tidyUse env name) arguments (tidyList (tidyCoercion env) arguments)
     CoAxiom name arguments ->
-      CoAxiom (tidyUse env name) (map (tidyType env) arguments)
+      rebuild2 CoAxiom name (tidyUse env name) arguments (tidyList (tidyType env) arguments)
 
-tidyBinders :: TidyEnv -> [Binder] -> ([Binder], TidyEnv)
+tidyBinders :: TidyEnv -> [Binder] -> (Tidied [Binder], TidyEnv)
 tidyBinders env binders =
+  let (tidiedBinders, finalEnv) = tidyEachBinder env binders
+   in (collect binders tidiedBinders, finalEnv)
+
+tidyEachBinder :: TidyEnv -> [Binder] -> ([Tidied Binder], TidyEnv)
+tidyEachBinder env binders =
   case binders of
     [] -> ([], env)
     binder : rest ->
       let (binder', nextEnv) = tidyBinder env binder
-          (rest', finalEnv) = tidyBinders nextEnv rest
+          (rest', finalEnv) = tidyEachBinder nextEnv rest
        in (binder' : rest', finalEnv)
 
-tidyBinder :: TidyEnv -> Binder -> (Binder, TidyEnv)
+tidyBinder :: TidyEnv -> Binder -> (Tidied Binder, TidyEnv)
 tidyBinder env binder =
   let oldName = binderName binder
       newName = tidyBinderName env oldName
-      binder' = Binder newName (tidyType env (binderType binder))
+      name'
+        | nameOrigin newName == nameOrigin oldName = Same
+        | otherwise = Changed newName
+      binder' = rebuild2 Binder oldName name' (binderType binder) (tidyType env (binderType binder))
    in (binder', bindName env oldName newName)
 
 tidyBinderName :: TidyEnv -> Name -> Name
@@ -238,11 +389,16 @@ bindName env oldName newName =
         }
     OriginTop {} -> env
 
-tidyUse :: TidyEnv -> Name -> Name
+-- | A use of a name. The tidy changes only the unique of a local name, so
+-- a use whose origin stays the same keeps its object.
+tidyUse :: TidyEnv -> Name -> Tidied Name
 tidyUse env name =
   case nameOrigin name of
-    OriginLocal {} -> Map.findWithDefault name name (tidyNames env)
-    OriginTop {} -> name
+    OriginLocal {} ->
+      case Map.lookup name (tidyNames env) of
+        Just new | nameOrigin new /= nameOrigin name -> Changed new
+        _ -> Same
+    OriginTop {} -> Same
 
 lowestUnused :: Set Int -> Int
 lowestUnused used = go 0
