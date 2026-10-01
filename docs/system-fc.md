@@ -242,8 +242,11 @@ fails and asks for the key to be dropped.
 
 ## install
 
-`install` writes the Core program of each module when `--keep-core` is
-given. The file is a debugging aid; nothing reads it back:
+`install` writes the Core program of each module when `--keep-core` or
+`--lto` is given. A `--lto` build reads the files back and merges them.
+The file is in the binary format of `Aihc.Fc.Binary`. Each distinct text,
+name, and type is in the file one time. To show the file in the text
+format, use `aihc-dev fc-print`:
 
 ```text
 {store}/{pkg}-{version}-{dephash}/{Module/Path}/core
@@ -255,8 +258,8 @@ If Fc desugar fails, the install fails.
 If Fc lint fails, the install fails.
 Keep the `core` file at its normal path when Fc lint fails.
 Do not write `core` without `core`.
-`install` does not parse the `core` file that it writes.
-It may parse imported `core` files through the store loader.
+`install` does not read the `core` file that it writes.
+It can decode imported `core` files through the store loader.
 
 ## PR plan
 

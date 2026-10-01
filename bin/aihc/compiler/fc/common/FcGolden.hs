@@ -12,7 +12,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, desugarModuleFc, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
+import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -47,6 +47,7 @@ import Control.Monad (when)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
+import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
 import Data.Maybe (fromMaybe)
@@ -362,11 +363,12 @@ renderFcCase tc =
       let rendered = renderProgram program
        in case parseProgram rendered of
             Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> T.unpack rendered)
-            Right parsed ->
-              let canonical = renderProgram parsed
-               in if canonical == rendered
-                    then Right (T.unpack rendered)
-                    else Left ("System FC round trip changed canonical syntax:\n" <> T.unpack canonical <> "\noriginal:\n" <> T.unpack rendered)
+            Right parsed
+              | canonical /= rendered -> Left ("System FC round trip changed canonical syntax:\n" <> T.unpack canonical <> "\noriginal:\n" <> T.unpack rendered)
+              | decodeProgram (BL.toStrict (encodeProgram program)) /= Right program -> Left ("System FC binary round trip changed the program:\n" <> T.unpack rendered)
+              | otherwise -> Right (T.unpack rendered)
+              where
+                canonical = renderProgram parsed
 
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport primitiveModules =

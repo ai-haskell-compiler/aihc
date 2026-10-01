@@ -15,7 +15,6 @@
         "id": "aihc-fc",
         "aliases": ["AIHC System FC", "System FC"],
         "extensions": [".fc"],
-        "filenames": ["core"],
         "configuration": "./fc-language-configuration.json"
       },
       {

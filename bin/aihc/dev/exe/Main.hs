@@ -7,16 +7,19 @@ import Aihc.Dev.Frontend (FrontendOptions (..), runFrontend)
 import Aihc.Dev.Fuzz qualified as Fuzz
 import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
 import Aihc.Dev.PipelineExamples (PipelineExamplesOptions (..), runPipelineExamples)
+import Aihc.Fc qualified as Fc
 import Aihc.Native (parseNativeTarget)
 import Control.Monad (unless, when)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
+import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Yaml
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
+import System.IO (stderr)
 
 main :: IO ()
 main = do
@@ -39,6 +42,7 @@ data Command
   | Fuzz FuzzCLI.Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
+  | FcPrint FilePath
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -106,6 +110,12 @@ commandParser =
           ( info
               (PipelineExamples <$> pipelineExamplesParser <**> helper)
               (progDesc "Compile the pipeline examples of the AIHC Manual and write their System FC, GRIN and Lir programs")
+          )
+        <> command
+          "fc-print"
+          ( info
+              (FcPrint <$> strArgument (metavar "FILE" <> help "A core file of the store or of a build root") <**> helper)
+              (progDesc "Print a binary System FC file in the System FC text format")
           )
     )
 
@@ -237,3 +247,10 @@ runCommand (Frontend options) =
   runFrontend options
 runCommand (PipelineExamples options) =
   runPipelineExamples options
+runCommand (FcPrint path) = do
+  loaded <- Fc.readProgramFile path
+  case loaded of
+    Left message -> do
+      TIO.hPutStrLn stderr message
+      exitFailure
+    Right program -> TIO.putStrLn (Fc.renderProgram program)

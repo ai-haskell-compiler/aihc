@@ -8,15 +8,16 @@ module Test.Fc.Suite
   )
 where
 
-import Aihc.Fc (LintError (..), Program, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader)
+import Aihc.Fc (LintError (..), Program, decodeProgram, encodeProgram, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader, writeProgramFile)
 import Control.Exception (IOException, try)
+import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, isInfixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import FcGolden (FcCase (..), Outcome (..), evaluateFcCase, loadFcCases)
-import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, makeAbsolute, removeDirectoryRecursive)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, makeAbsolute, removeDirectoryRecursive)
 import System.FilePath (takeExtension, takeFileName, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -46,6 +47,7 @@ fixtureTest path = testCase path $ do
             Left reprintError -> assertFailure ("reprint parse failed: " <> renderParseError reprintError)
             Right reprinted -> do
               assertEqual "parse then pretty then parse" program reprinted
+              assertEqual "binary round trip" (Right program) (decodeProgram (BL.toStrict (encodeProgram program)))
               assertEqual "pretty matches fixture" (normalize source) (normalize printed)
 
 normalize :: Text -> Text
@@ -101,9 +103,9 @@ scopeLoaderTest fixtureDirectory = testCase "loadScopeClosure loads a scoped mod
   ignoreMissing (removeDirectoryRecursive store)
   createDirectoryIfMissing True typesDir
   createDirectoryIfMissing True primDir
-  copyFile (fixtureDirectory </> "GHC.Types.fc") (typesDir </> "core")
-  copyFile (fixtureDirectory </> "GHC.Prim.fc") (primDir </> "core")
   seed <- loadFcProgram (fixtureDirectory </> "GHC.Types.fc")
+  writeProgramFile (typesDir </> "core") seed
+  writeProgramFile (primDir </> "core") =<< loadFcProgram (fixtureDirectory </> "GHC.Prim.fc")
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)

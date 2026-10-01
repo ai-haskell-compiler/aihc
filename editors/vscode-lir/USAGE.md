@@ -4,7 +4,7 @@ This extension supplies syntax highlighting for the intermediate languages of AI
 
 | Language | Files |
 | --- | --- |
-| System FC | `.fc` files, and the `core` files of `--keep-core` |
+| System FC | `.fc` files, and the output of `aihc-dev fc-print` |
 | GRIN | `.grin` files, and the `grin` files of `--keep-grin` |
 | LIR | `.lir` files |
 

@@ -191,14 +191,18 @@ reconfigures when one of them changes.
 ## Kept intermediate output
 
 `aihc build` and `aihc install` take `--keep-core`, `--keep-grin` and `--keep-native`, and `aihc build` also takes `--keep-lir`.
-Each keeps the output of one compiler phase beside the object of the module it belongs to, as a debugging aid; nothing reads any of them back.
+Each keeps the output of one compiler phase beside the object of the module it belongs to, as a debugging aid.
+A `--lto` build also reads the `core` files back, because it merges them into one program.
 
 | Flag | Files |
 | --- | --- |
-| `--keep-core` | `core`, the System FC of the module |
+| `--keep-core` | `core`, the System FC of the module in the binary format (see below) |
 | `--keep-grin` | `grin`, `cps.grin` and `gc.grin` |
 | `--keep-lir` | `<Module>.o.lir`, the Lir of the module |
 | `--keep-native` | the source the C driver of the target compiles: `<Module>.o.ll` for `llvm` and `<Module>.o.s` for `wasm32-wasip3` |
+
+A `core` file is in the binary System FC format of `Aihc.Fc.Binary`.
+To show a `core` file in the System FC text format, use `aihc-dev fc-print FILE`.
 
 `apple-arm64` and `linux-amd64` have no such source, because their backends write the object themselves.
 `--keep-native` keeps the Lir text there, which is the same file `--keep-lir` keeps.
