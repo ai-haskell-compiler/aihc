@@ -1,3 +1,4 @@
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
@@ -17,6 +18,7 @@ module Data.Typeable
     gcast2,
     typeOf,
     typeRep,
+    showsTypeRep,
     typeRepArgs,
     typeRepTyCon,
     tyConPackage,
@@ -31,7 +33,8 @@ import Data.Proxy (Proxy (..))
 import Data.Type.Equality ((:~:) (..), (:~~:) (..))
 import GHC.Base (Maybe (..))
 import GHC.Internal.Classes (Eq (..))
-import GHC.Types (Bool (..), Type)
+import GHC.Prim.Show (Show (..), ShowS)
+import GHC.Types (Bool (..), Int (..), Type)
 import Type.Reflection (SomeTypeRep (..), TyCon, Typeable, rnfSomeTypeRep, rnfTyCon, splitApps, tyConModule, tyConName, tyConPackage)
 import Type.Reflection qualified as Reflection
 import Unsafe.Coerce (unsafeCoerce)
@@ -40,6 +43,9 @@ type TypeRep = SomeTypeRep
 
 typeRep :: forall k proxy (a :: k). (Typeable a) => proxy a -> TypeRep
 typeRep = Reflection.someTypeRep
+
+showsTypeRep :: TypeRep -> ShowS
+showsTypeRep = showsPrec (I# 0#)
 
 typeOf :: (Typeable a) => a -> TypeRep
 typeOf value = SomeTypeRep (Reflection.typeOf value)
