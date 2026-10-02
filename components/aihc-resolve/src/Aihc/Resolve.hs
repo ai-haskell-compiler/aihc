@@ -35,6 +35,7 @@ module Aihc.Resolve
     ResolvedName (..),
     ResolutionAnnotation (..),
     VisibleTermIdentities (..),
+    ResolvedModuleIdentity (..),
   )
 where
 
@@ -105,6 +106,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
+    moduleName,
     peelGuardQualifierAnn,
     peelLiteralAnn,
     peelPatternAnn,
@@ -187,7 +189,13 @@ resolveModule builtinScope package exports extensions nextLocal modu =
           ]
    in ( nextLocal',
         ( importErrors <> declErrors,
-          modu' {moduleDecls = decls', moduleAnns = mkAnnotation visibleTerms : moduleAnns modu'}
+          modu'
+            { moduleDecls = decls',
+              moduleAnns =
+                mkAnnotation (ResolvedModuleIdentity (packageId package) (fromMaybe "Main" (moduleName modu')))
+                  : mkAnnotation visibleTerms
+                  : moduleAnns modu'
+            }
         )
       )
 
