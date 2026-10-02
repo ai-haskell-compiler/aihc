@@ -7,16 +7,18 @@ modules:
     module Test where
 
     import Prelude
-    data Box = Box [Int]
+    data Box = Box Int [Int]
     fromListN :: Int -> [Int] -> Box
-    fromListN _ xs = Box xs
+    fromListN n xs = Box n xs
     fromList :: [Int] -> Box
-    fromList = Box
+    fromList xs = Box 99 xs
     result :: Bool
-    result = case [1, 2, 3] of Box xs -> sum xs == 6
+    result = case [1, 2, 3] of
+      Box n xs -> n == 3 && sum xs == 6 && case [] of
+        Box m ys -> m == 0 && null ys
 output: |
   True
 expression: |
   result
-status: xfail
-reason: RebindableSyntax must use the local fromListN function for an overloaded list. The type checker retains an ordinary list type.
+status: pass
+reason: RebindableSyntax uses the local fromListN function for an overloaded list.

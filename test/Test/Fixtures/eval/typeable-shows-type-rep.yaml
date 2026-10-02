@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Typeable (Typeable, showsTypeRep, typeRep)
+    import Data.Proxy (Proxy (..))
+    import Data.Typeable qualified as Typeable
+
+    data Box a = Box a
+
+    showsType :: Typeable a => Proxy a -> ShowS
+    showsType = showsTypeRep . typeRep
+
+    answer :: Bool
+    answer =
+      showsType (Proxy :: Proxy Bool) "" == "Bool"
+        && showsType (Proxy :: Proxy (Box Bool)) " suffix" == "Box Bool suffix"
+        && Typeable.showsTypeRep (typeRep (Proxy :: Proxy (Box (Box Bool)))) ""
+          == "Box (Box Bool)"
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: Data.Typeable exports showsTypeRep and preserves type arguments, parentheses, and the output suffix.

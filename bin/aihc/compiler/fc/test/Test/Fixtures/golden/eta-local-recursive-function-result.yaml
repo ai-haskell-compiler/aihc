@@ -1,0 +1,74 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Types (Int (..))
+
+  data Nat = Z | S Nat
+
+  run :: Nat -> Int -> Nat
+  run start = go start
+    where
+      step x rest m = case m of
+        I# _ -> case x of
+          Z -> rest m
+          S _ -> x
+      go x = step x (go (S x))
+passes:
+- eta
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tNat :: 3.sType {
+      1.cZ :: 1.tNat;
+      1.cS :: 1.tNat 3.→ 1.tNat
+  }
+
+  pub val 1.vrun :: 1.tNat 3.→ 3.tInt 3.→ 1.tNat
+   = λ(x : 1.tNat).
+    let {
+        step : 1.tNat 3.→ (3.tInt 3.→ 1.tNat) 3.→ 3.tInt 3.→ 1.tNat =
+            λ(x{1} : 1.tNat).
+              λ(y : 3.tInt 3.→ 1.tNat).
+                λ(z : 3.tInt).
+                  case z as (_scrut : 3.tInt) return (1.tNat) of {
+                      3.cI# (_pat : 2.tInt#) →
+                          case x{1} as (_scrut{1} : 1.tNat) return (1.tNat) of {
+                              1.cZ →
+                                  y z;
+                              1.cS (_pat{1} : 1.tNat) →
+                                  x{1}
+                          }
+                  }
+    } in
+        rec {
+            go : 1.tNat 3.→ 3.tInt 3.→ 1.tNat =
+                λ(x{1} : 1.tNat).
+                  λ(eta{2} : 3.tInt).
+                    step x{1} (go (1.cS x{1})) eta{2}
+        } in
+            go x
+status: pass
+reason: The local loop calls a step of three arguments with two. Under the guess that the loop takes two arguments, its own call is a partial application, so the loop expands to two arguments and builds no closure for each step.

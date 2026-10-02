@@ -1,0 +1,31 @@
+extensions:
+- OverloadedLists
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE OverloadedLists, RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  data Box = Box [Bool]
+  fromListN :: Bool -> [Bool] -> Box
+  fromListN _ xs = Box xs
+  value :: Box
+  value = [True]
+status: pass
+reason: The length argument of fromListN must have type Int.
+annotated:
+- |-
+  {-# LANGUAGE OverloadedLists, RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  data Box = Box [Bool]
+       │     └─ type: [GHC.Types.Bool] → Box
+       └─ type: Type
+  fromListN :: Bool -> [Bool] -> Box
+  fromListN _ xs = Box xs
+  │         │ └─ type: [GHC.Types.Bool]
+  │         └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → [GHC.Types.Bool] → Box
+  value :: Box
+  value = [True]
+          └─ error: couldn't match Bool with Int

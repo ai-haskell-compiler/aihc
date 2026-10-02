@@ -4,8 +4,8 @@ module Test.Aihc.Spec (tests) where
 
 import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (build, buildWith)
-import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
+import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Progress (withProgress)
@@ -911,18 +911,29 @@ test_buildExecutables getStore =
     let planned = filter ("  " `isPrefixOf`) progress
         plannedPackages = length (filter (not . ("(executable)" `isInfixOf`)) planned)
     assertEqual "plan heading" ["Plan: " <> show plannedPackages <> " packages, 2 executables"] (filter ("Plan: " `isPrefixOf`) progress)
+    -- The library and the executables compile in one graph, so their
+    -- build lines come in any order. The links come after the graph, one
+    -- executable at a time.
+    let executableLines = filter (\line -> "(executable)" `isInfixOf` line || "executables-0.1.0.0" `isInfixOf` line) (filter (not . ("  " `isPrefixOf`)) progress)
+        linkLines =
+          [ "link   greet (executable)",
+            "built  greet (executable) in <time>",
+            "link   shout (executable)",
+            "built  shout (executable) in <time>"
+          ]
     assertEqual
       "executable progress"
-      [ "build  executables-0.1.0.0 (1 module)",
-        "built  executables-0.1.0.0 in <time>",
-        "build  greet (executable) (2 modules)",
-        "link   greet (executable)",
-        "built  greet (executable) in <time>",
-        "build  shout (executable) (3 modules)",
-        "link   shout (executable)",
-        "built  shout (executable) in <time>"
-      ]
-      (filter (\line -> "(executable)" `isInfixOf` line || "executables-0.1.0.0" `isInfixOf` line) (filter (not . ("  " `isPrefixOf`)) progress))
+      ( sort
+          ( [ "build  executables-0.1.0.0 (1 module)",
+              "built  executables-0.1.0.0 in <time>",
+              "build  greet (executable) (2 modules)",
+              "build  shout (executable) (3 modules)"
+            ]
+              <> linkLines
+          )
+      )
+      (sort executableLines)
+    assertEqual "link order" linkLines (filter (`elem` linkLines) executableLines)
     assertEqual "built executables" [binDirectory </> "greet", binDirectory </> "shout"] outputs
     forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
       (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> name) [] ""

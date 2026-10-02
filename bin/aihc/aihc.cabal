@@ -49,6 +49,7 @@ extra-source-files:
   test/Test/Fixtures/build/shared-module-name/shared-module-name.cabal
   test/Test/Fixtures/build/source-directories/BlackholeChecks.hs
   test/Test/Fixtures/build/source-directories/Cycle.hs
+  test/Test/Fixtures/build/source-directories/FileInputChecks.hs
   test/Test/Fixtures/build/source-directories/Main.hs
   test/Test/Fixtures/build/source-directories/Message.hs
   test/Test/Fixtures/build/source-directories/PrimitiveChecks.hs
@@ -147,6 +148,7 @@ library
     Aihc.Cli.CompilerHeaders
     Aihc.Cli.Hackage
     Aihc.Cli.Install
+    Aihc.Cli.Link
     Aihc.Cli.Lto
     Aihc.Cli.ModuleProvider
     Aihc.Cli.OptimizationPlan

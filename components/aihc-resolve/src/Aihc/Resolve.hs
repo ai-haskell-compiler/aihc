@@ -35,6 +35,7 @@ module Aihc.Resolve
     ResolvedName (..),
     ResolutionAnnotation (..),
     VisibleTermIdentities (..),
+    ResolvedModuleIdentity (..),
   )
 where
 
@@ -105,6 +106,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
+    moduleName,
     peelGuardQualifierAnn,
     peelLiteralAnn,
     peelPatternAnn,
@@ -187,7 +189,13 @@ resolveModule builtinScope package exports extensions nextLocal modu =
           ]
    in ( nextLocal',
         ( importErrors <> declErrors,
-          modu' {moduleDecls = decls', moduleAnns = mkAnnotation visibleTerms : moduleAnns modu'}
+          modu'
+            { moduleDecls = decls',
+              moduleAnns =
+                mkAnnotation (ResolvedModuleIdentity (packageId package) (fromMaybe "Main" (moduleName modu')))
+                  : mkAnnotation visibleTerms
+                  : moduleAnns modu'
+            }
         )
       )
 
@@ -963,7 +971,11 @@ resolveExpr expr =
       items' <- mapM resolveExpr items
       sp <- currentSpan
       annotation <- resolution sp IdentifierList ResolutionNamespaceTerm ResolvedSyntax
-      pure (EAnn annotation (EList items'))
+      info <- currentModuleInfo
+      let list = EAnn annotation (EList items')
+      if OverloadedLists `elem` moduleInfoExtensions info
+        then annotateSyntaxTerm "fromListN" list
+        else pure list
     ETuple flavor items -> do
       items' <- mapM resolveMaybeExpr items
       sp <- currentSpan
@@ -1209,6 +1221,7 @@ builtinSyntaxTerm info name =
       [ "fromInteger",
         "fromRational",
         "fromString",
+        "fromListN",
         "negate",
         "==",
         ">>=",
