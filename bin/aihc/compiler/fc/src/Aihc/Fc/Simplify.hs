@@ -124,7 +124,8 @@ simplifyProgram phase program =
                 spRules = ruleTable phase (programDecls program),
                 spCredit = 0,
                 spInside = False,
-                spCredits = Map.empty
+                spCredits = Map.empty,
+                spSpeculative = False
               }
           escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
           callArities = topCallArities escaping (Map.elems bodies)
@@ -273,7 +274,11 @@ data Simpl = Simpl
     -- simplification, by 'callArityAnalysis' of the body as it was when
     -- its simplification began. A binder a copy brings in later is
     -- absent, and gets no credit until the next walk.
-    spCredits :: !(Map Name Int)
+    spCredits :: !(Map Name Int),
+    -- | Whether the walk simplifies a trial copy that 'pushIntoCase' may
+    -- throw away. A trial copy pushes no context of its own. See
+    -- 'letOfCase'.
+    spSpeculative :: !Bool
   }
 
 data SimplState = SimplState
@@ -287,7 +292,7 @@ data SimplState = SimplState
     ssExempt :: !Int,
     ssRulesFired :: !Int,
     -- | How many copies of its right-hand side each moved binder has
-    -- taken so far. See 'mkLet'.
+    -- taken so far, over every walk of the body. See 'mkLet'.
     ssCopied :: !(Map Name Int),
     -- | How many more rules may fire in this walk. Rules are not checked
     -- for termination, so a bound keeps a looping pair of rules finite.
@@ -1188,11 +1193,19 @@ mkLet env bind body
   -- arguments in every alternative. Each copy of the occurrence would
   -- take a copy of the right-hand side. The copies are counted, and a
   -- walk that made more than one is done again with the binding kept.
+  --
+  -- Only the copies of this walk count. The body was simplified before,
+  -- and a binding that it keeps is moved again in each walk around it,
+  -- so the total from earlier walks is no measure of this one. A count
+  -- from them made every such move look like two copies, and each kept
+  -- binding then doubled the walks of the bindings inside it: a @do@
+  -- block of twenty statements took 2^20 walks.
   | lifted,
     Occurrences 1 False <- uses = do
       before <- get
+      let earlier = Map.findWithDefault 0 name (ssCopied before)
       body' <- simplifyExpr env {spDone = Map.insert name rhs (spDone env)} body
-      copies <- gets (Map.findWithDefault 0 name . ssCopied)
+      copies <- gets (subtract earlier . Map.findWithDefault 0 name . ssCopied)
       if copies <= 1
         then pure (if unused name body' then body' else ExLet bind body')
         else do
@@ -1411,11 +1424,20 @@ freshLocal name = state (\st -> (name {nameOrigin = OriginLocal (Unique (ssSuppl
 -- | Move a strict let whose right-hand side is a case into the
 -- alternatives of that case. The result type of the pushed case is the
 -- result type of the body, when the body shows it.
+--
+-- The push simplifies a copy of the body in each alternative before the
+-- size rule decides it. Inside such a trial copy, a strict let of a case
+-- stays as it is. Otherwise each nested let would try its own push in
+-- each copy of the one around it, and a chain of n such lets, the @do@
+-- block of an @IO@ action, would be walked 2^n times. A let that a trial
+-- copy keeps is pushed by a later walk, if the push still pays.
 letOfCase :: Simpl -> Bind -> Expr -> SimplM Expr
-letOfCase env bind body =
-  case syntacticResultType body of
-    Just resultType -> pushIntoCase env (bindRhs bind) (\inner -> ExLet bind {bindRhs = inner} body) resultType fallback
-    Nothing -> pure fallback
+letOfCase env bind body
+  | spSpeculative env = pure fallback
+  | otherwise =
+      case syntacticResultType body of
+        Just resultType -> pushIntoCase env (bindRhs bind) (\inner -> ExLet bind {bindRhs = inner} body) resultType fallback
+        Nothing -> pure fallback
   where
     fallback = ExLet bind body
 
@@ -1459,7 +1481,7 @@ pushIntoCaseRaw env scrutinee context resultType =
     floatedEnv = List.foldl' (\acc bind -> bindingEnv acc (bindBinder bind) (bindRhs bind)) env floated
     push inner innerBinder alternative = do
       copy <- freshenExpr (context (altRhs alternative))
-      rhs <- simplifyExpr (alternativeEnv floatedEnv inner innerBinder alternative) copy
+      rhs <- simplifyExpr ((alternativeEnv floatedEnv inner innerBinder alternative) {spSpeculative = True}) copy
       pure alternative {altRhs = rhs}
     peelLets expr =
       case expr of

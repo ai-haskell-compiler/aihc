@@ -92,6 +92,7 @@ primTcWiring prim =
         tyCon ResolutionNamespaceType "GHC.Classes" (constraintTupleTyConName arity) arity,
       tcWiringBoolTyCon = types ResolutionNamespaceType "Bool" 0,
       tcWiringCharTyCon = types ResolutionNamespaceType "Char" 0,
+      tcWiringIntTyCon = types ResolutionNamespaceType "Int" 0,
       tcWiringNaturalTyCon = tyCon ResolutionNamespaceType "GHC.Prim.Natural" "Natural" 0,
       tcWiringSymbolTyCon = types ResolutionNamespaceType "Symbol" 0,
       tcWiringAnyTyCon = types ResolutionNamespaceType "Any" 0,

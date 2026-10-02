@@ -11,12 +11,12 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
 | Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `122/122` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `722/727` (`99.31%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `957/979` (`97.75%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `232/232` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `724/729` (`99.31%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `801/855` (`93.68%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `233/233` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
 | `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `784/5013` (`15.64%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2144/10061` (`21.31%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
-| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●○○ `57/76` (`75.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2154/10061` (`21.41%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `67/76` (`88.16%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Latest News
 
@@ -50,7 +50,7 @@ AIHC compiling itself ("self hosting") is the next milestone. Expand the details
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 57 install, 4 fail, 15 wait for a dependency</summary>
+<summary>Self-compile packages: 67 install, 5 fail, 4 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -78,16 +78,16 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | text | 2.1.4 | ✅ installs |
 | prettyprinter | 1.7.2 | ✅ installs |
 | prettyprinter-ansi-terminal | 1.1.4 | ✅ installs |
-| th-abstraction | 0.7.2.0 | ❌ fails (unsolved constraint Data [Type]) |
+| th-abstraction | 0.7.2.0 | ✅ installs |
 | th-compat | 0.1.7 | ✅ installs |
-| time | 1.14 | ❌ fails (unsolved constraint Data (Fixed E12)) |
+| time | 1.14 | ✅ installs |
 | transformers | 0.6.3.0 | ✅ installs |
 | StateVar | 1.2.2 | ✅ installs |
 | contravariant | 1.5.6 | ✅ installs |
 | distributive | 0.6.3 | ✅ installs |
 | indexed-traversable | 0.1.5 | ✅ installs |
 | comonad | 5.0.10 | ✅ installs |
-| bifunctors | 5.6.3 | ⏸️ needs `th-abstraction` |
+| bifunctors | 5.6.3 | ✅ installs |
 | mtl | 2.3.2 | ✅ installs |
 | exceptions | 0.10.12 | ✅ installs |
 | os-string | 2.0.11 | ✅ installs |
@@ -104,34 +104,34 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | QuickCheck | 2.18.0.0 | ✅ installs |
 | scientific | 0.3.9.0 | ✅ installs |
 | megaparsec | 9.8.3 | ✅ installs |
-| aihc-cabal-syntax | 2.0.0.0 | ❌ fails (unsolved constraint Eq VersionRange) |
+| aihc-cabal-syntax | 2.0.0.0 | ✅ installs |
 | aihc-parser | 4.0.0.0 | ✅ installs |
 | aihc-resolve | 0.1.0.0 | ❌ fails (unbound term name ‘DeclRules’) |
 | aihc-tc | 0.1.0.0 | ⏸️ needs `aihc-resolve` |
 | text-short | 0.1.6.1 | ✅ installs |
 | these | 1.2.1 | ✅ installs |
 | strict | 0.5.1 | ✅ installs |
-| time-compat | 1.9.9 | ⏸️ needs `time` |
-| text-iso8601 | 0.1.1.2 | ⏸️ needs `time`, `time-compat` |
+| time-compat | 1.9.9 | ✅ installs |
+| text-iso8601 | 0.1.1.2 | ❌ fails (The package that provides instances is not installed: )) |
 | transformers-compat | 0.7.2 | ✅ installs |
-| unix | 2.8.8.0 | ⏸️ needs `time` |
-| file-io | 0.2.0 | ⏸️ needs `unix` |
-| directory | 1.3.11.0 | ⏸️ needs `file-io`, `time`, `unix` |
-| aihc-hackage | 0.1.0.0 | ⏸️ needs `aihc-cabal-syntax`, `directory` |
-| process | 1.6.30.0 | ⏸️ needs `directory`, `unix` |
-| optparse-applicative | 0.18.1.0 | ⏸️ needs `process` |
+| unix | 2.8.8.0 | ✅ installs |
+| file-io | 0.2.0 | ✅ installs |
+| directory | 1.3.11.0 | ✅ installs |
+| aihc-hackage | 0.1.0.0 | ❌ fails (unbound term name ‘os’) |
+| process | 1.6.30.0 | ✅ installs |
+| optparse-applicative | 0.18.1.0 | ✅ installs |
 | unordered-containers | 0.2.21 | ✅ installs |
 | async | 2.2.6 | ✅ installs |
-| semigroupoids | 6.0.2 | ⏸️ needs `bifunctors` |
+| semigroupoids | 6.0.2 | ✅ installs |
 | uuid-types | 1.0.6.1 | ✅ installs |
 | vector-stream | 0.1.0.1 | ✅ installs |
 | vector | 0.13.2.0 | ✅ installs |
 | indexed-traversable-instances | 0.1.2.1 | ✅ installs |
-| semialign | 1.4 | ⏸️ needs `semigroupoids` |
-| witherable | 0.5 | ✅ installs |
-| aeson | 2.2.5.1 | ⏸️ needs `semialign`, `text-iso8601`, `th-abstraction`, `time`, `time-compat` |
-| aihc-package-plan | 0.1.0.0 | ⏸️ needs `aeson`, `aihc-cabal-syntax`, `aihc-hackage`, `directory`, `time` |
-| aihc | 0.1.0.0 | ⏸️ needs `aeson`, `aihc-cabal-syntax`, `aihc-hackage`, `aihc-package-plan`, `aihc-resolve`, `aihc-tc`, `directory`, `optparse-applicative`, `process`, `unix` |
+| semialign | 1.4 | ❌ fails (The package that provides instances is not installed: )) |
+| witherable | 0.5 | ❌ fails (The package that provides instances is not installed: )) |
+| aeson | 2.2.5.1 | ⏸️ needs `semialign`, `text-iso8601`, `witherable` |
+| aihc-package-plan | 0.1.0.0 | ⏸️ needs `aeson`, `aihc-hackage` |
+| aihc | 0.1.0.0 | ⏸️ needs `aeson`, `aihc-hackage`, `aihc-package-plan`, `aihc-resolve`, `aihc-tc` |
 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->

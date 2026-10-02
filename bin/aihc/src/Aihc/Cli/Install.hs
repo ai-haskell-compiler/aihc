@@ -5,27 +5,24 @@ module Aihc.Cli.Install
     InstallLocations (..),
     InstalledPackage (..),
     archiveHasMembers,
+    CompiledExecutable (..),
+    ExecutableComponent (..),
     FcModule (..),
     ModuleCompileConfig (..),
-    ModuleCompileRequest (..),
-    ModuleCompileResult (..),
     ModuleOutputPaths (..),
     backendOptionsKey,
     cabalPlatformForTarget,
-    capiStubOptions,
     compileFcModules,
     optimizeFcProgram,
-    compileModules,
-    compilePackageCFiles,
     moduleOutputPaths,
     packageLinkArguments,
     buildEnvironmentIdentity,
     defaultBuildRoot,
-    dependencyIncludeDirs,
     install,
+    installExecutables,
     installWith,
-    installPlanPackages,
     installTargetRoot,
+    newModuleCompileConfig,
     parsePackageTarget,
     planRequestFor,
     runInstall,
@@ -296,13 +293,6 @@ data InstalledPackage = InstalledPackage
 
 instance NFData InstalledPackage
 
-installedPackageLocator :: [InstalledPackage] -> PackageLocator
-installedPackageLocator packages =
-  Map.fromList
-    [ (PackageId (packageManifestUnitId (installedManifest package)), StorePackage (installStorePath (installedResult package)))
-    | package <- packages
-    ]
-
 -- | A fact of each module of several packages, by module name and then by
 -- package. Two packages can each hold a module of one name, as @filepath@
 -- and @os-string@ both hold @System.OsString.Internal.Types@, so a map by
@@ -476,25 +466,35 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileUseColor :: !Bool
   }
 
-data ModuleCompileRequest = ModuleCompileRequest
-  { compileOutputRoot :: !FilePath,
-    compilePackageRoot :: !FilePath,
-    compilePackage :: !Package,
-    compileSourceFiles :: ![HackageCabal.FileInfo],
-    -- | The installed packages the modules are compiled against. Only the
-    -- modules the sources import are read from them.
-    compileDependencies :: ![InstalledPackage],
-    -- | Where the capi wrappers of these modules look for their headers.
-    compileCapiStubOptions :: !CapiStubOptions
+-- | An executable that the install graph compiles beside the packages of
+-- the plan. Its modules are a package of their own, and its units start
+-- when the units they import are ready.
+data ExecutableComponent = ExecutableComponent
+  { -- | The package of the modules. The entry archive of the target refers
+    -- to the entry of the package whose identity is @exe@.
+    componentPackage :: !Package,
+    componentSourceRoot :: !FilePath,
+    -- | Where the artifacts of the modules and the C objects are written.
+    componentOutputRoot :: !FilePath,
+    componentDependencies :: ![PackagePlan],
+    -- | The source files and the C inputs of the executable, given every
+    -- package below it as it builds.
+    componentInputs :: [InstalledPackage] -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
   }
 
-data ModuleCompileResult = ModuleCompileResult
-  { -- | The objects of the modules, and of their capi wrappers. A @--lto@
+-- | An executable after the install graph: its objects, and the packages
+-- it links, as they are published.
+data CompiledExecutable = CompiledExecutable
+  { compiledModuleNames :: ![Text],
+    -- | The objects of the modules, and of their capi wrappers. A @--lto@
     -- build has wrapper objects only.
-    compileObjectPaths :: [FilePath],
-    compileModuleNames :: [Text]
+    compiledModuleObjects :: ![FilePath],
+    -- | The objects of the C sources of the executable itself.
+    compiledCObjects :: ![FilePath],
+    compiledCCompileInfo :: !HackageCabal.CCompileInfo,
+    -- | Every package below the executable, each once.
+    compiledPackages :: ![InstalledPackage]
   }
-  deriving (Eq, Show)
 
 data CompiledPackageModules = CompiledPackageModules
   { compiledSources :: ![SourceModule],
@@ -563,27 +563,15 @@ installWith output options = do
     [rootPlan] -> pure rootPlan
     _ -> ioError (userError "The plan has no root")
   buildRoot <- maybe (pure (defaultBuildRoot (planSourcePath plan))) pure (installBuildRoot options)
-  buildIdentity <- buildEnvironmentIdentity target
-  -- The headers go under the store and not under the build directory,
-  -- because an immutable install writes no build directory at all.
-  headerDirectory <- ensureCompilerHeaders target (storeRoot </> targetDirectory)
-  let levelPlan = optimizationPlan (installLto options) (installOptimization options)
-      config =
-        ModuleCompileConfig
-          { compileBuildIdentity = buildIdentity,
-            compileKeepCore = installKeepCore options,
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (installLto options) (installOptimization options)
+  let config =
+        levelConfig
+          { compileKeepCore = installKeepCore options,
             compileKeepGrin = installKeepGrin options,
-            compileKeepLir = False,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileCheckPrimBounds = installCheckPrimBounds options,
-            compileLto = planWholeProgram levelPlan,
-            compilePasses = planPasses levelPlan,
-            compileGrinPointsTo = planGrinPointsTo levelPlan,
             compileNoCode = installNoCode options,
-            compileOptimization = installOptimization options,
-            compileTarget = target,
-            compileHeaderDirectory = headerDirectory,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
             compileUseColor = useColor
@@ -599,6 +587,49 @@ installWith output options = do
   -- it local. What the user asked for decides instead: a directory is local,
   -- a Hackage release is not.
   installedResult <$> installPackagePlan config locations plan {planOrigin = origin}
+
+-- | The compile config of a command at the given level, with no output
+-- kept, no lint, and no messages. Each command then sets what its own
+-- options ask for. The headers of the target go under the store and not
+-- under a build directory, because an immutable install writes no build
+-- directory at all.
+newModuleCompileConfig :: NativeTarget -> FilePath -> Bool -> OptimizationLevel -> IO ModuleCompileConfig
+newModuleCompileConfig target storeTargetRoot lto level = do
+  buildIdentity <- buildEnvironmentIdentity target
+  headerDirectory <- ensureCompilerHeaders target storeTargetRoot
+  let plan = optimizationPlan lto level
+  pure
+    ModuleCompileConfig
+      { compileBuildIdentity = buildIdentity,
+        compileKeepCore = False,
+        compileKeepGrin = False,
+        compileKeepLir = False,
+        compileKeepNative = False,
+        compileLint = False,
+        compileCheckPrimBounds = False,
+        compileLto = planWholeProgram plan,
+        compilePasses = planPasses plan,
+        compileGrinPointsTo = planGrinPointsTo plan,
+        compileNoCode = False,
+        compileOptimization = level,
+        compileTarget = target,
+        compileHeaderDirectory = headerDirectory,
+        compileVerbose = const (pure ()),
+        compilePrintTimings = const (pure ()),
+        compileUseColor = False
+      }
+
+-- | The config of a package the user did not name. The flags that keep the
+-- output of a phase name the packages the user named alone, so a
+-- dependency in the store is never rejected for lacking those outputs.
+dependencyCompileConfig :: ModuleCompileConfig -> ModuleCompileConfig
+dependencyCompileConfig config =
+  config
+    { compileKeepCore = False,
+      compileKeepGrin = False,
+      compileKeepLir = False,
+      compileKeepNative = False
+    }
 
 -- | Where a local package builds unless @--build-root@ says otherwise.
 defaultBuildRoot :: FilePath -> FilePath
@@ -755,32 +786,38 @@ data PackageBuild = PackageBuild
 
 installPackagePlan :: ModuleCompileConfig -> InstallLocations -> PackagePlan -> IO InstalledPackage
 installPackagePlan config locations plan = do
-  (roots, _) <- installPlanSlots config locations [plan]
+  (roots, _) <- installGraph config locations [plan] []
   case roots of
     [slot] -> atomically (readTMVar (slotInstalled slot))
     _ -> ioError (userError "The plan has no root")
 
--- | Install every package of the plans and return the closure, each package
--- once.
-installPlanPackages :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO [InstalledPackage]
-installPlanPackages config locations plans = do
-  (_, slots) <- installPlanSlots config locations plans
-  mapM (atomically . readTMVar . slotInstalled) (Map.elems slots)
+-- | Install the packages below the executables and compile the modules and
+-- C sources of each executable, all in one task graph. The user named the
+-- executables, so they keep the outputs the config asks for; the packages
+-- below are dependencies.
+installExecutables :: ModuleCompileConfig -> InstallLocations -> [ExecutableComponent] -> IO [CompiledExecutable]
+installExecutables config locations components = do
+  (_, executables) <- installGraph config locations [] components
+  forM executables $ \slot -> do
+    compiled <- atomically (readTMVar (executableSlotCompiled slot))
+    packages <- mapM (atomically . readTMVar . slotInstalled) (executableSlotClosure slot)
+    pure compiled {compiledPackages = packages}
 
--- | Install the closure of the plans in one task graph. A unit of a package
--- waits on the units it imports and on nothing else of the packages
--- below. The result is the slots of the roots, and of every package by
--- source path.
+-- | Install the closure of the plans and of the executables in one task
+-- graph. A unit waits on the units it imports and on nothing else of the
+-- packages below. The result is the slots of the roots and of the
+-- executables.
 --
 -- A store package is published when the graph ends, not when its own
 -- tasks end: a dependent reads its headers from the directory it builds in
 -- while the graph runs. When a package fails, the packages that finished
 -- are published all the same.
-installPlanSlots :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO ([PackageSlot], Map.Map FilePath PackageSlot)
-installPlanSlots config locations plans = do
+installGraph :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> [ExecutableComponent] -> IO ([PackageSlot], [ExecutableSlot])
+installGraph config locations plans components = do
   capabilities <- getNumCapabilities
   slotsRef <- newIORef Map.empty
   rootsRef <- newIORef []
+  executablesRef <- newIORef []
   temporaryRoots <- newIORef Set.empty
   phaseTimings <- newIORef mempty
   let shared =
@@ -792,7 +829,14 @@ installPlanSlots config locations plans = do
           }
       removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
       publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
-  outcome <- try (runTaskGraphWith (max 1 capabilities) (\graph -> mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef))
+      seed graph = do
+        mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef
+        -- The executables come after every package, so each executable
+        -- has an order of its own.
+        dependencies <- mapM (mapM (planSlot shared graph slotsRef False) . componentDependencies) components
+        packageCount <- Map.size <$> readIORef slotsRef
+        zipWithM (executableSlot shared graph) [packageCount ..] (zip components dependencies) >>= writeIORef executablesRef
+  outcome <- try (runTaskGraphWith (max 1 capabilities) seed)
   timings <- case outcome of
     Right timings -> do
       publishFinished `finally` removeTemporaryRoots
@@ -804,8 +848,14 @@ installPlanSlots config locations plans = do
   totals <- readIORef phaseTimings
   compilePrintTimings config (renderTaskTimeline (compileUseColor config) [] timings <> renderBackendPhaseTotals totals)
   roots <- readIORef rootsRef
-  slots <- readIORef slotsRef
-  pure (roots, slots)
+  executables <- readIORef executablesRef
+  pure (roots, executables)
+
+-- | The config a package of the graph compiles with.
+slotConfig :: InstallShared -> PackageSlot -> ModuleCompileConfig
+slotConfig shared slot
+  | slotRoot slot = sharedConfig shared
+  | otherwise = dependencyCompileConfig (sharedConfig shared)
 
 -- | The slot of a package, made after the slots of its dependencies, with
 -- its prepare task in the graph.
@@ -819,7 +869,7 @@ planSlot shared graph slotsRef root plan = do
       dependencies <- mapM (planSlot shared graph slotsRef False) (planDependencyPlans plan)
       order <- Map.size <$> readIORef slotsRef
       base <- allocateTaskIds graph 3
-      let closure = Map.elems (Map.fromList [(slotOrder below, below) | dependency <- dependencies, below <- dependency : slotClosure dependency])
+      let closure = slotsClosure dependencies
       slot <-
         PackageSlot plan root dependencies closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2))
           <$> newEmptyTMVarIO
@@ -841,6 +891,100 @@ planSlot shared graph slotsRef root plan = do
         ]
       pure slot
 
+-- | The packages below the slots and the slots themselves, each once, in
+-- the order of the plan.
+slotsClosure :: [PackageSlot] -> [PackageSlot]
+slotsClosure slots = Map.elems (Map.fromList [(slotOrder below, below) | slot <- slots, below <- slot : slotClosure slot])
+
+-- | An executable of the graph. Like a package it has a prepare task, a
+-- partition task, and a finish task, but nothing depends on it.
+data ExecutableSlot = ExecutableSlot
+  { executableSlotComponent :: !ExecutableComponent,
+    -- | Every package below the executable, each once.
+    executableSlotClosure :: ![PackageSlot],
+    executableSlotOrder :: !Int,
+    executableSlotPrepareTask :: !TaskId,
+    executableSlotPartitionTask :: !TaskId,
+    executableSlotFinishTask :: !TaskId,
+    -- | The executable once its finish task ran. The packages are added
+    -- after the graph, when they are published.
+    executableSlotCompiled :: !(TMVar CompiledExecutable)
+  }
+
+-- | The slot of an executable, made after the slots of its dependencies,
+-- with its prepare task in the graph. The executable reads the unit results
+-- of every package below it until it finishes.
+executableSlot :: InstallShared -> TaskGraph -> Int -> (ExecutableComponent, [PackageSlot]) -> IO ExecutableSlot
+executableSlot shared graph order (component, dependencies) = do
+  base <- allocateTaskIds graph 3
+  compiled <- newEmptyTMVarIO
+  let closure = slotsClosure dependencies
+      slot = ExecutableSlot component closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2)) compiled
+  forM_ closure $ \below -> atomically (modifyTVar' (slotReaders below) (+ 1))
+  addTasks
+    graph
+    [ Task
+        { taskId = executableSlotPrepareTask slot,
+          taskKind = TaskPackage,
+          taskOrder = order,
+          taskDependencies = Set.fromList (map slotPrepareTask closure),
+          taskAction = prepareExecutable shared graph slot
+        }
+    ]
+  pure slot
+
+-- | Find the sources of an executable and add its parse tasks and its
+-- partition task. The modules of the executable see every package below
+-- it, as the packages of an install see their dependencies.
+prepareExecutable :: InstallShared -> TaskGraph -> ExecutableSlot -> IO ()
+prepareExecutable shared graph slot = do
+  let config = sharedConfig shared
+      component = executableSlotComponent slot
+      closure = executableSlotClosure slot
+      package = componentPackage component
+      outputRoot = componentOutputRoot component
+  dependencies <- mapM (fmap preparedPackage . atomically . readTMVar . slotPrepared) closure
+  (ownFiles, ownCInfo) <- componentInputs component dependencies
+  headerDirs <- dependencyIncludeDirs dependencies
+  let files = map (appendIncludeDirs headerDirs) ownFiles
+      cCompileInfo = ownCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs ownCInfo <> headerDirs)}
+      finished compiledModules = do
+        let names = map sourceName (compiledSources compiledModules)
+        moduleObjects <- moduleObjectPaths (not (compileLto config)) outputRoot (compileTarget config) names
+        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
+        atomically $
+          putTMVar
+            (executableSlotCompiled slot)
+            CompiledExecutable
+              { compiledModuleNames = names,
+                compiledModuleObjects = moduleObjects,
+                compiledCObjects = cObjects,
+                compiledCCompileInfo = cCompileInfo,
+                compiledPackages = []
+              }
+        releaseReaders closure
+  addModuleBuild
+    graph
+    (sharedBackendPhaseTimings shared)
+    ModuleBuild
+      { moduleBuildConfig = config,
+        moduleBuildOutputRoot = outputRoot,
+        moduleBuildPackageRoot = componentSourceRoot component,
+        moduleBuildPackage = package,
+        moduleBuildFiles = files,
+        moduleBuildVersions = dependencyVersionsFromManifests [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
+        moduleBuildCapiOptions = capiStubOptions files cCompileInfo,
+        moduleBuildPrimIdentity = dependencyPrimIdentity package dependencies,
+        moduleBuildOrder = executableSlotOrder slot,
+        moduleBuildPartitionTask = executableSlotPartitionTask slot,
+        moduleBuildFinishTask = executableSlotFinishTask slot,
+        moduleBuildPartitionAfter = map slotPartitionTask closure,
+        moduleBuildFinishAfter = map slotFinishTask closure,
+        moduleBuildDependencies = mapM slotDependency closure,
+        moduleBuildPartitioned = const (pure ()),
+        moduleBuildFinished = finished
+      }
+
 -- | Read, configure, and preprocess a package, or take it from the store.
 -- A package that builds gets its parse tasks and its partition task here;
 -- one the store holds gets a partition task and a finish task that do
@@ -848,7 +992,7 @@ planSlot shared graph slotsRef root plan = do
 preparePackage :: InstallShared -> TaskGraph -> PackageSlot -> IO ()
 preparePackage shared graph slot = do
   prepared <- mapM (atomically . readTMVar . slotPrepared) (slotDependencies slot)
-  let config = sharedConfig shared
+  let config = slotConfig shared slot
       locations = sharedLocations shared
       plan = slotPlan slot
       dependencies = map preparedPackage prepared
@@ -858,7 +1002,7 @@ preparePackage shared graph slot = do
   inputs <- readPackageInputs config plan
   (installed, build) <-
     if locationImmutable locations || planOrigin plan /= PlanLocal
-      then prepareStorePackage shared (slotRoot slot) reinstall dependencies plan inputs
+      then prepareStorePackage shared config (slotRoot slot) reinstall dependencies plan inputs
       else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies plan inputs
   let identity = PackageId (packageManifestUnitId (installedManifest installed))
       package = Package (installedName installed) identity
@@ -895,7 +1039,7 @@ preparePackage shared graph slot = do
               -- A package the store holds can have a dependency that
               -- builds, whose finish task is not in the graph yet.
               taskDependencies = Set.singleton (slotPartitionTask slot),
-              taskAction = releasePackage slot
+              taskAction = releaseReaders (slot : slotClosure slot)
             }
         ]
     Just packageBuild -> addModuleBuild graph (sharedBackendPhaseTimings shared) (packageModuleBuild shared slot installed packageBuild)
@@ -904,7 +1048,7 @@ preparePackage shared graph slot = do
 packageModuleBuild :: InstallShared -> PackageSlot -> InstalledPackage -> PackageBuild -> ModuleBuild
 packageModuleBuild shared slot installed build =
   ModuleBuild
-    { moduleBuildConfig = sharedConfig shared,
+    { moduleBuildConfig = config,
       moduleBuildOutputRoot = buildPath build,
       moduleBuildPackageRoot = buildSourceRoot build,
       moduleBuildPackage = package,
@@ -917,35 +1061,41 @@ packageModuleBuild shared slot installed build =
       moduleBuildFinishTask = slotFinishTask slot,
       moduleBuildPartitionAfter = map slotPartitionTask (slotDependencies slot),
       moduleBuildFinishAfter = map slotFinishTask (slotDependencies slot),
-      moduleBuildDependencies = mapM preparedDependency (slotDependencies slot),
+      moduleBuildDependencies = mapM slotDependency (slotDependencies slot),
       moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
       moduleBuildFinished = \compiled -> do
-        built <- finishPackageBuild shared build compiled
+        built <- finishPackageBuild config build compiled
         atomically (putTMVar (slotBuilt slot) built)
-        releasePackage slot
+        releaseReaders (slot : slotClosure slot)
     }
   where
+    config = slotConfig shared slot
     package = Package (installedName installed) (PackageId (buildUnitIdentity build))
     dependencies = buildDependencies build
-    preparedDependency dependency = do
-      prepared <- atomically (readTMVar (slotPrepared dependency))
-      units <- atomically (readTMVar (slotUnits dependency))
-      let installedDependency = preparedPackage prepared
-          identity = PackageId (packageManifestUnitId (installedManifest installedDependency))
-      pure
-        PreparedDependency
-          { dependencyPackage = Package (installedName installedDependency) identity,
-            dependencyExposed = Set.fromList (preparedExposedModules prepared),
-            dependencySource = fromMaybe (StorePackage (installStorePath (installedResult installedDependency))) (Map.lookup identity (preparedLocator prepared)),
-            dependencyUnits = units,
-            dependencyLocator = preparedLocator prepared
-          }
 
--- | Release the unit results of a package that finished and of every
--- package below it: a package no reader waits on drops them, so that the
--- interfaces of a package die once the last package above it is done.
-releasePackage :: PackageSlot -> IO ()
-releasePackage slot = mapM_ releaseReader (slot : slotClosure slot)
+-- | A package of the graph as the partition task of a module build above
+-- it sees it, once the package is partitioned.
+slotDependency :: PackageSlot -> IO PreparedDependency
+slotDependency slot = do
+  prepared <- atomically (readTMVar (slotPrepared slot))
+  units <- atomically (readTMVar (slotUnits slot))
+  let installed = preparedPackage prepared
+      identity = PackageId (packageManifestUnitId (installedManifest installed))
+  pure
+    PreparedDependency
+      { dependencyPackage = Package (installedName installed) identity,
+        dependencyExposed = Set.fromList (preparedExposedModules prepared),
+        dependencySource = fromMaybe (StorePackage (installStorePath (installedResult installed))) (Map.lookup identity (preparedLocator prepared)),
+        dependencyUnits = units,
+        dependencyLocator = preparedLocator prepared
+      }
+
+-- | Release the unit results that a package or an executable read, when
+-- it finished: a package no reader waits on drops them, so that the
+-- interfaces of a package die once the last reader above it is done. A
+-- package reads its own results and those of every package below it.
+releaseReaders :: [PackageSlot] -> IO ()
+releaseReaders = mapM_ releaseReader
   where
     releaseReader reader = do
       remaining <- atomically $ do
@@ -1066,10 +1216,9 @@ readPackageInputs config plan = do
       }
 
 -- | Prepare an immutable package for the store, unless the store has it.
-prepareStorePackage :: InstallShared -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
-prepareStorePackage shared named reinstall dependencies plan inputs = do
-  let config = sharedConfig shared
-      storeRoot = locationStoreRoot (sharedLocations shared)
+prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
+prepareStorePackage shared config named reinstall dependencies plan inputs = do
+  let storeRoot = locationStoreRoot (sharedLocations shared)
   (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
   forM_ dependencies $ \dependency ->
     unless (installedImmutable dependency) $
@@ -1229,10 +1378,9 @@ packageLinkArguments :: NativeTarget -> HackageCabal.CCompileInfo -> [String]
 packageLinkArguments target = HackageCabal.cCompileLinkArguments (nativeTargetHasFrameworks target)
 
 -- | Archive the compiled modules of a package and write its manifest.
-finishPackageBuild :: InstallShared -> PackageBuild -> CompiledPackageModules -> IO InstalledPackage
-finishPackageBuild shared build compiled = do
-  let config = sharedConfig shared
-      target = compileTarget config
+finishPackageBuild :: ModuleCompileConfig -> PackageBuild -> CompiledPackageModules -> IO InstalledPackage
+finishPackageBuild config build compiled = do
+  let target = compileTarget config
       verbose = compileVerbose config
       inputs = buildInputs build
       root = buildSourceRoot build
@@ -1299,26 +1447,8 @@ compileFlagNames config =
     set
   ]
 
-compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
-compileModules config request = do
-  headerDirs <- dependencyIncludeDirs (compileDependencies request)
-  let options = compileCapiStubOptions request
-  compiled <-
-    compileModulesWithDependencies
-      config
-      options {capiStubIncludeDirs = nub (capiStubIncludeDirs options <> headerDirs)}
-      (compileOutputRoot request)
-      (compilePackageRoot request)
-      (compilePackage request)
-      (map (appendIncludeDirs headerDirs) (compileSourceFiles request))
-      (compileDependencies request)
-      (installedPackageLocator (compileDependencies request))
-  let names = map sourceName (compiledSources compiled)
-  objects <- moduleObjectPaths (not (compileLto config)) (compileOutputRoot request) (compileTarget config) names
-  pure ModuleCompileResult {compileObjectPaths = objects, compileModuleNames = names}
-
 -- | The module name that a source file declares. The file goes through the
--- same preprocessing and parse as in 'compileModules'.
+-- same preprocessing and parse as the modules of a package.
 sourceFileModuleName :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> HackageCabal.FileInfo -> IO Text
 sourceFileModuleName config packageRoot dependencies file = do
   headerDirs <- dependencyIncludeDirs dependencies
@@ -1384,51 +1514,6 @@ data PreparedDependency = PreparedDependency
     dependencyUnits :: !(Map.Map Text UnitRuntime),
     dependencyLocator :: !PackageLocator
   }
-
--- | Compile the modules of one package against installed packages, in a
--- graph of their own.
-compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> PackageLocator -> IO CompiledPackageModules
-compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage files dependencies locator = do
-  capabilities <- getNumCapabilities
-  phaseTimings <- newIORef mempty
-  result <- newEmptyTMVarIO
-  let storeDependency dependency =
-        PreparedDependency
-          { dependencyPackage = Package (installedName dependency) (PackageId (packageManifestUnitId (installedManifest dependency))),
-            dependencyExposed = Set.fromList (packageManifestModules (installedManifest dependency)),
-            dependencySource = StorePackage (installStorePath (installedResult dependency)),
-            dependencyUnits = Map.empty,
-            dependencyLocator = locator
-          }
-  timings <-
-    runTaskGraphWith (max 1 capabilities) $ \graph -> do
-      base <- allocateTaskIds graph 2
-      addModuleBuild
-        graph
-        phaseTimings
-        ModuleBuild
-          { moduleBuildConfig = config,
-            moduleBuildOutputRoot = outputRoot,
-            moduleBuildPackageRoot = packageRoot,
-            moduleBuildPackage = resolvePackage,
-            moduleBuildFiles = files,
-            moduleBuildVersions =
-              dependencyVersionsFromManifests
-                [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
-            moduleBuildCapiOptions = capiOptions,
-            moduleBuildPrimIdentity = dependencyPrimIdentity resolvePackage dependencies,
-            moduleBuildOrder = 0,
-            moduleBuildPartitionTask = TaskId base,
-            moduleBuildFinishTask = TaskId (base + 1),
-            moduleBuildPartitionAfter = [],
-            moduleBuildFinishAfter = [],
-            moduleBuildDependencies = pure (map storeDependency dependencies),
-            moduleBuildPartitioned = const (pure ()),
-            moduleBuildFinished = atomically . putTMVar result
-          }
-  totals <- readIORef phaseTimings
-  compilePrintTimings config (renderTaskTimeline (compileUseColor config) [] timings <> renderBackendPhaseTotals totals)
-  atomically (readTMVar result)
 
 -- | Add the parse tasks and the partition task of a module build.
 addModuleBuild :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> IO ()
@@ -2677,7 +2762,7 @@ wiredDerivingModules =
 -- | Every module whose type interface a compilation needs without an
 -- import.
 wiredInterfaceModules :: [Text]
-wiredInterfaceModules = wiredTypeModules <> wiredDerivingModules
+wiredInterfaceModules = wiredTypeModules <> ["GHC.IsList"] <> wiredDerivingModules
 
 -- | The scope of the functions that desugaring reaches without an import.
 -- The argument is everything the unit can see, as 'resolveUnit' takes it.
@@ -2685,7 +2770,7 @@ builtinFunctionScope :: Package -> ModuleExports -> Builtins
 builtinFunctionScope currentPackage visibleExports =
   builtins currentPackage visibleExports builtinFunctionModules
   where
-    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do
@@ -3518,23 +3603,24 @@ cObjectFileName source =
         else character
 
 buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
-buildLibraryArchive target verbose archive moduleObjects = do
+buildLibraryArchive target verbose archive objects = do
   createDirectoryIfMissing True (takeDirectory archive)
   archiveExists <- doesFileExist archive
   when archiveExists (removeFile archive)
   archiver <- backendArchiver target
-  nonemptyObjects <- filterM (fmap (> 0) . getFileSize) moduleObjects
   -- BSD ar refuses to create an archive with no members, and a package whose
-  -- modules are all empty standins (aihc-internal) has none. Every archive
-  -- format begins with the same global header, and an archive that stops
-  -- there is a valid empty archive for ld64, GNU ld, lld and wasm-ld alike.
-  if null nonemptyObjects
+  -- modules are all empty standins (aihc-internal) has none: 'moduleObjectPaths'
+  -- leaves out their empty objects. Every archive format begins with the
+  -- same global header, and an archive that stops there is a valid empty
+  -- archive for GNU ld, lld and wasm-ld. 'archiveHasMembers' keeps it away
+  -- from ld64.
+  if null objects
     then BS.writeFile archive emptyArchive
     else do
       environment <- getEnvironment
       -- Set archive timestamps only in the child process environment.
       let archiveEnvironment = ("ZERO_AR_DATE", "1") : filter ((/= "ZERO_AR_DATE") . fst) environment
-      runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> nonemptyObjects)
+      runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> objects)
   verbose ("Write archive: " <> archive)
 
 -- | The global header every archive format begins with. An archive that

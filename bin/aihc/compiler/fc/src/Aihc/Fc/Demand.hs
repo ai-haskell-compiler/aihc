@@ -72,6 +72,8 @@ module Aihc.Fc.Demand
     Signature (..),
     Signatures,
     topLevelSignatures,
+    functionSignature,
+    recursiveSignatures,
     productConstructor,
   )
 where
@@ -196,6 +198,15 @@ topLevelSignatures types decls = List.foldl' addComponent Map.empty (stronglyCon
         CyclicSCC members ->
           fixSignatures (Env types current StrictLetsOnly) [(valName declaration, valBody declaration) | declaration <- members]
 
+-- | The signature of a local function, with the signatures in scope.
+functionSignature :: TypeEnv -> Signatures -> Expr -> Signature
+functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly)
+
+-- | The signatures in scope under a local recursive group: those of the
+-- members added to those given.
+recursiveSignatures :: TypeEnv -> Signatures -> [(Name, Expr)] -> Signatures
+recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly)
+
 -- | The signature of a function body: one demand per lambda it exposes.
 lambdaSignature :: Env -> Expr -> Signature
 lambdaSignature env expr =
@@ -222,31 +233,34 @@ lambdaTypeBinders expr =
     _ -> []
 
 -- | Whether a case on the variable, somewhere in the expression, has an
--- alternative for the constructor.
+-- alternative for the constructor. The binder of a case on the variable is
+-- the same value, so a case on that binder counts too. A bang pattern
+-- gives this shape: its case evaluates the parameter, and the later match
+-- takes apart the binder of that case.
 takenApart :: Name -> Name -> Expr -> Bool
-takenApart name con = go
+takenApart name con = go (Set.singleton name)
   where
-    go expr =
+    go aliases expr =
       case expr of
-        ExCase scrutinee _ _ alternatives ->
-          ( isVariable scrutinee
-              && any ((== AltData con) . altCon) alternatives
-          )
-            || go scrutinee
-            || any (go . altRhs) alternatives
-        ExLam _ body -> go body
-        ExTyLam _ body -> go body
-        ExLet bind body -> go (bindRhs bind) || go body
-        ExRec binds body -> any (go . bindRhs) binds || go body
-        ExApp function argument -> go function || go argument
-        ExTyApp function _ -> go function
-        ExCast body _ -> go body
-        ExForeignCall _ _ arguments -> any go arguments
+        ExCase scrutinee binder _ alternatives ->
+          let aliased = isVariable aliases scrutinee
+              inner = if aliased then Set.insert (binderName binder) aliases else aliases
+           in (aliased && any ((== AltData con) . altCon) alternatives)
+                || go aliases scrutinee
+                || any (go inner . altRhs) alternatives
+        ExLam _ body -> go aliases body
+        ExTyLam _ body -> go aliases body
+        ExLet bind body -> go aliases (bindRhs bind) || go aliases body
+        ExRec binds body -> any (go aliases . bindRhs) binds || go aliases body
+        ExApp function argument -> go aliases function || go aliases argument
+        ExTyApp function _ -> go aliases function
+        ExCast body _ -> go aliases body
+        ExForeignCall _ _ arguments -> any (go aliases) arguments
         _ -> False
-    isVariable scrutinee =
+    isVariable aliases scrutinee =
       case scrutinee of
-        ExVar var -> var == name
-        ExCast inner _ -> isVariable inner
+        ExVar var -> Set.member var aliases
+        ExCast inner _ -> isVariable aliases inner
         _ -> False
 
 -- | The one constructor of a type that a worker can take apart and build

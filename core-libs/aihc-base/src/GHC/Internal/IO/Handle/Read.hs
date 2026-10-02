@@ -31,7 +31,13 @@ fillIfEmpty Handle__ {haByteBuffer, haDevice} = do
   case isEmptyBuffer buffer of
     False -> return True
     True -> do
-      (count, buffer') <- Buffered.fillReadBuffer haDevice buffer
+      let empty =
+            buffer
+              { bufL = 0,
+                bufR = 0,
+                bufOffset = bufOffset buffer + fromIntegral (bufR buffer)
+              }
+      (count, buffer') <- Buffered.fillReadBuffer haDevice empty
       writeIORef haByteBuffer buffer'
       return (count > 0)
 

@@ -1,0 +1,30 @@
+extensions:
+- OverloadedLists
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module GHC.IsList where
+  import GHC.Types (Int)
+  class IsList l where
+    type Item l
+    fromListN :: Int -> [Item l] -> l
+- |
+  {-# LANGUAGE OverloadedLists, TypeFamilies #-}
+  module Test where
+  import GHC.IsList (IsList (..))
+  import GHC.Types (Bool (..))
+  data Domain = Domain [Bool]
+  instance IsList Domain where
+    type Item Domain = Bool
+    fromListN _ xs = Domain xs
+  data Maybe a = Nothing | Just a
+  pure :: a -> Maybe a
+  pure = Just
+  match :: [Bool] -> Maybe Domain
+  match [] = pure []
+  match (_ : xs) = match xs
+  domain :: Domain
+  domain = [True, False]
+status: pass
+reason: OverloadedLists preserves the declared result type across recursive branches.

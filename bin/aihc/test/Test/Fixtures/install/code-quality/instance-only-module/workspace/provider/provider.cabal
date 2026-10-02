@@ -1,0 +1,11 @@
+cabal-version: 3.0
+name: provider
+version: 0.1.0.0
+
+library
+  exposed-modules: Provider
+  other-modules: Definitions
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude

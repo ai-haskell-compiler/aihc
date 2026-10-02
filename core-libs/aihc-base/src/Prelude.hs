@@ -4,6 +4,10 @@
 
 {-# HLINT ignore "Use sequence_" #-}
 
+-- The fusion rules for concat keep the lambda of GHC: a rule matches the
+-- shape of its template, and a flip is another shape.
+{-# HLINT ignore "Avoid lambda" #-}
+
 module Prelude
   ( Applicative (..),
     Bounded (..),
@@ -223,6 +227,18 @@ concat = foldr (++) []
 concatMap :: (Foldable t) => (a -> [b]) -> t a -> [b]
 concatMap function = foldr (\value rest -> function value ++ rest) []
 
+-- 'concat' and 'concatMap' consume their outer structure with 'foldr', and
+-- produce their list through 'build', as in GHC: each inner list goes to
+-- the consumer of the result through a 'GHC.Base.foldr'. The outer fold
+-- is the method of the 'Foldable' instance, which is 'GHC.Base.foldr' for
+-- a list. What did not fuse is the plain call again from phase 1.
+{-# RULES
+"concat" [~1] forall xs. concat xs = GHC.Base.build (\c n -> foldr (\x y -> GHC.Base.foldr c y x) n xs)
+"concat/build" [1] forall xs. GHC.Base.build (\c n -> GHC.Base.foldr (\x y -> GHC.Base.foldr c y x) n xs) = concat xs
+"concatMap" [~1] forall f xs. concatMap f xs = GHC.Base.build (\c n -> foldr (\x b -> GHC.Base.foldr c b (f x)) n xs)
+"concatMap/build" [1] forall f xs. GHC.Base.build (\c n -> GHC.Base.foldr (\x b -> GHC.Base.foldr c b (f x)) n xs) = concatMap f xs
+  #-}
+
 filter :: (a -> Bool) -> [a] -> [a]
 filter _ [] = []
 filter predicate (value : values) =
@@ -316,11 +332,21 @@ dropWhile predicate values@(value : rest) =
     then dropWhile predicate rest
     else values
 
+-- The recursion is in a local function, so that the rule for
+-- 'replicate' does not rewrite the definition itself.
 replicate :: Int -> a -> [a]
-replicate count value =
-  if count <= 0
-    then []
-    else value : replicate (count - 1) value
+replicate count value = go count
+  where
+    go remaining =
+      if remaining <= 0
+        then []
+        else value : go (remaining - 1)
+
+-- A replicated value is a 'take' of a 'repeat', as in GHC, and the rules
+-- for both make it a producer.
+{-# RULES
+"replicate" [~1] forall n x. replicate n x = take n (repeat x)
+  #-}
 
 fst :: (a, b) -> a
 fst (left, _) = left
@@ -340,9 +366,43 @@ take :: Int -> [a] -> [a]
 take count values =
   if count <= 0
     then []
-    else case values of
-      [] -> []
-      value : rest -> value : take (count - 1) rest
+    else unsafeTake count values
+
+-- | 'take' for a count of at least one. The last element ends the list
+-- without a look at the rest. No rule names this function, so the rules
+-- for 'take' do not rewrite its recursion.
+unsafeTake :: Int -> [a] -> [a]
+unsafeTake count values =
+  case values of
+    [] -> []
+    value : rest -> value : (if count == 1 then [] else unsafeTake (count - 1) rest)
+
+-- | The step of a 'take' written as a 'GHC.Base.foldr'. The fold gives a
+-- function of the count that remains, and the last element ends the
+-- list without a look at the rest.
+takeFB :: (a -> b -> b) -> b -> a -> (Int -> b) -> Int -> b
+takeFB c n x rest count = if count == 1 then c x n else c x (rest (count - 1))
+{-# INLINE [1] takeFB #-}
+
+-- | The end of a 'take' that runs out of elements. The count is evaluated,
+-- so that a long fold does not keep a chain of subtractions.
+takeEnd :: b -> Int -> b
+takeEnd n count = count `seq` n
+{-# INLINE [1] takeEnd #-}
+
+-- | The guard of a 'take': a count of zero or less looks at no element.
+takeWith :: b -> Int -> (Int -> b) -> b
+takeWith n count continue = if count <= 0 then n else continue count
+{-# INLINE [1] takeWith #-}
+
+-- A 'take' consumes its list with 'GHC.Base.foldr' and produces its result
+-- through 'build'. The guard is a function, so the fold on the list stays
+-- an argument where a producer of the list can meet it.
+{-# RULES
+"take" [~1] forall count xs. take count xs = GHC.Base.build (\c n -> takeWith n count (GHC.Base.foldr (takeFB c n) (takeEnd n) xs))
+"takeList" [1] forall count xs. takeWith [] count (GHC.Base.foldr (takeFB (:) []) (takeEnd []) xs) = take count xs
+"take/build" [1] forall count xs. GHC.Base.build (\c n -> takeWith n count (GHC.Base.foldr (takeFB c n) (takeEnd n) xs)) = take count xs
+  #-}
 
 drop :: Int -> [a] -> [a]
 drop count values =
@@ -1157,11 +1217,41 @@ unwords [] = []
 unwords [word] = word
 unwords (word : rest) = word ++ (' ' : unwords rest)
 
+-- The recursion is in a local function, so that the rule for 'iterate'
+-- does not rewrite the definition itself.
 iterate :: (a -> a) -> a -> [a]
-iterate next value = value : iterate next (next value)
+iterate next = go
+  where
+    go value = value : go (next value)
 
+-- | 'iterate' written as a producer for 'GHC.Base.build'.
+iterateFB :: (a -> b -> b) -> (a -> a) -> a -> b
+iterateFB c next = go
+  where
+    go value = value `c` go (next value)
+{-# INLINE [1] iterateFB #-}
+
+-- | One cell that is its own tail, as in GHC.
 repeat :: a -> [a]
-repeat value = value : repeat value
+repeat value = values
+  where
+    values = value : values
+
+-- | 'repeat' written as a producer for 'GHC.Base.build'.
+repeatFB :: (a -> b -> b) -> a -> b
+repeatFB c value = values
+  where
+    values = value `c` values
+{-# INLINE [1] repeatFB #-}
+
+{-# RULES
+"iterate" [~1] forall f x. iterate f x = GHC.Base.build (\c _n -> iterateFB c f x)
+"iterateFB" [1] iterateFB (:) = iterate
+"iterate/build" [1] forall f x. GHC.Base.build (\c _n -> iterateFB c f x) = iterate f x
+"repeat" [~1] forall x. repeat x = GHC.Base.build (\c _n -> repeatFB c x)
+"repeatFB" [1] repeatFB (:) = repeat
+"repeat/build" [1] forall x. GHC.Base.build (\c _n -> repeatFB c x) = repeat x
+  #-}
 
 cycle :: [a] -> [a]
 cycle [] = errorWithoutStackTrace "Prelude.cycle: empty list"

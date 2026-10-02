@@ -95,7 +95,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution)
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution)
 import Aihc.Resolve.Traverse (annotationList, collectAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
@@ -117,6 +117,7 @@ import Aihc.Tc.Annotations
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcModuleIdentity (..),
     TcPatSynAnnotation (..),
     annotateDecl,
     annotateRhsCast,
@@ -225,43 +226,22 @@ moduleBindings :: TcWiring -> Module -> [TcBindingResult]
 moduleBindings wiring modu =
   concatMap (declBindings wiring (mkTcKinds wiring) (resolvedModuleOrigin modu)) (moduleDecls modu)
 
+-- | Give a module the identity of its package and name, which the checked
+-- module keeps for the phases after the type checker. A module whose
+-- declarations are all instances names no top-level entity of its own, so
+-- the identity cannot come from a resolution.
+withModuleIdentity :: ModuleUnit -> Module -> Module
+withModuleIdentity unit modu =
+  modu {moduleAnns = mkAnnotation (TcModuleIdentity (packageId (moduleUnitPackage unit)) (fromMaybe "Main" (moduleName modu))) : moduleAnns modu}
+
+-- | The package and the name of a checked module.
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
-  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
-    resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
-    case resolutionTarget resolved of
-      EntityGlobal global ->
-        pure (packageIdText (globalNamePackage global), globalNameModule global)
-      _ -> Nothing
-
-definitionResolution :: Decl -> Maybe ResolutionAnnotation
-definitionResolution declaration =
-  case peelDeclAnn declaration of
-    DeclValue (FunctionBind name _) -> nameResolution name
-    DeclValue (PatternBind _ pattern' _) -> patternResolution pattern'
-    DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
-    DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
-    DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (dataFamilyDeclHead familyDeclaration))
-    DeclTypeFamilyDecl familyDeclaration -> nameResolution =<< typeFamilyHeadName (typeFamilyDeclHead familyDeclaration)
-    DeclForeign foreignDeclaration -> nameResolution (foreignName foreignDeclaration)
-    DeclTypeSyn typeSynDeclaration -> nameResolution (binderHeadName (typeSynHead typeSynDeclaration))
-    DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    DeclPatSyn patSynDeclaration -> nameResolution (patSynDeclName patSynDeclaration)
-    DeclTypeSig names _ -> listToMaybe (mapMaybe nameResolution names)
-    _ -> Nothing
-
-patternResolution :: Pattern -> Maybe ResolutionAnnotation
-patternResolution pattern' =
-  case pattern' of
-    PVar name -> nameResolution name
-    PAnn _ inner -> patternResolution inner
-    PParen inner -> patternResolution inner
-    PStrict inner -> patternResolution inner
-    PIrrefutable inner -> patternResolution inner
-    PAs name _ -> nameResolution name
-    PTypeSig inner _ -> patternResolution inner
-    _ -> Nothing
+  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $
+    listToMaybe
+      [ (packageIdText packageId, moduleName')
+      | TcModuleIdentity packageId moduleName' <- mapMaybe fromAnnotation (moduleAnns resolvedModule)
+      ]
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
 nameResolution = binderResolution
@@ -546,7 +526,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
   where
-    units = [unit {moduleUnitAst = hoistAssociatedDataFamilies (moduleUnitAst unit)} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
+    units = [unit {moduleUnitAst = withModuleIdentity unit (hoistAssociatedDataFamilies (moduleUnitAst unit))} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
 
     atDeclOf check (origin, declaration) = atDecl (check origin) declaration

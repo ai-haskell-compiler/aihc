@@ -1,0 +1,76 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (count) where
+
+  import GHC.Prim (Int#, (+#))
+  import GHC.Types (Int (..))
+
+  data Cursor = Cursor Int# Int
+
+  count :: (Int -> Int) -> [Int] -> Int
+  count f xs0 = go (Cursor 0# (I# 0#)) xs0
+    where
+      go cursor xs = case cursor of
+        Cursor i total -> case xs of
+          [] -> I# i
+          y : ys -> go (Cursor (i +# 1#) (f y)) ys
+passes:
+- worker-wrapper
+- simplify: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tCursor :: 3.sType {
+      1.cCursor :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (3.tInt 3.→ 1.tCursor)
+  }
+
+  pub val 1.vcount :: (3.tInt 3.→ 3.tInt) 3.→ 3.t[] 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt 3.→ 3.tInt).
+    λ(y : 3.t[] 3.tInt).
+      rec {
+          $wgo : FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# (FUN @(3.cBoxedRep 3.cLifted) @(3.cBoxedRep 3.cLifted) 3.tInt (FUN @(3.cBoxedRep 3.cLifted) @3.cIntRep (3.t[] 3.tInt) 2.tInt#)) =
+              λ(x{1} : 2.tInt#).
+                λ(x{2} : 3.tInt).
+                  λ(y{1} : 3.t[] 3.tInt).
+                    case y{1} as (_scrut : 3.t[] 3.tInt) return (2.tInt#) of {
+                        3.c[] →
+                            x{1};
+                        3.c: (y{2} : 3.tInt) (ys : 3.t[] 3.tInt) →
+                            let {
+                                x{3} : 2.tInt# =
+                                    foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 1#3.cIntRep
+                            } in
+                                $wgo x{3} (x y{2}) ys
+                    }
+      } in
+          case $wgo 0#3.cIntRep (3.cI# 0#3.cIntRep) y as (field : 2.tInt#) return (3.tInt) of {
+              _ →
+                  3.cI# field
+          }
+status: pass
+reason: The local loop has a free variable, so it stays local. Its worker takes the fields of the cursor, and the recursive call builds no cursor.

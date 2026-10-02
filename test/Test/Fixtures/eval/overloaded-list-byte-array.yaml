@@ -1,0 +1,33 @@
+extensions:
+  - OverloadedLists
+modules:
+  - |
+    {-# LANGUAGE OverloadedLists #-}
+    module Test where
+
+    import Data.Array.Byte (ByteArray)
+    import Prelude
+
+    empty :: Maybe ByteArray
+    empty = pure []
+
+    bytes :: ByteArray
+    bytes = [0, 15, 255]
+
+    nested :: [ByteArray]
+    nested = [[], [1]]
+
+    main :: IO ()
+    main = do
+      print empty
+      print bytes
+      print nested
+expression: main
+stdout: |
+  Just []
+  [0x00, 0x0f, 0xff]
+  [[],[0x01]]
+output: |
+  ()
+status: pass
+reason: OverloadedLists converts empty, nonempty, and nested lists through IsList.

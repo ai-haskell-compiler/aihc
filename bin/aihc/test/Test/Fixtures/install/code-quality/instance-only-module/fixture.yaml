@@ -1,0 +1,5 @@
+status: pass
+reason: A module with only instances must retain its package identity through a transitive dependency.
+input: demo
+workspace: workspace
+check-reinstall: true

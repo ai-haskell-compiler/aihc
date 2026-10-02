@@ -2953,6 +2953,17 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromString" ->
               desugarOverloadedString annotation resolution value
+        Syn.EAnn resolutionAnnotation list
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromListN" -> do
+              method <- desugarResolvedOccurrence annotation resolution
+              kinds <- valueKinds
+              representation <- convertRuntimeRep (intRep kinds)
+              constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+              count <- listLength list
+              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)))
+              ExApp (ExApp method size) <$> desugarExpr list
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
@@ -3561,6 +3572,13 @@ desugarLambda lambdaType patterns body = do
           Syn.matchPats = patterns,
           Syn.matchRhs = Syn.UnguardedRhs [] body Nothing
         }
+
+-- | Read the length of the ordinary list inside an overloaded list.
+listLength :: Syn.Expr -> ValueM Int
+listLength expression = case expression of
+  Syn.EAnn _ inner -> listLength inner
+  Syn.EList elements -> pure (length elements)
+  _ -> failValue "overloaded list has no list expression"
 
 desugarList :: TcAnnotation -> [Syn.Expr] -> ValueM Expr
 desugarList annotation elements = do

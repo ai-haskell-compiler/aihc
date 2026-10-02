@@ -509,16 +509,12 @@ expandLocals env expr =
           inner = extendSig (bindTerm env binder) (binderName binder) (bindingArityType env binder rhs)
       ExLet bind {bindRhs = rhs} <$> expandLocals inner body
     ExRec binds body -> do
-      -- A binding of the group is taken at the arity its lambdas show,
-      -- as a top-level value in a recursive group is.
+      -- The group is analysed with the arities that 'recursiveArities'
+      -- finds for its members, both in their right sides and in the body.
       let recursive = List.foldl' bindTerm env (map bindBinder binds)
-      rhss <- traverse (expandLocal recursive) binds
+          inner = List.foldl' (\current (name, at) -> extendSig current name at) recursive (Map.toList (recursiveArities recursive binds))
+      rhss <- traverse (expandLocal inner) binds
       let binds' = [bind {bindRhs = rhs} | (bind, rhs) <- zip binds rhss]
-          inner =
-            List.foldl'
-              (\current bind -> extendSig current (binderName (bindBinder bind)) (manifestArityType current (bindRhs bind)))
-              recursive
-              binds'
       ExRec binds' <$> expandLocals inner body
     ExCase scrutinee binder resultType alternatives -> do
       scrutinee' <- expandLocals env scrutinee
@@ -535,6 +531,47 @@ expandLocals env expr =
           alternatives
       pure (ExCase scrutinee' binder resultType alternatives')
     ExForeignCall call types arguments -> ExForeignCall call types <$> traverse (expandLocals env) arguments
+
+-- | The arity type of each member of a local recursive group, as GHC's
+-- @findRhsArity@ finds it. A call of a member inside the group is cheap
+-- when it is short of the arity of that member, so the arity of a member
+-- depends on the arities of the group. The iteration starts from the
+-- guess that every member has the arity of its type, and lowers each
+-- guess to what its right side supports under the current guesses. The
+-- guesses only fall, so the iteration ends. A loop that @foldr@ builds
+-- for a fold with a function result has the shape
+--
+-- > go = λx. step x (go (next x))
+--
+-- where @step@ takes one argument more. The call of @go@ is a partial
+-- application under the guess of two, so the right side has arity two
+-- and the guess holds. Without the guess the call is unknown work and
+-- the loop stays at one argument, which builds a closure on each step.
+--
+-- A member never falls below the lambdas it shows. The arity type of a
+-- member is that number of cheap lambdas, which is what the expanded
+-- member is.
+recursiveArities :: Env -> [Bind] -> Map Name ArityType
+recursiveArities env binds = loop (0 :: Int) (Map.fromList [(binderName binder, typeArity env (binderType binder)) | binder <- binders])
+  where
+    binders = map bindBinder binds
+    bound = 1 + sum [typeArity env (binderType binder) | binder <- binders]
+    loop iteration guesses
+      | iteration > bound = signatures (Map.fromList [(binderName (bindBinder bind), manifestArity env (bindRhs bind)) | bind <- binds])
+      | next == guesses = signatures guesses
+      | otherwise = loop (iteration + 1) next
+      where
+        current = List.foldl' (\inner (name, at) -> extendSig inner name at) env (Map.toList (signatures guesses))
+        next = Map.fromList [(binderName (bindBinder bind), settle guesses bind (arity current bind)) | bind <- binds]
+    arity current bind = safeArity (bindingArityType current (bindBinder bind) (bindRhs bind))
+    settle guesses bind found =
+      max (manifestArity env (bindRhs bind)) (min found (Map.findWithDefault 0 (binderName (bindBinder bind)) guesses))
+    signatures guesses =
+      Map.fromList
+        [ (binderName binder, AT [(IsCheap, oneShot) | oneShot <- take n (typeOneShots env (binderType binder))])
+        | binder <- binders,
+          let n = Map.findWithDefault 0 (binderName binder) guesses
+        ]
 
 -- | Expand the local bindings inside a right side, then the right side
 -- itself.
