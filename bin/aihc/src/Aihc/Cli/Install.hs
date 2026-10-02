@@ -54,6 +54,7 @@ module Aihc.Cli.Install
     primKinds,
     readPackageInputs,
     renderFrontendFailure,
+    runConfigureScript,
     selectInstanceProviders,
     sourceDependencyNames,
     sourceModuleUnits,
@@ -212,10 +213,12 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
+import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (IOException, SomeException, evaluate, finally, throwIO, try)
+import Control.Exception (IOException, SomeException, bracket_, evaluate, finally, throwIO, try)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -238,13 +241,14 @@ import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
+import GHC.IO.Handle.Lock qualified as HandleLock
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
-import System.IO (hClose, hPutStrLn, openBinaryTempFile, stderr, stdout)
+import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, stderr, stdout, withFile)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -751,11 +755,13 @@ data InstallShared = InstallShared
     sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
--- | One package of a plan, as the graph installs it. The package has three
--- tasks of its own. Prepare reads, configures, and preprocesses it, or
--- takes it from the store. Partition cuts its modules into units and adds
--- their tasks. Finish collects the results and archives it. A dependent
--- waits on each of the three, and its units wait on the units they import.
+-- | One package of a plan, as the graph installs it. The package has four
+-- tasks of its own. Configure reads the package and runs its configure
+-- script. It waits for no other task, because the script sees only the C
+-- compiler. Prepare preprocesses the package, or takes it from the store.
+-- Partition cuts its modules into units and adds their tasks. Finish
+-- collects the results and archives it. A dependent waits on prepare,
+-- partition, and finish, and its units wait on the units they import.
 data PackageSlot = PackageSlot
   { slotPlan :: !PackagePlan,
     slotRoot :: !Bool,
@@ -765,9 +771,13 @@ data PackageSlot = PackageSlot
     slotClosure :: ![PackageSlot],
     -- | The place of the package in the plan, after its dependencies.
     slotOrder :: !Int,
+    slotConfigureTask :: !TaskId,
     slotPrepareTask :: !TaskId,
     slotPartitionTask :: !TaskId,
     slotFinishTask :: !TaskId,
+    -- | The inputs of the package and the directory its configure script
+    -- wrote, once its configure task ran.
+    slotConfigured :: !(TMVar (PackageInputs, Maybe FilePath)),
     slotPrepared :: !(TMVar PreparedPackage),
     -- | The unit of each compiled module, once the package is partitioned.
     -- Empty for a package the store already holds.
@@ -898,11 +908,12 @@ planSlot shared graph slotsRef root plan = do
     Nothing -> do
       dependencies <- mapM (planSlot shared graph slotsRef False) (planDependencyPlans plan)
       order <- Map.size <$> readIORef slotsRef
-      base <- allocateTaskIds graph 3
+      base <- allocateTaskIds graph 4
       let closure = slotsClosure dependencies
       slot <-
-        PackageSlot plan root dependencies closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2))
+        PackageSlot plan root dependencies closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2)) (TaskId (base + 3))
           <$> newEmptyTMVarIO
+          <*> newEmptyTMVarIO
           <*> newEmptyTMVarIO
           <*> newEmptyTMVarIO
           <*> newEmptyTMVarIO
@@ -912,14 +923,47 @@ planSlot shared graph slotsRef root plan = do
       addTasks
         graph
         [ Task
+            { taskId = slotConfigureTask slot,
+              taskKind = TaskPackage,
+              taskOrder = order,
+              taskDependencies = Set.empty,
+              taskAction = configureSlot shared slot
+            },
+          Task
             { taskId = slotPrepareTask slot,
               taskKind = TaskPackage,
               taskOrder = order,
-              taskDependencies = Set.fromList (map slotPrepareTask dependencies),
+              taskDependencies = Set.fromList (slotConfigureTask slot : map slotPrepareTask dependencies),
               taskAction = preparePackage shared graph slot
             }
         ]
       pure slot
+
+-- | Read a package and run its configure script.
+--
+-- The answers of the script are kept in a directory of their own, named
+-- after what they depend on, and not in the directory of the package. The
+-- directory of a store package has a name that depends on the
+-- dependencies, and the script does not need them. Thus every script of
+-- the plan can start at the start of the install, in parallel with the
+-- other scripts and with the compilation of the dependencies. A package
+-- that the store holds finds the answers of its earlier install there.
+configureSlot :: InstallShared -> PackageSlot -> IO ()
+configureSlot shared slot = do
+  let config = slotConfig shared slot
+      locations = sharedLocations shared
+      plan = slotPlan slot
+      root
+        | storeBound locations plan = locationStoreRoot locations
+        | otherwise = locationBuildRoot locations
+  inputs <- readPackageInputs config plan
+  configured <- runConfigureScript config (root </> ".configure") inputs
+  atomically (putTMVar (slotConfigured slot) (inputs, configured))
+
+-- | Whether a package of the plan goes into the store, or builds in place
+-- under the build root.
+storeBound :: InstallLocations -> PackagePlan -> Bool
+storeBound locations plan = locationImmutable locations || planOrigin plan /= PlanLocal
 
 -- | The packages below the slots and the slots themselves, each once, in
 -- the order of the plan.
@@ -1033,11 +1077,11 @@ preparePackage shared graph slot = do
       item = planProgressItem plan
       report = progressReport (compileProgress config)
   report (ProgressPrepare item)
-  inputs <- readPackageInputs config plan
+  (inputs, configured) <- atomically (readTMVar (slotConfigured slot))
   (installed, build) <-
-    if locationImmutable locations || planOrigin plan /= PlanLocal
-      then prepareStorePackage shared config (slotRoot slot) reinstall dependencies plan inputs
-      else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies plan inputs
+    if storeBound locations plan
+      then prepareStorePackage shared config (slotRoot slot) reinstall dependencies plan inputs configured
+      else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies plan inputs configured
   let identity = PackageId (packageManifestUnitId (installedManifest installed))
       package = Package (installedName installed) identity
       source = case build of
@@ -1254,8 +1298,8 @@ readPackageInputs config plan = do
       }
 
 -- | Prepare an immutable package for the store, unless the store has it.
-prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
-prepareStorePackage shared config named reinstall dependencies plan inputs = do
+prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+prepareStorePackage shared config named reinstall dependencies plan inputs configured = do
   let storeRoot = locationStoreRoot (sharedLocations shared)
   (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
   forM_ dependencies $ \dependency ->
@@ -1280,7 +1324,7 @@ prepareStorePackage shared config named reinstall dependencies plan inputs = do
       createDirectoryIfMissing True storeRoot
       temporaryRoot <- createTemporaryStoreRoot storeRoot packageDirectory
       atomicModifyIORef' (sharedTemporaryRoots shared) (\roots -> (Set.insert temporaryRoot roots, ()))
-      preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies plan inputs
+      preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies plan inputs configured
 
 -- | Move a built package from its temporary root to its store entry.
 publishStorePackage :: InstallShared -> PackageBuild -> InstalledPackage -> IO InstalledPackage
@@ -1301,14 +1345,14 @@ publishStorePackage shared build built = do
   pure package
 
 -- | Prepare a local package to build in place under the build root.
-prepareLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
-prepareLocalPackage config reinstall buildRoot dependencies plan inputs = do
+prepareLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+prepareLocalPackage config reinstall buildRoot dependencies plan inputs configured = do
   let (packageDirectory, unitIdentity) = localPackageIdentity inputs
       buildPath = buildRoot </> packageDirectory
   exists <- doesDirectoryExist buildPath
   when (exists && reinstall) (removeDirectoryRecursive buildPath)
   createDirectoryIfMissing True buildPath
-  preparePackageBuild config packageDirectory unitIdentity False buildPath buildPath False dependencies plan inputs
+  preparePackageBuild config packageDirectory unitIdentity False buildPath buildPath False dependencies plan inputs configured
 
 -- | The flags the store entry was built with must cover the flags of this
 -- install: the entry is never changed, so a missing output stays missing.
@@ -1341,16 +1385,17 @@ requireInstalledFlags config named package = do
           )
       )
 
--- | Configure and preprocess a package, and record what its finish needs.
--- The package is returned as its dependents see it while it builds.
-preparePackageBuild :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> FilePath -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
-preparePackageBuild config packageDirectory unitIdentity immutable buildPath publishPath replaces dependencies plan inputs = do
+-- | Apply the answers of the configure script, preprocess a package, and
+-- record what its finish needs. The package is returned as its dependents
+-- see it while it builds.
+preparePackageBuild :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> FilePath -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+preparePackageBuild config packageDirectory unitIdentity immutable buildPath publishPath replaces dependencies plan inputs configured = do
   let root = planSourcePath plan
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
   let gpd = inputDescription inputs
       packageNameText = HackagePackage.packageNameText (packageNameOf gpd)
-  (configuredFiles, configuredCInfo) <- configurePackage config root buildPath packageNameText inputs
+  (configuredFiles, configuredCInfo) <- configurePackage root packageNameText inputs configured
   headerDirs <- dependencyIncludeDirs dependencies
   headerHash <- includeDirectoriesHash headerDirs
   let dependencyVersions =
@@ -3321,43 +3366,70 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           else pure Nothing
       pure (cObjects <> cxxObjects <> catMaybes lirObjects)
 
--- | Run the configure script of a @build-type: Configure@ package and return
--- the sources and C inputs with its outputs in their include paths.
+-- | Run the configure script of a @build-type: Configure@ package, and
+-- return the directory that holds its outputs. A package without a script
+-- has no such directory.
 --
 -- Cabal runs the script in the package directory, so the generated headers
 -- land beside their templates. Here the source tree is shared by every
 -- target -- a Hackage release is unpacked once into the cache -- while the
--- answers configure finds are per target, so the script runs out of tree
--- from a directory under the package's own output path. Autoconf supports
--- this: the outputs of @AC_CONFIG_HEADERS@ and @AC_CONFIG_FILES@ are written
--- relative to the working directory and @srcdir@ is derived from the script
--- path. Every include directory of the package then gets a counterpart under
--- the configure directory that is searched first, which is how the generated
--- headers reach both the CPP pass over the Haskell sources and the C
--- compiles. A @<package>.buildinfo@ the script writes is merged the way
--- Cabal merges it.
+-- answers configure finds are per target, so the script runs out of tree.
+-- Autoconf supports this: the outputs of @AC_CONFIG_HEADERS@ and
+-- @AC_CONFIG_FILES@ are written relative to the working directory and
+-- @srcdir@ is derived from the script path.
+--
+-- The directory is under the cache root, and its name is the package and
+-- the hash of what the outputs depend on. An earlier run with the same
+-- hash wrote a stamp, and then the script does not run again. A lock file
+-- beside the directory stops two installs that share the cache root from
+-- running the same script in the same directory.
 --
 -- The script sees the C compiler of the target, so its feature tests answer
 -- for the target rather than the host.
-configurePackage :: ModuleCompileConfig -> FilePath -> FilePath -> Text -> PackageInputs -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
-configurePackage config root storePath packageName inputs =
-  case inputConfigureScript inputs of
-    Nothing -> pure (files, cInfo)
-    Just script -> do
-      let buildDirectory = storePath </> "configure"
-          stampPath = buildDirectory </> "configure.hash"
-      (executable, arguments, environment) <- configureCommand (compileTarget config) (compileOptimization config) script
-      inputsHash <- configureInputsHash config script
+runConfigureScript :: ModuleCompileConfig -> FilePath -> PackageInputs -> IO (Maybe FilePath)
+runConfigureScript config cacheRoot inputs =
+  forM (inputConfigureScript inputs) $ \script -> do
+    inputsHash <- configureInputsHash config script
+    let (package, _, _) = packageUnitIdentity inputs
+        directory = cacheRoot </> (T.unpack package <> "-" <> take 16 inputsHash)
+        stampPath = directory </> "configure.hash"
+    createDirectoryIfMissing True cacheRoot
+    withFileLock (directory <.> "lock") $ do
       previous <- readStampText stampPath
       if previous == Just inputsHash
-        then verbose ("Reuse configure: " <> buildDirectory)
+        then verbose ("Reuse configure: " <> directory)
         else do
-          exists <- doesDirectoryExist buildDirectory
-          when exists (removeDirectoryRecursive buildDirectory)
-          createDirectoryIfMissing True buildDirectory
+          (executable, arguments, environment) <- configureCommand (compileTarget config) (compileOptimization config) script
+          exists <- doesDirectoryExist directory
+          when exists (removeDirectoryRecursive directory)
+          createDirectoryIfMissing True directory
           verbose ("Configure: " <> unwords (executable : arguments))
-          runToolIn buildDirectory environment executable arguments
+          runToolIn directory environment executable arguments
           BS8.writeFile stampPath (BS8.pack inputsHash)
+    pure directory
+  where
+    verbose = compileVerbose config
+
+-- | Run an action while this process holds the lock file. Another process
+-- that asks for the same lock waits until the action ends.
+withFileLock :: FilePath -> IO a -> IO a
+withFileLock path action =
+  withFile path ReadWriteMode $ \handle ->
+    bracket_ (HandleLock.hLock handle HandleLock.ExclusiveLock) (HandleLock.hUnlock handle) action
+
+-- | Return the sources and C inputs of a package with the outputs of its
+-- configure script in their include paths.
+--
+-- Every include directory of the package gets a counterpart under the
+-- configure directory that is searched first, which is how the generated
+-- headers reach both the CPP pass over the Haskell sources and the C
+-- compiles. A @<package>.buildinfo@ the script writes is merged the way
+-- Cabal merges it.
+configurePackage :: FilePath -> Text -> PackageInputs -> Maybe FilePath -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
+configurePackage root packageName inputs configured =
+  case configured of
+    Nothing -> pure (files, cInfo)
+    Just buildDirectory -> do
       let packageIncludeDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files <> HackageCabal.cCompileIncludeDirs cInfo)
           -- An include directory outside the package has no generated
           -- counterpart.
@@ -3395,7 +3467,6 @@ configurePackage config root storePath packageName inputs =
   where
     files = inputSources inputs
     cInfo = inputCCompileInfo inputs
-    verbose = compileVerbose config
 
 -- | The command that runs a configure script for a target: the shell, since
 -- an unpacked release does not keep the executable bit; the script and its
@@ -3452,8 +3523,15 @@ targetCCompiler target level = do
 -- resolves the file's @#if@ lines with a C compiler, which knows nothing of
 -- the macros aihc's own CPP pass prepends to a Haskell source. The header is
 -- per file because @cpp-options@ and @build-depends@ are per component.
+--
+-- The files are independent. Thus this function preprocesses them in
+-- parallel, with a maximum of one tool for each capability. Each tool runs
+-- the C compiler, and a package such as @unix@ has dozens of @.hsc@ files.
 preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> String -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
-preprocessPackage config versions root storePath configureScript headerHash cInfo = mapM preprocessFile
+preprocessPackage config versions root storePath configureScript headerHash cInfo files = do
+  capabilities <- getNumCapabilities
+  limit <- newQSem (max 1 capabilities)
+  mapConcurrently (bracket_ (waitQSem limit) (signalQSem limit) . preprocessFile) files
   where
     verbose = compileVerbose config
 
@@ -3509,12 +3587,21 @@ preprocessorCommand config preprocessor cInfo file output macrosPath = do
       Hsc2hs -> hsc2hsArguments config cInfo file output macrosPath
   pure (executable, arguments)
 
--- | The arguments Cabal would give hsc2hs, with one difference: aihc always
--- asks for cross-compilation mode. In that mode hsc2hs finds every constant
--- by compiling test programs with the C compiler of the target and never
--- runs one, so the same code path serves the host, a foreign machine and
--- wasm, and the result cannot depend on which of them aihc happens to run
--- on.
+-- | The arguments Cabal would give hsc2hs.
+--
+-- When the code of the target runs on the host, hsc2hs runs in its native
+-- mode, as Cabal runs it: it compiles one program for the file, runs that
+-- program, and the program writes the module. This is fast, and the
+-- program sees every @#include@ of the file before any condition, as GHC
+-- sees them. For example, the export list of a @unix@ module tests
+-- @B7200@ before the module includes @termios.h@.
+--
+-- For any other target, hsc2hs runs in cross-compilation mode. In that
+-- mode hsc2hs finds every constant by compiling test programs with the C
+-- compiler of the target and never runs one. It compiles one test program
+-- for each condition and for each constant, and it tests a condition with
+-- only the text above it. Thus a file the size of
+-- @System.Posix.Terminal.Common@ costs about 275 compiler runs.
 --
 -- Cross-compilation mode is paired with @--via-asm@, which reads the
 -- constants back out of the assembly of a single compilation per file.
@@ -3540,11 +3627,17 @@ hsc2hsArguments config cInfo file output macrosPath = do
   let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [compileHeaderDirectory config])
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
-    ( ["--cross-compile", "--via-asm", "--cc=" <> compiler, "--ld=" <> compiler]
+    ( [flag | not (targetRunsOnHost target), flag <- ["--cross-compile", "--via-asm"]]
+        <> ["--cc=" <> compiler, "--ld=" <> compiler]
         <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath])
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
     )
+
+-- | Whether the code of a target runs on the machine that aihc runs on. The
+-- LLVM target is always that machine.
+targetRunsOnHost :: NativeTarget -> Bool
+targetRunsOnHost target = target == Llvm || Just target == hostNativeTarget
 
 -- | Where a preprocessor's executable is: the environment variable named
 -- for it, or else the search path.

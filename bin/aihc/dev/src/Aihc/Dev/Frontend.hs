@@ -44,6 +44,7 @@ import Aihc.Cli.Install
     primKinds,
     readPackageInputs,
     renderFrontendFailure,
+    runConfigureScript,
     selectInstanceProviders,
     sourceDependencyNames,
     sourceModuleUnits,
@@ -269,7 +270,8 @@ runPackage config jobs headerDirectory dependencies root = do
     -- each @.hsc@ source into a Haskell module. Both write under the
     -- scratch directory, so nothing is reused from a previous run.
     (files, preprocessTime) <- timed $ do
-      (configured, cInfo) <- configurePackage config root scratch name inputs
+      directory <- runConfigureScript config scratch inputs
+      (configured, cInfo) <- configurePackage root name inputs directory
       preprocessPackage config versions root scratch (inputConfigureScript inputs) "" cInfo configured
     let preprocessed = length (filter (isJust . HackageCabal.fileInfoPreprocessor) (inputSources inputs))
     reportPhase "preprocess" preprocessTime (show preprocessed <> " " <> plural preprocessed "file")
