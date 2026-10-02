@@ -1,0 +1,90 @@
+---
+extensions:
+- BangPatterns
+- MagicHash
+modules:
+- |
+  module Test (fill) where
+
+  import GHC.Prim (Int#, (+#))
+  import GHC.Types (Int (..))
+
+  data Cursor = Cursor Int# Int
+
+  advance :: Cursor -> Cursor
+  advance cursor = case cursor of
+    Cursor i total -> Cursor (i +# 1#) total
+
+  fill :: (Int -> Int) -> Cursor -> [Int] -> Int
+  fill f start xs0 = go start xs0
+    where
+      go !cursor xs = case xs of
+        [] -> case cursor of
+          Cursor i _ -> I# i
+        y : ys -> case f y of
+          I# _ -> go (advance cursor) ys
+passes:
+- inline: shrink
+- worker-wrapper
+- simplify: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tCursor :: 3.sType {
+      1.cCursor :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (3.tInt 3.→ 1.tCursor)
+  }
+
+  pub val 1.vfill :: (3.tInt 3.→ 3.tInt) 3.→ 1.tCursor 3.→ 3.t[] 3.tInt 3.→ 3.tInt
+   = λ(x : 3.tInt 3.→ 3.tInt).
+    λ(y : 1.tCursor).
+      λ(z : 3.t[] 3.tInt).
+        rec {
+            $wgo : FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# (FUN @(3.cBoxedRep 3.cLifted) @(3.cBoxedRep 3.cLifted) 3.tInt (FUN @(3.cBoxedRep 3.cLifted) @3.cIntRep (3.t[] 3.tInt) 2.tInt#)) =
+                λ(x{1} : 2.tInt#).
+                  λ(x{2} : 3.tInt).
+                    λ(y{1} : 3.t[] 3.tInt).
+                      case y{1} as (_scrut : 3.t[] 3.tInt) return (2.tInt#) of {
+                          3.c[] →
+                              x{1};
+                          3.c: (y{2} : 3.tInt) (ys : 3.t[] 3.tInt) →
+                              case x y{2} as (_scrut{1} : 3.tInt) return (2.tInt#) of {
+                                  3.cI# (_pat : 2.tInt#) →
+                                      let {
+                                          x{3} : 2.tInt# =
+                                              foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 1#3.cIntRep
+                                      } in
+                                          $wgo x{3} x{2} ys
+                              }
+                      }
+        } in
+            case y as (wrapped : 1.tCursor) return (3.tInt) of {
+                1.cCursor (x{1} : 2.tInt#) (x{2} : 3.tInt) →
+                    case $wgo x{1} x{2} z as (field : 2.tInt#) return (3.tInt) of {
+                        _ →
+                            3.cI# field
+                    }
+            }
+status: pass
+reason: The bang pattern evaluates the cursor with a case, and a later case takes apart the binder of that case. The binder is the same value, so the worker takes the fields of the cursor.
