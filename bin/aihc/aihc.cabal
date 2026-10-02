@@ -148,6 +148,7 @@ library
     Aihc.Cli.CompilerHeaders
     Aihc.Cli.Hackage
     Aihc.Cli.Install
+    Aihc.Cli.Link
     Aihc.Cli.Lto
     Aihc.Cli.ModuleProvider
     Aihc.Cli.OptimizationPlan
