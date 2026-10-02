@@ -109,15 +109,24 @@ entry:
   return %next
 }
 
-; Whether a continuation stands for another one. An indirection does, and so
-; does a forwarding frame, which the collector leaves behind when it moves a
-; frame. A caller follows either to the object in the field after the header.
-inline func @aihc_follows_indirection(%header: ptr) -> i1 {
+; The parent of a forward frame, the field after the header. A continue
+; helper comes here when the entry of a frame is null. Only a forward frame
+; has a continuation frame kind and a null entry: a keep-alive frame of an
+; abstract result, whose result values have no fixed layout. Any other
+; object is not a continuation that can take a value, so the program stops.
+; A continuation is never an indirection: frames live on thread stacks, and
+; only a thunk is updated.
+inline func @aihc_forward_parent(%frame: ptr, %header: ptr) -> ptr {
 entry:
-  %kind = call @aihc_info_kind(%header)
-  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  %frame = call @aihc_info_frame(%header)
-  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
-  %follows = or i1 %indirection, %forward
-  return %follows
+  %kind = call @aihc_info_frame(%header)
+  %forward = eq i64 %kind, @AIHC_FRAME_FORWARD
+  br %forward, parent, invalid
+
+parent:
+  %parent_word = load i64 [%frame + 8] align 8
+  %parent = ptr.from_int %parent_word
+  return %parent
+
+invalid:
+  trap "continuation has no entry"
 }
