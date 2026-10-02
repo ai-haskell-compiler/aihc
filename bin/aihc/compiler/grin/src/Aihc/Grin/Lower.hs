@@ -249,7 +249,14 @@ functionArity expression =
 -- happens when the source type hides an argument, for example the state
 -- token of an @IO@ result.
 lowerForeignCallExpr :: LowerEnv -> Fc.ForeignCall -> [Fc.Type] -> [Fc.Expr] -> LowerM GrinExpr
-lowerForeignCallExpr env call types arguments = do
+lowerForeignCallExpr env call types arguments =
+  lowerForeignCallApplication env (expressionResultRep env (Fc.ExForeignCall call types arguments)) call types arguments
+
+-- | Use the result representation of the original application. Its casts
+-- can expose an IO state argument that the foreign source type hides.
+-- Do not infer a source type after those casts are removed.
+lowerForeignCallApplication :: LowerEnv -> LowerM GrinResultRep -> Fc.ForeignCall -> [Fc.Type] -> [Fc.Expr] -> LowerM GrinExpr
+lowerForeignCallApplication env applicationResultRep call types arguments = do
   -- The foreign type is closed. The type arguments go into it directly,
   -- not into the environment: a binder of the foreign type can have the
   -- name of a binder in a constructor header, and a substitution in the
@@ -274,7 +281,7 @@ lowerForeignCallExpr env call types arguments = do
     -- example when @unsafeCoerce#@ gives a state transformer.
     GT -> do
       let (callArguments, extraArguments) = splitAt (length argumentTypes) arguments
-      resultRep <- expressionResultRep env (Fc.ExForeignCall call types arguments)
+      resultRep <- applicationResultRep
       evaluated <- freshVar "function_whnf" liftedGrinRep
       functionExpression <- lowerForeignCallExpr env call types callArguments
       rest <- lowerDynamicApplication env resultRep (GrinVarValue evaluated) extraArguments
@@ -283,7 +290,7 @@ lowerForeignCallExpr env call types arguments = do
       | Fc.Prim <- Fc.foreignCallConvention call,
         Map.member (Fc.nameText name) specialPrimitiveArities -> do
           -- A call that never returns may forward its result.
-          resultRep <- expressionResultRep env (Fc.ExForeignCall call types arguments)
+          resultRep <- applicationResultRep
           lowerSpecialApplication env resultRep (Fc.nameText name) arguments
       | otherwise -> do
           resultRep <- liftEither (runtimeRep foreignEnv resultType)
@@ -866,7 +873,7 @@ lowerApplication env function argument = do
     -- A foreign call whose result is a function of more arguments, such as
     -- an @IO@ action applied to the state token, takes them in one call.
     (_, (Fc.ExForeignCall call types callArguments, arguments)) ->
-      lowerForeignCallExpr env call types (callArguments <> arguments)
+      lowerForeignCallApplication env (pure resultRep) call types (callArguments <> arguments)
     (_, (callee, arguments)) -> do
       -- The function is needed in weak head normal form right away, so it is
       -- computed directly rather than suspended and then evaluated. A
