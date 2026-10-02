@@ -18,9 +18,24 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
 data ShareState = ShareState
-  { shareNames :: !(Map Name Name),
-    shareTypes :: !(Map Type Type)
+  { shareNames :: !(Map Name (Int, Name)),
+    shareTypes :: !(Map TypeKey (Int, Type)),
+    shareNextId :: !Int
   }
+
+-- | A type as its constructor and the identities of its shared parts. Two
+-- types are equal exactly when their keys are equal, because equal parts
+-- are already one object with one identity. So a lookup compares a few
+-- integers and never walks a type.
+data TypeKey
+  = KeyVar !Int
+  | KeyCon !Int
+  | KeyApp !Int !Int
+  | KeyFun !Int !Int !Int !Int
+  | KeyForAll !Int !Int !Int
+  | KeyEq !Int !Int
+  | KeyLit !Int !TyLit
+  deriving (Eq, Ord)
 
 type Share = State ShareState
 
@@ -37,39 +52,74 @@ shareProgram program =
               programDecls = decls
             }
     )
-    (ShareState Map.empty Map.empty)
+    (ShareState Map.empty Map.empty 0)
 
 -- | The one object that stands for every name equal to this one.
 shareName :: Name -> Share Name
-shareName name = do
+shareName name = snd <$> shareNameKeyed name
+
+shareNameKeyed :: Name -> Share (Int, Name)
+shareNameKeyed name = do
   known <- gets (Map.lookup name . shareNames)
   case known of
     Just shared -> pure shared
     Nothing -> do
-      modify' (\state -> state {shareNames = Map.insert name name (shareNames state)})
-      pure name
+      identity <- freshIdentity
+      modify' (\state -> state {shareNames = Map.insert name (identity, name) (shareNames state)})
+      pure (identity, name)
 
--- | The one object that stands for every type equal to this one. The
--- parts are shared first, so an equal type that is already known is found
--- by comparison against parts that are the same objects.
+freshIdentity :: Share Int
+freshIdentity = do
+  identity <- gets shareNextId
+  modify' (\state -> state {shareNextId = identity + 1})
+  pure identity
+
+-- | The one object that stands for every type equal to this one.
 shareType :: Type -> Share Type
-shareType ty = do
-  rebuilt <-
-    case ty of
-      TyVar name -> TyVar <$> shareName name
-      TyCon name -> TyCon <$> shareName name
-      TyApp function argument -> TyApp <$> shareType function <*> shareType argument
-      TyFun argumentRep resultRep argument result ->
-        TyFun <$> shareType argumentRep <*> shareType resultRep <*> shareType argument <*> shareType result
-      TyForAll binder body -> TyForAll <$> shareBinder binder <*> shareType body
-      TyEq left right -> TyEq <$> shareType left <*> shareType right
-      TyLit kindName literal -> TyLit <$> shareName kindName <*> pure literal
-  known <- gets (Map.lookup rebuilt . shareTypes)
-  case known of
-    Just shared -> pure shared
-    Nothing -> do
-      modify' (\state -> state {shareTypes = Map.insert rebuilt rebuilt (shareTypes state)})
-      pure rebuilt
+shareType ty = snd <$> shareTypeKeyed ty
+
+-- | The parts are shared first, so an equal type that is already known is
+-- found by the identities of its parts.
+shareTypeKeyed :: Type -> Share (Int, Type)
+shareTypeKeyed ty =
+  case ty of
+    TyVar name -> do
+      (n, name') <- shareNameKeyed name
+      intern (KeyVar n) (TyVar name')
+    TyCon name -> do
+      (n, name') <- shareNameKeyed name
+      intern (KeyCon n) (TyCon name')
+    TyApp function argument -> do
+      (f, function') <- shareTypeKeyed function
+      (a, argument') <- shareTypeKeyed argument
+      intern (KeyApp f a) (TyApp function' argument')
+    TyFun argumentRep resultRep argument result -> do
+      (ar, argumentRep') <- shareTypeKeyed argumentRep
+      (rr, resultRep') <- shareTypeKeyed resultRep
+      (a, argument') <- shareTypeKeyed argument
+      (r, result') <- shareTypeKeyed result
+      intern (KeyFun ar rr a r) (TyFun argumentRep' resultRep' argument' result')
+    TyForAll (Binder binderName binderType) body -> do
+      (n, binderName') <- shareNameKeyed binderName
+      (k, binderType') <- shareTypeKeyed binderType
+      (b, body') <- shareTypeKeyed body
+      intern (KeyForAll n k b) (TyForAll (Binder binderName' binderType') body')
+    TyEq left right -> do
+      (l, left') <- shareTypeKeyed left
+      (r, right') <- shareTypeKeyed right
+      intern (KeyEq l r) (TyEq left' right')
+    TyLit kindName literal -> do
+      (n, kindName') <- shareNameKeyed kindName
+      intern (KeyLit n literal) (TyLit kindName' literal)
+  where
+    intern key rebuilt = do
+      known <- gets (Map.lookup key . shareTypes)
+      case known of
+        Just shared -> pure shared
+        Nothing -> do
+          identity <- freshIdentity
+          modify' (\state -> state {shareTypes = Map.insert key (identity, rebuilt) (shareTypes state)})
+          pure (identity, rebuilt)
 
 shareBinder :: Binder -> Share Binder
 shareBinder binder = Binder <$> shareName (binderName binder) <*> shareType (binderType binder)
