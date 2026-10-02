@@ -43,8 +43,16 @@
 -- one value, a function with an inline pragma, a function that a rewrite
 -- rule names, or a function whose lambdas are not type lambdas followed by
 -- value lambdas.
+--
+-- The pass can also split the local functions alone. The growing inliner
+-- makes new local loops when it copies a fused list producer into its
+-- consumer, and a second split after it removes the boxes from their
+-- parameters. A local split needs no inliner, but a top-level wrapper
+-- that no inliner copies is only one more call, so that run leaves the
+-- top-level functions as they are.
 module Aihc.Fc.WorkerWrapper
-  ( WorkerWrapperReport (..),
+  ( SplitScope (..),
+    WorkerWrapperReport (..),
     workerWrapperProgram,
   )
 where
@@ -81,10 +89,19 @@ data WorkerWrapperReport = WorkerWrapperReport
   }
   deriving (Eq, Show)
 
--- | Split every function that has a parameter with a 'StrictProduct'
--- demand, or a constructed product result, into a worker and a wrapper.
-workerWrapperProgram :: Program -> (Program, WorkerWrapperReport)
-workerWrapperProgram program =
+-- | The functions that the pass splits.
+data SplitScope
+  = -- | The top-level functions and the local recursive functions.
+    SplitAllFunctions
+  | -- | The local recursive functions only.
+    SplitLocalFunctions
+  deriving (Eq, Show)
+
+-- | Split every function in the scope that has a parameter with a
+-- 'StrictProduct' demand, or a constructed product result, into a worker
+-- and a wrapper.
+workerWrapperProgram :: SplitScope -> Program -> (Program, WorkerWrapperReport)
+workerWrapperProgram scope program =
   case primPackageFromScopes (programScopes program) of
     Nothing -> (program, WorkerWrapperReport 0 0 0)
     Just primPackage ->
@@ -104,6 +121,7 @@ workerWrapperProgram program =
                       Nothing -> ((supply', report'), [DeclVal declaration])
               _ -> ((supply, report), [decl])
           splitTopLevel supply declaration = do
+            guard (scope == SplitAllFunctions)
             guard (valInline declaration == InlineDefault)
             guard (Set.notMember (valName declaration) excluded)
             signature <- Map.lookup (valName declaration) signatures

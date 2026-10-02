@@ -34,6 +34,7 @@ const @AIHC_MACHINE_CURRENT_THREAD_OFFSET = 8 words + 40
 ; Two low header bits preserve the original info-table pointer.
 const @AIHC_HEADER_EVALUATING = 1
 const @AIHC_HEADER_WAITERS = 2
+const @AIHC_HEADER_TAG_MASK = 3
 const @AIHC_HEADER_INFO_MASK = -4
 
 ; Object kinds occupy the object_kind field of an info table.
