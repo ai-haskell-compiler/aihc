@@ -1014,8 +1014,8 @@ checkHigherRankArgument :: Maybe SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct]
 checkHigherRankArgument sp expectedTy arg
   | checksExpectedResult arg = do
       boundary <- getUniqueBoundary
-      skolemized@(_, _, expectedBody) <- skolemizeSigmaType expectedTy
-      (arg', actualTy, argCts) <- checkExpr expectedBody arg
+      skolemized@(_, predicates, expectedBody) <- skolemizeSigmaType expectedTy
+      (arg', actualTy, argCts) <- withGivenPredicates predicates (checkExpr expectedBody arg)
       finishHigherRankArgument sp boundary expectedTy skolemized arg' actualTy argCts
   | otherwise = do
       boundary <- getUniqueBoundary

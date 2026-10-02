@@ -1,0 +1,13 @@
+extensions: [ConstraintKinds, GADTs, KindSignatures, RankNTypes]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, GADTs, KindSignatures, RankNTypes #-}
+    module Test where
+    import GHC.Types (Constraint)
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    newtype Sub a b = Sub (a => Dict b)
+    unpack :: a => Sub a b -> Dict b
+    unpack (Sub Dict) = Dict
+status: pass
+reason: A constructor pattern uses the evidence of a constrained field.

@@ -4836,8 +4836,10 @@ registerDataConstructors origin dataDecl = do
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors origin constructors
-      let tyVars = map paramTyVar paramInfos
-      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
+      let writtenTyVars = map paramTyVar paramInfos
+      declaredResultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar writtenTyVars))
+      (implicitTyVars, resultKind) <- implicitDataParameters declaredResultKind
+      let tyVars = writtenTyVars <> implicitTyVars
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -4850,6 +4852,16 @@ registerDataConstructors origin dataDecl = do
             dtiCType = cTypePragma (dataDeclCTypePragma dataDecl)
           }
       pure (bindings <> selectorBindings)
+
+-- | An inline GADT kind can give parameters that the data head omits.
+implicitDataParameters :: TcType -> TcM ([TyVarId], TcType)
+implicitDataParameters kind =
+  case kind of
+    TcFunTy argument result -> do
+      variable <- freshSkolemTv "$parameter"
+      (variables, resultKind) <- implicitDataParameters result
+      pure (setTyVarKind argument variable : variables, resultKind)
+    _ -> pure ([], kind)
 
 -- | Register a newtype declaration's type constructor and representation
 -- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at

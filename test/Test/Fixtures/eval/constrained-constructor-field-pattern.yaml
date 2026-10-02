@@ -1,0 +1,19 @@
+extensions: [ConstraintKinds, GADTs, KindSignatures, RankNTypes]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, GADTs, KindSignatures, RankNTypes #-}
+    module Test where
+    import Data.Kind (Constraint)
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    newtype Sub a b = Sub (a => Dict b)
+    unpack :: a => Sub a b -> Dict b
+    unpack (Sub Dict) = Dict
+    answer :: Bool
+    answer = case unpack (Sub Dict :: Sub (Eq Bool) (Eq Bool)) of
+      Dict -> True == True
+expression: answer
+output: |
+  True
+status: pass
+reason: A nested constructor pattern applies a constrained field to its evidence.
