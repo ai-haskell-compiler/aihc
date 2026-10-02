@@ -1951,8 +1951,7 @@ resolveType ty =
       TApp <$> resolveType left <*> resolveType right
     TTypeApp left right ->
       TTypeApp <$> resolveType left <*> resolveType right
-    TInfix left name promoted right ->
-      TInfix <$> resolveType left <*> resolveTypeConstructorUse promoted name <*> pure promoted <*> resolveType right
+    TInfix {} -> resolveInfixType ty
     TFun arrowKind left right ->
       TFun <$> resolveArrowKind arrowKind <*> resolveType left <*> resolveType right
     TTuple flavor promotion items -> do
@@ -2135,6 +2134,36 @@ ambiguousFixityName ambient name = do
       ResolutionNamespaceTerm
       (Unresolved "ambiguous fixity")
   pure name {nameAnns = ann : nameAnns name}
+
+-- | Apply operator fixities to a type chain and keep each promotion.
+resolveInfixType :: Type -> ResolveM Type
+resolveInfixType ty = do
+  operands <- traverse resolveType (flattenInfix split ty)
+  scope <- currentScope
+  ambient <- currentSpan
+  let operators = prepareInfix (resolveFixityName scope . fst) operands
+  case ambiguousInfixOp operators of
+    Nothing -> rebuildInfix build <$> traverseOperators resolveOperator operators
+    Just ambiguous -> buildLeftInfix build <$> traverseOperators (resolveAmbiguous ambient ambiguous) operators
+  where
+    split (TInfix left name promotion right) = Just (left, (name, promotion), right)
+    split _ = Nothing
+    build left (name, promotion) = TInfix left name promotion
+    resolveOperator operator = do
+      let (name, promotion) = resolvedInfixName operator
+      resolved <- resolveTypeConstructorUse promotion name
+      pure operator {resolvedInfixName = (resolved, promotion)}
+    resolveAmbiguous ambient ambiguous operator
+      | resolvedInfixIndex operator == resolvedInfixIndex ambiguous = do
+          let (name, promotion) = resolvedInfixName operator
+          annotation <-
+            resolution
+              (sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan ambient (nameText name))
+              (IdentifierNamed (nameText name))
+              (typePromotionNamespace promotion)
+              (Unresolved "ambiguous fixity")
+          pure (name {nameAnns = annotation : nameAnns name}, promotion)
+      | otherwise = resolvedInfixName <$> resolveOperator operator
 
 flattenInfixExpr :: Expr -> InfixChain Name Expr
 flattenInfixExpr = flattenInfix split
