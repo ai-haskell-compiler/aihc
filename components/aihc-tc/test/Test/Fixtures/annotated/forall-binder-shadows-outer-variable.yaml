@@ -4,19 +4,19 @@ annotated:
   module Main where
   import GHC.Types (Bool (..))
   class Functorish t where
-  └─ class methods: promap ∷ ∀ t p q a b. (Functorish t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
+  └─ class methods: promap ∷ ∀ k0 k1 k2 k3 t p q a b. (Functorish t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
     promap :: (forall a b. p a b -> q a b) -> t p a b -> t q a b
   newtype Rift p q a b = Rift (forall x. p b x -> q a x)
           │              └─ type: ∀ k0 k1 k2 p q a b. (∀ x. p b x → q a x) → Rift p q a b
           └─ type: (k0 → k1 → Type) → (k2 → k1 → Type) → k2 → k0 → Type
   instance Functorish (Rift p) where
-  └─ $fFunctorishRiftp ∷ ∀ p. () ⇒ Functorish (Rift p)
+  └─ $fFunctorishRiftp ∷ ∀ k0 k1 p. () ⇒ Functorish (Rift p)
     promap f (Rift g) = Rift (\x -> f (g x))
     │      │  │    │    ││     ││    │  └─ type: p b x → p a x; type-args: x
     │      │  │    │    ││     ││    └─ type: p a x → q a x; type-args: a, x
     │      │  │    │    ││     │└─ type: p b x
     │      │  │    │    ││     └─ type: p b x → q a x
-    │      │  │    │    └─ type: (∀ x. p b x → q a x) → Rift p q a b; type-args: Type, Type, Type, p, q, a, b
+    │      │  │    │    └─ type: (∀ x. p b x → q a x) → Rift p q a b; type-args: k0, k1, Type, p, q, a, b
     │      │  │    │    └─ type: ∀ x. p b x → q a x
     │      │  │    └─ type: ∀ x. p b x → p a x
     │      │  └─ type: Rift p p a b

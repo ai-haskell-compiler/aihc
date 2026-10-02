@@ -14,18 +14,22 @@
 module Aihc.Tc.FunDep
   ( checkInstanceFunDeps,
     atPositions,
+    classDependencyArguments,
   )
 where
 
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Kind (tcTypeKind, zonkKind)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, emitError, freshUnique, getClassInstances, getUndecidableInstances, lookupClass)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, (>=>))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
 -- | Report every functional dependency that one instance of a class
@@ -36,7 +40,7 @@ import Data.Text (Text)
 checkInstanceFunDeps :: Maybe SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [Pred] -> TcM ()
 checkInstanceFunDeps loc classInfo tyVars headTypes context =
   unless (null (ciFunDeps classInfo)) $ do
-    headTypes' <- mapM zonkType headTypes
+    headTypes' <- classDependencyArguments classInfo =<< mapM zonkType headTypes
     -- The kind of a type variable reaches its kind variables, so the
     -- context has to be as solved as the head: @(a :: TYPE r)@ determines
     -- @r@ only once the kind of @a@ is known.
@@ -45,7 +49,7 @@ checkInstanceFunDeps loc classInfo tyVars headTypes context =
     forM_ (ciFunDeps classInfo) (checkCoverage loc classInfo tyVars headTypes' contextDependencies)
     others <- getClassInstances (ciTyCon classInfo)
     forM_ others $ \other -> do
-      otherHead <- freshenTypes (iiTyVars other) (iiHead other)
+      otherHead <- classDependencyArguments classInfo =<< freshenTypes (iiTyVars other) (iiHead other)
       forM_ (ciFunDeps classInfo) (checkConsistency loc classInfo headTypes' otherHead)
 
 -- | An instance whose dependent parameters mention a type variable that its
@@ -68,7 +72,7 @@ checkCoverage loc classInfo tyVars headTypes contextDependencies dependency = do
       reached
         | liberal = closeOver contextDependencies (mentioned determiners)
         | otherwise = mentioned determiners
-      escaping = filter (`notElem` reached) (mentioned determined)
+      escaping = filter (\variable -> not (any (sameTyVar variable) reached)) (mentioned determined)
   unless (null escaping) $
     emitError loc (funDepCoverageError classInfo headTypes dependency)
 
@@ -82,17 +86,19 @@ predicateFunDeps tyVars context =
       case predicate of
         ClassPred className arguments -> do
           classInfo <- lookupClass className
-          pure
-            [ (variables (fdDeterminers dependency), variables (fdDetermined dependency))
-            | Just info <- [classInfo],
-              dependency <- ciFunDeps info
-            ]
-          where
-            variables positions =
-              [ tyVar
-              | tyVar <- tyVars,
-                any (typeMentionsTyVar tyVar) (atPositions positions arguments)
-              ]
+          case classInfo of
+            Nothing -> pure []
+            Just info -> do
+              arguments' <- classDependencyArguments info arguments
+              let variables positions =
+                    [ tyVar
+                    | tyVar <- tyVars,
+                      any (typeMentionsTyVar tyVar) (atPositions positions arguments')
+                    ]
+              pure
+                [ (variables (fdDeterminers dependency), variables (fdDetermined dependency))
+                | dependency <- ciFunDeps info
+                ]
         -- An equality in the context determines each side from the other:
         -- @instance texp ~ TExp a => IsCode Q a (Q texp)@ determines @a@
         -- from @texp@.
@@ -110,9 +116,9 @@ closeOver dependencies = go
       let step =
             [ determined
             | (determiners, determineds) <- dependencies,
-              all (`elem` reached) determiners,
+              all (\variable -> any (sameTyVar variable) reached) determiners,
               determined <- determineds,
-              determined `notElem` reached
+              not (any (sameTyVar determined) reached)
             ]
        in if null step then reached else go (reached <> step)
 
@@ -148,7 +154,17 @@ funDepConflictError classInfo headTypes otherHead dependency =
 
 -- | The source names of the class parameters at the given positions.
 funDepNames :: ClassInfo -> [Int] -> [Text]
-funDepNames classInfo positions = map tvName (atPositions positions (ciTyVars classInfo))
+funDepNames classInfo positions = map tvName (atPositions positions (ciTyVars classInfo <> ciKindTyVars classInfo))
+
+-- | Visible parameters come first. Implicit kind parameters follow them.
+classDependencyArguments :: ClassInfo -> [TcType] -> TcM [TcType]
+classDependencyArguments info arguments
+  | null (ciKindTyVars info) = pure arguments
+  | otherwise = do
+      actualKinds <- mapM (tcTypeKind >=> zonkKind) arguments
+      formalKinds <- mapM (zonkKind . tvKind) (ciTyVars info)
+      let substitution = fromMaybe Map.empty (matchTypes formalKinds actualKinds)
+      pure (arguments <> map (applySubst substitution . TcTyVar) (ciKindTyVars info))
 
 -- | The elements at the given positions. A position that the list does not
 -- reach contributes nothing.

@@ -292,14 +292,15 @@ solveNormalizedDict visited givens ct
                 Nothing -> pure Nothing
                 Just info -> do
                   kinds <- getKinds
-                  let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
-                      fieldTypes = classFieldTypes info substitution
+                  let visibleSubstitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
+                  substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+                  let fieldTypes = classFieldTypes info substitution
                   case traverse (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info) of
                     Just superClasses -> do
                       -- A superclass is compared in the same normal form as
                       -- the wanted: families reduced, and a family-headed
                       -- one irreducible rather than a class predicate.
-                      normalized <- mapM (normalizeFamilyPred <=< reducePredFamilies) superClasses
+                      normalized <- mapM normalizeGiven superClasses
                       searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 normalized
                     Nothing -> pure Nothing
         _ -> pure Nothing
@@ -461,15 +462,17 @@ solveNormalizedDict visited givens ct
                     Nothing -> pure Nothing
                     Just info -> do
                       kinds <- getKinds
-                      let classSubstitution =
+                      let visibleSubstitution =
                             Map.fromList
                               [ (tvUnique variable, argument)
                               | (variable, argument) <- zip (ciTyVars info) sourceArguments
                               ]
-                          fieldTypes = classFieldTypes info classSubstitution
+                      classSubstitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+                      let fieldTypes = classFieldTypes info classSubstitution
                       case traverse (constraintTypeToPred kinds . applySubst classSubstitution) (ciSuperClassTypes info) of
                         Nothing -> pure Nothing
-                        Just superClasses ->
+                        Just superClasses -> do
+                          normalized <- mapM normalizeGiven superClasses
                           searchQuantifiedSuperClasses
                             visited'
                             target
@@ -480,7 +483,7 @@ solveNormalizedDict visited givens ct
                             (ciOrigin info)
                             fieldTypes
                             0
-                            superClasses
+                            normalized
             _ -> pure Nothing
 
     searchQuantifiedSuperClasses _ _ _ _ _ _ _ _ _ [] = pure Nothing

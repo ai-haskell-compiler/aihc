@@ -13,14 +13,13 @@ annotated:
        │     └─ type: ∀ a. a → Q a
        └─ type: Type → Type
   class IsCode q a c where
-  └─ class methods: toCode ∷ ∀ q a c. (IsCode q a c) ⇒ c → Code q a
+  └─ class methods: toCode ∷ ∀ k0 q a c. (IsCode q a c) ⇒ c → Code q a
     toCode   :: c -> Code q a
   instance texp ~ TExp a => IsCode Q a (Q texp) where
-  └─ $fIsCodeQaQtexp ∷ ∀ texp a. (texp ~ (TExp a)) ⇒ IsCode Q a (Q texp)
+  └─ $fIsCodeQaQtexp ∷ ∀ texp k0 a. (texp ~ (TExp a)) ⇒ IsCode Q a (Q texp)
     toCode   = Code
-    │          └─ type: Q (TExp a) → Code Q a; type-args: Type, Q, a
+    │          └─ type: Q (TExp a) → Code Q a; type-args: k0, Q, a
     └─ toCode ∷ Q texp → Code Q a
-  
 extensions: [DataKinds, KindSignatures, FlexibleInstances, MultiParamTypeClasses, PolyKinds, TypeOperators, UndecidableInstances]
 modules:
 - |

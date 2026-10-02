@@ -210,7 +210,10 @@ reduceHead ty =
                 Nothing -> do
                   equations <- familyEquations tyCon
                   family <- isTypeFamilyTyCon
-                  case firstEquation family equations familyArguments of
+                  kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
+                  let kindOf = either (const Nothing) Just . typeKindInEnv kinds kindEnv
+                      argumentKinds = either (const Nothing) (Just . take (length familyArguments) . tcVisibleArgumentKinds) (typeApplicationKinds kinds kindEnv tyCon familyArguments Nothing)
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf equations familyArguments actualKinds extraArguments of
                     Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
                     Nothing -> pure ty
         _ -> pure ty
@@ -249,6 +252,7 @@ familyEquations tyCon =
     isEquationOf info =
       case tfiiLeft info of
         TcTyCon familyTyCon _ -> familyTyCon == tyCon
+        TcKindedTyCon familyTyCon _ -> familyTyCon == tyCon
         _ -> False
 
 -- | The index of an equation in its family. The axiom name ends with it.
@@ -264,24 +268,37 @@ axiomIndex info =
 -- arguments either: it may still match once a stuck family application
 -- or a type variable in them is known, and the equations after it are
 -- only reached when it cannot.
-firstEquation :: (TyCon -> Bool) -> [TypeFamilyInstanceInfo] -> [TcType] -> Maybe TcType
-firstEquation family equations arguments =
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe TcType
+firstEquation family kindOf equations arguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
       case equationArguments equation of
         Just patterns
-          | Just substitution <- matchTypes patterns arguments ->
-              Just (applySubst substitution (tfiiRight equation))
+          | Just patternKinds <- traverse kindOf patterns,
+            Just kindSubstitution <- matchTypes patternKinds argumentKinds,
+            Just substitution <- matchTypes patterns arguments,
+            Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution) ->
+              Just (applySubst (substitution <> kindSubstitution <> resultSubstitution) (tfiiRight equation))
           | tfiiClosed equation,
-            and (zipWith (couldUnify family) patterns arguments) ->
+            and (zipWith (couldUnify family) patterns arguments),
+            maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family rest arguments
+        _ -> firstEquation family kindOf rest arguments argumentKinds extraArguments
+  where
+    matchResultKinds _ _ | null extraArguments = Just Map.empty
+    matchResultKinds equation substitution = do
+      resultKind <- applySubst substitution <$> kindOf (tfiiLeft equation)
+      extraKinds <- traverse kindOf extraArguments
+      matchTypes (take (length extraKinds) (argumentKindsOf resultKind)) extraKinds
+    argumentKindsOf (TcFunTy argument result) = argument : argumentKindsOf result
+    argumentKindsOf _ = []
 
 equationArguments :: TypeFamilyInstanceInfo -> Maybe [TcType]
 equationArguments info =
   case tfiiLeft info of
     TcTyCon _ patterns -> Just patterns
+    TcKindedTyCon {} -> Just []
     _ -> Nothing
 
 -- | Whether a pattern could match a type once more is known about it.
