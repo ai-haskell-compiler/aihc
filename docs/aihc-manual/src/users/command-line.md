@@ -53,6 +53,24 @@ aihc install PACKAGE [OPTIONS]
 | `--verbose` | Print each installation step. |
 | `--print-timings` | Print the time of each compiler stage. |
 
+## Progress output
+
+`aihc build` and `aihc install` write their progress to the standard error stream.
+The result goes to the standard output stream: the store entry of an install, or the path of each executable.
+
+When the standard error stream is a terminal, the commands show a live view.
+The view starts with the plan: the number of packages and executables, and their names.
+Below the plan, a small frame redraws in place.
+Its first line has a bar of all the modules of the plan, and counts the packages that are complete, the busy threads, and the time.
+The next lines name the packages that received work last, several to a line, each with its compiled module count.
+The last line counts the packages that the store holds, the running tasks of each kind, the other packages that compile, and the packages that wait.
+A package that is complete stays on the screen above the frame, with its module count and its time.
+
+When the standard error stream is not a terminal, the commands write one line for each step.
+The lines name the plan, each package that the store holds, each package that builds, each executable that links, and each item that is complete.
+Set `NO_COLOR` to remove the colors from the live view.
+Set `TERM=dumb` to get the plain lines on a terminal.
+
 ## Dependency plans
 
 `aihc build`, `aihc install`, and `aihc plan` solve the dependency plan of a package.

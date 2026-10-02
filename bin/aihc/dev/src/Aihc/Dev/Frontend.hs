@@ -53,6 +53,7 @@ import Aihc.Cli.Install
     unitLabel,
     wiredInterfaceModules,
   )
+import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph (Task (..), TaskId (..), TaskKind (..), renderDuration, runTaskGraph)
 import Aihc.Hackage.Cabal qualified as HackageCabal
@@ -203,7 +204,8 @@ runFrontend options = do
             compileHeaderDirectory = headerDirectory,
             compileVerbose = when (frontendVerbose options) . hPutStrLn stderr,
             compilePrintTimings = const (pure ()),
-            compileUseColor = False
+            compileUseColor = False,
+            compileProgress = quietProgress stderr
           }
   (_, totals) <-
     foldM

@@ -17,6 +17,7 @@
 -- packages below them, and then each executable is linked.
 module Aihc.Cli.Build
   ( build,
+    buildWith,
     runBuild,
   )
 where
@@ -33,12 +34,14 @@ import Aihc.Cli.Install
     installExecutables,
     installTargetRoot,
     newModuleCompileConfig,
+    planProgressItems,
     planRequestFor,
     sourceFileModuleName,
   )
 import Aihc.Cli.Link (linkCompiledExecutable)
 import Aihc.Cli.Options (BuildOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
+import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), quietProgress, withProgress)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
@@ -59,12 +62,19 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import System.Directory (canonicalizePath, doesFileExist, getCurrentDirectory)
 import System.FilePath (dropExtension, (<.>), (</>))
+import System.IO (stderr, stdout)
 
+-- | Build with the progress on stderr, and name each output on stdout.
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
-  outputs <- build options
+  outputs <- withProgress stderr (`buildWith` options)
   let label = if buildNoLink options then "bundle: " else "executable: "
   mapM_ (putStrLn . (label <>)) outputs
+
+-- | Build without progress. The verbose messages go to stdout. A library
+-- caller, such as a test, uses this entry point.
+build :: BuildOptions -> IO [FilePath]
+build = buildWith (quietProgress stdout)
 
 -- | One executable of a build: what the install graph compiles, and where
 -- the executable or its link bundle goes.
@@ -76,15 +86,16 @@ data ExecutableTarget = ExecutableTarget
 -- | Build what the input names and return the paths of the executables, or
 -- of their link bundles with @--no-link@. An existing file is a main
 -- module; everything else is a package.
-build :: BuildOptions -> IO [FilePath]
-build options = do
+buildWith :: ProgressReporter -> BuildOptions -> IO [FilePath]
+buildWith reporter options = do
   isFile <- doesFileExist (buildInput options)
   when (isFile && not (null (buildExecutables options))) $
     ioError (userError "--executable selects the executables of a package, and a main module is one executable")
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   let target = buildTarget options
       targetDirectory = nativeTargetStoreDirectory target
-      verbose message = when (buildVerbose options) (putStrLn message)
+      report = progressReport reporter
+      verbose message = when (buildVerbose options) (report (ProgressLog message))
   levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options) (buildOptimization options)
   let config =
         levelConfig
@@ -94,14 +105,21 @@ build options = do
             compileKeepNative = buildKeepNative options,
             compileLint = buildLint options,
             compileCheckPrimBounds = buildCheckPrimBounds options,
-            compileVerbose = verbose
+            compileVerbose = verbose,
+            compileUseColor = progressColor reporter,
+            compileProgress = reporter
           }
   (locations, targets) <-
     (if isFile then mainModuleTarget else packageTargets) options config (storeRoot </> targetDirectory)
-  compiled <- installExecutables config locations (map executableComponent targets)
+  let components = map executableComponent targets
+  report (ProgressPlan (planProgressItems (concatMap componentDependencies components) <> map componentItem components))
+  compiled <- installExecutables config locations components
   forM (zip targets compiled) $ \(executable, compiledExecutable) -> do
     let output = executableOutput executable
-    linkCompiledExecutable config (buildNoLink options) (componentOutputRoot (executableComponent executable)) output compiledExecutable
+        component = executableComponent executable
+    report (ProgressLink (componentItem component))
+    linkCompiledExecutable config (buildNoLink options) (componentOutputRoot component) output compiledExecutable
+    report (ProgressDone (componentItem component))
     pure output
 
 -- | The executable of a main module. Its modules build under the build
@@ -181,6 +199,7 @@ packageTargets options config storeTargetRoot = do
               componentSourceRoot = root,
               componentOutputRoot = outputRoot,
               componentDependencies = rootedPlans,
+              componentItem = ItemExecutable (T.pack name),
               componentInputs = \packages -> do
                 -- The main module is the module that the @main-is@ file
                 -- declares, as MicroHs builds it. GHC instead needs

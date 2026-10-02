@@ -16,6 +16,7 @@ import Aihc.Cli.Install
   )
 import Aihc.Cli.Options (BuildOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
+import Aihc.Cli.Progress (ProgressItem (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Package (PackageName, VersionRange, anyVersion, mkPackageName, parseDependencyString, unPackageName)
 import Aihc.PackagePlan (PackagePlan, PlanRequest (..), PlannedPackages (..), canonicalPackageName, planPackages)
@@ -41,7 +42,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (dropExtension, takeDirectory, takeFileName, (</>))
 
 data PackageConstraint = PackageConstraint
   { constraintName :: !Text,
@@ -87,6 +88,9 @@ mainModuleExecutable options sourceRoot outputRoot request = do
         componentSourceRoot = sourceRoot,
         componentOutputRoot = outputRoot,
         componentDependencies = plans,
+        -- The executable is named as its file is, with the extension of
+        -- the main module removed.
+        componentItem = ItemExecutable (T.pack (takeFileName (fromMaybe (dropExtension (buildInput options)) (buildOutput options)))),
         componentInputs = \packages -> do
           let moduleIndex = buildInstalledModuleIndex packages
           sources <- discoverSources sourceDirectories moduleIndex (buildInput options)
