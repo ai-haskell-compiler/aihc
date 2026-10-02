@@ -416,7 +416,8 @@ simplifyValue config known recursive st name
                             spRules = inRules st,
                             spCredit = credit,
                             spInside = False,
-                            spCredits = snd (callArityAnalysis credit False body)
+                            spCredits = snd (callArityAnalysis credit False body),
+                            spSpeculative = False
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less
