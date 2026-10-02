@@ -18,3 +18,9 @@ class IsList l where
   toList :: l -> [Item l]
 
   fromListN _ = fromList
+
+instance IsList [a] where
+  type Item [a] = a
+  fromList xs = xs
+  fromListN _ xs = xs
+  toList xs = xs
