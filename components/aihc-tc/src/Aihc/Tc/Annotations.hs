@@ -8,6 +8,7 @@
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
+    TcPatternInstantiation (..),
     TcCastAnnotation (..),
     PendingTcCastAnnotation (..),
     CastDirection (..),
@@ -136,6 +137,10 @@ annotateSigCast ty evidence =
 annotateDoStmtCast :: TcType -> EvVar -> DoStmt body -> DoStmt body
 annotateDoStmtCast ty evidence =
   DoAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | The next type annotation describes an application of the scrutinee.
+data TcPatternInstantiation = TcPatternInstantiation
+  deriving (Eq, Show)
 
 -- | Annotation attached to AST nodes by the type checker.
 --

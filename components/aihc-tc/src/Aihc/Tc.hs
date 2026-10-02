@@ -276,6 +276,7 @@ typecheckModuleWithState config st unit =
         { tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
           tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions,
           tcEnvScopedTypeVariables = ScopedTypeVariables `elem` enabledExtensions,
+          tcEnvUndecidableInstances = UndecidableInstances `elem` enabledExtensions,
           tcEnvPostfixOperators = PostfixOperators `elem` enabledExtensions
         }
     enabledExtensions = moduleUnitExtensions unit

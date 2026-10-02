@@ -26,7 +26,7 @@ where
 
 import Aihc.Tc.Constraint (Ct (..))
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
-import Aihc.Tc.FunDep (atPositions)
+import Aihc.Tc.FunDep (atPositions, classDependencyArguments)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, getClassInstances, getKinds, lookupClass)
 import Aihc.Tc.Types
@@ -122,23 +122,25 @@ improveConstraint givens siblings constraint info = do
   siblingPredicates <- mapM zonkPred siblings
   forM_ (ciFunDeps info) $ \dependency -> do
     forM_ (givens <> siblingPredicates) $ \other ->
-      improveFromPredicate (ciTyCon info) dependency constraint other
-    improveFromInstances (ciTyCon info) dependency constraint
+      improveFromPredicate info dependency constraint other
+    improveFromInstances info dependency constraint
 
 -- | Improve a wanted from another class constraint of the same class.
-improveFromPredicate :: TyCon -> FunDep -> Pred -> Pred -> TcM ()
-improveFromPredicate className dependency constraint other =
+improveFromPredicate :: ClassInfo -> FunDep -> Pred -> Pred -> TcM ()
+improveFromPredicate info dependency constraint other =
   case other of
     ClassPred otherClass otherArguments
-      | tyConKey otherClass == tyConKey className -> do
+      | tyConKey otherClass == tyConKey (ciTyCon info) -> do
           predicate <- zonkPred constraint
           case predicate of
-            ClassPred _ arguments ->
-              case agreeTypes Map.empty (determiners dependency arguments) (determiners dependency otherArguments) of
+            ClassPred _ arguments -> do
+              arguments' <- classDependencyArguments info arguments
+              otherArguments' <- classDependencyArguments info otherArguments
+              case agreeTypes Map.empty (determiners dependency arguments') (determiners dependency otherArguments') of
                 Just substitution ->
                   improveEqualities
-                    (map (substituteMetas substitution) (determined dependency arguments))
-                    (map (substituteMetas substitution) (determined dependency otherArguments))
+                    (map (substituteMetas substitution) (determined dependency arguments'))
+                    (map (substituteMetas substitution) (determined dependency otherArguments'))
                 Nothing -> pure ()
             _ -> pure ()
     _ -> pure ()
@@ -157,25 +159,21 @@ improveFromPredicate className dependency constraint other =
 -- Such an instance says nothing about the wanted on its own, so it improves
 -- nothing; the constraint its context states does the determining once the
 -- instance is selected.
-improveFromInstances :: TyCon -> FunDep -> Pred -> TcM ()
-improveFromInstances className dependency constraint = do
-  instances <- getClassInstances className
+improveFromInstances :: ClassInfo -> FunDep -> Pred -> TcM ()
+improveFromInstances info dependency constraint = do
+  instances <- getClassInstances (ciTyCon info)
   forM_ instances $ \instanceInfo -> do
     predicate <- zonkPred constraint
     case predicate of
-      ClassPred _ arguments
-        | Just substitution <-
-            matchTypes
-              (determiners dependency (iiHead instanceInfo))
-              (determiners dependency arguments) -> do
-            let instanceDetermined =
-                  map (applySubst substitution) (determined dependency (iiHead instanceInfo))
-                undetermined =
-                  any
-                    (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined)
-                    (iiTyVars instanceInfo)
-            unless undetermined $
-              improveEqualities instanceDetermined (determined dependency arguments)
+      ClassPred _ arguments -> do
+        arguments' <- classDependencyArguments info arguments
+        instanceHead <- classDependencyArguments info (iiHead instanceInfo)
+        case matchTypes (determiners dependency instanceHead) (determiners dependency arguments') of
+          Just substitution -> do
+            let instanceDetermined = map (applySubst substitution) (determined dependency instanceHead)
+                undetermined = any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
+            unless undetermined $ improveEqualities instanceDetermined (determined dependency arguments')
+          Nothing -> pure ()
       _ -> pure ()
 
 determiners :: FunDep -> [TcType] -> [TcType]

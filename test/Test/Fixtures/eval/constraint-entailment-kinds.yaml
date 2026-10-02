@@ -1,0 +1,24 @@
+extensions: [ConstraintKinds, DataKinds, GADTs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, DataKinds, GADTs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeOperators #-}
+    module Test where
+    import GHC.Types (Constraint)
+    import GHC.TypeNats
+    import Unsafe.Coerce
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    newtype Sub a b = Sub (a => Dict b)
+    unsafeAxiom :: Dict c
+    unsafeAxiom = unsafeCoerce (Dict :: Dict (() ~ ()))
+    monotone :: forall a b c. Sub (a <= b) (a + c <= b + c)
+    monotone = Sub unsafeAxiom
+    equalLess :: forall (a :: Nat) (b :: Nat). Sub (a ~ b) (a <= b)
+    equalLess = Sub Dict
+    reflexive :: forall (a :: Nat). Dict (a <= a)
+    reflexive = Dict
+expression: "True"
+output: |
+  True
+status: pass
+reason: Entailment uses natural-number kinds and equality evidence.

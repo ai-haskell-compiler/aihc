@@ -173,6 +173,8 @@ zonkEvTerm evTerm =
       EvDict origin name <$> mapM finalizeType typeArgs <*> mapM zonkEvTerm evidence
     EvCoercible constructor left right ->
       EvCoercible constructor <$> finalizeType left <*> finalizeType right
+    EvEqualityDict constructor left right proof ->
+      EvEqualityDict constructor <$> finalizeType left <*> finalizeType right <*> zonkCoercion proof
     EvCoercion coercion ->
       EvCoercion <$> zonkCoercion coercion
     EvSuperClass evidence sourceOrigin sourcePredicate fieldTypes index ->
@@ -378,6 +380,8 @@ firstMetaEvTerm evTerm =
       firstJusts (map firstMetaType typeArgs ++ map firstMetaEvTerm evidence)
     EvCoercible _ left right ->
       firstMetaType left <|> firstMetaType right
+    EvEqualityDict _ left right proof ->
+      firstMetaType left <|> firstMetaType right <|> firstMetaCoercion proof
     EvCoercion coercion ->
       firstMetaCoercion coercion
     EvSuperClass evidence _ sourcePredicate fieldTypes _ ->

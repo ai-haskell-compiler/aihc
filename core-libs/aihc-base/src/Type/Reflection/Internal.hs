@@ -1,8 +1,11 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
@@ -13,6 +16,7 @@
 module Type.Reflection.Internal
   ( Typeable (..),
     TypeRep,
+    withTypeable,
     (:~~:) (..),
     pattern Con,
     pattern Con',
@@ -375,3 +379,9 @@ runtimeRepresentationList values =
    in case values of
         [] -> SomeTypeRep (TypeRep (constructor "[]" listKind) [element] [] :: TypeRep ())
         x : xs -> SomeTypeRep (TypeRep (constructor ":" (KindRepFun (KindRepVar 0) (KindRepFun listKind listKind))) [element] [runtimeRepresentation x, runtimeRepresentationList xs] :: TypeRep ())
+
+-- | Supply class evidence from a type representation.
+withTypeable :: forall k (a :: k) r. TypeRep a -> ((Typeable a) => r) -> r
+withTypeable = withTypeableValue# @k @a
+
+foreign import prim "withTypeableValue#" withTypeableValue# :: forall k (a :: k) r. TypeRep a -> ((Typeable a) => r) -> r

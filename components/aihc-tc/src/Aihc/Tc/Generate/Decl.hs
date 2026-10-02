@@ -154,7 +154,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_)
+import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
@@ -904,9 +904,12 @@ declarationTypeKeys declaration =
 generalizeDeclarationKinds :: [(Text, Text)] -> Set.Set TcTypeKey -> TcM ()
 generalizeDeclarationKinds polyKindOrigins keys = do
   state <- lift get
-  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
+  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon, ClassTyCon, TypeFamilyTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
   generalized <- traverse generalizeDataKindInfo constructors
-  lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current})
+  let updateClass info = case Map.lookup (tyConKey (ciTyCon info)) generalized of
+        Just constructor -> info {ciKindTyVars = case tciKindScheme constructor of ForAll variables _ _ -> variables}
+        Nothing -> info
+  lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current, tcsClasses = Map.map updateClass (tcsClasses current)})
 
 generalizeDataKindInfo :: TyConInfo -> TcM TyConInfo
 generalizeDataKindInfo info = do
@@ -1074,8 +1077,8 @@ defaultGlobalKindMetas initialKeys = do
       kindTyVars <- mapM defaultTyVarKinds (ciKindTyVars info)
       tyVars <- mapM defaultTyVarKinds (ciTyVars info)
       superClassTypes <- mapM defaultTypeKinds (ciSuperClassTypes info)
-      methods <- mapM (traverse defaultTypeSchemeKinds) (ciMethods info)
-      defaultSignatures <- mapM (traverse defaultTypeSchemeKinds) (ciDefaultSignatures info)
+      methods <- mapM (traverse (fmap withInventedKindVariables . defaultTypeSchemeKinds)) (ciMethods info)
+      defaultSignatures <- mapM (traverse (fmap withInventedKindVariables . defaultTypeSchemeKinds)) (ciDefaultSignatures info)
       pure
         info
           { ciKindTyVars = kindTyVars,
@@ -1102,15 +1105,15 @@ defaultGlobalKindMetas initialKeys = do
             dfiiTyVars = tyVars
           }
     defaultTypeFamilyInstanceKinds info = do
-      -- An equation of a kind-polymorphic family quantifies the kinds it
-      -- leaves open, as a signature does: @OrdCond 'LT lt eq gt = lt@
-      -- must match at every kind. The solver matches types and ignores
-      -- kinds, so it never noticed; the System FC axiom matches the kind
-      -- argument too, and defaulting it to 'Type' confined the axiom to
-      -- that kind.
+      -- Keep the kind variables from the family declaration in each equation.
+      -- A standalone kind signature can supply them without PolyKinds.
       let (package, moduleName') = tfiiOrigin info
       polyKinds <- isPolyKindOrigin (packageIdText package, moduleName')
-      when polyKinds (generalizeTyVarKinds (tfiiTyVars info))
+      familyInfo <- maybe (pure Nothing) lookupTyConByIdentity (typeFamilyApplicationHead (tfiiLeft info))
+      let hasKindVariables = case tciKindScheme <$> familyInfo of
+            Just (ForAll variables _ _) -> not (null variables)
+            Nothing -> False
+      when (polyKinds || hasKindVariables) (generalizeTyVarKinds (tfiiTyVars info))
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
       left <- defaultTypeKinds (tfiiLeft info)
       right <- defaultTypeKinds (tfiiRight info)
@@ -1946,9 +1949,8 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       dictName <- lookupInstanceDictName origin (ciTyCon info) headTys
-      headKinds <- mapM tcTypeKind headTys
-      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
-          classSubstitution =
+      kindSubstitution <- instanceKindSubstitution info headTys
+      let classSubstitution =
             Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys] <> kindSubstitution
           superClassTypes = map (applySubst classSubstitution) (ciSuperClassTypes info)
           defaults = ciDefaultMethods info
@@ -2438,16 +2440,23 @@ instanceMethodScheme :: Map Text TypeScheme -> Text -> TcM TypeScheme
 instanceMethodScheme schemes methodName =
   maybe (missingTypeInfo ("class method " <> T.unpack methodName)) pure (Map.lookup methodName schemes)
 
+instanceKindSubstitution :: ClassInfo -> [TcType] -> TcM (Map Unique TcType)
+instanceKindSubstitution info arguments = do
+  formalKinds <- mapM (zonkKind . tvKind) (ciTyVars info)
+  actualKinds <- mapM (tcTypeKind >=> zonkKind) arguments
+  let initial = Map.unions [fromMaybe Map.empty (matchTypes [formal] [actual]) | (formal, actual) <- zip formalKinds actualKinds]
+  zipWithM_ unifyKinds (map (applySubst initial) formalKinds) actualKinds
+  resolvedKinds <- mapM zonkKind actualKinds
+  pure (fromMaybe initial (matchTypes formalKinds resolvedKinds))
+
 methodExpectedScheme :: ClassInfo -> [TcType] -> Text -> TcM TypeScheme
 methodExpectedScheme classInfo headTys methodName =
   case lookup methodName (ciMethods classInfo) of
     Just (Scheme inferred specified predicates body) ->
       case splitClassReceiver predicates headTys of
         Just (receiverSubst, methodPredicates) -> do
-          headKinds <- mapM tcTypeKind headTys
-          let classKinds = map tvKind (ciTyVars classInfo)
-              kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
-              subst = receiverSubst <> kindSubst
+          kindSubst <- instanceKindSubstitution classInfo headTys
+          let subst = receiverSubst <> kindSubst
               -- A binder that stays quantified can still mention a class
               -- kind variable in its kind: @p :: k -> Type@ in
               -- @class HasResolution (a :: k) where resolution :: p a -> Integer@.
@@ -3980,7 +3989,14 @@ registerClassDecl origin classDecl = do
       <$> mapM
         (registerAssociatedTypeFamily origin (map tyVarBinderName params) (classDeclTypeFamilyDefaults classDecl))
         (classDeclTypeFamilies classDecl)
-  funDeps <- catMaybes <$> mapM (checkClassFunDep className (map tyVarBinderName params)) (classDeclFundeps classDecl)
+  forM_ associatedTypes $ \associated -> do
+    familyInfo <- lookupTyConByIdentity (atiTyCon associated)
+    forM_ familyInfo $ \info -> do
+      body <- zonkKind (typeSchemeBody (tciKindScheme info))
+      let ForAll variables predicates _ = tciKindScheme info
+          kindScheme = specifiedScheme (uniqueKindVariables (variables <> freeKindVariables body)) predicates body
+      storeTyConInfo info {tciKindScheme = kindScheme}
+  funDeps <- catMaybes <$> mapM (checkClassFunDep className (map tyVarBinderName params <> map paramName kindParams)) (classDeclFundeps classDecl)
   addClass
     ClassInfo
       { ciName = className,
@@ -4288,9 +4304,23 @@ lookupInstanceDictName origin classTyCon headTys = do
           -- Both directions preserve type structure and permit fresh type variables.
           && isJust (matchTypes (iiHead info) headTys)
           && isJust (matchTypes headTys (iiHead info))
-  case find matches instances of
+  matched <- filterM sameKinds (filter matches instances)
+  case listToMaybe matched of
     Just info -> pure (iiDictName info)
     Nothing -> allocateInstanceDictName origin (tyConName classTyCon) headTys
+  where
+    sameKinds info = do
+      forward <- matchedVariableKinds (iiHead info) headTys
+      backward <- matchedVariableKinds headTys (iiHead info)
+      pure (forward && backward)
+    matchedVariableKinds patterns targets = case matchTypes patterns targets of
+      Nothing -> pure False
+      Just substitution -> do
+        let variables = concatMap typeTyVars patterns
+            pairs = [(variable, target) | variable <- variables, Just target <- [Map.lookup (tvUnique variable) substitution]]
+        patternKinds <- mapM (zonkKind . tvKind . fst) pairs
+        targetKinds <- mapM ((tcTypeKind >=> zonkKind) . snd) pairs
+        pure (isJust (matchTypes patternKinds targetKinds))
 
 typeConstructorModule :: TcType -> Maybe Text
 typeConstructorModule ty =
@@ -4458,7 +4488,9 @@ sourceTypeFamilyAxiomName home ty = "$ax$" <> sourceTypeKey home ty
 
 sourceTypeKey :: (Text, Text) -> Type -> Text
 sourceTypeKey home ty =
-  case peelTypeHead ty of
+  case ty of
+    TParen inner -> sourceTypeKey home inner
+    TAnn _ inner -> sourceTypeKey home inner
     TCon name _ -> typeConKey home name
     TVar name -> unqualifiedNameText name
     TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
@@ -4473,7 +4505,7 @@ sourceTypeKey home ty =
     TTuple flavor _ arguments -> arguments `keyedUnder` (tupleFlavorKey flavor <> intKey (length arguments))
     TUnboxedSum arguments -> arguments `keyedUnder` ("Sum" <> intKey (length arguments))
     TStar {} -> "Star"
-    TKindSig inner _ -> sourceTypeKey home inner
+    TKindSig inner kind -> sourceTypeKey home inner <> "$Kind$" <> sourceTypeKey home kind
     _ -> "T"
   where
     arguments `keyedUnder` tag = T.concat (tag : [T.cons '$' (sourceTypeKey home argument) | argument <- arguments])
@@ -4833,8 +4865,10 @@ registerDataConstructors origin dataDecl = do
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors origin constructors
-      let tyVars = map paramTyVar paramInfos
-      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
+      let writtenTyVars = map paramTyVar paramInfos
+      declaredResultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar writtenTyVars))
+      (implicitTyVars, resultKind) <- implicitDataParameters declaredResultKind
+      let tyVars = writtenTyVars <> implicitTyVars
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -4847,6 +4881,16 @@ registerDataConstructors origin dataDecl = do
             dtiCType = cTypePragma (dataDeclCTypePragma dataDecl)
           }
       pure (bindings <> selectorBindings)
+
+-- | An inline GADT kind can give parameters that the data head omits.
+implicitDataParameters :: TcType -> TcM ([TyVarId], TcType)
+implicitDataParameters kind =
+  case kind of
+    TcFunTy argument result -> do
+      variable <- freshSkolemTv "$parameter"
+      (variables, resultKind) <- implicitDataParameters result
+      pure (setTyVarKind argument variable : variables, resultKind)
+    _ -> pure ([], kind)
 
 -- | Register a newtype declaration's type constructor and representation
 -- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at

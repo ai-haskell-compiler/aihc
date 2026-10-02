@@ -1,5 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
@@ -12,12 +15,6 @@
 -- GHC declares these in @GHC.Internal.TypeNats@ and re-exports them here.
 -- @aihc-internal@ depends on @aihc-base@ rather than the other way round,
 -- so the declarations live here and the internal module re-exports them.
---
--- @someNatVal@ and its @SomeNat@ are not here yet. GHC writes them by
--- coercing a constrained value to a function of its dictionary, which
--- relies on a single-method dictionary being represented as its method;
--- an aihc dictionary is a constructor around its fields instead, so the
--- coercion would be wrong. See @docs/type-level-naturals.md@.
 module GHC.TypeNats
   ( Natural,
     Nat,
@@ -27,6 +24,9 @@ module GHC.TypeNats
     natVal',
     SNat,
     fromSNat,
+    withKnownNat,
+    type (<=),
+    type (<=?),
     CmpNat,
     type (+),
     type (-),
@@ -38,6 +38,7 @@ module GHC.TypeNats
   )
 where
 
+import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
 import GHC.Types (Constraint, Ordering, Type)
@@ -105,3 +106,9 @@ newtype SNat n = UnsafeSNat Natural
 -- | The value a singleton stands for.
 fromSNat :: SNat n -> Natural
 fromSNat (UnsafeSNat value) = value
+
+-- | Supply class evidence from a singleton.
+withKnownNat :: forall n r. SNat n -> ((KnownNat n) => r) -> r
+withKnownNat (UnsafeSNat value) = withKnownNatValue# @n value
+
+foreign import prim "withKnownNatValue#" withKnownNatValue# :: forall n r. Natural -> ((KnownNat n) => r) -> r

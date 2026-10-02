@@ -9,10 +9,12 @@ module Aihc.Tc.TypeLitFamily
   ( typeLitFamilyModules,
     TypeLitValue (..),
     evaluateTypeLitFamily,
+    simplifyTypeLitFamily,
   )
 where
 
 import Aihc.Tc.Types (TyLit (..))
+import Data.Char (chr, ord)
 import Data.Text (Text)
 
 -- | The modules that declare the built-in families. A family of one of
@@ -24,6 +26,8 @@ typeLitFamilyModules = ["GHC.TypeNats", "GHC.TypeLits", "Data.Type.Ord"]
 -- | What a built-in family application reduces to.
 data TypeLitValue
   = TypeLitNatural !Integer
+  | TypeLitSymbol !Text
+  | TypeLitChar !Char
   | TypeLitOrdering !Ordering
   deriving (Eq, Show)
 
@@ -39,6 +43,9 @@ evaluateTypeLitFamily family arguments =
     ("CmpNat", [TyLitNat left, TyLitNat right]) -> ordering (compare left right)
     ("CmpSymbol", [TyLitSymbol left, TyLitSymbol right]) -> ordering (compare left right)
     ("CmpChar", [TyLitChar left, TyLitChar right]) -> ordering (compare left right)
+    ("AppendSymbol", [TyLitSymbol left, TyLitSymbol right]) -> Just (TypeLitSymbol (left <> right))
+    ("CharToNat", [TyLitChar value]) -> natural (toInteger (ord value))
+    ("NatToChar", [TyLitNat value]) | value >= 0 && value <= 0x10ffff -> Just (TypeLitChar (chr (fromInteger value)))
     ("+", [TyLitNat left, TyLitNat right]) -> natural (left + right)
     ("*", [TyLitNat left, TyLitNat right]) -> natural (left * right)
     -- Subtraction on naturals is partial, and a family that does not
@@ -63,3 +70,24 @@ evaluateTypeLitFamily family arguments =
     -- here needs one this large.
     exponentLimit = 10000
     integerLog2 value = toInteger (length (takeWhile (<= value) (iterate (* 2) 2)))
+
+-- | Apply identities that do not require all arguments to be literals.
+simplifyTypeLitFamily :: Text -> (a -> Maybe TyLit) -> (TyLit -> a) -> [a] -> Maybe a
+simplifyTypeLitFamily family literal build arguments =
+  case (family, arguments) of
+    ("AppendSymbol", [left, right])
+      | literal left == Just (TyLitSymbol "") -> Just right
+      | literal right == Just (TyLitSymbol "") -> Just left
+    ("+", [left, right])
+      | natural left 0 -> Just right
+      | natural right 0 -> Just left
+    ("-", [left, right]) | natural right 0 -> Just left
+    ("*", [left, right])
+      | natural left 0 || natural right 0 -> Just (build (TyLitNat 0))
+      | natural left 1 -> Just right
+      | natural right 1 -> Just left
+    ("^", [_, right]) | natural right 0 -> Just (build (TyLitNat 1))
+    ("^", [left, right]) | natural right 1 -> Just left
+    _ -> Nothing
+  where
+    natural value number = literal value == Just (TyLitNat number)

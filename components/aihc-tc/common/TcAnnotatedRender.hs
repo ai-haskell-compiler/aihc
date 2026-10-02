@@ -84,7 +84,7 @@ renderClassAnnotation classAnnotation =
         <> " → "
         <> unwords (map classParamName (fdDetermined dependency))
     classParamName index =
-      case drop index (tcClassTyVars classAnnotation) of
+      case drop index (tcClassTyVars classAnnotation <> tcClassKindTyVars classAnnotation) of
         variable : _ -> T.unpack (tvName variable)
         [] -> "?"
 
@@ -252,6 +252,7 @@ renderEvTerm ev =
       T.unpack name
         <> renderTypeArgs typeArgs
         <> renderEvidenceArgs evidence
+    EvEqualityDict _ left right _ -> "equality @" <> renderTcType left <> " @" <> renderTcType right
     EvCoercible _ left right -> "coercible @" <> renderTcType left <> " @" <> renderTcType right
     EvCoercion coercion -> renderCoercion coercion
     EvSuperClass evidence _ _ _ index -> "super[" <> show index <> "](" <> renderEvTerm evidence <> ")"

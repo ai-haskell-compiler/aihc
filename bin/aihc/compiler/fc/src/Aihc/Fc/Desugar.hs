@@ -74,6 +74,7 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     defaultMethodWorkerScheme,
+    isEqualityTyCon,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -621,7 +622,12 @@ convertClass env info = do
       dictName = classDictTypeName (ciTyCon info)
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (typeKind (ceKinds bindersEnv))
-  superFields <- mapM (convertType bindersEnv) (ciSuperClassTypes info)
+  superFields <-
+    if isEqualityTyCon (ceKinds env) (ciTyCon info)
+      then case ciTyVars info of
+        [left, right] -> (: []) <$> convertPred bindersEnv (EqPred (TcTyVar left) (TcTyVar right))
+        _ -> Left "equality class requires two parameters"
+      else mapM (convertType bindersEnv) (ciSuperClassTypes info)
   methodFields <- mapM (convertMethodField bindersEnv (ciName info) tyVars) (ciMethods info)
   let dictApp = foldl TyApp (TyCon dictName) (map (TyVar . binderName) binders)
       body = foldr (funType bindersEnv) dictApp (superFields <> methodFields)

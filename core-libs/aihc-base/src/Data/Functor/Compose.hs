@@ -9,7 +9,7 @@ where
 
 import Control.Applicative (Alternative (..))
 import Data.Foldable (Foldable (..))
-import Data.Functor.Classes (Eq1 (..), Ord1 (..))
+import Data.Functor.Classes (Eq1 (..), Ord1 (..), Read1 (..), Show1 (..))
 import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
 import Data.Semigroup (Semigroup (..))
@@ -71,3 +71,13 @@ wrapComposeReads ((value, rest) : results) = (Compose value, rest) : wrapCompose
 
 foldComposeRight :: (Foldable g) => (a -> b -> b) -> g a -> b -> b
 foldComposeRight f inner rest = foldr f rest inner
+
+instance (Show1 f, Show1 g) => Show1 (Compose f g) where
+  liftShowsPrec sp sl precedence (Compose value) =
+    showParen
+      (precedence > 10)
+      (showString "Compose " . liftShowsPrec (liftShowsPrec sp sl) (liftShowList sp sl) 11 value)
+
+instance (Read1 f, Read1 g) => Read1 (Compose f g) where
+  liftReadsPrec rp rl precedence = readParen (precedence > 10) $ \input ->
+    [(Compose value, rest) | (name, afterName) <- lex input, name == "Compose", (value, rest) <- liftReadsPrec (liftReadsPrec rp rl) (liftReadList rp rl) 11 afterName]

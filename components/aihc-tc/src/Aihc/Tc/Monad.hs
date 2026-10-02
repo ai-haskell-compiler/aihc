@@ -413,8 +413,7 @@ mkWiredTyCon tyCon kind = do
 -- the later stages need no special case for it. A representation becomes
 -- the lifted one, as GHC defaults it. A variable of each other kind, such
 -- as the @v :: Type -> Type@ that a phantom parameter leaves open, becomes
--- @Any@ at that kind. Its kind argument is invisible, so the place that
--- the type fills gives the kind.
+-- @Any@ at that kind. The checked type retains its implicit kind argument.
 undeterminedTypeOfKind :: TcType -> TcM TcType
 undeterminedTypeOfKind kind = do
   kinds <- getKinds
@@ -425,12 +424,9 @@ undeterminedTypeOfKind kind = do
     KRuntimeRep -> pure (liftedRep kinds)
     _ -> do
       anyTyCon <- anyTyConOfWiring
-      pure (TcTyCon anyTyCon [])
+      pure (TcKindedTyCon anyTyCon [kind])
 
--- | The type family @Any :: forall k. k@ of the wiring, with its kind
--- registered on first use. The kind argument is invisible, so the result
--- has no arguments: a use gets its kind from the place that it fills, as
--- a use that the source spells does.
+-- | Register the kind of the type family @Any :: forall k. k@ on first use.
 anyTyConOfWiring :: TcM TyCon
 anyTyConOfWiring = do
   wired <- wiredTyConIdentity tcWiringAnyTyCon

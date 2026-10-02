@@ -18,37 +18,37 @@ annotated:
   │        └─ type: a
   └─ type: ∀ a. a → a
   class BifunctorFunctor t where
-  └─ class methods: bifmap ∷ ∀ t p q a b. (BifunctorFunctor t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
+  └─ class methods: bifmap ∷ ∀ k0 k1 k2 k3 t p q a b. (BifunctorFunctor t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
     bifmap :: (p :-> q) -> t p :-> t q
   class BifunctorFunctor t => BifunctorMonad t where
-  └─ class methods: bireturn ∷ ∀ t p a b. (BifunctorMonad t) ⇒ p a b → t p a b, bibind ∷ ∀ t p q a b. (BifunctorMonad t) ⇒ (∀ a b. p a b → t q a b) → t p a b → t q a b, bijoin ∷ ∀ t p a b. (BifunctorMonad t) ⇒ t (t p) a b → t p a b
+  └─ class methods: bireturn ∷ ∀ k0 k1 t p a b. (BifunctorMonad t) ⇒ p a b → t p a b, bibind ∷ ∀ k0 k1 t p q a b. (BifunctorMonad t) ⇒ (∀ a b. p a b → t q a b) → t p a b → t q a b, bijoin ∷ ∀ k0 k1 t p a b. (BifunctorMonad t) ⇒ t (t p) a b → t p a b
     bireturn :: p :-> t p
     bibind :: (p :-> t q) -> t p :-> t q
     bibind f = compose bijoin (bifmap f)
-    │      │   │       │       └─ type: (∀ a b. p a b → t q a b) → t p a b → t (t q) a b; type-args: t, p, t q, a, b; evidence: super[0](given BifunctorMonad t)
+    │      │   │       │       └─ type: (∀ a b. p a b → t q a b) → t p a b → t (t q) a b; type-args: k0, k1, k0, k1, t, p, t q, a, b; evidence: super[0](given BifunctorMonad t)
     │      │   │       │       └─ type: ∀ a b. p a b → t q a b
     │      │   │       │       └─ type: p a b → t q a b; type-args: a, b
-    │      │   │       └─ type: t (t q) a b → t q a b; type-args: t, q, a, b; evidence: given BifunctorMonad t
+    │      │   │       └─ type: t (t q) a b → t q a b; type-args: k0, k1, t, q, a, b; evidence: given BifunctorMonad t
     │      │   └─ type: (t (t q) a b → t q a b) → (t p a b → t (t q) a b) → t p a b → t q a b; type-args: t (t q) a b, t q a b, t p a b
     │      └─ type: ∀ a b. p a b → t q a b
-    └─ bibind ∷ ∀ t p q a b. (BifunctorMonad t) ⇒ (∀ a b. p a b → t q a b) → t p a b → t q a b
+    └─ bibind ∷ ∀ k0 k1 t p q a b. (BifunctorMonad t) ⇒ (∀ a b. p a b → t q a b) → t p a b → t q a b
     bijoin :: t (t p) :-> t p
     bijoin = bibind identity
-    │        └─ type: (∀ a b. t p a b → t p a b) → t (t p) a b → t p a b; type-args: t, t p, p, a, b; evidence: given BifunctorMonad t
+    │        └─ type: (∀ a b. t p a b → t p a b) → t (t p) a b → t p a b; type-args: k0, k1, t, t p, p, a, b; evidence: given BifunctorMonad t
     │        └─ type: ∀ a b. t p a b → t p a b
     │        └─ type: t p a b → t p a b; type-args: t p a b
-    └─ bijoin ∷ ∀ t p a b. (BifunctorMonad t) ⇒ t (t p) a b → t p a b
+    └─ bijoin ∷ ∀ k0 k1 t p a b. (BifunctorMonad t) ⇒ t (t p) a b → t p a b
   biliftM :: BifunctorMonad t => (p :-> q) -> t p :-> t q
   biliftM f = bibind (compose bireturn f)
   │       │   ││       │       │        └─ type: p a b → q a b; type-args: a, b
-  │       │   ││       │       └─ type: q a b → t q a b; type-args: t, q, a, b; evidence: given BifunctorMonad t
+  │       │   ││       │       └─ type: q a b → t q a b; type-args: k0, k1, t, q, a, b; evidence: given BifunctorMonad t
   │       │   ││       └─ type: (q a b → t q a b) → (p a b → q a b) → p a b → t q a b; type-args: q a b, t q a b, p a b
   │       │   └─ type: ∀ a b. p a b → t q a b
-  │       │   └─ type: (∀ a b. p a b → t q a b) → t p a b → t q a b; type-args: t, p, q, a, b; evidence: given BifunctorMonad t
+  │       │   └─ type: (∀ a b. p a b → t q a b) → t p a b → t q a b; type-args: k0, k1, t, p, q, a, b; evidence: given BifunctorMonad t
   │       └─ type: ∀ a b. p a b → q a b
-  └─ type: ∀ t p q a b. (BifunctorMonad t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
+  └─ type: ∀ k0 k1 t p q a b. (BifunctorMonad t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
   class Explicit t where
-  └─ class methods: explicit ∷ ∀ t p q a b. (Explicit t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
+  └─ class methods: explicit ∷ ∀ k0 k1 k2 k3 t p q a b. (Explicit t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
     explicit :: (forall a b. p a b -> q a b) -> forall a b. t p a b -> t q a b
   instance Explicit Flip where
   └─ $fExplicitFlip ∷ () ⇒ Explicit Flip

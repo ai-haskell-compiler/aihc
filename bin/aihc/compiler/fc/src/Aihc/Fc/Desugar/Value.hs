@@ -61,6 +61,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
+    TcPatternInstantiation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Match (matchTypes)
@@ -846,7 +847,41 @@ desugarForeignReference variable key info types evidence = do
   env <- gets vsTypeEnv
   let arity = length (TypeOf.foreignArgumentTypes env (TypeOf.foreignTypeBody env foreignType))
   binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (TypeOf.foreignArgumentTypes env instantiated))
-  pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
+  body <-
+    if convention == Prim && singletonEvidencePrimitive variable
+      then desugarSingletonEvidence binders
+      else pure (ExForeignCall call types (map (ExVar . binderName) binders))
+  pure (foldr ExLam body binders)
+
+-- | These core primitives supply a class dictionary with one field.
+singletonEvidencePrimitive :: Name -> Bool
+singletonEvidencePrimitive name =
+  case nameOrigin name of
+    OriginTop (PackageId package) modul
+      | package == "main" || package == "aihc-base" || "aihc-base-" `T.isPrefixOf` package ->
+          (modul, nameText name)
+            `elem` [ ("GHC.TypeNats", "withKnownNatValue#"),
+                     ("GHC.TypeLits", "withKnownSymbolValue#"),
+                     ("GHC.TypeLits", "withKnownCharValue#"),
+                     ("Type.Reflection.Internal", "withTypeableValue#")
+                   ]
+    _ -> False
+
+desugarSingletonEvidence :: [Binder] -> ValueM Expr
+desugarSingletonEvidence binders =
+  case binders of
+    [value, continuation]
+      | TyFun _ _ dictionary _ <- binderType continuation,
+        (TyCon constructor, arguments) <- typeSpine [] dictionary ->
+          pure
+            ( ExApp
+                (ExVar (binderName continuation))
+                (ExApp (foldl ExTyApp (ExVar constructor {nameSort = SortDataConstructor}) arguments) (ExVar (binderName value)))
+            )
+    _ -> failValue "singleton evidence primitive requires a class dictionary"
+  where
+    typeSpine arguments (TyApp function argument) = typeSpine (argument : arguments) function
+    typeSpine arguments headType = (headType, arguments)
 
 -- | Substitute the type arguments of a use for the leading binders of the
 -- foreign type.
@@ -1068,7 +1103,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
       case drop (superClassCount + tcClassMethodIndex method) fields of
         field : _ -> pure field
         [] -> failValue ("invalid class method index for " <> T.unpack (tcClassMethodName method))
-    extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (`notElem` classTyVars) (tcClassMethodTyVars method))
+    extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method))
     resultType' <- convertCheckedType resultType
     let extraDictionaries = drop 1 dictionaries
         selectedExpr =
@@ -1103,7 +1138,7 @@ methodFieldType className classTyVars method = do
     case removeClassPredicate predicates of
       Just result -> pure result
       Nothing -> failValue ("class method lacks its class predicate for " <> T.unpack className)
-  let extraVariables = filter (`notElem` classTyVars) methodVariables
+  let extraVariables = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) methodVariables
       qualifiedBody = if null remaining then body else TcQualTy remaining body
   pure (foldr TcForAllTy qualifiedBody extraVariables)
   where
@@ -1227,7 +1262,7 @@ instanceMethodFieldType :: TcInstanceAnnotation -> TcClassMethodAnnotation -> Tc
 instanceMethodFieldType annotation method = foldr TcForAllTy qualified extraTyVars
   where
     classTyVars = tcInstanceClassTyVars annotation
-    extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+    extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
     substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
     (_, afterForAlls) = peelForAlls (tcClassMethodType method)
     (predicates, methodBody) = peelConstraints afterForAlls
@@ -1286,7 +1321,7 @@ desugarMissingMethod annotation methodName = do
       [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
   let classTyCon = tcInstanceClassTyCon annotation
       classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+      extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, methodBody) = peelConstraints methodAfterForAlls
@@ -1324,7 +1359,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
   convertedHeadTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   convertedInstanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
   let classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+      extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
@@ -1801,6 +1836,14 @@ desugarMatchColumns resultType fallback [] _ ((match, locals) : rest) = do
   withMatchLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
 desugarMatchColumns _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
 desugarMatchColumns resultType fallback binders@(argument : arguments) argumentTypes works
+  | TcQualTy _ body : restTypes <- argumentTypes,
+    representative : _ <- [pattern' | (match, _) <- works, pattern' : _ <- [Syn.matchPats match], patternHasInstantiation pattern'],
+    Just annotation <- patternAnnotation representative = do
+      evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+      field <- freshBinder "$pattern_value" body
+      let applied = foldl ExApp (ExVar (binderName argument)) evidence
+      result <- desugarMatchArguments resultType fallback (field : arguments) (body : restTypes) works
+      pure (ExLet (Bind field applied) result)
   | any (firstPatternIsOverloadedLiteral . fst) works =
       desugarOverloadedLiteralMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
@@ -2489,12 +2532,20 @@ specializeMatchWork key arity fields fieldTypes (match, locals) =
               pure (Just (specialized, locals <> matchBinderLocals extra))
         _ -> pure (Just (specialized, locals))
 
+patternHasInstantiation :: Syn.Pattern -> Bool
+patternHasInstantiation pattern' = case pattern' of
+  Syn.PAnn annotation inner -> isJust (Syn.fromAnnotation annotation :: Maybe TcPatternInstantiation) || patternHasInstantiation inner
+  Syn.PParen inner -> patternHasInstantiation inner
+  _ -> False
+
 patternGivenPredicates :: Syn.Pattern -> [Pred]
 patternGivenPredicates = go
   where
     go pattern' =
       case pattern' of
-        Syn.PAnn annotation inner -> annotationPredicates annotation <> go inner
+        Syn.PAnn annotation inner
+          | Just TcPatternInstantiation <- Syn.fromAnnotation annotation -> skipApplication inner
+          | otherwise -> annotationPredicates annotation <> go inner
         Syn.PParen inner -> go inner
         Syn.PStrict inner -> go inner
         Syn.PIrrefutable inner -> go inner
@@ -2503,6 +2554,10 @@ patternGivenPredicates = go
         Syn.PCon name _ _ -> annotationsPredicates (Syn.nameAnns name)
         Syn.PInfix _ name _ -> annotationsPredicates (Syn.nameAnns name)
         _ -> []
+    skipApplication (Syn.PAnn annotation inner)
+      | isJust (Syn.fromAnnotation annotation :: Maybe TcAnnotation) = go inner
+      | otherwise = skipApplication inner
+    skipApplication inner = go inner
     annotationPredicates annotation =
       maybe [] evidencePredicates (Syn.fromAnnotation annotation :: Maybe TcAnnotation)
     annotationsPredicates annotations =
@@ -3107,10 +3162,10 @@ convertCheckedTypeArguments declaredType arguments = do
   where
     convertArguments _ _ [] = Right []
     convertArguments env (TcForAllTy variable body) (argument : rest) = do
-      converted <- convertTypeWithExpectedKind env (Just (tvKind variable)) argument
+      converted <- convertNestedTypeWithExpectedKind env (Just (tvKind variable)) argument
       let substitution = Map.singleton (tvUnique variable) argument
       (converted :) <$> convertArguments env (applySubst substitution body) rest
-    convertArguments env _ remaining = mapM (convertType env) remaining
+    convertArguments env _ remaining = mapM (convertNestedType env) remaining
 
 desugarInfixOperator :: Syn.Name -> ValueM Expr
 desugarInfixOperator operator = do
@@ -3507,7 +3562,7 @@ convertTyConApplicationArguments tyCon arguments = do
   env <- gets vsConvertEnv
   invisibleArguments <- liftEither (invisibleKindArgs env tyCon arguments Nothing)
   kinds <- liftEither (visibleArgumentKinds env tyCon arguments Nothing)
-  visibleArguments <- liftEither (zipWithM (convertTypeWithExpectedKind env . Just) kinds arguments)
+  visibleArguments <- liftEither (zipWithM (convertNestedTypeWithExpectedKind env . Just) kinds arguments)
   pure (invisibleArguments <> visibleArguments)
 
 -- | Desugar a lambda-case into ordinary function equations.
@@ -4479,6 +4534,10 @@ desugarEvidence evidence =
       -- takes the kind arguments before the two types.
       arguments <- convertTyConApplicationArguments constructor [left, right]
       pure (foldl ExTyApp (ExVar (classDictConName constructor)) arguments)
+    Ev.EvEqualityDict constructor left right proof -> do
+      arguments <- convertTyConApplicationArguments constructor [left, right]
+      withCoercion proof $ \coercion ->
+        pure (ExApp (foldl ExTyApp (ExVar (classDictConName constructor)) arguments) (ExCoercion coercion))
     Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
       resultPredicateType <-
@@ -4493,8 +4552,8 @@ desugarEvidence evidence =
     Ev.EvTypeLit origin ty literal -> desugarTypeLitEvidence origin ty literal
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
-    Ev.EvDictLam predicate binderType body -> withoutEvidenceScope $ do
-      binder <- freshBinder "$quantified_d" binderType
+    Ev.EvDictLam predicate _ body -> withoutEvidenceScope $ do
+      binder <- freshDictionaryBinder "$quantified_d" 0 predicate
       body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
       pure (ExLam binder body')
     Ev.EvTypeApp function argument ->
@@ -4515,14 +4574,16 @@ desugarSuperClass evidence =
   case evidence of
     Ev.EvSuperClass source _ sourcePredicate fieldTypes fieldIndex -> do
       sourceExpression <- desugarEvidence source
-      (classTyCon, sourceType) <-
+      classTyCon <-
         case sourcePredicate of
-          ClassPred classTyCon arguments -> pure (classTyCon, TcTyCon classTyCon arguments)
+          ClassPred classTyCon _ -> pure classTyCon
           EqPred {} -> failValue "cannot select a superclass from equality evidence"
           QuantifiedPred {} -> failValue "cannot select a superclass from quantified evidence before application"
           IParamPred {} -> failValue "cannot select a superclass from implicit-parameter evidence"
+          IrredPred constraint
+            | (TcTyCon constructor _, _) <- Tc.collectTypeApplications constraint -> pure constructor
           IrredPred {} -> failValue "cannot select a superclass from an irreducible constraint before it reduces"
-      sourceBinder <- freshBinder "$super_source" sourceType
+      sourceBinder <- freshDictionaryBinder "$super_source" 0 sourcePredicate
       fieldBinders <- zipWithM (freshIndexedBinder "$super_field") [0 :: Int ..] fieldTypes
       selected <-
         case drop fieldIndex fieldBinders of
@@ -4930,7 +4991,10 @@ withCoercion proof use = do
   pure (foldr ExLet body bindings)
 
 convertCoercion :: Ev.Coercion -> ValueM (Coercion, [Bind])
-convertCoercion coercion =
+convertCoercion = convertCoercionWithExpectedKind Nothing
+
+convertCoercionWithExpectedKind :: Maybe TcType -> Ev.Coercion -> ValueM (Coercion, [Bind])
+convertCoercionWithExpectedKind expectedKind coercion =
   case coercion of
     Ev.EvidenceCo predicate evidence -> do
       expression <- desugarEvidence evidence
@@ -4942,7 +5006,9 @@ convertCoercion coercion =
         Just binder -> pure (CoVar (binderName binder), [])
         Nothing -> failValue ("missing given equality for " <> show predicate)
     Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)), [])
-    Ev.Refl ty -> (,[]) . CoRefl <$> convertCheckedType ty
+    Ev.Refl ty -> do
+      env <- gets vsConvertEnv
+      (,[]) . CoRefl <$> liftEither (convertTypeWithExpectedKind env expectedKind ty)
     Ev.Sym inner -> unary CoSym inner
     Ev.Trans left right -> binary CoTrans left right
     Ev.NthCo index proof -> unary (CoNth index) proof
@@ -4955,8 +5021,9 @@ convertCoercion coercion =
         pure (CoForAll binder converted, bindings)
     Ev.TyConAppCo tyCon types arguments -> do
       env <- gets vsConvertEnv
-      kinds <- liftEither (invisibleKindArgs env tyCon types Nothing)
-      converted <- mapM convertCoercion arguments
+      kinds <- liftEither (invisibleKindArgs env tyCon types expectedKind)
+      argumentKinds <- liftEither (visibleArgumentKinds env tyCon types expectedKind)
+      converted <- zipWithM convertCoercionWithExpectedKind (map Just argumentKinds <> repeat Nothing) arguments
       pure (CoTyConApp (tyConNameFc env tyCon) (map CoRefl kinds <> map fst converted), concatMap snd converted)
     Ev.AxiomInstCo key arguments -> do
       let name = lookupAxiomName key
@@ -4975,11 +5042,11 @@ convertCoercion coercion =
       pure (CoAxiom name converted, [])
   where
     unary constructor proof = do
-      (converted, bindings) <- convertCoercion proof
+      (converted, bindings) <- convertCoercionWithExpectedKind expectedKind proof
       pure (constructor converted, bindings)
     binary constructor left right = do
-      (leftProof, leftBindings) <- convertCoercion left
-      (rightProof, rightBindings) <- convertCoercion right
+      (leftProof, leftBindings) <- convertCoercionWithExpectedKind expectedKind left
+      (rightProof, rightBindings) <- convertCoercionWithExpectedKind expectedKind right
       pure (constructor leftProof rightProof, leftBindings <> rightBindings)
 
 resolvedTermName :: Syn.Name -> ValueM Name

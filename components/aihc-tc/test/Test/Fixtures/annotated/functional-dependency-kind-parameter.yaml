@@ -1,0 +1,9 @@
+extensions: [FunctionalDependencies, MultiParamTypeClasses, PolyKinds, FlexibleInstances]
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies, MultiParamTypeClasses, PolyKinds, FlexibleInstances #-}
+    module Test where
+    class Select (p :: k) c | k c -> p
+    instance Select () ()
+status: pass
+reason: A functional dependency can name an implicit kind parameter.

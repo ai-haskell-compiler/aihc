@@ -70,7 +70,9 @@ solveDict = solveDictWithGivens []
 -- | A wanted that left a pattern branch keeps the givens of the branch,
 -- so they join the givens of the caller.
 solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
-solveDictWithGivens givens ct = solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct)) ct
+solveDictWithGivens givens ct = do
+  outerGivens <- getGivenPredicates
+  solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct) <> outerGivens) ct
 
 solveDictWithGivensVisited :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveDictWithGivensVisited visited givens ct0 = do
@@ -142,17 +144,20 @@ solveNormalizedDict visited givens ct
           reclassified <- irreduciblePred reduced
           case reclassified of
             Just equality@(EqPred left right) -> do
-              -- A family that reduces to an equality, as @NatWithinBound
-              -- Word64 3@ reduces to @() ~ ()@, demands that equality. The
-              -- constraint itself is a lifted value of kind Constraint, so
-              -- once the equality is proved its evidence is the empty
-              -- dictionary of the class @~@, not the erased coercion.
+              -- A constraint family can reduce to an equality.
+              -- Its dictionary contains the checked coercion as a field.
               proof <- freshEvVar
               result <- withGivenPredicates givens (solveEquality ct {ctPred = equality, ctEvVar = proof})
               case result of
                 EqSolved -> do
                   kinds <- getKinds
-                  bindEvidence (ctEvVar ct) (EvCoercible (kindsEqualityTyCon kinds) left right)
+                  let constructor = case collectTypeApplications reduced of
+                        (TcTyCon tyCon _, _) | isEqualityTyCon kinds tyCon -> tyCon
+                        _ -> kindsEqualityTyCon kinds
+                  checkedProof <- lookupEvidence proof
+                  case checkedProof of
+                    Just (EvCoercion coercion) -> bindEvidence (ctEvVar ct) (EvEqualityDict constructor left right coercion)
+                    _ -> abortTc "equality dictionary has no checked coercion"
                   pure DictSolved
                 _ -> pure (DictStuck ct {ctPred = IrredPred reduced})
             Just solvable ->
@@ -169,7 +174,9 @@ solveNormalizedDict visited givens ct
                 Just given -> do
                   bindEvidence (ctEvVar ct) given
                   pure DictSolved
-                Nothing -> pure (DictStuck ct {ctPred = IrredPred reduced})
+                Nothing -> do
+                  rules <- givenRewriteRuleSets givens'
+                  tryIrreducibleRules (ctPred ct : visited) givens' reduced rules
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
@@ -198,6 +205,27 @@ solveNormalizedDict visited givens ct
     -- no preferred side, so each direction is tried as an alternative. The
     -- evidence for the rewritten wanted is cast back to the original
     -- predicate along the congruence of the given coercions.
+    tryIrreducibleRules _ _ reduced [] = pure (DictStuck ct {ctPred = IrredPred reduced})
+    tryIrreducibleRules visited' localGivens reduced (rules : rest) = do
+      let (rewritten, proof) = rewriteWithRules rules reduced
+      if sameType rewritten reduced
+        then tryIrreducibleRules visited' localGivens reduced rest
+        else do
+          saved <- lift get
+          variable <- freshEvVar
+          result <- solveDictWithGivensVisited visited' localGivens ct {ctPred = IrredPred rewritten, ctEvVar = variable}
+          case result of
+            DictStuck _ -> do
+              lift (put saved)
+              tryIrreducibleRules visited' localGivens reduced rest
+            DictSolved -> do
+              evidence <- lookupEvidence variable
+              case evidence of
+                Just term -> do
+                  bindEvidence (ctEvVar ct) (EvCast term (Sym proof))
+                  pure DictSolved
+                Nothing -> pure (DictStuck ct)
+
     solveThroughGivenEqualities visited' zonkedGivens className args = do
       outerGivens <- mapM zonkGivenPred =<< getGivenPredicates
       let allGivens = zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens
@@ -259,12 +287,21 @@ solveNormalizedDict visited givens ct
         Just evidence -> pure (Just evidence)
         Nothing -> do
           normalized <- mapM normalizeGiven givens'
-          pure $ case [given | (given, normalizedGiven) <- zip givens' normalized, normalizedGiven == target] of
-            given : _ -> Just (EvGiven given)
-            [] -> Nothing
+          normalizedEvidence (zip givens' normalized)
+      where
+        normalizedEvidence [] = pure Nothing
+        normalizedEvidence ((given, normalized) : rest)
+          | normalized == target = pure (Just (EvGiven given))
+          | otherwise = do
+              quantified <- useQuantifiedEvidence visited' target (EvGiven given) normalized
+              projected <- superclassEvidence [] visited' target (EvGiven given) normalized
+              case quantified <|> projected of
+                Just evidence -> pure (Just evidence)
+                Nothing -> normalizedEvidence rest
 
     normalizeGiven given = do
-      reduced <- reducePredFamilies given
+      familyPredicate <- normalizeFamilyPred given
+      reduced <- reducePredFamilies familyPredicate
       normalized <- normalizeFamilyPred reduced
       case normalized of
         IrredPred constraint -> do
@@ -292,14 +329,15 @@ solveNormalizedDict visited givens ct
                 Nothing -> pure Nothing
                 Just info -> do
                   kinds <- getKinds
-                  let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
-                      fieldTypes = classFieldTypes info substitution
+                  let visibleSubstitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
+                  substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+                  let fieldTypes = classFieldTypes info substitution
                   case traverse (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info) of
                     Just superClasses -> do
                       -- A superclass is compared in the same normal form as
                       -- the wanted: families reduced, and a family-headed
                       -- one irreducible rather than a class predicate.
-                      normalized <- mapM (normalizeFamilyPred <=< reducePredFamilies) superClasses
+                      normalized <- mapM normalizeGiven superClasses
                       searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 normalized
                     Nothing -> pure Nothing
         _ -> pure Nothing
@@ -461,15 +499,17 @@ solveNormalizedDict visited givens ct
                     Nothing -> pure Nothing
                     Just info -> do
                       kinds <- getKinds
-                      let classSubstitution =
+                      let visibleSubstitution =
                             Map.fromList
                               [ (tvUnique variable, argument)
                               | (variable, argument) <- zip (ciTyVars info) sourceArguments
                               ]
-                          fieldTypes = classFieldTypes info classSubstitution
+                      classSubstitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+                      let fieldTypes = classFieldTypes info classSubstitution
                       case traverse (constraintTypeToPred kinds . applySubst classSubstitution) (ciSuperClassTypes info) of
                         Nothing -> pure Nothing
-                        Just superClasses ->
+                        Just superClasses -> do
+                          normalized <- mapM normalizeGiven superClasses
                           searchQuantifiedSuperClasses
                             visited'
                             target
@@ -480,7 +520,7 @@ solveNormalizedDict visited givens ct
                             (ciOrigin info)
                             fieldTypes
                             0
-                            superClasses
+                            normalized
             _ -> pure Nothing
 
     searchQuantifiedSuperClasses _ _ _ _ _ _ _ _ _ [] = pure Nothing
@@ -558,6 +598,7 @@ mentionsGiven predicate evidence =
     EvCallStackPush _ _ _ parent -> mentionsGiven predicate parent
     EvRecursive inner _ body -> inner /= predicate && mentionsGiven predicate body
     EvVarTerm {} -> False
+    EvEqualityDict {} -> False
     EvCoercible {} -> False
     EvCoercion {} -> False
     EvTypeLit {} -> False
@@ -770,6 +811,8 @@ matchQuantifiedPredicate variables patternPredicate targetPredicate =
       | patternClass == targetClass,
         length patternArguments == length targetArguments ->
           foldM matchOneQuantified Map.empty (zip patternArguments targetArguments)
+    (IrredPred patternType, IrredPred targetType) ->
+      matchOneQuantified Map.empty (patternType, targetType)
     (EqPred patternLeft patternRight, EqPred targetLeft targetRight) ->
       foldM matchOneQuantified Map.empty [(patternLeft, targetLeft), (patternRight, targetRight)]
     _ -> Nothing

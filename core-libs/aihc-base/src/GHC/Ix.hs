@@ -70,6 +70,16 @@ instance Ix Integer where
       False -> indexError bounds value "Integer"
   inRange (lower, upper) value = lower <= value && value <= upper
 
+instance (Ix a, Ix b) => Ix (a, b) where
+  range ((lowerA, lowerB), (upperA, upperB)) =
+    [(a, b) | a <- range (lowerA, upperA), b <- range (lowerB, upperB)]
+  unsafeIndex ((lowerA, lowerB), (upperA, upperB)) (a, b) =
+    unsafeIndex (lowerA, upperA) a * rangeSize (lowerB, upperB) + unsafeIndex (lowerB, upperB) b
+  inRange ((lowerA, lowerB), (upperA, upperB)) (a, b) =
+    inRange (lowerA, upperA) a && inRange (lowerB, upperB) b
+  unsafeRangeSize ((lowerA, lowerB), (upperA, upperB)) =
+    rangeSize (lowerA, upperA) * rangeSize (lowerB, upperB)
+
 enumBounds :: (Enum a) => (a, a) -> [a]
 enumBounds (lower, upper) = enumFromTo lower upper
 
