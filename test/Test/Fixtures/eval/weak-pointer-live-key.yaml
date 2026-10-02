@@ -1,0 +1,18 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+    import System.Mem.Weak
+    import System.IO.Unsafe (unsafePerformIO)
+    result :: Bool
+    result = unsafePerformIO $ do
+      weak <- mkWeakPtr True Nothing
+      value <- deRefWeak weak
+      return (value == Just True)
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: A weak pointer with a live key must return its value. System.Mem.Weak does not export mkWeakPtr or deRefWeak.

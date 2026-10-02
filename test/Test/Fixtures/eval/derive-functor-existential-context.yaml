@@ -1,0 +1,21 @@
+extensions:
+  - DeriveFunctor
+  - ExistentialQuantification
+  - StandaloneDeriving
+modules:
+  - |
+    {-# LANGUAGE DeriveFunctor, ExistentialQuantification, StandaloneDeriving #-}
+    module Test where
+
+    import Prelude
+    data Box a = forall b. Show b => Box b a
+    deriving instance Functor Box
+    result :: Bool
+    result = case fmap (+ 1) (Box True (3 :: Int)) of
+      Box hidden value -> show hidden == "True" && value == 4
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: Standalone Functor derivation must retain an existential constructor dictionary. The type checker rejects the existential constructor.

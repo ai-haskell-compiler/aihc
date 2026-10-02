@@ -1,0 +1,22 @@
+evaluators:
+  - grin
+  - grin-points-to
+extensions:
+  - Strict
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE Strict, MagicHash #-}
+    module Test where
+
+    import Prelude
+    import GHC.Prim (raise#)
+    data Failure = Failure
+    result :: Bool
+    result = let _ = raise# Failure :: Bool in True
+output: ""
+exception: Failure
+expression: |
+  result
+status: xfail
+reason: Strict must force a wildcard in a local pattern binding. Evaluation returns True without the expected exception.

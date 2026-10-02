@@ -1,0 +1,24 @@
+extensions:
+  - OverloadedLabels
+  - RebindableSyntax
+  - DataKinds
+  - KindSignatures
+  - ExplicitForAll
+  - AllowAmbiguousTypes
+modules:
+  - |
+    {-# LANGUAGE OverloadedLabels, RebindableSyntax, DataKinds, KindSignatures, ExplicitForAll, AllowAmbiguousTypes #-}
+    module Test where
+
+    import Prelude
+    import GHC.TypeLits (Symbol)
+    fromLabel :: forall (label :: Symbol). String
+    fromLabel = "answer"
+    result :: Bool
+    result = #answer == "answer"
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: RebindableSyntax must use the local fromLabel function. The type checker rejects the overloaded label expression.

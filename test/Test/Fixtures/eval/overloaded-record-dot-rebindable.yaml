@@ -1,0 +1,25 @@
+extensions:
+  - OverloadedRecordDot
+  - RebindableSyntax
+  - DataKinds
+  - KindSignatures
+  - ExplicitForAll
+  - AllowAmbiguousTypes
+modules:
+  - |
+    {-# LANGUAGE OverloadedRecordDot, RebindableSyntax, DataKinds, KindSignatures, ExplicitForAll, AllowAmbiguousTypes #-}
+    module Test where
+
+    import Prelude
+    import GHC.TypeLits (Symbol)
+    data Box = Box Int
+    getField :: forall (field :: Symbol). Box -> Int
+    getField (Box x) = x
+    result :: Bool
+    result = (Box 7).value == 7
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: RebindableSyntax must use the local getField function for record dot syntax. The type checker rejects the field expression.

@@ -1,0 +1,17 @@
+extensions:
+  - QualifiedDo
+modules:
+  - |
+    {-# LANGUAGE QualifiedDo #-}
+    module Test where
+
+    import Prelude
+    import qualified Prelude as P
+    result :: Bool
+    result = (P.do { x <- Just (3 :: Int); P.return (x + 1) }) == Just 4
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: QualifiedDo must use the operations from the named module. The type checker rejects the qualified do expression.

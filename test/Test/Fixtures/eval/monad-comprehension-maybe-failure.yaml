@@ -1,0 +1,16 @@
+extensions:
+  - MonadComprehensions
+modules:
+  - |
+    {-# LANGUAGE MonadComprehensions #-}
+    module Test where
+
+    import Prelude
+    result :: Bool
+    result = ([x | Just x <- Just Nothing] :: Maybe Int) == Nothing
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: A failed pattern in a Maybe comprehension must return Nothing. The type checker treats the generators as lists.
