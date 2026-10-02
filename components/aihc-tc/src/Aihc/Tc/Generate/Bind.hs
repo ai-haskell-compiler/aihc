@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Resolve.Generic (everything, everywhereM)
+import Aihc.Resolve.Traverse (Collect, Walk (..), collected, idWalk, runCollect, walk)
 import Aihc.Tc.Annotations (annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -60,15 +60,13 @@ import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, when)
-import Data.Data (Data)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import Data.Typeable (cast)
 
 type InferExpr = Expr -> TcM (Expr, TcType, [Ct])
 
@@ -171,7 +169,7 @@ annotateRecursiveOccurrences binders decls = do
   schemes <- Map.fromList . catMaybes <$> mapM schemeEntry binders
   if Map.null schemes
     then pure decls
-    else mapM (everywhereM (annotateOccurrence schemes)) decls
+    else mapM (walk idWalk {walkExpr = \children expr -> children expr >>= annotateExpr schemes}) decls
   where
     schemeEntry (name, binder) =
       case binder of
@@ -180,14 +178,6 @@ annotateRecursiveOccurrences binders decls = do
               key <- resolvedLocalTermKey name
               pure (Just (key, scheme))
         _ -> pure Nothing
-
-    annotateOccurrence :: (Data b) => Map TcTermKey TypeScheme -> b -> TcM b
-    annotateOccurrence schemes value =
-      case cast value of
-        Just expr -> do
-          expr' <- annotateExpr schemes expr
-          pure (fromMaybe value (cast expr'))
-        Nothing -> pure value
 
     -- An infix application and an operator section name the binder in an
     -- operator field and not in an 'EVar' node. The annotation of such an
@@ -237,18 +227,19 @@ annotateRecursiveOccurrences binders decls = do
 -- dependency analysis only looks up the binders of the group in it.
 declTermReferences :: Decl -> TcM (Set.Set TcTermKey)
 declTermReferences decl = do
-  named <- mapM resolvedTermKey [name | name <- everything collectName decl, hasTermResolution name]
+  named <- mapM resolvedTermKey [name | name <- runCollect (walk collectNames) decl, hasTermResolution name]
   -- A record update names field labels and no head, so nothing above
   -- resolves the pattern synonym it rebuilds. Look its owner up by label.
-  updated <- declaredRecordPatSynOwners (everything collectUpdatedLabel decl)
+  updated <- declaredRecordPatSynOwners (runCollect (walk collectUpdatedLabels) decl)
   pure (Set.fromList (named <> updated))
   where
-    collectName :: (Data b) => b -> [Name]
-    collectName value = maybeToList (cast value)
-    collectUpdatedLabel :: (Data b) => b -> [Text]
-    collectUpdatedLabel value =
-      case cast value of
-        Just (ERecordUpd _ fields) -> map (nameText . recordFieldName) fields
+    collectNames :: Walk (Collect Name)
+    collectNames = idWalk {walkName = \children name -> collected [name] *> children name}
+    collectUpdatedLabels :: Walk (Collect Text)
+    collectUpdatedLabels = idWalk {walkExpr = \children expr -> collected (updatedLabels expr) *> children expr}
+    updatedLabels expr =
+      case expr of
+        ERecordUpd _ fields -> map (nameText . recordFieldName) fields
         _ -> []
     hasTermResolution name =
       case mapMaybe fromAnnotation (nameAnns name) of

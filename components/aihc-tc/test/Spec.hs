@@ -5,17 +5,14 @@ import Test.Tc.Interface (tcInterfaceTests)
 import Test.Tc.Properties (tcProperties)
 import Test.Tc.StockClass (tcStockClassTests)
 import Test.Tc.Suite (tcAnnotatedGoldenTests)
-import Test.Tc.Traverse (tcTraverseTests)
 
 main :: IO ()
 main = do
   annotatedGoldenTests <- tcAnnotatedGoldenTests
-  traverseTests <- tcTraverseTests
   defaultMain
     ( testGroup
         "aihc-tc"
         [ annotatedGoldenTests,
-          traverseTests,
           tcInterfaceTests,
           tcStockClassTests,
           tcProperties

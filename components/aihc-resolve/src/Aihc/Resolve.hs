@@ -122,7 +122,6 @@ import Aihc.Resolve.Span
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
-import Data.Data (Data)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -354,11 +353,12 @@ resolveDecl termDefinition (DeclAnn ann inner) =
 resolveDecl termDefinition decl =
   resolveDeclCore termDefinition decl
 
--- | The annotation for syntax the resolver has no case for.
-unhandledSyntax :: (Data a) => ResolutionNamespace -> a -> ResolveM Annotation
-unhandledSyntax namespace node = do
+-- | The annotation for syntax the resolver has no case for. The name is
+-- the constructor of the form it met.
+unhandledSyntax :: ResolutionNamespace -> Text -> ResolveM Annotation
+unhandledSyntax namespace constructor = do
   sp <- currentSpan
-  resolution sp (IdentifierNamed (unhandledSyntaxName node)) namespace (ResolvedError "unhandled syntax")
+  resolution sp (IdentifierNamed constructor) namespace (ResolvedError "unhandled syntax")
 
 resolveDeclCore :: TermDefinition -> Decl -> ResolveM Decl
 resolveDeclCore termDefinition decl =
@@ -408,7 +408,7 @@ resolveDeclCore termDefinition decl =
       pure (DeclRoleAnnotation roleAnnotation {roleAnnotationName = name'})
     DeclPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure decl
-      | otherwise -> DeclAnn <$> unhandledSyntax ResolutionNamespaceTerm decl <*> pure decl
+      | otherwise -> DeclAnn <$> unhandledSyntax ResolutionNamespaceTerm "DeclPragma" <*> pure decl
     DeclRules rules ->
       DeclRules <$> mapM resolveRuleDecl rules
     DeclPatSyn patSyn -> do
@@ -657,7 +657,7 @@ resolveClassDeclItem classDeclItem =
     ClassItemFixity {} -> pure classDeclItem
     ClassItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure classDeclItem
-      | otherwise -> ClassItemAnn <$> unhandledSyntax ResolutionNamespaceTerm classDeclItem <*> pure classDeclItem
+      | otherwise -> ClassItemAnn <$> unhandledSyntax ResolutionNamespaceTerm "ClassItemPragma" <*> pure classDeclItem
     ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> resolveTypeFamilyDecl familyDecl
     ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> resolveDataFamilyDecl "data " familyDecl
     ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> resolveTypeFamilyInst familyInst
@@ -779,7 +779,7 @@ resolveInstanceDeclItem headClass instanceDeclItem =
       InstanceItemDataFamilyInst <$> extendScope familyScope (resolveDataFamilyInst familyInst)
     InstanceItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure instanceDeclItem
-      | otherwise -> InstanceItemAnn <$> unhandledSyntax ResolutionNamespaceTerm instanceDeclItem <*> pure instanceDeclItem
+      | otherwise -> InstanceItemAnn <$> unhandledSyntax ResolutionNamespaceTerm "InstanceItemPragma" <*> pure instanceDeclItem
 
 resolveStandaloneDerivingDecl :: StandaloneDerivingDecl -> ResolveM StandaloneDerivingDecl
 resolveStandaloneDerivingDecl derivingDecl = do
@@ -984,12 +984,12 @@ resolveExpr expr =
     EDo stmts flavor -> do
       (_, stmts') <- resolveDoStmts stmts
       pure (EDo stmts' flavor)
-    EQuasiQuote {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm expr <*> pure expr
+    EQuasiQuote {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm "EQuasiQuote" <*> pure expr
     EListComp body stmts -> do
       (scope, stmts') <- resolveCompStmts stmts
       body' <- withScope scope (resolveExpr body)
       pure (EListComp body' stmts')
-    EListCompParallel {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm expr <*> pure expr
+    EListCompParallel {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm "EListCompParallel" <*> pure expr
     -- Template Haskell quotes compile to a runtime error. The quoted
     -- syntax stays unresolved because nothing consumes it.
     ETHExpQuote {} -> pure expr
@@ -999,7 +999,7 @@ resolveExpr expr =
     ETHPatQuote {} -> pure expr
     ETHNameQuote {} -> pure expr
     ETHTypeNameQuote {} -> pure expr
-    EProc {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm expr <*> pure expr
+    EProc {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm "EProc" <*> pure expr
 
 -- | An overloaded integer literal applies fromInteger to an Integer.
 --
@@ -1569,8 +1569,7 @@ bindPattern pat =
       expr' <- resolveExpr expr
       pure (emptyScope, PSplice expr')
     PQuasiQuote {} -> do
-      sp <- currentSpan
-      ann <- resolution sp (IdentifierNamed (unhandledSyntaxName pat)) ResolutionNamespaceTerm (ResolvedError "unhandled syntax")
+      ann <- unhandledSyntax ResolutionNamespaceTerm "PQuasiQuote"
       pure (emptyScope, PAnn ann pat)
   where
     traverseTyVarBinderKind binder = do
@@ -1596,7 +1595,7 @@ resolvePatternDefinition termDefinition pat =
       PTypeSyntax form <$> resolveType ty
     PWildcard -> pure pat
     PLit lit -> annotatePatternLiteral PLit lit
-    PQuasiQuote {} -> PAnn <$> unhandledSyntax ResolutionNamespaceTerm pat <*> pure pat
+    PQuasiQuote {} -> PAnn <$> unhandledSyntax ResolutionNamespaceTerm "PQuasiQuote" <*> pure pat
     PTuple flavor pats ->
       PTuple flavor <$> mapM (resolvePatternDefinition termDefinition) pats
     PUnboxedSum alt arity inner ->
@@ -1954,7 +1953,7 @@ resolveType ty =
     TSplice expr ->
       TSplice <$> withResetLocalSupply (resolveExpr expr)
     TWildcard -> pure ty
-    TQuasiQuote {} -> TAnn <$> unhandledSyntax ResolutionNamespaceType ty <*> pure ty
+    TQuasiQuote {} -> TAnn <$> unhandledSyntax ResolutionNamespaceType "TQuasiQuote" <*> pure ty
 
 resolveArrowKind :: ArrowKind -> ResolveM ArrowKind
 resolveArrowKind arrowKind =
