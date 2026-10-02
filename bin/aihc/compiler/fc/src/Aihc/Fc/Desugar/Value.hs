@@ -846,34 +846,8 @@ desugarForeignReference variable key info types evidence = do
   env <- gets vsTypeEnv
   let arity = length (TypeOf.foreignArgumentTypes env (TypeOf.foreignTypeBody env foreignType))
   binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (TypeOf.foreignArgumentTypes env instantiated))
-  body <-
-    if isKnownLiteralDictionaryPrimitive variable
-      then desugarKnownLiteralDictionary env binders
-      else pure (ExForeignCall call types (map (ExVar . binderName) binders))
+  let body = ExForeignCall call types (map (ExVar . binderName) binders)
   pure (foldr ExLam body binders)
-
--- | These private primitives construct dictionaries in System FC.
--- GRIN receives the same constructor applications as literal evidence.
-isKnownLiteralDictionaryPrimitive :: Name -> Bool
-isKnownLiteralDictionaryPrimitive variable =
-  case nameOrigin variable of
-    OriginTop _ "GHC.TypeNats" -> nameText variable == "aihcWithKnownNat#"
-    OriginTop _ "GHC.TypeLits" -> nameText variable == "aihcWithKnownSymbol#"
-    _ -> False
-
-desugarKnownLiteralDictionary :: TypeOf.TypeEnv -> [Binder] -> ValueM Expr
-desugarKnownLiteralDictionary env binders =
-  case binders of
-    [value, continuation]
-      | Just (_, _, dictionaryType, _) <- TypeOf.viewFun env (binderType continuation),
-        TyCon dictionaryName <- typeApplicationHead dictionaryType -> do
-          let constructor = dictionaryName {nameSort = SortDataConstructor}
-              dictionary =
-                ExApp
-                  (foldl ExTyApp (ExVar constructor) (typeApplicationArguments dictionaryType))
-                  (ExVar (binderName value))
-          pure (ExApp (ExVar (binderName continuation)) dictionary)
-    _ -> failValue "invalid System FC type for a singleton dictionary primitive"
 
 -- | Substitute the type arguments of a use for the leading binders of the
 -- foreign type.
@@ -4488,6 +4462,22 @@ desugarEvidence evidence =
       -- takes the kind arguments before the two types.
       arguments <- convertTyConApplicationArguments constructor [left, right]
       pure (foldl ExTyApp (ExVar (classDictConName constructor)) arguments)
+    Ev.EvWithDict adapter arguments fieldType target targetArguments proof -> withoutEvidenceScope $ do
+      let (variables, methodBody) = peelForAlls fieldType
+          (argumentTypes, _) = peelFunctions 2 methodBody
+      withTypeVariables variables $ do
+        typeBinders <- convertTypeBinders variables
+        binders <- mapM (freshBinder "$with_dict") argumentTypes
+        case binders of
+          [value, continuation] -> do
+            targetTypes <- convertTyConApplicationArguments target targetArguments
+            valueExpression <- withCoercion proof (pure . ExCast (ExVar (binderName value)))
+            let dictionary = ExApp (foldl ExTyApp (ExVar (classDictConName target)) targetTypes) valueExpression
+                body = ExApp (ExVar (binderName continuation)) dictionary
+                method = foldr ExTyLam (foldr ExLam body binders) typeBinders
+            adapterTypes <- convertTyConApplicationArguments adapter arguments
+            pure (ExApp (foldl ExTyApp (ExVar (classDictConName adapter)) adapterTypes) method)
+          _ -> failValue "invalid checked dictionary adapter type"
     Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
       resultPredicateType <-

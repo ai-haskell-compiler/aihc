@@ -2,7 +2,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Exts
-  ( module GHC.Prim,
+  ( WithDict (withDict),
+    module GHC.Prim,
     atomicModifyMutVar#,
     IsList (..),
     Item,
@@ -127,6 +128,7 @@ import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftR
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
+import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim
 import GHC.Ptr (FunPtr (..), Ptr (..))
 import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)

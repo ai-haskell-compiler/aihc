@@ -25,6 +25,7 @@ import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyIns
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
+import Control.Monad ((>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
@@ -47,7 +48,7 @@ reduceTypeFamilies ty =
       argument' <- reduceTypeFamilies argument
       reduceHead (mkAppTy function' argument')
     TcForAllTy tyVar body -> TcForAllTy tyVar <$> reduceTypeFamilies body
-    TcQualTy predicates body -> TcQualTy <$> mapM reducePredFamilies predicates <*> reduceTypeFamilies body
+    TcQualTy predicates body -> TcQualTy <$> mapM (reducePredFamilies >=> reclassifyIrreduciblePred) predicates <*> reduceTypeFamilies body
     _ -> pure ty
 
 -- | Rewrite the type family applications in a predicate.

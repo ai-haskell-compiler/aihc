@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,7 +15,7 @@
 -- so the declarations live here and the internal module re-exports them.
 --
 -- @someNatVal@ and @SomeNat@ are not available yet.
--- @withKnownNat@ uses a compiler primitive to construct the dictionary.
+-- @withKnownNat@ uses @WithDict@ to construct the dictionary.
 -- An aihc dictionary contains a constructor around its fields.
 module GHC.TypeNats
   ( Natural,
@@ -40,6 +39,7 @@ module GHC.TypeNats
   )
 where
 
+import GHC.Magic.Dict (withDict)
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
 import GHC.Types (Any, Constraint, Ordering, Type)
@@ -116,7 +116,4 @@ withSomeSNat value continuation = continuation (UnsafeSNat value :: SNat Any)
 
 -- | Supply the dictionary for a singleton natural number.
 withKnownNat :: forall n r. SNat n -> ((KnownNat n) => r) -> r
-withKnownNat (UnsafeSNat value) = aihcWithKnownNat# @n value
-
--- The compiler constructs the class dictionary around the value.
-foreign import prim aihcWithKnownNat# :: forall n r. Natural -> ((KnownNat n) => r) -> r
+withKnownNat (UnsafeSNat value) = withDict @(KnownNat n) value

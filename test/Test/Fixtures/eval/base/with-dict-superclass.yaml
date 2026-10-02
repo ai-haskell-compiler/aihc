@@ -1,0 +1,16 @@
+extensions: [TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE TypeApplications #-}
+    module Test where
+    import GHC.Exts (withDict)
+    class Eq a => Super a where
+      method :: a -> Bool
+    result :: Bool
+    result = withDict @(Super Int) (const True) (method (1 :: Int))
+expression: result
+output: ""
+error: |
+  typecheck error: Test: unsolved constraint WithDict (Super Int) (t0 → Bool)
+status: fail
+reason: WithDict rejects a class with a superclass.

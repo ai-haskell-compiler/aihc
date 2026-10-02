@@ -1,0 +1,11 @@
+extensions: [AllowAmbiguousTypes, ConstraintKinds, DataKinds, MultiParamTypeClasses, PolyKinds, RankNTypes]
+modules:
+  - |
+    {-# LANGUAGE AllowAmbiguousTypes, ConstraintKinds, DataKinds, MultiParamTypeClasses, PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types (Constraint, RuntimeRep, TYPE, Type)
+    class Supply (constraint :: Constraint) (method :: Type) where
+      supply :: forall {representation :: RuntimeRep} (result :: TYPE representation).
+        method -> (constraint => result) -> result
+status: pass
+reason: A qualified argument has a lifted function representation with any result representation.

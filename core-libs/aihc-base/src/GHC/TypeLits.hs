@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -57,6 +56,7 @@ module GHC.TypeLits
 where
 
 import Data.Type.Ord (type (<=), type (<=?))
+import GHC.Magic.Dict (withDict)
 import GHC.Num.Integer (Integer)
 import GHC.Prim (Proxy#)
 import GHC.Real (toInteger)
@@ -110,10 +110,7 @@ withSomeSSymbol value continuation = continuation (UnsafeSSymbol value :: SSymbo
 
 -- | Supply the dictionary for a singleton symbol.
 withKnownSymbol :: forall s r. SSymbol s -> ((KnownSymbol s) => r) -> r
-withKnownSymbol (UnsafeSSymbol value) = aihcWithKnownSymbol# @s value
-
--- The compiler constructs the class dictionary around the value.
-foreign import prim aihcWithKnownSymbol# :: forall s r. [Char] -> ((KnownSymbol s) => r) -> r
+withKnownSymbol (UnsafeSSymbol value) = withDict @(KnownSymbol s) value
 
 -- | A type-level character whose value is known.
 --

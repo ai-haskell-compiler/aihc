@@ -14,9 +14,9 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (kindedTyConAt, refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Zonk (zonkPred, zonkType)
 
 -- | Unify two types, recording the solution and emitting an error if
 -- they are incompatible.
@@ -96,6 +96,14 @@ unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
   -- kind refinement rewrites the kinds of occurrences) is still one
   -- variable.
   | sameTyVar v1 v2 = pure (Right [])
+unifyCollecting loc left@(TcQualTy leftPredicates leftBody) right@(TcQualTy rightPredicates rightBody) = do
+  leftPredicates' <- mapM normalize leftPredicates
+  rightPredicates' <- mapM normalize rightPredicates
+  if length leftPredicates' == length rightPredicates' && and (zipWith samePred leftPredicates' rightPredicates')
+    then unifyCollecting loc leftBody rightBody
+    else pure (Left (UnificationError left right (UnifyOrigin Nothing) Nothing))
+  where
+    normalize predicate = zonkPred predicate >>= reducePredFamilies >>= reclassifyIrreduciblePred
 unifyCollecting loc t1 t2
   | t1 == t2 = pure (Right [])
   | otherwise = do

@@ -29,7 +29,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
@@ -98,6 +98,7 @@ solveNormalizedDict visited givens ct
         ClassPred className args -> do
           args' <- mapM (reduceTypeFamilies <=< zonkType) args
           coercibleClass <- isCoercibleClass className
+          withDictClass <- (className ==) <$> wiredTyConIdentity tcWiringWithDictTyCon
           givens' <- mapM zonkGivenPred givens
           givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
           case givenEvidence of
@@ -106,6 +107,7 @@ solveNormalizedDict visited givens ct
               pure DictSolved
             Nothing ->
               case (tyConName className, args') of
+                (_, [constraintType, methodType]) | withDictClass -> tryWithDict className constraintType methodType
                 (_, [left, right]) | coercibleClass -> do
                   info <- lookupClass className
                   solved <- case info of
@@ -184,6 +186,34 @@ solveNormalizedDict visited givens ct
               pure DictSolved
             _ -> pure (DictStuck ct)
   where
+    tryWithDict adapter constraintType methodType = do
+      target <- reclassifyIrreduciblePred (IrredPred constraintType)
+      adapterInfo <- lookupClass adapter
+      case (target, adapterInfo) of
+        (ClassPred targetClass targetArguments, Just adapterClass) -> do
+          targetInfo <- lookupClass targetClass
+          case targetInfo of
+            Just info
+              | null (ciSuperClassTypes info),
+                length (ciMethods info) == 1,
+                length targetArguments == length (ciTyVars info) -> do
+                  substitution <- matchInstanceKinds (ciTyVars info) (Map.fromList (zip (map tvUnique (ciTyVars info)) targetArguments))
+                  let adapterSubstitution = Map.fromList (zip (map tvUnique (ciTyVars adapterClass)) [constraintType, methodType])
+                  case (substitution, classFieldTypes adapterClass adapterSubstitution) of
+                    (Just subst, [adapterField]) ->
+                      case classFieldTypes info subst of
+                        [targetMethod] -> do
+                          equality <- solveSubPred visited (EqPred methodType targetMethod)
+                          case equality of
+                            Just (EvCoercion proof) -> do
+                              bindEvidence (ctEvVar ct) (EvWithDict adapter [constraintType, methodType] adapterField targetClass targetArguments proof)
+                              pure DictSolved
+                            _ -> pure (DictStuck ct)
+                        _ -> pure (DictStuck ct)
+                    _ -> pure (DictStuck ct)
+            _ -> pure (DictStuck ct)
+        _ -> pure (DictStuck ct)
+
     givenDict visited' zonkedGivens className args =
       firstGivenOrSuperclass visited' (ClassPred className args) zonkedGivens
 
@@ -561,6 +591,7 @@ mentionsGiven predicate evidence =
     EvCoercible {} -> False
     EvCoercion {} -> False
     EvTypeLit {} -> False
+    EvWithDict {} -> False
     EvCallStackEmpty {} -> False
 
 -- | The instances whose heads match the arguments, without an instance that

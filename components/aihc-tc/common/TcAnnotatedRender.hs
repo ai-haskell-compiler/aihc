@@ -258,6 +258,8 @@ renderEvTerm ev =
     EvCast evidence coercion -> "cast(" <> renderEvTerm evidence <> ", " <> renderCoercion coercion <> ")"
     EvTypeable _ ty _ _ arguments ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments
+    EvWithDict _ arguments _ target _ _ ->
+      "withdict " <> T.unpack (tyConName target) <> renderTypeArgs arguments
     EvTypeLit _ ty literal ->
       "knownliteral @" <> renderTcType ty <> " " <> renderTyLit literal
     EvTypeLam variable body ->
