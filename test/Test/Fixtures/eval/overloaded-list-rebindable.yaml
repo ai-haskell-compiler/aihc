@@ -1,0 +1,22 @@
+extensions:
+  - OverloadedLists
+  - RebindableSyntax
+modules:
+  - |
+    {-# LANGUAGE OverloadedLists, RebindableSyntax #-}
+    module Test where
+
+    import Prelude
+    data Box = Box [Int]
+    fromListN :: Int -> [Int] -> Box
+    fromListN _ xs = Box xs
+    fromList :: [Int] -> Box
+    fromList = Box
+    result :: Bool
+    result = case [1, 2, 3] of Box xs -> sum xs == 6
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: RebindableSyntax must use the local fromListN function for an overloaded list. The type checker retains an ordinary list type.

@@ -1,0 +1,21 @@
+extensions:
+  - TransformListComp
+modules:
+  - |
+    {-# LANGUAGE TransformListComp #-}
+    module Test where
+
+    import Prelude
+    groupWith :: Eq b => (a -> b) -> [a] -> [[a]]
+    groupWith _ [] = []
+    groupWith key (x : xs) =
+      (x : filter (\y -> key y == key x) xs) :
+        groupWith key (filter (\y -> key y /= key x) xs)
+    result :: Bool
+    result = [sum x | x <- [1, 2, 3, 4 :: Int], then group by x `mod` 2 using groupWith] == [4, 6]
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: A group qualifier must collect each generator variable into a list. The type checker rejects the group qualifier.

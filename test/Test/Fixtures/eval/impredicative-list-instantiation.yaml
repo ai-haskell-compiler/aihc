@@ -1,0 +1,21 @@
+extensions:
+  - ImpredicativeTypes
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE ImpredicativeTypes, RankNTypes #-}
+    module Test where
+
+    import Prelude
+    identities :: [forall a. a -> a]
+    identities = [id]
+    result :: Bool
+    result = case identities of
+      f : _ -> f True && f (3 :: Int) == 3
+      [] -> False
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: ImpredicativeTypes permits a list of polymorphic functions. The type checker cannot instantiate id at a polymorphic list element type.
