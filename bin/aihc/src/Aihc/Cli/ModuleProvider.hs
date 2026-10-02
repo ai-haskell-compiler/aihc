@@ -23,7 +23,7 @@ where
 import Aihc.Cli.BuildStamp (ModuleDigests (..), PackageDigests (..), packageDigestsPath, readStamp)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
-import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope)
+import Aihc.Resolve (Exports, ModuleKey (..), Package (..), PackageId (..))
 import Aihc.Tc (MergeCheck (..), TcInterface, mergeTcInterfaces)
 import Control.Concurrent.STM (TMVar, TVar, atomically, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
@@ -60,7 +60,7 @@ data PackageSource
 
 -- | What the resolve phase of a consumer takes from a module.
 data ResolvedModuleFacts = ResolvedModuleFacts
-  { resolvedModuleScope :: !Scope,
+  { resolvedModuleScope :: !Exports,
     resolvedModuleScopeDigest :: !Text,
     -- | Whether the module resolved. A module from the store did.
     resolvedModuleSuccess :: !Bool
@@ -151,7 +151,7 @@ newModuleProvider locator dependencies = do
               bytes <- BS.readFile path
               artifact <- either (ioError . userError . (("Invalid resolve artifact " <> path <> ": ") <>)) pure (decodeResolveArtifact bytes)
               unless (resolveArtifactModuleName artifact == name) (ioError (userError ("Resolve artifact module name does not match " <> path)))
-              evaluate (force (ResolvedModuleFacts (resolveArtifactScope artifact) (moduleScopeDigest digests) True))
+              evaluate (force (ResolvedModuleFacts (resolveArtifactExports artifact) (moduleScopeDigest digests) True))
       typed key@(ModuleKey package name) =
         typedMemo key $ do
           source <- packageSource package

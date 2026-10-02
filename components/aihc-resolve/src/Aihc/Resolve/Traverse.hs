@@ -1,30 +1,103 @@
--- | A hand-written walk over the annotations of the parser syntax tree.
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
+
+-- | A hand-written walk over the parser syntax tree.
 --
 -- The resolver and the type checker read and rewrite the annotations of a
--- whole module several times. A generic "Data.Data" walk does this work, but it visits
--- every field of every node and does a runtime type test at each one. This
--- module walks the same tree with one case for each constructor. The walk
--- visits the annotations in source order: the fields of a constructor from
--- left to right, and the elements of a list from first to last.
+-- whole module several times, and the type checker rewrites some nodes.
+-- A generic "Data.Data" walk does this work, but it visits every field of
+-- every node and does a runtime type test at each one. This module walks
+-- the same tree with one case for each constructor. The walk visits the
+-- nodes in source order: the fields of a constructor from left to right,
+-- and the elements of a list from first to last.
+--
+-- A 'Walk' holds the hooks of one walk. Each hook gets the walk of the
+-- children of a node and the node itself. A hook that rewrites a node
+-- bottom-up walks the children first and then rewrites the result. A hook
+-- that only collects can look at the node and then walk the children.
 --
 -- The pattern matches are exhaustive without a wildcard. A new syntax
 -- constructor therefore fails the build until its case is added.
 module Aihc.Resolve.Traverse
-  ( HasAnnotations (..),
+  ( Walkable (..),
+    Walk (..),
+    idWalk,
+    traverseAnnotations,
     annotationList,
     collectAnnotations,
+    Collect,
+    collected,
+    runCollect,
   )
 where
 
 import Aihc.Parser.Syntax
 
--- | Syntax that can hold annotations.
-class HasAnnotations a where
-  -- | Apply an effect to every annotation, in source order.
-  traverseAnnotations :: (Applicative f) => (Annotation -> f Annotation) -> a -> f a
+-- | The hooks of one walk. 'idWalk' walks every node and leaves it as it
+-- is. A caller sets the hooks it needs.
+data Walk f = Walk
+  { -- | Every annotation, where it is attached.
+    walkAnnotation :: Annotation -> f Annotation,
+    -- | Every annotation list of a node that holds its annotations in a
+    -- list, such as a name or a module. The argument walks the elements.
+    walkAnnotationList :: ([Annotation] -> f [Annotation]) -> [Annotation] -> f [Annotation],
+    walkName :: (Name -> f Name) -> Name -> f Name,
+    walkExpr :: (Expr -> f Expr) -> Expr -> f Expr,
+    walkPattern :: (Pattern -> f Pattern) -> Pattern -> f Pattern,
+    walkType :: (Type -> f Type) -> Type -> f Type,
+    walkDecl :: (Decl -> f Decl) -> Decl -> f Decl,
+    walkDataConDecl :: (DataConDecl -> f DataConDecl) -> DataConDecl -> f DataConDecl,
+    walkLiteral :: (Literal -> f Literal) -> Literal -> f Literal,
+    walkGuardQualifier :: (GuardQualifier -> f GuardQualifier) -> GuardQualifier -> f GuardQualifier,
+    walkDoStmt :: forall body. (Walkable body) => (DoStmt body -> f (DoStmt body)) -> DoStmt body -> f (DoStmt body),
+    walkCompStmt :: (CompStmt -> f CompStmt) -> CompStmt -> f CompStmt,
+    walkArithSeq :: (ArithSeq -> f ArithSeq) -> ArithSeq -> f ArithSeq,
+    walkClassDeclItem :: (ClassDeclItem -> f ClassDeclItem) -> ClassDeclItem -> f ClassDeclItem,
+    walkInstanceDeclItem :: (InstanceDeclItem -> f InstanceDeclItem) -> InstanceDeclItem -> f InstanceDeclItem,
+    walkCmd :: (Cmd -> f Cmd) -> Cmd -> f Cmd,
+    walkExportSpec :: (ExportSpec -> f ExportSpec) -> ExportSpec -> f ExportSpec,
+    walkImportItem :: (ImportItem -> f ImportItem) -> ImportItem -> f ImportItem
+  }
+
+-- | The walk that changes nothing.
+idWalk :: (Applicative f) => Walk f
+idWalk =
+  Walk
+    { walkAnnotation = pure,
+      walkAnnotationList = id,
+      walkName = id,
+      walkExpr = id,
+      walkPattern = id,
+      walkType = id,
+      walkDecl = id,
+      walkDataConDecl = id,
+      walkLiteral = id,
+      walkGuardQualifier = id,
+      walkDoStmt = id,
+      walkCompStmt = id,
+      walkArithSeq = id,
+      walkClassDeclItem = id,
+      walkInstanceDeclItem = id,
+      walkCmd = id,
+      walkExportSpec = id,
+      walkImportItem = id
+    }
+
+-- | Syntax that a 'Walk' can visit.
+class Walkable a where
+  -- | Apply the hooks of a walk to every node, in source order.
+  walk :: (Applicative f) => Walk f -> a -> f a
+
+-- | The annotation list of one node.
+walkAnns :: (Applicative f) => Walk f -> [Annotation] -> f [Annotation]
+walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
+
+-- | Apply an effect to every annotation, in source order.
+traverseAnnotations :: (Walkable a, Applicative f) => (Annotation -> f Annotation) -> a -> f a
+traverseAnnotations f = walk idWalk {walkAnnotation = f}
 
 -- | Every annotation of a piece of syntax, in source order.
-annotationList :: (HasAnnotations a) => a -> [Annotation]
+annotationList :: (Walkable a) => a -> [Annotation]
 annotationList = collectAnnotations Just
 
 -- | The values that one function selects from the annotations of a piece
@@ -34,20 +107,29 @@ annotationList = collectAnnotations Just
 -- Most callers keep few annotations of a module, or none. The walk thus
 -- builds the result as a difference list and appends no lists. A walk that
 -- keeps no annotation of a module allocates nothing.
-collectAnnotations :: (HasAnnotations a) => (Annotation -> Maybe r) -> a -> [r]
-collectAnnotations select value =
-  case runCollect (traverseAnnotations step value) of
-    Nothing -> []
-    Just build -> build []
+collectAnnotations :: (Walkable a) => (Annotation -> Maybe r) -> a -> [r]
+collectAnnotations select = runCollect (traverseAnnotations step)
   where
     step ann = Collect (fmap (:) (select ann))
 
--- | The applicative that 'collectAnnotations' walks the syntax with. It
--- keeps the selected values as a difference list and drops the syntax.
--- 'Nothing' is a subtree that gives no value. A walk that finds no value in
--- a whole module thus allocates nothing, because the newtype and the
--- 'Nothing' cost no memory.
-newtype Collect r a = Collect {runCollect :: Maybe ([r] -> [r])}
+-- | The applicative that a collecting walk runs in. It keeps the collected
+-- values as a difference list and drops the syntax. 'Nothing' is a subtree
+-- that gives no value. A walk that finds no value in a whole module thus
+-- allocates nothing, because the newtype and the 'Nothing' cost no memory.
+newtype Collect r a = Collect (Maybe ([r] -> [r]))
+
+-- | Collect these values at the current node.
+collected :: [r] -> Collect r a
+collected [] = Collect Nothing
+collected values = Collect (Just (values ++))
+
+-- | The values that a collecting walk of a piece of syntax gives, in
+-- source order.
+runCollect :: (a -> Collect r a) -> a -> [r]
+runCollect run value =
+  case run value of
+    Collect Nothing -> []
+    Collect (Just build) -> build []
 
 instance Functor (Collect r) where
   fmap _ (Collect build) = Collect build
@@ -64,187 +146,183 @@ appendCollected Nothing right = right
 appendCollected left Nothing = left
 appendCollected (Just left) (Just right) = Just (left . right)
 
-instance HasAnnotations Annotation where
-  traverseAnnotations f = f
+instance Walkable Annotation where
+  walk = walkAnnotation
 
-instance (HasAnnotations a) => HasAnnotations [a] where
-  traverseAnnotations = traverse . traverseAnnotations
+instance (Walkable a) => Walkable [a] where
+  walk w = traverse (walk w)
 
-instance (HasAnnotations a) => HasAnnotations (Maybe a) where
-  traverseAnnotations = traverse . traverseAnnotations
+instance (Walkable a) => Walkable (Maybe a) where
+  walk w = traverse (walk w)
 
-instance (HasAnnotations a, HasAnnotations b) => HasAnnotations (Either a b) where
-  traverseAnnotations f = either (fmap Left . traverseAnnotations f) (fmap Right . traverseAnnotations f)
+instance (Walkable a, Walkable b) => Walkable (Either a b) where
+  walk w = either (fmap Left . walk w) (fmap Right . walk w)
 
-instance (HasAnnotations a, HasAnnotations b) => HasAnnotations (a, b) where
-  traverseAnnotations f (left, right) = (,) <$> traverseAnnotations f left <*> traverseAnnotations f right
+instance (Walkable a, Walkable b) => Walkable (a, b) where
+  walk w (left, right) = (,) <$> walk w left <*> walk w right
 
 -- Names
 
-instance HasAnnotations Name where
-  traverseAnnotations f name = (\anns -> name {nameAnns = anns}) <$> traverseAnnotations f (nameAnns name)
+instance Walkable Name where
+  walk w = walkName w $ \name -> (\anns -> name {nameAnns = anns}) <$> walkAnns w (nameAnns name)
 
-instance HasAnnotations UnqualifiedName where
-  traverseAnnotations f name = (\anns -> name {unqualifiedNameAnns = anns}) <$> traverseAnnotations f (unqualifiedNameAnns name)
+instance Walkable UnqualifiedName where
+  walk w name = (\anns -> name {unqualifiedNameAnns = anns}) <$> walkAnns w (unqualifiedNameAnns name)
 
 -- Modules, exports, and imports
 
-instance HasAnnotations Module where
-  traverseAnnotations f (Module anns modHead pragmas imports decls) =
+instance Walkable Module where
+  walk w (Module anns modHead pragmas imports decls) =
     Module
-      <$> traverseAnnotations f anns
-      <*> traverseAnnotations f modHead
+      <$> walkAnns w anns
+      <*> walk w modHead
       <*> pure pragmas
-      <*> traverseAnnotations f imports
-      <*> traverseAnnotations f decls
+      <*> walk w imports
+      <*> walk w decls
 
-instance HasAnnotations ModuleHead where
-  traverseAnnotations f (ModuleHead anns name warning exports) =
-    ModuleHead <$> traverseAnnotations f anns <*> pure name <*> pure warning <*> traverseAnnotations f exports
+instance Walkable ModuleHead where
+  walk w (ModuleHead anns name warning exports) =
+    ModuleHead <$> walkAnns w anns <*> pure name <*> pure warning <*> walk w exports
 
-instance HasAnnotations IEBundledMember where
-  traverseAnnotations f (IEBundledMember namespace name) =
-    IEBundledMember namespace <$> traverseAnnotations f name
+instance Walkable IEBundledMember where
+  walk w (IEBundledMember namespace name) =
+    IEBundledMember namespace <$> walk w name
 
-instance HasAnnotations ExportSpec where
-  traverseAnnotations f spec =
-    case spec of
-      ExportModule pragma name -> pure (ExportModule pragma name)
-      ExportVar pragma namespace name -> ExportVar pragma namespace <$> traverseAnnotations f name
-      ExportAbs pragma namespace name -> ExportAbs pragma namespace <$> traverseAnnotations f name
-      ExportAll pragma namespace name -> ExportAll pragma namespace <$> traverseAnnotations f name
-      ExportWith pragma namespace name members ->
-        ExportWith pragma namespace <$> traverseAnnotations f name <*> traverseAnnotations f members
-      ExportWithAll pragma namespace name position members ->
-        ExportWithAll pragma namespace <$> traverseAnnotations f name <*> pure position <*> traverseAnnotations f members
-      ExportAnn ann inner -> ExportAnn <$> f ann <*> traverseAnnotations f inner
+instance Walkable ExportSpec where
+  walk w = walkExportSpec w $ \case
+    ExportModule pragma name -> pure (ExportModule pragma name)
+    ExportVar pragma namespace name -> ExportVar pragma namespace <$> walk w name
+    ExportAbs pragma namespace name -> ExportAbs pragma namespace <$> walk w name
+    ExportAll pragma namespace name -> ExportAll pragma namespace <$> walk w name
+    ExportWith pragma namespace name members ->
+      ExportWith pragma namespace <$> walk w name <*> walk w members
+    ExportWithAll pragma namespace name position members ->
+      ExportWithAll pragma namespace <$> walk w name <*> pure position <*> walk w members
+    ExportAnn ann inner -> ExportAnn <$> walkAnnotation w ann <*> walk w inner
 
-instance HasAnnotations ImportDecl where
-  traverseAnnotations f decl =
+instance Walkable ImportDecl where
+  walk w decl =
     (\anns spec -> decl {importDeclAnns = anns, importDeclSpec = spec})
-      <$> traverseAnnotations f (importDeclAnns decl)
-      <*> traverseAnnotations f (importDeclSpec decl)
+      <$> walkAnns w (importDeclAnns decl)
+      <*> walk w (importDeclSpec decl)
 
-instance HasAnnotations ImportSpec where
-  traverseAnnotations f (ImportSpec anns hiding items) =
-    ImportSpec <$> traverseAnnotations f anns <*> pure hiding <*> traverseAnnotations f items
+instance Walkable ImportSpec where
+  walk w (ImportSpec anns hiding items) =
+    ImportSpec <$> walkAnns w anns <*> pure hiding <*> walk w items
 
-instance HasAnnotations ImportItem where
-  traverseAnnotations f item =
-    case item of
-      ImportItemVar namespace name -> ImportItemVar namespace <$> traverseAnnotations f name
-      ImportItemAbs namespace name -> ImportItemAbs namespace <$> traverseAnnotations f name
-      ImportItemAll namespace name -> ImportItemAll namespace <$> traverseAnnotations f name
-      ImportItemWith namespace name members ->
-        ImportItemWith namespace <$> traverseAnnotations f name <*> traverseAnnotations f members
-      ImportItemAllWith namespace name position members ->
-        ImportItemAllWith namespace <$> traverseAnnotations f name <*> pure position <*> traverseAnnotations f members
-      ImportAnn ann inner -> ImportAnn <$> f ann <*> traverseAnnotations f inner
+instance Walkable ImportItem where
+  walk w = walkImportItem w $ \case
+    ImportItemVar namespace name -> ImportItemVar namespace <$> walk w name
+    ImportItemAbs namespace name -> ImportItemAbs namespace <$> walk w name
+    ImportItemAll namespace name -> ImportItemAll namespace <$> walk w name
+    ImportItemWith namespace name members ->
+      ImportItemWith namespace <$> walk w name <*> walk w members
+    ImportItemAllWith namespace name position members ->
+      ImportItemAllWith namespace <$> walk w name <*> pure position <*> walk w members
+    ImportAnn ann inner -> ImportAnn <$> walkAnnotation w ann <*> walk w inner
 
 -- Declarations
 
-instance HasAnnotations Decl where
-  traverseAnnotations f decl =
-    case decl of
-      DeclAnn ann inner -> DeclAnn <$> f ann <*> traverseAnnotations f inner
-      DeclValue value -> DeclValue <$> traverseAnnotations f value
-      DeclImplicitParam name expr decls ->
-        DeclImplicitParam name <$> traverseAnnotations f expr <*> traverseAnnotations f decls
-      DeclTypeSig names ty -> DeclTypeSig <$> traverseAnnotations f names <*> traverseAnnotations f ty
-      DeclPatSyn patSyn -> DeclPatSyn <$> traverseAnnotations f patSyn
-      DeclPatSynSig names ty -> DeclPatSynSig <$> traverseAnnotations f names <*> traverseAnnotations f ty
-      DeclStandaloneKindSig name ty -> DeclStandaloneKindSig <$> traverseAnnotations f name <*> traverseAnnotations f ty
-      DeclFixity assoc namespace precedence operators ->
-        DeclFixity assoc namespace precedence <$> traverseAnnotations f operators
-      DeclRoleAnnotation roles -> DeclRoleAnnotation <$> traverseAnnotations f roles
-      DeclTypeSyn synonym -> DeclTypeSyn <$> traverseAnnotations f synonym
-      DeclTypeData dataDecl -> DeclTypeData <$> traverseAnnotations f dataDecl
-      DeclData dataDecl -> DeclData <$> traverseAnnotations f dataDecl
-      DeclNewtype newtypeDecl -> DeclNewtype <$> traverseAnnotations f newtypeDecl
-      DeclClass classDecl -> DeclClass <$> traverseAnnotations f classDecl
-      DeclInstance instanceDecl -> DeclInstance <$> traverseAnnotations f instanceDecl
-      DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving <$> traverseAnnotations f derivingDecl
-      DeclDefault types -> DeclDefault <$> traverseAnnotations f types
-      DeclSplice expr -> DeclSplice <$> traverseAnnotations f expr
-      DeclForeign foreignDecl -> DeclForeign <$> traverseAnnotations f foreignDecl
-      DeclTypeFamilyDecl familyDecl -> DeclTypeFamilyDecl <$> traverseAnnotations f familyDecl
-      DeclDataFamilyDecl familyDecl -> DeclDataFamilyDecl <$> traverseAnnotations f familyDecl
-      DeclTypeFamilyInst familyInst -> DeclTypeFamilyInst <$> traverseAnnotations f familyInst
-      DeclDataFamilyInst familyInst -> DeclDataFamilyInst <$> traverseAnnotations f familyInst
-      DeclPragma pragma -> pure (DeclPragma pragma)
-      DeclRules rules -> DeclRules <$> traverseAnnotations f rules
+instance Walkable Decl where
+  walk w = walkDecl w $ \case
+    DeclAnn ann inner -> DeclAnn <$> walkAnnotation w ann <*> walk w inner
+    DeclValue value -> DeclValue <$> walk w value
+    DeclImplicitParam name expr decls ->
+      DeclImplicitParam name <$> walk w expr <*> walk w decls
+    DeclTypeSig names ty -> DeclTypeSig <$> walk w names <*> walk w ty
+    DeclPatSyn patSyn -> DeclPatSyn <$> walk w patSyn
+    DeclPatSynSig names ty -> DeclPatSynSig <$> walk w names <*> walk w ty
+    DeclStandaloneKindSig name ty -> DeclStandaloneKindSig <$> walk w name <*> walk w ty
+    DeclFixity assoc namespace precedence operators ->
+      DeclFixity assoc namespace precedence <$> walk w operators
+    DeclRoleAnnotation roles -> DeclRoleAnnotation <$> walk w roles
+    DeclTypeSyn synonym -> DeclTypeSyn <$> walk w synonym
+    DeclTypeData dataDecl -> DeclTypeData <$> walk w dataDecl
+    DeclData dataDecl -> DeclData <$> walk w dataDecl
+    DeclNewtype newtypeDecl -> DeclNewtype <$> walk w newtypeDecl
+    DeclClass classDecl -> DeclClass <$> walk w classDecl
+    DeclInstance instanceDecl -> DeclInstance <$> walk w instanceDecl
+    DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving <$> walk w derivingDecl
+    DeclDefault types -> DeclDefault <$> walk w types
+    DeclSplice expr -> DeclSplice <$> walk w expr
+    DeclForeign foreignDecl -> DeclForeign <$> walk w foreignDecl
+    DeclTypeFamilyDecl familyDecl -> DeclTypeFamilyDecl <$> walk w familyDecl
+    DeclDataFamilyDecl familyDecl -> DeclDataFamilyDecl <$> walk w familyDecl
+    DeclTypeFamilyInst familyInst -> DeclTypeFamilyInst <$> walk w familyInst
+    DeclDataFamilyInst familyInst -> DeclDataFamilyInst <$> walk w familyInst
+    DeclPragma pragma -> pure (DeclPragma pragma)
+    DeclRules rules -> DeclRules <$> walk w rules
 
-instance HasAnnotations RuleDecl where
-  traverseAnnotations f rule =
+instance Walkable RuleDecl where
+  walk w rule =
     ( \anns typeBinders binders lhs rhs ->
         rule {ruleAnns = anns, ruleTypeBinders = typeBinders, ruleBinders = binders, ruleLhs = lhs, ruleRhs = rhs}
     )
-      <$> traverseAnnotations f (ruleAnns rule)
-      <*> traverseAnnotations f (ruleTypeBinders rule)
-      <*> traverseAnnotations f (ruleBinders rule)
-      <*> traverseAnnotations f (ruleLhs rule)
-      <*> traverseAnnotations f (ruleRhs rule)
+      <$> walkAnns w (ruleAnns rule)
+      <*> walk w (ruleTypeBinders rule)
+      <*> walk w (ruleBinders rule)
+      <*> walk w (ruleLhs rule)
+      <*> walk w (ruleRhs rule)
 
-instance HasAnnotations RuleBinder where
-  traverseAnnotations f binder =
+instance Walkable RuleBinder where
+  walk w binder =
     (\anns name ty -> binder {ruleBinderAnns = anns, ruleBinderName = name, ruleBinderType = ty})
-      <$> traverseAnnotations f (ruleBinderAnns binder)
-      <*> traverseAnnotations f (ruleBinderName binder)
-      <*> traverseAnnotations f (ruleBinderType binder)
+      <$> walkAnns w (ruleBinderAnns binder)
+      <*> walk w (ruleBinderName binder)
+      <*> walk w (ruleBinderType binder)
 
-instance HasAnnotations ValueDecl where
-  traverseAnnotations f value =
+instance Walkable ValueDecl where
+  walk w value =
     case value of
-      FunctionBind name matches -> FunctionBind <$> traverseAnnotations f name <*> traverseAnnotations f matches
+      FunctionBind name matches -> FunctionBind <$> walk w name <*> walk w matches
       PatternBind multiplicity pat rhs ->
-        PatternBind <$> traverseAnnotations f multiplicity <*> traverseAnnotations f pat <*> traverseAnnotations f rhs
+        PatternBind <$> walk w multiplicity <*> walk w pat <*> walk w rhs
 
-instance HasAnnotations MultiplicityTag where
-  traverseAnnotations f tag =
+instance Walkable MultiplicityTag where
+  walk w tag =
     case tag of
       NoMultiplicityTag -> pure NoMultiplicityTag
       LinearMultiplicityTag -> pure LinearMultiplicityTag
-      ExplicitMultiplicityTag ty -> ExplicitMultiplicityTag <$> traverseAnnotations f ty
+      ExplicitMultiplicityTag ty -> ExplicitMultiplicityTag <$> walk w ty
 
-instance HasAnnotations Match where
-  traverseAnnotations f (Match anns headForm pats rhs) =
-    Match <$> traverseAnnotations f anns <*> pure headForm <*> traverseAnnotations f pats <*> traverseAnnotations f rhs
+instance Walkable Match where
+  walk w (Match anns headForm pats rhs) =
+    Match <$> walkAnns w anns <*> pure headForm <*> walk w pats <*> walk w rhs
 
-instance HasAnnotations PatSynDecl where
-  traverseAnnotations f (PatSynDecl name args pat direction) =
-    PatSynDecl <$> traverseAnnotations f name <*> pure args <*> traverseAnnotations f pat <*> traverseAnnotations f direction
+instance Walkable PatSynDecl where
+  walk w (PatSynDecl name args pat direction) =
+    PatSynDecl <$> walk w name <*> pure args <*> walk w pat <*> walk w direction
 
-instance HasAnnotations PatSynDir where
-  traverseAnnotations f direction =
+instance Walkable PatSynDir where
+  walk w direction =
     case direction of
       PatSynUnidirectional -> pure PatSynUnidirectional
       PatSynBidirectional -> pure PatSynBidirectional
-      PatSynExplicitBidirectional matches -> PatSynExplicitBidirectional <$> traverseAnnotations f matches
+      PatSynExplicitBidirectional matches -> PatSynExplicitBidirectional <$> walk w matches
 
-instance (HasAnnotations body) => HasAnnotations (Rhs body) where
-  traverseAnnotations f rhs =
+instance (Walkable body) => Walkable (Rhs body) where
+  walk w rhs =
     case rhs of
       UnguardedRhs anns body decls ->
-        UnguardedRhs <$> traverseAnnotations f anns <*> traverseAnnotations f body <*> traverseAnnotations f decls
+        UnguardedRhs <$> walkAnns w anns <*> walk w body <*> walk w decls
       GuardedRhss anns guarded decls ->
-        GuardedRhss <$> traverseAnnotations f anns <*> traverseAnnotations f guarded <*> traverseAnnotations f decls
+        GuardedRhss <$> walkAnns w anns <*> walk w guarded <*> walk w decls
 
-instance (HasAnnotations body) => HasAnnotations (GuardedRhs body) where
-  traverseAnnotations f (GuardedRhs anns guards body) =
-    GuardedRhs <$> traverseAnnotations f anns <*> traverseAnnotations f guards <*> traverseAnnotations f body
+instance (Walkable body) => Walkable (GuardedRhs body) where
+  walk w (GuardedRhs anns guards body) =
+    GuardedRhs <$> walkAnns w anns <*> walk w guards <*> walk w body
 
-instance HasAnnotations GuardQualifier where
-  traverseAnnotations f qualifier =
-    case qualifier of
-      GuardAnn ann inner -> GuardAnn <$> f ann <*> traverseAnnotations f inner
-      GuardExpr expr -> GuardExpr <$> traverseAnnotations f expr
-      GuardPat pat expr -> GuardPat <$> traverseAnnotations f pat <*> traverseAnnotations f expr
-      GuardLet decls -> GuardLet <$> traverseAnnotations f decls
+instance Walkable GuardQualifier where
+  walk w = walkGuardQualifier w $ \case
+    GuardAnn ann inner -> GuardAnn <$> walkAnnotation w ann <*> walk w inner
+    GuardExpr expr -> GuardExpr <$> walk w expr
+    GuardPat pat expr -> GuardPat <$> walk w pat <*> walk w expr
+    GuardLet decls -> GuardLet <$> walk w decls
 
-instance HasAnnotations Literal where
-  traverseAnnotations f literal =
+instance Walkable Literal where
+  walk w = walkLiteral w $ \literal ->
     case literal of
-      LitAnn ann inner -> LitAnn <$> f ann <*> traverseAnnotations f inner
+      LitAnn ann inner -> LitAnn <$> walkAnnotation w ann <*> walk w inner
       LitInt {} -> pure literal
       LitFloat {} -> pure literal
       LitChar {} -> pure literal
@@ -254,291 +332,286 @@ instance HasAnnotations Literal where
 
 -- Patterns
 
-instance (HasAnnotations a) => HasAnnotations (RecordField a) where
-  traverseAnnotations f (RecordField name value pun) =
-    RecordField <$> traverseAnnotations f name <*> traverseAnnotations f value <*> pure pun
+instance (Walkable a) => Walkable (RecordField a) where
+  walk w (RecordField name value pun) =
+    RecordField <$> walk w name <*> walk w value <*> pure pun
 
-instance HasAnnotations Pattern where
-  traverseAnnotations f pat =
-    case pat of
-      PAnn ann inner -> PAnn <$> f ann <*> traverseAnnotations f inner
-      PVar name -> PVar <$> traverseAnnotations f name
-      PTypeBinder binder -> PTypeBinder <$> traverseAnnotations f binder
-      PTypeSyntax form ty -> PTypeSyntax form <$> traverseAnnotations f ty
-      PWildcard -> pure PWildcard
-      PLit literal -> PLit <$> traverseAnnotations f literal
-      PQuasiQuote quoter body -> pure (PQuasiQuote quoter body)
-      PTuple flavor items -> PTuple flavor <$> traverseAnnotations f items
-      PUnboxedSum position arity inner -> PUnboxedSum position arity <$> traverseAnnotations f inner
-      PList items -> PList <$> traverseAnnotations f items
-      PCon name types pats -> PCon <$> traverseAnnotations f name <*> traverseAnnotations f types <*> traverseAnnotations f pats
-      PBuiltinCon builtin types pats -> PBuiltinCon builtin <$> traverseAnnotations f types <*> traverseAnnotations f pats
-      PInfix lhs name rhs -> PInfix <$> traverseAnnotations f lhs <*> traverseAnnotations f name <*> traverseAnnotations f rhs
-      PView expr inner -> PView <$> traverseAnnotations f expr <*> traverseAnnotations f inner
-      PAs name inner -> PAs <$> traverseAnnotations f name <*> traverseAnnotations f inner
-      PStrict inner -> PStrict <$> traverseAnnotations f inner
-      PIrrefutable inner -> PIrrefutable <$> traverseAnnotations f inner
-      PNegLit literal -> PNegLit <$> traverseAnnotations f literal
-      PParen inner -> PParen <$> traverseAnnotations f inner
-      PRecord name fields wildcard -> PRecord <$> traverseAnnotations f name <*> traverseAnnotations f fields <*> pure wildcard
-      PTypeSig inner ty -> PTypeSig <$> traverseAnnotations f inner <*> traverseAnnotations f ty
-      PSplice expr -> PSplice <$> traverseAnnotations f expr
+instance Walkable Pattern where
+  walk w = walkPattern w $ \case
+    PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
+    PVar name -> PVar <$> walk w name
+    PTypeBinder binder -> PTypeBinder <$> walk w binder
+    PTypeSyntax form ty -> PTypeSyntax form <$> walk w ty
+    PWildcard -> pure PWildcard
+    PLit literal -> PLit <$> walk w literal
+    PQuasiQuote quoter body -> pure (PQuasiQuote quoter body)
+    PTuple flavor items -> PTuple flavor <$> walk w items
+    PUnboxedSum position arity inner -> PUnboxedSum position arity <$> walk w inner
+    PList items -> PList <$> walk w items
+    PCon name types pats -> PCon <$> walk w name <*> walk w types <*> walk w pats
+    PBuiltinCon builtin types pats -> PBuiltinCon builtin <$> walk w types <*> walk w pats
+    PInfix lhs name rhs -> PInfix <$> walk w lhs <*> walk w name <*> walk w rhs
+    PView expr inner -> PView <$> walk w expr <*> walk w inner
+    PAs name inner -> PAs <$> walk w name <*> walk w inner
+    PStrict inner -> PStrict <$> walk w inner
+    PIrrefutable inner -> PIrrefutable <$> walk w inner
+    PNegLit literal -> PNegLit <$> walk w literal
+    PParen inner -> PParen <$> walk w inner
+    PRecord name fields wildcard -> PRecord <$> walk w name <*> walk w fields <*> pure wildcard
+    PTypeSig inner ty -> PTypeSig <$> walk w inner <*> walk w ty
+    PSplice expr -> PSplice <$> walk w expr
 
 -- Types
 
-instance HasAnnotations ForallTelescope where
-  traverseAnnotations f (ForallTelescope visibility binders) =
-    ForallTelescope visibility <$> traverseAnnotations f binders
+instance Walkable ForallTelescope where
+  walk w (ForallTelescope visibility binders) =
+    ForallTelescope visibility <$> walk w binders
 
-instance HasAnnotations ArrowKind where
-  traverseAnnotations f arrow =
+instance Walkable ArrowKind where
+  walk w arrow =
     case arrow of
       ArrowUnrestricted -> pure ArrowUnrestricted
       ArrowLinear -> pure ArrowLinear
-      ArrowExplicit ty -> ArrowExplicit <$> traverseAnnotations f ty
+      ArrowExplicit ty -> ArrowExplicit <$> walk w ty
 
-instance HasAnnotations Type where
-  traverseAnnotations f ty =
-    case ty of
-      TAnn ann inner -> TAnn <$> f ann <*> traverseAnnotations f inner
-      TVar name -> TVar <$> traverseAnnotations f name
-      TCon name promotion -> TCon <$> traverseAnnotations f name <*> pure promotion
-      TBuiltinCon builtin promotion -> pure (TBuiltinCon builtin promotion)
-      TImplicitParam name payload -> TImplicitParam name <$> traverseAnnotations f payload
-      TTypeLit literal -> pure (TTypeLit literal)
-      TStar text -> pure (TStar text)
-      TQuasiQuote quoter body -> pure (TQuasiQuote quoter body)
-      TForall telescope inner -> TForall <$> traverseAnnotations f telescope <*> traverseAnnotations f inner
-      TApp function argument -> TApp <$> traverseAnnotations f function <*> traverseAnnotations f argument
-      TTypeApp function argument -> TTypeApp <$> traverseAnnotations f function <*> traverseAnnotations f argument
-      TInfix lhs name promotion rhs ->
-        TInfix <$> traverseAnnotations f lhs <*> traverseAnnotations f name <*> pure promotion <*> traverseAnnotations f rhs
-      TFun arrow argument result ->
-        TFun <$> traverseAnnotations f arrow <*> traverseAnnotations f argument <*> traverseAnnotations f result
-      TTuple flavor promotion items -> TTuple flavor promotion <$> traverseAnnotations f items
-      TUnboxedSum items -> TUnboxedSum <$> traverseAnnotations f items
-      TList promotion items -> TList promotion <$> traverseAnnotations f items
-      TParen inner -> TParen <$> traverseAnnotations f inner
-      TKindSig inner kind -> TKindSig <$> traverseAnnotations f inner <*> traverseAnnotations f kind
-      TContext context inner -> TContext <$> traverseAnnotations f context <*> traverseAnnotations f inner
-      TSplice expr -> TSplice <$> traverseAnnotations f expr
-      TWildcard -> pure TWildcard
+instance Walkable Type where
+  walk w = walkType w $ \case
+    TAnn ann inner -> TAnn <$> walkAnnotation w ann <*> walk w inner
+    TVar name -> TVar <$> walk w name
+    TCon name promotion -> TCon <$> walk w name <*> pure promotion
+    TBuiltinCon builtin promotion -> pure (TBuiltinCon builtin promotion)
+    TImplicitParam name payload -> TImplicitParam name <$> walk w payload
+    TTypeLit literal -> pure (TTypeLit literal)
+    TStar text -> pure (TStar text)
+    TQuasiQuote quoter body -> pure (TQuasiQuote quoter body)
+    TForall telescope inner -> TForall <$> walk w telescope <*> walk w inner
+    TApp function argument -> TApp <$> walk w function <*> walk w argument
+    TTypeApp function argument -> TTypeApp <$> walk w function <*> walk w argument
+    TInfix lhs name promotion rhs ->
+      TInfix <$> walk w lhs <*> walk w name <*> pure promotion <*> walk w rhs
+    TFun arrow argument result ->
+      TFun <$> walk w arrow <*> walk w argument <*> walk w result
+    TTuple flavor promotion items -> TTuple flavor promotion <$> walk w items
+    TUnboxedSum items -> TUnboxedSum <$> walk w items
+    TList promotion items -> TList promotion <$> walk w items
+    TParen inner -> TParen <$> walk w inner
+    TKindSig inner kind -> TKindSig <$> walk w inner <*> walk w kind
+    TContext context inner -> TContext <$> walk w context <*> walk w inner
+    TSplice expr -> TSplice <$> walk w expr
+    TWildcard -> pure TWildcard
 
-instance HasAnnotations TyVarBinder where
-  traverseAnnotations f binder =
+instance Walkable TyVarBinder where
+  walk w binder =
     (\anns kind -> binder {tyVarBinderAnns = anns, tyVarBinderKind = kind})
-      <$> traverseAnnotations f (tyVarBinderAnns binder)
-      <*> traverseAnnotations f (tyVarBinderKind binder)
+      <$> walkAnns w (tyVarBinderAnns binder)
+      <*> walk w (tyVarBinderKind binder)
 
-instance (HasAnnotations name) => HasAnnotations (BinderHead name) where
-  traverseAnnotations f binderHead =
+instance (Walkable name) => Walkable (BinderHead name) where
+  walk w binderHead =
     case binderHead of
-      PrefixBinderHead name params -> PrefixBinderHead <$> traverseAnnotations f name <*> traverseAnnotations f params
+      PrefixBinderHead name params -> PrefixBinderHead <$> walk w name <*> walk w params
       InfixBinderHead lhs name rhs params ->
         InfixBinderHead
-          <$> traverseAnnotations f lhs
-          <*> traverseAnnotations f name
-          <*> traverseAnnotations f rhs
-          <*> traverseAnnotations f params
+          <$> walk w lhs
+          <*> walk w name
+          <*> walk w rhs
+          <*> walk w params
 
 -- Type declarations
 
-instance HasAnnotations RoleAnnotation where
-  traverseAnnotations f (RoleAnnotation name roles) =
-    RoleAnnotation <$> traverseAnnotations f name <*> pure roles
+instance Walkable RoleAnnotation where
+  walk w (RoleAnnotation name roles) =
+    RoleAnnotation <$> walk w name <*> pure roles
 
-instance HasAnnotations TypeSynDecl where
-  traverseAnnotations f (TypeSynDecl synHead body) =
-    TypeSynDecl <$> traverseAnnotations f synHead <*> traverseAnnotations f body
+instance Walkable TypeSynDecl where
+  walk w (TypeSynDecl synHead body) =
+    TypeSynDecl <$> walk w synHead <*> walk w body
 
-instance HasAnnotations TypeFamilyDecl where
-  traverseAnnotations f (TypeFamilyDecl headForm explicitKeyword familyHead params resultSig equations) =
+instance Walkable TypeFamilyDecl where
+  walk w (TypeFamilyDecl headForm explicitKeyword familyHead params resultSig equations) =
     TypeFamilyDecl headForm explicitKeyword
-      <$> traverseAnnotations f familyHead
-      <*> traverseAnnotations f params
-      <*> traverseAnnotations f resultSig
-      <*> traverseAnnotations f equations
+      <$> walk w familyHead
+      <*> walk w params
+      <*> walk w resultSig
+      <*> walk w equations
 
-instance HasAnnotations TypeFamilyResultSig where
-  traverseAnnotations f resultSig =
+instance Walkable TypeFamilyResultSig where
+  walk w resultSig =
     case resultSig of
-      TypeFamilyKindSig kind -> TypeFamilyKindSig <$> traverseAnnotations f kind
-      TypeFamilyTyVarSig binder -> TypeFamilyTyVarSig <$> traverseAnnotations f binder
+      TypeFamilyKindSig kind -> TypeFamilyKindSig <$> walk w kind
+      TypeFamilyTyVarSig binder -> TypeFamilyTyVarSig <$> walk w binder
       TypeFamilyInjectiveSig binder injectivity ->
-        TypeFamilyInjectiveSig <$> traverseAnnotations f binder <*> traverseAnnotations f injectivity
+        TypeFamilyInjectiveSig <$> walk w binder <*> walk w injectivity
 
-instance HasAnnotations TypeFamilyInjectivity where
-  traverseAnnotations f injectivity =
+instance Walkable TypeFamilyInjectivity where
+  walk w injectivity =
     (\anns -> injectivity {typeFamilyInjectivityAnns = anns})
-      <$> traverseAnnotations f (typeFamilyInjectivityAnns injectivity)
+      <$> walkAnns w (typeFamilyInjectivityAnns injectivity)
 
-instance HasAnnotations TypeFamilyEq where
-  traverseAnnotations f (TypeFamilyEq anns binders headForm lhs rhs) =
+instance Walkable TypeFamilyEq where
+  walk w (TypeFamilyEq anns binders headForm lhs rhs) =
     TypeFamilyEq
-      <$> traverseAnnotations f anns
-      <*> traverseAnnotations f binders
+      <$> walkAnns w anns
+      <*> walk w binders
       <*> pure headForm
-      <*> traverseAnnotations f lhs
-      <*> traverseAnnotations f rhs
+      <*> walk w lhs
+      <*> walk w rhs
 
-instance HasAnnotations DataFamilyDecl where
-  traverseAnnotations f (DataFamilyDecl familyHead kind) =
-    DataFamilyDecl <$> traverseAnnotations f familyHead <*> traverseAnnotations f kind
+instance Walkable DataFamilyDecl where
+  walk w (DataFamilyDecl familyHead kind) =
+    DataFamilyDecl <$> walk w familyHead <*> walk w kind
 
-instance HasAnnotations TypeFamilyInst where
-  traverseAnnotations f (TypeFamilyInst binders headForm lhs rhs) =
-    TypeFamilyInst <$> traverseAnnotations f binders <*> pure headForm <*> traverseAnnotations f lhs <*> traverseAnnotations f rhs
+instance Walkable TypeFamilyInst where
+  walk w (TypeFamilyInst binders headForm lhs rhs) =
+    TypeFamilyInst <$> walk w binders <*> pure headForm <*> walk w lhs <*> walk w rhs
 
-instance HasAnnotations DataFamilyInst where
-  traverseAnnotations f (DataFamilyInst isNewtype binders instHead kind constructors derivings) =
+instance Walkable DataFamilyInst where
+  walk w (DataFamilyInst isNewtype binders instHead kind constructors derivings) =
     DataFamilyInst isNewtype
-      <$> traverseAnnotations f binders
-      <*> traverseAnnotations f instHead
-      <*> traverseAnnotations f kind
-      <*> traverseAnnotations f constructors
-      <*> traverseAnnotations f derivings
+      <$> walk w binders
+      <*> walk w instHead
+      <*> walk w kind
+      <*> walk w constructors
+      <*> walk w derivings
 
-instance HasAnnotations DataDecl where
-  traverseAnnotations f (DataDecl pragma dataHead context kind constructors derivings) =
+instance Walkable DataDecl where
+  walk w (DataDecl pragma dataHead context kind constructors derivings) =
     DataDecl pragma
-      <$> traverseAnnotations f dataHead
-      <*> traverseAnnotations f context
-      <*> traverseAnnotations f kind
-      <*> traverseAnnotations f constructors
-      <*> traverseAnnotations f derivings
+      <$> walk w dataHead
+      <*> walk w context
+      <*> walk w kind
+      <*> walk w constructors
+      <*> walk w derivings
 
-instance HasAnnotations NewtypeDecl where
-  traverseAnnotations f (NewtypeDecl pragma newtypeHead context kind constructor derivings) =
+instance Walkable NewtypeDecl where
+  walk w (NewtypeDecl pragma newtypeHead context kind constructor derivings) =
     NewtypeDecl pragma
-      <$> traverseAnnotations f newtypeHead
-      <*> traverseAnnotations f context
-      <*> traverseAnnotations f kind
-      <*> traverseAnnotations f constructor
-      <*> traverseAnnotations f derivings
+      <$> walk w newtypeHead
+      <*> walk w context
+      <*> walk w kind
+      <*> walk w constructor
+      <*> walk w derivings
 
-instance HasAnnotations DataConDecl where
-  traverseAnnotations f constructor =
-    case constructor of
-      DataConAnn ann inner -> DataConAnn <$> f ann <*> traverseAnnotations f inner
-      PrefixCon binders context name fields ->
-        PrefixCon <$> traverseAnnotations f binders <*> traverseAnnotations f context <*> traverseAnnotations f name <*> traverseAnnotations f fields
-      InfixCon binders context lhs name rhs ->
-        InfixCon
-          <$> traverseAnnotations f binders
-          <*> traverseAnnotations f context
-          <*> traverseAnnotations f lhs
-          <*> traverseAnnotations f name
-          <*> traverseAnnotations f rhs
-      RecordCon binders context name fields ->
-        RecordCon <$> traverseAnnotations f binders <*> traverseAnnotations f context <*> traverseAnnotations f name <*> traverseAnnotations f fields
-      GadtCon telescopes context names body ->
-        GadtCon <$> traverseAnnotations f telescopes <*> traverseAnnotations f context <*> traverseAnnotations f names <*> traverseAnnotations f body
-      TupleCon binders context flavor fields ->
-        TupleCon <$> traverseAnnotations f binders <*> traverseAnnotations f context <*> pure flavor <*> traverseAnnotations f fields
-      UnboxedSumCon binders context position arity field ->
-        UnboxedSumCon <$> traverseAnnotations f binders <*> traverseAnnotations f context <*> pure position <*> pure arity <*> traverseAnnotations f field
-      ListCon binders context -> ListCon <$> traverseAnnotations f binders <*> traverseAnnotations f context
+instance Walkable DataConDecl where
+  walk w = walkDataConDecl w $ \case
+    DataConAnn ann inner -> DataConAnn <$> walkAnnotation w ann <*> walk w inner
+    PrefixCon binders context name fields ->
+      PrefixCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+    InfixCon binders context lhs name rhs ->
+      InfixCon
+        <$> walk w binders
+        <*> walk w context
+        <*> walk w lhs
+        <*> walk w name
+        <*> walk w rhs
+    RecordCon binders context name fields ->
+      RecordCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+    GadtCon telescopes context names body ->
+      GadtCon <$> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
+    TupleCon binders context flavor fields ->
+      TupleCon <$> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
+    UnboxedSumCon binders context position arity field ->
+      UnboxedSumCon <$> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
+    ListCon binders context -> ListCon <$> walk w binders <*> walk w context
 
-instance HasAnnotations GadtBody where
-  traverseAnnotations f body =
+instance Walkable GadtBody where
+  walk w body =
     case body of
-      GadtPrefixBody arguments result -> GadtPrefixBody <$> traverseAnnotations f arguments <*> traverseAnnotations f result
-      GadtRecordBody fields result -> GadtRecordBody <$> traverseAnnotations f fields <*> traverseAnnotations f result
+      GadtPrefixBody arguments result -> GadtPrefixBody <$> walk w arguments <*> walk w result
+      GadtRecordBody fields result -> GadtRecordBody <$> walk w fields <*> walk w result
 
-instance HasAnnotations BangType where
-  traverseAnnotations f (BangType anns pragmas strict lazy ty) =
-    BangType <$> traverseAnnotations f anns <*> pure pragmas <*> pure strict <*> pure lazy <*> traverseAnnotations f ty
+instance Walkable BangType where
+  walk w (BangType anns pragmas strict lazy ty) =
+    BangType <$> walkAnns w anns <*> pure pragmas <*> pure strict <*> pure lazy <*> walk w ty
 
-instance HasAnnotations FieldDecl where
-  traverseAnnotations f (FieldDecl anns names multiplicity ty) =
-    FieldDecl <$> traverseAnnotations f anns <*> traverseAnnotations f names <*> traverseAnnotations f multiplicity <*> traverseAnnotations f ty
+instance Walkable FieldDecl where
+  walk w (FieldDecl anns names multiplicity ty) =
+    FieldDecl <$> walkAnns w anns <*> walk w names <*> walk w multiplicity <*> walk w ty
 
-instance HasAnnotations DerivingClause where
-  traverseAnnotations f (DerivingClause strategy classes) =
-    DerivingClause <$> traverseAnnotations f strategy <*> traverseAnnotations f classes
+instance Walkable DerivingClause where
+  walk w (DerivingClause strategy classes) =
+    DerivingClause <$> walk w strategy <*> walk w classes
 
-instance HasAnnotations DerivingStrategy where
-  traverseAnnotations f strategy =
+instance Walkable DerivingStrategy where
+  walk w strategy =
     case strategy of
       DerivingStock -> pure DerivingStock
       DerivingNewtype -> pure DerivingNewtype
       DerivingAnyclass -> pure DerivingAnyclass
-      DerivingVia ty -> DerivingVia <$> traverseAnnotations f ty
+      DerivingVia ty -> DerivingVia <$> walk w ty
 
-instance HasAnnotations StandaloneDerivingDecl where
-  traverseAnnotations f (StandaloneDerivingDecl strategy pragmas warning binders context instHead) =
+instance Walkable StandaloneDerivingDecl where
+  walk w (StandaloneDerivingDecl strategy pragmas warning binders context instHead) =
     StandaloneDerivingDecl
-      <$> traverseAnnotations f strategy
+      <$> walk w strategy
       <*> pure pragmas
       <*> pure warning
-      <*> traverseAnnotations f binders
-      <*> traverseAnnotations f context
-      <*> traverseAnnotations f instHead
+      <*> walk w binders
+      <*> walk w context
+      <*> walk w instHead
 
 -- Classes and instances
 
-instance HasAnnotations ClassDecl where
-  traverseAnnotations f (ClassDecl context classHead fundeps items) =
+instance Walkable ClassDecl where
+  walk w (ClassDecl context classHead fundeps items) =
     ClassDecl
-      <$> traverseAnnotations f context
-      <*> traverseAnnotations f classHead
-      <*> traverseAnnotations f fundeps
-      <*> traverseAnnotations f items
+      <$> walk w context
+      <*> walk w classHead
+      <*> walk w fundeps
+      <*> walk w items
 
-instance HasAnnotations FunctionalDependency where
-  traverseAnnotations f fundep =
+instance Walkable FunctionalDependency where
+  walk w fundep =
     (\anns -> fundep {functionalDependencyAnns = anns})
-      <$> traverseAnnotations f (functionalDependencyAnns fundep)
+      <$> walkAnns w (functionalDependencyAnns fundep)
 
-instance HasAnnotations ClassDeclItem where
-  traverseAnnotations f item =
-    case item of
-      ClassItemAnn ann inner -> ClassItemAnn <$> f ann <*> traverseAnnotations f inner
-      ClassItemTypeSig names ty -> ClassItemTypeSig <$> traverseAnnotations f names <*> traverseAnnotations f ty
-      ClassItemDefaultSig name ty -> ClassItemDefaultSig <$> traverseAnnotations f name <*> traverseAnnotations f ty
-      ClassItemFixity assoc namespace precedence operators ->
-        ClassItemFixity assoc namespace precedence <$> traverseAnnotations f operators
-      ClassItemDefault value -> ClassItemDefault <$> traverseAnnotations f value
-      ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> traverseAnnotations f familyDecl
-      ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> traverseAnnotations f familyDecl
-      ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> traverseAnnotations f familyInst
-      ClassItemPragma pragma -> pure (ClassItemPragma pragma)
+instance Walkable ClassDeclItem where
+  walk w = walkClassDeclItem w $ \case
+    ClassItemAnn ann inner -> ClassItemAnn <$> walkAnnotation w ann <*> walk w inner
+    ClassItemTypeSig names ty -> ClassItemTypeSig <$> walk w names <*> walk w ty
+    ClassItemDefaultSig name ty -> ClassItemDefaultSig <$> walk w name <*> walk w ty
+    ClassItemFixity assoc namespace precedence operators ->
+      ClassItemFixity assoc namespace precedence <$> walk w operators
+    ClassItemDefault value -> ClassItemDefault <$> walk w value
+    ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> walk w familyDecl
+    ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> walk w familyDecl
+    ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> walk w familyInst
+    ClassItemPragma pragma -> pure (ClassItemPragma pragma)
 
-instance HasAnnotations InstanceDecl where
-  traverseAnnotations f (InstanceDecl pragmas warning binders context instHead items) =
+instance Walkable InstanceDecl where
+  walk w (InstanceDecl pragmas warning binders context instHead items) =
     InstanceDecl pragmas warning
-      <$> traverseAnnotations f binders
-      <*> traverseAnnotations f context
-      <*> traverseAnnotations f instHead
-      <*> traverseAnnotations f items
+      <$> walk w binders
+      <*> walk w context
+      <*> walk w instHead
+      <*> walk w items
 
-instance HasAnnotations InstanceDeclItem where
-  traverseAnnotations f item =
-    case item of
-      InstanceItemAnn ann inner -> InstanceItemAnn <$> f ann <*> traverseAnnotations f inner
-      InstanceItemBind value -> InstanceItemBind <$> traverseAnnotations f value
-      InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> traverseAnnotations f names <*> traverseAnnotations f ty
-      InstanceItemFixity assoc namespace precedence operators ->
-        InstanceItemFixity assoc namespace precedence <$> traverseAnnotations f operators
-      InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> traverseAnnotations f familyInst
-      InstanceItemDataFamilyInst familyInst -> InstanceItemDataFamilyInst <$> traverseAnnotations f familyInst
-      InstanceItemPragma pragma -> pure (InstanceItemPragma pragma)
+instance Walkable InstanceDeclItem where
+  walk w = walkInstanceDeclItem w $ \case
+    InstanceItemAnn ann inner -> InstanceItemAnn <$> walkAnnotation w ann <*> walk w inner
+    InstanceItemBind value -> InstanceItemBind <$> walk w value
+    InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> walk w names <*> walk w ty
+    InstanceItemFixity assoc namespace precedence operators ->
+      InstanceItemFixity assoc namespace precedence <$> walk w operators
+    InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> walk w familyInst
+    InstanceItemDataFamilyInst familyInst -> InstanceItemDataFamilyInst <$> walk w familyInst
+    InstanceItemPragma pragma -> pure (InstanceItemPragma pragma)
 
-instance HasAnnotations ForeignDecl where
-  traverseAnnotations f decl =
+instance Walkable ForeignDecl where
+  walk w decl =
     (\name ty -> decl {foreignName = name, foreignType = ty})
-      <$> traverseAnnotations f (foreignName decl)
-      <*> traverseAnnotations f (foreignType decl)
+      <$> walk w (foreignName decl)
+      <*> walk w (foreignType decl)
 
 -- Expressions
 
-instance HasAnnotations Expr where
-  traverseAnnotations f expr =
+instance Walkable Expr where
+  walk w = walkExpr w $ \expr ->
     case expr of
-      EAnn ann inner -> EAnn <$> f ann <*> traverseAnnotations f inner
-      EVar name -> EVar <$> traverseAnnotations f name
+      EAnn ann inner -> EAnn <$> walkAnnotation w ann <*> walk w inner
+      EVar name -> EVar <$> walk w name
       EImplicitParam {} -> pure expr
-      ETypeSyntax form ty -> ETypeSyntax form <$> traverseAnnotations f ty
+      ETypeSyntax form ty -> ETypeSyntax form <$> walk w ty
       EInt {} -> pure expr
       EFloat {} -> pure expr
       EChar {} -> pure expr
@@ -548,96 +621,92 @@ instance HasAnnotations Expr where
       EOverloadedLabel {} -> pure expr
       EQuasiQuote {} -> pure expr
       EIf condition thenExpr elseExpr ->
-        EIf <$> traverseAnnotations f condition <*> traverseAnnotations f thenExpr <*> traverseAnnotations f elseExpr
-      EMultiWayIf alternatives -> EMultiWayIf <$> traverseAnnotations f alternatives
-      ELambdaPats pats body -> ELambdaPats <$> traverseAnnotations f pats <*> traverseAnnotations f body
-      ELambdaCase alternatives -> ELambdaCase <$> traverseAnnotations f alternatives
-      ELambdaCases alternatives -> ELambdaCases <$> traverseAnnotations f alternatives
-      EInfix lhs name rhs -> EInfix <$> traverseAnnotations f lhs <*> traverseAnnotations f name <*> traverseAnnotations f rhs
-      EViewPat lhs rhs -> EViewPat <$> traverseAnnotations f lhs <*> traverseAnnotations f rhs
-      ENegate inner -> ENegate <$> traverseAnnotations f inner
-      ESectionL inner name -> ESectionL <$> traverseAnnotations f inner <*> traverseAnnotations f name
-      ESectionR name inner -> ESectionR <$> traverseAnnotations f name <*> traverseAnnotations f inner
-      ELetDecls decls body -> ELetDecls <$> traverseAnnotations f decls <*> traverseAnnotations f body
-      ECase scrutinee alternatives -> ECase <$> traverseAnnotations f scrutinee <*> traverseAnnotations f alternatives
-      EDo statements flavor -> EDo <$> traverseAnnotations f statements <*> pure flavor
-      EListComp body statements -> EListComp <$> traverseAnnotations f body <*> traverseAnnotations f statements
-      EListCompParallel body branches -> EListCompParallel <$> traverseAnnotations f body <*> traverseAnnotations f branches
-      EArithSeq sequence' -> EArithSeq <$> traverseAnnotations f sequence'
-      ERecordCon name fields wildcard -> ERecordCon <$> traverseAnnotations f name <*> traverseAnnotations f fields <*> pure wildcard
-      ERecordUpd record fields -> ERecordUpd <$> traverseAnnotations f record <*> traverseAnnotations f fields
-      EGetField record field -> EGetField <$> traverseAnnotations f record <*> traverseAnnotations f field
-      EGetFieldProjection fields -> EGetFieldProjection <$> traverseAnnotations f fields
-      ETypeSig inner ty -> ETypeSig <$> traverseAnnotations f inner <*> traverseAnnotations f ty
-      EParen inner -> EParen <$> traverseAnnotations f inner
-      EList items -> EList <$> traverseAnnotations f items
-      ETuple flavor items -> ETuple flavor <$> traverseAnnotations f items
-      EUnboxedSum position arity inner -> EUnboxedSum position arity <$> traverseAnnotations f inner
-      ETypeApp function ty -> ETypeApp <$> traverseAnnotations f function <*> traverseAnnotations f ty
-      EApp function argument -> EApp <$> traverseAnnotations f function <*> traverseAnnotations f argument
-      ETHExpQuote inner -> ETHExpQuote <$> traverseAnnotations f inner
-      ETHTypedQuote inner -> ETHTypedQuote <$> traverseAnnotations f inner
-      ETHDeclQuote decls -> ETHDeclQuote <$> traverseAnnotations f decls
-      ETHTypeQuote ty -> ETHTypeQuote <$> traverseAnnotations f ty
-      ETHPatQuote pat -> ETHPatQuote <$> traverseAnnotations f pat
-      ETHNameQuote inner -> ETHNameQuote <$> traverseAnnotations f inner
-      ETHTypeNameQuote ty -> ETHTypeNameQuote <$> traverseAnnotations f ty
-      ETHSplice inner -> ETHSplice <$> traverseAnnotations f inner
-      ETHTypedSplice inner -> ETHTypedSplice <$> traverseAnnotations f inner
-      EProc pat command -> EProc <$> traverseAnnotations f pat <*> traverseAnnotations f command
-      EPragma pragma inner -> EPragma pragma <$> traverseAnnotations f inner
+        EIf <$> walk w condition <*> walk w thenExpr <*> walk w elseExpr
+      EMultiWayIf alternatives -> EMultiWayIf <$> walk w alternatives
+      ELambdaPats pats body -> ELambdaPats <$> walk w pats <*> walk w body
+      ELambdaCase alternatives -> ELambdaCase <$> walk w alternatives
+      ELambdaCases alternatives -> ELambdaCases <$> walk w alternatives
+      EInfix lhs name rhs -> EInfix <$> walk w lhs <*> walk w name <*> walk w rhs
+      EViewPat lhs rhs -> EViewPat <$> walk w lhs <*> walk w rhs
+      ENegate inner -> ENegate <$> walk w inner
+      ESectionL inner name -> ESectionL <$> walk w inner <*> walk w name
+      ESectionR name inner -> ESectionR <$> walk w name <*> walk w inner
+      ELetDecls decls body -> ELetDecls <$> walk w decls <*> walk w body
+      ECase scrutinee alternatives -> ECase <$> walk w scrutinee <*> walk w alternatives
+      EDo statements flavor -> EDo <$> walk w statements <*> pure flavor
+      EListComp body statements -> EListComp <$> walk w body <*> walk w statements
+      EListCompParallel body branches -> EListCompParallel <$> walk w body <*> walk w branches
+      EArithSeq sequence' -> EArithSeq <$> walk w sequence'
+      ERecordCon name fields wildcard -> ERecordCon <$> walk w name <*> walk w fields <*> pure wildcard
+      ERecordUpd record fields -> ERecordUpd <$> walk w record <*> walk w fields
+      EGetField record field -> EGetField <$> walk w record <*> walk w field
+      EGetFieldProjection fields -> EGetFieldProjection <$> walk w fields
+      ETypeSig inner ty -> ETypeSig <$> walk w inner <*> walk w ty
+      EParen inner -> EParen <$> walk w inner
+      EList items -> EList <$> walk w items
+      ETuple flavor items -> ETuple flavor <$> walk w items
+      EUnboxedSum position arity inner -> EUnboxedSum position arity <$> walk w inner
+      ETypeApp function ty -> ETypeApp <$> walk w function <*> walk w ty
+      EApp function argument -> EApp <$> walk w function <*> walk w argument
+      ETHExpQuote inner -> ETHExpQuote <$> walk w inner
+      ETHTypedQuote inner -> ETHTypedQuote <$> walk w inner
+      ETHDeclQuote decls -> ETHDeclQuote <$> walk w decls
+      ETHTypeQuote ty -> ETHTypeQuote <$> walk w ty
+      ETHPatQuote pat -> ETHPatQuote <$> walk w pat
+      ETHNameQuote inner -> ETHNameQuote <$> walk w inner
+      ETHTypeNameQuote ty -> ETHTypeNameQuote <$> walk w ty
+      ETHSplice inner -> ETHSplice <$> walk w inner
+      ETHTypedSplice inner -> ETHTypedSplice <$> walk w inner
+      EProc pat command -> EProc <$> walk w pat <*> walk w command
+      EPragma pragma inner -> EPragma pragma <$> walk w inner
 
-instance (HasAnnotations body) => HasAnnotations (CaseAlt body) where
-  traverseAnnotations f (CaseAlt anns pat rhs) =
-    CaseAlt <$> traverseAnnotations f anns <*> traverseAnnotations f pat <*> traverseAnnotations f rhs
+instance (Walkable body) => Walkable (CaseAlt body) where
+  walk w (CaseAlt anns pat rhs) =
+    CaseAlt <$> walkAnns w anns <*> walk w pat <*> walk w rhs
 
-instance HasAnnotations LambdaCaseAlt where
-  traverseAnnotations f (LambdaCaseAlt anns pats rhs) =
-    LambdaCaseAlt <$> traverseAnnotations f anns <*> traverseAnnotations f pats <*> traverseAnnotations f rhs
+instance Walkable LambdaCaseAlt where
+  walk w (LambdaCaseAlt anns pats rhs) =
+    LambdaCaseAlt <$> walkAnns w anns <*> walk w pats <*> walk w rhs
 
-instance (HasAnnotations body) => HasAnnotations (DoStmt body) where
-  traverseAnnotations f statement =
-    case statement of
-      DoAnn ann inner -> DoAnn <$> f ann <*> traverseAnnotations f inner
-      DoBind pat body -> DoBind <$> traverseAnnotations f pat <*> traverseAnnotations f body
-      DoLetDecls decls -> DoLetDecls <$> traverseAnnotations f decls
-      DoExpr body -> DoExpr <$> traverseAnnotations f body
-      DoRecStmt statements -> DoRecStmt <$> traverseAnnotations f statements
+instance (Walkable body) => Walkable (DoStmt body) where
+  walk w = walkDoStmt w $ \case
+    DoAnn ann inner -> DoAnn <$> walkAnnotation w ann <*> walk w inner
+    DoBind pat body -> DoBind <$> walk w pat <*> walk w body
+    DoLetDecls decls -> DoLetDecls <$> walk w decls
+    DoExpr body -> DoExpr <$> walk w body
+    DoRecStmt statements -> DoRecStmt <$> walk w statements
 
-instance HasAnnotations Cmd where
-  traverseAnnotations f command =
-    case command of
-      CmdAnn ann inner -> CmdAnn <$> f ann <*> traverseAnnotations f inner
-      CmdArrApp function appType argument ->
-        CmdArrApp <$> traverseAnnotations f function <*> pure appType <*> traverseAnnotations f argument
-      CmdInfix lhs name rhs -> CmdInfix <$> traverseAnnotations f lhs <*> traverseAnnotations f name <*> traverseAnnotations f rhs
-      CmdDo statements -> CmdDo <$> traverseAnnotations f statements
-      CmdIf condition thenCmd elseCmd ->
-        CmdIf <$> traverseAnnotations f condition <*> traverseAnnotations f thenCmd <*> traverseAnnotations f elseCmd
-      CmdCase scrutinee alternatives -> CmdCase <$> traverseAnnotations f scrutinee <*> traverseAnnotations f alternatives
-      CmdLet decls inner -> CmdLet <$> traverseAnnotations f decls <*> traverseAnnotations f inner
-      CmdLam pats inner -> CmdLam <$> traverseAnnotations f pats <*> traverseAnnotations f inner
-      CmdApp inner argument -> CmdApp <$> traverseAnnotations f inner <*> traverseAnnotations f argument
-      CmdPar inner -> CmdPar <$> traverseAnnotations f inner
+instance Walkable Cmd where
+  walk w = walkCmd w $ \case
+    CmdAnn ann inner -> CmdAnn <$> walkAnnotation w ann <*> walk w inner
+    CmdArrApp function appType argument ->
+      CmdArrApp <$> walk w function <*> pure appType <*> walk w argument
+    CmdInfix lhs name rhs -> CmdInfix <$> walk w lhs <*> walk w name <*> walk w rhs
+    CmdDo statements -> CmdDo <$> walk w statements
+    CmdIf condition thenCmd elseCmd ->
+      CmdIf <$> walk w condition <*> walk w thenCmd <*> walk w elseCmd
+    CmdCase scrutinee alternatives -> CmdCase <$> walk w scrutinee <*> walk w alternatives
+    CmdLet decls inner -> CmdLet <$> walk w decls <*> walk w inner
+    CmdLam pats inner -> CmdLam <$> walk w pats <*> walk w inner
+    CmdApp inner argument -> CmdApp <$> walk w inner <*> walk w argument
+    CmdPar inner -> CmdPar <$> walk w inner
 
-instance HasAnnotations CompStmt where
-  traverseAnnotations f statement =
-    case statement of
-      CompAnn ann inner -> CompAnn <$> f ann <*> traverseAnnotations f inner
-      CompGen pat expr -> CompGen <$> traverseAnnotations f pat <*> traverseAnnotations f expr
-      CompGuard expr -> CompGuard <$> traverseAnnotations f expr
-      CompLetDecls decls -> CompLetDecls <$> traverseAnnotations f decls
-      CompThen expr -> CompThen <$> traverseAnnotations f expr
-      CompThenBy function expr -> CompThenBy <$> traverseAnnotations f function <*> traverseAnnotations f expr
-      CompGroupUsing function -> CompGroupUsing <$> traverseAnnotations f function
-      CompGroupByUsing expr function -> CompGroupByUsing <$> traverseAnnotations f expr <*> traverseAnnotations f function
+instance Walkable CompStmt where
+  walk w = walkCompStmt w $ \case
+    CompAnn ann inner -> CompAnn <$> walkAnnotation w ann <*> walk w inner
+    CompGen pat expr -> CompGen <$> walk w pat <*> walk w expr
+    CompGuard expr -> CompGuard <$> walk w expr
+    CompLetDecls decls -> CompLetDecls <$> walk w decls
+    CompThen expr -> CompThen <$> walk w expr
+    CompThenBy function expr -> CompThenBy <$> walk w function <*> walk w expr
+    CompGroupUsing function -> CompGroupUsing <$> walk w function
+    CompGroupByUsing expr function -> CompGroupByUsing <$> walk w expr <*> walk w function
 
-instance HasAnnotations ArithSeq where
-  traverseAnnotations f sequence' =
-    case sequence' of
-      ArithSeqAnn ann inner -> ArithSeqAnn <$> f ann <*> traverseAnnotations f inner
-      ArithSeqFrom from -> ArithSeqFrom <$> traverseAnnotations f from
-      ArithSeqFromThen from next -> ArithSeqFromThen <$> traverseAnnotations f from <*> traverseAnnotations f next
-      ArithSeqFromTo from to -> ArithSeqFromTo <$> traverseAnnotations f from <*> traverseAnnotations f to
-      ArithSeqFromThenTo from next to ->
-        ArithSeqFromThenTo <$> traverseAnnotations f from <*> traverseAnnotations f next <*> traverseAnnotations f to
+instance Walkable ArithSeq where
+  walk w = walkArithSeq w $ \case
+    ArithSeqAnn ann inner -> ArithSeqAnn <$> walkAnnotation w ann <*> walk w inner
+    ArithSeqFrom from -> ArithSeqFrom <$> walk w from
+    ArithSeqFromThen from next -> ArithSeqFromThen <$> walk w from <*> walk w next
+    ArithSeqFromTo from to -> ArithSeqFromTo <$> walk w from <*> walk w to
+    ArithSeqFromThenTo from next to ->
+      ArithSeqFromThenTo <$> walk w from <*> walk w next <*> walk w to

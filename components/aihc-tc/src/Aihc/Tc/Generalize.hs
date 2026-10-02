@@ -46,13 +46,13 @@ generalizeAndCommit = generalizeAndCommitIgnoring Set.empty
 -- This is used for recursive local binding groups: the group's placeholder
 -- binders are in scope while the group is checked, but they are not part of
 -- the outer environment that should block generalization.
-generalizeIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
+generalizeIgnoring :: Set.Set Entity -> TcType -> [Pred] -> TcM TypeScheme
 generalizeIgnoring ignoredKeys ty preds =
   fst <$> generalizeIgnoringWithSubst ignoredKeys [] ty preds
 
 -- | Generalize while ignoring selected binders, then write the generalized
 -- substitutions back to the meta store.
-generalizeAndCommitIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
+generalizeAndCommitIgnoring :: Set.Set Entity -> TcType -> [Pred] -> TcM TypeScheme
 generalizeAndCommitIgnoring ignoredKeys ty preds = do
   (scheme, subst) <- generalizeIgnoringWithSubst ignoredKeys [] ty preds
   forM_ subst (uncurry writeMetaTv)
@@ -81,7 +81,7 @@ generalizeAndCommitWithInterior interior ty preds = do
 -- of the first binding, and the later bindings would then mention a type
 -- variable that they do not quantify. Each scheme quantifies the shared
 -- type variables that its own type or predicates mention.
-generalizeGroupAndCommitIgnoring :: Set.Set TcTermKey -> [Unique] -> [(TcType, [Pred])] -> TcM [TypeScheme]
+generalizeGroupAndCommitIgnoring :: Set.Set Entity -> [Unique] -> [(TcType, [Pred])] -> TcM [TypeScheme]
 generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
   envMetaVars <- (++ monoMetaVars) <$> environmentMetaVars ignoredKeys
   zonked <- mapM zonkBinding bindings
@@ -101,7 +101,7 @@ generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
   where
     zonkBinding (ty, preds) = (,) <$> zonkType ty <*> mapM zonkPred preds
 
-generalizeIgnoringWithSubst :: Set.Set TcTermKey -> [TcType] -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
+generalizeIgnoringWithSubst :: Set.Set Entity -> [TcType] -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
 generalizeIgnoringWithSubst ignoredKeys interior ty preds = do
   envMetaVars <- environmentMetaVars ignoredKeys
   ty' <- zonkType ty
@@ -167,7 +167,7 @@ reachableMetaVars = go []
 
 -- | Meta-variables that the environment mentions. Generalization does not
 -- quantify over them. The ignored binders are not part of the environment.
-environmentMetaVars :: Set.Set TcTermKey -> TcM [Unique]
+environmentMetaVars :: Set.Set Entity -> TcM [Unique]
 environmentMetaVars ignoredKeys = do
   env <- getMetaTermEnv
   nubOrd . concat

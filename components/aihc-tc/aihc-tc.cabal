@@ -131,7 +131,6 @@ test-suite spec
     Test.Tc.Properties
     Test.Tc.StockClass
     Test.Tc.Suite
-    Test.Tc.Traverse
 
   build-depends:
     aeson,

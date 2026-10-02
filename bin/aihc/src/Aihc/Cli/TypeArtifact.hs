@@ -10,7 +10,7 @@ where
 import Aihc.Cbor (cborArray, cborInt, cborText, cborWord, getArrayLength, getInt, getText, getWord, (<*!>))
 import Aihc.Cli.InterfaceParts (InterfacePart (..), PartIndex (..), interfaceParts)
 import Aihc.Cli.InterfaceTyCons (interfaceTyCons)
-import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
+import Aihc.Resolve (GlobalName (..), LocalId (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc
   ( AssociatedTypeInfo (..),
     ClassInfo (..),
@@ -20,11 +20,11 @@ import Aihc.Tc
     DataConSourceForm (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    Entity (..),
     FunDep (..),
     InstanceInfo (..),
     Pred (..),
     TcInterface (..),
-    TcTermKey (..),
     TcType (..),
     TyCon,
     TyConFlavor (..),
@@ -177,10 +177,10 @@ getInterface table = do
     fail ("unsupported type interface array length: " <> show length')
   pure (tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports)
 
-putForeignImport :: PartIndex -> (TcTermKey, TcForeignImportInfo) -> Builder.Builder
+putForeignImport :: PartIndex -> (Entity, TcForeignImportInfo) -> Builder.Builder
 putForeignImport table (key, info) = cborArray 2 <> putTermKey key <> putForeignImportInfo table info
 
-getForeignImport :: PartTable -> Get.Get (TcTermKey, TcForeignImportInfo)
+getForeignImport :: PartTable -> Get.Get (Entity, TcForeignImportInfo)
 getForeignImport table = expectArray 2 >> ((,) <$!> getTermKey <*!> getForeignImportInfo table)
 
 putForeignImportInfo :: PartIndex -> TcForeignImportInfo -> Builder.Builder
@@ -401,24 +401,31 @@ getPatSynDirection = do
     2 -> pure PatSynExplicitBidirectionalInfo
     _ -> fail "unsupported pattern synonym direction"
 
-putTerm :: PartIndex -> (TcTermKey, TypeScheme) -> Builder.Builder
+putTerm :: PartIndex -> (Entity, TypeScheme) -> Builder.Builder
 putTerm table (key, scheme) = cborArray 2 <> putTermKey key <> putTypeScheme table scheme
 
-getTerm :: PartTable -> Get.Get (TcTermKey, TypeScheme)
+getTerm :: PartTable -> Get.Get (Entity, TypeScheme)
 getTerm table = expectArray 2 >> ((,) <$!> getTermKey <*!> getTypeScheme table)
 
-putTermKey :: TcTermKey -> Builder.Builder
+putTermKey :: Entity -> Builder.Builder
 putTermKey key = case key of
-  TcTermLocal unique -> cborArray 2 <> cborWord 0 <> cborInt unique
-  TcTermGlobal (PackageId packageId) moduleName identifier -> cborArray 4 <> cborWord 1 <> cborText packageId <> cborText moduleName <> cborText identifier
+  EntityLocal (LocalId unique) -> cborArray 2 <> cborWord 0 <> cborInt unique
+  EntityGlobal (GlobalName identifier (PackageId packageId) moduleName namespace) ->
+    cborArray 5 <> cborWord 1 <> cborText packageId <> cborText moduleName <> cborText identifier <> putResolutionNamespace namespace
+  EntitySyntax -> cborArray 1 <> cborWord 2
 
-getTermKey :: Get.Get TcTermKey
+getTermKey :: Get.Get Entity
 getTermKey = do
   length' <- getArrayLength
   tag <- getWord
   case (length', tag) of
-    (2, 0) -> TcTermLocal <$!> getInt
-    (4, 1) -> (TcTermGlobal . PackageId <$!> getText) <*!> getText <*!> getText
+    (2, 0) -> EntityLocal . LocalId <$!> getInt
+    (5, 1) -> do
+      packageId <- PackageId <$!> getText
+      moduleName <- getText
+      identifier <- getText
+      EntityGlobal . GlobalName identifier packageId moduleName <$!> getResolutionNamespace
+    (1, 2) -> pure EntitySyntax
     _ -> fail "unsupported term key"
 
 putTypeScheme :: PartIndex -> TypeScheme -> Builder.Builder

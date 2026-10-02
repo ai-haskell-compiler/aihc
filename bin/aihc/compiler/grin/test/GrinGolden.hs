@@ -27,7 +27,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
-import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, lookupImportedModule, modulesInPackage, resolveUnit, unionScope)
+import Aihc.Resolve (Builtins, ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
 import Aihc.Tc
   ( MergeCheck (..),
     TcInterface,
@@ -107,8 +107,8 @@ buildFcPrograms extensions sources = do
       visibleExports = fixtureExports <> supportScopes primitiveSupport
   resolved <-
     case resolveUnit (fixtureBuiltinScope visibleExports) visibleExports fixtureModules of
-      result@ResolveResult {resolveErrors = []} -> Right result
-      ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+      Right result -> Right result
+      Left failure -> Left ("resolve error: " <> show (failureErrors failure))
   let fixtureAsts = resolvedModules resolved
       (fixtureTcResults, tcInterface) =
         typecheckModulesWithInterface
@@ -189,12 +189,11 @@ preparePrimitiveSupport sources = do
   modules <- traverse (uncurry parsePrimitiveModule) sources
   let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
       exports = collectModuleExportsWithDeps mempty packageModules
-      builtinScope = foldr (unionScope . lookupPrimitive) emptyScope ["GHC.Prim", "GHC.Types"]
-      lookupPrimitive name = lookupImportedModule primitivePackage Nothing name exports
+      builtinScope = builtins primitivePackage exports ["GHC.Prim", "GHC.Types"]
   resolved <-
     case resolveUnit builtinScope exports packageModules of
-      result@ResolveResult {resolveErrors = []} -> Right result
-      ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+      Right result -> Right result
+      Left failure -> Left ("resolve error: " <> show (failureErrors failure))
   let primitiveAsts = resolvedModules resolved
       (primitiveTcResults, tcInterface) =
         typecheckModuleSccWithInterface
@@ -207,7 +206,7 @@ preparePrimitiveSupport sources = do
         ( "typecheck error: "
             <> unlines
               [ show (moduleName ast) <> ": " <> show diagnostic
-              | (ast, result) <- zip (map moduleUnitAst primitiveAsts) primitiveTcResults,
+              | (ast, result) <- zip (map (moduleUnitAst . resolvedModuleUnit) primitiveAsts) primitiveTcResults,
                 diagnostic <- tcModuleDiagnostics result
               ]
         )
@@ -242,11 +241,10 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
 
-fixtureBuiltinScope :: ModuleExports -> Scope
+fixtureBuiltinScope :: ModuleExports -> Builtins
 fixtureBuiltinScope visibleExports =
-  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  builtins fixturePackage visibleExports builtinFunctionModules
   where
-    lookupBuiltin name = lookupImportedModule fixturePackage Nothing name visibleExports
     builtinFunctionModules = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Types"]
 
 -- | The kind vocabulary of the fixture compiler.

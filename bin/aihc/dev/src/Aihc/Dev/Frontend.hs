@@ -70,7 +70,9 @@ import Aihc.Resolve
     Package (..),
     PackageId (..),
     ResolveError,
-    ResolveResult (..),
+    ResolveFailure (..),
+    ResolvedModule (..),
+    ResolvedUnit (..),
     collectModuleExportsWithDeps,
     filterModuleExports,
     resolveUnit,
@@ -152,10 +154,11 @@ instance Monoid PhaseTimes where
 
 -- | A unit after name resolution: what the units above it import from it
 -- and the resolved modules the type checker takes.
-data ResolvedUnit = ResolvedUnit
+data ResolvedSourceUnit = ResolvedSourceUnit
   { resolvedUnit :: !SourceUnit,
     resolvedUnitExports :: !ModuleExports,
-    resolvedUnitResult :: !ResolveResult
+    resolvedUnitResult :: !ResolvedUnit,
+    resolvedUnitErrors :: ![ResolveError]
   }
 
 -- | A unit after type checking: the interface of each of its modules, the
@@ -279,7 +282,7 @@ runPackage config jobs headerDirectory dependencies root = do
         dependencyExports = mconcat (map checkedExports dependencies)
     (resolved, resolveTime) <- timed (resolveUnits jobs resolvePackage dependencyExports units)
     reportPhase "resolve" resolveTime (show (length units) <> " " <> plural (length units) "unit")
-    stopOnFailure loader [] (concatMap (resolveErrors . resolvedUnitResult) resolved) []
+    stopOnFailure loader [] (concatMap resolvedUnitErrors resolved) []
     -- Type check: every unit, in dependency order, against the interfaces
     -- of what it imports.
     let primIdentity = packagePrimIdentity resolvePackage dependencyExports
@@ -349,7 +352,7 @@ parseModules jobs headerDirectory root versions files = do
   mapM (atomically . readTMVar) results
 
 -- | Resolve every unit, each once the units it imports are resolved.
-resolveUnits :: Int -> Package -> ModuleExports -> [SourceUnit] -> IO [ResolvedUnit]
+resolveUnits :: Int -> Package -> ModuleExports -> [SourceUnit] -> IO [ResolvedSourceUnit]
 resolveUnits jobs resolvePackage dependencyExports units = do
   results <- unitResults units
   let task unit =
@@ -360,13 +363,16 @@ resolveUnits jobs resolvePackage dependencyExports units = do
           let exports = collectModuleExportsWithDeps availableExports packageModules
               visibleExports = exports <> availableExports
               builtinScope = builtinFunctionScope resolvePackage visibleExports
-              result = resolveUnit builtinScope visibleExports packageModules
+              (result, errors) =
+                case resolveUnit builtinScope visibleExports packageModules of
+                  Right resolvedUnit' -> (resolvedUnit', [])
+                  Left failure -> (ResolvedUnit (failureModules failure), failureErrors failure)
           -- The resolver annotates lazily: the exports alone would leave
           -- the bodies to the type checker's clock.
           _ <- evaluate (force exports)
-          _ <- evaluate (rnf (map moduleUnitAst (resolvedModules result)))
-          _ <- evaluate (length (resolveErrors result))
-          atomically (putTMVar (unitResult results unit) ResolvedUnit {resolvedUnit = unit, resolvedUnitExports = exports, resolvedUnitResult = result})
+          _ <- evaluate (rnf (map (moduleUnitAst . resolvedModuleUnit) (resolvedModules result)))
+          _ <- evaluate (length errors)
+          atomically (putTMVar (unitResult results unit) ResolvedSourceUnit {resolvedUnit = unit, resolvedUnitExports = exports, resolvedUnitResult = result, resolvedUnitErrors = errors})
   _ <- runTaskGraph jobs (map task units)
   mapM (atomically . readTMVar . unitResult results) units
 
@@ -383,7 +389,7 @@ typecheckUnits ::
   Map.Map Text TcInterface ->
   TcInterface ->
   Map.Map Text (Set.Set InstanceProvider) ->
-  [ResolvedUnit] ->
+  [ResolvedSourceUnit] ->
   IO [CheckedUnit]
 typecheckUnits jobs config resolvePackage primIdentity dependencyTypes dependencyInstanceFacts dependencyInstanceProviders resolvedUnits = do
   let units = map resolvedUnit resolvedUnits

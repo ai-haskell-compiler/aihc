@@ -12,7 +12,6 @@ synopsis: Name resolution for parsed Haskell modules
 library
   exposed-modules:
     Aihc.Resolve
-    Aihc.Resolve.Generic
     Aihc.Resolve.Traverse
     Aihc.Resolve.Types
 

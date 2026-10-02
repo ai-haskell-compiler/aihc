@@ -25,10 +25,9 @@ import Aihc.Parser.Syntax
     SourceSpan,
     UnqualifiedName (..),
     mkAnnotation,
-    mkUnqualifiedName,
     nameText,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), globalTerm)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), RecordHead (..), dataConRecordHead, patSynRecordHead)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -48,9 +47,9 @@ lookupRecordHead :: Name -> TcM RecordHead
 lookupRecordHead conSyntax = do
   target <- resolvedTermTarget conSyntax
   case target of
-    ResolvedTopLevel packageId resolvedModule resolvedName -> do
-      let conName = nameText resolvedName
-          origin = (packageId, resolvedModule)
+    EntityGlobal global -> do
+      let conName = globalNameText global
+          origin = (globalNamePackage global, globalNameModule global)
       dataTypes <- getDataTypes
       let matches =
             [ con
@@ -147,14 +146,14 @@ synthesizedRecordLocal text = do
     ( UnqualifiedName
         NameVarId
         text
-        [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
+        [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))]
     )
 
 -- | A resolved occurrence of a record head. The pattern and the expression
 -- of a record update expansion use it.
 recordHeadNameSyntax :: RecordHead -> Name
 recordHeadNameSyntax head' =
-  Name (Just moduleName') nameType' text [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedTopLevel packageId moduleName' resolved))]
+  Name (Just moduleName') nameType' text [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (globalTerm packageId moduleName' text))]
   where
     (packageId, moduleName') = rhOrigin head'
     text = rhName head'
@@ -162,4 +161,3 @@ recordHeadNameSyntax head' =
       case T.uncons text of
         Just (first, _) | first == ':' -> NameConSym
         _ -> NameConId
-    resolved = Name Nothing nameType' text []

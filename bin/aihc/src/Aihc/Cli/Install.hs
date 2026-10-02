@@ -148,7 +148,6 @@ import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
     Module,
-    Name (..),
     SourceSpan,
     moduleName,
     sourceSpanSourceName,
@@ -157,25 +156,27 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Prim.Wiring (primDerivingReferences, primTcConfig, primTcWiring)
 import Aihc.Resolve
-  ( ModuleExports,
+  ( Builtins,
+    Entity (..),
+    GlobalName (..),
+    ModuleExports,
     ModuleKey (..),
     ModuleUnit,
     Package (..),
     PackageId (..),
     ResolutionNamespace (..),
     ResolveError (..),
-    ResolveResult (..),
-    ResolvedName (..),
-    Scope (..),
+    ResolveFailure (..),
+    ResolvedUnit (..),
+    builtins,
     collectModuleExportsWithDeps,
-    emptyScope,
-    lookupImportedModule,
+    exportedTerms,
+    exportedTypes,
     lookupModuleExport,
     moduleExportKeys,
     moduleExportsFromList,
     modulesInPackage,
     resolveUnit,
-    unionScope,
   )
 import Aihc.Tc
   ( ClassInfo (..),
@@ -188,7 +189,6 @@ import Aihc.Tc
     TcInterface (..),
     TcKinds,
     TcSeverity (..),
-    TcTermKey (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     derivingReferenceList,
@@ -207,7 +207,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Share (shareTcInterface)
-import Aihc.Tc.Types (TcTypeKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
@@ -219,6 +219,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
+import Data.Either (fromRight)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
@@ -356,7 +357,7 @@ instance NFData FcModule where
 -- task resolved them, or the parsed modules when the resolve artifacts were
 -- reused and the unit has to be resolved again before it can be checked.
 data TypeInput
-  = TypeInputResolved ResolveResult
+  = TypeInputResolved ResolvedUnit
   | TypeInputParsed [ModuleUnit]
 
 -- | The System FC of a unit, as the backend task takes it from the
@@ -2087,14 +2088,13 @@ renderResolveErrors sourceLines errors =
 renderResolveError :: DiagnosticSourceMap -> ResolveError -> String
 renderResolveError sourceLines resolveError =
   case resolveError of
-    ResolveResolutionError Nothing name namespace message ->
+    ResolveError Nothing name namespace message ->
       "error: " <> renderResolveMessage message name namespace
-    ResolveResolutionError (Just sourceSpan) name namespace message ->
+    ResolveError (Just sourceSpan) name namespace message ->
       renderResolveLocation sourceSpan
         <> ": error: "
         <> renderResolveMessage message name namespace
         <> renderResolveExcerpt sourceLines sourceSpan
-    ResolveNotImplemented message -> "error: not implemented: " <> message
 
 renderResolveLocation :: SourceSpan -> String
 renderResolveLocation (SourceSpan sourcePath startLine startColumn _ _ _ _) =
@@ -2143,7 +2143,7 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
   sourceLines <-
     loadExcerptSources
       loadSource
-      ( [sourceSpan | ResolveResolutionError (Just sourceSpan) _ _ _ <- resolveDiagnostics]
+      ( [sourceSpan | ResolveError (Just sourceSpan) _ _ _ <- resolveDiagnostics]
           <> [sourceSpan | (_, diagnostic) <- typeDiagnostics, Just sourceSpan <- [diagLoc diagnostic]]
       )
   let sections =
@@ -2305,8 +2305,10 @@ runResolveUnit context runtimes runtime = do
       let unitExports = collectModuleExportsWithDeps availableExports packageModules
           visibleExports = unitExports <> availableExports
           builtinScope = builtinFunctionScope resolvePackage visibleExports
-          resolved = resolveUnit builtinScope visibleExports packageModules
-          errors = resolveErrors resolved
+          (resolved, errors) =
+            case resolveUnit builtinScope visibleExports packageModules of
+              Right resolvedUnit' -> (resolvedUnit', [])
+              Left failure -> (ResolvedUnit (failureModules failure), failureErrors failure)
           success = parseSuccess && dependenciesSucceeded && null errors
       scopeHashes <-
         if success
@@ -2350,7 +2352,7 @@ reuseResolveUnit storePath stampPath inputs resolvePackage artifactPaths = do
             Right artifacts ->
               pure
                 ( Just
-                    ( moduleExportsFromList [(ModuleKey resolvePackage (resolveArtifactModuleName artifact), resolveArtifactScope artifact) | artifact <- artifacts],
+                    ( moduleExportsFromList [(ModuleKey resolvePackage (resolveArtifactModuleName artifact), resolveArtifactExports artifact) | artifact <- artifacts],
                       resolveStampScopes recorded
                     )
                 )
@@ -2441,7 +2443,9 @@ runTypeUnit context runtimes runtime = do
                 TypeInputResolved result -> result
                 TypeInputParsed packageModules ->
                   let visibleExports = collectModuleExportsWithDeps availableExports packageModules <> availableExports
-                   in resolveUnit (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules
+                   in -- The unit resolved when its artifacts were written, and the
+                      -- same inputs resolve the same way.
+                      fromRight (ResolvedUnit []) (resolveUnit (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules)
             checked =
               typecheckModuleSccWithInterface
                 (primTcConfig primIdentity)
@@ -2762,11 +2766,10 @@ wiredInterfaceModules = wiredTypeModules <> ["GHC.IsList"] <> wiredDerivingModul
 
 -- | The scope of the functions that desugaring reaches without an import.
 -- The argument is everything the unit can see, as 'resolveUnit' takes it.
-builtinFunctionScope :: Package -> ModuleExports -> Scope
+builtinFunctionScope :: Package -> ModuleExports -> Builtins
 builtinFunctionScope currentPackage visibleExports =
-  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  builtins currentPackage visibleExports builtinFunctionModules
   where
-    lookupBuiltin name = lookupImportedModule currentPackage Nothing name visibleExports
     builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 measureTime :: IO a -> IO (a, Word64)
@@ -3662,7 +3665,7 @@ runToolWith adjust executable arguments = do
 
 -- Applied to the unit's interface and no more, this gives a function the
 -- unit's modules share, so 'addReferencedFacts' prepares its tables once.
-moduleTypeInterface :: TcKinds -> [TcTermKey] -> ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
+moduleTypeInterface :: TcKinds -> [Entity] -> ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface kinds supportTerms exports package interface = go
   where
     addReference = addReferencedFacts (typeLiteralKindTyCons kinds) supportTerms interface
@@ -3682,16 +3685,20 @@ moduleTypeInterface kinds supportTerms exports package interface = go
       where
         name = sourceModuleName source
         scope = fromMaybe (error "missing resolve scope") (lookupModuleExport (ModuleKey package name) exports)
-        termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTerms scope)))
-        typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTypes scope)))
+        scopeTerms = exportedTerms scope
+        scopeTypes = exportedTypes scope
+        termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems scopeTerms))
+        typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems scopeTypes))
         localIdentity identifier = (packageId package, name, identifier)
         localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
-        visibleTerm (TcTermGlobal packageId' moduleName' identifier) =
-          visibleTermIdentity (packageId', moduleName', identifier)
-            || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
-        visibleTerm (TcTermLocal {}) = False
+        visibleTerm key = case key of
+          EntityGlobal (GlobalName identifier packageId' moduleName' _) ->
+            visibleTermIdentity (packageId', moduleName', identifier)
+              || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
+          EntityLocal {} -> False
+          EntitySyntax -> False
         visibleTermIdentity identity@(_, _, identifier) =
-          Map.member identifier (scopeTerms scope)
+          Map.member identifier scopeTerms
             || identity `Set.member` termIdentities
             || identity `Set.member` methodIdentities
             || identity == localIdentity identifier
@@ -3713,25 +3720,25 @@ moduleTypeInterface kinds supportTerms exports package interface = go
               identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
               (namespaceScope, namespaceIdentities) =
                 case tyConNamespace tyCon of
-                  ResolutionNamespaceTerm -> (scopeTerms scope, termIdentities)
-                  ResolutionNamespaceType -> (scopeTypes scope, typeIdentities)
+                  ResolutionNamespaceTerm -> (scopeTerms, termIdentities)
+                  ResolutionNamespaceType -> (scopeTypes, typeIdentities)
                   ResolutionNamespaceModule -> (Map.empty, Set.empty)
            in Map.member (tciName info) namespaceScope || identity `Set.member` namespaceIdentities || identity == localIdentity (tciName info)
-        visibleTypeIdentity (TcTypeKey identifier packageId' moduleName' namespace) =
+        visibleTypeIdentity (GlobalName identifier packageId' moduleName' namespace) =
           let identity = (packageId', moduleName', identifier)
            in namespace == ResolutionNamespaceType
-                && (Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier)
+                && (Map.member identifier scopeTypes || identity `Set.member` typeIdentities || identity == localIdentity identifier)
         visibleClass info =
           case ciOrigin info of
             Just (packageIdText, moduleName') ->
               let identity = (PackageId packageIdText, moduleName', ciName info)
-               in Map.member (ciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
+               in Map.member (ciName info) scopeTypes || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
             Nothing -> False
         visibleInstance info = iiDictOrigin info == (packageIdText (packageId package), name)
         visibleDataFamilyInstance = localTyCon . dfiiRepresentationTyCon
         visibleTypeFamilyInstance info = any localTyCon (typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info))
         resolvedIdentity resolved = case resolved of
-          ResolvedTopLevel packageId' resolvedModule resolvedName -> Just (packageId', resolvedModule, nameText resolvedName)
+          EntityGlobal global -> Just (globalNamePackage global, globalNameModule global, globalNameText global)
           _ -> Nothing
 
 -- | The kinds of the type-level literals. A literal names no type
@@ -3744,9 +3751,9 @@ typeLiteralKindTyCons kinds =
 -- | The terms that the evidence of a known type-level literal is built
 -- from. The desugarer writes a call of this whether or not the module
 -- names the module it comes from.
-typeLiteralSupportTerms :: PackageId -> [TcTermKey]
+typeLiteralSupportTerms :: PackageId -> [Entity]
 typeLiteralSupportTerms prim =
-  [TcTermGlobal prim "GHC.Prim.Natural" "naturalFromInteger#"]
+  [GlobalTerm prim "GHC.Prim.Natural" "naturalFromInteger#"]
 
 -- | Carry into an interface the facts it refers to but does not hold.
 -- The selected interface must contain only facts from the complete interface.
@@ -3757,7 +3764,7 @@ typeLiteralSupportTerms prim =
 -- Applying this to the complete interface and no more gives a function the
 -- modules of a unit share: they all close over the same facts, and the
 -- dependencies of each fact are then found once rather than once per module.
-addReferencedFacts :: [TyCon] -> [TcTermKey] -> TcInterface -> TcInterface -> TcInterface
+addReferencedFacts :: [TyCon] -> [Entity] -> TcInterface -> TcInterface -> TcInterface
 addReferencedFacts extraRoots extraTerms complete = go
   where
     availableTyCons = tcInterfaceTyConMap complete
@@ -3766,7 +3773,7 @@ addReferencedFacts extraRoots extraTerms complete = go
     -- The type constructors that each fact of the complete interface refers
     -- to. The values are thunks, so a fact no module reaches costs its key
     -- alone, and one that many modules reach is walked once for all of them.
-    tyConDependencies :: LazyMap.Map TcTypeKey [TyCon]
+    tyConDependencies :: LazyMap.Map GlobalName [TyCon]
     tyConDependencies =
       LazyMap.fromSet
         ( \key ->
@@ -3805,7 +3812,7 @@ addReferencedFacts extraRoots extraTerms complete = go
           [ (key, scheme)
           | (package', moduleName') <- Set.toList callStackModules,
             identifier <- ["pushCallStack", "emptyCallStack"],
-            let key = TcTermGlobal package' moduleName' identifier,
+            let key = GlobalTerm package' moduleName' identifier,
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
           ]
@@ -3839,7 +3846,7 @@ addReferencedFacts extraRoots extraTerms complete = go
           | tyCon <- Set.toList reachable,
             tyConName tyCon == "Typeable",
             tyConModuleName tyCon `elem` ["Type.Reflection", "Type.Reflection.Internal"],
-            let key = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
+            let key = GlobalTerm (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
           ]
@@ -3879,4 +3886,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-43"
+packageArtifactFormatVersion = "aihc-artifacts-44"

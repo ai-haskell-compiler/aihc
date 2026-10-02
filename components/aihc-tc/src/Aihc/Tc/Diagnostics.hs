@@ -32,18 +32,15 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     sourceSpanSourceName,
   )
-import Aihc.Resolve.Generic (everywhereM)
-import Aihc.Resolve.Traverse (collectAnnotations)
+import Aihc.Resolve.Traverse (Walk (..), collectAnnotations, idWalk, walk)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
-import Data.Data (Data)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, maybeToList)
 import Data.Text (Text)
-import Data.Typeable (cast)
 
 -- | Attach the diagnostics of a type-checked SCC to its modules.
 --
@@ -110,105 +107,47 @@ attachLocatedDiagnostics m located =
 
 -- Attach bottom-up so an exact child span wins over an exact parent span.
 -- Located diagnostics must never guess: if no exact syntax span exists, abort.
-attachDiagnosticsAt :: (Data a) => a -> State (Map SourceSpan [TcDiagnostic]) a
+attachDiagnosticsAt :: Module -> State (Map SourceSpan [TcDiagnostic]) Module
 attachDiagnosticsAt =
-  everywhereM attachHere
+  walk
+    idWalk
+      { walkAnnotationList = attachAt spanFromAnnotations (<>),
+        walkExpr = attachWrapped peelExprAnnOnce EAnn,
+        walkPattern = attachWrapped peelPatternAnnOnce PAnn,
+        walkType = attachWrapped peelTypeAnnOnce TAnn,
+        walkDecl = attachWrapped peelDeclAnnOnce DeclAnn,
+        walkDataConDecl = attachWrapped peelDataConAnnOnce DataConAnn,
+        walkLiteral = attachWrapped peelLiteralAnnOnce LitAnn,
+        walkGuardQualifier = attachWrapped peelGuardAnnOnce GuardAnn,
+        walkDoStmt = attachWrapped peelDoAnnOnce DoAnn,
+        walkCompStmt = attachWrapped peelCompAnnOnce CompAnn,
+        walkArithSeq = attachWrapped peelArithSeqAnnOnce ArithSeqAnn,
+        walkClassDeclItem = attachWrapped peelClassItemAnnOnce ClassItemAnn,
+        walkInstanceDeclItem = attachWrapped peelInstanceItemAnnOnce InstanceItemAnn,
+        walkCmd = attachWrapped peelCmdAnnOnce CmdAnn,
+        walkExportSpec = attachWrapped peelExportAnnOnce ExportAnn,
+        walkImportItem = attachWrapped peelImportAnnOnce ImportAnn
+      }
   where
-    attachHere :: forall node. (Data node) => node -> State (Map SourceSpan [TcDiagnostic]) node
-    attachHere value = do
+    -- A node that wraps its annotations one by one. The first diagnostic
+    -- becomes the outermost wrapper, as when each diagnostic is attached
+    -- in a walk of its own.
+    attachWrapped :: (node -> Maybe (Annotation, node)) -> (Annotation -> node -> node) -> (node -> State (Map SourceSpan [TcDiagnostic]) node) -> node -> State (Map SourceSpan [TcDiagnostic]) node
+    attachWrapped peel wrap = attachAt (wrappedSpan peel) (flip (foldr wrap))
+
+    -- Walk the children first, then attach the diagnostics of the exact
+    -- span of the node, if any are pending.
+    attachAt :: (node -> Maybe SourceSpan) -> ([Annotation] -> node -> node) -> (node -> State (Map SourceSpan [TcDiagnostic]) node) -> node -> State (Map SourceSpan [TcDiagnostic]) node
+    attachAt spanOf attach children node = do
+      node' <- children node
       pending <- get
       if Map.null pending
-        then pure value
-        else case attachDiagnosticsHere pending value of
-          Just (sp, value') -> do
+        then pure node'
+        else case spanOf node' >>= \sp -> (,) sp <$> Map.lookup sp pending of
+          Nothing -> pure node'
+          Just (sp, diagnostics) -> do
             put (Map.delete sp pending)
-            pure value'
-          Nothing ->
-            pure value
-
-attachDiagnosticsHere :: forall a. (Data a) => Map SourceSpan [TcDiagnostic] -> a -> Maybe (SourceSpan, a)
-attachDiagnosticsHere pending value =
-  attachAnnotationList
-    <|> attachExpr
-    <|> attachPattern
-    <|> attachType
-    <|> attachDecl
-    <|> attachDataConDecl
-    <|> attachLiteral
-    <|> attachGuardQualifier
-    <|> attachDoStmtExpr
-    <|> attachDoStmtCmd
-    <|> attachCompStmt
-    <|> attachArithSeq
-    <|> attachClassDeclItem
-    <|> attachInstanceDeclItem
-    <|> attachCmd
-    <|> attachExportSpec
-    <|> attachImportItem
-  where
-    -- The first diagnostic becomes the outermost wrapper, as when each
-    -- diagnostic is attached in a walk of its own.
-    atExactSpan :: Maybe SourceSpan -> ([Annotation] -> node) -> Maybe (SourceSpan, node)
-    atExactSpan span' wrap = do
-      sp <- span'
-      diagnostics <- Map.lookup sp pending
-      pure (sp, wrap (map mkAnnotation diagnostics))
-    attachTyped :: forall node. (Data node) => (node -> Maybe (SourceSpan, node)) -> Maybe (SourceSpan, a)
-    attachTyped f = do
-      node <- cast value
-      (sp, node') <- f node
-      (,) sp <$> cast node'
-    attachAnnotationList =
-      attachTyped $ \(anns :: [Annotation]) ->
-        atExactSpan (spanFromAnnotations anns) (anns <>)
-    attachExpr =
-      attachTyped $ \(expr :: Expr) ->
-        atExactSpan (wrappedSpan peelExprAnnOnce expr) (foldr EAnn expr)
-    attachPattern =
-      attachTyped $ \(pat :: Pattern) ->
-        atExactSpan (wrappedSpan peelPatternAnnOnce pat) (foldr PAnn pat)
-    attachType =
-      attachTyped $ \(ty :: Type) ->
-        atExactSpan (wrappedSpan peelTypeAnnOnce ty) (foldr TAnn ty)
-    attachDecl =
-      attachTyped $ \(decl :: Decl) ->
-        atExactSpan (wrappedSpan peelDeclAnnOnce decl) (foldr DeclAnn decl)
-    attachDataConDecl =
-      attachTyped $ \(decl :: DataConDecl) ->
-        atExactSpan (wrappedSpan peelDataConAnnOnce decl) (foldr DataConAnn decl)
-    attachLiteral =
-      attachTyped $ \(lit :: Literal) ->
-        atExactSpan (wrappedSpan peelLiteralAnnOnce lit) (foldr LitAnn lit)
-    attachGuardQualifier =
-      attachTyped $ \(qualifier :: GuardQualifier) ->
-        atExactSpan (wrappedSpan peelGuardAnnOnce qualifier) (foldr GuardAnn qualifier)
-    attachDoStmtExpr =
-      attachTyped $ \(stmt :: DoStmt Expr) ->
-        atExactSpan (wrappedSpan peelDoAnnOnce stmt) (foldr DoAnn stmt)
-    attachDoStmtCmd =
-      attachTyped $ \(stmt :: DoStmt Cmd) ->
-        atExactSpan (wrappedSpan peelDoAnnOnce stmt) (foldr DoAnn stmt)
-    attachCompStmt =
-      attachTyped $ \(stmt :: CompStmt) ->
-        atExactSpan (wrappedSpan peelCompAnnOnce stmt) (foldr CompAnn stmt)
-    attachArithSeq =
-      attachTyped $ \(seq' :: ArithSeq) ->
-        atExactSpan (wrappedSpan peelArithSeqAnnOnce seq') (foldr ArithSeqAnn seq')
-    attachClassDeclItem =
-      attachTyped $ \(item :: ClassDeclItem) ->
-        atExactSpan (wrappedSpan peelClassItemAnnOnce item) (foldr ClassItemAnn item)
-    attachInstanceDeclItem =
-      attachTyped $ \(item :: InstanceDeclItem) ->
-        atExactSpan (wrappedSpan peelInstanceItemAnnOnce item) (foldr InstanceItemAnn item)
-    attachCmd =
-      attachTyped $ \(cmd :: Cmd) ->
-        atExactSpan (wrappedSpan peelCmdAnnOnce cmd) (foldr CmdAnn cmd)
-    attachExportSpec =
-      attachTyped $ \(spec :: ExportSpec) ->
-        atExactSpan (wrappedSpan peelExportAnnOnce spec) (foldr ExportAnn spec)
-    attachImportItem =
-      attachTyped $ \(item :: ImportItem) ->
-        atExactSpan (wrappedSpan peelImportAnnOnce item) (foldr ImportAnn item)
+            pure (attach (map mkAnnotation diagnostics) node')
 
 wrappedSpan :: (node -> Maybe (Annotation, node)) -> node -> Maybe SourceSpan
 wrappedSpan peel =

@@ -10,7 +10,6 @@ module Aihc.Resolve.Span
     peelGuardQualifierSpan,
     peelImportItemSpan,
     rhsSpan,
-    unhandledSyntaxName,
     spanStartNameSpan,
     annotateDecl,
     annotateExpr,
@@ -41,10 +40,10 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
-import Data.Data (Data, showConstr, toConstr)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Typeable (Typeable)
 
 -- | The innermost span of a chain of annotations: a 'SourceSpan' on the
 -- annotation if it carries one, and otherwise the span already in hand.
@@ -91,11 +90,6 @@ rhsSpan rhs =
     UnguardedRhs anns _ _ -> sourceSpanFromAnns anns
     GuardedRhss anns _ _ -> sourceSpanFromAnns anns
 
--- | The name a diagnostic gives to syntax the resolver has no case for:
--- the constructor of the form it met.
-unhandledSyntaxName :: (Data a) => a -> Text
-unhandledSyntaxName node = T.pack (showConstr (toConstr node))
-
 -- | Narrow a span to the name that starts at it. There is nothing to narrow
 -- when the syntax had no span to begin with.
 spanStartNameSpan :: Maybe SourceSpan -> Text -> Maybe SourceSpan
@@ -125,7 +119,7 @@ annotatePattern annotation = PAnn (mkAnnotation annotation)
 annotateType :: ResolutionAnnotation -> Type -> Type
 annotateType annotation = TAnn (mkAnnotation annotation)
 
-annotateImport :: ResolutionAnnotation -> ImportDecl -> ImportDecl
+annotateImport :: (Typeable a) => a -> ImportDecl -> ImportDecl
 annotateImport annotation importDecl =
   importDecl {importDeclAnns = mkAnnotation annotation : importDeclAnns importDecl}
 

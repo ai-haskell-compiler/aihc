@@ -37,7 +37,7 @@ import Aihc.Parser.Syntax
     peelLiteralAnn,
     peelPatternAnn,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderEntity)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))
@@ -183,10 +183,10 @@ withEarlierPatternBindings ((name, ty) : rest) action =
         Just _ -> withEarlierPatternBindings rest action
         Nothing -> extendTermEnv key (TcMonoIdBinder ty) (withEarlierPatternBindings rest action)
 
-localBinderKey :: UnqualifiedName -> Maybe TcTermKey
+localBinderKey :: UnqualifiedName -> Maybe Entity
 localBinderKey name =
-  case mapMaybe (fromAnnotation @ResolutionAnnotation) (unqualifiedNameAnns name) of
-    resolution : _ | ResolvedLocal unique _ <- resolutionTarget resolution -> Just (TcTermLocal unique)
+  case binderEntity name of
+    Just local@EntityLocal {} -> Just local
     _ -> Nothing
 
 checkPattern :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck

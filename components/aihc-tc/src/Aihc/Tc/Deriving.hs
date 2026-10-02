@@ -31,10 +31,9 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     nameText,
     tyVarBinderName,
-    unqualifiedNameAnns,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolutionAnnotation)
+import Aihc.Resolve (binderResolution)
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -55,7 +54,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (filterM, zipWithM, zipWithM_)
 import Data.List (nub, (\\))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, listToMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -77,9 +76,9 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   rawParams <- makeParamEnv (binderHeadParams targetHead)
   let targetName = unqualifiedNameText (binderHeadName targetHead)
   targetInfo <-
-    case mapMaybe (fromAnnotation @ResolutionAnnotation) (unqualifiedNameAnns (binderHeadName targetHead)) of
-      resolution : _ -> lookupResolvedTypeSyntax resolution
-      [] -> lookupTyCon targetName
+    case binderResolution (binderHeadName targetHead) of
+      Just resolution -> lookupResolvedTypeSyntax resolution
+      Nothing -> lookupTyCon targetName
   case targetInfo of
     Nothing -> missingTypeInfo ("deriving target " <> T.unpack targetName)
     Just info -> do

@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig)
-import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, lookupImportedModule, modulesInPackage, resolveUnit, unionScope)
+import Aihc.Resolve (Builtins, ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
 import Aihc.Tc
   ( MergeCheck (..),
     TcConfig,
@@ -57,7 +57,7 @@ import Aihc.Tc
 import Aihc.Tc.Generate.Bind (freeVarsDecl)
 import Aihc.Tc.Generate.Pattern (patternBinderNames)
 import Aihc.Tc.Monad (TcConfig (tcConfigWiring), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
-import Aihc.Tc.Types (TcTermKey (..))
+import Aihc.Tc.Types (Entity (..))
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (ErrorCall, displayException, evaluate, try)
 import Control.Monad (when)
@@ -286,7 +286,7 @@ checkDependencies modules expected = do
             _ -> []
       pure [(owner <> "." <> unqualifiedNameText name, map renderKey (Set.toList references)) | name <- binders]
     renderKey key = case key of
-      TcTermGlobal _ owner name -> owner <> "." <> name
+      GlobalTerm _ owner name -> owner <> "." <> name
       _ -> T.pack (show key)
 
 -- | Parse, resolve, and type-check the modules of one case.
@@ -300,10 +300,10 @@ checkTcAnnotatedCase tc =
                 collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureUnits modules)
                   <> supportScopes primitiveSupport
            in case resolveUnit (fixtureBuiltinScope visibleExports) visibleExports (fixtureUnits modules) of
-                ResolveResult {resolvedModules, resolveErrors = []} ->
+                Right ResolvedUnit {resolvedModules} ->
                   typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface primitiveSupport) resolvedModules
-                ResolveResult {resolveErrors} ->
-                  Left ("resolve error: " <> show resolveErrors)
+                Left failure ->
+                  Left ("resolve error: " <> show (failureErrors failure))
   where
     parseOne input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
@@ -322,16 +322,16 @@ fixtureTcConfig tc = testTcConfig {tcConfigWiring = wiring}
 
 data ModuleNode = ModuleNode
   { nodeIndex :: !Int,
-    nodeModule :: !ModuleUnit,
+    nodeModule :: !ResolvedModule,
     nodeDependencies :: ![Int]
   }
 
-typecheckModuleGraph :: TcConfig -> TcInterface -> [ModuleUnit] -> Either String [Module]
+typecheckModuleGraph :: TcConfig -> TcInterface -> [ResolvedModule] -> Either String [Module]
 typecheckModuleGraph config baseInterface units = do
   (checkedModules, _) <- foldl' checkComponent (Right (Map.empty, Map.empty)) components
   traverse (lookupCheckedModule checkedModules) [0 .. length units - 1]
   where
-    modules = map moduleUnitAst units
+    modules = map (moduleUnitAst . resolvedModuleUnit) units
     moduleIndices =
       Map.fromList
         [ (name, index)
@@ -339,9 +339,9 @@ typecheckModuleGraph config baseInterface units = do
           Just name <- [moduleName modu]
         ]
     nodes =
-      [ let dependencies = mapMaybe ((`Map.lookup` moduleIndices) . importDeclModule) (moduleImports (moduleUnitAst unit))
+      [ let dependencies = mapMaybe ((`Map.lookup` moduleIndices) . importDeclModule) (moduleImports modu)
          in (ModuleNode index unit dependencies, index, dependencies)
-      | (index, unit) <- zip [0 ..] units
+      | (index, unit, modu) <- zip3 [0 ..] units modules
       ]
     components = stronglyConnComp nodes
     checkComponent stateResult component = do
@@ -382,10 +382,9 @@ preparePrimitiveSupport primitiveModules =
     Right modules ->
       let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
           exports = collectModuleExportsWithDeps mempty packageModules
-          builtinScope = foldr (unionScope . lookupPrimitive) emptyScope ["GHC.Prim", "GHC.Types"]
-          lookupPrimitive name = lookupImportedModule primitivePackage Nothing name exports
+          builtinScope = builtins primitivePackage exports ["GHC.Prim", "GHC.Types"]
        in case resolveUnit builtinScope exports packageModules of
-            ResolveResult {resolvedModules, resolveErrors = []} ->
+            Right ResolvedUnit {resolvedModules} ->
               let (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface resolvedModules
                in if all tcModuleSuccess primitiveTcResults
                     then
@@ -395,7 +394,7 @@ preparePrimitiveSupport primitiveModules =
                             supportTcInterface = tcInterface
                           }
                     else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
-            ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+            Left failure -> Left ("resolve error: " <> show (failureErrors failure))
 
 -- | The fixture modules as the pipeline takes them: each with the extension
 -- set its own pragmas ask for, since a fixture has no cabal file to fold in.
@@ -416,11 +415,10 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
 
-fixtureBuiltinScope :: ModuleExports -> Scope
+fixtureBuiltinScope :: ModuleExports -> Builtins
 fixtureBuiltinScope visibleExports =
-  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  builtins fixturePackage visibleExports builtinFunctionModules
   where
-    lookupBuiltin name = lookupImportedModule fixturePackage Nothing name visibleExports
     builtinFunctionModules = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module

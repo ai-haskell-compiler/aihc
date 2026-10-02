@@ -49,17 +49,17 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve
-  ( ModuleExports,
+  ( Builtins,
+    ModuleExports,
     ModuleUnit (..),
     Package (..),
     PackageId (..),
-    ResolveResult (..),
-    Scope,
+    ResolveFailure (..),
+    ResolvedModule (..),
+    ResolvedUnit (..),
+    builtins,
     collectModuleExportsWithDeps,
-    emptyScope,
-    lookupImportedModule,
     resolveUnit,
-    unionScope,
     unnamedPackage,
   )
 import Aihc.Tc (MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
@@ -252,7 +252,7 @@ parseModules = withArray "modules" $ \arr ->
 -- Evaluators lower that core program one time.
 data EvalEnvironment = EvalEnvironment
   { envExports :: !ModuleExports,
-    envBuiltinScope :: !Scope,
+    envBuiltinScope :: !Builtins,
     envInterface :: !TcInterface,
     envBindings :: ![TcBindingResult],
     envProgram :: !Fc.Program
@@ -328,7 +328,7 @@ compileEvalCaseWithWrappers env tc = do
   let fixtureExports = collectModuleExportsWithDeps (envExports env) packageModules
       visibleExports = fixtureExports <> envExports env
   case resolveUnit (envBuiltinScope env) visibleExports packageModules of
-    ResolveResult {resolvedModules, resolveErrors = []} -> do
+    Right ResolvedUnit {resolvedModules} -> do
       let (tcResults, localInterface) = typecheckModulesWithInterface evalTcConfig (envInterface env) resolvedModules
       unless (all tcModuleSuccess tcResults) $
         Left ("typecheck error: " <> renderTcErrors tcResults)
@@ -341,8 +341,8 @@ compileEvalCaseWithWrappers env tc = do
       -- This program contains only the fixture modules. The shared
       -- environment already holds aihc-prim and aihc-base.
       pure (Fc.mergePrograms (map Fc.dsProgram results), interfaceCapiWrappers localInterface)
-    ResolveResult {resolveErrors} ->
-      Left ("resolve error: " <> show resolveErrors)
+    Left failure ->
+      Left ("resolve error: " <> show (failureErrors failure))
 
 evalTcConfig :: TcConfig
 evalTcConfig = primTcConfig primPackageId
@@ -385,11 +385,9 @@ primPackageId = PackageId "aihc-prim"
 primPackage :: Package
 primPackage = Package "aihc-prim" primPackageId
 
-evalBuiltinScope :: ModuleExports -> Scope
+evalBuiltinScope :: ModuleExports -> Builtins
 evalBuiltinScope allExports =
-  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
-  where
-    lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name allExports
+  builtins unnamedPackage allExports ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
 
 parseInputs :: EvalCase -> Either String ([Module], Expr)
 parseInputs tc = do
@@ -510,7 +508,7 @@ moduleGroupBindings =
 
 -- | Typecheck the core library modules, which must arrive in dependency
 -- order. The wired-in modules are checked first as one group.
-typecheckCoreModules :: [ModuleUnit] -> ([Module], TcInterface)
+typecheckCoreModules :: [ResolvedModule] -> ([Module], TcInterface)
 typecheckCoreModules units =
   let (checkedPrim, primInterface) =
         typecheckModuleSccWithInterface evalTcConfig emptyTcInterface (sortOn moduleOrder primModules)
@@ -518,11 +516,12 @@ typecheckCoreModules units =
         typecheckModulesWithInterface evalTcConfig primInterface orderedOtherModules
    in (checkedPrim <> checkedOther, mergeTcInterfaces CheckMergedFacts [primInterface, localInterface])
   where
-    primModules = filter (isWired . moduleUnitAst) units
-    orderedOtherModules = filter (not . isWired . moduleUnitAst) units
+    primModules = filter (isWired . resolvedAst) units
+    orderedOtherModules = filter (not . isWired . resolvedAst) units
+    resolvedAst = moduleUnitAst . resolvedModuleUnit
     isWired = (`elem` wiredTypeModules) . moduleKey
     moduleOrder unit =
-      case moduleKey (moduleUnitAst unit) of
+      case moduleKey (resolvedAst unit) of
         "GHC.Types" -> (0 :: Int, "GHC.Types")
         "GHC.Prim" -> (1, "GHC.Prim")
         "GHC.Tuple" -> (2, "GHC.Tuple")
@@ -546,7 +545,7 @@ loadEvalEnvironment = do
   let exports = collectModuleExportsWithDeps mempty packageModules
       builtinScope = evalBuiltinScope exports
   case resolveUnit builtinScope exports packageModules of
-    ResolveResult {resolvedModules, resolveErrors = []} -> do
+    Right ResolvedUnit {resolvedModules} -> do
       let (tcResults, interface) = typecheckCoreModules resolvedModules
       unless (all tcModuleSuccess tcResults) $
         fail ("core library typecheck error: " <> renderTcErrors tcResults)
@@ -575,8 +574,8 @@ loadEvalEnvironment = do
             envBindings = bindings,
             envProgram = program
           }
-    ResolveResult {resolveErrors} ->
-      fail ("core library resolve error: " <> show resolveErrors)
+    Left failure ->
+      fail ("core library resolve error: " <> show (failureErrors failure))
 
 packageSourceRoot :: String -> FilePath -> IO FilePath
 packageSourceRoot variable packageName = do

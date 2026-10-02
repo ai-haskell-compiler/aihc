@@ -15,18 +15,32 @@ module Aihc.Resolve.Types
     unnamedPackage,
     ModuleUnit (..),
     modulesInPackage,
-    ResolvedName (..),
+    GlobalName (..),
+    LocalId (..),
+    Entity (.., GlobalTerm),
+    globalTerm,
+    Resolution (..),
     ResolutionAnnotation (..),
-    VisibleTermIdentities (..),
-    ResolvedModuleIdentity (..),
+    annotationResolution,
+    resolutionOf,
+    nameResolution,
+    termResolution,
+    typeResolution,
+    binderResolution,
+    binderEntity,
+    nameEntity,
+    nameOrigin,
     ResolveError (..),
-    resolutionError,
-    ResolveResult (..),
+    resolveErrorAt,
+    ResolveFailure (..),
+    ResolvedModule (..),
+    ResolvedUnit (..),
   )
 where
 
 import Aihc.Parser.Syntax
-  ( Decl (..),
+  ( Annotation,
+    Decl (..),
     Expr (..),
     Extension,
     Module (..),
@@ -39,6 +53,8 @@ import Aihc.Parser.Syntax
     fromAnnotation,
   )
 import Control.DeepSeq (NFData)
+import Data.List (find)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -81,24 +97,51 @@ modulesInPackage package = map unitInPackage
   where
     unitInPackage (modu, extensions) = ModuleUnit package extensions modu
 
--- | The resolver supplies the package and module identity.
-data ResolvedModuleIdentity = ResolvedModuleIdentity !PackageId !Text
-  deriving (Eq, Show)
+-- | The identity of one top-level entity: the package and the module that
+-- define it, its name there, and the namespace it lives in. Every phase
+-- after name resolution names a top-level entity by this record.
+--
+-- The derived 'Ord' compares the fields in the order they are declared, and
+-- the name comes first deliberately: it is what discriminates, where a
+-- package id is a long 'Text' that a whole package shares.
+data GlobalName = GlobalName
+  { globalNameText :: !Text,
+    globalNamePackage :: !PackageId,
+    globalNameModule :: !Text,
+    globalNameNamespace :: !ResolutionNamespace
+  }
+  deriving (Eq, Ord, Show, Read, Generic)
 
--- | Global term identities visible in one module, including qualified imports.
-newtype VisibleTermIdentities = VisibleTermIdentities [(PackageId, Text, Text)]
-  deriving (Eq, Show)
+-- | The identity of one local binder, unique within a compilation unit.
+newtype LocalId = LocalId {localIdUnique :: Int}
+  deriving (Eq, Ord, Show, Read, Generic)
 
-data ResolvedName
-  = -- | A top-level entity, by the package and the module that define it
-    -- and its name there. Every top-level entity has a defining module, so
-    -- the module is a field of its own rather than the optional qualifier
-    -- of the source name, which is only the spelling of an occurrence.
-    ResolvedTopLevel PackageId Text Name
-  | ResolvedLocal Int UnqualifiedName
-  | ResolvedSyntax
-  | ResolvedError String
-  deriving (Eq, Show, Generic)
+-- | What a name stands for once it is resolved.
+data Entity
+  = -- | A top-level entity of some module.
+    EntityGlobal !GlobalName
+  | -- | A local binder.
+    EntityLocal !LocalId
+  | -- | Built-in syntax with no declaration, such as a tuple constructor.
+    -- The identifier of the annotation says which syntax.
+    EntitySyntax
+  deriving (Eq, Ord, Show, Read, Generic)
+
+-- | A top-level term, by package, module, and name.
+pattern GlobalTerm :: PackageId -> Text -> Text -> Entity
+pattern GlobalTerm package modu name = EntityGlobal (GlobalName name package modu ResolutionNamespaceTerm)
+
+-- | The entity of a top-level term, by package, module, and name.
+globalTerm :: PackageId -> Text -> Text -> Entity
+globalTerm = GlobalTerm
+
+-- | The outcome of one lookup inside the resolver: the entity, or the
+-- reason there is none. Only 'Resolved' leaves the resolver as a
+-- 'ResolutionAnnotation'. 'Unresolved' leaves it as a 'ResolveError'.
+data Resolution
+  = Resolved !Entity
+  | Unresolved String
+  deriving (Eq, Show)
 
 -- | The source identifier that caused one resolution request.
 data Identifier
@@ -128,45 +171,111 @@ instance NFData PackageId
 
 instance NFData Package
 
-instance NFData ResolvedName
+instance NFData GlobalName
+
+instance NFData LocalId
+
+instance NFData Entity
 
 instance NFData Identifier
 
 instance NFData ResolutionNamespace
 
+-- | A resolution that succeeded, attached to the syntax it resolves.
 data ResolutionAnnotation = ResolutionAnnotation
   { -- | Where the identifier is in the source, or 'Nothing' for syntax the
     -- compiler synthesized.
     resolutionSpan :: !(Maybe SourceSpan),
     resolutionIdentifier :: !Identifier,
     resolutionNamespace :: !ResolutionNamespace,
-    resolutionTarget :: !ResolvedName
+    resolutionTarget :: !Entity
   }
   deriving (Eq, Show)
 
-data ResolveError
-  = ResolveResolutionError
-      { resolveErrorSpan :: !(Maybe SourceSpan),
-        resolveErrorName :: !Text,
-        resolveErrorNamespace :: !ResolutionNamespace,
-        resolveErrorMessage :: !String
-      }
-  | ResolveNotImplemented String
+-- | The resolution that one annotation carries, if it is one.
+annotationResolution :: Annotation -> Maybe ResolutionAnnotation
+annotationResolution = fromAnnotation
+
+-- | The first resolution of the given namespace among some annotations.
+resolutionOf :: (ResolutionNamespace -> Bool) -> [Annotation] -> Maybe ResolutionAnnotation
+resolutionOf wanted = find (wanted . resolutionNamespace) . mapMaybe annotationResolution
+
+-- | The first resolution of a name occurrence, in any namespace.
+nameResolution :: Name -> Maybe ResolutionAnnotation
+nameResolution = listToMaybe . mapMaybe annotationResolution . nameAnns
+
+-- | The term resolution of a name occurrence.
+termResolution :: Name -> Maybe ResolutionAnnotation
+termResolution = resolutionOf (== ResolutionNamespaceTerm) . nameAnns
+
+-- | The type resolution of a name occurrence. A promoted data constructor
+-- at the type level resolves in the term namespace, so this is any
+-- resolution that is not of a module.
+typeResolution :: Name -> Maybe ResolutionAnnotation
+typeResolution = resolutionOf (/= ResolutionNamespaceModule) . nameAnns
+
+-- | The resolution of a binder, whatever namespace it binds in.
+binderResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
+binderResolution = listToMaybe . mapMaybe annotationResolution . unqualifiedNameAnns
+
+-- | The entity that a binder defines.
+binderEntity :: UnqualifiedName -> Maybe Entity
+binderEntity = fmap resolutionTarget . binderResolution
+
+-- | The entity that a name occurrence stands for, in any namespace.
+nameEntity :: Name -> Maybe Entity
+nameEntity = fmap resolutionTarget . nameResolution
+
+-- | The package and the module that define the top-level entity a name
+-- occurrence stands for. A local binder or built-in syntax gives 'Nothing'.
+nameOrigin :: Name -> Maybe (PackageId, Text)
+nameOrigin name =
+  case nameEntity name of
+    Just (EntityGlobal global) -> Just (globalNamePackage global, globalNameModule global)
+    _ -> Nothing
+
+-- | One failed resolution. The resolver records it in the unit's
+-- 'ResolveFailure' and attaches it to the syntax in place of a
+-- 'ResolutionAnnotation'.
+data ResolveError = ResolveError
+  { resolveErrorSpan :: !(Maybe SourceSpan),
+    resolveErrorName :: !Text,
+    resolveErrorNamespace :: !ResolutionNamespace,
+    resolveErrorMessage :: !String
+  }
   deriving (Eq, Show)
 
--- | The error that one failed resolution stands for.
-resolutionError :: ResolutionAnnotation -> String -> ResolveError
-resolutionError annotation message =
-  ResolveResolutionError
-    { resolveErrorSpan = resolutionSpan annotation,
-      resolveErrorName = displayIdentifier (resolutionIdentifier annotation),
-      resolveErrorNamespace = resolutionNamespace annotation,
+-- | The error of one failed resolution.
+resolveErrorAt :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> String -> ResolveError
+resolveErrorAt span' identifier namespace message =
+  ResolveError
+    { resolveErrorSpan = span',
+      resolveErrorName = displayIdentifier identifier,
+      resolveErrorNamespace = namespace,
       resolveErrorMessage = message
     }
 
-data ResolveResult = ResolveResult
-  { resolvedModules :: [ModuleUnit],
-    resolveErrors :: [ResolveError]
+-- | One module after name resolution: its syntax with every name resolved,
+-- and the top-level terms it can see, including through qualified imports.
+data ResolvedModule = ResolvedModule
+  { resolvedModuleUnit :: !ModuleUnit,
+    resolvedVisibleTerms :: ![GlobalName]
+  }
+  deriving (Show)
+
+-- | A compilation unit after name resolution. Every name of every module
+-- resolved: a unit with a failed resolution is a 'ResolveFailure' instead.
+newtype ResolvedUnit = ResolvedUnit
+  { resolvedModules :: [ResolvedModule]
+  }
+  deriving (Show)
+
+-- | A compilation unit that did not resolve. The modules carry the
+-- resolutions that succeeded and, as a 'ResolveError' annotation, each one
+-- that failed. Tools render them. The compiler does not go on from here.
+data ResolveFailure = ResolveFailure
+  { failureErrors :: [ResolveError],
+    failureModules :: [ResolvedModule]
   }
   deriving (Show)
 

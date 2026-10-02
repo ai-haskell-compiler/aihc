@@ -27,7 +27,6 @@ library
     Test.Tc.Interface
     Test.Tc.Properties
     Test.Tc.Suite
-    Test.Tc.Traverse
 
   build-depends:
     aeson,
