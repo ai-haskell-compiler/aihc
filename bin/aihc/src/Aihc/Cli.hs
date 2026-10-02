@@ -5,8 +5,8 @@ module Aihc.Cli
 where
 
 import Aihc.Cli.Build (runBuild)
-import Aihc.Cli.BuildModule (runLinkExe)
 import Aihc.Cli.Install (runInstall)
+import Aihc.Cli.Link (runLinkExe)
 import Aihc.Cli.Options (Command (..), parseCommandIO)
 import Aihc.Cli.Plan (runPlan)
 import Control.Exception (IOException, displayException, try)

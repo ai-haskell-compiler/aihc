@@ -4,8 +4,8 @@ module Test.Aihc.Spec (tests) where
 
 import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (build)
-import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
+import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
