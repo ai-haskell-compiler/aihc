@@ -328,7 +328,7 @@ convertPred env predicate =
     ClassPred tyCon arguments -> do
       kindArguments <- invisibleKindArgs env tyCon arguments Nothing
       argumentKinds <- visibleArgumentKinds env tyCon arguments Nothing
-      converted <- zipWithM (convertTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
+      converted <- zipWithM (convertNestedTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
       pure (foldl TyApp (TyCon (classDictTypeName tyCon)) (kindArguments <> converted))
     EqPred left right ->
       TyEq <$> convertType env left <*> convertType env right
@@ -342,7 +342,7 @@ convertPred env predicate =
     -- in its result kind: @TypeError :: forall b. ErrorMessage -> b@ used
     -- in a context is @TypeError \@Constraint msg@.
     IrredPred constraint ->
-      convertTypeWithExpectedKind env (Just (Tc.constraintKind (ceKinds env))) constraint
+      convertNestedTypeWithExpectedKind env (Just (Tc.constraintKind (ceKinds env))) constraint
     QuantifiedPred variables antecedents consequent -> do
       let quantifiedEnv = withTyVars variables env
       binders <- mapM (tyVarBinder quantifiedEnv) variables

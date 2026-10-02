@@ -1,0 +1,36 @@
+extensions: [FunctionalDependencies, MultiParamTypeClasses, TypeFamilies, TypeOperators, ConstraintKinds, FlexibleContexts, FlexibleInstances, GADTs, PolyKinds, QuantifiedConstraints, RankNTypes, ScopedTypeVariables, UndecidableInstances, UndecidableSuperClasses]
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies, MultiParamTypeClasses, TypeFamilies, TypeOperators, ConstraintKinds, FlexibleContexts, FlexibleInstances, GADTs, PolyKinds, QuantifiedConstraints, RankNTypes, ScopedTypeVariables, UndecidableInstances, UndecidableSuperClasses #-}
+    module Test where
+    import GHC.Types (Constraint)
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    newtype Sub a b = Sub (a => Dict b)
+    class (forall a. p a) => Forall (p :: k -> Constraint)
+    instance (forall a. p a) => Forall p
+    inst :: forall p a. Sub (Forall p) (p a)
+    inst = Sub Dict
+    class p (f a) => ComposeC (p :: k2 -> Constraint) (f :: k1 -> k2) (a :: k1)
+    instance p (f a) => ComposeC p f a
+    class Forall (ComposeC p f) => ForallF p f
+    instance Forall (ComposeC p f) => ForallF p f
+    instF :: forall p f a. Sub (ForallF p f) (p (f a))
+    instF = Sub (case inst :: Sub (Forall (ComposeC p f)) (ComposeC p f a) of
+      Sub Dict -> Dict)
+    type family ForallV :: k -> Constraint
+    type instance ForallV = ForallV_
+    class ForallV' p => ForallV_ (p :: k)
+    instance ForallV' p => ForallV_ p
+    class InstV (p :: k) c | k c -> p where
+      type ForallV' (p :: k) :: Constraint
+      instV :: Sub (ForallV p) c
+    instance p ~ c => InstV (p :: Constraint) c where
+      type ForallV' (p :: Constraint) = p
+      instV = Sub Dict
+    instance p a ~ c => InstV (p :: k -> Constraint) c where
+      type ForallV' (p :: k -> Constraint) = Forall p
+      instV = Sub (case inst :: Sub (Forall p) c of
+        Sub Dict -> Dict)
+status: pass
+reason: Equality evidence preserves variable constraint family dictionaries.

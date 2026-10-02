@@ -295,10 +295,9 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     case result of
       DictSolved -> pure []
       DictStuck stuck -> deferOrReport skolems givenPredicates stuck
-  irreducible@IrredPred {} -> do
-    kinds <- getKinds
-    let rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
-    result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred kinds givenEqualities irreducible})
+  IrredPred {} -> do
+    -- Keep the original type for the dictionary and its equality proof.
+    result <- solveDictWithGivens givenPredicates ct
     case result of
       DictSolved -> pure []
       DictStuck stuck -> deferOrReport skolems givenPredicates stuck

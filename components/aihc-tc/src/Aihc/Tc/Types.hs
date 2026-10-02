@@ -438,13 +438,10 @@ isConstraintTupleTyCon kinds tyCon =
 constraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
 constraintTypeToPred kinds ty =
   case collectForAllTypes ty of
-    (variables@(_ : _), qualified) -> do
-      let (antecedents, consequentType) =
-            case qualified of
-              TcQualTy predicates body -> (predicates, body)
-              body -> ([], body)
+    (variables, TcQualTy antecedents consequentType) -> do
       consequent <- atomicConstraintTypeToPred kinds consequentType
       pure (QuantifiedPred variables antecedents consequent)
+    (variables@(_ : _), body) -> QuantifiedPred variables [] <$> atomicConstraintTypeToPred kinds body
     ([], body) -> atomicConstraintTypeToPred kinds body
 
 atomicConstraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
@@ -458,6 +455,7 @@ atomicConstraintTypeToPred kinds ty =
       | isImplicitParamTyConName (tyConName tyCon) -> Just (IParamPred (tyConName tyCon) payload)
     (TcTyCon tyCon headArgs, arguments) ->
       Just (ClassPred tyCon (headArgs <> arguments))
+    (TcTyVar {}, _) -> Just (IrredPred ty)
     _ -> Nothing
 
 -- | Whether a type constructor is the nominal equality constraint @~@.

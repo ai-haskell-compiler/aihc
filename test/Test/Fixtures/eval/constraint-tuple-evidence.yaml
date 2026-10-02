@@ -1,0 +1,21 @@
+extensions: [ConstraintKinds, GADTs, KindSignatures]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, GADTs, KindSignatures #-}
+    module Test where
+    import Data.Kind (Constraint)
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    pair :: (a, b) => Dict (a, b)
+    pair = Dict
+    first :: Dict (a, b) -> Dict a
+    first Dict = Dict
+    second :: Dict (a, b) -> Dict b
+    second Dict = Dict
+    answer = case first (pair :: Dict (Eq Bool, Show Bool)) of
+      Dict -> True == True
+expression: answer
+output: |
+  True
+status: pass
+reason: Constraint tuples supply and preserve their component dictionaries.

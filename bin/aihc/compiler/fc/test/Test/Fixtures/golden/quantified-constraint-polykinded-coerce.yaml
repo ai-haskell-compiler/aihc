@@ -1,0 +1,29 @@
+extensions: [StarIsType, MagicHash, ConstraintKinds, FlexibleContexts, FlexibleInstances, GADTs, PolyKinds, QuantifiedConstraints, RankNTypes, ScopedTypeVariables, UndecidableInstances, UndecidableSuperClasses]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, GADTs, StarIsType #-}
+    module Dictionary (Dict (..), Constraint) where
+    import GHC.Types (Constraint)
+    data Dict :: Constraint -> * where
+      Dict :: c => Dict c
+  - |
+    {-# LANGUAGE MagicHash, NoPolyKinds #-}
+    module Coerce (unsafeCoerce) where
+    import GHC.Prim (unsafeCoerce#)
+    unsafeCoerce :: a -> b
+    unsafeCoerce = unsafeCoerce#
+  - |
+    {-# LANGUAGE ConstraintKinds, FlexibleContexts, FlexibleInstances, GADTs, PolyKinds, QuantifiedConstraints, RankNTypes, ScopedTypeVariables, UndecidableInstances, UndecidableSuperClasses #-}
+    module Test (Forall, forall_) where
+    import Dictionary
+    import Coerce
+    class (forall a. p a) => Forall (p :: k -> Constraint)
+    instance (forall a. p a) => Forall (p :: k -> Constraint)
+    data Dict1 p where
+      Dict1 :: (forall a. p a) => Dict1 p
+    forallish :: forall p. Dict1 p -> Dict (Forall p)
+    forallish Dict1 = Dict
+    forall_ :: forall p. (forall a. Dict (p a)) -> Dict (Forall p)
+    forall_ d = forallish (unsafeCoerce d)
+status: pass
+reason: An unresolved type argument keeps its polymorphic kind.
