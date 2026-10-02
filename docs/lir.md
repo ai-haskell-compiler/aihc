@@ -757,6 +757,10 @@ The lowering keeps the control model of CPS-GRIN:
   It marks the thunk with a low header bit and preserves the original info table and payload.
   Info-table loads mask both header tag bits.
   The shared update continuation, `aihc_lir_cps_update`, completes the update and evaluates the result.
+  The update frame has its own backend entry, `aihc_lir_cps_update_entry`, which reads the two fields of the frame.
+  A blackhole without waiters gets the indirection with two stores in Lir.
+  A blackhole with waiters goes to the C function `aihc_update_blackhole`, which also wakes the waiters.
+  A result that is a value goes directly to the parent continuation, and another result goes to `aihc_lir_eval`.
   Compiler modules contain no update-frame construction or synthetic update function.
 - Evaluation and scheduler resumption use shared runtime functions.
   Application and continuation use shared functions for `[]`, `[ptr]`, and
@@ -848,8 +852,9 @@ The units are:
   the loads and masks written out.
 
 - `aihc_helpers.lir` defines `eval`, `resume`, the slot dispatchers,
-  `quotrem2`, `cstring_length`, and the shared update continuation
-  `aihc_lir_cps_update` with its two info tables. It also defines `apply`
+  `quotrem2`, `cstring_length`, the shared update continuation
+  `aihc_lir_cps_update` with its entry and its two info tables, and the
+  info table of an indirection, which the C runtime also uses. It also defines `apply`
   and `continue` for `[]`, `[ptr]`, and `[i64]`. Library modules declare these functions
   as externs. Other shapes remain local, without a fixed shape limit.
   C accessors read pointer-sized info-table fields. `aihc_lir_take_resume`

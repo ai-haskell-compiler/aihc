@@ -1171,7 +1171,7 @@ saturatedCalls name arity = go
 -- is dropped when its right-hand side is a cheap value, because the
 -- evaluation of that value does no work and cannot fail. A lifted
 -- binding with one use outside a lambda, and a lifted function whose one
--- use is a saturated call, move to their use. A binding whose body is
+-- use is a call with a value argument, move to their use. A binding whose body is
 -- only its binder becomes its right-hand side.
 mkLet :: Simpl -> Bind -> Expr -> SimplM Expr
 mkLet env bind body
@@ -1212,12 +1212,15 @@ mkLet env bind body
           modify' (const before)
           body'' <- simplifyExpr env body
           pure (ExLet bind body'')
-  -- A value whose one use is a saturated call also moves to its use, even
-  -- from under a lambda: a lambda that lands on its arguments and a
-  -- partial application that its use completes both allocate nothing
-  -- where they land, and the call runs the body exactly where it ran it
-  -- before. The one use is the call, because the whole body holds one
-  -- occurrence and the call accounts for it.
+  -- A value whose one use is a call also moves to its use, even from
+  -- under a lambda. A lambda that lands on its arguments and a partial
+  -- application that its use completes both allocate nothing where they
+  -- land, and the call runs the body exactly where it ran it before. A
+  -- call that gives fewer arguments than the arity is a partial
+  -- application at the use. That application allocates a closure for
+  -- each run of the lambda around it, and the reduced value allocates
+  -- one closure in its place. The one use is the call, because the whole
+  -- body holds one occurrence and the call accounts for it.
   --
   -- A lambda under a cast moves only when the call casts it back, so
   -- that the two casts cancel and the lambda lands on its arguments.
@@ -1225,7 +1228,7 @@ mkLet env bind body
     Occurrences 1 True <- uses,
     (arity, cast) <- movableArity (spArity env) rhs,
     arity > 0,
-    saturatedCalls name arity body == 1,
+    saturatedCalls name 1 body == 1,
     maybe True (\coercion -> castedBackUses name coercion body == 1) cast = do
       copy <- freshenExpr rhs
       simplifyExpr env (substExpr (Map.singleton name copy) body)

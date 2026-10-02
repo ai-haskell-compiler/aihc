@@ -62,7 +62,7 @@ after each pass under `--lint`.
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
-| `PassWorkerWrapper` | Split each function that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. `Aihc.Fc.WorkerWrapper`. |
+| `PassWorkerWrapper scope` | Split each function in the scope that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. The scope is every function, or the local recursive functions only. `Aihc.Fc.WorkerWrapper`. |
 | `PassSpecialise` | Copy each local recursive function whose calls give a constant dictionary, with the dictionary in place of the parameter. `Aihc.Fc.Specialise`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
@@ -75,7 +75,7 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, simplify [0], lift constants |
+| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, worker/wrapper of the local functions, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
 | `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
@@ -129,7 +129,16 @@ use of it gives, says how many of its leading lambdas are such: every use
 of `go` in `go m s` gives two arguments, so no `go m` is ever shared, and
 a binding with one use under the second lambda moves there. A use that is
 not a call, such as the binding passed as an argument or returned, gives
-call arity zero. The arity holds for a local binding by a scan of its
+call arity zero.
+
+A function or a partial application is a value, so it moves to its one use
+under a lambda when that use is a call: the move repeats no work. A call
+with fewer arguments than the arity is a partial application at the use.
+That application allocates a closure each time the lambda around it runs.
+After the move, the simplifier reduces the call to a smaller function, and
+that function allocates one closure in its place. The call of the closure
+is then a known call, not an unknown application of a partial
+application. The arity holds for a local binding by a scan of its
 scope, and for a top-level value by a scan of the program, where an
 exported value and a value a rewrite rule names count as escaping. The
 simplifier carries the arity as a budget into the right-hand side of the
@@ -317,6 +326,20 @@ A recursive call in the worker becomes a case on the call that returns
 its binder, `case $wcount x of r -> r`. The simplifier makes such a case
 its scrutinee, so the recursive call stays a tail call. Both are
 undefined when the scrutinee is, and both are its value otherwise.
+
+A local recursive function gets the same split. Its worker takes its place
+in the recursive group, and each occurrence of the function becomes a copy
+of the wrapper. The simplifier reduces each copy, so no inliner is
+necessary.
+
+The pass runs a second time after the growing inliner, for the local
+functions only. The growing inliner makes new local loops: when it copies
+a fused producer, such as `take n (iterate f x)`, into its consumer, the
+loop that results takes the count as a boxed `Int`. Eta expansion first
+gives such a loop all its lambdas, and then the split gives it an `Int#`
+counter. That run does not split a top-level function, because no inliner
+follows to copy the wrapper, and a wrapper that is not copied is only one
+more call.
 
 The pass does not split:
 

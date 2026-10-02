@@ -4,7 +4,7 @@ extensions:
 - RankNTypes
 modules:
 - |
-  module Test (prefix, plain) where
+  module Test (prefix) where
   import GHC.Prim (Int#, (-#), (<#), (==#))
   import GHC.Types (Int (..))
   data Nat = Z | S Nat
@@ -68,13 +68,12 @@ modules:
   count = foldr (\_ r -> S r) Z
   prefix :: Int -> Nat -> Nat
   prefix m s = count (take m (iterate S s))
-  plain :: Int -> List Nat -> List Nat
-  plain m xs = take m xs
 passes:
 - eta
 - inline: shrink
 - inline: grow
 - eta
+- worker-wrapper: locals
 - simplify
 expected: |-
   scope 1 = "" Test
@@ -259,64 +258,21 @@ expected: |-
                                       1.cS r
                           } in
                               rec {
-                                  go : 1.tNat 3.→ 3.tInt 3.→ 1.tNat =
+                                  $wgo : FUN @(3.cBoxedRep 3.cLifted) @(3.cBoxedRep 3.cLifted) 1.tNat (FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# 1.tNat) =
                                       λ(x{2} : 1.tNat).
-                                        λ(eta : 3.tInt).
-                                          case eta as (_scrut{2} : 3.tInt) return (1.tNat) of {
-                                              3.cI# (k{1} : 2.tInt#) →
-                                                  case k{1} as (_scrut{3} : 2.tInt#) return (1.tNat) of {
-                                                      1#3.cIntRep →
-                                                          x{1} x{2} 1.cZ;
-                                                      _ →
-                                                          x{1} x{2} (let {
-                                                              argument : 2.tInt# =
-                                                                  foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut{3} 1#3.cIntRep
-                                                          } in
-                                                              go (1.cS x{2}) (3.cI# argument))
-                                                  }
+                                        λ(eta : 2.tInt#).
+                                          case eta as (_scrut{2} : 2.tInt#) return (1.tNat) of {
+                                              1#3.cIntRep →
+                                                  x{1} x{2} 1.cZ;
+                                              _ →
+                                                  x{1} x{2} (let {
+                                                      argument : 2.tInt# =
+                                                          foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut{2} 1#3.cIntRep
+                                                  } in
+                                                      $wgo (1.cS x{2}) argument)
                                           }
                               } in
-                                  go y x
-                  }
-      }
-
-  pub val 1.vplain :: 3.tInt 3.→ 1.tList 1.tNat 3.→ 1.tList 1.tNat
-   = λ(x : 3.tInt).
-    λ(y : 1.tList 1.tNat).
-      case x as (_scrut : 3.tInt) return (1.tList 1.tNat) of {
-          3.cI# (k : 2.tInt#) →
-              let {
-                  _case : 2.tInt# =
-                      foreign {prim 2.v<# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} k 1#3.cIntRep
-              } in
-                  case _case as (_scrut{1} : 2.tInt#) return (1.tList 1.tNat) of {
-                      1#3.cIntRep →
-                          1.cNil @1.tNat;
-                      _ →
-                          rec {
-                              go : 1.tList 1.tNat 3.→ 3.tInt 3.→ 1.tList 1.tNat =
-                                  λ(x{1} : 1.tList 1.tNat).
-                                    λ(eta : 3.tInt).
-                                      case x{1} as (_scrut{2} : 1.tList 1.tNat) return (1.tList 1.tNat) of {
-                                          1.cNil →
-                                              1.vtakeEnd @(1.tList 1.tNat) (1.cNil @1.tNat) eta;
-                                          1.cCons (y{1} : 1.tNat) (ys : 1.tList 1.tNat) →
-                                              case eta as (_scrut{3} : 3.tInt) return (1.tList 1.tNat) of {
-                                                  3.cI# (k{1} : 2.tInt#) →
-                                                      case k{1} as (_scrut{4} : 2.tInt#) return (1.tList 1.tNat) of {
-                                                          1#3.cIntRep →
-                                                              1.cCons @1.tNat y{1} (1.cNil @1.tNat);
-                                                          _ →
-                                                              1.cCons @1.tNat y{1} (let {
-                                                                  argument : 2.tInt# =
-                                                                      foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut{4} 1#3.cIntRep
-                                                              } in
-                                                                  go ys (3.cI# argument))
-                                                      }
-                                              }
-                                      }
-                          } in
-                              go y x
+                                  $wgo y k
                   }
       }
 
@@ -368,4 +324,4 @@ expected: |-
    = 1.vtake @a m xs
    :: 1.tList a
 status: pass
-reason: take of iterate fuses with the fold that consumes it, so prefix walks no list. A take that does not fuse is a plain take again.
+reason: The growing inliner makes the local loop of the fused take, after the first worker/wrapper split. Eta expansion gives the loop its two lambdas. The local split then gives the loop an Int# counter, and the recursive call builds no box. The top-level take keeps its boxed parameter, because this split is for local functions only.

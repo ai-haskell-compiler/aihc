@@ -124,14 +124,9 @@ static const AihcResume *aihc_schedule(AihcMachine *machine);
 static void aihc_visit_blackholes(AihcMachine *machine, AihcRootVisitor visitor,
                                   void *context);
 
-static const uint8_t aihc_indirection_field_is_pointer[] = {1};
-static const AihcInfo aihc_indirection_info = {
-    .field_count = 1,
-    .field_is_pointer = aihc_indirection_field_is_pointer,
-    .frame_kind = AIHC_FRAME_NONE,
-    .object_kind = AIHC_OBJECT_INDIRECTION,
-    .needs_eval = AIHC_NEEDS_EVAL_FOLLOW,
-};
+/* aihc_helpers.lir defines the indirection table, because the update of a
+   thunk without waiters writes it there. */
+extern const AihcInfo aihc_indirection_info;
 static const AihcInfo aihc_io_request_info = {
     .object_kind = AIHC_OBJECT_IO_REQUEST,
 };

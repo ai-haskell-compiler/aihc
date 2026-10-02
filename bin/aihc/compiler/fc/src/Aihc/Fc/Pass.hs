@@ -27,7 +27,7 @@ import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram)
 import Aihc.Fc.Syntax (Program)
-import Aihc.Fc.WorkerWrapper (WorkerWrapperReport (..), workerWrapperProgram)
+import Aihc.Fc.WorkerWrapper (SplitScope (..), WorkerWrapperReport (..), workerWrapperProgram)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -48,10 +48,10 @@ data Pass
     -- 'StrictLetsAndArguments' for every strict argument of a saturated
     -- call. @Aihc.Fc.Demand@.
     PassDemand !DemandRewrites
-  | -- | Split each function that takes apart a strict parameter of a type
-    -- with one constructor into a worker that takes the fields and an
-    -- @INLINE@ wrapper. @Aihc.Fc.WorkerWrapper@.
-    PassWorkerWrapper
+  | -- | Split each function in the scope that takes apart a strict
+    -- parameter of a type with one constructor into a worker that takes
+    -- the fields and an @INLINE@ wrapper. @Aihc.Fc.WorkerWrapper@.
+    PassWorkerWrapper !SplitScope
   | -- | Copy each local recursive function whose calls give a constant
     -- dictionary, with the dictionary in place of the parameter.
     -- @Aihc.Fc.Specialise@.
@@ -66,7 +66,7 @@ passPhase pass =
     PassLiftConstants -> Nothing
     PassEtaExpand -> Nothing
     PassDemand _ -> Nothing
-    PassWorkerWrapper -> Nothing
+    PassWorkerWrapper _ -> Nothing
     PassSpecialise -> Nothing
     PassInline _ _ phase -> Just phase
     PassSimplify phase -> Just phase
@@ -87,7 +87,8 @@ passName pass =
     PassLiftConstants -> "lift constants"
     PassDemand StrictLetsOnly -> "demand"
     PassDemand StrictLetsAndArguments -> "demand arguments"
-    PassWorkerWrapper -> "worker/wrapper"
+    PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
+    PassWorkerWrapper SplitLocalFunctions -> "worker/wrapper locals"
     PassSpecialise -> "specialise"
     PassEtaExpand -> "eta expand"
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
@@ -118,8 +119,8 @@ runPass roots pass program =
                 reportDetail = count (reportStrictValues report) "strict values" <> ", " <> count (reportStrictLets report) "strict lets" <> ", " <> count (reportStrictArguments report) "strict arguments"
               }
           )
-    PassWorkerWrapper ->
-      let (split, report) = workerWrapperProgram program
+    PassWorkerWrapper scope ->
+      let (split, report) = workerWrapperProgram scope program
        in ( split,
             PassReport
               { reportPass = passName pass,
