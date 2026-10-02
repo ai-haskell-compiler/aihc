@@ -21,7 +21,7 @@ import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
 import Control.Exception (bracket)
 import Control.Monad (forever, unless)
-import Data.List (intercalate)
+import Data.List (intercalate, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
@@ -119,9 +119,9 @@ data ItemState
   = ItemWaiting
   | ItemPreparing
   | ItemInStore
-  | -- | Module count, modules compiled, the time the build started, and
-    -- the time the first unit type checked.
-    ItemBuilding !Int !Int !Word64 !(Maybe Word64)
+  | -- | Module count, modules compiled, the time the build started, the
+    -- time the first unit type checked, and the time of the last progress.
+    ItemBuilding !Int !Int !Word64 !(Maybe Word64) !Word64
   | -- | Module count and start time.
     ItemLinking !Int !Word64
   | -- | Module count and elapsed time.
@@ -150,7 +150,7 @@ applyEvent now event state =
     ProgressPlan items -> foldl' (\acc item -> setItem item ItemWaiting acc) state items
     ProgressPrepare item -> transition item (const ItemPreparing)
     ProgressStore item -> transition item (const ItemInStore)
-    ProgressBuild item total -> transition item (const (ItemBuilding total 0 now Nothing))
+    ProgressBuild item total -> transition item (const (ItemBuilding total 0 now Nothing now))
     ProgressCompile item -> transition item compiles
     ProgressModules item count -> transition item (compiled count)
     ProgressLink item -> transition item links
@@ -162,19 +162,19 @@ applyEvent now event state =
   where
     compiles current =
       case current of
-        ItemBuilding total count start Nothing -> ItemBuilding total count start (Just now)
+        ItemBuilding total count start Nothing _ -> ItemBuilding total count start (Just now) now
         other -> other
     compiled count current =
       case current of
-        ItemBuilding total before start compiling -> ItemBuilding total (min total (before + count)) start compiling
+        ItemBuilding total before start compiling _ -> ItemBuilding total (min total (before + count)) start compiling now
         other -> other
     links current =
       case current of
-        ItemBuilding total _ start compiling -> ItemLinking total (fromMaybe start compiling)
+        ItemBuilding total _ start compiling _ -> ItemLinking total (fromMaybe start compiling)
         other -> other
     done current =
       case current of
-        ItemBuilding total _ start compiling -> ItemDone total (now - fromMaybe start compiling)
+        ItemBuilding total _ start compiling _ -> ItemDone total (now - fromMaybe start compiling)
         ItemLinking total start -> ItemDone total (now - start)
         _ -> ItemDone 0 0
     transition item step =
@@ -198,10 +198,9 @@ changedTo before after item = itemState before item /= itemState after item
 countItems :: (ItemState -> Bool) -> ProgressState -> Int
 countItems predicate state = length (filter predicate (Map.elems (stateItems state)))
 
-isDone, isInStore, isActive, isWaiting :: ItemState -> Bool
+isDone, isInStore, isWaiting :: ItemState -> Bool
 isDone value = case value of ItemDone _ _ -> True; _ -> False
 isInStore value = value == ItemInStore
-isActive value = case value of ItemPreparing -> True; ItemBuilding {} -> True; ItemLinking {} -> True; _ -> False
 isWaiting value = value == ItemWaiting
 
 -- * Plain output
@@ -381,55 +380,137 @@ wrapItems width = go [] 0
           | otherwise -> flush row : go [name] (length name) rest
     flush row = "  " <> intercalate "  " (reverse row)
 
--- | The frame: one line for each item that builds, a line for the items
--- that wait, and a summary line. The frame fits the terminal: the lines
--- are cut at its width, and the items past its height are counted.
+-- | The frame: a bar of every module of the plan, the items that received
+-- work last, several to a line, and a line that counts the rest. The
+-- frame keeps a small height whatever the size of the plan: a plan of
+-- many dozens of packages has most of them parsed and waiting for the
+-- units they import, and listing those says nothing new.
 renderFrame :: Bool -> Int -> Int -> Word64 -> Int -> ProgressState -> [String]
 renderFrame color width height now tick state
   | Map.null (stateItems state) = [sgr color cyan (spinner tick) <> " Solving the plan · " <> renderClock (now - stateStart state)]
-  | otherwise = map (truncateLine width) (itemLines <> hiddenLine <> waitingLine <> [summaryLine])
+  | otherwise = map (truncateLine width) (summaryLine : workLines <> statusLine)
   where
-    active = [(item, value) | item <- stateOrder state, let value = itemState state item, isActive value]
-    room = max 1 (height - 4)
-    shown = take room active
-    hidden = length active - length shown
-    nameWidth = min 40 (maximum (0 : map (length . renderProgressItem . fst) shown))
-    itemLines = map renderActive shown
-    hiddenLine = ["  " <> sgr color dim ("… " <> show hidden <> " more") | hidden > 0]
-    waiting = countItems isWaiting state
-    waitingLine = ["  " <> sgr color dim (show waiting <> " waiting") | waiting > 0]
-    renderActive (item, value) =
-      sgr color cyan (spinner tick <> " ")
-        <> padRight nameWidth (renderProgressItem item)
-        <> "  "
-        <> case value of
-          ItemPreparing -> sgr color dim "configuring"
-          ItemBuilding 0 _ _ _ -> sgr color dim "no modules"
-          ItemBuilding modules done _ _ -> renderBar color modules done <> "  " <> padLeft (length (show modules)) (show done) <> "/" <> show modules <> " modules"
-          ItemLinking _ _ -> sgr color dim "linking"
-          _ -> ""
+    values = Map.elems (stateItems state)
     total = Map.size (stateItems state)
     built = countItems isDone state
     inStore = countItems isInStore state
+    modulesTotal = sum (map itemModules values)
+    modulesDone = sum (map itemModulesDone values)
     busy = sum (Map.elems (stateActive state))
     kinds = [show count <> " " <> kindName kind | (kind, count) <- Map.toList (stateActive state), count > 0]
+    -- The first line fits 80 columns: the store count and the kinds of
+    -- the running tasks go on the status line.
     summaryLine =
-      sgr color bold (show built <> "/" <> show total <> " built")
-        <> (if inStore > 0 then " · " <> show inStore <> " in store" else "")
+      sgr color cyan (spinner tick)
+        <> " "
+        <> renderBar color 16 modulesTotal modulesDone
+        <> " "
+        <> sgr color bold (show modulesDone <> "/" <> show modulesTotal <> " modules")
+        <> " · "
+        <> show built
+        <> "/"
+        <> show total
+        <> " packages"
         <> " · "
         <> show busy
         <> "/"
         <> show (stateWorkers state)
-        <> " threads busy"
-        <> (if null kinds then "" else sgr color dim (" (" <> intercalate ", " kinds <> ")"))
-        <> " · "
+        <> " threads · "
         <> renderClock (now - stateStart state)
+    -- The items with work under way, the most recent first. An item whose
+    -- units have not type checked yet is parsed and waits for the units
+    -- it imports; it is counted, not listed.
+    working =
+      map
+        snd
+        ( sortOn
+            (negate . fst)
+            [ (activity, (item, value))
+            | item <- stateOrder state,
+              let value = itemState state item,
+              Just activity <- [itemActivity value]
+            ]
+        )
+    waiting = length (filter isWaiting values)
+    rows = max 1 (min 3 (height - 3))
+    (workLines, shownCount) = packEntries width rows (map renderWork working)
+    hidden = length working - shownCount
+    statusParts =
+      [show inStore <> " in store" | inStore > 0]
+        <> ["tasks: " <> intercalate ", " kinds | not (null kinds)]
+        <> ["… " <> show hidden <> " more" | hidden > 0]
+        <> [show waiting <> " waiting" | waiting > 0]
+    statusLine = ["  " <> sgr color dim (intercalate " · " statusParts) | not (null statusParts)]
+    renderWork (item, value) =
+      renderProgressItem item
+        <> " "
+        <> case value of
+          ItemPreparing -> sgr color dim "configuring"
+          ItemBuilding 0 _ _ _ _ -> sgr color dim "no modules"
+          ItemBuilding modules done _ _ _ -> sgr color dim (show done <> "/" <> show modules)
+          ItemLinking _ _ -> sgr color dim "linking"
+          _ -> ""
 
-renderBar :: Bool -> Int -> Int -> String
-renderBar color total done =
+-- | The modules of an item, and the modules of it that are compiled.
+itemModules, itemModulesDone :: ItemState -> Int
+itemModules value =
+  case value of
+    ItemBuilding modules _ _ _ _ -> modules
+    ItemLinking modules _ -> modules
+    ItemDone modules _ -> modules
+    _ -> 0
+itemModulesDone value =
+  case value of
+    ItemBuilding _ done _ _ _ -> done
+    ItemLinking modules _ -> modules
+    ItemDone modules _ -> modules
+    _ -> 0
+
+-- | When an item last received work: its last compiled unit, or the time
+-- it started to configure or link. Nothing for an item that waits, that
+-- the store holds, that is complete, or whose units have not type
+-- checked yet.
+itemActivity :: ItemState -> Maybe Word64
+itemActivity value =
+  case value of
+    ItemPreparing -> Just 0
+    ItemBuilding _ _ _ (Just _) activity -> Just activity
+    ItemLinking _ start -> Just start
+    _ -> Nothing
+
+-- | Pack the entries into at most the given number of rows of the width,
+-- separated by dots and indented by two columns. The result is the rows
+-- and how many entries they hold. The width of an entry counts its
+-- visible characters, not its escape sequences.
+packEntries :: Int -> Int -> [String] -> ([String], Int)
+packEntries width rows = go [] 0 [] 0
+  where
+    limit = max 20 width - 3
+    go done count row used entries
+      | length done == rows = (reverse done, count)
+      | otherwise =
+          case entries of
+            [] -> (reverse (flush row done), count)
+            entry : rest
+              | null row -> go done (count + 1) [entry] (visibleLength entry) rest
+              | used + 3 + visibleLength entry <= limit -> go done (count + 1) (entry : row) (used + 3 + visibleLength entry) rest
+              | otherwise -> go (flush row done) count [] 0 entries
+    flush row done = if null row then done else ("  " <> intercalate " · " (reverse row)) : done
+
+-- | The columns a string takes, without its escape sequences.
+visibleLength :: String -> Int
+visibleLength = length . stripEscapes
+  where
+    stripEscapes text =
+      case text of
+        [] -> []
+        '\ESC' : rest -> stripEscapes (drop 1 (dropWhile (/= 'm') rest))
+        character : rest -> character : stripEscapes rest
+
+renderBar :: Bool -> Int -> Int -> Int -> String
+renderBar color cells total done =
   sgr color green (replicate filled '█') <> sgr color dim (replicate (cells - filled) '░')
   where
-    cells = 20
     filled
       | total <= 0 = 0
       | otherwise = min cells ((done * cells) `div` total)
@@ -479,12 +560,6 @@ bold = "1"
 dim = "2"
 green = "32"
 cyan = "36"
-
-padRight :: Int -> String -> String
-padRight width text = text <> replicate (width - length text) ' '
-
-padLeft :: Int -> String -> String
-padLeft = padLeftWith ' '
 
 padLeftWith :: Char -> Int -> String -> String
 padLeftWith fill width text = replicate (width - length text) fill <> text
