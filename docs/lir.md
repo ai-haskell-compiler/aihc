@@ -372,6 +372,9 @@ Its first field holds its parent, and its pointer bitmap describes all captured 
 Its `identity` and `backend_entry` fields are null.
 The continuation dispatcher passes the result registers to the parent without a call to this frame.
 This rule supports abstract results without a fixed register layout.
+The dispatcher loads the `backend_entry` field of each frame that it enters, and a null entry is its only check.
+A null entry on a frame of another kind stops the program.
+A continuation is never an indirection, because frames live on thread stacks and only a thunk is updated.
 
 The runtime's `AihcInfo` structure has the layout of this section on every
 target: its counts and kinds are `uint8_t`. On WebAssembly `call.indirect`

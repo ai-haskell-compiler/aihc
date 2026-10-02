@@ -301,12 +301,14 @@ entry:
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %follows = call @aihc_follows_indirection(%header)
-  br %follows, indirection, enter
+  %entry = call @aihc_info_entry(%header)
+  %forward = eq code %entry, null
+  br %forward, forward, enter
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+; A forward frame has no entry. It passes the values to its parent.
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
@@ -315,7 +317,6 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
@@ -325,12 +326,14 @@ entry:
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %follows = call @aihc_follows_indirection(%header)
-  br %follows, indirection, enter
+  %entry = call @aihc_info_entry(%header)
+  %forward = eq code %entry, null
+  br %forward, forward, enter
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+; A forward frame has no entry. It passes the values to its parent.
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
@@ -339,7 +342,6 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
 }
 
@@ -349,12 +351,14 @@ entry:
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %follows = call @aihc_follows_indirection(%header)
-  br %follows, indirection, enter
+  %entry = call @aihc_info_entry(%header)
+  %forward = eq code %entry, null
+  br %forward, forward, enter
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+; A forward frame has no entry. It passes the values to its parent.
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
@@ -363,7 +367,6 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
@@ -492,25 +495,24 @@ slow:
 }
 
 ; The next-stage bitmap selects a pointer or an integer argument.
-; Follow indirections before the bitmap check.
+; Follow forward frames before the bitmap check, because the frame that
+; takes the value is the first frame with an entry.
 export func @aihc_lir_continue_slot(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
 entry:
   jump loop(%continuation)
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %kind = call @aihc_info_kind(%header)
-  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  %frame = call @aihc_info_frame(%header)
-  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
-  %follows = or i1 %indirection, %forward
-  br %follows, indirection, check
+  %frame_entry = call @aihc_info_entry(%header)
+  %forward = eq code %frame_entry, null
+  br %forward, forward, check
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 check:
+  %kind = call @aihc_info_kind(%header)
   %next_info = call @aihc_info_next(%header)
   %has_next = ne ptr %next_info, null
   br %has_next, count, word
