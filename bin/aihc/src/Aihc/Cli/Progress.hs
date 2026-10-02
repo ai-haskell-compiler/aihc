@@ -18,7 +18,7 @@ where
 import Aihc.Cli.TaskGraph (TaskKind (..), TaskObserver (..))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (withAsync)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar)
 import Control.Exception (bracket)
 import Control.Monad (forever, unless)
 import Data.List (intercalate, sortOn)
@@ -212,14 +212,19 @@ withPlainProgress :: Handle -> (ProgressReporter -> IO a) -> IO a
 withPlainProgress handle action = do
   now <- getMonotonicTimeNSec
   stateVar <- newMVar (initialState now)
-  let report event = do
-        lines' <- modifyMVar stateVar $ \before -> do
+  -- The events come from every worker thread, and the handle is not
+  -- buffered, so the write stays under the lock and is one string: a write
+  -- outside the lock, or one write for each line, interleaves with the
+  -- writes of the other threads.
+  let report event =
+        modifyMVar_ stateVar $ \before -> do
           at <- getMonotonicTimeNSec
           let after = applyEvent at event before
-          pure (after, plainLines before after event)
-        unless (null lines') $ do
-          mapM_ (hPutStrLn handle) lines'
-          hFlush handle
+              lines' = plainLines before after event
+          unless (null lines') $ do
+            hPutStr handle (concatMap (<> "\n") lines')
+            hFlush handle
+          pure after
   action ProgressReporter {progressReport = report, progressColor = False}
 
 plainLines :: ProgressState -> ProgressState -> ProgressEvent -> [String]
