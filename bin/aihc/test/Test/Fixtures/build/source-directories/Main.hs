@@ -2,6 +2,7 @@ module Main where
 
 import BlackholeChecks (blackholeChecks)
 import FamilyBindChecks (familyBindChecks)
+import FileInputChecks (fileInputChecks)
 import FrozenChecks (frozenChecks)
 import KindOrderChecks (kindOrderChecks)
 import PrimitiveChecks (primitiveChecks)
@@ -13,6 +14,8 @@ import System.IO ()
 
 main :: IO ()
 main = do
+  files <- fileInputChecks
+  if files then pure () else error "file input check failed"
   blackholes <- blackholeChecks
   transactions <- stmChecks
   if blackholes && primitiveChecks && transactions && frozenChecks && familyBindChecks && kindOrderChecks && sumChecks then run else error "primitive check failed"
