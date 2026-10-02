@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
@@ -23,12 +25,16 @@ module GHC.TypeLits
     natVal',
     SNat,
     fromSNat,
+    withSomeSNat,
+    withKnownNat,
     KnownSymbol,
     symbolSing,
     symbolVal,
     symbolVal',
     SSymbol,
     fromSSymbol,
+    withSomeSSymbol,
+    withKnownSymbol,
     KnownChar,
     charSing,
     charVal,
@@ -55,9 +61,9 @@ import GHC.Num.Integer (Integer)
 import GHC.Prim (Proxy#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, type (*), type (+), type (-), type (^))
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
-import GHC.Types (Char, Constraint, Symbol, Type)
+import GHC.Types (Any, Char, Constraint, Symbol, Type)
 
 -- | The value of a known type-level natural, as an 'Integer'.
 natVal :: forall n proxy. (KnownNat n) => proxy n -> Integer
@@ -95,6 +101,19 @@ newtype SSymbol s = UnsafeSSymbol [Char]
 -- | The value a singleton stands for.
 fromSSymbol :: SSymbol s -> [Char]
 fromSSymbol (UnsafeSSymbol value) = value
+
+-- | Supply a singleton for a runtime symbol.
+-- Keep the type index private to each call.
+{-# NOINLINE withSomeSSymbol #-}
+withSomeSSymbol :: [Char] -> (forall s. SSymbol s -> r) -> r
+withSomeSSymbol value continuation = continuation (UnsafeSSymbol value :: SSymbol Any)
+
+-- | Supply the dictionary for a singleton symbol.
+withKnownSymbol :: forall s r. SSymbol s -> ((KnownSymbol s) => r) -> r
+withKnownSymbol (UnsafeSSymbol value) = aihcWithKnownSymbol# @s value
+
+-- The compiler constructs the class dictionary around the value.
+foreign import prim aihcWithKnownSymbol# :: forall s r. [Char] -> ((KnownSymbol s) => r) -> r
 
 -- | A type-level character whose value is known.
 --

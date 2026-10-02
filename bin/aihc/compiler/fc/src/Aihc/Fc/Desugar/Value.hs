@@ -846,7 +846,34 @@ desugarForeignReference variable key info types evidence = do
   env <- gets vsTypeEnv
   let arity = length (TypeOf.foreignArgumentTypes env (TypeOf.foreignTypeBody env foreignType))
   binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (TypeOf.foreignArgumentTypes env instantiated))
-  pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
+  body <-
+    if isKnownLiteralDictionaryPrimitive variable
+      then desugarKnownLiteralDictionary env binders
+      else pure (ExForeignCall call types (map (ExVar . binderName) binders))
+  pure (foldr ExLam body binders)
+
+-- | These private primitives construct dictionaries in System FC.
+-- GRIN receives the same constructor applications as literal evidence.
+isKnownLiteralDictionaryPrimitive :: Name -> Bool
+isKnownLiteralDictionaryPrimitive variable =
+  case nameOrigin variable of
+    OriginTop _ "GHC.TypeNats" -> nameText variable == "aihcWithKnownNat#"
+    OriginTop _ "GHC.TypeLits" -> nameText variable == "aihcWithKnownSymbol#"
+    _ -> False
+
+desugarKnownLiteralDictionary :: TypeOf.TypeEnv -> [Binder] -> ValueM Expr
+desugarKnownLiteralDictionary env binders =
+  case binders of
+    [value, continuation]
+      | Just (_, _, dictionaryType, _) <- TypeOf.viewFun env (binderType continuation),
+        TyCon dictionaryName <- typeApplicationHead dictionaryType -> do
+          let constructor = dictionaryName {nameSort = SortDataConstructor}
+              dictionary =
+                ExApp
+                  (foldl ExTyApp (ExVar constructor) (typeApplicationArguments dictionaryType))
+                  (ExVar (binderName value))
+          pure (ExApp (ExVar (binderName continuation)) dictionary)
+    _ -> failValue "invalid System FC type for a singleton dictionary primitive"
 
 -- | Substitute the type arguments of a use for the leading binders of the
 -- foreign type.

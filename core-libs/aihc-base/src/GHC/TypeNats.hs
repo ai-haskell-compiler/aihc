@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
@@ -13,11 +15,9 @@
 -- @aihc-internal@ depends on @aihc-base@ rather than the other way round,
 -- so the declarations live here and the internal module re-exports them.
 --
--- @someNatVal@ and its @SomeNat@ are not here yet. GHC writes them by
--- coercing a constrained value to a function of its dictionary, which
--- relies on a single-method dictionary being represented as its method;
--- an aihc dictionary is a constructor around its fields instead, so the
--- coercion would be wrong. See @docs/type-level-naturals.md@.
+-- @someNatVal@ and @SomeNat@ are not available yet.
+-- @withKnownNat@ uses a compiler primitive to construct the dictionary.
+-- An aihc dictionary contains a constructor around its fields.
 module GHC.TypeNats
   ( Natural,
     Nat,
@@ -27,6 +27,8 @@ module GHC.TypeNats
     natVal',
     SNat,
     fromSNat,
+    withSomeSNat,
+    withKnownNat,
     CmpNat,
     type (+),
     type (-),
@@ -40,7 +42,7 @@ where
 
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
-import GHC.Types (Constraint, Ordering, Type)
+import GHC.Types (Any, Constraint, Ordering, Type)
 
 -- | The kind of type-level natural literals. GHC makes this a synonym for
 -- the value type, so that @natVal@ can return one.
@@ -105,3 +107,16 @@ newtype SNat n = UnsafeSNat Natural
 -- | The value a singleton stands for.
 fromSNat :: SNat n -> Natural
 fromSNat (UnsafeSNat value) = value
+
+-- | Supply a singleton for a runtime natural number.
+-- Keep the type index private to each call.
+{-# NOINLINE withSomeSNat #-}
+withSomeSNat :: Natural -> (forall n. SNat n -> r) -> r
+withSomeSNat value continuation = continuation (UnsafeSNat value :: SNat Any)
+
+-- | Supply the dictionary for a singleton natural number.
+withKnownNat :: forall n r. SNat n -> ((KnownNat n) => r) -> r
+withKnownNat (UnsafeSNat value) = aihcWithKnownNat# @n value
+
+-- The compiler constructs the class dictionary around the value.
+foreign import prim aihcWithKnownNat# :: forall n r. Natural -> ((KnownNat n) => r) -> r
