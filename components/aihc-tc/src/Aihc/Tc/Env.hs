@@ -138,7 +138,7 @@ data CType = CType
 
 instance NFData CType
 
-dataTypeKey :: DataTypeInfo -> TcTypeKey
+dataTypeKey :: DataTypeInfo -> GlobalName
 dataTypeKey = tyConKey . dtiTyCon
 
 -- | The source declaration form of a constructor. Stock deriving needs this
@@ -247,10 +247,10 @@ instance NFData PatSynInfo
 
 -- | The term key of a pattern synonym. The builder term of a bidirectional
 -- pattern synonym has the same key.
-patSynKey :: PatSynInfo -> TcTermKey
+patSynKey :: PatSynInfo -> Entity
 patSynKey info =
   let (package, moduleName') = psiOrigin info
-   in TcTermGlobal package moduleName' (psiName info)
+   in GlobalTerm package moduleName' (psiName info)
 
 -- | What record syntax names: a data constructor or a record pattern
 -- synonym. Both give record syntax a field order and an arity, and both
@@ -376,7 +376,7 @@ instance NFData AssociatedTypeInfo
 
 -- | The identity of a class: the key of its type constructor. Two modules
 -- can each declare a class with the same source name.
-classInfoKey :: ClassInfo -> TcTypeKey
+classInfoKey :: ClassInfo -> GlobalName
 classInfoKey = tyConKey . ciTyCon
 
 -- | Information about a class instance.
@@ -431,7 +431,7 @@ instanceIsForClass classTyCon instanceInfo =
 data InstanceEnv = InstanceEnv
   { instanceEnvSize :: !Int,
     instanceEnvAll :: ![InstanceInfo],
-    instanceEnvByClass :: !(Map TcTypeKey [InstanceInfo])
+    instanceEnvByClass :: !(Map GlobalName [InstanceInfo])
   }
   deriving (Show)
 

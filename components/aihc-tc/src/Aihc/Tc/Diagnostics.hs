@@ -133,7 +133,7 @@ attachDiagnosticsAt =
     -- becomes the outermost wrapper, as when each diagnostic is attached
     -- in a walk of its own.
     attachWrapped :: (node -> Maybe (Annotation, node)) -> (Annotation -> node -> node) -> (node -> State (Map SourceSpan [TcDiagnostic]) node) -> node -> State (Map SourceSpan [TcDiagnostic]) node
-    attachWrapped peel wrap = attachAt (wrappedSpan peel) (\anns node -> foldr wrap node anns)
+    attachWrapped peel wrap = attachAt (wrappedSpan peel) (flip (foldr wrap))
 
     -- Walk the children first, then attach the diagnostics of the exact
     -- span of the node, if any are pending.

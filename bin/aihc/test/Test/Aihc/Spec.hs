@@ -17,7 +17,7 @@ import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, 
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
+import Aihc.Resolve (Entity (..), ExportEntry (..), GlobalName (..), LocalId (..), OperatorFixity (..), PackageId (..), ResolutionNamespace (..), exportsEntries, exportsFromEntries)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTyCons, tyConName)
 import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
 import Control.Exception (IOException, bracket, try)
@@ -116,7 +116,7 @@ tests =
             ],
           testGroup
             "artifacts"
-            [ testCase "resolve artifacts keep each kind of resolved name" test_resolveArtifactRoundTrip
+            [ testCase "resolve artifacts keep each kind of export entry" test_resolveArtifactRoundTrip
             ],
           testGroup
             "sources"
@@ -393,33 +393,30 @@ test_moduleDepsIncludedHeader =
 
 -- | The scope encoder must keep each constructor of a resolved name.
 --
--- The essential property is that the encoder and the decoder agree on all
--- four constructors of a resolved name. No fixture can test this property.
--- An exported scope holds only top-level names, thus source text cannot put
--- a local name or an error in a scope that the compiler writes to the
--- store. This test is a hand-written exception to the fixture rule.
+-- The essential property is that the encoder and the decoder agree on
+-- every kind of export entry and on all three constructors of an entity.
+-- No fixture can test this property. Exports hold only top-level names,
+-- thus source text cannot put a local entity or built-in syntax in the
+-- exports that the compiler writes to the store. This test is a
+-- hand-written exception to the fixture rule.
 test_resolveArtifactRoundTrip :: Assertion
 test_resolveArtifactRoundTrip = do
-  let qualified =
-        emptyScope
-          { scopeTypes = Map.singleton "Box" (ResolvedTopLevel (PackageId "demo") "Demo" (Syntax.mkName Nothing Syntax.NameConId "Box"))
-          }
-      scope =
-        emptyScope
-          { scopeTerms =
-              Map.fromList
-                [ ("here", ResolvedLocal 7 (Syntax.mkUnqualifiedName Syntax.NameVarId "here")),
-                  ("broken", ResolvedError "unbound"),
-                  ("syntax", ResolvedSyntax)
-                ],
-            scopeQualifiedModules = Map.singleton "D" qualified
-          }
-      artifact = ResolveArtifact "Demo" scope
+  let entries =
+        [ ExportTerm "here" (EntityLocal (LocalId 7)),
+          ExportTerm "syntax" EntitySyntax,
+          ExportTerm "value" (EntityGlobal (GlobalName "value" (PackageId "demo") "Demo" ResolutionNamespaceTerm)),
+          ExportType "Box" (EntityGlobal (GlobalName "Box" (PackageId "demo") "Demo" ResolutionNamespaceType)),
+          ExportConstructors "Box" ["MkBox"],
+          ExportRecordFields "MkBox" ["unBox"],
+          ExportMethods "Shown" ["shown"],
+          ExportAssociatedTypes "Shown" ["Elem"],
+          ExportFixity "<+>" (OperatorFixity Syntax.InfixL 6)
+        ]
+      exports = exportsFromEntries entries
+      artifact = ResolveArtifact "Demo" exports
       bytes = BL.toStrict (encodeResolveArtifact artifact)
   decoded <- either (assertFailure . ("invalid resolve artifact: " <>)) pure (decodeResolveArtifact bytes)
-  let decodedScope = resolveArtifactScope decoded
-  assertEqual "resolved terms" (scopeTerms scope) (scopeTerms decodedScope)
-  assertEqual "qualified module types" (Map.map scopeTypes (scopeQualifiedModules scope)) (Map.map scopeTypes (scopeQualifiedModules decodedScope))
+  assertEqual "export entries" (exportsEntries exports) (exportsEntries (resolveArtifactExports decoded))
   assertBool "resolve artifact round trip" (artifact == decoded)
 
 -- | Each package fixture specifies its expected error or stored constructors.

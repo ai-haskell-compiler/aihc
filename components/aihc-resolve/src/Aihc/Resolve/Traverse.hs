@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- | A hand-written walk over the parser syntax tree.
@@ -146,7 +147,7 @@ appendCollected left Nothing = left
 appendCollected (Just left) (Just right) = Just (left . right)
 
 instance Walkable Annotation where
-  walk w = walkAnnotation w
+  walk = walkAnnotation
 
 instance (Walkable a) => Walkable [a] where
   walk w = traverse (walk w)
@@ -188,17 +189,16 @@ instance Walkable IEBundledMember where
     IEBundledMember namespace <$> walk w name
 
 instance Walkable ExportSpec where
-  walk w = walkExportSpec w $ \spec ->
-    case spec of
-      ExportModule pragma name -> pure (ExportModule pragma name)
-      ExportVar pragma namespace name -> ExportVar pragma namespace <$> walk w name
-      ExportAbs pragma namespace name -> ExportAbs pragma namespace <$> walk w name
-      ExportAll pragma namespace name -> ExportAll pragma namespace <$> walk w name
-      ExportWith pragma namespace name members ->
-        ExportWith pragma namespace <$> walk w name <*> walk w members
-      ExportWithAll pragma namespace name position members ->
-        ExportWithAll pragma namespace <$> walk w name <*> pure position <*> walk w members
-      ExportAnn ann inner -> ExportAnn <$> walkAnnotation w ann <*> walk w inner
+  walk w = walkExportSpec w $ \case
+    ExportModule pragma name -> pure (ExportModule pragma name)
+    ExportVar pragma namespace name -> ExportVar pragma namespace <$> walk w name
+    ExportAbs pragma namespace name -> ExportAbs pragma namespace <$> walk w name
+    ExportAll pragma namespace name -> ExportAll pragma namespace <$> walk w name
+    ExportWith pragma namespace name members ->
+      ExportWith pragma namespace <$> walk w name <*> walk w members
+    ExportWithAll pragma namespace name position members ->
+      ExportWithAll pragma namespace <$> walk w name <*> pure position <*> walk w members
+    ExportAnn ann inner -> ExportAnn <$> walkAnnotation w ann <*> walk w inner
 
 instance Walkable ImportDecl where
   walk w decl =
@@ -211,49 +211,47 @@ instance Walkable ImportSpec where
     ImportSpec <$> walkAnns w anns <*> pure hiding <*> walk w items
 
 instance Walkable ImportItem where
-  walk w = walkImportItem w $ \item ->
-    case item of
-      ImportItemVar namespace name -> ImportItemVar namespace <$> walk w name
-      ImportItemAbs namespace name -> ImportItemAbs namespace <$> walk w name
-      ImportItemAll namespace name -> ImportItemAll namespace <$> walk w name
-      ImportItemWith namespace name members ->
-        ImportItemWith namespace <$> walk w name <*> walk w members
-      ImportItemAllWith namespace name position members ->
-        ImportItemAllWith namespace <$> walk w name <*> pure position <*> walk w members
-      ImportAnn ann inner -> ImportAnn <$> walkAnnotation w ann <*> walk w inner
+  walk w = walkImportItem w $ \case
+    ImportItemVar namespace name -> ImportItemVar namespace <$> walk w name
+    ImportItemAbs namespace name -> ImportItemAbs namespace <$> walk w name
+    ImportItemAll namespace name -> ImportItemAll namespace <$> walk w name
+    ImportItemWith namespace name members ->
+      ImportItemWith namespace <$> walk w name <*> walk w members
+    ImportItemAllWith namespace name position members ->
+      ImportItemAllWith namespace <$> walk w name <*> pure position <*> walk w members
+    ImportAnn ann inner -> ImportAnn <$> walkAnnotation w ann <*> walk w inner
 
 -- Declarations
 
 instance Walkable Decl where
-  walk w = walkDecl w $ \decl ->
-    case decl of
-      DeclAnn ann inner -> DeclAnn <$> walkAnnotation w ann <*> walk w inner
-      DeclValue value -> DeclValue <$> walk w value
-      DeclImplicitParam name expr decls ->
-        DeclImplicitParam name <$> walk w expr <*> walk w decls
-      DeclTypeSig names ty -> DeclTypeSig <$> walk w names <*> walk w ty
-      DeclPatSyn patSyn -> DeclPatSyn <$> walk w patSyn
-      DeclPatSynSig names ty -> DeclPatSynSig <$> walk w names <*> walk w ty
-      DeclStandaloneKindSig name ty -> DeclStandaloneKindSig <$> walk w name <*> walk w ty
-      DeclFixity assoc namespace precedence operators ->
-        DeclFixity assoc namespace precedence <$> walk w operators
-      DeclRoleAnnotation roles -> DeclRoleAnnotation <$> walk w roles
-      DeclTypeSyn synonym -> DeclTypeSyn <$> walk w synonym
-      DeclTypeData dataDecl -> DeclTypeData <$> walk w dataDecl
-      DeclData dataDecl -> DeclData <$> walk w dataDecl
-      DeclNewtype newtypeDecl -> DeclNewtype <$> walk w newtypeDecl
-      DeclClass classDecl -> DeclClass <$> walk w classDecl
-      DeclInstance instanceDecl -> DeclInstance <$> walk w instanceDecl
-      DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving <$> walk w derivingDecl
-      DeclDefault types -> DeclDefault <$> walk w types
-      DeclSplice expr -> DeclSplice <$> walk w expr
-      DeclForeign foreignDecl -> DeclForeign <$> walk w foreignDecl
-      DeclTypeFamilyDecl familyDecl -> DeclTypeFamilyDecl <$> walk w familyDecl
-      DeclDataFamilyDecl familyDecl -> DeclDataFamilyDecl <$> walk w familyDecl
-      DeclTypeFamilyInst familyInst -> DeclTypeFamilyInst <$> walk w familyInst
-      DeclDataFamilyInst familyInst -> DeclDataFamilyInst <$> walk w familyInst
-      DeclPragma pragma -> pure (DeclPragma pragma)
-      DeclRules rules -> DeclRules <$> walk w rules
+  walk w = walkDecl w $ \case
+    DeclAnn ann inner -> DeclAnn <$> walkAnnotation w ann <*> walk w inner
+    DeclValue value -> DeclValue <$> walk w value
+    DeclImplicitParam name expr decls ->
+      DeclImplicitParam name <$> walk w expr <*> walk w decls
+    DeclTypeSig names ty -> DeclTypeSig <$> walk w names <*> walk w ty
+    DeclPatSyn patSyn -> DeclPatSyn <$> walk w patSyn
+    DeclPatSynSig names ty -> DeclPatSynSig <$> walk w names <*> walk w ty
+    DeclStandaloneKindSig name ty -> DeclStandaloneKindSig <$> walk w name <*> walk w ty
+    DeclFixity assoc namespace precedence operators ->
+      DeclFixity assoc namespace precedence <$> walk w operators
+    DeclRoleAnnotation roles -> DeclRoleAnnotation <$> walk w roles
+    DeclTypeSyn synonym -> DeclTypeSyn <$> walk w synonym
+    DeclTypeData dataDecl -> DeclTypeData <$> walk w dataDecl
+    DeclData dataDecl -> DeclData <$> walk w dataDecl
+    DeclNewtype newtypeDecl -> DeclNewtype <$> walk w newtypeDecl
+    DeclClass classDecl -> DeclClass <$> walk w classDecl
+    DeclInstance instanceDecl -> DeclInstance <$> walk w instanceDecl
+    DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving <$> walk w derivingDecl
+    DeclDefault types -> DeclDefault <$> walk w types
+    DeclSplice expr -> DeclSplice <$> walk w expr
+    DeclForeign foreignDecl -> DeclForeign <$> walk w foreignDecl
+    DeclTypeFamilyDecl familyDecl -> DeclTypeFamilyDecl <$> walk w familyDecl
+    DeclDataFamilyDecl familyDecl -> DeclDataFamilyDecl <$> walk w familyDecl
+    DeclTypeFamilyInst familyInst -> DeclTypeFamilyInst <$> walk w familyInst
+    DeclDataFamilyInst familyInst -> DeclDataFamilyInst <$> walk w familyInst
+    DeclPragma pragma -> pure (DeclPragma pragma)
+    DeclRules rules -> DeclRules <$> walk w rules
 
 instance Walkable RuleDecl where
   walk w rule =
@@ -315,12 +313,11 @@ instance (Walkable body) => Walkable (GuardedRhs body) where
     GuardedRhs <$> walkAnns w anns <*> walk w guards <*> walk w body
 
 instance Walkable GuardQualifier where
-  walk w = walkGuardQualifier w $ \qualifier ->
-    case qualifier of
-      GuardAnn ann inner -> GuardAnn <$> walkAnnotation w ann <*> walk w inner
-      GuardExpr expr -> GuardExpr <$> walk w expr
-      GuardPat pat expr -> GuardPat <$> walk w pat <*> walk w expr
-      GuardLet decls -> GuardLet <$> walk w decls
+  walk w = walkGuardQualifier w $ \case
+    GuardAnn ann inner -> GuardAnn <$> walkAnnotation w ann <*> walk w inner
+    GuardExpr expr -> GuardExpr <$> walk w expr
+    GuardPat pat expr -> GuardPat <$> walk w pat <*> walk w expr
+    GuardLet decls -> GuardLet <$> walk w decls
 
 instance Walkable Literal where
   walk w = walkLiteral w $ \literal ->
@@ -340,30 +337,29 @@ instance (Walkable a) => Walkable (RecordField a) where
     RecordField <$> walk w name <*> walk w value <*> pure pun
 
 instance Walkable Pattern where
-  walk w = walkPattern w $ \pat ->
-    case pat of
-      PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
-      PVar name -> PVar <$> walk w name
-      PTypeBinder binder -> PTypeBinder <$> walk w binder
-      PTypeSyntax form ty -> PTypeSyntax form <$> walk w ty
-      PWildcard -> pure PWildcard
-      PLit literal -> PLit <$> walk w literal
-      PQuasiQuote quoter body -> pure (PQuasiQuote quoter body)
-      PTuple flavor items -> PTuple flavor <$> walk w items
-      PUnboxedSum position arity inner -> PUnboxedSum position arity <$> walk w inner
-      PList items -> PList <$> walk w items
-      PCon name types pats -> PCon <$> walk w name <*> walk w types <*> walk w pats
-      PBuiltinCon builtin types pats -> PBuiltinCon builtin <$> walk w types <*> walk w pats
-      PInfix lhs name rhs -> PInfix <$> walk w lhs <*> walk w name <*> walk w rhs
-      PView expr inner -> PView <$> walk w expr <*> walk w inner
-      PAs name inner -> PAs <$> walk w name <*> walk w inner
-      PStrict inner -> PStrict <$> walk w inner
-      PIrrefutable inner -> PIrrefutable <$> walk w inner
-      PNegLit literal -> PNegLit <$> walk w literal
-      PParen inner -> PParen <$> walk w inner
-      PRecord name fields wildcard -> PRecord <$> walk w name <*> walk w fields <*> pure wildcard
-      PTypeSig inner ty -> PTypeSig <$> walk w inner <*> walk w ty
-      PSplice expr -> PSplice <$> walk w expr
+  walk w = walkPattern w $ \case
+    PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
+    PVar name -> PVar <$> walk w name
+    PTypeBinder binder -> PTypeBinder <$> walk w binder
+    PTypeSyntax form ty -> PTypeSyntax form <$> walk w ty
+    PWildcard -> pure PWildcard
+    PLit literal -> PLit <$> walk w literal
+    PQuasiQuote quoter body -> pure (PQuasiQuote quoter body)
+    PTuple flavor items -> PTuple flavor <$> walk w items
+    PUnboxedSum position arity inner -> PUnboxedSum position arity <$> walk w inner
+    PList items -> PList <$> walk w items
+    PCon name types pats -> PCon <$> walk w name <*> walk w types <*> walk w pats
+    PBuiltinCon builtin types pats -> PBuiltinCon builtin <$> walk w types <*> walk w pats
+    PInfix lhs name rhs -> PInfix <$> walk w lhs <*> walk w name <*> walk w rhs
+    PView expr inner -> PView <$> walk w expr <*> walk w inner
+    PAs name inner -> PAs <$> walk w name <*> walk w inner
+    PStrict inner -> PStrict <$> walk w inner
+    PIrrefutable inner -> PIrrefutable <$> walk w inner
+    PNegLit literal -> PNegLit <$> walk w literal
+    PParen inner -> PParen <$> walk w inner
+    PRecord name fields wildcard -> PRecord <$> walk w name <*> walk w fields <*> pure wildcard
+    PTypeSig inner ty -> PTypeSig <$> walk w inner <*> walk w ty
+    PSplice expr -> PSplice <$> walk w expr
 
 -- Types
 
@@ -379,31 +375,30 @@ instance Walkable ArrowKind where
       ArrowExplicit ty -> ArrowExplicit <$> walk w ty
 
 instance Walkable Type where
-  walk w = walkType w $ \ty ->
-    case ty of
-      TAnn ann inner -> TAnn <$> walkAnnotation w ann <*> walk w inner
-      TVar name -> TVar <$> walk w name
-      TCon name promotion -> TCon <$> walk w name <*> pure promotion
-      TBuiltinCon builtin promotion -> pure (TBuiltinCon builtin promotion)
-      TImplicitParam name payload -> TImplicitParam name <$> walk w payload
-      TTypeLit literal -> pure (TTypeLit literal)
-      TStar text -> pure (TStar text)
-      TQuasiQuote quoter body -> pure (TQuasiQuote quoter body)
-      TForall telescope inner -> TForall <$> walk w telescope <*> walk w inner
-      TApp function argument -> TApp <$> walk w function <*> walk w argument
-      TTypeApp function argument -> TTypeApp <$> walk w function <*> walk w argument
-      TInfix lhs name promotion rhs ->
-        TInfix <$> walk w lhs <*> walk w name <*> pure promotion <*> walk w rhs
-      TFun arrow argument result ->
-        TFun <$> walk w arrow <*> walk w argument <*> walk w result
-      TTuple flavor promotion items -> TTuple flavor promotion <$> walk w items
-      TUnboxedSum items -> TUnboxedSum <$> walk w items
-      TList promotion items -> TList promotion <$> walk w items
-      TParen inner -> TParen <$> walk w inner
-      TKindSig inner kind -> TKindSig <$> walk w inner <*> walk w kind
-      TContext context inner -> TContext <$> walk w context <*> walk w inner
-      TSplice expr -> TSplice <$> walk w expr
-      TWildcard -> pure TWildcard
+  walk w = walkType w $ \case
+    TAnn ann inner -> TAnn <$> walkAnnotation w ann <*> walk w inner
+    TVar name -> TVar <$> walk w name
+    TCon name promotion -> TCon <$> walk w name <*> pure promotion
+    TBuiltinCon builtin promotion -> pure (TBuiltinCon builtin promotion)
+    TImplicitParam name payload -> TImplicitParam name <$> walk w payload
+    TTypeLit literal -> pure (TTypeLit literal)
+    TStar text -> pure (TStar text)
+    TQuasiQuote quoter body -> pure (TQuasiQuote quoter body)
+    TForall telescope inner -> TForall <$> walk w telescope <*> walk w inner
+    TApp function argument -> TApp <$> walk w function <*> walk w argument
+    TTypeApp function argument -> TTypeApp <$> walk w function <*> walk w argument
+    TInfix lhs name promotion rhs ->
+      TInfix <$> walk w lhs <*> walk w name <*> pure promotion <*> walk w rhs
+    TFun arrow argument result ->
+      TFun <$> walk w arrow <*> walk w argument <*> walk w result
+    TTuple flavor promotion items -> TTuple flavor promotion <$> walk w items
+    TUnboxedSum items -> TUnboxedSum <$> walk w items
+    TList promotion items -> TList promotion <$> walk w items
+    TParen inner -> TParen <$> walk w inner
+    TKindSig inner kind -> TKindSig <$> walk w inner <*> walk w kind
+    TContext context inner -> TContext <$> walk w context <*> walk w inner
+    TSplice expr -> TSplice <$> walk w expr
+    TWildcard -> pure TWildcard
 
 instance Walkable TyVarBinder where
   walk w binder =
@@ -498,27 +493,26 @@ instance Walkable NewtypeDecl where
       <*> walk w derivings
 
 instance Walkable DataConDecl where
-  walk w = walkDataConDecl w $ \constructor ->
-    case constructor of
-      DataConAnn ann inner -> DataConAnn <$> walkAnnotation w ann <*> walk w inner
-      PrefixCon binders context name fields ->
-        PrefixCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
-      InfixCon binders context lhs name rhs ->
-        InfixCon
-          <$> walk w binders
-          <*> walk w context
-          <*> walk w lhs
-          <*> walk w name
-          <*> walk w rhs
-      RecordCon binders context name fields ->
-        RecordCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
-      GadtCon telescopes context names body ->
-        GadtCon <$> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
-      TupleCon binders context flavor fields ->
-        TupleCon <$> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
-      UnboxedSumCon binders context position arity field ->
-        UnboxedSumCon <$> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
-      ListCon binders context -> ListCon <$> walk w binders <*> walk w context
+  walk w = walkDataConDecl w $ \case
+    DataConAnn ann inner -> DataConAnn <$> walkAnnotation w ann <*> walk w inner
+    PrefixCon binders context name fields ->
+      PrefixCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+    InfixCon binders context lhs name rhs ->
+      InfixCon
+        <$> walk w binders
+        <*> walk w context
+        <*> walk w lhs
+        <*> walk w name
+        <*> walk w rhs
+    RecordCon binders context name fields ->
+      RecordCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+    GadtCon telescopes context names body ->
+      GadtCon <$> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
+    TupleCon binders context flavor fields ->
+      TupleCon <$> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
+    UnboxedSumCon binders context position arity field ->
+      UnboxedSumCon <$> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
+    ListCon binders context -> ListCon <$> walk w binders <*> walk w context
 
 instance Walkable GadtBody where
   walk w body =
@@ -572,18 +566,17 @@ instance Walkable FunctionalDependency where
       <$> walkAnns w (functionalDependencyAnns fundep)
 
 instance Walkable ClassDeclItem where
-  walk w = walkClassDeclItem w $ \item ->
-    case item of
-      ClassItemAnn ann inner -> ClassItemAnn <$> walkAnnotation w ann <*> walk w inner
-      ClassItemTypeSig names ty -> ClassItemTypeSig <$> walk w names <*> walk w ty
-      ClassItemDefaultSig name ty -> ClassItemDefaultSig <$> walk w name <*> walk w ty
-      ClassItemFixity assoc namespace precedence operators ->
-        ClassItemFixity assoc namespace precedence <$> walk w operators
-      ClassItemDefault value -> ClassItemDefault <$> walk w value
-      ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> walk w familyDecl
-      ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> walk w familyDecl
-      ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> walk w familyInst
-      ClassItemPragma pragma -> pure (ClassItemPragma pragma)
+  walk w = walkClassDeclItem w $ \case
+    ClassItemAnn ann inner -> ClassItemAnn <$> walkAnnotation w ann <*> walk w inner
+    ClassItemTypeSig names ty -> ClassItemTypeSig <$> walk w names <*> walk w ty
+    ClassItemDefaultSig name ty -> ClassItemDefaultSig <$> walk w name <*> walk w ty
+    ClassItemFixity assoc namespace precedence operators ->
+      ClassItemFixity assoc namespace precedence <$> walk w operators
+    ClassItemDefault value -> ClassItemDefault <$> walk w value
+    ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> walk w familyDecl
+    ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> walk w familyDecl
+    ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> walk w familyInst
+    ClassItemPragma pragma -> pure (ClassItemPragma pragma)
 
 instance Walkable InstanceDecl where
   walk w (InstanceDecl pragmas warning binders context instHead items) =
@@ -594,16 +587,15 @@ instance Walkable InstanceDecl where
       <*> walk w items
 
 instance Walkable InstanceDeclItem where
-  walk w = walkInstanceDeclItem w $ \item ->
-    case item of
-      InstanceItemAnn ann inner -> InstanceItemAnn <$> walkAnnotation w ann <*> walk w inner
-      InstanceItemBind value -> InstanceItemBind <$> walk w value
-      InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> walk w names <*> walk w ty
-      InstanceItemFixity assoc namespace precedence operators ->
-        InstanceItemFixity assoc namespace precedence <$> walk w operators
-      InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> walk w familyInst
-      InstanceItemDataFamilyInst familyInst -> InstanceItemDataFamilyInst <$> walk w familyInst
-      InstanceItemPragma pragma -> pure (InstanceItemPragma pragma)
+  walk w = walkInstanceDeclItem w $ \case
+    InstanceItemAnn ann inner -> InstanceItemAnn <$> walkAnnotation w ann <*> walk w inner
+    InstanceItemBind value -> InstanceItemBind <$> walk w value
+    InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> walk w names <*> walk w ty
+    InstanceItemFixity assoc namespace precedence operators ->
+      InstanceItemFixity assoc namespace precedence <$> walk w operators
+    InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> walk w familyInst
+    InstanceItemDataFamilyInst familyInst -> InstanceItemDataFamilyInst <$> walk w familyInst
+    InstanceItemPragma pragma -> pure (InstanceItemPragma pragma)
 
 instance Walkable ForeignDecl where
   walk w decl =
@@ -677,48 +669,44 @@ instance Walkable LambdaCaseAlt where
     LambdaCaseAlt <$> walkAnns w anns <*> walk w pats <*> walk w rhs
 
 instance (Walkable body) => Walkable (DoStmt body) where
-  walk w = walkDoStmt w $ \statement ->
-    case statement of
-      DoAnn ann inner -> DoAnn <$> walkAnnotation w ann <*> walk w inner
-      DoBind pat body -> DoBind <$> walk w pat <*> walk w body
-      DoLetDecls decls -> DoLetDecls <$> walk w decls
-      DoExpr body -> DoExpr <$> walk w body
-      DoRecStmt statements -> DoRecStmt <$> walk w statements
+  walk w = walkDoStmt w $ \case
+    DoAnn ann inner -> DoAnn <$> walkAnnotation w ann <*> walk w inner
+    DoBind pat body -> DoBind <$> walk w pat <*> walk w body
+    DoLetDecls decls -> DoLetDecls <$> walk w decls
+    DoExpr body -> DoExpr <$> walk w body
+    DoRecStmt statements -> DoRecStmt <$> walk w statements
 
 instance Walkable Cmd where
-  walk w = walkCmd w $ \command ->
-    case command of
-      CmdAnn ann inner -> CmdAnn <$> walkAnnotation w ann <*> walk w inner
-      CmdArrApp function appType argument ->
-        CmdArrApp <$> walk w function <*> pure appType <*> walk w argument
-      CmdInfix lhs name rhs -> CmdInfix <$> walk w lhs <*> walk w name <*> walk w rhs
-      CmdDo statements -> CmdDo <$> walk w statements
-      CmdIf condition thenCmd elseCmd ->
-        CmdIf <$> walk w condition <*> walk w thenCmd <*> walk w elseCmd
-      CmdCase scrutinee alternatives -> CmdCase <$> walk w scrutinee <*> walk w alternatives
-      CmdLet decls inner -> CmdLet <$> walk w decls <*> walk w inner
-      CmdLam pats inner -> CmdLam <$> walk w pats <*> walk w inner
-      CmdApp inner argument -> CmdApp <$> walk w inner <*> walk w argument
-      CmdPar inner -> CmdPar <$> walk w inner
+  walk w = walkCmd w $ \case
+    CmdAnn ann inner -> CmdAnn <$> walkAnnotation w ann <*> walk w inner
+    CmdArrApp function appType argument ->
+      CmdArrApp <$> walk w function <*> pure appType <*> walk w argument
+    CmdInfix lhs name rhs -> CmdInfix <$> walk w lhs <*> walk w name <*> walk w rhs
+    CmdDo statements -> CmdDo <$> walk w statements
+    CmdIf condition thenCmd elseCmd ->
+      CmdIf <$> walk w condition <*> walk w thenCmd <*> walk w elseCmd
+    CmdCase scrutinee alternatives -> CmdCase <$> walk w scrutinee <*> walk w alternatives
+    CmdLet decls inner -> CmdLet <$> walk w decls <*> walk w inner
+    CmdLam pats inner -> CmdLam <$> walk w pats <*> walk w inner
+    CmdApp inner argument -> CmdApp <$> walk w inner <*> walk w argument
+    CmdPar inner -> CmdPar <$> walk w inner
 
 instance Walkable CompStmt where
-  walk w = walkCompStmt w $ \statement ->
-    case statement of
-      CompAnn ann inner -> CompAnn <$> walkAnnotation w ann <*> walk w inner
-      CompGen pat expr -> CompGen <$> walk w pat <*> walk w expr
-      CompGuard expr -> CompGuard <$> walk w expr
-      CompLetDecls decls -> CompLetDecls <$> walk w decls
-      CompThen expr -> CompThen <$> walk w expr
-      CompThenBy function expr -> CompThenBy <$> walk w function <*> walk w expr
-      CompGroupUsing function -> CompGroupUsing <$> walk w function
-      CompGroupByUsing expr function -> CompGroupByUsing <$> walk w expr <*> walk w function
+  walk w = walkCompStmt w $ \case
+    CompAnn ann inner -> CompAnn <$> walkAnnotation w ann <*> walk w inner
+    CompGen pat expr -> CompGen <$> walk w pat <*> walk w expr
+    CompGuard expr -> CompGuard <$> walk w expr
+    CompLetDecls decls -> CompLetDecls <$> walk w decls
+    CompThen expr -> CompThen <$> walk w expr
+    CompThenBy function expr -> CompThenBy <$> walk w function <*> walk w expr
+    CompGroupUsing function -> CompGroupUsing <$> walk w function
+    CompGroupByUsing expr function -> CompGroupByUsing <$> walk w expr <*> walk w function
 
 instance Walkable ArithSeq where
-  walk w = walkArithSeq w $ \sequence' ->
-    case sequence' of
-      ArithSeqAnn ann inner -> ArithSeqAnn <$> walkAnnotation w ann <*> walk w inner
-      ArithSeqFrom from -> ArithSeqFrom <$> walk w from
-      ArithSeqFromThen from next -> ArithSeqFromThen <$> walk w from <*> walk w next
-      ArithSeqFromTo from to -> ArithSeqFromTo <$> walk w from <*> walk w to
-      ArithSeqFromThenTo from next to ->
-        ArithSeqFromThenTo <$> walk w from <*> walk w next <*> walk w to
+  walk w = walkArithSeq w $ \case
+    ArithSeqAnn ann inner -> ArithSeqAnn <$> walkAnnotation w ann <*> walk w inner
+    ArithSeqFrom from -> ArithSeqFrom <$> walk w from
+    ArithSeqFromThen from next -> ArithSeqFromThen <$> walk w from <*> walk w next
+    ArithSeqFromTo from to -> ArithSeqFromTo <$> walk w from <*> walk w to
+    ArithSeqFromThenTo from next to ->
+      ArithSeqFromThenTo <$> walk w from <*> walk w next <*> walk w to

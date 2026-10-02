@@ -41,7 +41,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), nameResolution)
 import Aihc.Resolve.Traverse (Collect, Walk (..), collected, idWalk, runCollect, walk)
 import Aihc.Tc.Annotations (annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
@@ -205,9 +205,9 @@ annotateRecursiveOccurrences binders decls = do
         Just annotation -> name {nameAnns = nameAnns name <> [mkAnnotation annotation]}
 
     occurrencePending schemes name =
-      case listToMaybe (mapMaybe fromAnnotation (nameAnns name)) of
+      case nameResolution name of
         Just resolution
-          | resolutionNamespace (resolution :: ResolutionAnnotation) == ResolutionNamespaceTerm -> do
+          | resolutionNamespace resolution == ResolutionNamespaceTerm -> do
               key <- resolvedTermKey name
               case Map.lookup key schemes of
                 Just (ForAll tyVars predicates body) -> do
@@ -225,7 +225,7 @@ annotateRecursiveOccurrences binders decls = do
 -- covers every syntax form, and it does not remove the binders of the
 -- declaration, so the result is a superset of the free variables. The
 -- dependency analysis only looks up the binders of the group in it.
-declTermReferences :: Decl -> TcM (Set.Set TcTermKey)
+declTermReferences :: Decl -> TcM (Set.Set Entity)
 declTermReferences decl = do
   named <- mapM resolvedTermKey [name | name <- runCollect (walk collectNames) decl, hasTermResolution name]
   -- A record update names field labels and no head, so nothing above
@@ -242,12 +242,10 @@ declTermReferences decl = do
         ERecordUpd _ fields -> map (nameText . recordFieldName) fields
         _ -> []
     hasTermResolution name =
-      case mapMaybe fromAnnotation (nameAnns name) of
-        resolution : _ -> resolutionNamespace (resolution :: ResolutionAnnotation) == ResolutionNamespaceTerm
-        [] -> False
+      maybe False ((== ResolutionNamespaceTerm) . resolutionNamespace) (nameResolution name)
 
 -- | The binders that a declaration defines.
-declaredBinderKeys :: Decl -> TcM [TcTermKey]
+declaredBinderKeys :: Decl -> TcM [Entity]
 declaredBinderKeys decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name _) -> (: []) <$> resolvedUnqualifiedTermKey name
@@ -259,7 +257,7 @@ declaredBinderKeys decl =
 -- under the resulting binders. The caller gives the binder keys it has
 -- already bound to their signature scheme; this group does not bind them
 -- again.
-inferLocalDeclGroup :: InferExpr -> Set.Set TcTermKey -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
+inferLocalDeclGroup :: InferExpr -> Set.Set Entity -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
 inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
   let groups = groupValueDecls decls
   binders <- distinctLocalBinders (concatMap groupBinders groups)
@@ -363,7 +361,7 @@ annotateLocalBindingDecls binders decls = do
       key <- resolvedLocalTermKey name
       pure (key, binderType binder)
 
-annotateLocalBindingDecl :: Map TcTermKey TcType -> Decl -> TcM Decl
+annotateLocalBindingDecl :: Map Entity TcType -> Decl -> TcM Decl
 annotateLocalBindingDecl binderTypes decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann <$> annotateLocalBindingDecl binderTypes inner
@@ -381,13 +379,13 @@ binderType :: TcBinder -> TcType
 binderType (TcIdBinder scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder ty) = ty
 
-valueDeclBinderKeys :: ValueDecl -> TcM [TcTermKey]
+valueDeclBinderKeys :: ValueDecl -> TcM [Entity]
 valueDeclBinderKeys valueDecl =
   case valueDecl of
     FunctionBind name _ -> (: []) <$> resolvedLocalTermKey name
     PatternBind _ pat _ -> patternBinderKeyList pat
 
-monomorphicBinder :: Map TcTermKey TypeScheme -> Map TcTermKey TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
+monomorphicBinder :: Map Entity TypeScheme -> Map Entity TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
 monomorphicBinder sigs placeholders name =
   do
     key <- resolvedLocalTermKey name
@@ -477,13 +475,13 @@ inferGuardQualifiers inferExpr sp resultTy qualifiers rest =
           pure ((more', result), resultTy, cts)
       pure (GuardLet decls' : more', result, cts)
 
-placeholderFor :: Map TcTermKey TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcTermKey, TcType)
+placeholderFor :: Map Entity TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, Entity, TcType)
 placeholderFor sigs name = do
   key <- resolvedLocalTermKey name
   ty <- maybe freshMetaTv (pure . typeSchemeBody) (Map.lookup key sigs)
   pure (name, key, ty)
 
-withLocalPlaceholders :: Map TcTermKey TypeScheme -> [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
+withLocalPlaceholders :: Map Entity TypeScheme -> [(UnqualifiedName, Entity, TcType)] -> TcM a -> TcM a
 withLocalPlaceholders sigs placeholders =
   withLocalBinders
     [ (name, maybe (TcMonoIdBinder ty) (`TcIdBinder` Closed) (Map.lookup key sigs))
@@ -504,7 +502,7 @@ withReboundLocalBinders ((name, binder) : rest) action = do
 -- | The binders of a generalized local group. The bindings without a
 -- signature that the monomorphism restriction does not restrict are
 -- generalized together, over one shared set of type variables.
-generalizedBinders :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> LocalResiduals -> [UnqualifiedName] -> TcM [(UnqualifiedName, TcBinder)]
+generalizedBinders :: Map Entity TypeScheme -> Set.Set Entity -> Map Entity TcType -> LocalResiduals -> [UnqualifiedName] -> TcM [(UnqualifiedName, TcBinder)]
 generalizedBinders sigs ignored placeholders residuals binders = do
   classified <- traverse classify binders
   schemes <- generalizeGroupAndCommitIgnoring ignored (localResidualMonoMetas residuals) [(ty, preds) | Right (_, ty, preds) <- classified]
@@ -532,7 +530,7 @@ generalizedBinders sigs ignored placeholders residuals binders = do
 -- | Residual constraints of a local binding group after the group solve.
 data LocalResiduals = LocalResiduals
   { -- | Predicates that each generalized binder abstracts over.
-    localResidualPreds :: Map TcTermKey [Pred],
+    localResidualPreds :: Map Entity [Pred],
     -- | Constraints that the enclosing scope must solve.
     localResidualOuterCts :: [Ct],
     -- | Meta-variables that a retained constraint keeps monomorphic.
@@ -552,7 +550,7 @@ data LocalResiduals = LocalResiduals
 -- restriction keeps the constrained type variables of a pattern binding or
 -- a zero-argument binding monomorphic, and its other type variables still
 -- generalize. All other constraints go to the enclosing scope.
-partitionLocalResiduals :: Set.Set TcTermKey -> Map TcTermKey TcType -> [DeclGroup] -> [UnqualifiedName] -> SolveResult -> TcM LocalResiduals
+partitionLocalResiduals :: Set.Set Entity -> Map Entity TcType -> [DeclGroup] -> [UnqualifiedName] -> SolveResult -> TcM LocalResiduals
 partitionLocalResiduals binderSet placeholders groups binders solveResult = do
   residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
   envMetaVars <- environmentMetaVars binderSet
@@ -617,7 +615,7 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
 
 -- | Binders that the monomorphism restriction applies to: pattern bindings
 -- and function bindings without arguments.
-restrictedBinderKeys :: [DeclGroup] -> TcM (Set.Set TcTermKey)
+restrictedBinderKeys :: [DeclGroup] -> TcM (Set.Set Entity)
 restrictedBinderKeys groups = Set.fromList . concat <$> mapM restrictedKeys groups
   where
     restrictedKeys group =
@@ -649,9 +647,9 @@ typeMetaVars ty =
 
 -- | The type variables that the signatures of a local group scope over
 -- their bindings, by binder.
-type ScopedSigs = Map TcTermKey (Map Text (TyVarId, TcType))
+type ScopedSigs = Map Entity (Map Text (TyVarId, TcType))
 
-inferLocalGroup :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
+inferLocalGroup :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
 inferLocalGroup inferExpr sigs scopedSigs placeholders group =
   case group of
     MergedFunctionBind name decls matches -> do
@@ -661,7 +659,7 @@ inferLocalGroup inferExpr sigs scopedSigs placeholders group =
       (decl', cts) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl
       pure (SingleDecl decl', cts)
 
-inferLocalSingleDecl :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> Decl -> TcM (Decl, [Ct])
+inferLocalSingleDecl :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> Decl -> TcM (Decl, [Ct])
 inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
   case decl of
     DeclAnn ann inner -> do
@@ -687,7 +685,7 @@ inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
           pure (DeclValue (FunctionBind name matches'), cts)
     _ -> pure (decl, [])
 
-inferLocalFunction :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> UnqualifiedName -> [Match] -> TcM ([Match], TcType, [Ct])
+inferLocalFunction :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> UnqualifiedName -> [Match] -> TcM ([Match], TcType, [Ct])
 inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
   key <- resolvedLocalTermKey name
   (matches', ty, cts) <-
@@ -749,7 +747,7 @@ solveWithSigGivens (ForAll _ predicates _) cts
         DictSolved -> []
         DictStuck stuck -> [stuck]
 
-inferLocalPatternBind :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
+inferLocalPatternBind :: InferExpr -> Map Entity TypeScheme -> ScopedSigs -> Map Entity TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   key <- resolvedLocalTermKey name
   (rhs', rhsTy, rhsCts) <-
@@ -768,7 +766,7 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   cts <- tiePlaceholder placeholders key ty bindCts
   pure (rhs', ty, cts)
 
-tiePlaceholder :: Map TcTermKey TcType -> TcTermKey -> TcType -> [Ct] -> TcM [Ct]
+tiePlaceholder :: Map Entity TcType -> Entity -> TcType -> [Ct] -> TcM [Ct]
 tiePlaceholder placeholders key ty cts =
   case Map.lookup key placeholders of
     Nothing -> pure cts
@@ -777,7 +775,7 @@ tiePlaceholder placeholders key ty cts =
       let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin Nothing) Nothing
       pure (cts ++ [eqCt])
 
-tiePatternPlaceholder :: Map TcTermKey TcType -> [Ct] -> (UnqualifiedName, TcType) -> TcM [Ct]
+tiePatternPlaceholder :: Map Entity TcType -> [Ct] -> (UnqualifiedName, TcType) -> TcM [Ct]
 tiePatternPlaceholder placeholders cts (name, ty) = do
   key <- resolvedLocalTermKey name
   tiePlaceholder placeholders key ty cts
@@ -841,7 +839,7 @@ rhsSourceSpan rhs =
     UnguardedRhs annotations _ _ -> sourceSpanFromAnnotations annotations
     GuardedRhss annotations _ _ -> sourceSpanFromAnnotations annotations
 
-shouldGeneralizeLocal :: Set.Set TcTermKey -> [Decl] -> TcM Bool
+shouldGeneralizeLocal :: Set.Set Entity -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
   monoLocal <- tcMonoLocalBinds
   -- A strict binding is evaluated once, before the body, so it cannot be
@@ -870,7 +868,7 @@ isStrictPatternBind decl =
         PStrict _ -> True
         _ -> False
 
-isClosedVar :: TcTermKey -> TcM Bool
+isClosedVar :: Entity -> TcM Bool
 isClosedVar key = do
   binder <- lookupTermKey key
   pure $
@@ -949,7 +947,7 @@ replaceDeclFunctionMatches matches decl =
     DeclValue (FunctionBind name _) -> DeclValue (FunctionBind name matches)
     _ -> decl
 
-collectRawSigs :: [Decl] -> TcM (Map TcTermKey Type)
+collectRawSigs :: [Decl] -> TcM (Map Entity Type)
 collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
   where
     extractSig (DeclTypeSig names ty) =
@@ -970,11 +968,11 @@ patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
 
-freeVarsDecls :: [Decl] -> TcM (Set.Set TcTermKey)
+freeVarsDecls :: [Decl] -> TcM (Set.Set Entity)
 freeVarsDecls decls =
   Set.unions <$> mapM freeVarsDecl decls
 
-freeVarsDecl :: Decl -> TcM (Set.Set TcTermKey)
+freeVarsDecl :: Decl -> TcM (Set.Set Entity)
 freeVarsDecl decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) -> do
@@ -998,7 +996,7 @@ freeVarsDecl decl =
       pure (Set.delete binder (patVars <> builderVars))
     _ -> pure Set.empty
 
-freeVarsMatch :: Match -> TcM (Set.Set TcTermKey)
+freeVarsMatch :: Match -> TcM (Set.Set Entity)
 freeVarsMatch match = do
   vars <- freeVarsRhs (matchRhs match)
   patVars <- Set.unions <$> mapM freeVarsPattern (matchPats match)
@@ -1007,7 +1005,7 @@ freeVarsMatch match = do
 
 -- | The term variables that a pattern uses: the view functions and the
 -- constructors. A constructor can be a pattern synonym of the same group.
-freeVarsPattern :: Pattern -> TcM (Set.Set TcTermKey)
+freeVarsPattern :: Pattern -> TcM (Set.Set Entity)
 freeVarsPattern pat =
   case pat of
     PAnn ann inner -> do
@@ -1033,7 +1031,7 @@ freeVarsPattern pat =
 
 -- | The free variables of a right-hand side. The binders of its where block
 -- scope over the body and the block, so they are not free.
-freeVarsRhs :: Rhs Expr -> TcM (Set.Set TcTermKey)
+freeVarsRhs :: Rhs Expr -> TcM (Set.Set Entity)
 freeVarsRhs rhs =
   case rhs of
     UnguardedRhs _ expr maybeDecls -> withWhereDecls maybeDecls (freeVarsExpr expr)
@@ -1048,13 +1046,13 @@ freeVarsRhs rhs =
           localBinders <- declBinderKeys decls
           pure (Set.difference (vars <> declVars) localBinders)
 
-freeVarsGuardedRhs :: GuardedRhs Expr -> TcM (Set.Set TcTermKey)
+freeVarsGuardedRhs :: GuardedRhs Expr -> TcM (Set.Set Entity)
 freeVarsGuardedRhs alternative =
   freeVarsGuardQualifiers (guardedRhsGuards alternative) (freeVarsExpr (guardedRhsBody alternative))
 
 -- | The free variables of guard qualifiers and of the body they scope over.
 -- A pattern guard or a let guard binds names for the later qualifiers.
-freeVarsGuardQualifiers :: [GuardQualifier] -> TcM (Set.Set TcTermKey) -> TcM (Set.Set TcTermKey)
+freeVarsGuardQualifiers :: [GuardQualifier] -> TcM (Set.Set Entity) -> TcM (Set.Set Entity)
 freeVarsGuardQualifiers qualifiers bodyVars =
   case qualifiers of
     [] -> bodyVars
@@ -1073,7 +1071,7 @@ freeVarsGuardQualifiers qualifiers bodyVars =
       restVars <- freeVarsGuardQualifiers rest bodyVars
       pure (Set.difference (declVars <> restVars) localBinders)
 
-freeVarsExpr :: Expr -> TcM (Set.Set TcTermKey)
+freeVarsExpr :: Expr -> TcM (Set.Set Entity)
 freeVarsExpr expr =
   case expr of
     EVar name -> Set.singleton <$> resolvedTermKey name
@@ -1147,7 +1145,7 @@ freeVarsExpr expr =
     EUnboxedSum _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
 
-freeVarsLambdaCaseAlt :: LambdaCaseAlt -> TcM (Set.Set TcTermKey)
+freeVarsLambdaCaseAlt :: LambdaCaseAlt -> TcM (Set.Set Entity)
 freeVarsLambdaCaseAlt alt = do
   vars <- freeVarsRhs (lambdaCaseAltRhs alt)
   patVars <- Set.unions <$> mapM freeVarsPattern (lambdaCaseAltPats alt)
@@ -1157,7 +1155,7 @@ freeVarsLambdaCaseAlt alt = do
 -- | The free variables of comprehension statements and of the body they
 -- scope over. A generator or a let statement binds names for the later
 -- statements and the body.
-freeVarsCompStmts :: [CompStmt] -> TcM (Set.Set TcTermKey) -> TcM (Set.Set TcTermKey)
+freeVarsCompStmts :: [CompStmt] -> TcM (Set.Set Entity) -> TcM (Set.Set Entity)
 freeVarsCompStmts stmts bodyVars =
   case stmts of
     [] -> bodyVars
@@ -1185,7 +1183,7 @@ freeVarsCompStmts stmts bodyVars =
       Set.unions <$> sequence [freeVarsExpr key, freeVarsExpr function, freeVarsCompStmts rest bodyVars]
 
 -- | The names that comprehension statements bind.
-compStmtsBinderKeys :: [CompStmt] -> TcM (Set.Set TcTermKey)
+compStmtsBinderKeys :: [CompStmt] -> TcM (Set.Set Entity)
 compStmtsBinderKeys stmts =
   Set.unions <$> mapM binderKeys stmts
   where
@@ -1200,7 +1198,7 @@ compStmtsBinderKeys stmts =
 --
 -- RebindableSyntax can bind a syntax term such as @>>@ or @negate@ in the
 -- same binding group, so the term is a dependency of the binding.
-insertSyntaxTermKey :: Annotation -> Set.Set TcTermKey -> TcM (Set.Set TcTermKey)
+insertSyntaxTermKey :: Annotation -> Set.Set Entity -> TcM (Set.Set Entity)
 insertSyntaxTermKey ann vars =
   case fromAnnotation ann :: Maybe ResolutionAnnotation of
     Just resolution
@@ -1210,7 +1208,7 @@ insertSyntaxTermKey ann vars =
           pure (Set.insert methodKey vars)
     _ -> pure vars
 
-freeVarsDoStmts :: [DoStmt Expr] -> TcM (Set.Set TcTermKey)
+freeVarsDoStmts :: [DoStmt Expr] -> TcM (Set.Set Entity)
 freeVarsDoStmts stmts =
   case stmts of
     [] -> pure Set.empty
@@ -1233,7 +1231,7 @@ freeVarsDoStmts stmts =
           pure (Set.difference (declVars <> restVars) binders)
         DoRecStmt inner -> Set.union <$> freeVarsDoStmts inner <*> freeVarsDoStmts rest
 
-freeVarsArithSeq :: ArithSeq -> TcM (Set.Set TcTermKey)
+freeVarsArithSeq :: ArithSeq -> TcM (Set.Set Entity)
 freeVarsArithSeq arithSeq =
   case arithSeq of
     ArithSeqAnn ann inner -> do
@@ -1244,28 +1242,28 @@ freeVarsArithSeq arithSeq =
     ArithSeqFromTo from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to
     ArithSeqFromThenTo from thenExpr to -> Set.unions <$> mapM freeVarsExpr [from, thenExpr, to]
 
-freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set TcTermKey)
+freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set Entity)
 freeVarsAlt (CaseAlt _ pat rhs) = do
   vars <- freeVarsRhs rhs
   patVars <- freeVarsPattern pat
   binders <- patternBinderKeys pat
   pure (Set.difference (vars <> patVars) binders)
 
-declBinderKeys :: [Decl] -> TcM (Set.Set TcTermKey)
+declBinderKeys :: [Decl] -> TcM (Set.Set Entity)
 declBinderKeys decls =
   Set.unions <$> mapM declBinderKeySet decls
 
-declBinderKeySet :: Decl -> TcM (Set.Set TcTermKey)
+declBinderKeySet :: Decl -> TcM (Set.Set Entity)
 declBinderKeySet decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name _) -> Set.singleton <$> resolvedUnqualifiedTermKey name
     DeclValue (PatternBind _ pat _) -> patternBinderKeys pat
     _ -> pure Set.empty
 
-patternBinderKeys :: Pattern -> TcM (Set.Set TcTermKey)
+patternBinderKeys :: Pattern -> TcM (Set.Set Entity)
 patternBinderKeys pat = Set.fromList <$> mapM resolvedUnqualifiedTermKey (patternBinderNames pat)
 
-patternBinderKeyList :: Pattern -> TcM [TcTermKey]
+patternBinderKeyList :: Pattern -> TcM [Entity]
 patternBinderKeyList = mapM resolvedLocalTermKey . patternBinderNames
 
 hasPartialTypeSig :: Decl -> Bool

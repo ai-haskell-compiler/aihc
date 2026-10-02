@@ -66,8 +66,8 @@ genInterface = do
       moduleName = "Module"
       tyCon = mkTyConWithOrigin packageId moduleName "T" 0
       classTyCon = mkTyConWithOrigin packageId moduleName "C" 0
-  firstTerm <- optionalEntry (TcTermGlobal packageId moduleName "value", Scheme [] [] [] ty)
-  secondTerm <- optionalEntry (TcTermGlobal packageId moduleName "another", Scheme [] [] [] ty)
+  firstTerm <- optionalEntry (GlobalTerm packageId moduleName "value", Scheme [] [] [] ty)
+  secondTerm <- optionalEntry (GlobalTerm packageId moduleName "another", Scheme [] [] [] ty)
   let tcInterfaceTerms = firstTerm <> secondTerm
   tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (Scheme [] [] [] testTypeKind) DataTyCon Nothing Nothing)
   tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] testTypeKind DataTyCon [] [] Nothing)

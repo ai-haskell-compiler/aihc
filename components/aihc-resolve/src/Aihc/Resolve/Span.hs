@@ -43,6 +43,7 @@ import Control.Applicative ((<|>))
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Typeable (Typeable)
 
 -- | The innermost span of a chain of annotations: a 'SourceSpan' on the
 -- annotation if it carries one, and otherwise the span already in hand.
@@ -118,7 +119,7 @@ annotatePattern annotation = PAnn (mkAnnotation annotation)
 annotateType :: ResolutionAnnotation -> Type -> Type
 annotateType annotation = TAnn (mkAnnotation annotation)
 
-annotateImport :: ResolutionAnnotation -> ImportDecl -> ImportDecl
+annotateImport :: (Typeable a) => a -> ImportDecl -> ImportDecl
 annotateImport annotation importDecl =
   importDecl {importDeclAnns = mkAnnotation annotation : importDeclAnns importDecl}
 

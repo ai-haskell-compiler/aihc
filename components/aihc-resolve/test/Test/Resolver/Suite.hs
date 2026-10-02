@@ -9,7 +9,7 @@ where
 
 import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition), fromAnnotation, pattern SourceSpan)
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), ResolutionAnnotation (..), ResolveResult (..), collectModuleExportsWithDeps, emptyScope, lookupImportedModule, resolveUnit, unnamedPackage)
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), ResolutionAnnotation (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, resolveUnit, unnamedPackage)
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)
@@ -35,10 +35,10 @@ testInfixOperatorSpans =
     ([], modu) -> do
       let unit = ModuleUnit unnamedPackage (fixtureExtensions Haskell2010Edition modu) modu
           exports = collectModuleExportsWithDeps mempty [unit]
-          result = resolveUnit emptyScope exports [unit]
+          resolved = either failureModules resolvedModules (resolveUnit (builtins unnamedPackage exports []) exports [unit])
           uses =
             [ (line, col, endCol)
-            | ann <- concatMap (collectAnnotations fromAnnotation . moduleUnitAst) (resolvedModules result),
+            | ann <- concatMap (collectAnnotations fromAnnotation . moduleUnitAst . resolvedModuleUnit) resolved,
               resolutionIdentifier ann `elem` [IdentifierNamed "k", IdentifierNamed "<+>"],
               Just (SourceSpan _ line col _ endCol _ _) <- [resolutionSpan ann],
               line >= 4
@@ -62,16 +62,16 @@ testDependencyBackedGhcNum =
   case (parse "GHC.Num" numSource, parse "Prelude" preludeSource) of
     (Right numModule, Right preludeModule) -> do
       let dependencyExports = collectModuleExportsWithDeps mempty [unit numModule]
-          dependencyResult = resolveUnit emptyScope dependencyExports [unit numModule]
-          builtinScope = lookupImportedModule unnamedPackage Nothing "GHC.Num" dependencyExports
+          dependencyResult = resolveUnit (builtins unnamedPackage dependencyExports []) dependencyExports [unit numModule]
+          builtinScope = builtins unnamedPackage dependencyExports ["GHC.Num"]
           preludeExports = collectModuleExportsWithDeps dependencyExports [unit preludeModule] <> dependencyExports
           result = resolveUnit builtinScope preludeExports [unit preludeModule]
-      case resolveErrors dependencyResult of
-        [] ->
-          case resolveErrors result of
-            [] -> pure ()
-            errors -> assertFailure ("failed to resolve built-in syntax through dependency exports: " <> show errors)
-        errors -> assertFailure ("failed to resolve dependency module: " <> show errors)
+      case dependencyResult of
+        Right _ ->
+          case result of
+            Right _ -> pure ()
+            Left failure -> assertFailure ("failed to resolve built-in syntax through dependency exports: " <> show (failureErrors failure))
+        Left failure -> assertFailure ("failed to resolve dependency module: " <> show (failureErrors failure))
     (Left errors, _) -> assertFailure errors
     (_, Left errors) -> assertFailure errors
   where

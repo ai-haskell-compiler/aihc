@@ -39,7 +39,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
@@ -275,7 +275,7 @@ inferNameOccurrence ambient nameSyntax = do
 
 -- | A unidirectional pattern synonym has no builder. An expression cannot
 -- use it.
-rejectUnidirectionalPatSyn :: Maybe SourceSpan -> Text -> ResolvedName -> TcM ()
+rejectUnidirectionalPatSyn :: Maybe SourceSpan -> Text -> Entity -> TcM ()
 rejectUnidirectionalPatSyn sp name target = do
   mPatSyn <- lookupPatSynTarget target
   case mPatSyn of

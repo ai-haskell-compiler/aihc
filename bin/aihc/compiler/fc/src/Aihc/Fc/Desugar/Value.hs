@@ -16,13 +16,16 @@ import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Prim.Wiring (unboxedSumDataConName)
 import Aihc.Resolve
-  ( Identifier (..),
+  ( Entity (..),
+    GlobalName (..),
+    Identifier (..),
     PackageId (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
-    ResolvedName (..),
     displayIdentifier,
     packageIdText,
+    resolutionOf,
+    termResolution,
   )
 import Aihc.Tc
   ( DataConFieldInfo (..),
@@ -67,7 +70,6 @@ import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
     TcKinds,
-    TcTermKey (..),
     TcType (..),
     TyCon,
     TyVarId,
@@ -125,8 +127,8 @@ data ValueState = ValueState
   { vsNextUnique :: !Int,
     vsModuleOrigin :: !(PackageId, Text),
     vsConvertEnv :: !ConvertEnv,
-    vsBindingTypes :: !(Map TcTermKey TcType),
-    vsLocals :: !(Map TcTermKey (Binder, TcType)),
+    vsBindingTypes :: !(Map Entity TcType),
+    vsLocals :: !(Map Entity (Binder, TcType)),
     vsDictionaries :: !(Map Text Binder),
     -- | The equalities that the dictionary scope gives, with the binder of
     -- the proof. A lookup by key needs the two types, thus the shape of a
@@ -137,27 +139,27 @@ data ValueState = ValueState
     vsEvidenceScope :: !(Maybe EvidenceScope),
     vsTypeEnv :: !TypeOf.TypeEnv,
     vsConstructorInfos :: !(Map Text [DataConInfo]),
-    vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
-    vsFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
-    vsStrictConstructors :: !(Map TcTermKey [Bool]),
-    vsPatSyns :: !(Map TcTermKey PatSynInfo),
+    vsNewtypeConstructors :: !(Map Entity DataTypeInfo),
+    vsFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
+    vsStrictConstructors :: !(Map Entity [Bool]),
+    vsPatSyns :: !(Map Entity PatSynInfo),
     -- | The checked calling convention of each foreign import in scope.
-    vsForeignImports :: !(Map TcTermKey TcForeignImportInfo),
+    vsForeignImports :: !(Map Entity TcForeignImportInfo),
     -- | The enumeration data types in scope, by the package, module and
     -- name of their type constructor. @tagToEnum#@ reads this.
     vsEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo)
   }
 
 data PreparedValueInterface = PreparedValueInterface
-  { preparedTypes :: !(Map TcTermKey TcType),
+  { preparedTypes :: !(Map Entity TcType),
     preparedConstructorInfos :: !(Map Text [DataConInfo]),
-    preparedNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
-    preparedFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
+    preparedNewtypeConstructors :: !(Map Entity DataTypeInfo),
+    preparedFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
     -- | Strict field flags of each data constructor that has one strict
     -- field or more. The list gives one flag for each source field.
-    preparedStrictConstructors :: !(Map TcTermKey [Bool]),
-    preparedPatSyns :: !(Map TcTermKey PatSynInfo),
-    preparedForeignImports :: !(Map TcTermKey TcForeignImportInfo),
+    preparedStrictConstructors :: !(Map Entity [Bool]),
+    preparedPatSyns :: !(Map Entity PatSynInfo),
+    preparedForeignImports :: !(Map Entity TcForeignImportInfo),
     -- | Enumeration data types by type-constructor identity.
     preparedEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo)
   }
@@ -170,7 +172,7 @@ type MatchWork = (Syn.Match, MatchLocals)
 -- columns: the variables its patterns bind, and the selector thunks that
 -- its lazy patterns need around the body.
 data MatchLocals = MatchLocals
-  { matchLocalBinders :: [(TcTermKey, (Binder, TcType))],
+  { matchLocalBinders :: [(Entity, (Binder, TcType))],
     matchLocalSelectors :: [Bind]
   }
 
@@ -183,7 +185,7 @@ instance Semigroup MatchLocals where
 instance Monoid MatchLocals where
   mempty = MatchLocals [] []
 
-matchBinderLocals :: [(TcTermKey, (Binder, TcType))] -> MatchLocals
+matchBinderLocals :: [(Entity, (Binder, TcType))] -> MatchLocals
 matchBinderLocals entries = MatchLocals entries []
 
 -- | Run the body of a match row with its bindings in scope and its lazy
@@ -194,8 +196,8 @@ withMatchLocals locals action = do
   pure (foldr ExLet body (matchLocalSelectors locals))
 
 data ValueGroup
-  = FunctionGroup !TcTermKey !Text ![Syn.Match] !TcType
-  | PatternGroup !TcTermKey !Text !(Syn.Rhs Syn.Expr) !TcType
+  = FunctionGroup !Entity !Text ![Syn.Match] !TcType
+  | PatternGroup !Entity !Text !(Syn.Rhs Syn.Expr) !TcType
 
 -- | A top-level pattern binding with several binders, such as
 -- @(low, high) = range x@, with the checked type of its right-hand side.
@@ -208,8 +210,8 @@ data LocalValueGroup
     LocalImplicitParamGroup !Text !(Syn.Rhs Syn.Expr) !TcType
 
 data LocalAllocation
-  = LocalNamedAllocation !TcTermKey !Binder !TcType !ValueGroup
-  | LocalPatternAllocation !Syn.Pattern !(Syn.Rhs Syn.Expr) !Binder !TcType ![(TcTermKey, Binder, TcType)] !Bool
+  = LocalNamedAllocation !Entity !Binder !TcType !ValueGroup
+  | LocalPatternAllocation !Syn.Pattern !(Syn.Rhs Syn.Expr) !Binder !TcType ![(Entity, Binder, TcType)] !Bool
   | LocalImplicitParamAllocation !Text !(Syn.Rhs Syn.Expr) !Binder !TcType
 
 data TopValue = TopValue
@@ -251,9 +253,9 @@ prepareValueInterface interface =
     termTypes =
       Map.fromList
         ( [ (key, schemeType scheme)
-          | (key@(TcTermGlobal {}), scheme) <- tcInterfaceTerms interface
+          | (key@(GlobalTerm {}), scheme) <- tcInterfaceTerms interface
           ]
-            <> [ (TcTermGlobal (PackageId package) moduleName' (iiDictName info), iiDictType info)
+            <> [ (GlobalTerm (PackageId package) moduleName' (iiDictName info), iiDictType info)
                | info <- tcInterfaceInstances interface,
                  let (package, moduleName') = iiDictOrigin info
                ]
@@ -277,7 +279,7 @@ prepareValueInterface interface =
         )
     newtypes =
       Map.fromList
-        [ (TcTermGlobal package moduleName' (dciName constructor), dataType)
+        [ (GlobalTerm package moduleName' (dciName constructor), dataType)
         | dataType <- tcInterfaceDataTypes interface,
           dtiFlavor dataType == NewtypeTyCon,
           constructor <- dtiConstructors dataType,
@@ -285,7 +287,7 @@ prepareValueInterface interface =
         ]
     familyConstructors =
       Map.fromList
-        [ (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) constructorName, info)
+        [ (GlobalTerm (tyConPackageId tyCon) (tyConModuleName tyCon) constructorName, info)
         | info <- tcInterfaceDataFamilyInstances interface,
           let tyCon = dfiiRepresentationTyCon info,
           constructorName <- dfiiConstructorNames info
@@ -304,7 +306,7 @@ prepareValueInterface interface =
         ]
     strictConstructors =
       Map.fromList
-        [ (TcTermGlobal package moduleName' (dciName constructor), flags)
+        [ (GlobalTerm package moduleName' (dciName constructor), flags)
         | dataType <- tcInterfaceDataTypes interface,
           dtiFlavor dataType /= NewtypeTyCon,
           constructor <- dtiConstructors dataType,
@@ -473,7 +475,7 @@ desugarPatSynHelper moduleOrigin prefix info matches = do
 desugarPatSynSelector :: (PackageId, Text) -> (Text, Syn.Match) -> ValueM Decl
 desugarPatSynSelector moduleOrigin (label, match) = do
   let (package, moduleName') = moduleOrigin
-  selectorType <- lookupBindingType (TcTermGlobal package moduleName' label)
+  selectorType <- lookupBindingType (GlobalTerm package moduleName' label)
   body <- desugarMatches selectorType [match]
   ty <- convertCheckedType selectorType
   vis <- termVisibility label
@@ -482,8 +484,8 @@ desugarPatSynSelector moduleOrigin (label, match) = do
 patSynHelperName :: Text -> PatSynInfo -> Text
 patSynHelperName prefix info = prefix <> psiName info
 
-patSynHelperKey :: (PackageId, Text) -> Text -> PatSynInfo -> TcTermKey
-patSynHelperKey (package, moduleName') prefix info = TcTermGlobal package moduleName' (patSynHelperName prefix info)
+patSynHelperKey :: (PackageId, Text) -> Text -> PatSynInfo -> Entity
+patSynHelperKey (package, moduleName') prefix info = GlobalTerm package moduleName' (patSynHelperName prefix info)
 
 -- | The pattern synonym that a constructor pattern uses, with the checked
 -- annotation of the pattern.
@@ -521,7 +523,7 @@ firstPatternPatSyn match =
 patSynMatcherReference :: PatSynInfo -> TcAnnotation -> TcType -> ValueM Expr
 patSynMatcherReference info annotation resultType = do
   let (package, moduleName') = psiOrigin info
-      matcherKey = TcTermGlobal package moduleName' (patSynHelperName "$m" info)
+      matcherKey = GlobalTerm package moduleName' (patSynHelperName "$m" info)
       ForAll patternVariables _ _ = psiScheme info
       typeArguments = tcAnnTypeArgs annotation
   matcherType <- lookupBindingType matcherKey
@@ -614,7 +616,7 @@ desugarPatSynCall info annotation resultType scrutinee pattern' failureExpressio
 patSynMatcherUnitType :: PatSynInfo -> ValueM TcType
 patSynMatcherUnitType info = do
   let (package, moduleName') = psiOrigin info
-  matcherType <- lookupBindingType (TcTermGlobal package moduleName' (patSynHelperName "$m" info))
+  matcherType <- lookupBindingType (GlobalTerm package moduleName' (patSynHelperName "$m" info))
   let (_, qualified) = peelForAlls matcherType
       (_, body) = peelConstraints qualified
   case body of
@@ -664,7 +666,7 @@ desugarRecordSelectors declarations = do
   -- A field whose type mentions an existential variable has no selector,
   -- so the type checker gives it no binding type.
   let (package, moduleName') = moduleOrigin
-      selectable label = Map.member (TcTermGlobal package moduleName' label) bindingTypes
+      selectable label = Map.member (GlobalTerm package moduleName' label) bindingTypes
   mapM (desugarRecordSelector constructors) (filter selectable labels)
 
 recordConstructorNames :: Syn.DataConDecl -> [Text]
@@ -681,7 +683,7 @@ desugarRecordSelector constructors label = do
   let (package, moduleName') = moduleOrigin
   bindingTypes <- gets vsBindingTypes
   selectorType <-
-    case Map.lookup (TcTermGlobal package moduleName' label) bindingTypes of
+    case Map.lookup (GlobalTerm package moduleName' label) bindingTypes of
       Just ty -> pure ty
       Nothing -> failValue ("record selector does not have a checked type: " <> T.unpack label)
   let (typeVariables, afterForAlls) = peelForAlls selectorType
@@ -714,7 +716,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
   families <- gets vsFamilyConstructors
   let constructorKey constructor =
         let (package, moduleName') = dciOrigin constructor
-         in TcTermGlobal package moduleName' (dciName constructor)
+         in GlobalTerm package moduleName' (dciName constructor)
       newtypeInfos = [dataType | constructor <- constructors, Just dataType <- [Map.lookup (constructorKey constructor) newtypes]]
       familyInfos = [info | constructor <- constructors, Just info <- [Map.lookup (constructorKey constructor) families]]
   case (newtypeInfos, familyInfos) of
@@ -802,7 +804,7 @@ desugarForeign foreignPlan foreignDecl =
 -- entity is reached through the C API of a header, so the call names the C
 -- wrapper the compiler generates for it instead.  The key is the one of the
 -- module that declares the import, so every use spells the same symbol.
-foreignCallFacts :: TcTermKey -> TcType -> TcForeignImportInfo -> ValueM (CallingConvention, [ForeignImportDependency])
+foreignCallFacts :: Entity -> TcType -> TcForeignImportInfo -> ValueM (CallingConvention, [ForeignImportDependency])
 foreignCallFacts key ty info =
   case info of
     TcForeignPrimImport -> pure (Prim, [])
@@ -827,7 +829,7 @@ foreignCallFacts key ty info =
 -- | Desugar a use of a foreign import. The use becomes a saturated foreign
 -- call under one lambda for each argument, so a partial use is a function
 -- and a full application reduces to the call.
-desugarForeignReference :: Name -> TcTermKey -> TcForeignImportInfo -> [Type] -> [Expr] -> ValueM Expr
+desugarForeignReference :: Name -> Entity -> TcForeignImportInfo -> [Type] -> [Expr] -> ValueM Expr
 desugarForeignReference variable key info types evidence = do
   unless (null evidence) (failValue ("foreign import " <> T.unpack (nameText variable) <> " has unexpected evidence arguments"))
   ty <- lookupBindingType key
@@ -1456,7 +1458,7 @@ patternIsStrict pattern' =
     Syn.PStrict _ -> True
     _ -> False
 
-patternBinderSpecs :: Syn.Pattern -> ValueM [(TcTermKey, Text, TcType)]
+patternBinderSpecs :: Syn.Pattern -> ValueM [(Entity, Text, TcType)]
 patternBinderSpecs pattern' =
   case pattern' of
     Syn.PVar name -> do
@@ -1479,20 +1481,20 @@ patternBinderSpecs pattern' =
     Syn.PTuple _ children -> concat <$> mapM patternBinderSpecs children
     _ -> pure []
 
-functionBinding :: Syn.Decl -> Maybe (Maybe TcTermKey, Text, [Syn.Match], Maybe TcType)
+functionBinding :: Syn.Decl -> Maybe (Maybe Entity, Text, [Syn.Match], Maybe TcType)
 functionBinding declaration =
   case Syn.peelDeclAnn declaration of
     Syn.DeclValue (Syn.FunctionBind name matches) ->
       Just (binderTermKey name, Syn.unqualifiedNameText name, matches, declarationType declaration)
     _ -> Nothing
 
-sameFunction :: TcTermKey -> Syn.Decl -> Bool
+sameFunction :: Entity -> Syn.Decl -> Bool
 sameFunction key declaration = maybe False (\(value, _, _, _) -> value == Just key) (functionBinding declaration)
 
-functionMatches :: (Maybe TcTermKey, Text, [Syn.Match], Maybe TcType) -> [Syn.Match]
+functionMatches :: (Maybe Entity, Text, [Syn.Match], Maybe TcType) -> [Syn.Match]
 functionMatches (_, _, matches, _) = matches
 
-patternBinding :: Syn.Decl -> Maybe (Maybe TcTermKey, Text, Syn.Rhs Syn.Expr, Maybe TcType)
+patternBinding :: Syn.Decl -> Maybe (Maybe Entity, Text, Syn.Rhs Syn.Expr, Maybe TcType)
 patternBinding declaration =
   case Syn.peelDeclAnn declaration of
     Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> do
@@ -1525,7 +1527,7 @@ allocateTopValue group = do
   moduleOrigin <- gets vsModuleOrigin
   pure (TopValue (topName moduleOrigin name) ty group)
 
-groupKey :: ValueGroup -> TcTermKey
+groupKey :: ValueGroup -> Entity
 groupKey group =
   case group of
     FunctionGroup key _ _ _ -> key
@@ -2572,13 +2574,13 @@ firstPatternIsDefault match =
     pattern' : _ -> patternIsDefault pattern'
     [] -> False
 
-firstPatternBindings :: Binder -> TcType -> Syn.Match -> ValueM [(TcTermKey, (Binder, TcType))]
+firstPatternBindings :: Binder -> TcType -> Syn.Match -> ValueM [(Entity, (Binder, TcType))]
 firstPatternBindings binder ty match =
   case Syn.matchPats match of
     pattern' : _ -> patternMatchBindings pattern' binder ty
     [] -> pure []
 
-matchArgumentBindings :: [Binder] -> [TcType] -> Syn.Match -> ValueM [(TcTermKey, (Binder, TcType))]
+matchArgumentBindings :: [Binder] -> [TcType] -> Syn.Match -> ValueM [(Entity, (Binder, TcType))]
 matchArgumentBindings binders types match =
   concat <$> mapM (\(pattern', binder, ty) -> patternMatchBindings pattern' binder ty) (zip3 (Syn.matchPats match) binders types)
 
@@ -2687,7 +2689,7 @@ patternFieldTypes parent children
 freshPatternBinder :: Syn.Pattern -> TcType -> ValueM Binder
 freshPatternBinder pattern' = freshBinder (fromMaybe "_pat" (barePatternName pattern'))
 
-patternMatchBindings :: Syn.Pattern -> Binder -> TcType -> ValueM [(TcTermKey, (Binder, TcType))]
+patternMatchBindings :: Syn.Pattern -> Binder -> TcType -> ValueM [(Entity, (Binder, TcType))]
 patternMatchBindings pattern' binder ty =
   case pattern' of
     Syn.PAnn _ inner -> patternMatchBindings inner binder ty
@@ -2699,7 +2701,7 @@ patternMatchBindings pattern' binder ty =
     Syn.PAs name inner -> (<>) <$> binderEntry name binder ty <*> patternMatchBindings inner binder ty
     _ -> pure []
 
-binderEntry :: Syn.UnqualifiedName -> Binder -> TcType -> ValueM [(TcTermKey, (Binder, TcType))]
+binderEntry :: Syn.UnqualifiedName -> Binder -> TcType -> ValueM [(Entity, (Binder, TcType))]
 binderEntry name binder ty = do
   key <- requiredBinderKey name
   pure [(key, (binder, ty))]
@@ -3199,7 +3201,7 @@ patSynBuilderName variable =
     OriginTop package moduleName' -> do
       patSyns <- gets vsPatSyns
       pure $
-        case Map.lookup (TcTermGlobal package moduleName' (nameText variable)) patSyns of
+        case Map.lookup (GlobalTerm package moduleName' (nameText variable)) patSyns of
           Just info -> variable {nameText = patSynHelperName "$b" info, nameSort = SortValue}
           Nothing -> variable
     _ -> pure variable
@@ -3289,8 +3291,8 @@ desugarOrdinaryTermReference variable types evidence termArgumentTypes
       foreignImports <- gets vsForeignImports
       case nameOrigin variable of
         OriginTop package moduleName'
-          | Just info <- Map.lookup (TcTermGlobal package moduleName' (nameText variable)) foreignImports ->
-              desugarForeignReference variable (TcTermGlobal package moduleName' (nameText variable)) info types evidence
+          | Just info <- Map.lookup (GlobalTerm package moduleName' (nameText variable)) foreignImports ->
+              desugarForeignReference variable (GlobalTerm package moduleName' (nameText variable)) info types evidence
         _ -> pure ordinaryReference
   | OriginLocal {} <- nameOrigin variable = pure ordinaryReference
   | OriginTop package moduleName' <- nameOrigin variable = do
@@ -4162,7 +4164,7 @@ forceDefaultPattern resultType binder pattern' body
       caseBinder <- freshBinderFromType "_strict_scrut" (binderType binder)
       pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt AltDefault [] [] body])
 
-directPatternBindings :: Syn.Pattern -> Binder -> TcType -> ValueM (Maybe [(TcTermKey, (Binder, TcType))])
+directPatternBindings :: Syn.Pattern -> Binder -> TcType -> ValueM (Maybe [(Entity, (Binder, TcType))])
 directPatternBindings pattern' binder ty =
   case pattern' of
     Syn.PAnn _ inner -> directPatternBindings inner binder ty
@@ -4413,7 +4415,7 @@ expressionFreeNames expression =
       expressionFreeNames (altRhs alternative)
         `Set.difference` Set.fromList (map binderName (altBinders alternative))
 
-allocationLocals :: LocalAllocation -> [(TcTermKey, (Binder, TcType))]
+allocationLocals :: LocalAllocation -> [(Entity, (Binder, TcType))]
 allocationLocals allocation =
   case allocation of
     LocalNamedAllocation key binder ty _ -> [(key, (binder, ty))]
@@ -4452,7 +4454,7 @@ desugarEvidence evidence =
       let (packageName, moduleName') = origin
           package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
-      declaredType <- lookupBindingType (TcTermGlobal package moduleName' dictionaryName)
+      declaredType <- lookupBindingType (GlobalTerm package moduleName' dictionaryName)
       convertedTypes <- convertCheckedTypeArguments declaredType types
       evidenceArguments <- mapM desugarEvidence subEvidence
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
@@ -4827,17 +4829,10 @@ desugarResolvedOccurrence annotation resolution = do
 resolvedAnnotationName :: ResolutionAnnotation -> ValueM Name
 resolvedAnnotationName resolution =
   case resolutionTarget resolution of
-    ResolvedTopLevel package moduleName' target ->
-      pure
-        ( Name
-            (Syn.nameText target)
-            (sourceNameSort target)
-            (OriginTop package moduleName')
-        )
-    ResolvedLocal unique localName ->
-      binderName . fst <$> lookupLocal (TcTermLocal unique) (Syn.unqualifiedNameText localName)
-    ResolvedSyntax -> failValue ("syntax identifier reached ordinary occurrence " <> T.unpack (displayIdentifier (resolutionIdentifier resolution)))
-    ResolvedError message -> failValue message
+    EntityGlobal global -> pure (globalFcName global)
+    local@EntityLocal {} ->
+      binderName . fst <$> lookupLocal local (displayIdentifier (resolutionIdentifier resolution))
+    EntitySyntax -> failValue ("syntax identifier reached ordinary occurrence " <> T.unpack (displayIdentifier (resolutionIdentifier resolution)))
 
 desugarOverloadedInteger :: TcAnnotation -> ResolutionAnnotation -> Integer -> ValueM Expr
 desugarOverloadedInteger annotation resolution value = do
@@ -4969,30 +4964,25 @@ resolvedTermName sourceName =
   case termResolution sourceName of
     Just resolution ->
       case resolutionTarget resolution of
-        ResolvedTopLevel package moduleName' target ->
-          pure
-            ( Name
-                (Syn.nameText target)
-                (sourceNameSort target)
-                (OriginTop package moduleName')
-            )
-        ResolvedSyntax -> failValue ("syntax identifier reached ordinary term " <> T.unpack (Syn.nameText sourceName))
-        ResolvedLocal unique localName ->
-          binderName . fst <$> lookupLocal (TcTermLocal unique) (Syn.unqualifiedNameText localName)
-        ResolvedError message -> failValue message
+        EntityGlobal global -> pure (globalFcName global)
+        EntitySyntax -> failValue ("syntax identifier reached ordinary term " <> T.unpack (Syn.nameText sourceName))
+        local@EntityLocal {} ->
+          binderName . fst <$> lookupLocal local (Syn.nameText sourceName)
     Nothing -> failValue ("missing resolved value " <> T.unpack (Syn.nameText sourceName))
 
-termResolution :: Syn.Name -> Maybe ResolutionAnnotation
-termResolution sourceName =
-  listToMaybe
-    [ resolution
-    | resolution <- mapMaybe Syn.fromAnnotation (Syn.nameAnns sourceName),
-      resolutionNamespace resolution == ResolutionNamespaceTerm
-    ]
+-- | The System FC name of a top-level entity.
+globalFcName :: GlobalName -> Name
+globalFcName global =
+  Name
+    (globalNameText global)
+    (spelledSort (globalNameText global))
+    (OriginTop (globalNamePackage global) (globalNameModule global))
 
-sourceNameSort :: Syn.Name -> Sort
-sourceNameSort sourceName =
-  case T.uncons (Syn.nameText sourceName) of
+-- | The sort of a name, from its spelling: a data constructor starts with
+-- an upper-case letter, a colon, or the bracket of a built-in constructor.
+spelledSort :: Text -> Sort
+spelledSort text =
+  case T.uncons text of
     Just (first, _)
       | first == ':' || first == '[' || first == '(' || isAsciiUpper first -> SortDataConstructor
     _ -> SortValue
@@ -5048,7 +5038,7 @@ freshUnique = do
   modify' (\state -> state {vsNextUnique = next + 1})
   pure (Unique next)
 
-requiredBinderKey :: Syn.UnqualifiedName -> ValueM TcTermKey
+requiredBinderKey :: Syn.UnqualifiedName -> ValueM Entity
 requiredBinderKey name =
   maybe (failValue ("missing resolved binder " <> T.unpack (Syn.unqualifiedNameText name))) pure (binderTermKey name)
 
@@ -5064,40 +5054,33 @@ isApplicationExpression expression =
     Syn.EInfix {} -> True
     _ -> False
 
-requiredNameTermKey :: Syn.Name -> ValueM TcTermKey
+requiredNameTermKey :: Syn.Name -> ValueM Entity
 requiredNameTermKey sourceName =
   maybe (failValue ("missing resolved term " <> T.unpack (Syn.nameText sourceName))) pure (nameTermKey sourceName)
 
-binderTermKey :: Syn.UnqualifiedName -> Maybe TcTermKey
+binderTermKey :: Syn.UnqualifiedName -> Maybe Entity
 binderTermKey name = do
   resolution <- unqualifiedTermResolution name
   resolutionTermKey resolution
 
-nameTermKey :: Syn.Name -> Maybe TcTermKey
+nameTermKey :: Syn.Name -> Maybe Entity
 nameTermKey sourceName = do
   resolution <- termResolution sourceName
   resolutionTermKey resolution
 
 unqualifiedTermResolution :: Syn.UnqualifiedName -> Maybe ResolutionAnnotation
-unqualifiedTermResolution name =
-  listToMaybe
-    [ resolution
-    | resolution <- mapMaybe Syn.fromAnnotation (Syn.unqualifiedNameAnns name),
-      resolutionNamespace resolution == ResolutionNamespaceTerm
-    ]
+unqualifiedTermResolution = resolutionOf (== ResolutionNamespaceTerm) . Syn.unqualifiedNameAnns
 
 -- | Built-in syntax denotes a wired constructor rather than a binder, so
 -- it has no term key; an occurrence of one is desugared from its shape.
-resolutionTermKey :: ResolutionAnnotation -> Maybe TcTermKey
+resolutionTermKey :: ResolutionAnnotation -> Maybe Entity
 resolutionTermKey resolution =
   case resolutionTarget resolution of
-    ResolvedLocal unique _ -> Just (TcTermLocal unique)
-    ResolvedTopLevel package moduleName' target ->
-      Just (TcTermGlobal package moduleName' (Syn.nameText target))
-    ResolvedSyntax -> Nothing
-    ResolvedError _ -> Nothing
+    local@EntityLocal {} -> Just local
+    global@EntityGlobal {} -> Just global
+    EntitySyntax -> Nothing
 
-lookupLocal :: TcTermKey -> Text -> ValueM (Binder, TcType)
+lookupLocal :: Entity -> Text -> ValueM (Binder, TcType)
 lookupLocal key displayName = do
   local <- Map.lookup key <$> gets vsLocals
   case local of
@@ -5113,7 +5096,7 @@ isPrimitiveLiteral expression =
     Syn.EStringHash {} -> True
     _ -> False
 
-lookupBindingType :: TcTermKey -> ValueM TcType
+lookupBindingType :: Entity -> ValueM TcType
 lookupBindingType key = do
   local <- Map.lookup key <$> gets vsLocals
   case local of
@@ -5135,7 +5118,7 @@ lookupNamedBindingType name = do
     Nothing -> failValue ("missing checked type for " <> T.unpack (Syn.nameText name) <> " (" <> show key <> ")")
 
 -- | The checked types of the binders a local declaration group introduces.
-localGroupBinderTypes :: LocalValueGroup -> ValueM [(TcTermKey, TcType)]
+localGroupBinderTypes :: LocalValueGroup -> ValueM [(Entity, TcType)]
 localGroupBinderTypes group =
   case group of
     LocalNamedGroup named -> pure [(groupKey named, groupType named)]
@@ -5144,7 +5127,7 @@ localGroupBinderTypes group =
 
 -- | Run an action with the checked types of more bindings in scope, for
 -- type inference over an expression that is not being desugared.
-withBindingTypes :: [(TcTermKey, TcType)] -> ValueM a -> ValueM a
+withBindingTypes :: [(Entity, TcType)] -> ValueM a -> ValueM a
 withBindingTypes additions action = do
   previous <- gets vsBindingTypes
   modify' (\state -> state {vsBindingTypes = foldr (uncurry Map.insert) previous additions})
@@ -5271,7 +5254,7 @@ numericRepresentation kinds numericType =
     Syn.TWord32Hash -> word32Rep kinds
     Syn.TWord64Hash -> word64Rep kinds
 
-withLocals :: [(TcTermKey, (Binder, TcType))] -> ValueM a -> ValueM a
+withLocals :: [(Entity, (Binder, TcType))] -> ValueM a -> ValueM a
 withLocals additions action = do
   previous <- gets vsLocals
   modify' (\state -> state {vsLocals = foldr (uncurry Map.insert) previous additions})

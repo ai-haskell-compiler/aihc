@@ -83,7 +83,7 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
             [con] <- dtiConstructors dataType,
             [field] <- dciFields con -> do
               let (package, moduleName') = dciOrigin con
-              visible <- isTermVisible (TcTermGlobal package moduleName' (dciName con))
+              visible <- isTermVisible (GlobalTerm package moduleName' (dciName con))
               pure
                 ( if visible
                     then Just (applySubst (Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)) (dcfiType field))
@@ -123,7 +123,7 @@ familyInstanceRepresentation constructor arguments = do
       case candidates of
         [(con, inner)] -> do
           let (package, moduleName') = dciOrigin con
-          visible <- isTermVisible (TcTermGlobal package moduleName' (dciName con))
+          visible <- isTermVisible (GlobalTerm package moduleName' (dciName con))
           pure (if visible then Just inner else Nothing)
         _ -> pure Nothing
 

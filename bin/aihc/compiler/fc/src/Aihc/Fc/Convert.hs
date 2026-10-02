@@ -40,12 +40,12 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Types
-  ( Pred (..),
+  ( GlobalName,
+    Pred (..),
     TcAxiomKey (..),
     TcKindEnv,
     TcKinds (..),
     TcType (..),
-    TcTypeKey,
     TyCon,
     TyVarId (..),
     TypeScheme (..),
@@ -101,10 +101,10 @@ data ConvertEnv = ConvertEnv
     ceKinds :: TcKinds,
     ceTyVars :: Map Unique TyVarId,
     ceKindEnv :: TcKindEnv,
-    ceClassTyCons :: Set TcTypeKey,
+    ceClassTyCons :: Set GlobalName,
     -- | The type synonyms. A reference to one is a synonym name, which the
     -- lint unfolds, and not a type constructor name.
-    ceSynonymTyCons :: Set TcTypeKey,
+    ceSynonymTyCons :: Set GlobalName,
     -- | The visible top-level names of the module, as
     -- 'Aihc.Resolve.exportedLocalNames' gives them. 'Nothing' comes from a
     -- caller that knows of no export list, and keeps every name public.
@@ -123,11 +123,11 @@ emptyConvertEnv kinds package =
       ceExportedNames = Nothing
     }
 
-withClassTyCons :: [TcTypeKey] -> ConvertEnv -> ConvertEnv
+withClassTyCons :: [GlobalName] -> ConvertEnv -> ConvertEnv
 withClassTyCons keys env =
   env {ceClassTyCons = Set.fromList keys <> ceClassTyCons env}
 
-withSynonymTyCons :: [TcTypeKey] -> ConvertEnv -> ConvertEnv
+withSynonymTyCons :: [GlobalName] -> ConvertEnv -> ConvertEnv
 withSynonymTyCons keys env =
   env {ceSynonymTyCons = Set.fromList keys <> ceSynonymTyCons env}
 

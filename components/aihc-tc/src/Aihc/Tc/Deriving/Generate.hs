@@ -53,7 +53,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     qualifyName,
   )
-import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations
   ( TcCoercedDeriving (..),
     TcDerivedInstance (..),
@@ -310,7 +310,7 @@ referencesAvailable :: Gen -> TcM (Maybe String)
 referencesAvailable gen = do
   present <- forM needed $ \reference -> do
     let (package, moduleName, name) = referenceIdentityOf gen reference
-    binder <- lookupTermKey (TcTermGlobal package moduleName name)
+    binder <- lookupTermKey (GlobalTerm package moduleName name)
     pure (reference, binder)
   pure (listToMaybe [describe reference | (reference, Nothing) <- present])
   where
@@ -1500,7 +1500,7 @@ freshLocal gen text = do
         NameVarId
         text
         ( genSpanAnns gen
-            <> [mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
+            <> [mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))]
         )
     )
 
@@ -1587,7 +1587,7 @@ atLiteral gen = maybe id (LitAnn . mkAnnotation) (genSpan gen)
 primitiveIntTypeAnnotation :: Gen -> Annotation
 primitiveIntTypeAnnotation gen =
   mkAnnotation
-    (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (ResolvedTopLevel primTypePackage primTypeModule (Name Nothing NameConId primTypeName [])))
+    (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (EntityGlobal (GlobalName primTypeName primTypePackage primTypeModule ResolutionNamespaceType)))
   where
     (primTypePackage, primTypeModule, primTypeName) =
       referenceIdentityOf gen (derivingIntPrimType (genReferences gen))
@@ -1599,7 +1599,7 @@ resolvedName sp packageId moduleName' nameType namespace text =
     nameType
     text
     ( map mkAnnotation (maybeToList sp)
-        <> [mkAnnotation (ResolutionAnnotation sp (IdentifierNamed text) namespace (ResolvedTopLevel packageId moduleName' (Name Nothing nameType text [])))]
+        <> [mkAnnotation (ResolutionAnnotation sp (IdentifierNamed text) namespace (EntityGlobal (GlobalName text packageId moduleName' namespace)))]
     )
 
 tyConNameSyntax :: Maybe SourceSpan -> TyCon -> Name
