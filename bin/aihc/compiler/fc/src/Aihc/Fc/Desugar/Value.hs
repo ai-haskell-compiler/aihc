@@ -846,8 +846,7 @@ desugarForeignReference variable key info types evidence = do
   env <- gets vsTypeEnv
   let arity = length (TypeOf.foreignArgumentTypes env (TypeOf.foreignTypeBody env foreignType))
   binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (TypeOf.foreignArgumentTypes env instantiated))
-  let body = ExForeignCall call types (map (ExVar . binderName) binders)
-  pure (foldr ExLam body binders)
+  pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
 
 -- | Substitute the type arguments of a use for the leading binders of the
 -- foreign type.

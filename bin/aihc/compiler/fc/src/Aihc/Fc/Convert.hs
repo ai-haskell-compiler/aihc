@@ -351,9 +351,6 @@ convertPred env predicate =
       pure (foldr TyForAll (foldr (funType quantifiedEnv) convertedConsequent convertedAntecedents) binders)
 
 typeRep :: ConvertEnv -> TcType -> Either String Type
--- Dictionary arguments make a qualified type a function with a lifted representation.
-typeRep env (TcQualTy (_ : _) _) = Right (liftedRepType env)
-typeRep env (TcForAllTy variable body) = typeRep (withTyVar variable env) body
 typeRep env ty = do
   kind <- typeKindInEnv env ty
   case runtimeRepFromKind kind of

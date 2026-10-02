@@ -39,8 +39,9 @@ import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, foldM_, (<=<), (>=>))
+import Control.Monad (foldM, foldM_, guard, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (elemIndex, sortOn)
 import Data.Map.Strict (Map)
@@ -186,33 +187,28 @@ solveNormalizedDict visited givens ct
               pure DictSolved
             _ -> pure (DictStuck ct)
   where
+    -- A @WithDict cls meth@ wanted is solved when @cls@ is a class with one
+    -- method and no superclasses, and @meth@ equals the type of that method.
     tryWithDict adapter constraintType methodType = do
       target <- reclassifyIrreduciblePred (IrredPred constraintType)
-      adapterInfo <- lookupClass adapter
-      case (target, adapterInfo) of
-        (ClassPred targetClass targetArguments, Just adapterClass) -> do
-          targetInfo <- lookupClass targetClass
-          case targetInfo of
-            Just info
-              | null (ciSuperClassTypes info),
-                length (ciMethods info) == 1,
-                length targetArguments == length (ciTyVars info) -> do
-                  substitution <- matchInstanceKinds (ciTyVars info) (Map.fromList (zip (map tvUnique (ciTyVars info)) targetArguments))
-                  let adapterSubstitution = Map.fromList (zip (map tvUnique (ciTyVars adapterClass)) [constraintType, methodType])
-                  case (substitution, classFieldTypes adapterClass adapterSubstitution) of
-                    (Just subst, [adapterField]) ->
-                      case classFieldTypes info subst of
-                        [targetMethod] -> do
-                          equality <- solveSubPred visited (EqPred methodType targetMethod)
-                          case equality of
-                            Just (EvCoercion proof) -> do
-                              bindEvidence (ctEvVar ct) (EvWithDict adapter [constraintType, methodType] adapterField targetClass targetArguments proof)
-                              pure DictSolved
-                            _ -> pure (DictStuck ct)
-                        _ -> pure (DictStuck ct)
-                    _ -> pure (DictStuck ct)
-            _ -> pure (DictStuck ct)
-        _ -> pure (DictStuck ct)
+      evidence <- runMaybeT $ do
+        ClassPred targetClass targetArguments <- pure target
+        adapterInfo <- MaybeT (lookupClass adapter)
+        targetInfo <- MaybeT (lookupClass targetClass)
+        guard (null (ciSuperClassTypes targetInfo) && length (ciMethods targetInfo) == 1)
+        guard (length targetArguments == length (ciTyVars targetInfo))
+        substitution <- MaybeT (matchInstanceKinds (ciTyVars targetInfo) (classArguments targetInfo targetArguments))
+        [adapterField] <- pure (classFieldTypes adapterInfo (classArguments adapterInfo [constraintType, methodType]))
+        [targetMethod] <- pure (classFieldTypes targetInfo substitution)
+        Just (EvCoercion proof) <- lift (solveSubPred visited (EqPred methodType targetMethod))
+        pure (EvWithDict adapter [constraintType, methodType] adapterField targetClass targetArguments proof)
+      case evidence of
+        Just solved -> do
+          bindEvidence (ctEvVar ct) solved
+          pure DictSolved
+        Nothing -> pure (DictStuck ct)
+
+    classArguments info arguments = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
 
     givenDict visited' zonkedGivens className args =
       firstGivenOrSuperclass visited' (ClassPred className args) zonkedGivens
