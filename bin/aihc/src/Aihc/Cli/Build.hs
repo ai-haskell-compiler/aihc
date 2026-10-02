@@ -13,6 +13,7 @@
 -- and into the store for a Hackage release.
 module Aihc.Cli.Build
   ( build,
+    buildWith,
     runBuild,
   )
 where
@@ -44,12 +45,14 @@ import Aihc.Cli.Install
     installPlanPackages,
     installTargetRoot,
     packageLinkArguments,
+    planProgressItems,
     planRequestFor,
     sourceFileModuleName,
   )
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (BuildOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
+import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), quietProgress, withProgress)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
@@ -72,28 +75,35 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory)
 import System.FilePath (takeDirectory, (<.>), (</>))
+import System.IO (stderr, stdout)
 
+-- | Build with the progress on stderr, and name each output on stdout.
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
-  outputs <- build options
+  outputs <- withProgress stderr (`buildWith` options)
   let label = if buildNoLink options then "bundle: " else "executable: "
   mapM_ (putStrLn . (label <>)) outputs
+
+-- | Build without progress. The verbose messages go to stdout. A library
+-- caller, such as a test, uses this entry point.
+build :: BuildOptions -> IO [FilePath]
+build = buildWith (quietProgress stdout)
 
 -- | Build what the input names and return the paths of the executables, or
 -- of their link bundles with @--no-link@. An existing file is a main
 -- module; everything else is a package.
-build :: BuildOptions -> IO [FilePath]
-build options = do
+buildWith :: ProgressReporter -> BuildOptions -> IO [FilePath]
+buildWith reporter options = do
   isFile <- doesFileExist (buildInput options)
   case (isFile, buildExecutables options) of
     (True, _ : _) -> ioError (userError "--executable selects the executables of a package, and a main module is one executable")
-    (True, []) -> pure <$> runBuildModule options
-    (False, _) -> buildPackage options
+    (True, []) -> pure <$> runBuildModule reporter options
+    (False, _) -> buildPackage reporter options
 
 -- | Build every executable of the Cabal package the input names, or the
 -- executables that @--executable@ selects.
-buildPackage :: BuildOptions -> IO [FilePath]
-buildPackage options = do
+buildPackage :: ProgressReporter -> BuildOptions -> IO [FilePath]
+buildPackage reporter options = do
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
   hackageSource <- defaultHackageSource
@@ -101,7 +111,8 @@ buildPackage options = do
   let target = buildTarget options
       targetDirectory = nativeTargetStoreDirectory target
       (os, arch) = cabalPlatformForTarget target
-      verbose message = when (buildVerbose options) (putStrLn message)
+      report = progressReport reporter
+      verbose message = when (buildVerbose options) (report (ProgressLog message))
       -- The selected executables, or every executable when none is named.
       selection = if null (buildExecutables options) then Nothing else Just (nub (buildExecutables options))
   -- The package itself and its siblings resolve locally before the
@@ -155,7 +166,8 @@ buildPackage options = do
             compileHeaderDirectory = headerDirectory,
             compileVerbose = verbose,
             compilePrintTimings = const (pure ()),
-            compileUseColor = False
+            compileUseColor = progressColor reporter,
+            compileProgress = reporter
           }
       -- The installed packages of an executable are built the way
       -- @install@ builds them. The flags that keep the output of a phase
@@ -176,16 +188,24 @@ buildPackage options = do
             locationReinstall = False
           }
   canonicalRoot <- canonicalizePath root
-  forM executables $ \executable -> do
-    let name = executableInfoName executable
-    verbose ("Build executable: " <> name)
+  -- The plan finds the package being built by its name, which marks
+  -- it local. What the user asked for decides instead: a directory is
+  -- local, a Hackage release is not.
+  executablePlans <- forM executables $ \executable -> do
     let dependencyPackages =
           nub (executableInfoDependencies executable <> map mkPackageName ["aihc-base", "aihc-prim"])
     plans <- mapM (plannedPackage planned) dependencyPackages
-    -- The plan finds the package being built by its name, which marks
-    -- it local. What the user asked for decides instead: a directory is
-    -- local, a Hackage release is not.
-    rootedPlans <- mapM (markRootPlan canonicalRoot origin) plans
+    mapM (markRootPlan canonicalRoot origin) plans
+  report
+    ( ProgressPlan
+        ( planProgressItems (concat executablePlans)
+            <> [ItemExecutable (T.pack (executableInfoName executable)) | executable <- executables]
+        )
+    )
+  forM (zip executables executablePlans) $ \(executable, rootedPlans) -> do
+    let name = executableInfoName executable
+        item = ItemExecutable (T.pack name)
+    verbose ("Build executable: " <> name)
     installed <- installPlanPackages dependencyConfig locations rootedPlans
     let selected = map installedPackage installed
     validateSelectedPackageNames selected
@@ -211,11 +231,13 @@ buildPackage options = do
               compilePackage = Package (T.pack name) (PackageId "exe"),
               compileSourceFiles = sourceFiles,
               compileDependencies = installed,
-              compileCapiStubOptions = capiStubOptions sourceFiles cCompileInfo
+              compileCapiStubOptions = capiStubOptions sourceFiles cCompileInfo,
+              compileItem = item
             }
     compiled <- compileModules compileConfig compileRequest
     cObjects <- compilePackageCFiles target (buildOptimization options) headerDirectory verbose root outputRoot cCompileInfo
     let output = outputDirectory </> executableFileName target name
+    report (ProgressLink item)
     finishExecutable
       compileConfig
       ExecutableInputs
@@ -229,6 +251,7 @@ buildPackage options = do
           executableLibraryArguments = packageLinkArguments target cCompileInfo,
           executablePackages = selected
         }
+    report (ProgressDone item)
     pure output
 
 -- | Give the plan of the package being built the origin the user asked for.

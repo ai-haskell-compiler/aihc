@@ -27,6 +27,8 @@ module Aihc.Cli.Install
     installPlanPackages,
     installTargetRoot,
     parsePackageTarget,
+    planProgressItem,
+    planProgressItems,
     planRequestFor,
     runInstall,
     sourceFileModuleName,
@@ -105,6 +107,7 @@ import Aihc.Cli.ModuleProvider
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
+import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), progressTaskObserver, quietProgress, withProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifactParts)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
@@ -243,7 +246,7 @@ import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMis
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
-import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
+import System.IO (hClose, hPutStrLn, openBinaryTempFile, stderr, stdout)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -472,7 +475,9 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileHeaderDirectory :: !FilePath,
     compileVerbose :: String -> IO (),
     compilePrintTimings :: String -> IO (),
-    compileUseColor :: !Bool
+    compileUseColor :: !Bool,
+    -- | Where the progress of the build goes.
+    compileProgress :: !ProgressReporter
   }
 
 data ModuleCompileRequest = ModuleCompileRequest
@@ -484,7 +489,9 @@ data ModuleCompileRequest = ModuleCompileRequest
     -- modules the sources import are read from them.
     compileDependencies :: ![InstalledPackage],
     -- | Where the capi wrappers of these modules look for their headers.
-    compileCapiStubOptions :: !CapiStubOptions
+    compileCapiStubOptions :: !CapiStubOptions,
+    -- | What the progress names these modules.
+    compileItem :: !ProgressItem
   }
 
 data ModuleCompileResult = ModuleCompileResult
@@ -533,27 +540,32 @@ data PackageTaskContext = PackageTaskContext
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
+-- | Install a package with the progress on stderr, and name the store
+-- entry on stdout.
 runInstall :: InstallOptions -> IO ()
 runInstall options = do
-  result <- install options
+  result <- withProgress stderr (`installWith` options)
   putStrLn ("store: " <> installStorePath result)
 
--- | Install a package and write the verbose and timing messages to stdout.
+-- | Install a package without progress. The verbose and timing messages go
+-- to stdout. A library caller, such as a test, uses this entry point.
 install :: InstallOptions -> IO InstallResult
-install = installWith stdout
+install = installWith (quietProgress stdout)
 
--- | Install a package and write the verbose and timing messages to the given
--- handle. A test gives a file handle here and reads the file. The test must
--- not redirect the process stdout instead: the test runner writes its progress
--- to stdout from other threads, and a redirect would capture that progress.
-installWith :: Handle -> InstallOptions -> IO InstallResult
-installWith output options = do
+-- | Install a package and report the progress, the verbose messages, and
+-- the timing messages to the reporter. A test gives a reporter that writes
+-- to a file and reads the file. The test must not redirect the process
+-- stdout instead: the test runner writes its progress to stdout from other
+-- threads, and a redirect would capture that progress.
+installWith :: ProgressReporter -> InstallOptions -> IO InstallResult
+installWith reporter options = do
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
-  useColor <- hIsTerminalDevice output
   let target = installTarget options
       targetDirectory = nativeTargetStoreDirectory target
-  let verbose message = when (installVerbose options) (hPutStrLn output message)
-      printTimings message = when (installPrintTimings options) (hPutStrLn output message)
+      useColor = progressColor reporter
+      report = progressReport reporter
+  let verbose message = when (installVerbose options) (report (ProgressLog message))
+      printTimings message = when (installPrintTimings options) (report (ProgressLog message))
   hackageSource <- defaultHackageSource
   (root, origin, lockDirectory) <- installTargetRoot (installPackageTarget options)
   request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (installWorkspace options)) lockDirectory verbose
@@ -561,6 +573,7 @@ installWith output options = do
   plan <- case plannedRoots planned of
     [rootPlan] -> pure rootPlan
     _ -> ioError (userError "The plan has no root")
+  report (ProgressPlan (planProgressItems [plan]))
   buildRoot <- maybe (pure (defaultBuildRoot (planSourcePath plan))) pure (installBuildRoot options)
   buildIdentity <- buildEnvironmentIdentity target
   -- The headers go under the store and not under the build directory,
@@ -585,7 +598,8 @@ installWith output options = do
             compileHeaderDirectory = headerDirectory,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
-            compileUseColor = useColor
+            compileUseColor = useColor,
+            compileProgress = reporter
           }
       locations =
         InstallLocations
@@ -602,6 +616,21 @@ installWith output options = do
 -- | Where a local package builds unless @--build-root@ says otherwise.
 defaultBuildRoot :: FilePath -> FilePath
 defaultBuildRoot root = root </> ".aihc-target"
+
+-- | What the progress names a planned package: its name and version.
+planProgressItem :: PackagePlan -> ProgressItem
+planProgressItem plan =
+  ItemPackage (T.pack (unPackageName (planName plan) <> "-" <> showVersion (Cabal.packageVersion (planDescription plan))))
+
+-- | The packages of the plans in the order they build: the dependencies
+-- of a package before it, and each package once.
+planProgressItems :: [PackagePlan] -> [ProgressItem]
+planProgressItems = reverse . foldl' visit []
+  where
+    visit seen plan =
+      let below = foldl' visit seen (planDependencyPlans plan)
+          item = planProgressItem plan
+       in if item `elem` below then below else item : below
 
 -- | Turn the install argument into a plan root, say where it came from,
 -- and where its lock file lives.
@@ -791,7 +820,7 @@ installPlanSlots config locations plans = do
           }
       removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
       publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
-  outcome <- try (runTaskGraphWith (max 1 capabilities) (\graph -> mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef))
+  outcome <- try (runTaskGraphWith (progressTaskObserver (compileProgress config)) (max 1 capabilities) (\graph -> mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef))
   timings <- case outcome of
     Right timings -> do
       publishFinished `finally` removeTemporaryRoots
@@ -854,6 +883,9 @@ preparePackage shared graph slot = do
       -- Only the package the user named is reinstalled.
       reinstall = slotRoot slot && locationReinstall locations
       order = slotOrder slot
+      item = planProgressItem plan
+      report = progressReport (compileProgress config)
+  report (ProgressPrepare item)
   inputs <- readPackageInputs config plan
   (installed, build) <-
     if locationImmutable locations || planOrigin plan /= PlanLocal
@@ -875,6 +907,7 @@ preparePackage shared graph slot = do
         }
   case build of
     Nothing -> do
+      report (ProgressStore item)
       atomically $ do
         putTMVar (slotUnits slot) Map.empty
         putTMVar (slotBuilt slot) installed
@@ -907,6 +940,7 @@ packageModuleBuild shared slot installed build =
       moduleBuildOutputRoot = buildPath build,
       moduleBuildPackageRoot = buildSourceRoot build,
       moduleBuildPackage = package,
+      moduleBuildItem = item,
       moduleBuildFiles = buildFiles build,
       moduleBuildVersions = dependencyVersionsFromManifests [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
       moduleBuildCapiOptions = capiStubOptions (buildFiles build) (buildCCompileInfo build),
@@ -920,11 +954,13 @@ packageModuleBuild shared slot installed build =
       moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
       moduleBuildFinished = \compiled -> do
         built <- finishPackageBuild shared build compiled
+        progressReport (compileProgress (sharedConfig shared)) (ProgressDone item)
         atomically (putTMVar (slotBuilt slot) built)
         releasePackage slot
     }
   where
     package = Package (installedName installed) (PackageId (buildUnitIdentity build))
+    item = planProgressItem (slotPlan slot)
     dependencies = buildDependencies build
     preparedDependency dependency = do
       prepared <- atomically (readTMVar (slotPrepared dependency))
@@ -1309,6 +1345,7 @@ compileModules config request = do
       (compileOutputRoot request)
       (compilePackageRoot request)
       (compilePackage request)
+      (compileItem request)
       (map (appendIncludeDirs headerDirs) (compileSourceFiles request))
       (compileDependencies request)
       (installedPackageLocator (compileDependencies request))
@@ -1353,6 +1390,8 @@ data ModuleBuild = ModuleBuild
     moduleBuildOutputRoot :: !FilePath,
     moduleBuildPackageRoot :: !FilePath,
     moduleBuildPackage :: !Package,
+    -- | What the progress names the package.
+    moduleBuildItem :: !ProgressItem,
     moduleBuildFiles :: ![HackageCabal.FileInfo],
     moduleBuildVersions :: !DependencyVersions,
     moduleBuildCapiOptions :: !CapiStubOptions,
@@ -1386,8 +1425,8 @@ data PreparedDependency = PreparedDependency
 
 -- | Compile the modules of one package against installed packages, in a
 -- graph of their own.
-compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> PackageLocator -> IO CompiledPackageModules
-compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage files dependencies locator = do
+compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> ProgressItem -> [HackageCabal.FileInfo] -> [InstalledPackage] -> PackageLocator -> IO CompiledPackageModules
+compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage item files dependencies locator = do
   capabilities <- getNumCapabilities
   phaseTimings <- newIORef mempty
   result <- newEmptyTMVarIO
@@ -1400,7 +1439,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
             dependencyLocator = locator
           }
   timings <-
-    runTaskGraphWith (max 1 capabilities) $ \graph -> do
+    runTaskGraphWith (progressTaskObserver (compileProgress config)) (max 1 capabilities) $ \graph -> do
       base <- allocateTaskIds graph 2
       addModuleBuild
         graph
@@ -1410,6 +1449,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
             moduleBuildOutputRoot = outputRoot,
             moduleBuildPackageRoot = packageRoot,
             moduleBuildPackage = resolvePackage,
+            moduleBuildItem = item,
             moduleBuildFiles = files,
             moduleBuildVersions =
               dependencyVersionsFromManifests
@@ -1436,6 +1476,7 @@ addModuleBuild graph phaseTimings build = do
       files = moduleBuildFiles build
       order = moduleBuildOrder build
   compileVerbose config ("Parse " <> show (length files) <> " modules")
+  progressReport (compileProgress config) (ProgressBuild (moduleBuildItem build) (length files))
   sourceSlots <- mapM (const newEmptyTMVarIO) files
   parseBase <- allocateTaskIds graph (length files)
   let parseTasks =
@@ -1523,6 +1564,10 @@ partitionModules graph phaseTimings build sourceSlots = do
         let sources = sourceUnitSources unit
             names = map sourceName sources
          in [name | name <- nub (concatMap sourceDependencyNames sources <> wiredInterfaceModules), name `notElem` names]
+      -- The type-check task of a unit says that the package compiles, and
+      -- the last task of a unit reports its modules as compiled.
+      reportCompiling = progressReport (compileProgress config) (ProgressCompile (moduleBuildItem build))
+      reportCompiled unit = progressReport (compileProgress config) (ProgressModules (moduleBuildItem build) (length (sourceUnitSources unit)))
       unitTasks runtime =
         let unit = runtimeUnit runtime
             unitOrder = order * 1000000 + sourceUnitOrder unit
@@ -1539,7 +1584,7 @@ partitionModules graph phaseTimings build sourceSlots = do
                   taskKind = TaskTypeCheck,
                   taskOrder = unitOrder,
                   taskDependencies = Set.fromList (runtimeResolveTask runtime : map runtimeTypeTask below),
-                  taskAction = runTypeUnit context runtimeMap runtime
+                  taskAction = reportCompiling >> runTypeUnit context runtimeMap runtime >> when noCode (reportCompiled unit)
                 }
             ]
               <> [ Task
@@ -1547,7 +1592,7 @@ partitionModules graph phaseTimings build sourceSlots = do
                        taskKind = TaskBackend,
                        taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources unit))),
                        taskDependencies = Set.singleton (runtimeTypeTask runtime),
-                       taskAction = runBackendUnit context runtime
+                       taskAction = runBackendUnit context runtime >> reportCompiled unit
                      }
                  | not noCode
                  ]

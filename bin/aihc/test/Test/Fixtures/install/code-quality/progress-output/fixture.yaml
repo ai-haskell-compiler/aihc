@@ -1,0 +1,11 @@
+status: pass
+reason: An install that does not write to a terminal reports its plan, each package the store holds, each package that builds, and each package that is complete, one line each.
+expect-progress:
+  - "Plan: 3 packages"
+  - "  aihc-rts-1.0.2"
+  - "  aihc-prim-0.13.0"
+  - "  progress-demo-0.1.0.0"
+  - "store  aihc-rts-1.0.2"
+  - "store  aihc-prim-0.13.0"
+  - "build  progress-demo-0.1.0.0 (2 modules)"
+  - "built  progress-demo-0.1.0.0 in <time>"

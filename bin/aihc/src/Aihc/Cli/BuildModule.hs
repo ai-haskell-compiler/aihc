@@ -32,6 +32,7 @@ import Aihc.Cli.Install
     buildEnvironmentIdentity,
     compileModules,
     installPlanPackages,
+    planProgressItems,
     planRequestFor,
   )
 import Aihc.Cli.Install qualified as Install
@@ -39,6 +40,7 @@ import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (BuildOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
+import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Package (PackageName, VersionRange, anyVersion, mkPackageName, parseDependencyString, unPackageName)
@@ -118,8 +120,8 @@ type InstalledModuleIndex = Map.Map Text [InstalledModule]
 
 -- | Build one executable from its main module and return the path of the
 -- executable, or of its link bundle.
-runBuildModule :: BuildOptions -> IO FilePath
-runBuildModule options = do
+runBuildModule :: ProgressReporter -> BuildOptions -> IO FilePath
+runBuildModule reporter options = do
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
   let target = buildTarget options
@@ -128,6 +130,9 @@ runBuildModule options = do
       buildRoot = localBuildRoot </> targetDirectory
       sourceDirectories = case buildSourceDirectories options of [] -> ["."]; values -> values
       output = fromMaybe (dropExtension (buildInput options)) (buildOutput options)
+      report = progressReport reporter
+      verbose message = when (buildVerbose options) (report (ProgressLog message))
+      item = ItemExecutable (T.pack (takeFileName output))
   buildIdentity <- buildEnvironmentIdentity target
   headerDirectory <- ensureCompilerHeaders target buildRoot
   let plan = optimizationPlan (buildLto options) (buildOptimization options)
@@ -147,9 +152,10 @@ runBuildModule options = do
             compileOptimization = buildOptimization options,
             compileTarget = target,
             compileHeaderDirectory = headerDirectory,
-            compileVerbose = when (buildVerbose options) . putStrLn,
+            compileVerbose = verbose,
             compilePrintTimings = const (pure ()),
-            compileUseColor = False
+            compileUseColor = progressColor reporter,
+            compileProgress = reporter
           }
       -- The installed packages of an executable are built the way
       -- @install@ builds them. The flags that keep the output of a phase
@@ -168,7 +174,7 @@ runBuildModule options = do
   -- directory that is absent is built. Nothing lists the store. A main
   -- module has no cabal file, so its lock lives in the working directory.
   hackageSource <- defaultHackageSource
-  request <- planRequestFor hackageSource (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (when (buildVerbose options) . putStrLn)
+  request <- planRequestFor hackageSource (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) (Just currentDirectory) verbose
   let goals =
         [ (canonicalPackageName (mkPackageName (T.unpack (constraintName constraint))), constraintRange constraint)
         | constraint <- constraints <> map implicitConstraint ["aihc-base", "aihc-prim"]
@@ -182,6 +188,7 @@ runBuildModule options = do
           }
   planned <- planPackages request {requestGoals = goals}
   plans <- mapM (plannedPackage planned . fst) goals
+  report (ProgressPlan (planProgressItems plans <> [item]))
   installed <- installPlanPackages dependencyConfig locations plans
   let selected = map installedPackage installed
   validateSelectedPackageNames selected
@@ -198,9 +205,11 @@ runBuildModule options = do
             compileSourceFiles = sourceFiles,
             compileDependencies = installed,
             -- The compiler adds the dependency headers to these options.
-            compileCapiStubOptions = noCapiStubOptions
+            compileCapiStubOptions = noCapiStubOptions,
+            compileItem = item
           }
   compiled <- compileModules compileConfig compileRequest
+  report (ProgressLink item)
   finishExecutable
     compileConfig
     ExecutableInputs
@@ -214,6 +223,7 @@ runBuildModule options = do
         executableLibraryArguments = [],
         executablePackages = selected
       }
+  report (ProgressDone item)
   pure output
 
 -- | What the final step of an executable takes: the compiled modules, the

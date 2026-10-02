@@ -3,11 +3,12 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Capi (parseDependencyFile)
-import Aihc.Cli.Build (build)
+import Aihc.Cli.Build (build, buildWith)
 import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
-import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
+import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
+import Aihc.Cli.Progress (withProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
@@ -422,6 +423,19 @@ test_resolveArtifactRoundTrip = do
   assertEqual "qualified module types" (Map.map scopeTypes (scopeQualifiedModules scope)) (Map.map scopeTypes (scopeQualifiedModules decodedScope))
   assertBool "resolve artifact round trip" (artifact == decoded)
 
+-- | Replace the duration of a progress line with @<time>@, so that a
+-- fixture can state the line.
+normalizeProgressLine :: String -> String
+normalizeProgressLine line =
+  case breakOnLast " in " line of
+    Just (prefix, _) | "built " `isPrefixOf` line -> prefix <> " in <time>"
+    _ -> line
+  where
+    breakOnLast needle text =
+      case [index | index <- [0 .. length text - length needle], needle `isPrefixOf` drop index text] of
+        [] -> Nothing
+        indexes -> Just (splitAt (last indexes) text)
+
 -- | Each package fixture specifies its expected error or stored constructors.
 data InstallFixture = InstallFixture
   { installFixtureError :: Maybe String,
@@ -440,7 +454,10 @@ data InstallFixture = InstallFixture
     -- | The package depends on base, so it gets the seeded store that holds
     -- aihc-base. The other fixtures get the smaller store, which is faster
     -- to copy.
-    installFixtureNeedsBase :: Bool
+    installFixtureNeedsBase :: Bool,
+    -- | The progress lines the install writes when its output is not a
+    -- terminal. A duration in a line is compared as @<time>@.
+    installFixtureProgress :: Maybe [String]
   }
 
 instance FromJSON InstallFixture where
@@ -458,6 +475,7 @@ instance FromJSON InstallFixture where
           <*> obj .:? "workspace"
           <*> (Map.toList <$> obj .:? "environment" .!= Map.empty)
           <*> obj .:? "needs-base" .!= False
+          <*> obj .:? "expect-progress"
       else fail "install fixtures require pass status"
 
 testInstallFixtures :: IO SeedStore -> IO SeedStore -> Assertion
@@ -478,11 +496,22 @@ testInstallFixtures getPrimStore getCoreStore = do
                 installNoCode = installFixtureNoCode fixture,
                 installWorkspace = (directory </>) <$> installFixtureWorkspace fixture
               }
+      -- A fixture with expected progress installs through a reporter that
+      -- writes to a file, as a redirected command does.
+      (progressPath, progressHandle) <- openTempFile (sandboxRoot sandbox) "progress.txt"
+      let run installOptions =
+            case installFixtureProgress fixture of
+              Nothing -> install installOptions
+              Just _ -> withProgress progressHandle (`installWith` installOptions)
       outcome <- try $ withEnvironment (installFixtureEnvironment fixture) $ do
-        first <- install options
+        first <- run options
         if installFixtureReinstall fixture
-          then install options {installReinstall = True}
+          then run options {installReinstall = True}
           else pure first
+      hClose progressHandle
+      forM_ (installFixtureProgress fixture) $ \expected -> do
+        actual <- lines <$> readFile progressPath
+        assertEqual (name <> ": progress output") expected (map normalizeProgressLine actual)
       case outcome :: Either IOException InstallResult of
         Left err -> do
           assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))
@@ -872,7 +901,28 @@ test_buildExecutables getStore =
     let root = sandboxRoot sandbox
         targetDirectory = nativeTargetStoreDirectory (buildTarget options)
     let binDirectory = buildRoot </> targetDirectory </> "bin"
-    outputs <- build options
+    -- The first build reports its progress as a redirected command does:
+    -- the plan names both executables, and each one builds, links, and
+    -- completes in turn.
+    (progressPath, progressHandle) <- openTempFile root "progress.txt"
+    outputs <- withProgress progressHandle (`buildWith` options)
+    hClose progressHandle
+    progress <- map normalizeProgressLine . lines <$> readFile progressPath
+    let planned = filter ("  " `isPrefixOf`) progress
+        plannedPackages = length (filter (not . ("(executable)" `isInfixOf`)) planned)
+    assertEqual "plan heading" ["Plan: " <> show plannedPackages <> " packages, 2 executables"] (filter ("Plan: " `isPrefixOf`) progress)
+    assertEqual
+      "executable progress"
+      [ "build  executables-0.1.0.0 (1 module)",
+        "built  executables-0.1.0.0 in <time>",
+        "build  greet (executable) (2 modules)",
+        "link   greet (executable)",
+        "built  greet (executable) in <time>",
+        "build  shout (executable) (3 modules)",
+        "link   shout (executable)",
+        "built  shout (executable) in <time>"
+      ]
+      (filter (\line -> "(executable)" `isInfixOf` line || "executables-0.1.0.0" `isInfixOf` line) (filter (not . ("  " `isPrefixOf`)) progress))
     assertEqual "built executables" [binDirectory </> "greet", binDirectory </> "shout"] outputs
     forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
       (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> name) [] ""
