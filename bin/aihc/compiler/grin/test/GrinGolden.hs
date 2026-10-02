@@ -247,7 +247,7 @@ fixtureBuiltinScope visibleExports =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name visibleExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Types"]
 
 -- | The kind vocabulary of the fixture compiler.
 fixtureWiring :: TcWiring

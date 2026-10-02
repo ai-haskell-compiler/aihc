@@ -104,6 +104,10 @@ inferExprAt ambient expr = case expr of
         inferOverloadedLiteral ambient "fromString" [] ann resolution inner
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "fromListN" resolution ->
+        inferOverloadedList (resolutionSpan resolution <|> ambient) ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       resolutionNamespace resolution == ResolutionNamespaceType,
       isPrimitiveLiteral inner ->
         inferPrimitiveLiteral ann resolution inner
@@ -1297,6 +1301,22 @@ inferTuple sp flavor elems = do
       pure (Just e', ty, cts)
 
     runtimeRepOrLifted kinds kind = fromRight (liftedRep kinds) (runtimeRepFromKind kind)
+
+-- | An overloaded list applies fromListN to its length and an ordinary list.
+inferOverloadedList :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedList sp resolutionAnn resolution inner = do
+  (list', listTy, listCts) <- inferExprAt sp inner
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "fromListN" resolution
+  kinds <- getKinds
+  intTyCon <- wiredTyCon tcWiringIntTyCon (typeKind kinds)
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = TcFunTy (TcTyCon intTyCon []) (TcFunTy listTy resultTy)
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromListN") sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+      resultPending = pendingAnnotation resultTy [] [] []
+      annotated = annotatePendingExpr methodPending (EAnn resolutionAnn list')
+  pure (annotatePendingExprAt sp resultPending annotated, resultTy, listCts <> methodCts <> [methodEquality])
 
 inferList :: Maybe SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = do

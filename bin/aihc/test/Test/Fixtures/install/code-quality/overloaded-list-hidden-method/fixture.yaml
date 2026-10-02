@@ -1,0 +1,3 @@
+status: pass
+needs-base: true
+reason: The installer loads the IsList interface without an explicit import of GHC.IsList.

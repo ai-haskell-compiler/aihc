@@ -963,7 +963,11 @@ resolveExpr expr =
       items' <- mapM resolveExpr items
       sp <- currentSpan
       annotation <- resolution sp IdentifierList ResolutionNamespaceTerm ResolvedSyntax
-      pure (EAnn annotation (EList items'))
+      info <- currentModuleInfo
+      let list = EAnn annotation (EList items')
+      if OverloadedLists `elem` moduleInfoExtensions info
+        then annotateSyntaxTerm "fromListN" list
+        else pure list
     ETuple flavor items -> do
       items' <- mapM resolveMaybeExpr items
       sp <- currentSpan
@@ -1209,6 +1213,7 @@ builtinSyntaxTerm info name =
       [ "fromInteger",
         "fromRational",
         "fromString",
+        "fromListN",
         "negate",
         "==",
         ">>=",
