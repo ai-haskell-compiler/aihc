@@ -1,0 +1,39 @@
+extensions: [DataKinds, GADTs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import GHC.TypeLits
+    import qualified GHC.TypeNats as Nats
+    import Type.Reflection
+
+    data Evidence a where
+      Evidence :: Typeable a => Evidence a
+
+    restore :: forall a. TypeRep a -> Evidence a
+    restore representation = withTypeable representation Evidence
+
+    nat :: forall n. SNat n -> Integer
+    nat singleton = Nats.withKnownNat @n singleton (natVal @n (Proxy :: Proxy n))
+
+    symbol :: forall s. SSymbol s -> String
+    symbol singleton = withKnownSymbol @s singleton (symbolVal @s (Proxy :: Proxy s))
+
+    char :: forall c. SChar c -> Char
+    char singleton = withKnownChar @c singleton (charVal @c (Proxy :: Proxy c))
+
+    answer :: Bool
+    answer = nat @0 (natSing @0) == 0
+      && nat @18446744073709551616 (natSing @18446744073709551616) == 18446744073709551616
+      && symbol @"" (symbolSing @"") == ""
+      && symbol @"value" (symbolSing @"value") == "value"
+      && char @'x' (charSing @'x') == 'x'
+      && case restore (typeRep :: TypeRep Bool) of
+        Evidence -> typeRep == (typeRep :: TypeRep Bool)
+expression: answer
+output: |
+  True
+status: pass
+reason: Singleton values supply class evidence at run time.

@@ -22,7 +22,7 @@ where
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, getWiring, lookupTyConByIdentity)
-import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily)
+import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
 import Control.Monad.Trans.Class (lift)
@@ -226,10 +226,13 @@ reduceHead ty =
 builtinTypeLitFamily :: TcWiring -> TcKinds -> TyCon -> [TcType] -> Maybe TcType
 builtinTypeLitFamily wiring kinds tyCon arguments
   | tyConModuleName tyCon `notElem` tcWiringTypeLitFamilyModules wiring = Nothing
+  | Just simplified <- simplifyTypeLitFamily (tyConName tyCon) literal TcTyLit arguments = Just simplified
   | otherwise = do
       literals <- traverse literal arguments
       value <- evaluateTypeLitFamily (tyConName tyCon) literals
       pure $ case value of
+        TypeLitSymbol symbol -> TcTyLit (TyLitSymbol symbol)
+        TypeLitChar char -> TcTyLit (TyLitChar char)
         TypeLitNatural natural -> TcTyLit (TyLitNat natural)
         TypeLitOrdering ordering -> TcTyCon (kindsDataCon kinds (T.pack (show ordering)) 0) []
   where

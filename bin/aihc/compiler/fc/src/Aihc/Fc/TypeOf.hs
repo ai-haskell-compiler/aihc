@@ -38,7 +38,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId)
-import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, typeLitFamilyModules)
+import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily, typeLitFamilyModules)
 import Aihc.Tc.Types (Unique (..))
 import Aihc.Tc.Types qualified as Tc
 import Data.List qualified as List
@@ -437,17 +437,28 @@ builtinFamily env ty =
     (TyCon family, arguments)
       | OriginTop _ moduleName <- nameOrigin family,
         moduleName `elem` typeLitFamilyModules,
-        (_, literalArguments@(TyLit kindName _ : _)) <- break isLiteral arguments,
+        Just header <- Map.lookup family (teHeaders env),
+        TyCon kindName <- resultType header,
+        Just simplified <- simplifyTypeLitFamily (nameText family) literal (buildLiteral kindName) arguments ->
+          Just simplified
+      | OriginTop _ moduleName <- nameOrigin family,
+        moduleName `elem` typeLitFamilyModules,
+        (_, literalArguments@(TyLit _ _ : _)) <- break isLiteral arguments,
         Just literals <- traverse literal literalArguments -> do
           value <- evaluateTypeLitFamily (nameText family) literals
+          header <- lookupHeaderType env family
+          TyCon kindName <- pure (resultType header)
           case value of
+            TypeLitSymbol symbol -> pure (TyLit kindName (TyLitSymbol symbol))
+            TypeLitChar char -> pure (TyLit kindName (TyLitChar char))
             TypeLitNatural natural -> pure (TyLit kindName (TyLitNat natural))
-            TypeLitOrdering ordering -> do
-              header <- lookupHeaderType env family
-              TyCon orderingType <- pure (resultType header)
-              pure (TyCon (Name (T.pack (show ordering)) SortDataConstructor (nameOrigin orderingType)))
+            TypeLitOrdering ordering -> pure (TyCon (Name (T.pack (show ordering)) SortDataConstructor (nameOrigin kindName)))
     _ -> Nothing
   where
+    buildLiteral kindName value = TyLit kindName $ case value of
+      Tc.TyLitNat number -> TyLitNat number
+      Tc.TyLitSymbol symbol -> TyLitSymbol symbol
+      Tc.TyLitChar char -> TyLitChar char
     resultType header =
       case header of
         TyForAll _ body -> resultType body

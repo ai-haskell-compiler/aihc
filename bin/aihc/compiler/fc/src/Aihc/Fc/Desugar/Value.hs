@@ -848,7 +848,41 @@ desugarForeignReference variable key info types evidence = do
   env <- gets vsTypeEnv
   let arity = length (TypeOf.foreignArgumentTypes env (TypeOf.foreignTypeBody env foreignType))
   binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (TypeOf.foreignArgumentTypes env instantiated))
-  pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
+  body <-
+    if convention == Prim && singletonEvidencePrimitive variable
+      then desugarSingletonEvidence binders
+      else pure (ExForeignCall call types (map (ExVar . binderName) binders))
+  pure (foldr ExLam body binders)
+
+-- | These core primitives supply a class dictionary with one field.
+singletonEvidencePrimitive :: Name -> Bool
+singletonEvidencePrimitive name =
+  case nameOrigin name of
+    OriginTop (PackageId package) modul
+      | package == "main" || package == "aihc-base" || "aihc-base-" `T.isPrefixOf` package ->
+          (modul, nameText name)
+            `elem` [ ("GHC.TypeNats", "withKnownNatValue#"),
+                     ("GHC.TypeLits", "withKnownSymbolValue#"),
+                     ("GHC.TypeLits", "withKnownCharValue#"),
+                     ("Type.Reflection.Internal", "withTypeableValue#")
+                   ]
+    _ -> False
+
+desugarSingletonEvidence :: [Binder] -> ValueM Expr
+desugarSingletonEvidence binders =
+  case binders of
+    [value, continuation]
+      | TyFun _ _ dictionary _ <- binderType continuation,
+        (TyCon constructor, arguments) <- typeSpine [] dictionary ->
+          pure
+            ( ExApp
+                (ExVar (binderName continuation))
+                (ExApp (foldl ExTyApp (ExVar constructor {nameSort = SortDataConstructor}) arguments) (ExVar (binderName value)))
+            )
+    _ -> failValue "singleton evidence primitive requires a class dictionary"
+  where
+    typeSpine arguments (TyApp function argument) = typeSpine (argument : arguments) function
+    typeSpine arguments headType = (headType, arguments)
 
 -- | Substitute the type arguments of a use for the leading binders of the
 -- foreign type.

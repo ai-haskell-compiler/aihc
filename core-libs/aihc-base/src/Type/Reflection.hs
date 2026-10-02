@@ -3,6 +3,7 @@
 module Type.Reflection
   ( Typeable (..),
     TypeRep,
+    withTypeable,
     (:~~:) (..),
     pattern Con,
     pattern Con',

@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -7,8 +8,7 @@
 -- | Ordering of type-level literals.
 --
 -- GHC declares @Compare@ with one instance per sort of literal, chosen by
--- the kind of its arguments. The solver here reads the sort from the
--- literal and computes the comparison, so the family has no instances.
+-- the kind of its arguments. The solver computes literal comparisons.
 module Data.Type.Ord
   ( Compare,
     OrdCond,
@@ -30,7 +30,8 @@ import GHC.Types (Bool (..), Constraint, Ordering (..))
 
 -- | The ordering of two type-level literals of the same sort.
 type Compare :: k -> k -> Ordering
-type family Compare a b
+type family Compare a b where
+  Compare a a = 'EQ
 
 -- | Pick a branch by an ordering.
 type OrdCond :: Ordering -> k -> k -> k -> k
