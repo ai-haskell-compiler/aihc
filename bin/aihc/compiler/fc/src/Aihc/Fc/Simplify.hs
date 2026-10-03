@@ -781,7 +781,7 @@ bindingEnv :: Simpl -> Binder -> Expr -> Simpl
 bindingEnv env binder rhs
   | isKnownConstructor (spArity env) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
   | isStrictBinder (spEnv env) binder,
-    isPurePrimitiveCall (spEnv env) rhs,
+    isPurePrimitiveCall (spEnv env) rhs || isStateToken rhs,
     Map.notMember rhs (spCse env) =
       evaluatedEnv {spCse = Map.insert rhs (binderName binder) (spCse env)}
   | otherwise = evaluatedEnv
@@ -1993,9 +1993,6 @@ isTrivial expr =
     -- that function.
     ExTyLam _ body -> isTrivial body
     ExCast body _ -> isTrivial body
-    -- The state token is a constant of no width, so a copy of the call
-    -- costs nothing and does nothing.
-    ExForeignCall call [] [] -> foreignCallConvention call == Prim && nameText (foreignCallName call) == "realWorld#"
     _ -> False
 
 collectSpine :: Expr -> (Expr, [Arg])
@@ -2255,6 +2252,14 @@ isPurePrimitiveCall env expr =
         && case foreignSignature env (foreignCallType call) of
           Just (argumentTypes, resultType) -> not (any (mentionsState env) (resultType : argumentTypes))
           Nothing -> False
+    _ -> False
+
+-- | The call that makes the state token. Every call gives the same token
+-- of no width, so a binder of one call stands for every later call.
+isStateToken :: Expr -> Bool
+isStateToken expr =
+  case expr of
+    ExForeignCall call [] [] -> foreignCallConvention call == Prim && nameText (foreignCallName call) == "realWorld#"
     _ -> False
 
 -- | Whether a type mentions a state token or a mutable or address type.
