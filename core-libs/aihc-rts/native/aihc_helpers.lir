@@ -317,6 +317,18 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
+  %entered_limit_word = ptr.to_int %entered_limit
+  %sp_limit_word = ptr.to_int %sp_limit
+  %same_chunk = eq i64 %entered_limit_word, %sp_limit_word
+  br %same_chunk, enter_frame, enter_chunk
+
+; The frame is in a lower chunk than the stack pointer was. New frames go
+; above it, so the collector must scan the chunk again.
+cold enter_chunk:
+  call @aihc_stack_enter_chunk(@aihc_machine, %current)
+  jump enter_frame
+
+enter_frame:
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
@@ -342,6 +354,18 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
+  %entered_limit_word = ptr.to_int %entered_limit
+  %sp_limit_word = ptr.to_int %sp_limit
+  %same_chunk = eq i64 %entered_limit_word, %sp_limit_word
+  br %same_chunk, enter_frame, enter_chunk
+
+; The frame is in a lower chunk than the stack pointer was. New frames go
+; above it, so the collector must scan the chunk again.
+cold enter_chunk:
+  call @aihc_stack_enter_chunk(@aihc_machine, %current)
+  jump enter_frame
+
+enter_frame:
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
 }
 
@@ -367,6 +391,18 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
+  %entered_limit_word = ptr.to_int %entered_limit
+  %sp_limit_word = ptr.to_int %sp_limit
+  %same_chunk = eq i64 %entered_limit_word, %sp_limit_word
+  br %same_chunk, enter_frame, enter_chunk
+
+; The frame is in a lower chunk than the stack pointer was. New frames go
+; above it, so the collector must scan the chunk again.
+cold enter_chunk:
+  call @aihc_stack_enter_chunk(@aihc_machine, %current)
+  jump enter_frame
+
+enter_frame:
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
@@ -597,16 +633,35 @@ word:
 ; does not need the context for it.
 extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
+extern func @aihc_write_barrier(ptr, ptr) cc c
+extern func @aihc_stack_enter_chunk(ptr, ptr) cc c
 
-; Replace a blackhole with an indirection to the result. Most blackholes have
-; no waiters, so the two stores do the update here. A blackhole with waiters
-; goes to the C update, which also wakes the waiters. An object that is not
-; a blackhole also goes to the C update, which stops the program.
+; Whether an object is in the nursery. A pointer store into such an object
+; needs no write barrier.
+inline func @aihc_object_is_young(%object: ptr) -> i1 {
+entry:
+  %object_word = ptr.to_int %object
+  %start = load ptr [@aihc_nursery_start] align 1 word
+  %start_word = ptr.to_int %start
+  %offset = sub i64 %object_word, %start_word
+  %bytes = load i64 [@aihc_nursery_bytes] align 8
+  %young = lt.u i64 %offset, %bytes
+  return %young
+}
+
+; Replace a blackhole with an indirection to the result. Most blackholes are
+; young and have no waiters, so the two stores do the update here. An old
+; blackhole goes to the C update, which records it in the remembered set. A
+; blackhole with waiters goes there as well, and the C update wakes the
+; waiters. An object that is not a blackhole also goes to the C update,
+; which stops the program.
 inline func @aihc_update_blackhole_inline(%blackhole: ptr, %result: ptr) {
 entry:
   %header_word = call @aihc_object_header_word(%blackhole)
   %tag = and i64 %header_word, @AIHC_HEADER_TAG_MASK
-  %plain = eq i64 %tag, @AIHC_HEADER_EVALUATING
+  %no_waiters = eq i64 %tag, @AIHC_HEADER_EVALUATING
+  %young = call @aihc_object_is_young(%blackhole)
+  %plain = and i1 %no_waiters, %young
   br %plain, plain, waiters
 
 plain:

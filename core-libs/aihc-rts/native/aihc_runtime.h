@@ -13,9 +13,18 @@
    moves. The bound counts the object with its pinned block header. */
 #define AIHC_LARGE_OBJECT_BYTES (AIHC_REGION_BYTES / 2)
 
-#ifndef AIHC_SEMISPACE_BYTES
-#define AIHC_SEMISPACE_BYTES (UINT64_C(1024) * UINT64_C(1024))
+/* The defaults of the generational collector. The nursery is one run of
+   regions that the mutator fills with a bump pointer. Gen1 holds the
+   objects that survived one collection, up to its maximum. Gen2 holds the
+   rest, and a full collection runs when gen2 has grown by the factor since
+   the last one, or at least to the minimum. RTS options -A, -B, and -F
+   replace the first three. */
+#ifndef AIHC_NURSERY_BYTES
+#define AIHC_NURSERY_BYTES (UINT64_C(4) << 20)
 #endif
+#define AIHC_GEN1_MAX_BYTES (UINT64_C(16) << 20)
+#define AIHC_GEN2_MINIMUM_BYTES (UINT64_C(8) << 20)
+#define AIHC_GEN2_FACTOR UINT64_C(2)
 
 enum {
   AIHC_OBJECT_NODE,
@@ -174,6 +183,26 @@ struct AihcValue {
   AihcSlot fields[];
 };
 
+/* A block of an old generation: a run of regions that copied objects fill
+   with a bump pointer. The blocks of a generation form a list in
+   allocation order. */
+typedef struct AihcHeapBlock {
+  uint8_t *start;
+  uint8_t *next;
+  uint8_t *limit;
+  struct AihcHeapBlock *link;
+} AihcHeapBlock;
+
+/* An old generation. bytes is the capacity of its blocks. The scan fields
+   are the Cheney cursor of a collection that copies into the generation. */
+typedef struct {
+  AihcHeapBlock *first;
+  AihcHeapBlock *last;
+  uint64_t bytes;
+  AihcHeapBlock *scan_block;
+  uint8_t *scan;
+} AihcGeneration;
+
 typedef struct AihcForeignFrame {
   struct AihcForeignFrame *previous;
   AihcSlot *roots;
@@ -208,16 +237,21 @@ struct AihcMachine {
      that selects the stack of a thread writes this field, and compiled code
      loads it again. See aihc_stack_push. */
   uint8_t *stack_next;
+  /* The nursery: heap_start is its first byte, heap_limit its end less the
+     charge of fixed allocations since the last collection. */
   uint8_t *heap_start;
-  uint8_t *other_space;
-  uint64_t semispace_bytes;
-  uint64_t heap_max_bytes;
-  uint64_t heap_allocated_bytes;
-  uint8_t heap_limit_enabled;
   /* The info table of the frame at the bottom of each forked thread. Each
      thread gets its own copy of the frame on its own stack. */
   const AihcInfo *thread_done_info;
+  /* Compiled code reads this field at a fixed offset: six words and
+     sixteen bytes on every target, because only pointers and one 64-bit
+     count come before it. */
   AihcThread *current_thread;
+  uint64_t nursery_bytes;
+  uint64_t heap_max_bytes;
+  uint64_t heap_allocated_bytes;
+  uint8_t heap_limit_enabled;
+  uint8_t program_started;
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackholeTable *blackholes;
@@ -229,11 +263,9 @@ struct AihcMachine {
   AihcIoRequest *io_requests_head;
   AihcIoRequest *io_requests_tail;
   uint64_t io_request_count;
-  const AihcIoBackend *io_backend;
   uint64_t allocation_count;
   AihcResume selected_resume;
   int64_t exit_status;
-  uint64_t other_space_bytes;
   /* Allocation statistics include movable objects and complete pinned blocks.
      heap_alloc_base marks the start of uncounted mutator allocation.
      Collection and statistics queries add the span below heap_next.
@@ -241,17 +273,18 @@ struct AihcMachine {
      heap_peak_bytes records maximum occupied space, including pinned blocks.
      The collector also counts collections and their monotonic duration. */
   uint8_t *heap_alloc_base;
+  /* The remembered set: old objects that may hold a pointer to a younger
+     object. The barrier appends, and a collection empties the list. */
+  AihcValue **remembered;
   uint64_t heap_peak_bytes;
   uint64_t gc_count;
   uint64_t gc_time_ns;
   AihcTransactionTimer *transaction_timers;
-  /* The physical space includes the budget consumed by pinned blocks. */
-  uint64_t heap_space_bytes;
-  uint64_t pinned_bytes;
   struct AihcPinnedBlock *pinned_blocks;
+  /* The bytes of the pinned list: pinned blocks and large objects. */
+  uint64_t fixed_bytes;
   AihcValue *global_array;
   struct AihcRootFrame *root_frames;
-  uint8_t program_started;
   AihcForeignFrame *foreign_frames;
   AihcCallbackFrame *callback_frames;
   /* The stack of each thread that has not finished. The collector releases
@@ -259,12 +292,39 @@ struct AihcMachine {
   struct AihcStack *stacks;
   /* Released chunks that the next stack growth can use again. */
   struct AihcStackChunk *spare_chunks;
+  const AihcIoBackend *io_backend;
   uint64_t spare_chunk_count;
   /* The longest collection so far, in monotonic nanoseconds, and the bytes
      the last collection kept: the copied objects and the pinned blocks. */
   uint64_t gc_max_pause_ns;
   uint64_t heap_live_bytes;
+  /* The generations above the nursery: index zero is gen1. */
+  AihcGeneration generations[2];
+  uint64_t remembered_count;
+  uint64_t remembered_capacity;
+  uint64_t gen1_max_bytes;
+  uint64_t gen2_limit_bytes;
+  uint64_t gen2_factor;
+  /* The bytes of fixed allocations since the last collection. */
+  uint64_t fixed_since_gc;
+  uint64_t gc_minor_count;
+  uint64_t gc_gen1_count;
+  uint64_t gc_full_count;
 };
+
+/* The bounds of the nursery for the write barrier of compiled code: an
+   object is young when its address less the start is below the size. */
+extern uint8_t *aihc_nursery_start;
+extern uint64_t aihc_nursery_bytes;
+
+/* The write barrier. Compiled code calls it for a pointer store into an
+   object outside the nursery, and the C runtime calls it at each store of a
+   pointer into an existing object. */
+void aihc_write_barrier(AihcMachine *machine, AihcValue *object);
+/* A continue helper enters a frame in another stack chunk than the one the
+   stack pointer was in. New frames go above that frame, so the chunk is
+   young again. */
+void aihc_stack_enter_chunk(AihcMachine *machine, const AihcValue *frame);
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");

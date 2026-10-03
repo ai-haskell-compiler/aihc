@@ -28,14 +28,21 @@ The size accepts an optional `K`, `M`, `G`, or `T` binary unit.
 Lower-case units have the same meaning.
 The default heap size is unlimited.
 
-The semispace collector starts with a small space and grows it on demand.
-After each collection, the target capacity doubles until it holds twice the live data.
-The `-M` limit caps the shared budget for movable objects and pinned blocks.
-Pinned block charges include their allocation metadata and alignment padding.
-The collector stops when live data and the next reservation exceed this budget.
-It excludes the second space, unused capacity, collector metadata, and static objects.
+The limit bounds the objects of the old generations and the pinned list.
+It does not count the nursery, the unused part of a block, collector
+metadata, or static objects.
+When a collection cannot bring the heap below the limit, the collector runs a
+full collection, and the program stops if the heap is still above it.
 
-Static reference tables determine static object liveness for every collection.
+The `-A<size>` option sets the size of the nursery, 4 MiB by default.
+The `-B<size>` option sets the maximum size of gen1, 16 MiB by default.
+The `-F<factor>` option sets the growth of gen2 between two full collections,
+2 by default.
+The `wasm32-wasip3` host starts its machine before it parses the arguments,
+so a `-A` option takes effect only when the nursery is still empty.
+
+Static reference tables determine static object liveness in a full collection.
+A smaller collection reaches a static object only through the remembered set.
 
 ## Initialization and host scopes
 
@@ -150,14 +157,12 @@ kinds are:
 | --- | --- |
 | `OUTSIDE` | Memory the runtime did not acquire: static data, C allocations, or the memory of another allocator |
 | `FREE` | A region the runtime can acquire |
-| `SPACE` | A space of the semispace collector |
+| `NURSERY` | The nursery |
+| `GEN1`, `GEN2` | A block of gen1 or gen2 |
+| `FROM1`, `FROM2` | A block of gen1 or gen2 that the running collection copies away |
 | `LARGE` | A large object that never moves |
 | `PINNED` | A large pinned byte array or host buffer |
 | `STACK` | Sixteen stack chunks of 4 KiB |
-
-A pointer outside both spaces names an object that never moves. The
-collector marks such an object in its static address set and scans it in
-place. The region kind says which memory holds it.
 
 A released run waits in a free list for the next run that fits. When every
 region of a mapping is free and the free list holds more than 64 MiB, the
@@ -166,11 +171,85 @@ anonymous mapping. On `wasm32-wasip3` a region is one WebAssembly page, a
 mapping is one growth of the linear memory, and the memory never shrinks.
 The pages of the C allocator keep the kind `OUTSIDE`.
 
-An object of 32 KiB or more gets a run of regions of its own and never
-moves. The runtime puts a pinned block header in front of it, so the object
-is on the pinned list: the collector sweeps it like a pinned block, the IO
-layer finds it as a buffer owner, and the `-M` budget charges it like a pinned
-block. A pinned byte array below 32 KiB stays a C allocation.
+## Generations
+
+The heap has three generations. The nursery, generation zero, is one run of
+regions that compiled code fills with a bump pointer. Gen1 and gen2 are
+lists of blocks of 256 KiB that only the collector fills. A collection of
+the generations up to g copies every live object of those generations one
+generation up. The policy is:
+
+- A minor collection runs when the nursery is full. It copies the live
+  nursery objects into gen1.
+- When gen1 is above its maximum, the collection copies gen1 into gen2 as
+  well, and the nursery survivors into fresh gen1 blocks.
+- When gen2 has grown by the factor since the last full collection, or the
+  `-M` limit is near, the collection copies every generation.
+
+A copied object keeps its new address in its old header with the low two
+bits set to two. No live header has that pattern: the second bit is set only
+on a blackhole, whose first bit is set as well. Heap indirections in a
+copied generation are followed and not copied. An indirection in an older
+generation stays until a collection copies that generation.
+
+When the collector scans an object of generation k, it copies each referent
+that moves into generation k at least. Thus an old object points only at old
+objects after one scan. When a referent still ends younger, because an
+earlier reference copied it there, the object goes back to the remembered
+set.
+
+### Write barrier and remembered set
+
+A pointer store into an existing object outside the nursery records the
+object in the remembered set. Compiled code tests the nursery bounds, one
+subtraction and one unsigned compare against `aihc_nursery_start` and
+`aihc_nursery_bytes`, and calls `aihc_write_barrier` for every other
+object. The sites are the array and MutVar stores and compare-and-swap
+primitives in the Lir lowering, the inline thunk update in
+`aihc_helpers.lir`, the array copy in `aihc_array.lir`, and every store of
+a pointer into an existing object in the C runtime: thread resumption,
+MVar operations, blackhole waiters, IO requests, transactions, `aihc_update`,
+and `aihc_set_field`. A thunk update of an old blackhole takes the C path.
+
+The remembered set is a list of objects. A hot object enters it at every
+store, so the list is compacted when it is full, and before a collection
+scans it. A collection scans each entry with the generation of the entry
+as the floor of its referents and then drops the entry. An entry in a
+copied generation is dropped unscanned: the object is copied and scanned if
+it is live. A static entry is dropped unscanned in a full collection, which
+traces static objects through the reference tables alone, so an evaluated
+CAF that no live code reaches gives its value up.
+
+### Objects that never move
+
+A large object and a pinned block keep their generation and the mark of the
+running collection in the second slot of their pinned block header: the low
+56 bits are the charge, bits 56 to 59 the generation, and bit 63 the mark.
+A collection of the generations up to g frees every unmarked block of
+generation g or below. A marked block takes the generation of its first
+referrer, as a copied object does. A small pinned block is a C allocation
+outside every region. The collector tells it from a static object by its
+kind: the runtime allocates pinned only byte arrays and IO requests, and no
+static object has either kind.
+
+A static object is older than every generation. A full collection marks
+the static objects it reaches in an address set and scans each one once.
+
+### Stack chunk ages
+
+A continuation frame is write-once, so a stack chunk carries one age for
+its frames. A collection of the generations up to g scans the frames it
+reaches in chunks of generation g or below. When the collection ends, each
+chunk with a scanned frame takes generation g plus one, or the youngest
+generation its frames refer to when that is lower, so a collection of that
+generation scans the chunk again. The chunk of the running stack pointer
+stays young, because compiled code pushes into it without a runtime call.
+
+A chunk becomes young again when the stack pointer enters it from above.
+The continue helpers compare the stack limit of the entered frame with the
+previous one and call `aihc_stack_enter_chunk` on a change. A resumed
+thread makes the chunk of its continuation young in `aihc_lir_take_resume`,
+and a new or reused chunk starts young.
 
 Stack chunks come from `STACK` regions. A released chunk goes to the spare
 list of the machine and is used again. Stack regions are not in the heap
@@ -183,7 +262,7 @@ runtime statistics of a program. When the program exits normally, the runtime
 writes one JSON object to that file:
 
 ```json
-{"schema": 2, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0}
+{"schema": 3, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0, "gc_minor_count": 0, "gc_gen1_count": 0, "gc_full_count": 0}
 ```
 
 A normal exit is a return from `main` or an `exitWith` call. A runtime failure
@@ -198,7 +277,10 @@ writes no file. An empty value counts as an unset variable.
 - `gc_time_ns` is the monotonic time the collections took, in nanoseconds.
 - `gc_max_pause_ns` is the monotonic time of the longest collection, in nanoseconds.
 - `live_bytes` is the occupied space directly after the last collection.
-  It counts the copied objects and the pinned blocks.
+  It counts the objects of the old generations and the pinned blocks.
+- `gc_minor_count`, `gc_gen1_count`, and `gc_full_count` count the
+  collections that copied the nursery alone, the nursery and gen1, and
+  every generation.
 
 ### Allocation profile
 
@@ -314,14 +396,15 @@ changes the same object to `INDIRECTION` and writes the returned heap pointer
 into its first payload word. There is no separate cell allocation.
 
 Exceptions have no native heap tag or object representation. They are removed
-before native runtime lowering. The final physical tag is the semispace
-collector's temporary forwarding marker.
+before native runtime lowering. The final physical tag is the collector's
+temporary forwarding marker.
 
-The semispace collector does not copy heap indirections. When it forwards a
-pointer to an indirection, it follows the chain and stores the final target.
-The new space therefore holds no indirection after a collection. Static
-indirections stay in place, because static objects do not move. The collector
-forwards their targets instead.
+The collector does not copy heap indirections of the generations it copies.
+When it forwards a pointer to such an indirection, it follows the chain and
+stores the final target, so the copied objects hold no indirection after a
+collection. An indirection of an older generation stays until a collection
+copies that generation. Static indirections stay in place, because static
+objects do not move. The collector forwards their targets instead.
 
 The collector has a fuzz test in `Test.Native.GcFuzz`. The test generates
 random scripts that build heaps through the runtime interface, change them,
@@ -492,11 +575,12 @@ A collection inside a runtime helper passes no table: the helper is reached by a
 Suspended code uses a continuation closure with a table in its info table.
 
 No section and no table lists the static objects. The collector finds them by
-address: a pointer that is outside both spaces of the managed heap names an
-object that never moves. Each collection records the addresses it marks in a
-hash set and scans each object once through its info table, so an evaluated
-CAF gets its target forwarded like any heap field. A nullary constructor has
-no fields, so marking it does nothing.
+address: a pointer outside every region of the managed heap names an object
+that never moves. A full collection records the addresses it marks in a hash
+set and scans each object once through its info table, so an evaluated CAF
+gets its target forwarded like any heap field. A smaller collection scans
+only the static objects in the remembered set. A nullary constructor has no
+fields, so marking it does nothing.
 
 Every object that compiled code can store in a pointer field carries an info
 table. Byte arrays have the `AIHC_OBJECT_BYTE_ARRAY` kind.

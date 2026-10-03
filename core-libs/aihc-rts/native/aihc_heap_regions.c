@@ -250,6 +250,15 @@ void aihc_regions_release(void *base) {
   }
 }
 
+void aihc_regions_set_kind(void *base, AihcRegionKind kind) {
+  AihcRegionEntry *entry = aihc_region_entry(base, 0);
+  if (entry == NULL || entry->mapping == NULL || entry->run == 0 ||
+      kind == AIHC_REGION_OUTSIDE || kind == AIHC_REGION_FREE) {
+    aihc_fail("relabeled memory is not an acquired run");
+  }
+  aihc_regions_mark(base, entry->run, entry->mapping, kind, entry->run);
+}
+
 AihcRegionKind aihc_region_kind(const void *address) {
   const AihcRegionEntry *entry = aihc_region_entry(address, 0);
   return entry == NULL ? AIHC_REGION_OUTSIDE : (AihcRegionKind)entry->kind;

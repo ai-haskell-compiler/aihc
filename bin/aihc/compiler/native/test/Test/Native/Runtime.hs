@@ -62,7 +62,7 @@ runtimeProgramTestWith name programArguments extraEnvironment source check =
       -- The tiny semispace forces a collection in every one of these
       -- programs, so the runtime archive is built for this test rather than
       -- taken from the store. Every test here shares that one archive.
-      build <- cachedRuntimeArchive Llvm ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_SEMISPACE_BYTES=64"]
+      build <- cachedRuntimeArchive Llvm ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_NURSERY_BYTES=64"]
       let executable = directory </> "program"
           arguments =
             ["-std=c11", "-Wall", "-Wextra", "-Werror"]
@@ -267,7 +267,7 @@ byteArraySource =
     ]
 
 -- | Build a list of 1000 cells while every cell stays live. The list needs
--- 16000 bytes, so the 64-byte initial space must grow several times.
+-- 16000 bytes, so the 64-byte nursery collects several times.
 growthSource :: String
 growthSource =
   unlines
@@ -306,7 +306,7 @@ growthSource =
       "  }",
       "  if (aihc_value_info(cursor) != 2) return 1;",
       "  if (length != 1000) return 2;",
-      "  if (machine->semispace_bytes < 16000) return 3;",
+      "  if (machine->gc_count == 0) return 3;",
       "  return 0;",
       "}"
     ]
@@ -463,8 +463,8 @@ runtimeStatisticsTest name requested ending =
           assertBool "the statistics file exists" present
           decoded <- eitherDecodeFileStrict (statisticsFile directory)
           statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
-          assertEqual "field names" ["allocated_bytes", "gc_count", "gc_max_pause_ns", "gc_time_ns", "live_bytes", "peak_heap_bytes", "schema"] (Map.keys statistics)
-          assertEqual "schema" (Just 2) (Map.lookup "schema" statistics)
+          assertEqual "field names" ["allocated_bytes", "gc_count", "gc_full_count", "gc_gen1_count", "gc_max_pause_ns", "gc_minor_count", "gc_time_ns", "live_bytes", "peak_heap_bytes", "schema"] (Map.keys statistics)
+          assertEqual "schema" (Just 3) (Map.lookup "schema" statistics)
           -- After the counter reset, one leaf and 1000 cells use 8 + 1000 * 16 bytes.
           assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)
           assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16008)
