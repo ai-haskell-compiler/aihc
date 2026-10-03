@@ -183,7 +183,8 @@ typecheckModuleSccWithInterface config imported resolved
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
   initTcState
-    { tcsGlobalTerms = Map.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
+    { tcsNextUnique = tcInterfaceUniqueBound imported,
+      tcsGlobalTerms = Map.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
       tcsGlobalTyCons = tcInterfaceTyConMap imported <> tcsGlobalTyCons initTcState,
       tcsDataTypes = tcInterfaceDataTypeMap imported,
       tcsClasses = tcInterfaceClassMap imported,
@@ -209,7 +210,8 @@ tcInterfaceDifference initial state =
       tcInterfaceDataFamilyInstanceMap = newEntries (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial),
       tcInterfaceTypeFamilyInstanceMap = newEntries (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial),
       tcInterfacePatSynMap = newEntries (tcsPatSyns state) (tcsPatSyns initial),
-      tcInterfaceForeignImportMap = newEntries (tcsForeignImports state) (tcsForeignImports initial)
+      tcInterfaceForeignImportMap = newEntries (tcsForeignImports state) (tcsForeignImports initial),
+      tcInterfaceUniqueBound = tcsNextUnique state
     }
   where
     -- These tables only gain keys. Equal sizes thus mean no new facts.
