@@ -1,0 +1,124 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  import GHC.Prim
+  import GHC.Types (Int (..), Word (..))
+
+  -- The outer conversion undoes the inner one, so the pair goes away.
+  roundTrip :: Word -> Word
+  roundTrip (W# w) = W# (int2Word# (word2Int# w))
+
+  -- A narrowing conversion of a widened value goes away too.
+  narrowWidened :: Word -> Word
+  narrowWidened (W# w) = W# (word32ToWord# (wordToWord32# (word32ToWord# (wordToWord32# w))))
+
+  -- A widening of a narrowed value drops bits, so it stays.
+  widenNarrowed :: Word -> Word
+  widenNarrowed (W# w) = W# (word8ToWord# (wordToWord8# w))
+
+  -- An operand that leaves the other operand unchanged goes away.
+  offsets :: Int -> Addr# -> Int
+  offsets (I# n) a = case plusAddr# a 0# of
+    b -> I# ((n +# 0#) -# (0# +# minusAddr# b a))
+
+  -- The state token is a constant, so each copy of it is the call.
+  readTwice :: Addr# -> Int
+  readTwice a =
+    let s = realWorld#
+     in case readIntOffAddr# a 0# s of
+          (# s', x #) -> case readIntOffAddr# a 1# s' of
+            (# _, y #) -> I# (x +# y)
+passes:
+- simplify
+status: pass
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tAddr# :: 3.tTYPE 3.cAddrRep;
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    2.tRealWorld :: 3.sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep))));
+    3.sType :: 3.sType;
+    constructors [3.cW#] 3.tWord :: 3.sType;
+    2.tWord# :: 3.tTYPE 3.cWordRep;
+    2.tWord32# :: 3.tTYPE 3.cWord32Rep;
+    2.tWord8# :: 3.tTYPE 3.cWord8Rep;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cAddrRep :: 3.tRuntimeRep;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). FUN @r1 @3.sLiftedRep a1 (FUN @r2 @(3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep)))) a2 (3.tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.cW# :: FUN @3.cWordRep @3.sLiftedRep 2.tWord# 3.tWord;
+    3.cWord32Rep :: 3.tRuntimeRep;
+    3.cWord8Rep :: 3.tRuntimeRep;
+    3.cWordRep :: 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub val 1.vroundTrip :: 3.tWord 3.→ 3.tWord
+   = λ(x : 3.tWord).
+    case x as (_scrut : 3.tWord) return (3.tWord) of {
+        3.cW# (w : 2.tWord#) →
+            3.cW# w
+    }
+
+  pub val 1.vnarrowWidened :: 3.tWord 3.→ 3.tWord
+   = λ(x : 3.tWord).
+    case x as (_scrut : 3.tWord) return (3.tWord) of {
+        3.cW# (w : 2.tWord#) →
+            3.cW# (foreign {prim 2.vword32ToWord# :: FUN @3.cWord32Rep @3.cWordRep 2.tWord32# 2.tWord#} (foreign {prim 2.vwordToWord32# :: FUN @3.cWordRep @3.cWord32Rep 2.tWord# 2.tWord32#} w))
+    }
+
+  pub val 1.vwidenNarrowed :: 3.tWord 3.→ 3.tWord
+   = λ(x : 3.tWord).
+    case x as (_scrut : 3.tWord) return (3.tWord) of {
+        3.cW# (w : 2.tWord#) →
+            3.cW# (foreign {prim 2.vword8ToWord# :: FUN @3.cWord8Rep @3.cWordRep 2.tWord8# 2.tWord#} (foreign {prim 2.vwordToWord8# :: FUN @3.cWordRep @3.cWord8Rep 2.tWord# 2.tWord8#} w))
+    }
+
+  pub val 1.voffsets :: 3.tInt 3.→ FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 3.tInt
+   = λ(x : 3.tInt).
+    λ(y : 2.tAddr#).
+      case x as (_scrut : 3.tInt) return (3.tInt) of {
+          3.cI# (n : 2.tInt#) →
+              3.cI# (foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} n (foreign {prim 2.vminusAddr# :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (FUN @3.cAddrRep @3.cIntRep 2.tAddr# 2.tInt#)} y y))
+      }
+
+  pub val 1.vreadTwice :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 3.tInt
+   = λ(x : 2.tAddr#).
+    let {
+        _case : 3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# 2.tRealWorld) 2.tInt# =
+            foreign {prim 2.vreadIntOffAddr# :: ∀(d : 3.sType). FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.cIntRep (3.c[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# d) 2.tInt#)))} @2.tRealWorld x 0#3.cIntRep (foreign {prim 2.vrealWorld# :: 2.tState# 2.tRealWorld})
+    } in
+        case _case as (_scrut : 3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# 2.tRealWorld) 2.tInt#) return (3.tInt) of {
+            3.cTuple2# (s' : 2.tState# 2.tRealWorld) (x{1} : 2.tInt#) →
+                let {
+                    _case{1} : 3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# 2.tRealWorld) 2.tInt# =
+                        foreign {prim 2.vreadIntOffAddr# :: ∀(d : 3.sType). FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.cIntRep (3.c[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# d) 2.tInt#)))} @2.tRealWorld x 1#3.cIntRep s'
+                } in
+                    case _case{1} as (_scrut{1} : 3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# 2.tRealWorld) 2.tInt#) return (3.tInt) of {
+                        3.cTuple2# (_pat : 2.tState# 2.tRealWorld) (y : 2.tInt#) →
+                            3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} y)
+                    }
+        }

@@ -2,6 +2,11 @@
 
 -- | Fold a primitive applied to literals.
 --
+-- 'foldForeignCall' also removes two kinds of call that give back an
+-- operand: a conversion of a value that the inverse conversion made, and
+-- an operation whose other operand is its identity, such as
+-- @plusAddr# a 0#@.
+--
 -- The inliner substitutes trivial bindings and reduces known cases, which
 -- leaves primitive calls whose every operand is a literal: @int2Word# 0#@
 -- in a constructor field, or @x <# 10#@ after @x@ became a literal. This
@@ -34,6 +39,7 @@ where
 import Aihc.Fc.Name (nameText)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv, reduceType)
+import Control.Applicative ((<|>))
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, setBit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.Char qualified as Char
 import Data.Map.Strict (Map)
@@ -293,11 +299,81 @@ normalize rep value =
       let low = unsigned bits
        in if low >= shiftL 1 (bits - 1) then low - shiftL 1 bits else low
 
+-- | Fold a System FC primitive call: remove a conversion that its
+-- argument undoes, or compute a call whose arguments are literals.
+foldForeignCall :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+foldForeignCall env call types arguments =
+  cancelConversion call types arguments <|> dropIdentityOperand call types arguments <|> foldLiteralCall env call types arguments
+
+-- | Remove a conversion that undoes the conversion of its argument:
+-- @int2Word# (word2Int# x)@ is @x@. Each pair keeps every bit of @x@, so
+-- the result is @x@ for every value. A narrowing conversion of a widened
+-- value is such a pair, but a widening of a narrowed value is not, since
+-- the narrowing drops bits.
+cancelConversion :: ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+cancelConversion call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  [] <- Just types
+  [ExForeignCall inner [] [value]] <- Just arguments
+  Prim <- Just (foreignCallConvention inner)
+  outer <- Map.lookup (nameText (foreignCallName call)) inverseConversions
+  if outer == nameText (foreignCallName inner) then Just value else Nothing
+
+-- | Remove an operation whose literal operand leaves the other operand as
+-- it is: @plusAddr# a 0#@ is @a@. Only an operation that cannot fail and
+-- that gives the other operand back for every value is here.
+dropIdentityOperand :: ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+dropIdentityOperand call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  [] <- Just types
+  [left, right] <- Just arguments
+  (rightIdentity, leftIdentity) <- Map.lookup (nameText (foreignCallName call)) identityOperands
+  case (left, right) of
+    (_, ExLit (LitInt _ value)) | Just value == rightIdentity -> Just left
+    (ExLit (LitInt _ value), _) | Just value == leftIdentity -> Just right
+    _ -> Nothing
+
+-- | The operations that 'dropIdentityOperand' removes, with the literal
+-- that leaves the left operand unchanged when it is on the right, and the
+-- literal that leaves the right operand unchanged when it is on the left.
+identityOperands :: Map Text (Maybe Integer, Maybe Integer)
+identityOperands =
+  Map.fromList
+    [ ("plusAddr#", (Just 0, Nothing)),
+      ("+#", (Just 0, Just 0)),
+      ("-#", (Just 0, Nothing)),
+      ("plusWord#", (Just 0, Just 0)),
+      ("minusWord#", (Just 0, Nothing)),
+      ("or#", (Just 0, Just 0)),
+      ("xor#", (Just 0, Just 0))
+    ]
+
+-- | Each conversion, with the conversion whose result it takes back to the
+-- original value.
+inverseConversions :: Map Text Text
+inverseConversions =
+  Map.fromList
+    [ ("int2Word#", "word2Int#"),
+      ("word2Int#", "int2Word#"),
+      ("word64ToInt64#", "int64ToWord64#"),
+      ("int64ToWord64#", "word64ToInt64#"),
+      ("wordToWord64#", "word64ToWord#"),
+      ("word64ToWord#", "wordToWord64#"),
+      ("intToInt64#", "int64ToInt#"),
+      ("int64ToInt#", "intToInt64#"),
+      ("wordToWord8#", "word8ToWord#"),
+      ("wordToWord16#", "word16ToWord#"),
+      ("wordToWord32#", "word32ToWord#"),
+      ("intToInt8#", "int8ToInt#"),
+      ("intToInt16#", "int16ToInt#"),
+      ("intToInt32#", "int32ToInt#")
+    ]
+
 -- | Fold a System FC primitive call whose arguments are literals. The
 -- literal that comes back carries the result representation the call's
 -- type names, which has to be the representation the fold produced.
-foldForeignCall :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
-foldForeignCall env call types arguments = do
+foldLiteralCall :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+foldLiteralCall env call types arguments = do
   Prim <- Just (foreignCallConvention call)
   [] <- Just types
   operands <- mapM literalOperand arguments

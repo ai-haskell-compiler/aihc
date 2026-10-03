@@ -331,7 +331,9 @@ simplifyExpr env expr =
       | Just pushed <- pushHeadCasts expr -> simplifyExpr env pushed
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
-    ExLam binder body -> ExLam binder <$> simplifyExpr (markUnlifted [binder] (passLambda env)) body
+    ExLam binder body -> do
+      body' <- simplifyExpr (markUnlifted [binder] (passLambda env)) body
+      ExLam binder <$> readFieldsInside env body'
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
       let binder = bindBinder bind
@@ -379,6 +381,66 @@ simplifyExpr env expr =
         Nothing -> do
           let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
           pure (maybe call' ExVar (Map.lookup call' (spCse env)))
+
+-- | Read the fields of a known constructor inside a lambda that uses both
+-- the constructor and its fields: @λx. f b v@ where @b@ is @K v@ is
+-- @λx. case b of K v' -> f b v'@. The closure of the lambda then holds
+-- @b@ only, and does not hold each field beside it. The case selects the
+-- fields of a value, so it reads them and evaluates nothing.
+--
+-- Such a lambda comes from a case of a known constructor inside it,
+-- which put the field where the code read it from @b@. A chain of
+-- continuation closures, such as the reads of the @Get@ monad, each hold
+-- every earlier value, so each value held twice doubles every closure.
+--
+-- The case needs the result type of the body, which the body must show.
+readFieldsInside :: Simpl -> Expr -> SimplM Expr
+readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
+  where
+    readFields body (name, application)
+      | Set.member name used,
+        (ExVar con, args) <- collectSpine application,
+        isConstructorName con,
+        Just fields <- mapM fieldVariable (rights args),
+        any (`Set.member` used) fields,
+        name `notElem` fields,
+        Just (fieldTypes, conResult) <- constructorFields (lefts args) con,
+        length fieldTypes == length fields,
+        isLiftedType (spEnv env) conResult,
+        Just resultType <- tailType env body = do
+          fresh <- mapM freshLocal fields
+          binder <- freshLocal name
+          let renamed = substExpr (Map.fromList (zip fields (map ExVar fresh))) body
+              binders = zipWith Binder fresh fieldTypes
+          pure (ExCase (ExVar name) (Binder binder conResult) resultType [Alt (AltData con) [] binders renamed])
+      | otherwise = pure body
+      where
+        used = exprValueNames body
+    fieldVariable argument =
+      case argument of
+        ExVar var -> Just var
+        _ -> Nothing
+    -- The field types and the result type of a constructor at its type
+    -- arguments. A constructor with an existential type takes more type
+    -- arguments than its result type has, and gives nothing: the
+    -- alternative would have to bind the existential types.
+    constructorFields types con = do
+      conType <- lookupHeaderType (spEnv env) con
+      instantiated <- foldM instantiate conType types
+      (fieldTypes, result) <- split instantiated
+      let (_, resultArgs) = typeSpine (reduceType (spEnv env) result)
+      if length resultArgs == length types then Just (fieldTypes, result) else Nothing
+    instantiate ty argument = do
+      (binder, inner) <- viewForAll (spEnv env) ty
+      Just (substType (binderName binder) argument inner)
+    split ty =
+      case viewFun (spEnv env) ty of
+        Just (_, _, argument, result) -> do
+          (arguments, final) <- split result
+          Just (argument : arguments, final)
+        Nothing
+          | Just _ <- viewForAll (spEnv env) ty -> Nothing
+          | otherwise -> Just ([], ty)
 
 -- | Whether an expression starts a chain: a let, or a case of one
 -- alternative. See 'floatChain'.
@@ -1931,6 +1993,9 @@ isTrivial expr =
     -- that function.
     ExTyLam _ body -> isTrivial body
     ExCast body _ -> isTrivial body
+    -- The state token is a constant of no width, so a copy of the call
+    -- costs nothing and does nothing.
+    ExForeignCall call [] [] -> foreignCallConvention call == Prim && nameText (foreignCallName call) == "realWorld#"
     _ -> False
 
 collectSpine :: Expr -> (Expr, [Arg])
