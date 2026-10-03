@@ -41,6 +41,7 @@ Read this part if you change the compiler or its run-time system.
 | [github.com/ai-haskell-compiler/aihc](https://github.com/ai-haskell-compiler/aihc) | Source code, issues, and progress counts |
 | [blog.aihc.app](https://blog.aihc.app/) | Weekly progress notes |
 | [perf.aihc.app](https://perf.aihc.app/) | Compile time, artifact size, and run time compared with GHC |
+| [Discord](https://discord.gg/uGWkhMCZrZ) | Chat with the AIHC community |
 
 ## Status
 
