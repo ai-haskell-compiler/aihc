@@ -84,7 +84,7 @@ renderClassAnnotation classAnnotation =
         <> " → "
         <> unwords (map classParamName (fdDetermined dependency))
     classParamName index =
-      case drop index (tcClassTyVars classAnnotation) of
+      case drop index (tcClassTyVars classAnnotation <> tcClassKindTyVars classAnnotation) of
         variable : _ -> T.unpack (tvName variable)
         [] -> "?"
 

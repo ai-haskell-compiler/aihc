@@ -98,5 +98,5 @@ expression: |
   failures
 output: |
   []
-status: xfail
+status: pass
 reason: a lifted instance inherits its dependency from its context, as the mtl classes do, which the liberal coverage condition allows

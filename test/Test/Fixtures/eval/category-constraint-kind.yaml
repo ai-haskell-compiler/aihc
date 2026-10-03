@@ -1,0 +1,21 @@
+extensions: [ConstraintKinds, GADTs, KindSignatures, RankNTypes, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, GADTs, KindSignatures, RankNTypes, TypeOperators #-}
+    module Test where
+    import Control.Category
+    import Data.Kind (Constraint)
+    import Prelude hiding (id, (.))
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    newtype Sub a b = Sub (a => Dict b)
+    instance Category Sub where
+      id = Sub Dict
+      Sub f . Sub g = Sub (case g of Dict -> f)
+    answer = case (id :: Sub (Eq Bool) (Eq Bool)) of
+      Sub value -> case value of Dict -> True == True
+expression: answer
+output: |
+  True
+status: pass
+reason: Category accepts a constructor with arguments of kind Constraint.

@@ -1105,7 +1105,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
       case drop (superClassCount + tcClassMethodIndex method) fields of
         field : _ -> pure field
         [] -> failValue ("invalid class method index for " <> T.unpack (tcClassMethodName method))
-    extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (`notElem` classTyVars) (tcClassMethodTyVars method))
+    extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method))
     resultType' <- convertCheckedType resultType
     let extraDictionaries = drop 1 dictionaries
         selectedExpr =
@@ -1140,7 +1140,7 @@ methodFieldType className classTyVars method = do
     case removeClassPredicate predicates of
       Just result -> pure result
       Nothing -> failValue ("class method lacks its class predicate for " <> T.unpack className)
-  let extraVariables = filter (`notElem` classTyVars) methodVariables
+  let extraVariables = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) methodVariables
       qualifiedBody = if null remaining then body else TcQualTy remaining body
   pure (foldr TcForAllTy qualifiedBody extraVariables)
   where
@@ -1264,7 +1264,7 @@ instanceMethodFieldType :: TcInstanceAnnotation -> TcClassMethodAnnotation -> Tc
 instanceMethodFieldType annotation method = foldr TcForAllTy qualified extraTyVars
   where
     classTyVars = tcInstanceClassTyVars annotation
-    extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+    extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
     substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
     (_, afterForAlls) = peelForAlls (tcClassMethodType method)
     (predicates, methodBody) = peelConstraints afterForAlls
@@ -1323,7 +1323,7 @@ desugarMissingMethod annotation methodName = do
       [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
   let classTyCon = tcInstanceClassTyCon annotation
       classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+      extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, methodBody) = peelConstraints methodAfterForAlls
@@ -1361,7 +1361,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
   convertedHeadTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   convertedInstanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
   let classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+      extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls

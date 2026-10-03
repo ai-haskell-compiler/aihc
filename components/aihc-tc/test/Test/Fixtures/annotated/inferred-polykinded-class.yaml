@@ -1,0 +1,23 @@
+extensions: [ConstraintKinds, FlexibleInstances, GADTs, MultiParamTypeClasses, PolyKinds, RankNTypes]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, FlexibleInstances, GADTs, MultiParamTypeClasses, PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types (Constraint, Type)
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    newtype Sub a b = Sub (a => Dict b)
+    class Lift p f where
+      lift :: Sub (p a) (p (f a))
+    class C a
+    instance C a
+    class D (f :: k -> Type)
+    instance D f
+    data Box a = Box a
+    data Compose f g a = Compose (f (g a))
+    instance Lift C Box where
+      lift = Sub Dict
+    instance Lift D (Compose f) where
+      lift = Sub Dict
+status: pass
+reason: One class accepts both Type and function kinds.
