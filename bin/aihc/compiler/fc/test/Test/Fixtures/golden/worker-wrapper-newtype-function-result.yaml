@@ -1,0 +1,81 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (count) where
+
+  import GHC.Prim ((+#), (-#))
+  import GHC.Types (Int (..))
+
+  newtype Step = Step (Int -> Int)
+
+  apply :: Step -> Int -> Int
+  apply (Step f) = f
+
+  count :: Int -> Step
+  count n = Step (\acc -> case n of
+    I# 0# -> acc
+    I# k -> case acc of
+      I# a -> apply (count (I# (k -# 1#))) (I# (a +# k)))
+passes:
+- eta
+- inline: shrink
+- worker-wrapper
+- simplify: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tStep :: 3.sType {}
+
+  axiom 1.$ax$Step : 1.tStep ~R 3.tInt 3.→ 3.tInt
+
+  pub val 1.vcount inline :: 3.tInt 3.→ 1.tStep
+   = λ(x : 3.tInt).
+    (λ(acc : 3.tInt).
+      case x as (wrapped : 3.tInt) return (3.tInt) of {
+          3.cI# (x{1} : 2.tInt#) →
+              case acc as (wrapped{1} : 3.tInt) return (3.tInt) of {
+                  3.cI# (acc{1} : 2.tInt#) →
+                      1.v$wcount x{1} acc{1}
+              }
+      }) ▷ sym (axiom-co 1.$ax$Step)
+
+  val 1.v$wcount :: FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# (FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# 3.tInt)
+   = λ(x : 2.tInt#).
+    λ(acc : 2.tInt#).
+      case x as (_scrut : 2.tInt#) return (3.tInt) of {
+          0#3.cIntRep →
+              3.cI# acc;
+          _ →
+              let {
+                  argument : 2.tInt# =
+                      foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} acc _scrut
+              } in
+                  let {
+                      argument{1} : 2.tInt# =
+                          foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut 1#3.cIntRep
+                  } in
+                      1.v$wcount argument{1} argument
+      }
+status: pass
+reason: The result of count is a newtype of a function, so its last lambda stands under a cast, as the state lambda of an IO action does. The demand analysis counts that lambda. The worker takes it too, and the case of the wrapper stands under it, so the wrapper evaluates the counter only when the function runs.
