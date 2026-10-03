@@ -74,17 +74,59 @@ finalizeOtherAnnotationTc ann =
   case fromAnnotation @PendingTcAnnotation ann of
     Just pending -> mkAnnotation <$> annotationForPendingTc pending
     Nothing ->
-      case fromAnnotation @TcPatSynAnnotation ann of
-        Just patSyn -> do
-          -- The matcher, builder, and selector equations live inside the
-          -- annotation. The walk does not enter an annotation payload.
-          matcher <- traverseAnnotations finalizeAnnotationTc (tcPatSynMatcher patSyn)
-          builder <- traverse (traverseAnnotations finalizeAnnotationTc) (tcPatSynBuilder patSyn)
-          selectors <- traverse (traverse (traverseAnnotations finalizeAnnotationTc)) (tcPatSynSelectors patSyn)
-          pure (mkAnnotation (TcPatSynAnnotation matcher builder selectors))
-        Nothing -> do
-          rejectMetaFinalAnnotation ann
-          pure ann
+      case fromAnnotation @TcInstanceMethodAnnotation ann of
+        Just (TcInstanceMethodAnnotation name ty) -> do
+          finalized <- finalizeType ty
+          rejectMeta "instance method annotation" (firstMetaType finalized)
+          pure (mkAnnotation (TcInstanceMethodAnnotation name finalized))
+        Nothing ->
+          case fromAnnotation @TcInstanceAnnotation ann of
+            Just instanceAnnotation -> mkAnnotation <$> finalizeInstanceAnnotation instanceAnnotation
+            Nothing -> finalizeOtherCheckedAnnotationTc ann
+
+-- | Finalize the type and kind copies that an instance header retains.
+finalizeInstanceAnnotation :: TcInstanceAnnotation -> TcM TcInstanceAnnotation
+finalizeInstanceAnnotation annotation = do
+  dictionaryType <- finalizeType (tcInstanceDictType annotation)
+  variables <- mapM defaultTyVarKinds (tcInstanceTyVars annotation)
+  headTypes <- mapM finalizeType (tcInstanceHeadTypes annotation)
+  classVariables <- mapM defaultTyVarKinds (tcInstanceClassTyVars annotation)
+  methods <- mapM finalizeMethod (tcInstanceClassMethods annotation)
+  let finalized =
+        annotation
+          { tcInstanceDictType = dictionaryType,
+            tcInstanceTyVars = variables,
+            tcInstanceHeadTypes = headTypes,
+            tcInstanceClassTyVars = classVariables,
+            tcInstanceClassMethods = methods
+          }
+  rejectMetaFinalAnnotation (mkAnnotation finalized)
+  pure finalized
+  where
+    finalizeMethod method = do
+      ty <- finalizeType (tcClassMethodType method)
+      variables <- mapM defaultTyVarKinds (tcClassMethodTyVars method)
+      dictionaryType <- finalizeType (tcClassMethodDictType method)
+      pure
+        method
+          { tcClassMethodType = ty,
+            tcClassMethodTyVars = variables,
+            tcClassMethodDictType = dictionaryType
+          }
+
+finalizeOtherCheckedAnnotationTc :: Annotation -> TcM Annotation
+finalizeOtherCheckedAnnotationTc ann =
+  case fromAnnotation @TcPatSynAnnotation ann of
+    Just patSyn -> do
+      -- The matcher, builder, and selector equations live inside the
+      -- annotation. The walk does not enter an annotation payload.
+      matcher <- traverseAnnotations finalizeAnnotationTc (tcPatSynMatcher patSyn)
+      builder <- traverse (traverseAnnotations finalizeAnnotationTc) (tcPatSynBuilder patSyn)
+      selectors <- traverse (traverse (traverseAnnotations finalizeAnnotationTc)) (tcPatSynSelectors patSyn)
+      pure (mkAnnotation (TcPatSynAnnotation matcher builder selectors))
+    Nothing -> do
+      rejectMetaFinalAnnotation ann
+      pure ann
 
 annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do

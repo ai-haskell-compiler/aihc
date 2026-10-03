@@ -51,10 +51,10 @@ annotated:
   └─ class methods: explicit ∷ ∀ k0 k1 k2 k3 t p q a b. (Explicit t) ⇒ (∀ a b. p a b → q a b) → t p a b → t q a b
     explicit :: (forall a b. p a b -> q a b) -> forall a b. t p a b -> t q a b
   instance Explicit Flip where
-  └─ $fExplicitFlip ∷ () ⇒ Explicit Flip
+  └─ $fExplicitFlip ∷ ∀ k0 k1. () ⇒ Explicit Flip
     explicit f (Flip p) = Flip (f p)
     │        │  │    │    │     └─ type: p b a → q b a; type-args: b, a
-    │        │  │    │    └─ type: q b a → Flip q a b; type-args: Type, Type, q, a, b
+    │        │  │    │    └─ type: q b a → Flip q a b; type-args: k0, k1, q, a, b
     │        │  │    └─ type: p b a
     │        │  └─ type: Flip p a b
     │        └─ type: ∀ a b. p a b → q a b
@@ -63,10 +63,10 @@ annotated:
           │            └─ type: ∀ k0 k1 p a b. p b a → Flip p a b
           └─ type: (k0 → k1 → Type) → k1 → k0 → Type
   instance BifunctorFunctor Flip where
-  └─ $fBifunctorFunctorFlip ∷ () ⇒ BifunctorFunctor Flip
+  └─ $fBifunctorFunctorFlip ∷ ∀ k0 k1. () ⇒ BifunctorFunctor Flip
     bifmap f (Flip p) = Flip (f p)
     │      │  │    │    │     └─ type: p b a → q b a; type-args: b, a
-    │      │  │    │    └─ type: q b a → Flip q a b; type-args: Type, Type, q, a, b
+    │      │  │    │    └─ type: q b a → Flip q a b; type-args: k0, k1, q, a, b
     │      │  │    └─ type: p b a
     │      │  └─ type: Flip p a b
     │      └─ type: ∀ a b. p a b → q a b

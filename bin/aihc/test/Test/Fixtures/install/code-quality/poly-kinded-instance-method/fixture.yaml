@@ -1,0 +1,6 @@
+status: pass
+reason: Partial type applications must retain checked kind arguments through instance methods, derived instances, and Typeable evidence.
+needs-base: true
+no-code: false
+expect-type-constructors:
+  - [Public, [Tannen]]

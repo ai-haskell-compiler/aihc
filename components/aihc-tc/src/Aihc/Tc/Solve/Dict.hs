@@ -656,7 +656,10 @@ typeableArguments ty =
     TcTyLit {} -> Nothing
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
-    TcAppTy {} -> Nothing
+    TcAppTy {} ->
+      case collectTypeApplications ty of
+        (TcKindedTyCon {}, arguments) -> Just arguments
+        _ -> Nothing
 
 -- | The rewrite rule sets that the given equalities permit, most
 -- specific first. Each rule's coercion proves @from ~ to@.
@@ -881,11 +884,12 @@ typeableConstructor ty = do
       kindArguments <- mapM zonkKind (instTypeArgs instantiated)
       metadata <- typeableTyConMetadata constructor
       pure (metadata, kindArguments)
-    -- A bare poly-kinded constructor carries the kind arguments of its use.
+    -- A poly-kinded constructor carries the kind arguments of its use.
     TcKindedTyCon constructor kindArguments -> do
       zonked <- mapM zonkKind kindArguments
       metadata <- typeableTyConMetadata constructor
       pure (metadata, zonked)
+    TcAppTy function _ -> typeableConstructor function
     TcFunTy {} -> do
       let lifted = TypeableKindType (liftedRep kinds)
       constructor <- wiredTyCon tcWiringArrowTyCon (TcFunTy (typeKind kinds) (TcFunTy (typeKind kinds) (typeKind kinds)))
