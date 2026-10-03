@@ -1,0 +1,46 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies #-}
+    module Test where
+
+    import GHC.TypeLits (Nat, Symbol)
+    import Prelude
+
+    data family N (a :: Nat)
+    data instance N 0
+    data instance N 1
+
+    data family S (a :: Symbol)
+    data instance S "a"
+    data instance S "b"
+
+    data family C (a :: Char)
+    data instance C 'a'
+    data instance C 'b'
+
+    ignoreCharA :: C 'a' -> Bool
+    ignoreCharA _ = True
+    ignoreCharB :: C 'b' -> Bool
+    ignoreCharB _ = True
+
+    ignoreZero :: N 0 -> Bool
+    ignoreZero _ = True
+    ignoreOne :: N 1 -> Bool
+    ignoreOne _ = True
+    ignoreA :: S "a" -> Bool
+    ignoreA _ = True
+    ignoreB :: S "b" -> Bool
+    ignoreB _ = True
+
+    result :: Bool
+    result = ignoreZero undefined && ignoreOne undefined && ignoreA undefined && ignoreB undefined && ignoreCharA undefined && ignoreCharB undefined
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: Empty instances with different type literals have distinct identities.
