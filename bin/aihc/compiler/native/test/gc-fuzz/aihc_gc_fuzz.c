@@ -99,6 +99,10 @@ typedef struct {
 
 typedef struct {
   int defined;
+  /* Set when an update turned the object into an indirection. The entry
+     keeps the address while the indirection is in the heap: a value may
+     still name it, and the collector follows it. */
+  int indirection;
   AihcValue *address;
   AihcInfo *info;
   uint8_t *pointers;
@@ -376,7 +380,14 @@ static AihcValue *parse_object(const char *token) {
   return (AihcValue *)(uintptr_t)value;
 }
 
+/* The words below the heap limit. A large object adopted after a
+   reservation lowers the limit, and a runtime allocation from that
+   reservation can then pass it, so the limit can be below the allocation
+   pointer. */
 static size_t remaining_words(void) {
+  if (machine->heap_next >= machine->heap_limit) {
+    return 0;
+  }
   return (size_t)(machine->heap_limit - machine->heap_next) / sizeof(AihcSlot);
 }
 
@@ -541,36 +552,28 @@ static int compare_object_addresses(const void *left, const void *right) {
   return first < second ? -1 : first > second;
 }
 
-/* Walk the objects between two addresses and record where each starts. */
-static void record_objects(uint8_t *start, uint8_t *end) {
-  uint8_t *cursor = start;
-  while (cursor < end) {
-    AihcValue *object = (AihcValue *)cursor;
-    if (object->header == 0) {
-      /* The slop behind a thunk that an update turned into an indirection. */
-      cursor += sizeof(AihcSlot);
-      continue;
-    }
-    if ((object->header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_WAITERS) {
-      violation("forwarding header in a live block");
-      break;
-    }
-    if (object_start_count == object_start_capacity) {
-      object_start_capacity =
-          object_start_capacity == 0 ? 256 : object_start_capacity * 2;
-      AihcValue **grown = realloc(object_starts, object_start_capacity *
-                                                     sizeof(*object_starts));
-      if (grown == NULL) {
-        fail("out of memory");
-      }
-      object_starts = grown;
-    }
-    object_starts[object_start_count++] = object;
-    cursor += sizeof(AihcSlot) * aihc_value_words(object);
+/* The bytes of the objects the walk of the heap found. */
+static uint64_t walked_bytes;
+
+/* Record where one object of the heap starts. */
+static void record_object(AihcValue *object, void *context) {
+  (void)context;
+  if ((object->header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_WAITERS) {
+    violation("forwarding header in a live block");
+    return;
   }
-  if (cursor != end) {
-    violation("object sizes do not end at the allocation pointer");
+  if (object_start_count == object_start_capacity) {
+    object_start_capacity =
+        object_start_capacity == 0 ? 256 : object_start_capacity * 2;
+    AihcValue **grown =
+        realloc(object_starts, object_start_capacity * sizeof(*object_starts));
+    if (grown == NULL) {
+      fail("out of memory");
+    }
+    object_starts = grown;
   }
+  object_starts[object_start_count++] = object;
+  walked_bytes += sizeof(AihcSlot) * aihc_value_words(object);
 }
 
 static unsigned generation_of_address(const void *address) {
@@ -579,6 +582,8 @@ static unsigned generation_of_address(const void *address) {
     return 1;
   case AIHC_REGION_GEN2:
     return 2;
+  case AIHC_REGION_LARGE:
+    return aihc_pinned_generation(aihc_pinned_block_of(address));
   default:
     return 0;
   }
@@ -596,15 +601,9 @@ static void report_collection(uint64_t required_bytes) {
   printf("collection %zu %u\n", command_index, collected);
 
   object_start_count = 0;
-  record_objects(machine->heap_start, machine->heap_next);
-  uint64_t live_bytes = (uint64_t)(machine->heap_next - machine->heap_start);
-  for (unsigned generation = 0; generation < 2; ++generation) {
-    for (const AihcHeapBlock *block = machine->generations[generation].first;
-         block != NULL; block = block->link) {
-      record_objects(block->start, block->next);
-      live_bytes += (uint64_t)(block->next - block->start);
-    }
-  }
+  walked_bytes = 0;
+  aihc_gc_walk_objects(machine, record_object, NULL);
+  uint64_t live_bytes = walked_bytes;
   if (object_start_count != 0) {
     qsort(object_starts, object_start_count, sizeof(*object_starts),
           compare_object_addresses);
@@ -612,7 +611,17 @@ static void report_collection(uint64_t required_bytes) {
   printf("space %" PRIu64 " %" PRIu64 "\n", live_bytes, required_bytes);
 
   for (size_t index = 0; index < entry_capacity; ++index) {
-    entries[index].address = NULL;
+    Entry *entry = &entries[index];
+    if (entry->indirection && entry->address != NULL &&
+        is_object_start(entry->address)) {
+      /* An indirection of an old generation stays until a collection of
+         that generation, and the remembered set keeps its target alive
+         while it is there. The model needs its age for that, so the driver
+         reports the age of the indirection without its object. */
+      printf("age %zu %u\n", index, generation_of_address(entry->address));
+      continue;
+    }
+    entry->address = NULL;
   }
   for (size_t index = 0; index < object_start_count; ++index) {
     AihcValue *object = object_starts[index];
@@ -989,10 +998,16 @@ static void command_array(char **tokens, size_t count) {
   info->object_kind = AIHC_OBJECT_ARRAY;
   info->srt = srt_of(parse_signed(tokens[3]));
   uint64_t words = 2 + length;
-  if (words > reserved_words) {
-    fail("block exceeds its reservation");
+  /* A large array gets regions of its own without a collection, as a
+     compiled array allocation does, so it takes nothing from the
+     reservation of the block. */
+  if (words * sizeof(AihcSlot) <
+      AIHC_LARGE_OBJECT_BYTES - sizeof(AihcPinnedBlock)) {
+    if (words > reserved_words) {
+      fail("block exceeds its reservation");
+    }
+    reserved_words -= words;
   }
-  reserved_words -= words;
   AihcValue *object = aihc_gc_allocate(machine, words);
   object->header = (AihcSlot)(uintptr_t)info;
   object->fields[0] = length;
@@ -1026,12 +1041,14 @@ static void command_set(char **tokens, size_t count) {
     fail("value kind does not match the field kind");
   }
   /* Compiled code puts the write barrier before a store into an existing
-     object, so the driver does the same for its direct stores. */
-  aihc_write_barrier(machine, entry->address);
+     object, so the driver does the same for its direct stores. A store into
+     an array gives the index, as the compiled array stores do. */
   if (entry->info->object_kind == AIHC_OBJECT_ARRAY) {
+    aihc_write_barrier_at(machine, entry->address, index);
     aihc_array_elements(entry->address)[index] = value;
     return;
   }
+  aihc_write_barrier(machine, entry->address);
   entry_fields(entry)[index] = value;
   if (is_word) {
     entry->shadow[index] = value;
@@ -1156,6 +1173,7 @@ static void run_command(char **tokens, size_t count) {
       fail("update expects a thunk");
     }
     aihc_update(entry->address, target);
+    entry->indirection = 1;
   } else if (strcmp(name, "blackhole") == 0) {
     if (count != 2) {
       fail("blackhole expects one argument");
@@ -1189,6 +1207,7 @@ static void run_command(char **tokens, size_t count) {
       }
     }
     aihc_update_blackhole(machine, entry->address, target);
+    entry->indirection = 1;
   } else if (strcmp(name, "supdate") == 0) {
     if (count != 3) {
       fail("supdate expects two arguments");

@@ -193,8 +193,10 @@ typedef struct AihcHeapBlock {
   struct AihcHeapBlock *link;
 } AihcHeapBlock;
 
-/* An old generation. bytes is the capacity of its blocks. The scan fields
-   are the Cheney cursor of a collection that copies into the generation. */
+/* An old generation. Gen1 is a list of blocks: bytes is their capacity, and
+   the scan fields are the Cheney cursor of a collection that copies into
+   the generation. Gen2 is a set of segments that the collector keeps, and
+   only bytes is used: the bytes of its occupied slots. */
 typedef struct {
   AihcHeapBlock *first;
   AihcHeapBlock *last;
@@ -319,8 +321,16 @@ extern uint64_t aihc_nursery_bytes;
 
 /* The write barrier. Compiled code calls it for a pointer store into an
    object outside the nursery, and the C runtime calls it at each store of a
-   pointer into an existing object. */
+   pointer into an existing object. A store into a boxed array gives the
+   index of the element, and a copy into one gives the run of elements: a
+   large array keeps a card for each run of 128 elements, and a collection
+   scans only the cards the stores touched. The barrier without an index
+   marks every card of a large array. */
 void aihc_write_barrier(AihcMachine *machine, AihcValue *object);
+void aihc_write_barrier_at(AihcMachine *machine, AihcValue *object,
+                           uint64_t index);
+void aihc_write_barrier_range(AihcMachine *machine, AihcValue *object,
+                              uint64_t offset, uint64_t count);
 /* A continue helper enters a frame in another stack chunk than the one the
    stack pointer was in. New frames go above that frame, so the chunk is
    young again. */
