@@ -1,8 +1,8 @@
-/* Fuzz driver for the semispace collector.
+/* Fuzz driver for the generational collector.
 
    The driver reads scripts from standard input. A script builds a heap,
    changes it, and forces collections. After each collection the driver walks
-   the new space and prints every object, root, and static object. The test
+   the heap and prints every object, root, and static object. The test
    compares that report with a model of the same script.
 
    The driver keeps a table from object identity to the current address of the
@@ -49,8 +49,9 @@
 
    The driver prints one block for each collection:
 
-     collection C
-     space LIVE CAPACITY TARGET OLD_CAPACITY REQUIRED
+     collection C G       command C ran a collection of the generations up to G
+     space LIVE REQUIRED
+     age ID G             object ID lives in generation G
      obj ID KIND N V...
      global I V
      root I V
@@ -81,8 +82,6 @@ enum {
   LINE_CAPACITY = 1 << 16,
   MAX_TOKENS = 4096,
 };
-
-#define OLD_SPACE_FILL 0xAB
 
 typedef struct {
   AihcSlot header;
@@ -138,6 +137,10 @@ static size_t command_index;
 static AihcValue **object_starts;
 static size_t object_start_count;
 static size_t object_start_capacity;
+/* The collection counters at the last report, so the next report can say
+   which generation a collection copied. */
+static uint64_t reported_gen1_count;
+static uint64_t reported_full_count;
 static int srts_linked;
 
 static _Noreturn void fail(const char *message) {
@@ -400,6 +403,25 @@ static int is_object_start(const AihcValue *object) {
   return 0;
 }
 
+/* A pointer to a heap indirection names its target: the mutator follows
+   indirections, and the collector removes only the ones it copies away. */
+static const AihcValue *follow_indirections(const AihcValue *object) {
+  for (int fuel = 0; fuel < 1000; ++fuel) {
+    if (!is_object_start(object) ||
+        aihc_value_kind(object) != AIHC_OBJECT_INDIRECTION) {
+      return object;
+    }
+    object = (const AihcValue *)(uintptr_t)object->fields[0];
+  }
+  violation("indirection chain is too long");
+  return object;
+}
+
+/* Print one slot as the model names it: n for null, h and the identity of a
+   heap object, s and the slot of a static object, or o for an address that
+   no object starts at. The last one is a stale pointer: the memory it names
+   left the heap. An object that nothing reaches may hold one, so it is not a
+   violation here, and the model compares the fields of every live object. */
 static void print_pointer(AihcSlot slot) {
   const void *address = (const void *)(uintptr_t)slot;
   uint64_t static_slot = 0;
@@ -407,28 +429,16 @@ static void print_pointer(AihcSlot slot) {
     printf(" n");
     return;
   }
-  if (in_range(address, machine->heap_start,
-               (size_t)(machine->heap_limit - machine->heap_start))) {
-    const AihcValue *object = address;
-    if (!is_object_start(object)) {
-      violation("pointer into the middle of the new space");
-      printf(" x%" PRIx64, slot);
-      return;
-    }
+  const AihcValue *object = follow_indirections(address);
+  if (is_object_start(object)) {
     printf(" h%" PRIuPTR, aihc_value_info_table(object)->identity);
     return;
   }
-  if (in_range(address, machine->other_space, machine->other_space_bytes)) {
-    violation("pointer into the old space");
-    printf(" o");
-    return;
-  }
-  if (static_slot_of(address, &static_slot)) {
+  if (static_slot_of(object, &static_slot)) {
     printf(" s%" PRIu64, static_slot);
     return;
   }
-  violation("pointer outside every space");
-  printf(" x%" PRIx64, slot);
+  printf(" o");
 }
 
 static const char *kind_name(AihcObjectKind kind) {
@@ -505,31 +515,10 @@ static void print_object(AihcValue *object) {
   printf("\n");
 }
 
-/* An evaluated static object that a collection did not mark keeps
-   a target into the old space. The model knows which slots those are, so the
+/* An evaluated static object that a full collection did not mark keeps a
+   target that left the heap. The model knows which slots those are, so the
    driver reports the target without a violation. */
-static void print_static_target(AihcSlot slot) {
-  const void *address = (const void *)(uintptr_t)slot;
-  uint64_t static_slot = 0;
-  if (slot == 0) {
-    printf(" n");
-  } else if (in_range(address, machine->heap_start,
-                      (size_t)(machine->heap_limit - machine->heap_start))) {
-    const AihcValue *object = address;
-    if (is_object_start(object)) {
-      printf(" h%" PRIuPTR, aihc_value_info_table(object)->identity);
-    } else {
-      printf(" x%" PRIx64, slot);
-    }
-  } else if (in_range(address, machine->other_space,
-                      machine->other_space_bytes)) {
-    printf(" o");
-  } else if (static_slot_of(address, &static_slot)) {
-    printf(" s%" PRIu64, static_slot);
-  } else {
-    printf(" x%" PRIx64, slot);
-  }
-}
+static void print_static_target(AihcSlot slot) { print_pointer(slot); }
 
 static void print_static_thunk(uint64_t slot) {
   const StaticThunk *thunk = &static_thunks[slot];
@@ -546,27 +535,24 @@ static void print_static_thunk(uint64_t slot) {
   }
 }
 
-static void report_collection(uint64_t required_bytes) {
-  uint8_t *start = machine->heap_start;
-  uint8_t *next = machine->heap_next;
-  size_t capacity = (size_t)(machine->heap_limit - start);
-  if (machine->other_space != NULL) {
-    memset(machine->other_space, OLD_SPACE_FILL, machine->other_space_bytes);
-  }
-  printf("collection %zu\n", command_index);
-  printf("space %zu %zu %" PRIu64 " %" PRIu64 " %" PRIu64 "\n",
-         (size_t)(next - start), capacity, machine->semispace_bytes,
-         machine->other_space_bytes, required_bytes);
+static int compare_object_addresses(const void *left, const void *right) {
+  uintptr_t first = (uintptr_t)*(AihcValue *const *)left;
+  uintptr_t second = (uintptr_t)*(AihcValue *const *)right;
+  return first < second ? -1 : first > second;
+}
 
-  object_start_count = 0;
+/* Walk the objects between two addresses and record where each starts. */
+static void record_objects(uint8_t *start, uint8_t *end) {
   uint8_t *cursor = start;
-  while (cursor < next) {
+  while (cursor < end) {
     AihcValue *object = (AihcValue *)cursor;
-    const void *header = (const void *)(uintptr_t)object->header;
-    if (in_range(header, machine->other_space, machine->other_space_bytes) ||
-        (in_range(header, start, capacity) &&
-         aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE)) {
-      violation("forwarding header in the new space");
+    if (object->header == 0) {
+      /* The slop behind a thunk that an update turned into an indirection. */
+      cursor += sizeof(AihcSlot);
+      continue;
+    }
+    if ((object->header & AIHC_HEADER_TAG_MASK) == AIHC_HEADER_WAITERS) {
+      violation("forwarding header in a live block");
       break;
     }
     if (object_start_count == object_start_capacity) {
@@ -582,23 +568,63 @@ static void report_collection(uint64_t required_bytes) {
     object_starts[object_start_count++] = object;
     cursor += sizeof(AihcSlot) * aihc_value_words(object);
   }
-  if (cursor != next) {
+  if (cursor != end) {
     violation("object sizes do not end at the allocation pointer");
   }
+}
+
+static unsigned generation_of_address(const void *address) {
+  switch (aihc_region_kind(address)) {
+  case AIHC_REGION_GEN1:
+    return 1;
+  case AIHC_REGION_GEN2:
+    return 2;
+  default:
+    return 0;
+  }
+}
+
+static void report_collection(uint64_t required_bytes) {
+  unsigned collected = 0;
+  if (machine->gc_full_count != reported_full_count) {
+    collected = 2;
+  } else if (machine->gc_gen1_count != reported_gen1_count) {
+    collected = 1;
+  }
+  reported_full_count = machine->gc_full_count;
+  reported_gen1_count = machine->gc_gen1_count;
+  printf("collection %zu %u\n", command_index, collected);
+
+  object_start_count = 0;
+  record_objects(machine->heap_start, machine->heap_next);
+  uint64_t live_bytes = (uint64_t)(machine->heap_next - machine->heap_start);
+  for (unsigned generation = 0; generation < 2; ++generation) {
+    for (const AihcHeapBlock *block = machine->generations[generation].first;
+         block != NULL; block = block->link) {
+      record_objects(block->start, block->next);
+      live_bytes += (uint64_t)(block->next - block->start);
+    }
+  }
+  qsort(object_starts, object_start_count, sizeof(*object_starts),
+        compare_object_addresses);
+  printf("space %" PRIu64 " %" PRIu64 "\n", live_bytes, required_bytes);
 
   for (size_t index = 0; index < entry_capacity; ++index) {
     entries[index].address = NULL;
   }
   for (size_t index = 0; index < object_start_count; ++index) {
     AihcValue *object = object_starts[index];
-    if (aihc_value_kind(object) == AIHC_OBJECT_INDIRECTION) {
-      violation("indirection in the new space");
-    }
+    /* An indirection in an old generation outlives its thunk until a
+       collection copies that generation. It has no identity of its own, and
+       a pointer to it reports the target, so it is not an object here. */
     if (aihc_value_kind(object) != AIHC_OBJECT_MVAR &&
         aihc_value_kind(object) != AIHC_OBJECT_THREAD &&
         aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE_RECORD &&
-        aihc_value_kind(object) != AIHC_OBJECT_STABLE_NAME) {
+        aihc_value_kind(object) != AIHC_OBJECT_STABLE_NAME &&
+        aihc_value_kind(object) != AIHC_OBJECT_INDIRECTION) {
       print_object(object);
+      printf("age %" PRIuPTR " %u\n", aihc_value_info_table(object)->identity,
+             generation_of_address(object));
     }
   }
 
@@ -665,11 +691,9 @@ static void report_collection(uint64_t required_bytes) {
   printf("endcollection\n");
 }
 
-/* Reserve words through the collector's own entry point and report a
-   collection when the space changed. */
-static void ensure(uint64_t words) {
-  uint8_t *before = machine->heap_start;
-  /* The driver retains MVars and stable names through explicit roots. */
+/* The roots the driver retains explicitly: the root slots, the MVars, the
+   stable names, and the blackholes. The model knows all four. */
+static AihcSlot *gather_roots(size_t *total) {
   if (root_count > SIZE_MAX / sizeof(AihcSlot) ||
       mvar_count > SIZE_MAX / sizeof(AihcSlot) - root_count ||
       stable_count > SIZE_MAX / sizeof(AihcSlot) - root_count - mvar_count ||
@@ -680,10 +704,9 @@ static void ensure(uint64_t words) {
   if (mvar_count != 0 && mvars == NULL) {
     fail("MVar roots are missing");
   }
-  size_t total =
-      (size_t)root_count + mvar_count + stable_count + blackhole_count;
-  AihcSlot *roots = checked_calloc(total, sizeof(*roots));
-  for (size_t index = 0; index < total; ++index) {
+  *total = (size_t)root_count + mvar_count + stable_count + blackhole_count;
+  AihcSlot *roots = checked_calloc(*total, sizeof(*roots));
+  for (size_t index = 0; index < *total; ++index) {
     if (index < root_count) {
       roots[index] = root_slots[index];
     } else if (index < root_count + mvar_count) {
@@ -696,7 +719,10 @@ static void ensure(uint64_t words) {
           blackholes[index - root_count - mvar_count - stable_count];
     }
   }
-  aihc_ensure_heap(machine, words, total, roots, current_srt);
+  return roots;
+}
+
+static void scatter_roots(AihcSlot *roots, size_t total) {
   for (size_t index = 0; index < total; ++index) {
     if (index < root_count) {
       root_slots[index] = roots[index];
@@ -711,9 +737,28 @@ static void ensure(uint64_t words) {
     }
   }
   free(roots);
-  if (machine->heap_start != before) {
+}
+
+/* Reserve words through the collector's own entry point and report a
+   collection when one ran. */
+static void ensure(uint64_t words) {
+  uint64_t before = machine->gc_count;
+  size_t total = 0;
+  AihcSlot *roots = gather_roots(&total);
+  aihc_ensure_heap(machine, words, total, roots, current_srt);
+  scatter_roots(roots, total);
+  if (machine->gc_count != before) {
     report_collection(words * sizeof(AihcSlot));
   }
+}
+
+/* Collect the generations up to the given one and report. */
+static void collect_generation(unsigned generation) {
+  size_t total = 0;
+  AihcSlot *roots = gather_roots(&total);
+  aihc_gc_collect_generation(machine, generation, total, roots, current_srt);
+  scatter_roots(roots, total);
+  report_collection(0);
 }
 
 static void command_machine(char **tokens, size_t count) {
@@ -728,18 +773,14 @@ static void command_machine(char **tokens, size_t count) {
   }
   if (machine != NULL) {
     free(machine->globals);
-    aihc_semispace_release(machine->heap_start);
-    aihc_semispace_release(machine->other_space);
     for (uint64_t index = 0; index < 3; ++index) {
       aihc_rts_set_root(index, NULL);
     }
-    while (machine->pinned_blocks != NULL) {
-      AihcPinnedBlock *block = machine->pinned_blocks;
-      machine->pinned_blocks = block->next;
-      aihc_pinned_block_release(block);
-    }
+    /* Give the heap back. A machine without a nursery starts from zero when
+       it is initialized again, so the next script gets a fresh one. */
+    aihc_heap_reset(machine, 1);
+    aihc_regions_release(machine->heap_start);
     machine->heap_start = NULL;
-    machine->other_space = NULL;
   }
   free_entries();
   free_srts();
@@ -770,20 +811,22 @@ static void command_machine(char **tokens, size_t count) {
     fail("initial space is too large");
   }
   space_bytes += sizeof(initial_thread);
-  aihc_semispace_release(machine->heap_start);
-  aihc_semispace_release(machine->other_space);
-  machine->other_space = NULL;
-  machine->other_space_bytes = 0;
-  machine->semispace_bytes = space_bytes;
-  machine->heap_space_bytes = space_bytes;
-  machine->heap_start = aihc_semispace_acquire(space_bytes);
+  /* The script drives every collection above the nursery itself, so the
+     policy never chooses one. */
+  aihc_heap_reset(machine, space_bytes);
+  machine->gen1_max_bytes = UINT64_MAX;
+  machine->gen2_limit_bytes = UINT64_MAX;
   memset(machine->heap_start, 0, space_bytes);
   machine->heap_next = machine->heap_start + sizeof(initial_thread);
   machine->heap_alloc_base = machine->heap_next;
-  machine->heap_limit =
-      machine->heap_start + space_bytes - machine->pinned_bytes;
   machine->current_thread = (AihcThread *)machine->heap_start;
   *machine->current_thread = initial_thread;
+  /* The stack of the initial thread names the thread by its new address. */
+  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+    stack->thread = machine->current_thread;
+  }
+  reported_gen1_count = machine->gc_gen1_count;
+  reported_full_count = machine->gc_full_count;
   root_count = slot_count;
   root_slots = checked_calloc(slot_count, sizeof(*root_slots));
 }
@@ -980,6 +1023,9 @@ static void command_set(char **tokens, size_t count) {
   if (entry->pointers[index] == is_word) {
     fail("value kind does not match the field kind");
   }
+  /* Compiled code puts the write barrier before a store into an existing
+     object, so the driver does the same for its direct stores. */
+  aihc_write_barrier(machine, entry->address);
   if (entry->info->object_kind == AIHC_OBJECT_ARRAY) {
     aihc_array_elements(entry->address)[index] = value;
     return;
@@ -1031,6 +1077,9 @@ static void command_thread(char **tokens, size_t count) {
   }
   AihcThread *thread = machine->current_thread;
   AihcSlot value = parse_pointer(tokens[2]);
+  /* The thread is old after its first collection, so the store needs the
+     barrier that the suspend functions of the runtime apply. */
+  aihc_write_barrier(machine, (AihcValue *)thread);
   if (strcmp(tokens[1], "function") == 0) {
     thread->resume_function = (AihcValue *)(uintptr_t)value;
   } else if (strcmp(tokens[1], "continuation") == 0) {
@@ -1236,6 +1285,9 @@ static void run_command(char **tokens, size_t count) {
     if (index >= mvar_count) {
       fail("mvar index out of range");
     }
+    /* The MVar is old after its first collection, so the stores need the
+       barrier that the MVar operations of the runtime apply. */
+    aihc_write_barrier(machine, (AihcValue *)mvars[index]);
     mvars[index]->full = 1;
     mvars[index]->value = parse_pointer(tokens[2]);
   } else if (strcmp(name, "mvar_take") == 0) {
@@ -1246,16 +1298,25 @@ static void run_command(char **tokens, size_t count) {
     if (index >= mvar_count) {
       fail("mvar index out of range");
     }
+    /* The MVar is old after its first collection, so the stores need the
+       barrier that the MVar operations of the runtime apply. */
+    aihc_write_barrier(machine, (AihcValue *)mvars[index]);
     mvars[index]->full = 0;
     mvars[index]->value = 0;
   } else if (strcmp(name, "thread") == 0) {
     command_thread(tokens, count);
   } else if (strcmp(name, "collect") == 0) {
-    if (count != 1) {
-      fail("collect expects no arguments");
+    /* Without an argument, the collection is a minor one. With one, the
+       script names the oldest generation to copy. */
+    if (count > 2) {
+      fail("collect expects at most one argument");
     }
     link_srts();
-    ensure(remaining_words() + 1);
+    uint64_t generation = count == 1 ? 0 : parse_unsigned(tokens[1]);
+    if (generation > 2) {
+      fail("collect expects a generation up to two");
+    }
+    collect_generation((unsigned)generation);
     reserved_words = 0;
   } else {
     fail("unknown command");

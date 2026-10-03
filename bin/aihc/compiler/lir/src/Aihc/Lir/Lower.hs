@@ -876,6 +876,34 @@ machineOperand = do
   requireExternData machineSymbol
   pure (OperandLiteral (LitSymbol machineSymbol))
 
+-- | The write barrier before a pointer store into an existing object. A
+-- store into a young object needs none, and the nursery is one range, so
+-- the test is one subtraction and one unsigned compare against its bounds.
+-- Every other object goes to the runtime, which records it in the
+-- remembered set. The call allocates nothing and reads no context, so it
+-- needs no sync of the machine.
+emitWriteBarrier :: FunctionCtx -> Operand -> LowerM ()
+emitWriteBarrier ctx object = do
+  requireExternData nurseryStartSymbol
+  requireExternData nurseryBytesSymbol
+  objectWord <- emitValue "object_word" I64 (PtrToInt object)
+  start <- emitValue "nursery_start" Ptr (Load Ptr (byteAddress (OperandLiteral (LitSymbol nurseryStartSymbol)) 0) (wordAlignment 1))
+  startWord <- emitValue "nursery_start_word" I64 (PtrToInt (typedOperand start))
+  offset <- emitValue "nursery_offset" I64 (Binary Sub I64 (typedOperand objectWord) (typedOperand startWord))
+  bytes <- emitValue "nursery_bytes" I64 (Load I64 (byteAddress (OperandLiteral (LitSymbol nurseryBytesSymbol)) 0) (byteAlignment 8))
+  young <- emitValue "young" I1 (Compare LtU I64 (typedOperand offset) (typedOperand bytes))
+  old <- freshLabel "barrier_old"
+  done <- freshLabel "barrier_done"
+  terminate (Branch (typedOperand young) (Target done []) (Target old []))
+  beginColdBlock old []
+  _ <- callRuntime "aihc_write_barrier" [Ptr, Ptr] [] [ctxMachine ctx, object]
+  terminate (Jump (Target done []))
+  beginBlock done []
+
+nurseryStartSymbol, nurseryBytesSymbol :: Symbol
+nurseryStartSymbol = Symbol "aihc_nursery_start"
+nurseryBytesSymbol = Symbol "aihc_nursery_bytes"
+
 -- | Fresh parameters for a context.
 freshContext :: LowerM (Context, [(Var, Type)])
 freshContext = do
@@ -2335,6 +2363,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind [value]
     ("writeMutVar#", [reference, value]) -> do
       base <- pointerValue ctx env reference
+      emitWriteBarrier ctx base
       operand <- word value
       emit [] (Store I64 operand (byteAddress base mutVarContentsOffset) (byteAlignment 8))
       bind []
@@ -2343,6 +2372,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- Haskell thread, so the swap is a plain load, compare, and store.
     ("casMutVar#", [reference, expected, replacement]) -> do
       base <- pointerValue ctx env reference
+      emitWriteBarrier ctx base
       expectedOperand <- word expected
       replacementOperand <- word replacement
       current <- emitValue "current" I64 (Load I64 (byteAddress base mutVarContentsOffset) (byteAlignment 8))
@@ -2384,6 +2414,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           bind [result]
     (_, [array, index, value])
       | name `elem` arrayStorePrimitives -> do
+          base <- pointerValue ctx env array
+          emitWriteBarrier ctx base
           slot <- arrayElement array index
           operand <- word value
           emit [] (Store I64 operand (byteAddress slot arrayElementsOffset) (byteAlignment 8))
@@ -2398,6 +2430,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- element, as casMutVar# does for the contents of a reference.
     (_, [array, index, expected, replacement])
       | name `elem` arrayCasPrimitives -> do
+          base <- pointerValue ctx env array
+          emitWriteBarrier ctx base
           slot <- arrayElement array index
           expectedOperand <- word expected
           replacementOperand <- word replacement
@@ -3287,6 +3321,17 @@ generateHelper env helper =
       -- register of the object argument and only the copy moves.
       stack <- emitValue "sp" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 0)))
       stackLimit <- chunkEnd (OperandVar current)
+      -- A frame in a lower chunk than the stack pointer was in makes that
+      -- chunk young again: new frames go above it. See aihc_stack_enter_chunk.
+      sameChunk <- emitValue "same_chunk" I1 (Compare Eq Ptr stackLimit (contextStackLimit context))
+      enterFrame <- freshLabel "enter_frame"
+      enterChunk <- freshLabel "enter_chunk"
+      terminate (Branch (typedOperand sameChunk) (Target enterFrame []) (Target enterChunk []))
+      beginColdBlock enterChunk []
+      machine <- machineOperand
+      _ <- callRuntime "aihc_stack_enter_chunk" [Ptr, Ptr] [] [machine, OperandVar current]
+      terminate (Jump (Target enterFrame []))
+      beginBlock enterFrame []
       let entered = context {contextStack = typedOperand stack, contextStackLimit = stackLimit}
       terminate
         ( TailCallIndirect
