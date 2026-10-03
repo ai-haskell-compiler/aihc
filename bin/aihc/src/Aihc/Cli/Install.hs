@@ -2098,6 +2098,9 @@ parseSource headerDir root versions fileInfo = do
   -- reads the pragmas again.
   let name = fromMaybe "Main" (moduleName modu)
       imports = [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- Syntax.moduleImports modu]
+  -- Force the header fields before the parse tree enters its channel.
+  -- A header thunk can keep the tree after the resolve task takes it.
+  evaluate (rnf (path, name, imports, extensions, parseDiagnostics))
   parsed <- newMVar modu
   -- Built here rather than returned as a thunk: the strict fields below
   -- are what the phases after this one read instead of the parse tree,
@@ -2663,7 +2666,10 @@ runTypeUnit context runtimes runtime = do
                 )
             atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> mempty {backendDesugarNs = desugarNs}, ()))
             capiStubs <- evaluate (force [(name, renderCapiStub name (moduleCapiWrappers name completeInterface)) | name <- unitNames])
-            pure (Just (PendingBackend fcModules capiStubs))
+            -- A whole-program build has written the FC files. Its backend
+            -- task needs only the C wrappers.
+            let pendingModules = if compileLto config then [] else fcModules
+            pure (Just (PendingBackend pendingModules capiStubs))
       let unitSet = Set.fromList unitNames
           -- A unit with warnings is not stamped, so the next build reports
           -- them again.

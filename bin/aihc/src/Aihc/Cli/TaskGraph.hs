@@ -154,11 +154,12 @@ allocateTaskIds graph count =
 -- the same unit or on a unit before it.
 addTasks :: TaskGraph -> [Task] -> IO ()
 addTasks graph tasks = do
-  known <- readTVarIO (graphTasks graph)
   let added = Map.fromList [(taskId task, task) | task <- tasks]
       duplicateCount = length tasks - Map.size added
-      duplicates = Map.keysSet (Map.intersection known added)
-      missingIds = Set.unions (map taskDependencies tasks) Set.\\ (Map.keysSet known <> Map.keysSet added)
+  (known, completed) <- atomically $ (,) <$> readTVar (graphTasks graph) <*> (stateCompleted <$> readTVar (graphState graph))
+  let knownIds = Map.keysSet known <> completed
+      duplicates = knownIds `Set.intersection` Map.keysSet added
+      missingIds = Set.unions (map taskDependencies tasks) Set.\\ (knownIds <> Map.keysSet added)
   when (duplicateCount /= 0 || not (Set.null duplicates)) $
     ioError (userError "Task graph has duplicate task identifiers")
   unless (Set.null missingIds) $
@@ -221,13 +222,16 @@ completeTask :: TaskGraph -> ReadyTask -> STM ()
 completeTask graph (ReadyTask _ _ identifier) = do
   taskMap <- readTVar (graphTasks graph)
   modifyTVar' (graphState graph) (complete taskMap)
+  -- Keep the identifier for later dependencies. Release the task action
+  -- and the package data that it holds.
+  modifyTVar' (graphTasks graph) (Map.delete identifier)
   where
     complete taskMap state =
       let dependents = Map.findWithDefault [] identifier (stateDependents state)
           (waitCounts, newlyReady) = foldl' (unlock taskMap) (stateWaitCounts state, []) dependents
        in state
             { stateReady = stateReady state <> Set.fromList newlyReady,
-              stateWaitCounts = waitCounts,
+              stateWaitCounts = Map.delete identifier waitCounts,
               stateDependents = Map.delete identifier (stateDependents state),
               stateCompleted = Set.insert identifier (stateCompleted state),
               stateRemaining = stateRemaining state - 1

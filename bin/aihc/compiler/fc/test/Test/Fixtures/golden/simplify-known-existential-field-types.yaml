@@ -1,0 +1,19 @@
+extensions:
+- ExistentialQuantification
+modules:
+- |
+  module Test (answer) where
+  data Nat = Z | S Nat
+  data Box = forall a. Box (a -> a -> Nat) a
+  combine :: Nat -> Nat -> Nat
+  combine x y = case x of
+    Z -> y
+    S z -> z
+  {-# NOINLINE combine #-}
+  answer :: Nat -> Nat
+  answer x = case Box combine (S x) of
+    Box f y -> f y y
+passes:
+- simplify
+status: pass
+reason: A known constructor must substitute existential types in field binders.
