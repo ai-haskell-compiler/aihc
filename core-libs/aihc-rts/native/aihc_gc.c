@@ -1405,7 +1405,8 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
 static AihcValue *aihc_pinned_block_adopt(AihcMachine *machine,
                                           AihcPinnedBlock *block,
                                           size_t charge_bytes) {
-  if (charge_bytes > AIHC_PINNED_BYTES_MASK) {
+  /* The cast keeps the compare meaningful on a 32-bit host. */
+  if ((uint64_t)charge_bytes > AIHC_PINNED_BYTES_MASK) {
     aihc_fail("pinned allocation is too large");
   }
   aihc_heap_account(machine);
