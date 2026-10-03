@@ -235,13 +235,12 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words);
    C allocation to the C allocator. */
 void aihc_pinned_block_release(AihcPinnedBlock *block);
 
-/* Heap regions. The runtime reserves one address range at start and divides
-   it into regions of AIHC_REGION_BYTES. The region table holds one kind for
-   each region. An address outside the range, or in a region the runtime
-   never acquired, has the kind AIHC_REGION_OUTSIDE: it names a static object,
-   a C allocation, or the memory of another allocator. On a POSIX host the
-   range is a lazily committed mapping. On wasm32 the range is the whole
-   linear memory, and the runtime grows the memory by whole regions. */
+/* Heap regions. Every managed allocation lives in a run of regions of
+   AIHC_REGION_BYTES that the runtime takes from the host one mapping at a
+   time. A two-level table gives the kind of the region that holds an
+   address. An address outside every mapping has the kind
+   AIHC_REGION_OUTSIDE: it names a static object, a C allocation, or the
+   memory of another allocator. */
 typedef enum {
   AIHC_REGION_OUTSIDE = 0,
   AIHC_REGION_FREE,
@@ -251,8 +250,6 @@ typedef enum {
   AIHC_REGION_STACK,
 } AihcRegionKind;
 
-/* Reserve the range and make the table. A second call does nothing. */
-void aihc_regions_init(void);
 /* The number of regions that hold the given bytes. */
 size_t aihc_regions_for_bytes(size_t bytes);
 /* Acquire a run of consecutive regions with the given kind. The run starts
@@ -264,22 +261,13 @@ void aihc_regions_release(void *base);
 /* The kind of the region that holds an address. */
 AihcRegionKind aihc_region_kind(const void *address);
 
-/* The host side of the region table. Reserve the range: the address of
-   region zero, the number of regions in the range, the number of regions
-   from the start that other allocators or the host already use, and the
-   number of regions from the start that the runtime can use without a
-   grow. The regions between used and committed are free. A POSIX host
-   commits the whole range. The wasm32 host commits nothing: the runtime
-   grows the memory region by region. */
-void aihc_host_reserve_regions(uint8_t **base, size_t *count, size_t *used,
-                               size_t *committed);
-/* Obtain count regions after the committed part of the range. The result
-   is zero and the index of the first region, or nonzero when the host
-   cannot grow. */
-int aihc_host_grow_regions(size_t count, size_t *first);
-/* Give the pages of a run back to the host. The run stays reserved. Its
-   content is unspecified when it is acquired again. */
-void aihc_host_release_regions(void *base, size_t bytes);
+/* The host side of the region table. Map count regions at a region
+   boundary, or give null when the host has no room. The content of the
+   mapping is unspecified. */
+uint8_t *aihc_host_map_regions(size_t count);
+/* Give a mapping back to the host. The result is zero when the memory is
+   unmapped, or nonzero when the host keeps it, as linear memory does. */
+int aihc_host_unmap_regions(void *base, size_t count);
 
 /* The spaces of the semispace collector. acquire gives a space of at least
    the given bytes, and release gives the space back. The collector fuzz

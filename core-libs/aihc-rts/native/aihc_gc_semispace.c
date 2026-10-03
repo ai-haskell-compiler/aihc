@@ -695,7 +695,6 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
 }
 
 void aihc_gc_init(AihcMachine *machine) {
-  aihc_regions_init();
   machine->semispace_bytes = AIHC_SEMISPACE_BYTES;
   if (machine->heap_limit_enabled &&
       machine->semispace_bytes > machine->heap_max_bytes) {

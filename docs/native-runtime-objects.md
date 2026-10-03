@@ -138,9 +138,13 @@ It never writes the heap copies, so a captured continuation can resume any numbe
 
 ## Heap regions
 
-The runtime reserves one address range at start and divides it into regions
-of 64 KiB. A region table holds one byte for each region. The byte gives the
-kind of the memory in the region:
+Every managed allocation lives in a run of regions of 64 KiB. The runtime
+takes each run from the host as one mapping of exactly that size, and a
+two-level region table gives the kind of the region that holds an address.
+The top level is indexed by the address bits above the leaf, and a leaf
+covers 4 GiB with one entry for each region. The runtime reserves no address
+space in advance, so it runs where a large reservation is refused. The
+kinds are:
 
 | Kind | Content |
 | --- | --- |
@@ -155,12 +159,12 @@ A pointer outside both spaces names an object that never moves. The
 collector marks such an object in its static address set and scans it in
 place. The region kind says which memory holds it.
 
-On a POSIX host the range is one private anonymous mapping of 64 GiB, or the
-largest smaller power of two the host accepts. Its pages cost memory only
-when the runtime writes them, and a released run gets fresh pages. On
-`wasm32-wasip3` the range is the whole linear memory. A region is one
-WebAssembly page, and the runtime grows the memory by whole regions. The
-pages of the C allocator keep the kind `OUTSIDE`.
+A released run waits in a free list for the next run that fits. When every
+region of a mapping is free and the free list holds more than 64 MiB, the
+mapping goes back to the host. On a POSIX host a mapping is one private
+anonymous mapping. On `wasm32-wasip3` a region is one WebAssembly page, a
+mapping is one growth of the linear memory, and the memory never shrinks.
+The pages of the C allocator keep the kind `OUTSIDE`.
 
 An object of 32 KiB or more gets a run of regions of its own and never
 moves. The runtime puts a pinned block header in front of it, so the object
