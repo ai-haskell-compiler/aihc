@@ -1,0 +1,47 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (forkIO, getNumCapabilities)
+    import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+    import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+    import Control.Monad (mfilter, replicateM_)
+    import GHC.Clock (getMonotonicTimeNSec)
+    import Numeric (showEFloat, showFFloat, showGFloat)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (mfilter even (Just (4 :: Int)), mfilter even (Just (3 :: Int)))
+      putStrLn (showFFloat (Just 2) (3.14159 :: Double) "")
+      putStrLn (showEFloat (Just 3) (1234.56 :: Double) "")
+      putStrLn (showGFloat Nothing (0.5 :: Double) "")
+      capabilities <- getNumCapabilities
+      print (capabilities >= 1)
+      before <- getMonotonicTimeNSec
+      after <- getMonotonicTimeNSec
+      print (after >= before)
+      -- Two workers share one unit. Each worker gives the unit back, so
+      -- the main thread can take it at the end.
+      semaphore <- newQSem 1
+      done <- newEmptyMVar
+      replicateM_ 2 $ forkIO $ do
+        waitQSem semaphore
+        signalQSem semaphore
+        putMVar done ()
+      replicateM_ 2 (takeMVar done)
+      waitQSem semaphore
+      putStrLn "semaphore"
+stdout: |
+  (Just 4,Nothing)
+  3.14
+  1.235e3
+  0.5
+  True
+  True
+  semaphore
+output: |
+  ()
+expression: main
+status: pass
+reason: The base functions mfilter, showEFloat, showFFloat, showGFloat, getNumCapabilities, getMonotonicTimeNSec, and the QSem operations work as in GHC

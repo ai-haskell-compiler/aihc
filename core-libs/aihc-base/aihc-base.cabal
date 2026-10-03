@@ -254,6 +254,8 @@ library
     Foreign.C.Error.Repr
     Foreign.C.Types.Repr
     GHC.IO.Console
+    GHC.IO.Handle.Lock.Common
+    GHC.IO.Handle.Lock.Descriptor
     GHC.IO.Runtime
     GHC.IO.Runtime.Open
     GHC.Internal.Char

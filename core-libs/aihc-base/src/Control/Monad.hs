@@ -37,6 +37,7 @@ module Control.Monad
     mzero,
     mplus,
     msum,
+    mfilter,
   )
 where
 
@@ -218,3 +219,10 @@ guard False = empty
 
 msum :: (MonadPlus m) => [m a] -> m a
 msum = foldr mplus mzero
+
+-- | Keep the result of the action when it satisfies the predicate. Give
+-- 'mzero' when it does not.
+mfilter :: (MonadPlus m) => (a -> Bool) -> m a -> m a
+mfilter keep action = do
+  value <- action
+  if keep value then return value else mzero

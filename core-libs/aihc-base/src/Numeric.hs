@@ -13,13 +13,17 @@ module Numeric
     readSigned,
     lexDigits,
     floatToDigits,
+    showEFloat,
+    showFFloat,
+    showGFloat,
+    showFloat,
   )
 where
 
 import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit, isSpace)
-import GHC.Float (floatToDigits)
+import GHC.Float (FFFormat (..), floatToDigits, formatRealFloat, showFloat)
 import GHC.Show (intToDigit)
-import Prelude (Bool (..), Char, Eq (..), Int, Integral (..), Num (..), Ord (..), ReadS, Real (..), Show (..), ShowS, String, dropWhile, errorWithoutStackTrace, fromIntegral, negate, readParen, showChar, showParen, span, (.), (||))
+import Prelude (Bool (..), Char, Eq (..), Int, Integral (..), Maybe, Num (..), Ord (..), ReadS, Real (..), RealFloat, Show (..), ShowS, String, dropWhile, errorWithoutStackTrace, fromIntegral, negate, readParen, showChar, showParen, showString, span, (.), (||))
 
 showSigned :: (Real a) => (a -> ShowS) -> Int -> a -> ShowS
 showSigned showPositive precedence value =
@@ -106,3 +110,18 @@ lexDigits input =
 
 isBinDigit :: Char -> Bool
 isBinDigit character = character == '0' || character == '1'
+
+-- | Show a number in scientific notation, with the given number of digits
+-- after the decimal point, or every significant digit for @Nothing@.
+showEFloat :: (RealFloat a) => Maybe Int -> a -> ShowS
+showEFloat decimals value = showString (formatRealFloat FFExponent decimals value)
+
+-- | Show a number in standard decimal notation, with the given number of
+-- digits after the decimal point, or every significant digit for @Nothing@.
+showFFloat :: (RealFloat a) => Maybe Int -> a -> ShowS
+showFFloat decimals value = showString (formatRealFloat FFFixed decimals value)
+
+-- | Show a number in standard decimal notation for 0.1 <= x < 10^7, and in
+-- scientific notation for other numbers.
+showGFloat :: (RealFloat a) => Maybe Int -> a -> ShowS
+showGFloat decimals value = showString (formatRealFloat FFGeneric decimals value)
