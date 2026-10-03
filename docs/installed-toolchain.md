@@ -277,6 +277,21 @@ It then lowers the program through GRIN and Lir to one object, `lto/program/prog
 `--keep-core` writes the merged program, as it stands after inlining and the second prune, to `lto/program/core`, beside the `core` file of each module it was merged from.
 The link takes this object, the entry object, and the C, Lir and module objects and archives of the packages.
 A `--no-link` bundle carries the program object in place of the module objects.
+
+For the `llvm` target, a `--lto` build compiles each of these objects to LLVM bitcode.
+The program object, the entry object, the runtime units, the C sources of each package and the C wrappers of its `capi` imports are bitcode.
+Clang gets `-flto` for each of them.
+The link passes `-flto` and the level of the build to Clang.
+The linker then optimizes the whole program as one module.
+A call from the program into the runtime is inlined like a call inside one unit.
+A `--no-link` bundle records these link arguments, and `link-exe` passes them to the link.
+The other targets write machine code, and the flag does not change their objects.
+
+Such a build links no archive.
+An archive tool reads each member to build the symbol table of an archive, and a linker reads that table to choose members.
+An `llvm-ar` of an older LLVM refuses bitcode from a newer Clang, and GNU ld rejects an archive whose table it cannot read.
+So the build writes the archive of each package without a symbol table.
+The link takes the `capi` wrapper objects of each package as objects, beside the C objects it takes as objects already.
 A package build gives each of its executables a program object of its own, under `exe/<name>/lto`.
 
 The program object follows the System FC files and the backend options.

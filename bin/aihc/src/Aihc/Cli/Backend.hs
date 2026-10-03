@@ -25,7 +25,7 @@ import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Syntax (Item (..), Module (..))
 import Aihc.Llvm.Lir qualified as Llvm
-import Aihc.Native (NativeTarget (..), backendCompiler, optimizationArgument, runtimeOptimizationLevel)
+import Aihc.Native (NativeTarget (..), backendCompiler, llvmLtoArguments, optimizationArgument, runtimeOptimizationLevel)
 import Aihc.Wasm.Lir qualified as Wasm
 import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
@@ -74,9 +74,11 @@ compileLirTo lint target lirModule path = case target of
 -- source extension of the target under @directory@ and lets the compiler
 -- driver of the target assemble it.
 -- LLVM uses the runtime optimization level for these standalone units,
--- which include the RTS helpers and executable entry code.
-compileLirObject :: NativeTarget -> String -> Module -> FilePath -> FilePath -> IO ()
-compileLirObject target name lirModule directory object = do
+-- which include the RTS helpers and executable entry code. A @--lto@ build
+-- of the LLVM target compiles them to bitcode, so that the link optimizes
+-- them with the program; see 'llvmLtoArguments'.
+compileLirObject :: Bool -> NativeTarget -> String -> Module -> FilePath -> FilePath -> IO ()
+compileLirObject lto target name lirModule directory object = do
   output <- compileLirTo True target lirModule object
   case output of
     Nothing -> pure ()
@@ -84,7 +86,7 @@ compileLirObject target name lirModule directory object = do
       let sourcePath = directory </> name <> nativeSourceExtension target
       TIO.writeFile sourcePath source
       (compiler, arguments) <- backendCompiler target
-      let optimizationArguments = [optimizationArgument runtimeOptimizationLevel | target == Llvm]
+      let optimizationArguments = [optimizationArgument runtimeOptimizationLevel | target == Llvm] <> llvmLtoArguments target lto
       (exitCode, _stdout, stderr) <- readProcessWithExitCode compiler (arguments <> optimizationArguments <> ["-c", sourcePath, "-o", object]) ""
       case exitCode of
         ExitSuccess -> pure ()
@@ -113,10 +115,10 @@ lirModuleDefinesCode lirModule = any definesCode (moduleItems lirModule)
 -- | Compile the entry unit of an executable to @object@. The entry starts
 -- the runtime and enters the program; the entry of every executable is the
 -- same, so it is generated rather than read from a source.
-compileEntryObject :: NativeTarget -> FilePath -> FilePath -> IO ()
-compileEntryObject target directory object = do
+compileEntryObject :: Bool -> NativeTarget -> FilePath -> FilePath -> IO ()
+compileEntryObject lto target directory object = do
   entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target))
-  compileLirObject target (takeBaseName object) entryModule directory object
+  compileLirObject lto target (takeBaseName object) entryModule directory object
 
 -- | Use shared incremental conversion for both native object paths. The Lir
 -- of the module is written to @lirPath@ when one is given: an object

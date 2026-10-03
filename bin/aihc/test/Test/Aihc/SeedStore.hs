@@ -22,6 +22,7 @@ module Test.Aihc.SeedStore
     acquirePrimStore,
     acquireCoreStore,
     acquireLtoStore,
+    acquireLlvmLtoStore,
     releaseSeedStore,
     withSandbox,
     copyWritable,
@@ -82,6 +83,12 @@ coreStoreDirectory = "core"
 -- built at @-O2@, which implies @--lto@.
 ltoStoreDirectory :: FilePath
 ltoStoreDirectory = "lto"
+
+-- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base
+-- built at @-O2@ for the @llvm@ target, whose @--lto@ build links through
+-- LLVM's own link-time optimization.
+llvmLtoStoreDirectory :: FilePath
+llvmLtoStoreDirectory = "lto-llvm"
 
 -- | A store holding the core libraries, ready to be copied for a single test.
 data SeedStore
@@ -166,12 +173,21 @@ acquireCoreStore getPrimStore =
 -- entries of the other stores do not serve it. Only the @lto@ tests need
 -- this store.
 acquireLtoStore :: IO SeedStore
-acquireLtoStore =
-  withPreparedStore ltoStoreDirectory $ \root -> do
+acquireLtoStore = acquireLtoStoreFor ltoStoreDirectory buildHostTarget
+
+-- | Seed aihc-prim and aihc-base at @-O2@ for the @llvm@ target. Only the
+-- test of the link-time optimized link of that target needs this store. On
+-- a host without a native backend, it is the store 'acquireLtoStore' seeds.
+acquireLlvmLtoStore :: IO SeedStore
+acquireLlvmLtoStore = acquireLtoStoreFor llvmLtoStoreDirectory Llvm
+
+acquireLtoStoreFor :: FilePath -> NativeTarget -> IO SeedStore
+acquireLtoStoreFor subdirectory target =
+  withPreparedStore subdirectory $ \root -> do
     primRoot <- findCoreLibraryRoot "aihc-prim"
     baseRoot <- findCoreLibraryRoot "aihc-base"
-    installCoreLibraryWith O2 primRoot root buildHostTarget
-    installCoreLibraryWith O2 baseRoot root buildHostTarget
+    installCoreLibraryWith O2 primRoot root target
+    installCoreLibraryWith O2 baseRoot root target
 
 -- | Use the store CI handed us, or build one in a temporary directory that is
 -- cleaned up if the seeding itself fails. The stores are kept separate in
