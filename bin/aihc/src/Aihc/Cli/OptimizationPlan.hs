@@ -73,7 +73,10 @@ optimizationPlan lto level =
     -- the calls. One round of the growing inliner in phase 0 copies the
     -- values whose INLINE pragma names phase 0, which no earlier pass may
     -- copy; a strict let that such a copy exposes gets its case from the
-    -- demand pass that follows.
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLocalFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassSimplify 0, Fc.PassLiftConstants]
+    -- demand pass that follows. Call-pattern specialisation then copies
+    -- the loops whose calls give a constructor in a position that the
+    -- worker/wrapper split left boxed, because the loop does not always
+    -- evaluate it.
+    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLocalFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassSimplify 0, Fc.PassCallPatterns 0, Fc.PassLiftConstants]
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4

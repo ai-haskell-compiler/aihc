@@ -64,6 +64,13 @@ module Aihc.Fc.WorkerWrapper
   ( SplitScope (..),
     WorkerWrapperReport (..),
     workerWrapperProgram,
+
+    -- * Shared with "Aihc.Fc.CallPattern"
+    Parameter (..),
+    workerType,
+    takeArrows,
+    instantiate,
+    splitLambdas,
   )
 where
 

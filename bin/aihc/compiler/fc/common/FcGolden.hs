@@ -206,7 +206,7 @@ parseFcFixture path value = do
         casePasses = passes
       }
 
--- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@ (or @worker-wrapper: locals@ for the local functions alone), @specialise@, @simplify@, @lift-constants@, or @inline@ with a
+-- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@ (or @worker-wrapper: locals@ for the local functions alone), @specialise@, @call-patterns@, @simplify@, @lift-constants@, or @inline@ with a
 -- policy. The policy is @shrink@, @grow@, or an object that names one of
 -- the two under @policy@ and overrides its knobs: @callee-limit@,
 -- @site-limit@, @discount@, @value-growth@, @value-slack@,
@@ -220,6 +220,7 @@ parsePass value =
     Y.String "worker-wrapper" -> pure (PassWorkerWrapper SplitAllFunctions)
     Y.Object obj | Just (Y.String "locals") <- KeyMap.lookup "worker-wrapper" obj -> pure (PassWorkerWrapper SplitLocalFunctions)
     Y.String "specialise" -> pure PassSpecialise
+    Y.String "call-patterns" -> pure (PassCallPatterns 0)
     Y.String "demand" -> pure (PassDemand StrictLetsAndArguments)
     Y.Object obj | Just (Y.String "lets") <- KeyMap.lookup "demand" obj -> pure (PassDemand StrictLetsOnly)
     Y.String "simplify" -> pure (PassSimplify 0)

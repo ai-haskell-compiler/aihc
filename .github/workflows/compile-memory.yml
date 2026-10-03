@@ -1,0 +1,130 @@
+name: Compile Memory
+
+# Compile the aihc-parser-stackage benchmark of the benchmarks submodule on a
+# GitHub-hosted runner in a cgroup with a hard memory limit. The job fails when
+# the compiler cannot complete in that limit. `aihc build` also installs the
+# core libraries and the Hackage dependencies, so the limit applies to them
+# too.
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+# A new push to a pull request cancels the runs of the same workflow that are
+# still queued or in progress for that pull request. Merge queue runs always
+# complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  aihc-parser-stackage:
+    name: Compile aihc-parser-stackage in 2 GiB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+      BENCHMARK: benchmarks/benchmarks/aihc-parser-stackage
+      # The same target and level as the aihc-native-semispace-O2
+      # configuration of benchmarks/benchmark.json. -O2 compiles the whole
+      # program at once.
+      TARGET: linux-amd64
+      OPTIMIZATION: "2"
+      MEMORY_LIMIT_BYTES: "2147483648"
+      CGROUP: /sys/fs/cgroup/aihc-compile-memory
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      # Nix evaluates and builds outside the memory limit. Only the compiler
+      # runs in the cgroup.
+      - name: Build AIHC
+        run: |
+          set -euo pipefail
+          nix run .#aihc -- --help >/dev/null
+          system="$(nix eval --raw --impure --expr builtins.currentSystem)"
+          echo "AIHC=$(nix eval --raw ".#apps.$system.aihc.program")" >>"$GITHUB_ENV"
+          nix build --inputs-from . nixpkgs#time --out-link "$RUNNER_TEMP/gnu-time"
+          echo "GNU_TIME=$RUNNER_TEMP/gnu-time/bin/time" >>"$GITHUB_ENV"
+
+      - name: Restore the Hackage downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/aihc/hackage
+            .cache/aihc/hackage-index
+          key: compile-memory-hackage-${{ hashFiles('benchmarks/benchmarks/aihc-parser-stackage/aihc.lock') }}
+          restore-keys: compile-memory-hackage-
+
+      - name: Make the memory-limited cgroup
+        run: |
+          set -euo pipefail
+          if [ "$(stat -fc %T /sys/fs/cgroup)" != "cgroup2fs" ]; then
+            echo "The runner does not use cgroup v2." >&2
+            exit 1
+          fi
+          sudo mkdir "$CGROUP"
+          echo "$MEMORY_LIMIT_BYTES" | sudo tee "$CGROUP/memory.max" >/dev/null
+          # Without swap, the limit applies to all anonymous memory.
+          echo 0 | sudo tee "$CGROUP/memory.swap.max" >/dev/null
+
+      - name: Compile the benchmark
+        id: compile
+        run: |
+          set -euo pipefail
+          # Compile a copy, because `aihc build` can rewrite aihc.lock.
+          work="$RUNNER_TEMP/compile-memory"
+          mkdir -p "$work"
+          cp -R "$BENCHMARK" "$work/package"
+          # The shell moves itself into the cgroup and then runs the
+          # compiler. The child processes of the compiler stay in the cgroup.
+          status=0
+          bash -c 'echo $$ | sudo tee "$CGROUP/cgroup.procs" >/dev/null && exec "$@"' _ \
+            "$GNU_TIME" -v -o "$work/time.txt" \
+            "$AIHC" build "$work/package" \
+            --target "$TARGET" \
+            -O "$OPTIMIZATION" \
+            --store "$work/store" \
+            --build-root "$work/build" \
+            -o "$work/out" \
+            +RTS -N -RTS || status=$?
+          oom_kills="$(awk '$1 == "oom_kill" { print $2 }' "$CGROUP/memory.events")"
+          peak_bytes="$(cat "$CGROUP/memory.peak")"
+          max_rss_kib="$(awk -F': ' '/Maximum resident set size/ { print $2 }' "$work/time.txt" 2>/dev/null || true)"
+          wall_clock="$(awk -F': ' '/Elapsed \(wall clock\)/ { print $2 }' "$work/time.txt" 2>/dev/null || true)"
+          {
+            echo "### Compile memory of \`aihc-parser-stackage\`"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Target | \`$TARGET\` at \`-O$OPTIMIZATION\` |"
+            echo "| CPU cores | $(nproc) |"
+            echo "| Memory limit | $((MEMORY_LIMIT_BYTES / 1048576)) MiB |"
+            echo "| Exit status | $status |"
+            echo "| OOM kills | ${oom_kills:-unknown} |"
+            echo "| Largest process RSS | $(( ${max_rss_kib:-0} / 1024 )) MiB |"
+            echo "| Cgroup peak, page cache included | $((peak_bytes / 1048576)) MiB |"
+            echo "| Wall clock | ${wall_clock:-unknown} |"
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [ "${oom_kills:-0}" != "0" ]; then
+            echo "::error::The compiler used more than $((MEMORY_LIMIT_BYTES / 1048576)) MiB of memory."
+            exit 1
+          fi
+          if [ "$status" != "0" ]; then
+            echo "::error::The compiler failed with exit status $status."
+            exit "$status"
+          fi
