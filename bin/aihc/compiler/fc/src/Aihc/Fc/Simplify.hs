@@ -330,7 +330,7 @@ simplifyExpr env expr =
       | Just pushed <- pushHeadCasts expr -> simplifyExpr env pushed
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
-    ExLam binder body -> ExLam binder <$> simplifyExpr (passLambda env) body
+    ExLam binder body -> ExLam binder <$> simplifyExpr (markUnlifted [binder] (passLambda env)) body
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
       let binder = bindBinder bind
@@ -634,7 +634,14 @@ bindingEnv env binder rhs
   where
     evaluatedEnv
       | isValue env rhs = markEvaluated [binderName binder] env
-      | otherwise = env
+      | otherwise = markUnlifted [binder] env
+
+-- | Record that the binders of an unlifted type hold values: such a value
+-- is never a thunk. A case with one default alternative on such a binder
+-- then only names it, as on any evaluated variable.
+markUnlifted :: [Binder] -> Simpl -> Simpl
+markUnlifted binders env =
+  markEvaluated [binderName binder | binder <- binders, not (isLiftedBinder (spEnv env) binder)] env
 
 -- | Record that binders hold values in weak-head normal form.
 markEvaluated :: [Name] -> Simpl -> Simpl
@@ -688,7 +695,7 @@ simplifyAlt env scrutinee binder alternative = do
 -- later case on that variable, cast the same way, selects its fields.
 alternativeEnv :: Simpl -> Expr -> Binder -> Alt -> Simpl
 alternativeEnv env scrutinee binder alternative =
-  markEvaluated (binderName binder : maybe [] pure scrutineeName <> strictBinders) $ case known of
+  markUnlifted (altBinders alternative) . markEvaluated (binderName binder : maybe [] pure scrutineeName <> strictBinders) $ case known of
     Just application ->
       typeEnv
         { spLocals =
