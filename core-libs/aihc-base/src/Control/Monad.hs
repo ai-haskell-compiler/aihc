@@ -47,12 +47,14 @@ import Data.Functor (void)
 import Prelude
   ( Applicative (..),
     Bool (..),
+    Foldable,
     Functor (..),
     Int,
     Maybe,
     Monad (..),
     Num (..),
     Ord (..),
+    Traversable,
     const,
     flip,
     foldr,
@@ -149,10 +151,10 @@ function <$!> action = do
 
 infixl 4 <$!>
 
-forM :: (Monad m) => [a] -> (a -> m b) -> m [b]
+forM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
 forM = flip mapM
 
-forM_ :: (Monad m) => [a] -> (a -> m b) -> m ()
+forM_ :: (Foldable t, Monad m) => t a -> (a -> m b) -> m ()
 forM_ = flip mapM_
 
 when :: (Applicative f) => Bool -> f () -> f ()
@@ -163,14 +165,13 @@ unless :: (Applicative f) => Bool -> f () -> f ()
 unless True _ = pure ()
 unless False action = action
 
-foldM :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
-foldM _ initial [] = return initial
-foldM combine initial (value : values) = do
-  next <- combine initial value
-  foldM combine next values
+foldM :: (Foldable t, Monad m) => (b -> a -> m b) -> b -> t a -> m b
+foldM combine initial values = foldr step return values initial
+  where
+    step value continue accumulator = combine accumulator value >>= continue
 
 {- HLINT ignore foldM_ "Use foldM_" -}
-foldM_ :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m ()
+foldM_ :: (Foldable t, Monad m) => (b -> a -> m b) -> b -> t a -> m ()
 foldM_ combine initial values = void (foldM combine initial values)
 
 forever :: (Monad m) => m a -> m b
@@ -216,5 +217,5 @@ guard :: (Alternative f) => Bool -> f ()
 guard True = pure ()
 guard False = empty
 
-msum :: (MonadPlus m) => [m a] -> m a
+msum :: (Foldable t, MonadPlus m) => t (m a) -> m a
 msum = foldr mplus mzero
