@@ -57,7 +57,7 @@ lowerObservedProgram target gcStress entryName gcProgram = do
     program = gcGrinProgram gcProgram
     -- Abstract forwarding frames have info tables but no code entries.
     hasEntry function = Map.lookup (grinFunctionName function) (gcContinuationFrames gcProgram) /= Just ContinuationFrameForward
-    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False}
+    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = False}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
     observedFunctionLabel name = pure (unSymbol (functionSymbol name))
     threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"

@@ -96,7 +96,7 @@ buildWith reporter options = do
       targetDirectory = nativeTargetStoreDirectory target
       report = progressReport reporter
       verbose message = when (buildVerbose options) (report (ProgressLog message))
-  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options) (buildOptimization options)
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options) (buildOptimization options)
   let config =
         levelConfig
           { compileKeepCore = buildKeepCore options,
@@ -105,6 +105,7 @@ buildWith reporter options = do
             compileKeepNative = buildKeepNative options,
             compileLint = buildLint options,
             compileCheckPrimBounds = buildCheckPrimBounds options,
+            compileProfileAllocations = buildProfileAllocations options,
             compileVerbose = verbose,
             compileUseColor = progressColor reporter,
             compileProgress = reporter

@@ -57,9 +57,9 @@ writeLirObjectWith backend lint lirModule path =
     compileNativeTo lint (obNative backend) (writeStatement backend object) (seal object) lirModule >>= checked
 
 -- | Consume each LIR item as GC-GRIN conversion completes it.
-writeGrinObjectWith :: (Ord register, Show error) => ObjectBackend statement register error -> Bool -> Bool -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
+writeGrinObjectWith :: (Ord register, Show error) => ObjectBackend statement register error -> Bool -> Lower.ModuleSettings -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
 {-# INLINEABLE writeGrinObjectWith #-}
-writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
+writeGrinObjectWith backend lint settings dumpPath gcProgram path = do
   -- The optional declaration pass repeats conversion without retention of bodies.
   symbols <- if lint then declarations else pure Map.empty
   withDump $ \dump ->
@@ -74,7 +74,7 @@ writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
             case item of
               ItemFunction _ -> seal object
               _ -> pure ()
-      Lower.lowerModuleTo (obLowerTarget backend) checkBounds output gcProgram >>= checked
+      Lower.lowerModuleTo (obLowerTarget backend) settings output gcProgram >>= checked
       current <- readIORef state
       finishNativeTo native (writeStatement backend object) current >>= checked
       mapM_ (writeStatement backend object) (nbAfterObject native)
@@ -89,7 +89,7 @@ writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
       let retain _ item =
             let value = declaration item
              in value `seq` modifyIORef' items (value :)
-      Lower.lowerModuleTo (obLowerTarget backend) checkBounds retain gcProgram >>= checked
+      Lower.lowerModuleTo (obLowerTarget backend) settings retain gcProgram >>= checked
       (symbols, errors) <- Lint.moduleSymbols . Module . reverse <$> readIORef items
       checkLint errors
       pure symbols

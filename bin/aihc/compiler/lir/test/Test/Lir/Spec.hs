@@ -6,7 +6,7 @@ import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Interpret (InterpretError (..), renderInterpretError, renderValues, runFunction)
-import Aihc.Lir.Lower (lowerModule, posixTarget64)
+import Aihc.Lir.Lower (ModuleSettings (..), defaultModuleSettings, lowerModule, posixTarget64)
 import Aihc.Testing.RuntimeArchive (withFixtureRuntimeUnits)
 import Control.Monad (unless)
 import Data.List (sort)
@@ -101,7 +101,7 @@ test_primitiveBoundsChecks = do
         )
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
   let externsWith check = do
-        lowered <- either (assertFailure . show) pure (lowerModule posixTarget64 check gc)
+        lowered <- either (assertFailure . show) pure (lowerModule posixTarget64 defaultModuleSettings {moduleCheckPrimBounds = check} gc)
         assertEqual "Lir lint" [] (lintModule lowered)
         pure [externFunctionName extern | ItemExternFunction extern <- moduleItems lowered]
       failure = Symbol "aihc_byte_array_bounds_fail"
