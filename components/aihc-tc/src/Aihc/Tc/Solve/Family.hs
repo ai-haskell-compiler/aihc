@@ -95,7 +95,9 @@ irreduciblePred ty = do
     then pure Nothing
     else do
       kinds <- getKinds
-      pure (constraintTypeToPred kinds ty)
+      pure $ case constraintTypeToPred kinds ty of
+        Just IrredPred {} -> Nothing
+        predicate -> predicate
 
 -- | Reclassify an irreducible predicate whose constraint type is now an
 -- ordinary predicate. The solver compares a wanted and a given
@@ -105,7 +107,12 @@ irreduciblePred ty = do
 reclassifyIrreduciblePred :: Pred -> TcM Pred
 reclassifyIrreduciblePred predicate =
   case predicate of
-    IrredPred constraint -> fromMaybe predicate <$> irreduciblePred constraint
+    IrredPred constraint -> do
+      reclassified <- irreduciblePred constraint
+      pure $ case reclassified of
+        -- A constraint variable keeps lifted dictionary evidence after specialization.
+        Just EqPred {} -> predicate
+        _ -> fromMaybe predicate reclassified
     _ -> pure predicate
 
 -- | The head of an application spine.

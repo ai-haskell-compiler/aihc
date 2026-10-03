@@ -1,0 +1,36 @@
+extensions: [ConstraintKinds, FunctionalDependencies, GADTs, RankNTypes, TypeApplications, MultiParamTypeClasses, PolyKinds, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, FunctionalDependencies, GADTs, RankNTypes, TypeApplications, MultiParamTypeClasses, PolyKinds, TypeOperators #-}
+    module Test where
+    import Data.Kind (Constraint)
+    import Data.Type.Equality
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    class HasDict c evidence | evidence -> c where
+      proof :: evidence -> Dict c
+    instance HasDict (a ~ b) (a :~: b) where
+      proof Refl = Dict
+    instance HasDict (a ~~ b) (a :~~: b) where
+      proof HRefl = Dict
+    class Deferrable (c :: Constraint) where
+      defer :: (c => r) -> Maybe r
+    instance (a ~ b) => Deferrable (a ~ b) where
+      defer value = Just value
+    class Recover c evidence | evidence -> c where
+      recover :: evidence -> (c => r) -> r
+    instance Recover (a ~ b) (a :~: b) where
+      recover Refl value = value
+    instance Recover (a ~~ b) (a :~~: b) where
+      recover HRefl value = value
+    answer :: Bool
+    answer = case proof (Refl :: Bool :~: Bool) of
+      Dict -> case proof (HRefl :: Bool :~~: Bool) of
+        Dict -> defer @(Bool ~ Bool) True == Just True
+          && recover (Refl :: Bool :~: Bool) True
+          && recover (HRefl :: Bool :~~: Bool) True
+expression: answer
+output: |
+  True
+status: pass
+reason: An equality used as a class argument has a lifted dictionary type.

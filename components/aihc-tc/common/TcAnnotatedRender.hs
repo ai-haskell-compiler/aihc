@@ -252,6 +252,7 @@ renderEvTerm ev =
       T.unpack name
         <> renderTypeArgs typeArgs
         <> renderEvidenceArgs evidence
+    EvEqualityDict _ left right _ -> "equality @" <> renderTcType left <> " @" <> renderTcType right
     EvCoercible _ left right -> "coercible @" <> renderTcType left <> " @" <> renderTcType right
     EvCoercion coercion -> renderCoercion coercion
     EvSuperClass evidence _ _ _ index -> "super[" <> show index <> "](" <> renderEvTerm evidence <> ")"

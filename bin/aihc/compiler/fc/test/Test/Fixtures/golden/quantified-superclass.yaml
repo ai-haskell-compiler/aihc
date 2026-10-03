@@ -70,7 +70,7 @@ expected: |-
 
   pub val 1.v$fNFData1Proxy :: 1.t$Dict$NFData1 1.tProxy
    = 1.c$Dict$NFData1 @1.tProxy (Λ(a : 2.sType).
-    λ($quantified_d : 1.t$Dict$NFData a).
+    λ($quantified_d0 : 1.t$Dict$NFData a).
       1.v$fNFDataProxya @a)
 
   pub val 1.vuse :: ∀(f : 2.sType 2.→ 2.sType) (a : 2.sType). 1.t$Dict$NFData1 f 2.→ 1.t$Dict$NFData a 2.→ f a 2.→ f a
@@ -79,7 +79,7 @@ expected: |-
       λ($d0 : 1.t$Dict$NFData1 f).
         λ($d1 : 1.t$Dict$NFData a).
           λ(x : f a).
-            1.vrnf @(f a) ((case $d0 as ($super_source : 1.t$Dict$NFData1 f) return (∀(a{1} : 2.sType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) of {
+            1.vrnf @(f a) ((case $d0 as ($super_source0 : 1.t$Dict$NFData1 f) return (∀(a{1} : 2.sType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) of {
                 1.c$Dict$NFData1 ($super_field0 : ∀(a{1} : 2.sType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) →
                     $super_field0
             }) @a $d1) x

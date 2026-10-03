@@ -63,6 +63,12 @@ givenEqualities visited (predicate, evidence) = case predicate of
             _ -> EvidenceCo predicate evidence
         )
       ]
+  IrredPred constraint -> do
+    kinds <- getKinds
+    pure $ case constraintTypeToPred kinds constraint of
+      Just equality@(EqPred left right) ->
+        [(left, right, EvidenceCo equality (EvSuperClass evidence Nothing predicate [constraint] 0))]
+      _ -> []
   ClassPred tyCon arguments
     | tyCon `notElem` visited -> do
         maybeInfo <- lookupClass tyCon

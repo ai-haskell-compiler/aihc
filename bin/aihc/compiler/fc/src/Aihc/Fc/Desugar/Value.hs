@@ -3164,10 +3164,10 @@ convertCheckedTypeArguments declaredType arguments = do
   where
     convertArguments _ _ [] = Right []
     convertArguments env (TcForAllTy variable body) (argument : rest) = do
-      converted <- convertTypeWithExpectedKind env (Just (tvKind variable)) argument
+      converted <- convertNestedTypeWithExpectedKind env (Just (tvKind variable)) argument
       let substitution = Map.singleton (tvUnique variable) argument
       (converted :) <$> convertArguments env (applySubst substitution body) rest
-    convertArguments env _ remaining = mapM (convertType env) remaining
+    convertArguments env _ remaining = mapM (convertNestedType env) remaining
 
 desugarInfixOperator :: Syn.Name -> ValueM Expr
 desugarInfixOperator operator = do
@@ -3564,7 +3564,7 @@ convertTyConApplicationArguments tyCon arguments = do
   env <- gets vsConvertEnv
   invisibleArguments <- liftEither (invisibleKindArgs env tyCon arguments Nothing)
   kinds <- liftEither (visibleArgumentKinds env tyCon arguments Nothing)
-  visibleArguments <- liftEither (zipWithM (convertTypeWithExpectedKind env . Just) kinds arguments)
+  visibleArguments <- liftEither (zipWithM (convertNestedTypeWithExpectedKind env . Just) kinds arguments)
   pure (invisibleArguments <> visibleArguments)
 
 -- | Desugar a lambda-case into ordinary function equations.
@@ -4536,6 +4536,10 @@ desugarEvidence evidence =
       -- takes the kind arguments before the two types.
       arguments <- convertTyConApplicationArguments constructor [left, right]
       pure (foldl ExTyApp (ExVar (classDictConName constructor)) arguments)
+    Ev.EvEqualityDict constructor left right proof -> do
+      arguments <- convertTyConApplicationArguments constructor [left, right]
+      withCoercion proof $ \coercion ->
+        pure (ExApp (foldl ExTyApp (ExVar (classDictConName constructor)) arguments) (ExCoercion coercion))
     Ev.EvCoercion coercion -> withCoercion coercion (pure . ExCoercion)
     Ev.EvSuperClass _ _ _ fieldTypes fieldIndex -> do
       resultPredicateType <-
@@ -4550,8 +4554,8 @@ desugarEvidence evidence =
     Ev.EvTypeLit origin ty literal -> desugarTypeLitEvidence origin ty literal
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
-    Ev.EvDictLam predicate binderType body -> withoutEvidenceScope $ do
-      binder <- freshBinder "$quantified_d" binderType
+    Ev.EvDictLam predicate _ body -> withoutEvidenceScope $ do
+      binder <- freshDictionaryBinder "$quantified_d" 0 predicate
       body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
       pure (ExLam binder body')
     Ev.EvTypeApp function argument ->
@@ -4572,14 +4576,16 @@ desugarSuperClass evidence =
   case evidence of
     Ev.EvSuperClass source _ sourcePredicate fieldTypes fieldIndex -> do
       sourceExpression <- desugarEvidence source
-      (classTyCon, sourceType) <-
+      classTyCon <-
         case sourcePredicate of
-          ClassPred classTyCon arguments -> pure (classTyCon, TcTyCon classTyCon arguments)
+          ClassPred classTyCon _ -> pure classTyCon
           EqPred {} -> failValue "cannot select a superclass from equality evidence"
           QuantifiedPred {} -> failValue "cannot select a superclass from quantified evidence before application"
           IParamPred {} -> failValue "cannot select a superclass from implicit-parameter evidence"
+          IrredPred constraint
+            | (TcTyCon constructor _, _) <- Tc.collectTypeApplications constraint -> pure constructor
           IrredPred {} -> failValue "cannot select a superclass from an irreducible constraint before it reduces"
-      sourceBinder <- freshBinder "$super_source" sourceType
+      sourceBinder <- freshDictionaryBinder "$super_source" 0 sourcePredicate
       fieldBinders <- zipWithM (freshIndexedBinder "$super_field") [0 :: Int ..] fieldTypes
       selected <-
         case drop fieldIndex fieldBinders of
@@ -4980,7 +4986,10 @@ withCoercion proof use = do
   pure (foldr ExLet body bindings)
 
 convertCoercion :: Ev.Coercion -> ValueM (Coercion, [Bind])
-convertCoercion coercion =
+convertCoercion = convertCoercionWithExpectedKind Nothing
+
+convertCoercionWithExpectedKind :: Maybe TcType -> Ev.Coercion -> ValueM (Coercion, [Bind])
+convertCoercionWithExpectedKind expectedKind coercion =
   case coercion of
     Ev.EvidenceCo predicate evidence -> do
       expression <- desugarEvidence evidence
@@ -4992,7 +5001,9 @@ convertCoercion coercion =
         Just binder -> pure (CoVar (binderName binder), [])
         Nothing -> failValue ("missing given equality for " <> show predicate)
     Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)), [])
-    Ev.Refl ty -> (,[]) . CoRefl <$> convertCheckedType ty
+    Ev.Refl ty -> do
+      env <- gets vsConvertEnv
+      (,[]) . CoRefl <$> liftEither (convertTypeWithExpectedKind env expectedKind ty)
     Ev.Sym inner -> unary CoSym inner
     Ev.Trans left right -> binary CoTrans left right
     Ev.NthCo index proof -> unary (CoNth index) proof
@@ -5005,8 +5016,9 @@ convertCoercion coercion =
         pure (CoForAll binder converted, bindings)
     Ev.TyConAppCo tyCon types arguments -> do
       env <- gets vsConvertEnv
-      kinds <- liftEither (invisibleKindArgs env tyCon types Nothing)
-      converted <- mapM convertCoercion arguments
+      kinds <- liftEither (invisibleKindArgs env tyCon types expectedKind)
+      argumentKinds <- liftEither (visibleArgumentKinds env tyCon types expectedKind)
+      converted <- zipWithM convertCoercionWithExpectedKind (map Just argumentKinds <> repeat Nothing) arguments
       pure (CoTyConApp (tyConNameFc env tyCon) (map CoRefl kinds <> map fst converted), concatMap snd converted)
     Ev.AxiomInstCo key arguments -> do
       let name = lookupAxiomName key
@@ -5025,11 +5037,11 @@ convertCoercion coercion =
       pure (CoAxiom name converted, [])
   where
     unary constructor proof = do
-      (converted, bindings) <- convertCoercion proof
+      (converted, bindings) <- convertCoercionWithExpectedKind expectedKind proof
       pure (constructor converted, bindings)
     binary constructor left right = do
-      (leftProof, leftBindings) <- convertCoercion left
-      (rightProof, rightBindings) <- convertCoercion right
+      (leftProof, leftBindings) <- convertCoercionWithExpectedKind expectedKind left
+      (rightProof, rightBindings) <- convertCoercionWithExpectedKind expectedKind right
       pure (constructor leftProof rightProof, leftBindings <> rightBindings)
 
 resolvedTermName :: Syn.Name -> ValueM Name

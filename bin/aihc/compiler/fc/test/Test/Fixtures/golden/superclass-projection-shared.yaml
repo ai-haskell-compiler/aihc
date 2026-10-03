@@ -66,7 +66,7 @@ expected: |-
         λ(y : a).
           let {
               $super : 1.t$Dict$Parent a =
-                  case $d0 as ($super_source : 1.t$Dict$Child a) return (1.t$Dict$Parent a) of {
+                  case $d0 as ($super_source0 : 1.t$Dict$Child a) return (1.t$Dict$Parent a) of {
                       1.c$Dict$Child ($super_field0 : 1.t$Dict$Parent a) ($super_field1 : a 2.→ 1.tFlag) →
                           $super_field0
                   }
