@@ -30,16 +30,16 @@ expected: |-
   1.$one ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data 1.$Dict$Cls ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+    $method0 :: BoxedRep Lifted, $method1 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Cls) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
 
   1.$two ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data 1.$Dict$Cls ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method1 :: BoxedRep Lifted)
+    $method0 :: BoxedRep Lifted, $method1 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Cls) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($method1 :: BoxedRep Lifted)
 
   1.$$dmtwo ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     call @(BoxedRep Lifted) 1.$one ($d0 :: BoxedRep Lifted)

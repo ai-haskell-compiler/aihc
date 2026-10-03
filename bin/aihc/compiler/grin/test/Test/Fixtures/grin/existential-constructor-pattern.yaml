@@ -17,8 +17,8 @@ expected: |-
   1.$copyBox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
-      data 1.Box (value :: BoxedRep Lifted) ->
-        store (C1.Box (value :: BoxedRep Lifted))
+    value :: BoxedRep Lifted <-
+      fetch (C1.Box) (case_value :: BoxedRep Lifted)
+    store (C1.Box (value :: BoxedRep Lifted))
 status: pass
 reason: preserves the lifted representation of an existential constructor field
