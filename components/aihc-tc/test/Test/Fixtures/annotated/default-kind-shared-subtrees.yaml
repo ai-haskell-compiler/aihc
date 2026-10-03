@@ -1,0 +1,26 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  type K = Type
+  data Pair (a :: K) (b :: K) = Pair a b
+  same :: Pair a a -> Pair a a
+  same x = x
+status: pass
+reason: Kind finalization must expand aliases and preserve repeated variables.
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  type K = Type
+       └─ type: Type
+  data Pair (a :: K) (b :: K) = Pair a b
+       │                        └─ type: ∀ a b. a → b → Pair a b
+       └─ type: Type → Type → Type
+  same :: Pair a a -> Pair a a
+  same x = x
+  │    └─ type: Pair a a
+  └─ type: ∀ a. Pair a a → Pair a a
