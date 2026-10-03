@@ -629,6 +629,12 @@ is `Aihc.Fc.Rules`.
 - A template that is an eta-expansion of a binder, `Λb. g @b` or `λx. g x`,
   is matched eta-reduced: the desugarer expands a binder passed at a
   polymorphic or a function type, and the source meant the binder alone.
+- The inliner binds the arguments of a copy to lets, so an argument often
+  arrives under lets: `foldr k z (let x = e in build g)`. When no rule
+  matches the arguments as they are, the lazy lets at the front of each
+  value argument come off, with fresh binders, and the rules are tried
+  again. A rule that then matches fires, and the lets go around the result,
+  as in GHC's Note [Matching lets]. A strict let stays where it is.
 
 ### List fusion in the core libraries
 
@@ -646,6 +652,14 @@ Two things differ from GHC:
   as a partial application, `sum = foldr (+) 0`, has the arity of its type
   and is copied at its calls. The arity pass reads arity from the body, and
   GHC's `foldr k z = go` gives it arity 2.
+
+An alias, such as the instance method `enumFromTo = enumIntFromTo`, must
+stay an alias for the rules of the name it stands for to fire at its uses.
+Thus the arity pass does not eta expand a trivial body, as in GHC's Note
+[Do not eta-expand trivial expressions]. An expansion made such a method a
+function: the `[~1]` rule of `enumIntFromTo` fired inside it, the inliner did
+not copy it into a large caller, and a `foldr` over `[x .. y]` never met the
+`build`.
 
 Rules are matched in the program the pass is given. At the per-module scope
 that is the module's own rules; at the whole-program scope it is every rule
