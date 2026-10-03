@@ -65,7 +65,7 @@ module GHC.Prim.Read
 where
 
 import GHC.Prim (chr#, ord#, (+#), (<#), (==#))
-import GHC.Prim.Base (Applicative (..), Functor (..), Monad (..), String)
+import GHC.Prim.Base (Applicative (..), Functor (..), Maybe (..), Monad (..), String)
 import GHC.Prim.Integer (Integer (..), eqInteger#)
 import GHC.Prim.Num (Num (..))
 import GHC.Types (Bool (..), Char (..), Int (..))
@@ -566,18 +566,94 @@ readEscape ('v' : rest) = [('\v', "\\v", rest)]
 readEscape ('\\' : rest) = [('\\', "\\\\", rest)]
 readEscape ('\'' : rest) = [('\'', "\\'", rest)]
 readEscape ('"' : rest) = [('"', "\\\"", rest)]
+readEscape ('x' : rest) = readNumericEscape 16 'x' isHexDigitRead rest
+readEscape ('o' : rest) = readNumericEscape 8 'o' isOctalDigit rest
+readEscape ('^' : control : rest) =
+  case charBetween '@' '_' control of
+    True -> [(characterFromCode (charCode control - 64), ['\\', '^', control], rest)]
+    False -> []
 readEscape input@(char : _) =
   case isDecimalDigit char of
     True ->
       case takeDigits input of
         (digits, rest) -> [(characterFromDigits 10 digits, '\\' : digits, rest)]
-    False -> []
+    False -> readNamedEscape namedEscapes input
 readEscape _ = []
 
+-- | A hexadecimal or an octal escape, such as @\x41@ or @\o101@. The code
+-- must be a Unicode code point.
+readNumericEscape :: Int -> Char -> (Char -> Bool) -> String -> [(Char, String, String)]
+readNumericEscape base marker isDigit input =
+  case takeWhileRead isDigit input of
+    ([], _) -> []
+    (digits, rest) ->
+      let code = digitsToInt base digits
+       in case intAtMost code 0x10FFFF of
+            True -> [(characterFromCode code, '\\' : marker : digits, rest)]
+            False -> []
+
+-- | An ASCII control character by its name, such as @\NUL@. The longest
+-- name wins, so @\SOH@ is one character and not @\SO@ and @H@.
+readNamedEscape :: [(String, Char)] -> String -> [(Char, String, String)]
+readNamedEscape [] _ = []
+readNamedEscape ((name, char) : others) input =
+  case stripReadPrefix name input of
+    Just rest -> [(char, '\\' : name, rest)]
+    Nothing -> readNamedEscape others input
+
+stripReadPrefix :: String -> String -> Maybe String
+stripReadPrefix [] input = Just input
+stripReadPrefix (expected : expectedRest) (char : rest) =
+  case charEqual expected char of
+    True -> stripReadPrefix expectedRest rest
+    False -> Nothing
+stripReadPrefix _ [] = Nothing
+
+-- | The names of the ASCII control characters of the Haskell 2010 report.
+-- SOH comes before SO, so that the longer name matches first.
+namedEscapes :: [(String, Char)]
+namedEscapes =
+  [ ("NUL", '\NUL'),
+    ("SOH", '\SOH'),
+    ("STX", '\STX'),
+    ("ETX", '\ETX'),
+    ("EOT", '\EOT'),
+    ("ENQ", '\ENQ'),
+    ("ACK", '\ACK'),
+    ("BEL", '\BEL'),
+    ("BS", '\BS'),
+    ("HT", '\HT'),
+    ("LF", '\LF'),
+    ("VT", '\VT'),
+    ("FF", '\FF'),
+    ("CR", '\CR'),
+    ("SO", '\SO'),
+    ("SI", '\SI'),
+    ("DLE", '\DLE'),
+    ("DC1", '\DC1'),
+    ("DC2", '\DC2'),
+    ("DC3", '\DC3'),
+    ("DC4", '\DC4'),
+    ("NAK", '\NAK'),
+    ("SYN", '\SYN'),
+    ("ETB", '\ETB'),
+    ("CAN", '\CAN'),
+    ("EM", '\EM'),
+    ("SUB", '\SUB'),
+    ("ESC", '\ESC'),
+    ("FS", '\FS'),
+    ("GS", '\GS'),
+    ("RS", '\RS'),
+    ("US", '\US'),
+    ("SP", '\SP'),
+    ("DEL", '\DEL')
+  ]
+
+characterFromCode :: Int -> Char
+characterFromCode (I# value) = C# (chr# value)
+
 characterFromDigits :: Int -> String -> Char
-characterFromDigits base digits =
-  case digitsToInt base digits of
-    I# value -> C# (chr# value)
+characterFromDigits base digits = characterFromCode (digitsToInt base digits)
 
 digitsToInt :: Int -> String -> Int
 digitsToInt base = go 0
