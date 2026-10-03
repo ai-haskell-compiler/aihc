@@ -23,6 +23,7 @@ import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Num (Num (..))
 import GHC.Real (Integral)
 import GHC.Tuple (Solo (..))
+import GHC.Types (IO)
 
 class Semigroup a where
   (<>) :: a -> a -> a
@@ -251,3 +252,12 @@ instance Monad Sum where
 
 instance Monad Product where
   Product value >>= f = f value
+
+instance (Semigroup a) => Semigroup (IO a) where
+  left <> right = do
+    first <- left
+    second <- right
+    pure (first <> second)
+
+instance (Monoid a) => Monoid (IO a) where
+  mempty = pure mempty

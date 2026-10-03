@@ -1,0 +1,40 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Data.Bits
+    import Data.Complex
+    import Data.Functor.Const
+    import Data.Functor.Identity
+    import Data.Ix
+    import Data.Functor.Classes
+    import qualified Data.Functor.Product as P
+    import qualified Data.Functor.Sum as S
+    import Data.Functor.Compose
+    import Control.Monad
+    import Control.Monad.Fix
+
+    answer :: Bool
+    answer = runIdentity (Identity 3 + Identity 4) == (7 :: Int)
+      && getConst (Const 3 + Const 4) == (7 :: Int)
+      && runIdentity (shiftL (Identity (1 :: Int)) 3) == 8
+      && getConst (shiftL (Const (1 :: Int)) 3) == 8
+      && runIdentity (fromRational 1.5 :: Identity Double) == 1.5
+      && getConst (sqrt (Const 4 :: Const Double Bool)) == 2
+      && (read "1 :+ 2" :: Complex Int) == (1 :+ 2)
+      && (minBound :: (Bool, Bool)) == (False, False)
+      && (maxBound :: (Bool, Bool)) == (True, True)
+      && range ((False, False), (True, True)) == [(False, False), (False, True), (True, False), (True, True)]
+      && showsPrec1 0 (P.Pair (Just (1 :: Int)) [2]) "" == "Pair (Just 1) [2]"
+      && readsPrec1 0 "Pair (Just 1) [2]" == [(P.Pair (Just (1 :: Int)) [2], "")]
+      && showsPrec1 0 (S.InL (Just (1 :: Int)) :: S.Sum Maybe [] Int) "" == "InL (Just 1)"
+      && readsPrec1 0 "InR [2]" == [(S.InR [2] :: S.Sum Maybe [] Int, "")]
+      && showsPrec1 0 (Compose [Just (1 :: Int)]) "" == "Compose [Just 1]"
+      && readsPrec1 0 "Compose [Just 1]" == [(Compose [Just (1 :: Int)], "")]
+      && (mzero :: P.Product Maybe [] Int) == P.Pair Nothing []
+      && mfix (\_ -> P.Pair (Just (1 :: Int)) [2]) == P.Pair (Just 1) [2]
+expression: answer
+output: |
+  True
+status: pass
+reason: Core library instances support the types that constraints uses.

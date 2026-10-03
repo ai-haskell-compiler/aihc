@@ -6,7 +6,7 @@ module Data.Functor.Sum
 where
 
 import Data.Foldable (Foldable (..))
-import Data.Functor.Classes (Eq1 (..), Ord1 (..))
+import Data.Functor.Classes (Eq1 (..), Ord1 (..), Read1 (..), Show1 (..))
 import Data.Kind (Type)
 import Data.Traversable (Traversable (..))
 import Prelude
@@ -119,3 +119,14 @@ wrapLeftReads ((value, rest) : results) = (InL value, rest) : wrapLeftReads resu
 wrapRightReads :: [(g a, String)] -> [(Sum f g a, String)]
 wrapRightReads [] = []
 wrapRightReads ((value, rest) : results) = (InR value, rest) : wrapRightReads results
+
+instance (Show1 f, Show1 g) => Show1 (Sum f g) where
+  liftShowsPrec sp sl precedence (InL value) =
+    showParen (precedence > 10) (showString "InL " . liftShowsPrec sp sl 11 value)
+  liftShowsPrec sp sl precedence (InR value) =
+    showParen (precedence > 10) (showString "InR " . liftShowsPrec sp sl 11 value)
+
+instance (Read1 f, Read1 g) => Read1 (Sum f g) where
+  liftReadsPrec rp rl precedence = readParen (precedence > 10) $ \input ->
+    [(InL value, rest) | (name, afterName) <- lex input, name == "InL", (value, rest) <- liftReadsPrec rp rl 11 afterName]
+      ++ [(InR value, rest) | (name, afterName) <- lex input, name == "InR", (value, rest) <- liftReadsPrec rp rl 11 afterName]

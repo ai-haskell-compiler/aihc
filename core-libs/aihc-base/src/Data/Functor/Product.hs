@@ -6,8 +6,10 @@ module Data.Functor.Product
 where
 
 import Control.Applicative (Alternative (..))
+import Control.Monad (MonadPlus (..))
+import Control.Monad.Fix (MonadFix (..))
 import Data.Foldable (Foldable (..))
-import Data.Functor.Classes (Eq1 (..), Ord1 (..))
+import Data.Functor.Classes (Eq1 (..), Ord1 (..), Read1 (..), Show1 (..))
 import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
 import Data.Semigroup (Semigroup (..))
@@ -137,3 +139,20 @@ readProductSecond :: f a -> [(g a, String)] -> [(Product f g a, String)]
 readProductSecond _ [] = []
 readProductSecond first ((second, rest) : secondResults) =
   (Pair first second, rest) : readProductSecond first secondResults
+
+instance (MonadPlus f, MonadPlus g) => MonadPlus (Product f g) where
+  mzero = Pair mzero mzero
+  mplus (Pair a b) (Pair c d) = Pair (mplus a c) (mplus b d)
+
+instance (MonadFix f, MonadFix g) => MonadFix (Product f g) where
+  mfix f = Pair (mfix (firstProduct . f)) (mfix (secondProduct . f))
+
+instance (Show1 f, Show1 g) => Show1 (Product f g) where
+  liftShowsPrec sp sl precedence (Pair first second) =
+    showParen
+      (precedence > 10)
+      (showString "Pair " . liftShowsPrec sp sl 11 first . showChar ' ' . liftShowsPrec sp sl 11 second)
+
+instance (Read1 f, Read1 g) => Read1 (Product f g) where
+  liftReadsPrec rp rl precedence = readParen (precedence > 10) $ \input ->
+    [(Pair first second, rest) | (name, afterName) <- lex input, name == "Pair", (first, afterFirst) <- liftReadsPrec rp rl 11 afterName, (second, rest) <- liftReadsPrec rp rl 11 afterFirst]

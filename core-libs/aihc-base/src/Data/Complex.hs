@@ -23,6 +23,7 @@ infix 6 :+
 -- @base@, so evaluating the constructor to weak head normal form evaluates its
 -- real and imaginary parts.
 data Complex a = !a :+ !a
+  deriving (Read)
 
 instance (Eq a) => Eq (Complex a) where
   (:+) leftReal leftImaginary == (:+) rightReal rightImaginary =
