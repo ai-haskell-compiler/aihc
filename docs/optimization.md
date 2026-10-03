@@ -68,14 +68,21 @@ after each pass under `--lint`.
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
 simplifying walk in phase 0. Nothing else reads the phase: it decides which
-rewrite rules fire (see below).
+rewrite rules fire and which pragmas are active (see below). One round of
+the growing inliner runs in phase 0 before the final walk, because a value
+whose pragma is `INLINE [0]` is a candidate in no earlier pass. The
+`binary` package marks its `Get` reader `readN` and the `pure` of `Get`
+this way, so without the round every word read of a decoder stayed a call
+with a continuation closure. A copy made that late can expose a strict let
+that the demand pass of phase 2 did not see, so the demand pass runs
+again after it.
 
 The plans are:
 
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, worker/wrapper of the local functions, simplify [0], lift constants |
+| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, worker/wrapper of the local functions, inline `growPolicy` [0] for one round, demand, simplify [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
 | `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
@@ -678,6 +685,18 @@ Three things differ from GHC:
   requested site limit charges the allowance like a measured copy. The
   growth of a site counts the free copies inside it, so a chain of
   `INLINE` values stops where it grows past the limit.
+
+An `INLINE` value is a template: its body is what every call gets in the
+phases its pragma names. So a use inside it counts once more for each call
+of the template, and a value whose one use is inside a template with many
+calls is not copied into it as a value with one use. Without this rule the
+shrinking pass copied the refill loop of `binary` into `readN`, and the
+round of phase 0 then copied the loop at each of the 48 word reads of a
+SHA block. A template with no call, such as an exported wrapper, adds
+nothing, so its worker still folds back into it. Measured copies into a
+template are decided like any other: the template's own body is what its
+direct calls run, so it is optimised like every value, and a copy of it
+carries only what its allowance admitted.
 
 `shrinkPolicy` sets the requested site limit to zero, so it keeps its invariant
 below, and an `INLINE` value that it rejects stays a call. This is what lets a rule beat the inliner to a

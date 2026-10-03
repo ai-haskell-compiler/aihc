@@ -1,0 +1,54 @@
+---
+extensions: []
+modules:
+- |
+  module Test (useLate, useEarly) where
+  data Nat = Z | S Nat
+  -- The pragma names phase 0, so the growing pass of phase 1 keeps the
+  -- call and the round of phase 0 copies it.
+  late :: Nat -> Nat
+  late x = S (S x)
+  {-# INLINE [0] late #-}
+  -- A plain INLINE pragma names every phase.
+  early :: Nat -> Nat
+  early x = S (S (S x))
+  {-# INLINE early #-}
+  useLate :: Nat -> Nat
+  useLate x = late (late x)
+  useEarly :: Nat -> Nat
+  useEarly x = early (early x)
+passes:
+- inline: shrink
+- inline: grow
+- inline: {policy: grow, phase: 0}
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tNat :: 2.sType {
+      1.cZ :: 1.tNat;
+      1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  pub val 1.vuseLate :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.cS (1.cS (1.cS (1.cS x)))
+
+  pub val 1.vuseEarly :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    1.cS (1.cS (1.cS (1.cS (1.cS (1.cS x)))))
+status: pass
+reason: An INLINE [0] value is not a candidate before phase 0, and the round of phase 0 copies it at each call.

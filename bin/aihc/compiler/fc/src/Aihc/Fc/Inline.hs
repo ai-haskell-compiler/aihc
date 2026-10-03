@@ -345,14 +345,34 @@ inlineRound config st0 = List.foldl' step st0 (stronglyConnComp graph)
     graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
     known = knownValues st0
     recursive = Set.fromList (concat [names | CyclicSCC names <- stronglyConnComp graph])
+    -- The uses that the copies of the templates add. A template is copied
+    -- at every call in the phases its pragma names, so a use inside it is
+    -- repeated once per call of the template.
+    inTemplates =
+      Map.unionsWith
+        (+)
+        [ Map.fromSet (const calls) references
+        | (name, references) <- Map.toList (inRefs st0),
+          isTemplate st0 name,
+          let calls = Map.findWithDefault 0 name (inCalls st0),
+          calls > 0
+        ]
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config known recursive st name
-        CyclicSCC names -> List.foldl' (simplifyValue config known recursive) st names
+        AcyclicSCC name -> simplifyValue config known recursive inTemplates st name
+        CyclicSCC names -> List.foldl' (simplifyValue config known recursive inTemplates) st names
+
+-- | Whether a value is a template: its @INLINE@ pragma asks for a copy at
+-- every call in the phases it names, so its body is what every call gets.
+isTemplate :: Inliner -> Name -> Bool
+isTemplate st name =
+  case Map.lookup name (inSpecs st) of
+    Just (InlineAlways _) -> True
+    _ -> False
 
 -- | Simplify one body with the candidates it references.
-simplifyValue :: InlineConfig -> Map Name Expr -> Set Name -> Inliner -> Name -> Inliner
-simplifyValue config known recursive st name
+simplifyValue :: InlineConfig -> Map Name Expr -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
+simplifyValue config known recursive inTemplates st name
   | name `Set.member` inDead st = st
   | otherwise =
       case Map.lookup name (inBodies st) of
@@ -452,10 +472,12 @@ simplifyValue config known recursive st name
     -- not such a call, a dictionary field for one, keeps the value, and
     -- its sites are decided by their growth like any other: a class
     -- method with one use, in its dictionary, is not free at the sites
-    -- that select it from that dictionary.
+    -- that select it from that dictionary. A use inside a template is
+    -- repeated at every call of the template, so those calls count as
+    -- uses too.
     unconditional callee size =
       removable callee
-        && let uses = Map.findWithDefault 0 callee (inCounts st)
+        && let uses = Map.findWithDefault 0 callee (inCounts st) + Map.findWithDefault 0 callee inTemplates
                calls = Map.findWithDefault 0 callee (inCalls st)
             in calls >= uses && uses * (size - 1) - (size + 1) <= 0
     removable callee = callee `Set.notMember` inRoots st

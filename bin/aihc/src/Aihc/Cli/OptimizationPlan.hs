@@ -70,7 +70,10 @@ optimizationPlan lto level =
     -- an iterate, whose counter is still boxed. The eta expansion gives
     -- such a loop all its lambdas, the local split then takes the box
     -- off, and the simplifying walk reduces the copies of the wrapper at
-    -- the calls.
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLocalFunctions, Fc.PassSimplify 0, Fc.PassLiftConstants]
+    -- the calls. One round of the growing inliner in phase 0 copies the
+    -- values whose INLINE pragma names phase 0, which no earlier pass may
+    -- copy; a strict let that such a copy exposes gets its case from the
+    -- demand pass that follows.
+    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLocalFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassSimplify 0, Fc.PassLiftConstants]
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4
