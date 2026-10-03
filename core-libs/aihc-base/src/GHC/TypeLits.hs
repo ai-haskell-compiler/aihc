@@ -1,9 +1,12 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoStarIsType #-}
 
 -- | Type-level literals.
@@ -23,18 +26,24 @@ module GHC.TypeLits
     natVal',
     SNat,
     fromSNat,
+    withKnownNat,
     KnownSymbol,
     symbolSing,
     symbolVal,
     symbolVal',
     SSymbol,
     fromSSymbol,
+    withKnownSymbol,
     KnownChar,
     charSing,
     charVal,
     charVal',
     SChar,
     fromSChar,
+    withKnownChar,
+    AppendSymbol,
+    CharToNat,
+    NatToChar,
     TypeError,
     ErrorMessage (..),
     type (<=),
@@ -55,7 +64,7 @@ import GHC.Num.Integer (Integer)
 import GHC.Prim (Proxy#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, type (*), type (+), type (-), type (^))
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, withKnownNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
 import GHC.Types (Char, Constraint, Symbol, Type)
 
@@ -124,3 +133,24 @@ newtype SChar c = UnsafeSChar Char
 -- | The value a singleton stands for.
 fromSChar :: SChar c -> Char
 fromSChar (UnsafeSChar value) = value
+
+-- | Supply class evidence from a singleton.
+withKnownSymbol :: forall s r. SSymbol s -> ((KnownSymbol s) => r) -> r
+withKnownSymbol (UnsafeSSymbol value) = withKnownSymbolValue# @s value
+
+foreign import prim "withKnownSymbolValue#" withKnownSymbolValue# :: forall s r. [Char] -> ((KnownSymbol s) => r) -> r
+
+-- | Supply class evidence from a singleton.
+withKnownChar :: forall c r. SChar c -> ((KnownChar c) => r) -> r
+withKnownChar (UnsafeSChar value) = withKnownCharValue# @c value
+
+foreign import prim "withKnownCharValue#" withKnownCharValue# :: forall c r. Char -> ((KnownChar c) => r) -> r
+
+type AppendSymbol :: Symbol -> Symbol -> Symbol
+type family AppendSymbol a b
+
+type CharToNat :: Char -> Nat
+type family CharToNat c
+
+type NatToChar :: Nat -> Char
+type family NatToChar n

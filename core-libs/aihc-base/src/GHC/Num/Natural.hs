@@ -2,6 +2,7 @@
 
 module GHC.Num.Natural
   ( Natural (..),
+    naturalLog2,
   )
 where
 
@@ -154,3 +155,12 @@ instance Bits Natural where
   shiftR value amount = naturalFromInteger (shiftR (naturalToInteger value) amount)
   unsafeShiftR value amount = naturalFromInteger (unsafeShiftR (naturalToInteger value) amount)
   popCount value = popCount (naturalToInteger value)
+
+-- | The integer base-two logarithm. Zero gives zero.
+naturalLog2 :: Natural -> Word
+naturalLog2 value = count value 0
+  where
+    count remaining result =
+      if remaining < 2
+        then result
+        else count (quot remaining 2) (result + 1)

@@ -1,0 +1,14 @@
+extensions: [DataKinds]
+modules:
+  - |
+    {-# LANGUAGE DataKinds #-}
+    module Test where
+    import Data.Proxy (Proxy (..))
+    import GHC.TypeLits (NatToChar, charVal)
+    value :: Char
+    value = charVal (Proxy :: Proxy (NatToChar 1114112))
+expression: value
+output: ""
+error: "typecheck error: Test: unsolved constraint KnownChar (NatToChar 1114112)"
+status: fail
+reason: A code point above the Unicode limit cannot supply KnownChar evidence.
