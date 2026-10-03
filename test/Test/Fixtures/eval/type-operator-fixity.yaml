@@ -1,0 +1,23 @@
+extensions: [DataKinds, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, TypeOperators #-}
+    module Test where
+    import Data.Proxy (Proxy (..))
+    import GHC.TypeNats (natVal, type (*), type (+), type (-))
+    infixl 5 :*:
+    data a :*: b = Pair a b
+    nested :: Int :*: Bool :*: Char
+    nested = Pair (Pair 1 True) 'c'
+    precedence :: Integer
+    precedence = toInteger (natVal (Proxy :: Proxy (2 * 3 + 4)))
+    subtraction :: Integer
+    subtraction = toInteger (natVal (Proxy :: Proxy (10 - 3 - 2)))
+    answer :: Bool
+    answer = case nested of
+      Pair (Pair _ flag) value -> flag && value == 'c' && precedence == 10 && subtraction == 5
+expression: answer
+output: |
+  True
+status: pass
+reason: Type operators use their declared and imported fixities.

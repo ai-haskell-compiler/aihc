@@ -473,7 +473,8 @@ selectTerm name scope =
 selectType :: Text -> Scope -> Scope
 selectType name scope =
   emptyScope
-    { scopeTypes = restrictToKey name (scopeTypes scope)
+    { scopeTypes = restrictToKey name (scopeTypes scope),
+      scopeFixities = restrictToKey name (scopeFixities scope)
     }
 
 -- | The entry a map holds for one key, as a map of its own. An export or
@@ -901,7 +902,7 @@ filterImportSpec maybeSpec scope =
               scopeMethods = Map.restrictKeys (scopeMethods scope) allowedTypes,
               scopeAssociatedTypes =
                 Map.map (filter (`Set.member` allowedTypes)) (Map.restrictKeys (scopeAssociatedTypes scope) allowedTypes),
-              scopeFixities = Map.restrictKeys (scopeFixities scope) allowedTerms,
+              scopeFixities = Map.restrictKeys (scopeFixities scope) (allowedTerms `Set.union` allowedTypes),
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
