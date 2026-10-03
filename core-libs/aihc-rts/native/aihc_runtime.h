@@ -240,15 +240,18 @@ struct AihcMachine {
   /* The nursery: heap_start is its first byte, heap_limit its end less the
      charge of fixed allocations since the last collection. */
   uint8_t *heap_start;
+  /* The info table of the frame at the bottom of each forked thread. Each
+     thread gets its own copy of the frame on its own stack. */
+  const AihcInfo *thread_done_info;
+  /* Compiled code reads this field at a fixed offset: six words and
+     sixteen bytes on every target, because only pointers and one 64-bit
+     count come before it. */
+  AihcThread *current_thread;
   uint64_t nursery_bytes;
   uint64_t heap_max_bytes;
   uint64_t heap_allocated_bytes;
   uint8_t heap_limit_enabled;
   uint8_t program_started;
-  /* The info table of the frame at the bottom of each forked thread. Each
-     thread gets its own copy of the frame on its own stack. */
-  const AihcInfo *thread_done_info;
-  AihcThread *current_thread;
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackholeTable *blackholes;

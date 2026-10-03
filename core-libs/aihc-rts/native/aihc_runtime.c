@@ -10,7 +10,7 @@
 /* On a 32-bit target, stack_next takes a slot that alignment padding held
    before. Thus stack_next moves current_thread by one word on a 64-bit
    target and does not move it on a 32-bit target. */
-_Static_assert(offsetof(AihcMachine, current_thread) == 7 * sizeof(void *) + 40,
+_Static_assert(offsetof(AihcMachine, current_thread) == 6 * sizeof(void *) + 16,
                "machine current-thread ABI");
 /* Five words and five bytes, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */

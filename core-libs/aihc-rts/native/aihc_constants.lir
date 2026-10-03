@@ -35,7 +35,7 @@ extern data @aihc_nursery_bytes
 const @AIHC_MACHINE_HEAP_NEXT_OFFSET = 1 word + 16
 const @AIHC_MACHINE_HEAP_LIMIT_OFFSET = 2 words + 16
 const @AIHC_MACHINE_STACK_NEXT_OFFSET = 3 words + 16
-const @AIHC_MACHINE_CURRENT_THREAD_OFFSET = 7 words + 40
+const @AIHC_MACHINE_CURRENT_THREAD_OFFSET = 6 words + 16
 
 ; Two low header bits preserve the original info-table pointer.
 const @AIHC_HEADER_EVALUATING = 1
