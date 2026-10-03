@@ -157,7 +157,7 @@ import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds
 import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (>=>))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (get, modify')
+import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
 import Data.Either (partitionEithers)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -616,15 +616,18 @@ data GeneralizedKindMetas
 generalizeKindMetas :: GeneralizedKindMetas -> [TyVarId] -> TcM ()
 generalizeKindMetas scope variables = do
   kinds <- getKinds
-  reserved <- reservedKindMetas
   variableKinds <- mapM (zonkKind . tvKind) variables
-  forM_ (zip [0 :: Int ..] (nub (concatMap collectMetaVars variableKinds))) $ \(index, Unique meta) -> do
-    metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
-    tracked <- isTrackedKindMeta (Unique meta)
-    let quantified = tracked || scope == AllKindMetas
-    when (quantified && metaKind == typeKind kinds && not (IntSet.member meta reserved)) $ do
-      variable <- freshSkolemTv ("k" <> T.pack (show index))
-      writeMetaTv (Unique meta) (TcTyVar variable)
+  let candidates = zip [0 :: Int ..] (nub (concatMap collectMetaVars variableKinds))
+  -- An empty candidate list needs no scan of the component's kinds.
+  unless (null candidates) $ do
+    reserved <- reservedKindMetas
+    forM_ candidates $ \(index, Unique meta) -> do
+      metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
+      tracked <- isTrackedKindMeta (Unique meta)
+      let quantified = tracked || scope == AllKindMetas
+      when (quantified && metaKind == typeKind kinds && not (IntSet.member meta reserved)) $ do
+        variable <- freshSkolemTv ("k" <> T.pack (show index))
+        writeMetaTv (Unique meta) (TcTyVar variable)
 
 -- | Quantify implicit kind variables before the signature enters the environment.
 generalizeSignatureKinds :: CheckedSig -> TcM CheckedSig
@@ -964,7 +967,14 @@ withInventedKindVariables (Scheme inferred specified predicates body) =
     isSpecified variable = tvUnique variable `elem` map tvUnique specified
 
 uniqueKindVariables :: [TyVarId] -> [TyVarId]
-uniqueKindVariables = nubBy (\left right -> tvUnique left == tvUnique right)
+uniqueKindVariables = go IntSet.empty
+  where
+    go _ [] = []
+    go seen (variable : rest)
+      | IntSet.member key seen = go seen rest
+      | otherwise = variable : go (IntSet.insert key seen) rest
+      where
+        Unique key = tvUnique variable
 
 freeKindVariables :: TcType -> [TyVarId]
 freeKindVariables ty = case ty of
@@ -981,30 +991,24 @@ freeKindVariables ty = case ty of
 
 defaultGlobalKindMetas :: GlobalStateKeys -> TcM ()
 defaultGlobalKindMetas initialKeys = do
-  state <- lift get
-  tyCons <- traverseNewMap globalTyCons defaultTyConInfoKinds (tcsGlobalTyCons state)
-  terms <- traverseNewMap globalTerms defaultBinderKinds (tcsGlobalTerms state)
-  dataTypes <- traverseNewMap globalDataTypes defaultDataTypeKinds (tcsDataTypes state)
-  classes <- traverseNewMap globalClasses defaultClassKinds (tcsClasses state)
+  -- Replace each table before the next traversal can retain its old values.
+  defaultMap globalTyCons tcsGlobalTyCons (\table state -> state {tcsGlobalTyCons = table}) defaultTyConInfoKinds
+  defaultMap globalTerms tcsGlobalTerms (\table state -> state {tcsGlobalTerms = table}) defaultBinderKinds
+  defaultMap globalDataTypes tcsDataTypes (\table state -> state {tcsDataTypes = table}) defaultDataTypeKinds
+  defaultMap globalClasses tcsClasses (\table state -> state {tcsClasses = table}) defaultClassKinds
+  currentInstances <- lift (gets tcsInstances)
   let previousInstances = globalInstances initialKeys
-  newInstances <- mapM defaultInstanceKinds (instanceEnvSince (tcsInstances state) previousInstances)
+  newInstances <- mapM defaultInstanceKinds (instanceEnvSince currentInstances previousInstances)
   let instances = foldr addInstanceEnv previousInstances newInstances
-  dataFamilyInstances <- traverseNewMap globalDataFamilyInstances defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
-  typeFamilyInstances <- traverseNewMap globalTypeFamilyInstances defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
-  patSyns <- traverseNewMap globalPatSyns defaultPatSynKinds (tcsPatSyns state)
-  lift $
-    modify' $ \current ->
-      current
-        { tcsGlobalTerms = terms,
-          tcsPatSyns = patSyns,
-          tcsGlobalTyCons = tyCons,
-          tcsDataTypes = dataTypes,
-          tcsClasses = classes,
-          tcsInstances = instances,
-          tcsDataFamilyInstances = dataFamilyInstances,
-          tcsTypeFamilyInstances = typeFamilyInstances
-        }
+  lift (modify' (\state -> state {tcsInstances = instances}))
+  defaultMap globalDataFamilyInstances tcsDataFamilyInstances (\table state -> state {tcsDataFamilyInstances = table}) defaultDataFamilyInstanceKinds
+  defaultMap globalTypeFamilyInstances tcsTypeFamilyInstances (\table state -> state {tcsTypeFamilyInstances = table}) defaultTypeFamilyInstanceKinds
+  defaultMap globalPatSyns tcsPatSyns (\table state -> state {tcsPatSyns = table}) defaultPatSynKinds
   where
+    defaultMap selectPrevious selectCurrent store transform = do
+      current <- lift (gets selectCurrent)
+      defaulted <- traverseNewMap selectPrevious transform current
+      lift (modify' (store defaulted))
     -- Only the entries that this component added need defaulting. Restrict
     -- the walk to them before the traversal.
     -- A table only ever gains entries, so one of the same size as the

@@ -1,0 +1,67 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE FlexibleInstances, KindSignatures, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  class Category (cat :: Type -> Type -> Type) where
+    identity :: cat a a
+  newtype Rift p q a b = Rift (forall x. p b x -> q a x)
+  data Arrow a b = Arrow (a -> b)
+  instance Category Arrow where
+    identity = Arrow (\x -> x)
+  instance Category (Rift p p) where
+    identity = Rift (\x -> x)
+  class Marker (a :: k)
+  data Proxy (a :: k) = Proxy
+  instance Marker (Proxy a)
+  left :: Proxy a -> Proxy a
+  left x = x
+  right :: Proxy a -> Proxy a
+  right x = x
+status: pass
+reason: Repeated instance and signature checks must retain dependent kind variables.
+annotated:
+- |-
+  {-# LANGUAGE FlexibleInstances, KindSignatures, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  class Category (cat :: Type -> Type -> Type) where
+  └─ class methods: identity ∷ ∀ cat a. (Category cat) ⇒ cat a a
+    identity :: cat a a
+  newtype Rift p q a b = Rift (forall x. p b x -> q a x)
+          │              └─ type: ∀ k0 k1 k2 p q a b. (∀ x. p b x → q a x) → Rift p q a b
+          └─ type: (k0 → k1 → Type) → (k2 → k1 → Type) → k2 → k0 → Type
+  data Arrow a b = Arrow (a -> b)
+       │           └─ type: ∀ a b. (a → b) → Arrow a b
+       └─ type: Type → Type → Type
+  instance Category Arrow where
+  └─ $fCategoryArrow ∷ () ⇒ Category Arrow
+    identity = Arrow (\x -> x)
+    │          │      │└─ type: a
+    │          │      └─ type: a → a
+    │          └─ type: (a → a) → Arrow a a; type-args: a, a
+    └─ identity ∷ ∀ a. Arrow a a
+  instance Category (Rift p p) where
+  └─ $fCategoryRiftpp ∷ ∀ k0 p. () ⇒ Category (Rift p p)
+    identity = Rift (\x -> x)
+    │          ││     │└─ type: p a x
+    │          ││     └─ type: p a x → p a x
+    │          └─ type: (∀ x. p a x → p a x) → Rift p p a a; type-args: Type, k0, Type, p, p, a, a
+    │          └─ type: ∀ x. p a x → p a x
+    └─ identity ∷ ∀ a. Rift p p a a
+  class Marker (a :: k)
+  └─ class methods:
+  data Proxy (a :: k) = Proxy
+       │                └─ type: ∀ k a. Proxy a
+       └─ type: k → Type
+  instance Marker (Proxy a)
+  └─ $fMarkerProxya ∷ ∀ k0 a. () ⇒ Marker (Proxy a)
+  left :: Proxy a -> Proxy a
+  left x = x
+  │    └─ type: Proxy a
+  └─ type: ∀ k0 a. Proxy a → Proxy a
+  right :: Proxy a -> Proxy a
+  right x = x
+  │     └─ type: Proxy a
+  └─ type: ∀ k0 a. Proxy a → Proxy a

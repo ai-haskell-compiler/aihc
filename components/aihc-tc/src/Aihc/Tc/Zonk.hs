@@ -18,7 +18,7 @@ where
 
 import Aihc.Tc.Constraint (EqProvenance (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..))
-import Aihc.Tc.Kind (defaultKindMetas, kindNeedsZonkIn, zonkKind)
+import Aihc.Tc.Kind (defaultKindMetas, kindMentionsMeta, kindNeedsZonkIn, zonkKind)
 import Aihc.Tc.Monad (TcM, TcState (..), getKinds, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Tidy (tidyDiagnostic)
 import Aihc.Tc.Types
@@ -122,7 +122,43 @@ zonkTyVar tv = do
 -- defaults unconstrained kind metavariables to 'Type', so it must only run at
 -- a module/interface boundary after kind constraints have been solved.
 defaultTypeKinds :: TcType -> TcM TcType
-defaultTypeKinds ty =
+defaultTypeKinds ty = do
+  state <- lift get
+  if typeNeedsDefaultKindsIn state ty
+    then do
+      settled <- rebuildDefaultTypeKinds ty
+      pure $! settled
+    else pure ty
+
+-- Preserve settled subtrees instead of new copies of their variables and lists.
+typeNeedsDefaultKindsIn :: TcState -> TcType -> Bool
+typeNeedsDefaultKindsIn state = go
+  where
+    go ty = case ty of
+      TcMetaTv {} -> False
+      TcArrowTy -> False
+      TcTyLit {} -> False
+      TcTyVar variable -> kindNeedsDefaultIn state (tvKind variable)
+      TcTyCon _ arguments -> any go arguments
+      TcKindedTyCon _ arguments -> any (kindNeedsDefaultIn state) arguments
+      TcFunTy argument result -> go argument || go result
+      TcForAllTy variable body -> kindNeedsDefaultIn state (tvKind variable) || go body
+      TcQualTy predicates body -> any goPred predicates || go body
+      -- 'mkAppTy' can normalize a constructor or arrow application.
+      TcAppTy {} -> True
+    goPred predicate = case predicate of
+      ClassPred _ arguments -> any go arguments
+      EqPred left right -> go left || go right
+      IParamPred _ payload -> go payload
+      IrredPred constraint -> go constraint
+      QuantifiedPred variables antecedents consequent ->
+        any (kindNeedsDefaultIn state . tvKind) variables || any goPred antecedents || goPred consequent
+
+kindNeedsDefaultIn :: TcState -> TcType -> Bool
+kindNeedsDefaultIn state kind = kindMentionsMeta kind || kindNeedsZonkIn state kind
+
+rebuildDefaultTypeKinds :: TcType -> TcM TcType
+rebuildDefaultTypeKinds ty =
   case ty of
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
@@ -160,10 +196,25 @@ defaultKindArgument argument = do
     _ -> defaultKindMetas zonked >>= zonkKind
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
-defaultTypeSchemeKinds = traverseScheme defaultTyVarKinds defaultPredKinds defaultTypeKinds
+defaultTypeSchemeKinds = defaultSchemeKinds defaultTypeKinds
 
 defaultTyConKindScheme :: TypeScheme -> TcM TypeScheme
-defaultTyConKindScheme = traverseScheme defaultTyVarKinds defaultPredKinds (defaultKindMetas >=> zonkKind)
+defaultTyConKindScheme = defaultSchemeKinds (defaultKindMetas >=> zonkKind)
+
+-- Complete each field before the next field can retain its deferred result.
+defaultSchemeKinds :: (TcType -> TcM TcType) -> TypeScheme -> TcM TypeScheme
+defaultSchemeKinds onBody (Scheme inferred specified predicates body) = do
+  inferred' <- settledList defaultTyVarKinds inferred
+  specified' <- settledList defaultTyVarKinds specified
+  predicates' <- settledList defaultPredKinds predicates
+  body' <- onBody body
+  pure $! Scheme inferred' specified' predicates' body'
+  where
+    settledList _ [] = pure []
+    settledList settle (value : rest) = do
+      value' <- settle value
+      rest' <- settledList settle rest
+      value' `seq` pure $! (value' : rest')
 
 defaultPredKinds :: Pred -> TcM Pred
 defaultPredKinds predicate =
@@ -177,8 +228,13 @@ defaultPredKinds predicate =
 
 defaultTyVarKinds :: TyVarId -> TcM TyVarId
 defaultTyVarKinds tv = do
-  kind <- defaultKindMetas (tvKind tv) >>= zonkKind
-  pure (setTyVarKind kind tv)
+  state <- lift get
+  if kindNeedsDefaultIn state (tvKind tv)
+    then do
+      kind <- defaultKindMetas (tvKind tv) >>= zonkKind
+      -- Evaluate the result before a binder list can retain the old variable.
+      pure $! setTyVarKind kind tv
+    else pure tv
 
 -- | Zonk the types in one error kind.
 zonkErrorKind :: TcErrorKind -> TcM TcErrorKind
