@@ -15,7 +15,7 @@ description:
 library
   hs-source-dirs:
     ../../components/aihc-tc/common
-    ../../components/aihc-tc/prim-wiring
+    ../../bin/aihc/prim-wiring
     ../../components/aihc-tc/test
 
   other-modules:

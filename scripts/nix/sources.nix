@@ -74,6 +74,9 @@ in rec {
   tcSrc =
     mkRootSubsetSrc [
       "components/aihc-tc/"
+      # The test suites compile the core library wiring of the compiler in
+      # place.
+      "bin/aihc/prim-wiring/"
       "core-libs/aihc-prim/src/Aihc/Prim/IO.hs"
       "core-libs/aihc-prim/src/GHC/Classes.hs"
       "core-libs/aihc-prim/src/GHC/Prim.hs"
@@ -186,7 +189,7 @@ in rec {
         prefixes = [
           "tooling/aihc-tc-tooling-common/"
           "components/aihc-tc/common/"
-          "components/aihc-tc/prim-wiring/"
+          "bin/aihc/prim-wiring/"
           "components/aihc-tc/test/"
         ];
         inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
@@ -200,9 +203,6 @@ in rec {
   aihcSrc =
     mkRootSubsetSrc [
       "bin/aihc/"
-      # The compiler compiles the type checker wiring of the core libraries
-      # in place; it is deliberately not a library component of aihc-tc.
-      "components/aihc-tc/prim-wiring/"
       "core-libs/aihc-prim/src/Aihc/Prim/IO.hs"
       "core-libs/aihc-prim/src/GHC/Classes.hs"
       "core-libs/aihc-prim/src/GHC/Prim.hs"
