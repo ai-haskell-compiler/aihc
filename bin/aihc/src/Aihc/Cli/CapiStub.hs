@@ -12,7 +12,7 @@ module Aihc.Cli.CapiStub
   )
 where
 
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendCompiler, handwrittenCArguments, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendCompiler, handwrittenCArguments, llvmLtoArguments, wasmSysroot)
 
 -- | Where the C compiler looks for the headers a capi wrapper includes.
 --
@@ -33,8 +33,11 @@ noCapiStubOptions = CapiStubOptions [] []
 -- The header directory is the one 'Aihc.Cli.CompilerHeaders.ensureCompilerHeaders'
 -- wrote for this target, because a wrapper includes @HsFFI.h@ and the header
 -- of the package can include any other header of the compiler.
-capiStubArguments :: NativeTarget -> OptimizationLevel -> CapiStubOptions -> FilePath -> IO [String]
-capiStubArguments target level options headerDirectory = do
+--
+-- A @--lto@ build of the LLVM target compiles the wrapper to bitcode, like
+-- the C sources of the package; see 'llvmLtoArguments'.
+capiStubArguments :: NativeTarget -> OptimizationLevel -> Bool -> CapiStubOptions -> FilePath -> IO [String]
+capiStubArguments target level lto options headerDirectory = do
   (_, targetArguments) <- backendCompiler target
   sysrootIncludes <-
     case target of
@@ -45,6 +48,7 @@ capiStubArguments target level options headerDirectory = do
   pure
     ( targetArguments
         <> handwrittenCArguments level
+        <> llvmLtoArguments target lto
         <> capiStubCcOptions options
         <> sysrootIncludes
         <> ["-I" <> directory | directory <- capiStubIncludeDirs options]

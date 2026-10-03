@@ -143,7 +143,7 @@ buildRuntimeArchive target extraCArguments directory = do
         object = directory </> name <> ".o"
     lirModule <- either (ioError . userError . renderLoadError) pure =<< loadModule source
     if lirModuleDefinesCode lirModule
-      then compileLirObject target name lirModule directory object >> pure (Just object)
+      then compileLirObject False target name lirModule directory object >> pure (Just object)
       else pure Nothing
   let archive = directory </> "runtime.a"
   archiver <- backendArchiver target

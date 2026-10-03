@@ -54,6 +54,7 @@ import Test.Aihc.SeedStore
   ( Sandbox (..),
     SeedStore,
     acquireCoreStore,
+    acquireLlvmLtoStore,
     acquireLtoStore,
     acquirePrimStore,
     buildHostTarget,
@@ -95,7 +96,11 @@ tests =
               -- The --lto builds need core libraries built with the flag,
               -- which the other stores do not hold.
               withResource acquireLtoStore releaseSeedStore $ \ltoStore ->
-                testCase "compiles the merged program of each executable once" (test_lto ltoStore)
+                testCase "compiles the merged program of each executable once" (test_lto ltoStore),
+              -- The llvm target links a --lto build through LLVM's own
+              -- link-time optimization, so its store is separate as well.
+              withResource acquireLlvmLtoStore releaseSeedStore $ \llvmLtoStore ->
+                testCase "optimizes the whole program of the llvm target at link time" (test_ltoLlvm llvmLtoStore)
             ],
           testGroup
             "install"
@@ -820,6 +825,55 @@ test_lto getStore =
     assertEqual "archive members" [] demoMembers
     reused <- install installOptions
     assertEqual "lto install reuses the module" ["Demo"] (installReusedModules reused)
+
+-- | A @--lto@ build of the @llvm@ target compiles every object to LLVM
+-- bitcode: the program, the entry, the runtime units and the C sources of
+-- the packages. The link then optimizes them as one module. The
+-- executables run, and a link bundle records the arguments of that link,
+-- so that @link-exe@ optimizes the same way.
+test_ltoLlvm :: IO SeedStore -> Assertion
+test_ltoLlvm getStore =
+  withBuildPackageSandbox getStore "aihc-lto-llvm" $ \sandbox buildRoot options -> do
+    let root = sandboxRoot sandbox
+        storeRoot = root </> "store"
+        target = Llvm
+        targetRoot = buildRoot </> nativeTargetStoreDirectory target
+        ltoOptions = options {buildTarget = target, buildOptimization = O2}
+    outputs <- build ltoOptions
+    assertEqual "built executables" [targetRoot </> "bin" </> "greet", targetRoot </> "bin" </> "shout"] outputs
+    forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
+      let executableRoot = targetRoot </> "exe" </> name
+      assertBitcode (executableRoot </> "lto" </> "program" </> "program.o")
+      assertBitcode (executableRoot </> "entry.o")
+      (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> name) [] ""
+      assertEqual (name <> " exit status") ExitSuccess status
+      assertEqual (name <> " stdout") expected stdout
+      assertEqual (name <> " stderr") "" stderr
+    -- The runtime units and the C sources of aihc-rts are bitcode as well.
+    rtsPackage <- seededPackagePath storeRoot target "aihc-rts"
+    runtimeObjects <- filter ((== ".o") . takeExtension) <$> listDirectory (rtsPackage </> "cbits")
+    assertBool "the runtime has objects" (not (null runtimeObjects))
+    forM_ runtimeObjects $ \object -> assertBitcode (rtsPackage </> "cbits" </> object)
+    -- A bundle records the arguments of the link, and link-exe optimizes
+    -- the program the same way.
+    let bundles = root </> "bundles"
+        linked = root </> "linked" </> "greet"
+    _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
+    bundleManifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
+    assertEqual "bundle records the LTO link arguments" ["-flto", "-O2"] (linkBundleLtoArguments bundleManifest)
+    removeDirectoryRecursive storeRoot
+    runLinkExe LinkExeOptions {linkExeBundle = bundles </> "greet", linkExeOutputFile = linked}
+    (status, stdout, stderr) <- readProcessWithExitCode linked [] ""
+    assertEqual "linked executable exit status" ExitSuccess status
+    assertEqual "linked executable stdout" "hello, build\n" stdout
+    assertEqual "linked executable stderr" "" stderr
+
+-- | The file is LLVM bitcode: the raw stream, or the wrapper Darwin puts
+-- around it.
+assertBitcode :: FilePath -> Assertion
+assertBitcode path = do
+  magic <- BS.take 4 <$> BS.readFile path
+  assertBool ("LLVM bitcode: " <> path) (magic `elem` [BS.pack [0x42, 0x43, 0xC0, 0xDE], BS.pack [0xDE, 0xC0, 0x17, 0x0B]])
 
 -- | A workspace package that exposes a module of aihc-base makes an import
 -- of that module ambiguous.

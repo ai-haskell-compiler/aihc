@@ -21,6 +21,8 @@ module Aihc.Native
     executableEntryName,
     executableEntryParts,
     hostNativeTarget,
+    llvmLtoArguments,
+    llvmLtoLinkArguments,
     nativeTargetTriple,
     nativeTargetStoreDirectory,
     nativeCpsPrimitiveCall,
@@ -288,6 +290,30 @@ renderOptimizationLevel level =
 -- | The Clang argument of a level.
 optimizationArgument :: OptimizationLevel -> String
 optimizationArgument level = "-O" <> renderOptimizationLevel level
+
+-- | The Clang arguments of a link-time optimized build of the @llvm@
+-- target. A @--lto@ build of that target compiles every input to LLVM
+-- bitcode rather than to machine code: the program, the runtime units,
+-- the C sources of the packages and the C wrappers of their @capi@
+-- imports. The link then optimizes the whole program as one module, so a
+-- call from the program into the runtime, or from a runtime unit into the
+-- collector, is inlined like a call inside one unit. The same argument
+-- goes on the link, where Clang passes the optimizer of the linker its
+-- level; the link takes the level of the build beside it.
+--
+-- The other targets take no argument: the object backends write machine
+-- code, and the WebAssembly target assembles text that no LTO reads.
+llvmLtoArguments :: NativeTarget -> Bool -> [String]
+llvmLtoArguments target lto = ["-flto" | target == Llvm && lto]
+
+-- | The arguments of the link of a link-time optimized build: the LTO
+-- argument, and the level the optimizer of the linker runs at. A link that
+-- reads no bitcode takes none.
+llvmLtoLinkArguments :: NativeTarget -> Bool -> OptimizationLevel -> [String]
+llvmLtoLinkArguments target lto level =
+  case llvmLtoArguments target lto of
+    [] -> []
+    arguments -> arguments <> [optimizationArgument level]
 
 -- | Arguments for compiling handwritten C: the runtime sources and the C
 -- sources of a Hackage package, as opposed to the code aihc generates.

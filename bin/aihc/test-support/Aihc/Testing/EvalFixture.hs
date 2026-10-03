@@ -311,7 +311,7 @@ loadCapiWrappers options wrappers =
       TIO.writeFile stubSource source
       (compiler, _) <- backendCompiler target
       headerDirectory <- ensureCompilerHeaders target directory
-      arguments <- capiStubArguments target O2 options headerDirectory
+      arguments <- capiStubArguments target O2 False options headerDirectory
       (code, _, errors) <-
         readProcessWithExitCode compiler (arguments <> ["-fPIC", "-shared", stubSource, "-o", library]) ""
       if code /= ExitSuccess

@@ -130,7 +130,7 @@ import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Resolve qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyVersions,
     LockMode (..),
@@ -1025,7 +1025,7 @@ prepareExecutable shared graph slot = do
       finished compiledModules = do
         let names = map sourceName (compiledSources compiledModules)
         moduleObjects <- moduleObjectPaths (not (compileLto config)) outputRoot (compileTarget config) names
-        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
+        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileLto config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
         atomically $
           putTMVar
             (executableSlotCompiled slot)
@@ -1489,7 +1489,7 @@ finishPackageBuild config build compiled = do
     let current = not (Set.null written) || not archiveExists || previous /= Just archiveInputs
     if current
       then do
-        cObjects <- compilePackageCFiles target (compileOptimization config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
+        cObjects <- compilePackageCFiles target (compileOptimization config) (compileLto config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
         buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
@@ -3001,7 +3001,7 @@ compileUnitFcModules config capiOptions verbose outputPaths pending = do
         Just source -> do
           createDirectoryIfMissing True (takeDirectory (outputCapiSourcePath paths))
           TIO.writeFile (outputCapiSourcePath paths) source
-          arguments <- capiStubArguments target (compileOptimization config) capiOptions (compileHeaderDirectory config)
+          arguments <- capiStubArguments target (compileOptimization config) lto capiOptions (compileHeaderDirectory config)
           verbose ("Compile capi wrappers: " <> T.unpack name)
           (compiler, _) <- backendCompiler target
           runTool
@@ -3140,7 +3140,10 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
       when (isJust source) (verbose ("Write native source: " <> T.unpack name))
       when (isJust source) $ do
         (compiler, arguments) <- backendCompiler target
-        let levelArguments = [optimizationArgument (compileOptimization config) | target == Llvm]
+        -- A @--lto@ build of the LLVM target compiles the program to
+        -- bitcode, and the link optimizes it with the runtime; see
+        -- 'llvmLtoArguments'.
+        let levelArguments = [optimizationArgument (compileOptimization config) | target == Llvm] <> llvmLtoArguments target (compileLto config)
         runTool compiler (arguments <> levelArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
         unless keepNative (removeFile (outputNativePath paths))
       verbose ("Write object: " <> T.unpack name)
@@ -3307,8 +3310,12 @@ removeFileIfPresent path = do
 -- standard library, which the link adds for a package whose manifest says
 -- it has C++ sources; a target without that library refuses the package
 -- here rather than at the link of every program that depends on it.
-compilePackageCFiles :: NativeTarget -> OptimizationLevel -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
-compilePackageCFiles target level headerDirectory verbose packageRoot storePath info
+--
+-- A @--lto@ build of the LLVM target compiles every object here to bitcode,
+-- so that the link optimizes the runtime and the C of the packages with the
+-- program; see 'llvmLtoArguments'.
+compilePackageCFiles :: NativeTarget -> OptimizationLevel -> Bool -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
+compilePackageCFiles target level lto headerDirectory verbose packageRoot storePath info
   | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileCxxSources info) && null (HackageCabal.cCompileLirSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
@@ -3319,6 +3326,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
             sysrootIncludes
               <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
               <> ["-I" <> headerDirectory]
+          ltoArguments = llvmLtoArguments target lto
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot
       cObjects <- forM (HackageCabal.cCompileSources info) $ \source -> do
@@ -3330,6 +3338,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           compiler
           ( targetArguments
               <> handwrittenCArguments level
+              <> ltoArguments
               <> HackageCabal.cCompileCcOptions info
               <> handwrittenCOverrideArguments level
               <> includeArguments
@@ -3345,6 +3354,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           compiler
           ( targetArguments
               <> handwrittenCArguments level
+              <> ltoArguments
               <> HackageCabal.cCompileCxxOptions info
               <> handwrittenCOverrideArguments level
               <> includeArguments
@@ -3361,7 +3371,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           then do
             let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
             verbose ("Compile Lir source: " <> source)
-            compileLirObject target (dropExtension (takeFileName object)) lirModule objectRoot object
+            compileLirObject lto target (dropExtension (takeFileName object)) lirModule objectRoot object
             pure (Just object)
           else pure Nothing
       pure (cObjects <> cxxObjects <> catMaybes lirObjects)

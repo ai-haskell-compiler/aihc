@@ -419,7 +419,7 @@ programTestWith tools expected shouldFail stress cSource program = do
             component = directory </> "program.wasm"
         createDirectory runtimeDirectory
         runtime <- runtimeBuildArchive <$> buildRuntimeArchive Wasm32Wasip3 [] runtimeDirectory
-        compileEntryObject Wasm32Wasip3 directory entry
+        compileEntryObject False Wasm32Wasip3 directory entry
         world <- wasip3WorldPath
         TIO.writeFile assemblyPath moduleAssembly
         writeFile stubPath (putcharStub expected <> T.unpack cSource)

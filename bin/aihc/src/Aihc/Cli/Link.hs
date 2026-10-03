@@ -23,7 +23,7 @@ import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.Options (LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.Wasm (wasip3WorldPath)
 import Control.Exception (bracket)
 import Control.Monad (filterM, forM, forM_, unless, when)
@@ -65,12 +65,13 @@ linkCompiledExecutable compileConfig noLink buildRoot output executable = do
   mapM_ requirePackageArchive packages
   createDirectoryIfMissing True buildRoot
   let entry = buildRoot </> "entry.o"
-  compileEntryObject target buildRoot entry
+      lto = compileLto compileConfig
+  compileEntryObject lto target buildRoot entry
   -- A @--lto@ build compiles the System FC of every module of the program,
   -- from the packages and the executable alike, into one object. The
   -- package archives then hold only their C and capi wrapper objects.
   programObjects <-
-    if compileLto compileConfig
+    if lto
       then do
         let corePaths =
               [ moduleCorePath target (packageRoot package) name
@@ -102,7 +103,14 @@ linkCompiledExecutable compileConfig noLink buildRoot output executable = do
           ( packageLinkArguments target cCompileInfo
               <> concatMap (map T.unpack . packageManifestLinkArguments . installedManifest) orderedPackages
           )
-      libraries = LinkLibraries {linkCxxStdLib = cxxStdLib, linkArguments}
+      -- A @--lto@ build of the LLVM target has compiled every object to
+      -- bitcode, and the link is where the whole program is optimized.
+      libraries =
+        LinkLibraries
+          { linkCxxStdLib = cxxStdLib,
+            linkArguments,
+            linkLtoArguments = llvmLtoLinkArguments target lto (compileOptimization compileConfig)
+          }
   if noLink
     then writeLinkBundle target output libraries objects archives
     else linkExecutable target output libraries objects archives
@@ -132,11 +140,12 @@ validatePackageNames packages =
 -- cannot run the compiler, or that lacks the linker for the target the
 -- compiler ran on, can still produce the executable with @link-exe@.
 --
--- Schema 4 adds the arguments that link the system libraries of the
--- packages. Schema 3 adds whether the link needs the C++ standard library. Schema 2
--- lists objects and archives only. Schema 1 also named an entry and a
--- runtime archive, which are now an object among the objects and the
--- archive and C objects of the @aihc-rts@ package.
+-- Schema 5 adds the arguments of a link-time optimized link, whose inputs
+-- are bitcode. Schema 4 adds the arguments that link the system libraries
+-- of the packages. Schema 3 adds whether the link needs the C++ standard
+-- library. Schema 2 lists objects and archives only. Schema 1 also named an
+-- entry and a runtime archive, which are now an object among the objects
+-- and the archive and C objects of the @aihc-rts@ package.
 data LinkBundle = LinkBundle
   { linkBundleTarget :: !NativeTarget,
     -- | An input was compiled from @cxx-sources@, so the link adds the
@@ -144,6 +153,9 @@ data LinkBundle = LinkBundle
     linkBundleCxxStdLib :: !Bool,
     -- | The arguments that link the system libraries the packages name.
     linkBundleLinkArguments :: ![String],
+    -- | The arguments of a link whose inputs are bitcode; see
+    -- 'Aihc.Native.llvmLtoLinkArguments'. Empty for every other link.
+    linkBundleLtoArguments :: ![String],
     linkBundleObjects :: ![FilePath],
     linkBundleArchives :: ![FilePath]
   }
@@ -152,10 +164,11 @@ data LinkBundle = LinkBundle
 instance Aeson.ToJSON LinkBundle where
   toJSON bundle =
     Aeson.object
-      [ "schemaVersion" .= (4 :: Int),
+      [ "schemaVersion" .= (5 :: Int),
         "target" .= renderNativeTarget (linkBundleTarget bundle),
         "cxxStdLib" .= linkBundleCxxStdLib bundle,
         "linkArguments" .= linkBundleLinkArguments bundle,
+        "ltoArguments" .= linkBundleLtoArguments bundle,
         "objects" .= linkBundleObjects bundle,
         "archives" .= linkBundleArchives bundle
       ]
@@ -166,13 +179,14 @@ instance Aeson.FromJSON LinkBundle where
     case schemaVersion :: Int of
       2 -> do
         target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target False []
+        LinkBundle target False [] []
           <$> object .: "objects"
           <*> object .: "archives"
       3 -> do
         target <- object .: "target" >>= either fail pure . parseNativeTarget
         LinkBundle target
           <$> object .: "cxxStdLib"
+          <*> pure []
           <*> pure []
           <*> object .: "objects"
           <*> object .: "archives"
@@ -181,6 +195,15 @@ instance Aeson.FromJSON LinkBundle where
         LinkBundle target
           <$> object .: "cxxStdLib"
           <*> object .: "linkArguments"
+          <*> pure []
+          <*> object .: "objects"
+          <*> object .: "archives"
+      5 -> do
+        target <- object .: "target" >>= either fail pure . parseNativeTarget
+        LinkBundle target
+          <$> object .: "cxxStdLib"
+          <*> object .: "linkArguments"
+          <*> object .: "ltoArguments"
           <*> object .: "objects"
           <*> object .: "archives"
       _ -> fail "unsupported link bundle schema"
@@ -207,6 +230,7 @@ writeLinkBundle target bundle libraries objects archives = do
           { linkBundleTarget = target,
             linkBundleCxxStdLib = linkCxxStdLib libraries,
             linkBundleLinkArguments = linkArguments libraries,
+            linkBundleLtoArguments = linkLtoArguments libraries,
             linkBundleObjects = copiedObjects,
             linkBundleArchives = copiedArchives
           }
@@ -222,13 +246,13 @@ runLinkExe options = do
   exists <- doesFileExist manifest
   unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
   decoded <- Aeson.eitherDecode <$> BL.readFile manifest
-  LinkBundle {linkBundleTarget, linkBundleCxxStdLib, linkBundleLinkArguments, linkBundleObjects, linkBundleArchives} <-
+  LinkBundle {linkBundleTarget, linkBundleCxxStdLib, linkBundleLinkArguments, linkBundleLtoArguments, linkBundleObjects, linkBundleArchives} <-
     either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
   createDirectoryIfMissing True (takeDirectory output)
   linkExecutable
     linkBundleTarget
     output
-    LinkLibraries {linkCxxStdLib = linkBundleCxxStdLib, linkArguments = linkBundleLinkArguments}
+    LinkLibraries {linkCxxStdLib = linkBundleCxxStdLib, linkArguments = linkBundleLinkArguments, linkLtoArguments = linkBundleLtoArguments}
     (map (bundle </>) linkBundleObjects)
     (map (bundle </>) linkBundleArchives)
 
@@ -296,7 +320,10 @@ data LinkLibraries = LinkLibraries
     linkCxxStdLib :: !Bool,
     -- | The arguments that link the system libraries the packages name in
     -- their Cabal files.
-    linkArguments :: ![String]
+    linkArguments :: ![String],
+    -- | The arguments of a link whose inputs are bitcode: the LTO argument
+    -- and the level of the build. Empty for every other link.
+    linkLtoArguments :: ![String]
   }
 
 -- | Link the objects and archives into the executable. The runtime units
@@ -332,13 +359,13 @@ linkExecutable Wasm32Wasip3 output LinkLibraries {linkCxxStdLib, linkArguments} 
     runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
     buildComponent typedModule output
     runTool "wasm-tools" ["validate", output]
-linkExecutable target output LinkLibraries {linkCxxStdLib, linkArguments} objects archives = do
+linkExecutable target output LinkLibraries {linkCxxStdLib, linkArguments, linkLtoArguments} objects archives = do
   (compiler, arguments) <- backendCompiler target
   cxxArguments <- if linkCxxStdLib then either (ioError . userError) pure (cxxStandardLibraryArguments target) else pure []
   -- The runtime takes the functions of the Floating class from libm. Recent
   -- platforms carry it inside libc, and -lm is how the older ones that keep
   -- it apart still resolve them.
-  runTool compiler (arguments <> executableLinkArguments target <> objects <> archives <> linkArguments <> ["-lm"] <> cxxArguments <> ["-o", output])
+  runTool compiler (arguments <> executableLinkArguments target <> linkLtoArguments <> objects <> archives <> linkArguments <> ["-lm"] <> cxxArguments <> ["-o", output])
 
 -- | Encode the linked core module as a component. The component model has no
 -- way to describe a WASI preview 1 import, so a runtime unit that reaches a
