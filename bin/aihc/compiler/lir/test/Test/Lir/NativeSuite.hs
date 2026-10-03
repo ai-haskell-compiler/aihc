@@ -17,7 +17,7 @@ import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Interpret (Value (..), renderValues)
-import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
+import Aihc.Lir.Lower (LowerTarget, defaultModuleSettings, lowerEntry, lowerModule)
 import Aihc.Native (NativeTarget (..), executableEntryName, renderNativeTarget)
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
@@ -411,8 +411,8 @@ compileProgramUnits backend program = do
           }
   assertEqual "direct GRIN lint" [] (lintProgram linkedProgram)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin linkedProgram)
-  moduleLir <- either (assertFailure . show) pure (lowerModule (backendLowerTarget backend) False gc)
-  entryLir <- either (assertFailure . show) pure (lowerEntry (backendLowerTarget backend))
+  moduleLir <- either (assertFailure . show) pure (lowerModule (backendLowerTarget backend) defaultModuleSettings gc)
+  entryLir <- either (assertFailure . show) pure (lowerEntry (backendLowerTarget backend) False)
   assertEqual "module Lir lint" [] (map renderLintError (lintModule moduleLir))
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))
   moduleUnit <-
@@ -420,7 +420,7 @@ compileProgramUnits backend program = do
       then withTempDirectory "aihc-grin-object" $ \directory -> do
         let path = directory </> "stream.o"
             dump = directory </> "stream.lir"
-        source <- compileGrinTo True False (backendTarget backend) (Just dump) gc path
+        source <- compileGrinTo True defaultModuleSettings (backendTarget backend) (Just dump) gc path
         assertEqual "native object output" Nothing source
         dumped <- loadModule dump >>= either (assertFailure . renderLoadError) pure
         assertEqual "incremental Lir dump lint" [] (map renderLintError (lintModule dumped))

@@ -23,6 +23,8 @@
 module Aihc.Lir.Lower
   ( LowerError (..),
     LowerOptions (..),
+    ModuleSettings (..),
+    defaultModuleSettings,
     LowerTarget (..),
     HostKind (..),
     UnitKind (..),
@@ -94,6 +96,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runSta
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Foldable (for_)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, maybeToList)
@@ -101,6 +104,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 
 data LowerError
   = LowerMissingFunction !FunctionName
@@ -158,32 +162,61 @@ data LowerOptions = LowerOptions
     -- | Check the index of every array primitive against the length, as
     -- GHC does under @-fcheck-prim-bounds@. Off, an access is an unchecked
     -- load or store, as in GHC by default.
-    lowerCheckPrimBounds :: !Bool
+    lowerCheckPrimBounds :: !Bool,
+    -- | Count the heap objects that the code allocates, by info table, for
+    -- the allocation profile of the runtime statistics. A library unit
+    -- defines the counters and their names, and the executable entry
+    -- registers them with the runtime. Only a whole program can ask for
+    -- it, because the counters of two units would have the same symbols.
+    lowerProfileAllocations :: !Bool
   }
   deriving (Eq, Show)
 
--- | Lower one library module. The flag selects the bounds checks of
--- 'lowerCheckPrimBounds'.
-lowerModule :: LowerTarget -> Bool -> GcGrinProgram -> Either LowerError Module
-lowerModule target checkPrimBounds =
-  lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = checkPrimBounds}
+-- | What a build asks of the lowering of a module.
+data ModuleSettings = ModuleSettings
+  { -- | See 'lowerCheckPrimBounds'.
+    moduleCheckPrimBounds :: !Bool,
+    -- | See 'lowerProfileAllocations'.
+    moduleProfileAllocations :: !Bool
+  }
+  deriving (Eq, Show)
 
--- | Lower the fixed executable entry unit.
-lowerEntry :: LowerTarget -> Either LowerError Module
-lowerEntry target = do
+-- | No bounds checks and no allocation profile.
+defaultModuleSettings :: ModuleSettings
+defaultModuleSettings = ModuleSettings {moduleCheckPrimBounds = False, moduleProfileAllocations = False}
+
+libraryOptions :: LowerTarget -> ModuleSettings -> LowerOptions
+libraryOptions target settings =
+  LowerOptions
+    { lowerUnitKind = LibraryUnit,
+      lowerExposeFunctions = False,
+      lowerTarget = target,
+      lowerCheckPrimBounds = moduleCheckPrimBounds settings,
+      lowerProfileAllocations = moduleProfileAllocations settings
+    }
+
+-- | Lower one library module with the settings of the build.
+lowerModule :: LowerTarget -> ModuleSettings -> GcGrinProgram -> Either LowerError Module
+lowerModule target settings =
+  lowerProgramWith (libraryOptions target settings)
+
+-- | Lower the fixed executable entry unit. With the flag, @main@ registers
+-- the allocation counters of the program with the runtime.
+lowerEntry :: LowerTarget -> Bool -> Either LowerError Module
+lowerEntry target profileAllocations = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
   Module . snd <$> runLower options gcProgram (lowerProgramItems options gcProgram)
 
 -- | Supply each complete item to the consumer before conversion proceeds.
-lowerModuleTo :: (Monad m) => LowerTarget -> Bool -> (Map Symbol Signature -> Item -> m ()) -> GcGrinProgram -> m (Either LowerError ())
-lowerModuleTo target checkPrimBounds output gcProgram =
+lowerModuleTo :: (Monad m) => LowerTarget -> ModuleSettings -> (Map Symbol Signature -> Item -> m ()) -> GcGrinProgram -> m (Either LowerError ())
+lowerModuleTo target settings output gcProgram =
   consume (initialLowerState options gcProgram) Set.empty (lowerUnitActions env (gcGrinProgram gcProgram))
   where
-    options = LowerOptions LibraryUnit False target checkPrimBounds
+    options = libraryOptions target settings
     env = lowerEnvironment options gcProgram
     consume state done actions = case actions of
       action : rest -> case runStateT action state of
@@ -354,6 +387,11 @@ data OpenBlock = OpenBlock
 data LowerState = LowerState
   { stateNext :: !Int,
     stateTarget :: !LowerTarget,
+    -- | See 'lowerProfileAllocations'.
+    stateProfileAllocations :: !Bool,
+    -- | The allocation counter of each info table so far: its index and
+    -- the name the profile shows.
+    stateProfileSites :: !(Map Symbol (Int, Text)),
     stateExterns :: !(Map Symbol Signature),
     stateExternData :: !(Set Symbol),
     stateHelpers :: !(Set Helper),
@@ -419,6 +457,8 @@ initialLowerState options gcProgram =
   LowerState
     { stateNext = 0,
       stateTarget = lowerTarget options,
+      stateProfileAllocations = lowerProfileAllocations options,
+      stateProfileSites = Map.empty,
       stateExterns = Map.empty,
       stateExternData = Set.empty,
       stateHelpers = Set.empty,
@@ -974,6 +1014,7 @@ lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
     <> [lowerCallbackPool call signature | call <- grinForeignCalls program, GrinForeignWrapper signature <- [grinForeignCallTarget call]]
     <> [lowerStaticReferenceTables env]
     <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
+    <> [lowerAllocationProfile | lowerProfileAllocations (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
 
 -- | Aggregate representations describe results, never individual slots.
 validateSlotRep :: GrinRep -> LowerM ()
@@ -1670,13 +1711,68 @@ allocateNode ctx node = do
   object <-
     if isFrameNode (ctxEnv ctx) node
       then pushFrame (ctxMachine ctx) (nodeWords node)
-      else bumpAllocate (nodeWords node)
+      else do
+        profiling <- gets stateProfileAllocations
+        when profiling (countAllocation info (grinNodeTag node) (nodeWords node))
+        bumpAllocate (nodeWords node)
   storeSlot Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
   -- The shared info table of an unsaturated constructor does not say how wide
   -- this stage is, so the object records the count itself.
   when (isPartialConstructorNode node) $
     storeSlot I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) (typedOperand object) 8
   pure object
+
+-- | Add one object of the given words to the allocation counter of an info
+-- table. The counters are pairs of words, the objects and the words, in the
+-- order the info tables first occur. See 'lowerProfileAllocations'.
+countAllocation :: Symbol -> GrinNodeTag -> Int -> LowerM ()
+countAllocation info tag words' = do
+  sites <- gets stateProfileSites
+  index <- case Map.lookup info sites of
+    Just (index, _) -> pure index
+    Nothing -> do
+      let index = Map.size sites
+      modify' (\state -> state {stateProfileSites = Map.insert info (index, profileName tag) sites})
+      pure index
+  let counters = OperandLiteral (LitSymbol allocationCountsSymbol)
+      offset = toInteger (16 * index)
+  objects <- loadSlot "objects" I64 counters offset
+  objects' <- emitValue "objects" I64 (Binary Add I64 (typedOperand objects) (OperandLiteral (LitInt 1)))
+  storeSlot I64 (typedOperand objects') counters offset
+  allocated <- loadSlot "words" I64 counters (offset + 8)
+  allocated' <- emitValue "words" I64 (Binary Add I64 (typedOperand allocated) (OperandLiteral (LitInt (toInteger words'))))
+  storeSlot I64 (typedOperand allocated') counters (offset + 8)
+  where
+    -- A linked name separates its package, module and name with control
+    -- characters, which a C string cannot hold.
+    profileName current =
+      T.map (\c -> if c < ' ' then ':' else c) $
+        case current of
+          GrinConstructor name remaining -> "C " <> name <> (if remaining == 0 then "" else "/" <> T.pack (show remaining))
+          GrinClosure name layouts -> "P " <> unFunctionName name <> "/" <> T.pack (show (length layouts))
+          GrinThunk name -> "F " <> unFunctionName name
+
+-- | The symbols of the allocation profile: the counters, the names, and
+-- the number of counters.
+allocationCountsSymbol, allocationNamesSymbol, allocationSizeSymbol :: Symbol
+allocationCountsSymbol = Symbol "aihc_allocation_profile_counts"
+allocationNamesSymbol = Symbol "aihc_allocation_profile_names"
+allocationSizeSymbol = Symbol "aihc_allocation_profile_size"
+
+-- | The data of the allocation profile of a unit, after its code: the
+-- zeroed counters, the name of each, and their number. A unit with no
+-- allocation still defines all three, because the entry names them.
+lowerAllocationProfile :: LowerM ()
+lowerAllocationProfile = do
+  target <- targetM
+  sites <- gets (List.sortOn fst . Map.elems . stateProfileSites)
+  names <- forM sites $ \(index, name) -> do
+    let symbol = Symbol ("aihc_allocation_profile_name_" <> T.pack (show index))
+    emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes (TE.encodeUtf8 name), DataInt I8 0]))
+    pure symbol
+  emitItem (ItemData (DataItem allocationCountsSymbol Export True 8 (if null sites then [DataInt I64 0] else concat [[DataInt I64 0, DataInt I64 0] | _ <- sites])))
+  emitItem (ItemData (DataItem allocationNamesSymbol Export False (toInteger (lowerWordSize target)) (if null names then [DataNull] else [DataSymbol symbol 0 | symbol <- names])))
+  emitItem (ItemData (DataItem allocationSizeSymbol Export False 8 [DataInt I64 (toInteger (length sites))]))
 
 -- | Take the given words from heap that a reservation has already made: the
 -- object starts at the heap pointer, and the heap pointer advances past it.
@@ -3010,6 +3106,11 @@ lowerExecutableMain gcProgram = do
   _ <- callRuntime "aihc_machine_initialize" [] [Ptr] []
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
+  profiling <- gets stateProfileAllocations
+  when profiling $ do
+    mapM_ requireExternData [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol]
+    _ <- callRuntime "aihc_allocation_profile_register" [Ptr, Ptr, Ptr] [] (map (OperandLiteral . LitSymbol) [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol])
+    pure ()
   _ <- startMachine
   _ <- callRuntime "aihc_runtime_statistics_report" [] [] []
   terminate (Return [OperandLiteral (LitInt 0)])

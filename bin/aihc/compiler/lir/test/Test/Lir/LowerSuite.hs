@@ -16,7 +16,7 @@
 module Test.Lir.LowerSuite (tests) where
 
 import Aihc.Grin (lowerGc, parseProgram, renderParseError, toCpsGrin)
-import Aihc.Lir.Lower (LowerTarget, appleArm64Target, lowerModule, posixTarget64, wasip3Target)
+import Aihc.Lir.Lower (LowerTarget, ModuleSettings (..), appleArm64Target, lowerModule, posixTarget64, wasip3Target)
 import Aihc.Lir.Pretty (renderModule)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (Parser, Value, parseEither, withObject)
@@ -32,8 +32,9 @@ import Test.Tasty.HUnit (assertFailure, testCase)
 data LowerFixture = LowerFixture
   { fixtureProgram :: !Text,
     fixtureTarget :: !LowerTarget,
-    -- | Whether the lowering emits the primitive bounds checks.
-    fixtureCheckPrimBounds :: !Bool,
+    -- | Whether the lowering emits the primitive bounds checks and the
+    -- allocation counters.
+    fixtureSettings :: !ModuleSettings,
     fixtureExpected :: !Text
   }
 
@@ -76,7 +77,7 @@ parseFixture =
     LowerFixture
       <$> object .: "program"
       <*> pure target
-      <*> object .:? "check-prim-bounds" .!= False
+      <*> (ModuleSettings <$> object .:? "check-prim-bounds" .!= False <*> object .:? "profile-allocations" .!= False)
       <*> object .: "expected"
 
 -- | The GRIN pipeline a native target takes, stopping at the Lir text.
@@ -84,5 +85,5 @@ lowerFixture :: LowerFixture -> Either String Text
 lowerFixture fixture = do
   program <- either (Left . renderParseError) Right (parseProgram (fixtureProgram fixture))
   cps <- either (Left . show) Right (toCpsGrin program)
-  lir <- either (Left . show) Right (lowerModule (fixtureTarget fixture) (fixtureCheckPrimBounds fixture) (lowerGc cps))
+  lir <- either (Left . show) Right (lowerModule (fixtureTarget fixture) (fixtureSettings fixture) (lowerGc cps))
   pure (T.stripEnd (renderModule lir))

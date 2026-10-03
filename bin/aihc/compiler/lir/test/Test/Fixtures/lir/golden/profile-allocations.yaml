@@ -1,0 +1,87 @@
+profile-allocations: true
+program: |
+  constructor Box/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $entry -> BoxedRep Lifted =
+    (first :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))
+    (second :: BoxedRep Lifted) <- store (CBox (2 :: IntRep))
+    store (CPair (first :: BoxedRep Lifted) (second :: BoxedRep Lifted))
+expected: |
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr, ptr, ptr, ptr)
+
+  extern data @aihc_machine
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %$cps_return_4: ptr) {
+  entry:
+    %roots_5 = stack.alloc 8 align 8
+    %heap_end_6 = ptr.add %hp_0, 56
+    %heap_fits_7 = le.u ptr %heap_end_6, %hp_limit_1
+    br %heap_fits_7, gc_reserved_9(%$cps_return_4, %hp_0, %hp_limit_1), gc_collect_8
+
+  cold gc_collect_8:
+    store ptr %$cps_return_4, [%roots_5] align 8
+    store ptr %hp_0, [@aihc_machine + 24] align 1 word
+    store ptr %sp_2, [@aihc_machine + 40] align 1 word
+    call @aihc_heap_collect(@aihc_machine, 7, 1, %roots_5, null)
+    %$cps_return$gc_13 = load ptr [%roots_5] align 8
+    %hp_14 = load ptr [@aihc_machine + 24] align 1 word
+    %hp_limit_15 = load ptr [@aihc_machine + 32] align 1 word
+    jump gc_reserved_9(%$cps_return$gc_13, %hp_14, %hp_limit_15)
+
+  gc_reserved_9(%$cps_return$gc_10: ptr, %hp_11: ptr, %hp_limit_12: ptr):
+    %objects_16 = load i64 [@aihc_allocation_profile_counts] align 8
+    %objects_17 = add i64 %objects_16, 1
+    store i64 %objects_17, [@aihc_allocation_profile_counts] align 8
+    %words_18 = load i64 [@aihc_allocation_profile_counts + 8] align 8
+    %words_19 = add i64 %words_18, 2
+    store i64 %words_19, [@aihc_allocation_profile_counts + 8] align 8
+    %hp_20 = ptr.add %hp_11, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_11] align 8
+    store i64 1, [%hp_11 + 8] align 8
+    %objects_21 = load i64 [@aihc_allocation_profile_counts] align 8
+    %objects_22 = add i64 %objects_21, 1
+    store i64 %objects_22, [@aihc_allocation_profile_counts] align 8
+    %words_23 = load i64 [@aihc_allocation_profile_counts + 8] align 8
+    %words_24 = add i64 %words_23, 2
+    store i64 %words_24, [@aihc_allocation_profile_counts + 8] align 8
+    %hp_25 = ptr.add %hp_20, 16
+    store ptr @aihc_c_aihc_entry_Box_0, [%hp_20] align 8
+    store i64 2, [%hp_20 + 8] align 8
+    %objects_26 = load i64 [@aihc_allocation_profile_counts + 16] align 8
+    %objects_27 = add i64 %objects_26, 1
+    store i64 %objects_27, [@aihc_allocation_profile_counts + 16] align 8
+    %words_28 = load i64 [@aihc_allocation_profile_counts + 24] align 8
+    %words_29 = add i64 %words_28, 3
+    store i64 %words_29, [@aihc_allocation_profile_counts + 24] align 8
+    %hp_30 = ptr.add %hp_25, 24
+    store ptr @aihc_c_aihc_entry_Pair_0, [%hp_25] align 8
+    store ptr %hp_11, [%hp_25 + 8] align 8
+    store ptr %hp_20, [%hp_25 + 16] align 8
+    tailcall @aihc_lir_continue_p(%hp_30, %hp_limit_12, %sp_2, %sp_limit_3, %$cps_return$gc_10, %hp_25)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0 }
+
+  data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3, i8 0 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
+
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0 }
+
+  data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3, i8 0 }
+
+  data @aihc_allocation_profile_name_0 align 1 = { bytes "C Box", i8 0 }
+
+  data @aihc_allocation_profile_name_1 align 1 = { bytes "C Pair", i8 0 }
+
+  export data mut @aihc_allocation_profile_counts align 8 = { i64 0, i64 0, i64 0, i64 0 }
+
+  export data @aihc_allocation_profile_names align 8 = { ptr @aihc_allocation_profile_name_0, ptr @aihc_allocation_profile_name_1 }
+
+  export data @aihc_allocation_profile_size align 8 = { i64 2 }
+status: pass

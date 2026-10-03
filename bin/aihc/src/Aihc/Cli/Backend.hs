@@ -114,22 +114,23 @@ lirModuleDefinesCode lirModule = any definesCode (moduleItems lirModule)
 
 -- | Compile the entry unit of an executable to @object@. The entry starts
 -- the runtime and enters the program; the entry of every executable is the
--- same, so it is generated rather than read from a source.
-compileEntryObject :: Bool -> NativeTarget -> FilePath -> FilePath -> IO ()
-compileEntryObject lto target directory object = do
-  entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target))
+-- same, so it is generated rather than read from a source. With the
+-- profile flag, the entry registers the allocation counters of the program.
+compileEntryObject :: Bool -> Bool -> NativeTarget -> FilePath -> FilePath -> IO ()
+compileEntryObject lto profileAllocations target directory object = do
+  entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target) profileAllocations)
   compileLirObject lto target (takeBaseName object) entryModule directory object
 
 -- | Use shared incremental conversion for both native object paths. The Lir
 -- of the module is written to @lirPath@ when one is given: an object
 -- backend writes each item as conversion produces it, and a source backend
 -- writes the module it lowered.
-compileGrinTo :: Bool -> Bool -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO (Maybe Text)
-compileGrinTo lint checkBounds target lirPath gcProgram path = case target of
-  AppleArm64 -> Arm64.writeGrinObjectWith lint checkBounds lirPath gcProgram path >> pure Nothing
-  LinuxAmd64 -> Amd64.writeGrinObjectWith lint checkBounds lirPath gcProgram path >> pure Nothing
+compileGrinTo :: Bool -> Lower.ModuleSettings -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO (Maybe Text)
+compileGrinTo lint settings target lirPath gcProgram path = case target of
+  AppleArm64 -> Arm64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure Nothing
+  LinuxAmd64 -> Amd64.writeGrinObjectWith lint settings lirPath gcProgram path >> pure Nothing
   _ -> do
-    lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) checkBounds gcProgram)
+    lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) settings gcProgram)
     mapM_ (\dump -> TIO.writeFile dump (renderLirModule lirModule)) lirPath
     compileLirTo lint target lirModule path
 

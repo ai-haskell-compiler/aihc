@@ -391,6 +391,13 @@ int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
    environment names one. The generated main calls this when the machine
    halts, and aihc_exit_process calls it before the process exits. */
 void aihc_runtime_statistics_report(void);
+/* The allocation counters of a program built with --profile-allocations:
+   a name for each info table, a pair of counters for each (the objects and
+   the words), and the number of info tables. The entry registers them
+   before the machine starts, and the statistics report writes them. */
+void aihc_allocation_profile_register(const char *const *names,
+                                      const uint64_t *counts,
+                                      const uint64_t *size);
 int64_t aihc_program_environment_size(void);
 int64_t aihc_program_environment_copy(void *buffer, int64_t capacity);
 /* Install an immutable managed byte array without allocation. */

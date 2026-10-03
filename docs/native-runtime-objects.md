@@ -160,6 +160,41 @@ writes no file. An empty value counts as an unset variable.
 - `live_bytes` is the occupied space directly after the last collection.
   It counts the copied objects and the pinned blocks.
 
+### Allocation profile
+
+`aihc build --profile-allocations` makes a whole-program build (the flag
+implies `--lto`) that counts the heap objects the program allocates. The
+statistics object then has one more field, `allocations`: one entry for each
+info table that allocated, the most bytes first.
+
+```json
+"allocations": [
+  {"name": "C aihc-prim-0.13.0:GHC.Types::", "objects": 3614166, "bytes": 86739984},
+  {"name": "F exe:Main:$main_argument_thunk", "objects": 2891008, "bytes": 69384192}
+]
+```
+
+- The first letter of a name gives the kind of object: `C` a constructor, `F`
+  a thunk, and `P` a closure or a partial application. The rest is the
+  package, the module, and the name of the constructor or the function. A
+  partial application also shows the number of argument groups it waits for.
+- The counts are the objects that the generated code allocates. Objects that
+  the runtime allocates, such as byte arrays, buffers, and the partial
+  applications of `aihc_apply_slow`, are not in the list, so the sum of the
+  list can be less than `allocated_bytes`. Continuation frames live on thread
+  stacks, so they are not in the list either.
+- The counters cost a load, an add, and a store for each count at each
+  allocation, so a profiled program runs more slowly. Only measure the
+  counts of such a program, not its time.
+
+The lowering keeps two counters for each info table (the objects and the
+words) in the exported data `aihc_allocation_profile_counts`, with the names
+in `aihc_allocation_profile_names` and their number in
+`aihc_allocation_profile_size`. Only the whole-program object defines them,
+because the counters of two units would have the same symbols. The `main` of
+the entry unit calls `aihc_allocation_profile_register` with the three before
+the machine starts, and `aihc_runtime_statistics_report` writes the entries.
+
 The environment parser lives in `aihc_runtime_options.lir` next to the RTS
 option parser. The POSIX host flattens `environ` into one buffer of
 `NAME=VALUE` strings, and the C runtime reads the path through

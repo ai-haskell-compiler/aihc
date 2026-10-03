@@ -78,7 +78,7 @@ compileExample source = do
   let gc = Grin.lowerGc cps
       gcErrors = Grin.lintGcProgram gc
   unless (null gcErrors) (Left ("GC-GRIN lint failed: " <> show gcErrors))
-  lir <- either (Left . ("Lir generation failed: " <>) . show) Right (Lower.lowerModule (lowerTargetFor exampleTarget) False gc)
+  lir <- either (Left . ("Lir generation failed: " <>) . show) Right (Lower.lowerModule (lowerTargetFor exampleTarget) Lower.defaultModuleSettings gc)
   pure
     ExampleOutput
       { exampleCore = Fc.renderProgram program,
