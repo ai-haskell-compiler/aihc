@@ -676,7 +676,12 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
     aihc_semispace_exhausted(machine);
   }
   aihc_grow_target(machine, live_bytes + required_bytes);
-  machine->gc_time_ns += aihc_host_monotonic_ns() - started_ns;
+  machine->heap_live_bytes = live_bytes;
+  uint64_t pause_ns = aihc_host_monotonic_ns() - started_ns;
+  machine->gc_time_ns += pause_ns;
+  if (pause_ns > machine->gc_max_pause_ns) {
+    machine->gc_max_pause_ns = pause_ns;
+  }
 }
 
 void aihc_gc_init(AihcMachine *machine) {
