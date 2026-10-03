@@ -332,6 +332,20 @@ in the recursive group, and each occurrence of the function becomes a copy
 of the wrapper. The simplifier reduces each copy, so no inliner is
 necessary.
 
+In a local recursive group of more than one function, each member splits
+on its own. The members call each other through copies of the wrappers, so
+a call from one member to another gives the fields to the worker. A
+top-level group stays as it is, because its wrappers would be calls in a
+cycle, which the inliner never copies.
+
+A function whose result is a newtype of a function, such as an `IO`
+action, shows its last lambdas under a cast:
+`f = λx. (λs. body) ▷ sym co`. The demand analysis counts those lambdas.
+The worker takes those parameters too, and the cases of the wrapper stand
+under them: `f = λx. (λs. case x of I# a -> $wf a s) ▷ sym co`. Thus the
+wrapper evaluates nothing before the action runs, and a call that gives
+the state token reduces to a call of the worker.
+
 The pass runs a second time after the growing inliner, for the local
 functions only. The growing inliner makes new local loops: when it copies
 a fused producer, such as `take n (iterate f x)`, into its consumer, the
@@ -343,7 +357,7 @@ more call.
 
 The pass does not split:
 
-- a function in a recursive group of more than one value;
+- a top-level function in a recursive group of more than one value;
 - a function with an inline pragma, or that a rewrite rule names;
 - a function whose lambdas are not type lambdas followed by value lambdas;
 - a parameter of a type with more than one constructor, an existential
