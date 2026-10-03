@@ -11,15 +11,13 @@ module Data.Traversable
 where
 
 import Control.Applicative (Const (..))
+import Control.Monad (forM)
 import Data.Monoid (Monoid)
 import GHC.Internal.Traversable (Traversable (..))
-import Prelude (Applicative (..), Functor (..), Monad, (.))
+import Prelude (Applicative (..), Functor (..), (.))
 
 for :: (Traversable t, Applicative f) => t a -> (a -> f b) -> f (t b)
 for structure f = traverse f structure
-
-forM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
-forM structure f = mapM f structure
 
 newtype StateL s a = StateL {runStateL :: s -> (s, a)}
 
