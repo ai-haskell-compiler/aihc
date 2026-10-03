@@ -375,7 +375,7 @@
   '';
 
   aihcExe = pkgs.writeShellScript "aihc-with-memory-limit" ''
-    exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M2G -RTS "$@"
+    exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M4G -RTS "$@"
   '';
 
   resolveTests = mkTestRunner {
