@@ -5,8 +5,8 @@
 - Total Extensions: 84
 - Supported: 41
 - In Progress: 43
-- Fixtures (eval): 562
-- Fixtures (fc): 334
+- Fixtures (eval): 563
+- Fixtures (fc): 340
 
 ## Extension Status
 
@@ -15,7 +15,7 @@
 | AllowAmbiguousTypes        |   🔴    | 7/9           |
 | ApplicativeDo              |   🔴    | 0/1           |
 | Arrows                     |   🔴    | 0/1           |
-| BangPatterns               |   🟢    | 11/11         |
+| BangPatterns               |   🟢    | 12/12         |
 | BlockArguments             |   🟢    | 2/2           |
 | CApiFFI                    |   🟢    | 2/2           |
 | ConstraintKinds            |   🟢    | 21/21         |
@@ -32,7 +32,7 @@
 | EmptyCase                  |   🟢    | 1/1           |
 | EmptyDataDecls             |   🔴    | 2/3           |
 | EmptyDataDeriving          |   🔴    | 0/1           |
-| ExistentialQuantification  |   🟡    | 10/11         |
+| ExistentialQuantification  |   🟡    | 11/12         |
 | ExplicitForAll             |   🔴    | 13/17         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedDefaultRules       |   🔴    | 0/1           |
@@ -51,7 +51,7 @@
 | InterruptibleFFI           |   🟢    | 1/1           |
 | KindSignatures             |   🟡    | 55/57         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 228/230       |
+| MagicHash                  |   🟡    | 231/233       |
 | MonadComprehensions        |   🔴    | 0/2           |
 | MultiParamTypeClasses      |   🟡    | 40/43         |
 | MultiWayIf                 |   🟢    | 2/2           |
@@ -71,7 +71,7 @@
 | PostfixOperators           |   🟢    | 1/1           |
 | QualifiedDo                |   🔴    | 0/2           |
 | QuantifiedConstraints      |   🟢    | 5/5           |
-| RankNTypes                 |   🟡    | 37/38         |
+| RankNTypes                 |   🟡    | 38/39         |
 | RebindableSyntax           |   🔴    | 20/24         |
 | RecordWildCards            |   🟢    | 2/2           |
 | RecursiveDo                |   🔴    | 0/11          |
