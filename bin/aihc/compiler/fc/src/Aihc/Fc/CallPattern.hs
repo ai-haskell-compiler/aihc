@@ -61,7 +61,7 @@ import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -260,20 +260,22 @@ specialiseLoop env (Bind binder rhs) body =
       let env' = List.foldl' extendBinder env tyBinders
       declared <- instantiate env' (binderType binder) tyBinders
       (arrows, result) <- takeArrows env' declared (length valueBinders)
+      -- Each field needs a known representation, because the copy takes
+      -- it as a parameter.
       let candidates =
-            [ (index, (param, con, arguments, fields))
+            [ (index, (param, con, arguments, zip fields reps))
             | (index, param) <- zip [0 :: Int ..] valueBinders,
               isLiftedBinder env' param,
               Just (con, arguments, fields) <- [productConstructor env' (binderType param)],
-              not (null fields)
+              not (null fields),
+              Just reps <- [traverse (repOf env') fields]
             ]
       case candidates of
         [] -> Nothing
         _ -> Just (tyBinders, valueBinders, inner, arrows, result, candidates)
-    position param con arguments fieldTypes = do
-      fieldBinders <- traverse (\ty -> (`Binder` ty) <$> freshLocal (nameText (binderName param))) fieldTypes
-      let reps = [fromMaybe ty (repOf env ty) | ty <- fieldTypes]
-      pure (Position param con arguments (zip fieldTypes reps) fieldBinders)
+    position param con arguments fields = do
+      fieldBinders <- traverse (\(ty, _) -> (`Binder` ty) <$> freshLocal (nameText (binderName param))) fields
+      pure (Position param con arguments fields fieldBinders)
     parameterBinders (parameter, fields) =
       case parameter of
         Keep param -> [param]

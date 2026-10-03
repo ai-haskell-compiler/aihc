@@ -1629,7 +1629,9 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
           then Nothing
           else do
             let typeSubst = Map.fromList (zip (map binderName (altTypeBinders alternative)) existentials)
-                fieldBinds = zipWith Bind (altBinders alternative) fields
+                -- The type of a field binder can name an existential type
+                -- binder of the alternative, which the case no longer binds.
+                fieldBinds = zipWith (\field -> Bind field {binderType = substTypes typeSubst (binderType field)}) (altBinders alternative) fields
             Just (foldr ExLet (substTypeExpr typeSubst rhs) fieldBinds)
     Just (foldr ExLet body (binds <> caseBinds))
 
