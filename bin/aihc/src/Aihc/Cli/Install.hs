@@ -2820,7 +2820,8 @@ instanceFacts interface =
   emptyTcInterface
     { tcInterfaceInstanceMap = tcInterfaceInstanceMap interface,
       tcInterfaceDataFamilyInstanceMap = tcInterfaceDataFamilyInstanceMap interface,
-      tcInterfaceTypeFamilyInstanceMap = tcInterfaceTypeFamilyInstanceMap interface
+      tcInterfaceTypeFamilyInstanceMap = tcInterfaceTypeFamilyInstanceMap interface,
+      tcInterfaceUniqueBound = tcInterfaceUniqueBound interface
     }
 
 interfaceInstanceProviders :: TcInterface -> Set.Set InstanceProvider
@@ -2847,7 +2848,8 @@ selectInstanceProviders complete providers
         emptyTcInterface
           { tcInterfaceInstanceMap = Map.filter ((`Set.member` providers) . first PackageId . iiDictOrigin) (tcInterfaceInstanceMap complete),
             tcInterfaceDataFamilyInstanceMap = Map.filter ((`Set.member` providers) . tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstanceMap complete),
-            tcInterfaceTypeFamilyInstanceMap = Map.filter ((`Set.member` providers) . tfiiOrigin) (tcInterfaceTypeFamilyInstanceMap complete)
+            tcInterfaceTypeFamilyInstanceMap = Map.filter ((`Set.member` providers) . tfiiOrigin) (tcInterfaceTypeFamilyInstanceMap complete),
+            tcInterfaceUniqueBound = tcInterfaceUniqueBound complete
           }
   where
     first transform (left, right) = (transform left, right)
@@ -3971,7 +3973,8 @@ addReferencedFacts extraRoots extraTerms complete = go
         { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms),
           tcInterfaceTyConMap = Map.restrictKeys availableTyCons reachableKeys,
           tcInterfaceDataTypeMap = Map.restrictKeys availableDataTypes reachableKeys,
-          tcInterfaceClassMap = Map.restrictKeys availableClasses reachableKeys
+          tcInterfaceClassMap = Map.restrictKeys availableClasses reachableKeys,
+          tcInterfaceUniqueBound = max (tcInterfaceUniqueBound interface) (tcInterfaceUniqueBound complete)
         }
       where
         termTyCons = interfaceTermTyCons interface
@@ -4062,4 +4065,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-45"
+packageArtifactFormatVersion = "aihc-artifacts-46"

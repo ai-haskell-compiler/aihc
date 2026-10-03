@@ -1,0 +1,4 @@
+status: pass
+reason: Each module must take fresh type variables above the unique numbers of the facts that it imports. Otherwise, a fresh kind variable in Dual is the same as a kind variable of the imported Semigroupoid class.
+needs-base: true
+no-code: false
