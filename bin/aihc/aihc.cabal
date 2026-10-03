@@ -163,6 +163,7 @@ library
     Aihc.Fc
     Aihc.Fc.Arity
     Aihc.Fc.Binary
+    Aihc.Fc.CallPattern
     Aihc.Fc.ConstantLift
     Aihc.Fc.Convert
     Aihc.Fc.Demand
