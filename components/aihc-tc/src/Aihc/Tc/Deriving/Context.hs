@@ -59,7 +59,7 @@ import Control.Monad (foldM)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -534,9 +534,9 @@ validateStockDataType mechanism dataType
       Left (mechanism <> " does not yet support empty data declarations")
   | not (all (null . dciExTyVars) constructors) =
       Left (mechanism <> " does not yet support existential constructors")
-  | not (all (null . dciTheta) constructors) =
+  | not (all (\constructor -> null (dciTheta constructor) || null (dciFields constructor)) constructors) =
       Left (mechanism <> " does not yet support constrained constructors")
-  | any ((/= expectedResult) . dciResTy) constructors =
+  | any (isNothing . (\constructor -> matchTypes [dciResTy constructor] [expectedResult])) constructors =
       Left (mechanism <> " does not yet support refined GADT result types")
   | otherwise = Right ()
   where

@@ -64,6 +64,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
+    TcPatternInstantiation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Match (matchTypes)
@@ -1837,6 +1838,14 @@ desugarMatchColumns resultType fallback [] _ ((match, locals) : rest) = do
   withMatchLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
 desugarMatchColumns _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
 desugarMatchColumns resultType fallback binders@(argument : arguments) argumentTypes works
+  | TcQualTy _ body : restTypes <- argumentTypes,
+    representative : _ <- [pattern' | (match, _) <- works, pattern' : _ <- [Syn.matchPats match], patternHasInstantiation pattern'],
+    Just annotation <- patternAnnotation representative = do
+      evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+      field <- freshBinder "$pattern_value" body
+      let applied = foldl ExApp (ExVar (binderName argument)) evidence
+      result <- desugarMatchArguments resultType fallback (field : arguments) (body : restTypes) works
+      pure (ExLet (Bind field applied) result)
   | any (firstPatternIsOverloadedLiteral . fst) works =
       desugarOverloadedLiteralMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
@@ -2525,12 +2534,20 @@ specializeMatchWork key arity fields fieldTypes (match, locals) =
               pure (Just (specialized, locals <> matchBinderLocals extra))
         _ -> pure (Just (specialized, locals))
 
+patternHasInstantiation :: Syn.Pattern -> Bool
+patternHasInstantiation pattern' = case pattern' of
+  Syn.PAnn annotation inner -> isJust (Syn.fromAnnotation annotation :: Maybe TcPatternInstantiation) || patternHasInstantiation inner
+  Syn.PParen inner -> patternHasInstantiation inner
+  _ -> False
+
 patternGivenPredicates :: Syn.Pattern -> [Pred]
 patternGivenPredicates = go
   where
     go pattern' =
       case pattern' of
-        Syn.PAnn annotation inner -> annotationPredicates annotation <> go inner
+        Syn.PAnn annotation inner
+          | Just TcPatternInstantiation <- Syn.fromAnnotation annotation -> skipApplication inner
+          | otherwise -> annotationPredicates annotation <> go inner
         Syn.PParen inner -> go inner
         Syn.PStrict inner -> go inner
         Syn.PIrrefutable inner -> go inner
@@ -2539,6 +2556,10 @@ patternGivenPredicates = go
         Syn.PCon name _ _ -> annotationsPredicates (Syn.nameAnns name)
         Syn.PInfix _ name _ -> annotationsPredicates (Syn.nameAnns name)
         _ -> []
+    skipApplication (Syn.PAnn annotation inner)
+      | isJust (Syn.fromAnnotation annotation :: Maybe TcAnnotation) = go inner
+      | otherwise = skipApplication inner
+    skipApplication inner = go inner
     annotationPredicates annotation =
       maybe [] evidencePredicates (Syn.fromAnnotation annotation :: Maybe TcAnnotation)
     annotationsPredicates annotations =
