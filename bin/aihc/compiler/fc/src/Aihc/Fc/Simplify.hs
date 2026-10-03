@@ -1252,6 +1252,15 @@ mkLet env bind body
     hasLazyPrimitive (spEnv env) rhs = do
       (binds, rhs') <- bindLazyPrimitives env rhs
       pure (foldr ExLet (ExLet (Bind binder rhs') body) binds)
+  -- A constructor of trivial arguments only allocates, so it moves to its
+  -- uses: past the lets after it, and into the alternatives of a case
+  -- that use it, when an alternative does not use it. Each path still
+  -- allocates it at most once, and a path that does not use it allocates
+  -- nothing. A worker builds its unboxed parameters again this way, and
+  -- often only one branch needs the box.
+  | lifted,
+    isConstructorOfTrivials rhs =
+      pure (sinkConstructorLet bind body)
   | lifted = pure (ExLet bind body)
   -- A strict binding whose one use is the scrutinee of the case that
   -- follows it is that case on the right-hand side: the case evaluates it
@@ -1270,6 +1279,60 @@ mkLet env bind body
     name = binderName binder
     lifted = isLiftedBinder (spEnv env) binder
     uses = occurrencesUnder (spCredit env) (spInside env) name body
+
+-- | A saturated constructor application whose arguments are trivial.
+isConstructorOfTrivials :: Expr -> Bool
+isConstructorOfTrivials expr =
+  case collectSpine expr of
+    (ExVar name, args@(_ : _)) -> isConstructorName name && all (either (const True) isTrivial) args
+    _ -> False
+
+-- | Move a let to its uses, as 'mkLet' describes. The let passes a let
+-- whose right-hand side does not use it, and goes into each alternative
+-- of a case that uses it, when the scrutinee does not use it and a path
+-- through the case does not use it. When every path uses it, a copy in
+-- each alternative would only add code, so the let stops above the case. It also stops at
+-- anything else, and where a binder would capture a name of its
+-- right-hand side or would hide its own binder. A body that does not use
+-- the binder drops the let.
+sinkConstructorLet :: Bind -> Expr -> Expr
+sinkConstructorLet bind = go
+  where
+    name = binderName (bindBinder bind)
+    rhsNames = exprValueNames (bindRhs bind)
+    uses expr = Set.member name (exprValueNames expr)
+    safeBinder binder = binderName binder /= name && Set.notMember (binderName binder) rhsNames
+    go expr
+      | not (uses expr) = expr
+      | otherwise =
+          case expr of
+            ExLet inner body
+              | safeBinder (bindBinder inner),
+                not (uses (bindRhs inner)) ->
+                  ExLet inner (go body)
+            ExCase scrutinee binder ty alternatives
+              | movable expr ->
+                  ExCase scrutinee binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+            _ -> ExLet bind expr
+    -- Whether the let can enter a case, and a path through it then does
+    -- not use the binder.
+    movable expr =
+      case expr of
+        ExCase scrutinee binder _ alternatives ->
+          safeBinder binder
+            && not (uses scrutinee)
+            && all (all safeBinder . altBinders) alternatives
+            && any (avoids . altRhs) alternatives
+        _ -> False
+    avoids expr
+      | not (uses expr) = True
+      | otherwise =
+          case expr of
+            ExLet inner body
+              | safeBinder (bindBinder inner),
+                not (uses (bindRhs inner)) ->
+                  avoids body
+            _ -> movable expr
 
 -- | Accept a growth of the program: always when nothing grows, and in
 -- budget mode while the allowance and the site limit permit it.
