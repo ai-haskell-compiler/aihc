@@ -14,6 +14,7 @@ module Aihc.Cli.Install
     cabalPlatformForTarget,
     compileFcModules,
     optimizeFcProgram,
+    moduleObjectPaths,
     moduleOutputPaths,
     packageLinkArguments,
     buildEnvironmentIdentity,
@@ -130,7 +131,7 @@ import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Resolve qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyVersions,
     LockMode (..),
@@ -1490,7 +1491,7 @@ finishPackageBuild config build compiled = do
     if current
       then do
         cObjects <- compilePackageCFiles target (compileOptimization config) (compileLto config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
-        buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
+        buildLibraryArchive target (compileLto config) verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
   let manifest = packageBuildManifest config build (map sourceName parsed)
@@ -3750,8 +3751,13 @@ cObjectFileName source =
         then '_'
         else character
 
-buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
-buildLibraryArchive target verbose archive objects = do
+-- | Archive the objects of a package. A link-time optimized build of the
+-- LLVM target writes the archive without a symbol table: its members are
+-- bitcode, which an archive tool of another LLVM cannot read, and the link
+-- takes the members as objects rather than through the archive; see
+-- 'llvmLto'.
+buildLibraryArchive :: NativeTarget -> Bool -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
+buildLibraryArchive target lto verbose archive objects = do
   createDirectoryIfMissing True (takeDirectory archive)
   archiveExists <- doesFileExist archive
   when archiveExists (removeFile archive)
@@ -3768,7 +3774,8 @@ buildLibraryArchive target verbose archive objects = do
       environment <- getEnvironment
       -- Set archive timestamps only in the child process environment.
       let archiveEnvironment = ("ZERO_AR_DATE", "1") : filter ((/= "ZERO_AR_DATE") . fst) environment
-      runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> objects)
+      let modifiers = if llvmLto target lto then "rcS" else "rcs"
+      runToolWithEnvironment (Just archiveEnvironment) archiver ([modifiers, archive] <> objects)
   verbose ("Write archive: " <> archive)
 
 -- | The global header every archive format begins with. An archive that

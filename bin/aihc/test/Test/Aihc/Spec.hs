@@ -861,6 +861,11 @@ test_ltoLlvm getStore =
     _ <- build ltoOptions {buildNoLink = True, buildOutput = Just bundles}
     bundleManifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
     assertEqual "bundle records the LTO link arguments" ["-flto", "-O2"] (linkBundleLtoArguments bundleManifest)
+    -- The link reads no archive: the wrapper objects of the packages are
+    -- among the objects, and the C objects were already.
+    assertEqual "bundle lists no archive" [] (linkBundleArchives bundleManifest)
+    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects bundleManifest))
+    assertBool "bundle lists a capi wrapper of aihc-base" (any (".capi.o" `isSuffixOf`) (linkBundleObjects bundleManifest))
     removeDirectoryRecursive storeRoot
     runLinkExe LinkExeOptions {linkExeBundle = bundles </> "greet", linkExeOutputFile = linked}
     (status, stdout, stderr) <- readProcessWithExitCode linked [] ""

@@ -17,13 +17,14 @@ import Aihc.Cli.Install
     InstalledPackage (..),
     ModuleCompileConfig (..),
     archiveHasMembers,
+    moduleObjectPaths,
     packageLinkArguments,
   )
 import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.Options (LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.Wasm (wasip3WorldPath)
 import Control.Exception (bracket)
 import Control.Monad (filterM, forM, forM_, unless, when)
@@ -85,11 +86,22 @@ linkCompiledExecutable compileConfig noLink buildRoot output executable = do
   createDirectoryIfMissing True (takeDirectory output)
   let orderedPackages = linkOrderedPackages packages
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
-  let objects = programObjects <> compiledModuleObjects executable <> [entry] <> compiledCObjects executable <> cObjects
+  -- A link-time optimized build of the LLVM target links no archive: the
+  -- archive of each package holds bitcode without a symbol table, so the
+  -- link takes the wrapper objects of the package as objects; see
+  -- 'llvmLto'. Its C objects are among the objects already.
+  wrapperObjects <-
+    if llvmLto target lto
+      then fmap concat (mapM (packageWrapperObjects target) orderedPackages)
+      else pure []
+  let objects = programObjects <> compiledModuleObjects executable <> [entry] <> compiledCObjects executable <> cObjects <> wrapperObjects
   -- A package whose archive holds no member is left out of the link: a
   -- @--lto@ build leaves the archive of a package without C sources empty,
   -- and so does a package whose modules are all empty standins.
-  archives <- filterM archiveHasMembers (map packageArchive orderedPackages)
+  archives <-
+    if llvmLto target lto
+      then pure []
+      else filterM archiveHasMembers (map packageArchive orderedPackages)
   -- A package with cxx-sources says so in its manifest, and its objects
   -- need the C++ standard library however the program reaches them. So do
   -- the objects of the executable itself.
@@ -289,6 +301,13 @@ packageCObjects package = do
     else do
       names <- listDirectory directory
       pure (sortOn id [directory </> name | name <- names, ".o" `isSuffixOf` name])
+
+-- | The objects of the capi wrappers of the modules of an installed
+-- package: what its archive holds besides the C objects when the build
+-- stops at System FC.
+packageWrapperObjects :: NativeTarget -> InstalledPackage -> IO [FilePath]
+packageWrapperObjects target package =
+  moduleObjectPaths False (packageRoot package) target (packageManifestCompiledModules (installedManifest package))
 
 packageArchive :: InstalledPackage -> FilePath
 packageArchive package =
