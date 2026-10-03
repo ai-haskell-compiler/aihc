@@ -73,6 +73,7 @@ import Aihc.Parser.Syntax
     TypeFamilyInjectivity (..),
     TypeFamilyInst (..),
     TypeFamilyResultSig (..),
+    TypeLiteral (..),
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -128,7 +129,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvSince, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvSince, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -1221,7 +1222,7 @@ annotateDeclTc origin classMethods checkedValueTypes derived decl =
     DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
     DeclTypeSyn typeSynDecl -> annotateTypeSynDeclTc typeSynDecl
     DeclDataFamilyDecl familyDecl -> annotateDataFamilyDeclTc familyDecl
-    DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc familyInst
+    DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc origin familyInst
     DeclTypeFamilyDecl familyDecl -> annotateTypeFamilyDeclTc familyDecl
     DeclTypeFamilyInst familyInst -> annotateTypeFamilyInstTc origin familyInst
     DeclForeign foreignDecl
@@ -1385,8 +1386,8 @@ annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
       pure (DeclAnn (mkAnnotation familyInstance) (DeclTypeFamilyInst familyInst))
     Nothing -> pure (DeclTypeFamilyInst familyInst)
 
-annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
-annotateDataFamilyInstTc familyInst = do
+annotateDataFamilyInstTc :: (Text, Text) -> DataFamilyInst -> TcM Decl
+annotateDataFamilyInstTc origin@(packageName, moduleName') familyInst = do
   -- 'registerDataFamilyInstance' keys the constructors by the checked
   -- head, which is the data family itself.
   parent <- dataFamilyInstHeadTyCon familyInst
@@ -1394,12 +1395,11 @@ annotateDataFamilyInstTc familyInst = do
   let annotated = DeclDataFamilyInst (familyInst {dataFamilyInstConstructors = constructors})
   constructorNames <- concat <$> mapM dataConNames constructors
   familyInstances <- getDataFamilyInstances
-  case constructorNames of
-    firstConstructor : _ ->
-      case find (elem firstConstructor . dfiiConstructorNames) familyInstances of
-        Just familyInstance -> pure (DeclAnn (mkAnnotation familyInstance) annotated)
-        Nothing -> pure annotated
-    [] -> pure annotated
+  let instanceTag = dataFamilyInstanceTag origin familyInst constructorNames
+      expectedKey = TcAxiomKey (PackageId packageName) moduleName' (dataFamilyAxiomName (tyConName parent) instanceTag)
+  case find ((== expectedKey) . dataFamilyAxiomKey) familyInstances of
+    Just familyInstance -> pure (DeclAnn (mkAnnotation familyInstance) annotated)
+    Nothing -> pure annotated
 
 annotateRegisteredDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateRegisteredDataConDeclTc parent dataConDecl = do
@@ -4365,11 +4365,9 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
   constructorNames <- concat <$> mapM dataConNames (dataFamilyInstConstructors familyInst)
   kinds <- getKinds
   familyType <- checkSurfaceType tvEnv (dataFamilyInstHead familyInst) (typeKind kinds)
-  case (familyType, constructorNames) of
-    (_, []) -> do
-      emitError Nothing (OtherError "data-family instances without constructors are not supported")
-      pure []
-    (TcTyCon familyTyCon _, firstConstructor : _) -> do
+  let instanceTag = dataFamilyInstanceTag (packageName, moduleName') familyInst constructorNames
+  case familyType of
+    TcTyCon familyTyCon _ -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
       case maybeFamilyInfo of
         Just familyInfo
@@ -4392,14 +4390,14 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                           (uniqueKindVariables (freeKindVariables representationKind))
                       else []
                   familyName = tciName familyInfo
-                  representationName = dataFamilyRepresentationName familyName firstConstructor
+                  representationName = dataFamilyRepresentationName familyName instanceTag
                   representationTyCon =
                     mkTyConWithOrigin
                       (PackageId packageName)
                       moduleName'
                       representationName
                       (length paramInfos)
-                  axiomName = dataFamilyAxiomName familyName firstConstructor
+                  axiomName = dataFamilyAxiomName familyName instanceTag
                   representationInfo =
                     TyConInfo
                       { tciName = representationName,
@@ -4433,6 +4431,14 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
     _ -> do
       emitError Nothing (OtherError ("invalid data-family instance head: " <> show familyType))
       pure []
+
+-- | Use the first constructor for an inhabited instance. An empty instance
+-- uses its source head because it has no constructor to identify it.
+dataFamilyInstanceTag :: (Text, Text) -> DataFamilyInst -> [Text] -> Text
+dataFamilyInstanceTag origin familyInst constructorNames =
+  case constructorNames of
+    firstConstructor : _ -> firstConstructor
+    [] -> "$empty$" <> sourceTypeKey origin (dataFamilyInstHead familyInst)
 
 -- | The data family that one instance head names.
 dataFamilyInstHeadTyCon :: DataFamilyInst -> TcM TyCon
@@ -4508,6 +4514,11 @@ sourceTypeKey home ty =
     TTuple flavor _ arguments -> arguments `keyedUnder` (tupleFlavorKey flavor <> intKey (length arguments))
     TUnboxedSum arguments -> arguments `keyedUnder` ("Sum" <> intKey (length arguments))
     TStar {} -> "Star"
+    TTypeLit literal ->
+      case literal of
+        TypeLitInteger value _ -> "Nat" <> T.pack (show value)
+        TypeLitSymbol value _ -> "Symbol" <> T.concat ["$" <> T.pack (show (ord character)) | character <- T.unpack value]
+        TypeLitChar value _ -> "Char" <> T.pack (show (ord value))
     TKindSig inner kind -> sourceTypeKey home inner <> "$Kind$" <> sourceTypeKey home kind
     _ -> "T"
   where

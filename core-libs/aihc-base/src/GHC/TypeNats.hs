@@ -1,6 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,6 +13,10 @@
 -- GHC declares these in @GHC.Internal.TypeNats@ and re-exports them here.
 -- @aihc-internal@ depends on @aihc-base@ rather than the other way round,
 -- so the declarations live here and the internal module re-exports them.
+--
+-- @someNatVal@ and @SomeNat@ are not available yet.
+-- @withKnownNat@ uses @WithDict@ to construct the dictionary.
+-- An aihc dictionary contains a constructor around its fields.
 module GHC.TypeNats
   ( Natural,
     Nat,
@@ -24,6 +26,7 @@ module GHC.TypeNats
     natVal',
     SNat,
     fromSNat,
+    withSomeSNat,
     withKnownNat,
     type (<=),
     type (<=?),
@@ -39,9 +42,10 @@ module GHC.TypeNats
 where
 
 import Data.Type.Ord (type (<=), type (<=?))
+import GHC.Magic.Dict (withDict)
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
-import GHC.Types (Constraint, Ordering, Type)
+import GHC.Types (Any, Constraint, Ordering, Type)
 
 -- | The kind of type-level natural literals. GHC makes this a synonym for
 -- the value type, so that @natVal@ can return one.
@@ -107,8 +111,12 @@ newtype SNat n = UnsafeSNat Natural
 fromSNat :: SNat n -> Natural
 fromSNat (UnsafeSNat value) = value
 
--- | Supply class evidence from a singleton.
-withKnownNat :: forall n r. SNat n -> ((KnownNat n) => r) -> r
-withKnownNat (UnsafeSNat value) = withKnownNatValue# @n value
+-- | Supply a singleton for a runtime natural number.
+-- Keep the type index private to each call.
+{-# NOINLINE withSomeSNat #-}
+withSomeSNat :: Natural -> (forall n. SNat n -> r) -> r
+withSomeSNat value continuation = continuation (UnsafeSNat value :: SNat Any)
 
-foreign import prim "withKnownNatValue#" withKnownNatValue# :: forall n r. Natural -> ((KnownNat n) => r) -> r
+-- | Supply the dictionary for a singleton natural number.
+withKnownNat :: forall n r. SNat n -> ((KnownNat n) => r) -> r
+withKnownNat (UnsafeSNat value) = withDict @(KnownNat n) value

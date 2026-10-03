@@ -1,0 +1,42 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Family where
+
+    data family D a
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Instances where
+
+    import Family
+    import Prelude
+
+    data instance D [a]
+    data instance D (a, b)
+    data instance D Bool = Flag Bool
+
+    ignoreList :: D [Int] -> Bool
+    ignoreList _ = True
+
+    ignoreTuple :: D (Int, Bool) -> Bool
+    ignoreTuple _ = True
+  - |
+    module Test where
+
+    import Family
+    import Instances
+    import Prelude
+
+    result :: Bool
+    result = ignoreList undefined && ignoreTuple undefined && flag (Flag True)
+      where
+        flag :: D Bool -> Bool
+        flag (Flag value) = value
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: Empty instances have distinct representation types and remain available across modules.

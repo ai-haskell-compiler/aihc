@@ -37,12 +37,22 @@
 -- A local recursive function gets the same split. Its worker takes its
 -- place in the recursive group, and each occurrence of the function
 -- becomes a copy of the wrapper. A loop with a free variable stays local,
--- so this split is the one that removes the box from its parameter.
+-- so this split is the one that removes the box from its parameter. In a
+-- local group of more than one function, each member splits on its own,
+-- and the members call each other through copies of the wrappers.
 --
--- The pass does not split a function in a recursive group of more than
--- one value, a function with an inline pragma, a function that a rewrite
--- rule names, or a function whose lambdas are not type lambdas followed by
--- value lambdas.
+-- A function whose result is a newtype of a function, such as an @IO@
+-- action, shows its last lambdas under a cast:
+--
+-- > f = λx. (λs. body) ▷ sym co
+--
+-- The worker takes those parameters too, and the wrapper keeps its cases
+-- under them, so the wrapper evaluates nothing before the action runs.
+--
+-- The pass does not split a top-level function in a recursive group of
+-- more than one value, a function with an inline pragma, a function that a
+-- rewrite rule names, or a function whose lambdas are not type lambdas
+-- followed by value lambdas, with value lambdas under one cast after them.
 --
 -- The pass can also split the local functions alone. The growing inliner
 -- makes new local loops when it copies a fused list producer into its
@@ -64,16 +74,16 @@ import Aihc.Fc.Simplify (collectSpine, exprValueNames, freshenExprFrom, maxLocal
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, lookupHeaderType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Fc.Wired (primPackageFromScopes, wiredGhcTypes)
 import Aihc.Tc.Types (Unique (..))
-import Control.Monad (guard)
+import Control.Monad (foldM, guard)
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -190,22 +200,36 @@ splitLocals = go
           (body', b) <- go env' scope' body
           let binds' = map fst results
               report = List.foldl' addReports b (map snd results)
-          case binds' of
-            [Bind binder rhs]
-              | isFunction rhs,
-                Just signature <- Map.lookup (binderName binder) (recursiveSignatures env' scope [(binderName binder, rhs)]) -> do
-                  workerName <- freshLocal ("$w" <> nameText (binderName binder))
-                  split <- splitFunction env' (binderName binder) (binderType binder) workerName (signatureDemands signature) rhs
-                  case split of
-                    Nothing -> pure (ExRec binds' body', report)
-                    Just result -> do
-                      body'' <- replaceCalls (binderName binder) (splitWrapper result) body'
-                      pure
-                        ( ExRec [Bind (Binder workerName (splitWorkerType result)) (splitWorker result)] body'',
-                          addReports report (WorkerWrapperReport 1 (splitUnboxed result) (if splitConstructed result then 1 else 0))
-                        )
-            _ -> pure (ExRec binds' body', report)
+              signatures = recursiveSignatures env' scope [(binderName (bindBinder bind), bindRhs bind) | bind <- binds']
+          -- Each member splits on its own. A member that splits puts its
+          -- worker in its place, and every occurrence of it, in the group
+          -- and under it, becomes a copy of its wrapper. A member calls the
+          -- others through those copies too, so a call between two members
+          -- gives the fields straight to the worker.
+          splits <- traverse (splitMember env' signatures) binds'
+          let wrappers = [(binderName (bindBinder bind), splitWrapper split) | (bind, Just (_, split)) <- zip binds' splits]
+              replaceAll target = foldM (\current (name, wrapperBody) -> replaceCalls name wrapperBody current) target wrappers
+          if null wrappers
+            then pure (ExRec binds' body', report)
+            else do
+              splitBinds <-
+                traverse
+                  ( \(bind, split) -> case split of
+                      Nothing -> (\rhs -> bind {bindRhs = rhs}) <$> replaceAll (bindRhs bind)
+                      Just (workerName, result) -> Bind (Binder workerName (splitWorkerType result)) <$> replaceAll (splitWorker result)
+                  )
+                  (zip binds' splits)
+              body'' <- replaceAll body'
+              let splitReports = [WorkerWrapperReport 1 (splitUnboxed result) (if splitConstructed result then 1 else 0) | Just (_, result) <- splits]
+              pure (ExRec splitBinds body'', List.foldl' addReports report splitReports)
     isFunction rhs = not (null (snd3 (splitLambdas rhs)))
+    splitMember env signatures (Bind binder rhs)
+      | isFunction rhs,
+        Just signature <- Map.lookup (binderName binder) signatures = do
+          workerName <- freshLocal ("$w" <> nameText (binderName binder))
+          split <- splitFunction env (binderName binder) (binderType binder) workerName (signatureDemands signature) rhs
+          pure ((,) workerName <$> split)
+      | otherwise = pure Nothing
     snd3 (_, values, _) = values
     first f (x, report) = (f x, report)
     freshLocal text = state (\supply -> (Name text SortValue (OriginLocal (Unique supply)), supply + 1))
@@ -287,9 +311,9 @@ splitFunction :: TypeEnv -> Name -> Type -> Name -> [Demand] -> Expr -> FreshM (
 splitFunction types self declaredType workerName demands function =
   case plan of
     Nothing -> pure Nothing
-    Just (tyBinders, parameters, arrows, result, resultProduct, inner) -> do
+    Just (tyBinders, parameters, castLayer, arrows, result, resultProduct, inner) -> do
       workerParameters <- traverse workerParameter parameters
-      wrapperBody <- wrapper tyBinders parameters result resultProduct
+      wrapperBody <- wrapper tyBinders parameters castLayer result resultProduct
       replaced <- replaceCalls self wrapperBody inner
       inner' <- maybe (pure replaced) (\resultShape -> returnFields result resultShape replaced) resultProduct
       let env = List.foldl' extendBinder types tyBinders
@@ -305,11 +329,27 @@ splitFunction types self declaredType workerName demands function =
   where
     primPackage = tePrimPackage types
     plan = do
-      let (tyBinders, valueBinders, inner) = splitLambdas function
-      guard (not (null valueBinders) && length valueBinders == length demands)
-      let env = List.foldl' extendBinder types tyBinders
+      let (tyBinders, outerBinders, outerBody) = splitLambdas function
+          env = List.foldl' extendBinder types tyBinders
       declared <- instantiate env declaredType tyBinders
-      (arrows, result) <- takeArrows env declared (length valueBinders)
+      (outerArrows, outerResult) <- takeArrows env declared (length outerBinders)
+      -- A function whose result is a newtype of a function, such as an
+      -- IO action, shows the lambdas of that function under a cast, and
+      -- the demand analysis counts them. The worker takes those
+      -- parameters too, and the cases of the wrapper stand under them, so
+      -- the wrapper evaluates nothing before the action runs.
+      (castLayer, innerBinders, inner, innerArrows, result) <-
+        case outerBody of
+          ExCast lambdas coercion
+            | (innerBinders@(_ : _), innerBody) <- valueLambdas lambdas,
+              length outerBinders + length innerBinders == length demands -> do
+                (source, _) <- coercionEndpoints env coercion
+                (innerArrows, innerResult) <- takeArrows env source (length innerBinders)
+                pure (Just (coercion, length innerBinders), innerBinders, innerBody, innerArrows, innerResult)
+          _ -> pure (Nothing, [], outerBody, [], outerResult)
+      let valueBinders = outerBinders <> innerBinders
+          arrows = outerArrows <> innerArrows
+      guard (not (null valueBinders) && length valueBinders == length demands)
       parameters <-
         sequence
           [ case (demand, productConstructor env (binderType binder)) of
@@ -319,13 +359,14 @@ splitFunction types self declaredType workerName demands function =
           ]
       let unboxedNames = Set.fromList [binderName binder | Unbox binder _ _ _ <- parameters]
           resultProduct = do
+            guard (isNothing castLayer)
             (con, arguments, fields) <- productConstructor env result
             guard (constructedTails self unboxedNames con inner)
             reps <- traverse (repOf env) fields
             returned <- returnedKind env (zip fields reps)
             pure (ResultProduct con arguments (zip fields reps) returned)
       guard (not (Set.null unboxedNames) || isJust resultProduct)
-      pure (tyBinders, parameters, arrows, result, resultProduct, inner)
+      pure (tyBinders, parameters, castLayer, arrows, result, resultProduct, inner)
     -- One unlifted field is returned as it is. More fields are returned in
     -- an unboxed tuple, when the program has the tuple of that size.
     returnedKind env fields =
@@ -393,8 +434,9 @@ splitFunction types self declaredType workerName demands function =
                   caseBinder <- (`Binder` result) <$> fresh "result"
                   pure (ExCase expr caseBinder returnedType [Alt (AltData con) [] binders (returnedValue resultShape (map (ExVar . binderName) binders))])
     -- The wrapper takes each unboxed parameter apart, calls the worker with
-    -- the fields, and builds the result from what the worker returns.
-    wrapper tyBinders parameters result resultProduct = do
+    -- the fields, and builds the result from what the worker returns. The
+    -- parameters under a cast stay under it, with the cases inside them.
+    wrapper tyBinders parameters castLayer result resultProduct = do
       unpacked <- traverse workerParameter parameters
       scrutinees <- traverse (\(parameter, _) -> case parameter of Unbox binder _ _ _ -> Just . (`Binder` binderType binder) <$> fresh "wrapped"; Keep _ -> pure Nothing) unpacked
       let call =
@@ -424,7 +466,12 @@ splitFunction types self declaredType workerName demands function =
               rebuilt
               (zip unpacked scrutinees)
           original = [originalBinder parameter | (parameter, _) <- unpacked]
-      pure (foldr ExTyLam (foldr ExLam cases original) tyBinders)
+          lambdas = case castLayer of
+            Nothing -> foldr ExLam cases original
+            Just (coercion, innerCount) ->
+              let (outer, inner) = splitAt (length original - innerCount) original
+               in foldr ExLam (ExCast (foldr ExLam cases inner) coercion) outer
+      pure (foldr ExTyLam lambdas tyBinders)
     originalBinder parameter =
       case parameter of
         Keep binder -> binder
@@ -469,11 +516,13 @@ splitLambdas expr =
   case expr of
     ExTyLam binder body -> let (tys, values, inner) = splitLambdas body in (binder : tys, values, inner)
     _ -> let (values, inner) = valueLambdas expr in ([], values, inner)
-  where
-    valueLambdas current =
-      case current of
-        ExLam binder body -> let (values, inner) = valueLambdas body in (binder : values, inner)
-        _ -> ([], current)
+
+-- | The leading value lambdas of an expression, and the body.
+valueLambdas :: Expr -> ([Binder], Expr)
+valueLambdas current =
+  case current of
+    ExLam binder body -> let (values, inner) = valueLambdas body in (binder : values, inner)
+    _ -> ([], current)
 
 -- | A declared type with its quantified variables named as the type
 -- lambdas name them.

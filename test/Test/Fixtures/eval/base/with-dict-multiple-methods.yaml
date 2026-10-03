@@ -1,0 +1,17 @@
+extensions: [TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE TypeApplications #-}
+    module Test where
+    import GHC.Exts (withDict)
+    class Multiple a where
+      first :: a -> Bool
+      second :: a -> Bool
+    result :: Bool
+    result = withDict @(Multiple Int) (const True) (first (1 :: Int))
+expression: result
+output: ""
+error: |
+  typecheck error: Test: unsolved constraint WithDict (Multiple Int) (t0 → Bool)
+status: fail
+reason: WithDict rejects a class with two methods.

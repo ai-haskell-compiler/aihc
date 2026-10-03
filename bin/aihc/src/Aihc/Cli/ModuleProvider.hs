@@ -9,9 +9,11 @@ module Aihc.Cli.ModuleProvider
     PackageLocator,
     PackageSource (..),
     ModuleProvider,
+    ProviderCache,
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
     newModuleProvider,
+    newProviderCache,
     providerPackagesOf,
     providerResolved,
     providerTyped,
@@ -94,16 +96,32 @@ data ModuleProvider = ModuleProvider
 providerPackagesOf :: ModuleProvider -> Text -> [Package]
 providerPackagesOf provider name = Map.findWithDefault [] name (providerModules provider)
 
+-- | The facts that the providers of one graph read from the store, each
+-- decoded once. A store package does not change while a graph runs, so
+-- all of its packages can share the facts. Without this cache, each
+-- package keeps its own copy of the facts of the same dependencies.
+data ProviderCache = ProviderCache
+  { cacheDigests :: FilePath -> IO PackageDigests -> IO PackageDigests,
+    -- | The key is the package directory and the module name.
+    cacheResolved :: (FilePath, Text) -> IO ResolvedModuleFacts -> IO ResolvedModuleFacts,
+    cacheTyped :: (FilePath, Text) -> IO TypedModuleFacts -> IO TypedModuleFacts,
+    cacheFacts :: FilePath -> IO TypeArtifact -> IO TypeArtifact
+  }
+
+-- | An empty cache for the providers of one graph.
+newProviderCache :: IO ProviderCache
+newProviderCache = ProviderCache <$> newMemo <*> newMemo <*> newMemo <*> newMemo
+
 -- | A provider over the dependencies of a package, each with the modules
 -- it exposes and where its facts come from, and the locator for every
 -- package below them.
-newModuleProvider :: PackageLocator -> [(Package, [Text], PackageSource)] -> IO ModuleProvider
-newModuleProvider locator dependencies = do
-  digestsMemo <- newMemo
-  resolvedMemo <- newMemo
-  typedMemo <- newMemo
-  factsMemo <- newMemo
-  let sources =
+--
+-- The provider keeps no facts of a graph package. The graph keeps them.
+newModuleProvider :: ProviderCache -> PackageLocator -> [(Package, [Text], PackageSource)] -> IO ModuleProvider
+newModuleProvider cache locator dependencies = do
+  let digestsMemo = cacheDigests cache
+      factsMemo = cacheFacts cache
+      sources =
         Map.fromList
           [ (packageId package, source)
           | (package, _, source) <- dependencies
@@ -140,24 +158,24 @@ newModuleProvider locator dependencies = do
           artifact <- readTypeArtifactFile path
           _ <- evaluate (force (typeArtifactInterface artifact, typeArtifactInstanceProviders artifact))
           pure artifact
-      resolved key@(ModuleKey package name) =
-        resolvedMemo key $ do
-          source <- packageSource package
-          case source of
-            GraphPackage {graphResolved} -> graphResolved name
-            StorePackage directory -> do
+      resolved (ModuleKey package name) = do
+        source <- packageSource package
+        case source of
+          GraphPackage {graphResolved} -> graphResolved name
+          StorePackage directory ->
+            cacheResolved cache (directory, name) $ do
               digests <- moduleDigests directory name
               let path = directory </> moduleNameDirectory name </> "resolve.cbor"
               bytes <- BS.readFile path
               artifact <- either (ioError . userError . (("Invalid resolve artifact " <> path <> ": ") <>)) pure (decodeResolveArtifact bytes)
               unless (resolveArtifactModuleName artifact == name) (ioError (userError ("Resolve artifact module name does not match " <> path)))
               evaluate (force (ResolvedModuleFacts (resolveArtifactExports artifact) (moduleScopeDigest digests) True))
-      typed key@(ModuleKey package name) =
-        typedMemo key $ do
-          source <- packageSource package
-          case source of
-            GraphPackage {graphTyped} -> graphTyped name
-            StorePackage directory -> do
+      typed (ModuleKey package name) = do
+        source <- packageSource package
+        case source of
+          GraphPackage {graphTyped} -> graphTyped name
+          StorePackage directory ->
+            cacheTyped cache (directory, name) $ do
               digests <- moduleDigests directory name
               let path = directory </> moduleNameDirectory name </> "type.cbor"
               artifact <- readTypeArtifactFile path

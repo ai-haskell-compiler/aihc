@@ -236,6 +236,15 @@ driverSource =
       "__attribute__((import_module(\"wasi_snapshot_preview1\"), import_name(\"proc_exit\")))",
       "_Noreturn void aihc_proc_exit(int32_t status);",
       "extern int64_t aihc_lir_test_main(uint64_t *out);",
+      -- The shared LIR fixtures declare these C functions with 64-bit types.
+      -- WASI libc uses 32-bit long and size_t, so the driver supplies them.
+      "int64_t labs(int64_t value) { return value < 0 ? -value : value; }",
+      "int64_t write(int32_t fd, const void *bytes, uint64_t length) {",
+      "  if (length > UINT32_MAX) return -1;",
+      "  aihc_iovec iov = {bytes, (uint32_t)length};",
+      "  int32_t written = 0;",
+      "  return aihc_fd_write(fd, &iov, 1, &written) == 0 ? written : -1;",
+      "}",
       "static void aihc_put(int32_t fd, const void *bytes, uint32_t length) {",
       "  aihc_iovec iov = {bytes, length};",
       "  int32_t written = 0;",
@@ -419,7 +428,7 @@ programTestWith tools expected shouldFail stress cSource program = do
             component = directory </> "program.wasm"
         createDirectory runtimeDirectory
         runtime <- runtimeBuildArchive <$> buildRuntimeArchive Wasm32Wasip3 [] runtimeDirectory
-        compileEntryObject Wasm32Wasip3 directory entry
+        compileEntryObject False Wasm32Wasip3 directory entry
         world <- wasip3WorldPath
         TIO.writeFile assemblyPath moduleAssembly
         writeFile stubPath (putcharStub expected <> T.unpack cSource)

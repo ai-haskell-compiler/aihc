@@ -39,6 +39,8 @@ data EvTerm
     EvDict !(Text, Text) !Text ![TcType] ![EvTerm]
   | -- | A checked representation constraint with an empty dictionary.
     EvCoercible !TyCon !TcType !TcType
+  | -- | Checked dictionary adapter, method type, target class, and method equality.
+    EvWithDict !TyCon ![TcType] !TcType !TyCon ![TcType] !Coercion
   | -- | A lifted equality dictionary with its checked coercion.
     EvEqualityDict !TyCon !TcType !TcType !Coercion
   | -- | Coercion evidence (for equality constraints).

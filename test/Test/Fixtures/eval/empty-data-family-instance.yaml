@@ -20,5 +20,5 @@ output: |
   True
 expression: |
   result
-status: xfail
+status: pass
 reason: A data family instance can have no constructors.

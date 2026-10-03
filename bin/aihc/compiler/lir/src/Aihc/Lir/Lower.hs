@@ -2025,10 +2025,15 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       | Just (op, ty, extend) <- lookup name narrowBinaryPrimitives -> do
           leftOperand <- word left
           rightOperand <- word right
-          wide <- emitValue "wide" I64 (Binary op I64 leftOperand rightOperand)
-          narrow <- emitValue "narrow" ty (Convert Trunc I64 (typedOperand wide) ty)
-          result <- emitValue "result" I64 (Convert extend ty (typedOperand narrow) I64)
-          bind [result]
+          if keepsWidth op extend
+            then do
+              result <- emitValue "result" I64 (Binary op I64 leftOperand rightOperand)
+              bind [result]
+            else do
+              wide <- emitValue "wide" I64 (Binary op I64 leftOperand rightOperand)
+              narrow <- emitValue "narrow" ty (Convert Trunc I64 (typedOperand wide) ty)
+              result <- emitValue "result" I64 (Convert extend ty (typedOperand narrow) I64)
+              bind [result]
       | Just op <- lookup name comparisonPrimitives -> do
           leftOperand <- word left
           rightOperand <- word right
@@ -2488,9 +2493,24 @@ binaryPrimitives =
 -- at the width of a word and the result keeps only its low bits, which is
 -- how a @Word16#@ or @Word32#@ shift or a sized addition wraps. The low
 -- bits then widen again: a sized word widens with zeros and a sized int
--- widens with its sign. The bitwise operations cannot overflow their width,
--- so for them the truncation only restates the width their operands
--- already have.
+-- widens with its sign. The operations that 'keepsWidth' names skip the
+-- narrow and the widen.
+-- | Whether a sized operation on two values of its width gives a value
+-- of that width without a narrow. A sized value sits in a word register
+-- extended to the word, with zeros for a sized word and with its sign for
+-- a sized int. A bitwise operation on two such values gives the same
+-- extension, and a logical right shift of a zero-extended value keeps its
+-- zeros. An addition, a multiplication or a left shift can carry into the
+-- bits above the width, so it narrows.
+keepsWidth :: BinaryOp -> ConvertOp -> Bool
+keepsWidth op extend =
+  case op of
+    And -> True
+    Or -> True
+    Xor -> True
+    ShrU -> extend == ZExt
+    _ -> False
+
 narrowBinaryPrimitives :: [(Text, (BinaryOp, Type, ConvertOp))]
 narrowBinaryPrimitives =
   [(name, (op, ty, ZExt)) | (name, (op, ty)) <- unsignedPrimitives]

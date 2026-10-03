@@ -334,7 +334,7 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
   applySubst substitution $
     foldr TcForAllTy qualifiedBody extraTypeVariables
   where
-    classVariables = ciTyVars classInfo
+    classVariables = ciKindTyVars classInfo <> ciTyVars classInfo
     extraTypeVariables = filter (`notElem` classVariables) typeVariables
     remainingPredicates = filter (not . isClassPredicate) predicates
     qualifiedBody

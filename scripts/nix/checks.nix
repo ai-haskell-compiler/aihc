@@ -637,9 +637,11 @@
 
   # The lto tests want both core libraries built at -O2, which implies --lto.
   # The build is part of the identity of a package, so the entries of the
-  # other stores do not serve it.
-  ltoStore =
-    pkgs.runCommand "aihc-lto-store-${hostBackendTarget}" {
+  # other stores do not serve it. The llvm target has a store of its own:
+  # its --lto build links through LLVM's link-time optimization, which the
+  # test of that link exercises.
+  ltoStoreFor = target:
+    pkgs.runCommand "aihc-lto-store-${target}" {
       src = coreLibrariesSource;
       nativeBuildInputs = coreLibraryInstallInputs;
     } ''
@@ -647,11 +649,12 @@
       ${coreLibraryInstallSetup}
       mkdir -p "$out"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$out" --immutable --target ${hostBackendTarget} -O2
-      ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --target ${hostBackendTarget} -O2
+      ${aihcExe} install core-libs/aihc-prim --store "$out" --immutable --target ${target} -O2
+      ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --target ${target} -O2
 
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
     '';
+  ltoStore = ltoStoreFor hostBackendTarget;
 
   # The store the aihc test suite works against. Installing anything into an
   # empty store compiles aihc-prim first, and the build tests additionally
@@ -669,7 +672,7 @@
   # install run back to back. Store entries are named after a content
   # fingerprint, so -n skips the files an earlier copy already put in place.
   specSeedStore = pkgs.runCommand "aihc-spec-seed-store" {} ''
-    mkdir -p "$out/prim" "$out/core" "$out/lto"
+    mkdir -p "$out/prim" "$out/core" "$out/lto" "$out/lto-llvm"
 
     ${pkgs.lib.concatMapStringsSep "\n" (target: ''
         cp -Rn --no-preserve=mode ${primStoreFor target}/. "$out/prim/"
@@ -683,6 +686,7 @@
     cp -Rn --no-preserve=mode ${exampleToolchainFor hostBackendTarget}/. "$out/core/"
 
     cp -R --no-preserve=mode ${ltoStore}/. "$out/lto/"
+    cp -R --no-preserve=mode ${ltoStoreFor "llvm"}/. "$out/lto-llvm/"
   '';
 
   # The compiler owns preparation of the installed toolchain: ordinary package

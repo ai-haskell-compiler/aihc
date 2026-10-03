@@ -93,6 +93,7 @@ data TcWiring = TcWiring
     tcWiringEqualityTyCon :: TyCon,
     -- | The representational equality class @Coercible@.
     tcWiringCoercibleTyCon :: TyCon,
+    tcWiringWithDictTyCon :: TyCon,
     -- | The constraint constructor of one implicit parameter, such as
     -- @?x :: Int@. Each parameter name gets its own constructor.
     tcWiringImplicitParamTyCon :: Text -> TyCon,

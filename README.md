@@ -11,19 +11,19 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
 | Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `122/122` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `724/729` (`99.31%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `801/855` (`93.68%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `233/233` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
-| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `784/5013` (`15.64%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2154/10061` (`21.41%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
-| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `67/76` (`88.16%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `372/377` (`98.67%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `845/896` (`94.30%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `234/234` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `785/5013` (`15.66%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2156/10061` (`21.43%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `68/77` (`88.31%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC this week: rewrite rules, unboxed sums, and less heap allocation](https://blog.aihc.app/posts/2026-09-25-aihc-highlights/)** (25 Sep 2026)
+**[AIHC over four weeks: from parser decisions to smaller programs](https://blog.aihc.app/posts/2026-10-02-aihc-highlights/)** (02 Oct 2026)
 
-Rewrite rules connect the parser to list fusion, unboxed sums survive collection, and strict folds and thread stacks reduce managed-heap allocation.
+A 28-day retrospective on parser costs, list fusion, worker/wrapper correctness, whole-program memory, and the route to aeson installation.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
@@ -35,12 +35,12 @@ Each number is the AIHC value divided by the GHC value, as a geometric mean over
 
 | Metric | Native | LLVM | Wasm |
 | --- | ---: | ---: | ---: |
-| Compile time `-O0` | 0.32× | 0.22× | 0.48× |
-| Artifact size `-Os` | 0.58× | 0.52× | 0.60× |
-| Runtime `-O1` | 19.3× | 17.7× | 40.4× |
-| Runtime `-O2` | 4.85× | 4.38× | 7.57× |
+| Compile time `-O0` | 0.21× | 0.17× | 0.34× |
+| Artifact size `-Os` | 0.50× | 0.66× | 0.55× |
+| Runtime `-O1` | 15.9× | 26.1× | 29.0× |
+| Runtime `-O2` | 3.63× | 4.78× | 5.40× |
 
-Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`e1d25b1ac`](https://github.com/ai-haskell-compiler/aihc/commit/e1d25b1acada4624ca181b3379d158a9e537341d) (2026-09-27). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`49b86af5a`](https://github.com/ai-haskell-compiler/aihc/commit/49b86af5a2dd3d9c24ca96d09515278c4e2577d1) (2026-10-03). Get all results at [perf.aihc.app](https://perf.aihc.app/).
 <!-- AUTO-GENERATED: END perf-highlights -->
 
 
@@ -50,7 +50,7 @@ AIHC compiling itself ("self hosting") is the next milestone. Expand the details
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 67 install, 5 fail, 4 wait for a dependency</summary>
+<summary>Self-compile packages: 68 install, 3 fail, 6 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -75,6 +75,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | splitmix | 0.1.3.2 | ✅ installs |
 | stm | 2.5.3.1 | ✅ installs |
 | tagged | 0.8.11 | ✅ installs |
+| terminal-size | 0.3.4 | ✅ installs |
 | text | 2.1.4 | ✅ installs |
 | prettyprinter | 1.7.2 | ✅ installs |
 | prettyprinter-ansi-terminal | 1.1.4 | ✅ installs |
@@ -87,7 +88,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | distributive | 0.6.3 | ✅ installs |
 | indexed-traversable | 0.1.5 | ✅ installs |
 | comonad | 5.0.10 | ✅ installs |
-| bifunctors | 5.6.3 | ✅ installs |
+| bifunctors | 5.6.3 | ❌ fails (FC generation failed: Data.Bifunctor.Tannen: kind still has a meta variable) |
 | mtl | 2.3.2 | ✅ installs |
 | exceptions | 0.10.12 | ✅ installs |
 | os-string | 2.0.11 | ✅ installs |
@@ -112,7 +113,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | these | 1.2.1 | ✅ installs |
 | strict | 0.5.1 | ✅ installs |
 | time-compat | 1.9.9 | ✅ installs |
-| text-iso8601 | 0.1.1.2 | ❌ fails (The package that provides instances is not installed: )) |
+| text-iso8601 | 0.1.1.2 | ✅ installs |
 | transformers-compat | 0.7.2 | ✅ installs |
 | unix | 2.8.8.0 | ✅ installs |
 | file-io | 0.2.0 | ✅ installs |
@@ -122,14 +123,14 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | optparse-applicative | 0.18.1.0 | ✅ installs |
 | unordered-containers | 0.2.21 | ✅ installs |
 | async | 2.2.6 | ✅ installs |
-| semigroupoids | 6.0.2 | ✅ installs |
+| semigroupoids | 6.0.2 | ⏸️ needs `bifunctors` |
 | uuid-types | 1.0.6.1 | ✅ installs |
 | vector-stream | 0.1.0.1 | ✅ installs |
 | vector | 0.13.2.0 | ✅ installs |
 | indexed-traversable-instances | 0.1.2.1 | ✅ installs |
-| semialign | 1.4 | ❌ fails (The package that provides instances is not installed: )) |
-| witherable | 0.5 | ❌ fails (The package that provides instances is not installed: )) |
-| aeson | 2.2.5.1 | ⏸️ needs `semialign`, `text-iso8601`, `witherable` |
+| semialign | 1.4 | ⏸️ needs `semigroupoids` |
+| witherable | 0.5 | ✅ installs |
+| aeson | 2.2.5.1 | ⏸️ needs `semialign` |
 | aihc-package-plan | 0.1.0.0 | ⏸️ needs `aeson`, `aihc-hackage` |
 | aihc | 0.1.0.0 | ⏸️ needs `aeson`, `aihc-hackage`, `aihc-package-plan`, `aihc-resolve`, `aihc-tc` |
 

@@ -14,6 +14,7 @@ module Aihc.Cli.Install
     cabalPlatformForTarget,
     compileFcModules,
     optimizeFcProgram,
+    moduleObjectPaths,
     moduleOutputPaths,
     packageLinkArguments,
     buildEnvironmentIdentity,
@@ -93,10 +94,12 @@ import Aihc.Cli.ModuleProvider
     ModuleProvider,
     PackageLocator,
     PackageSource (..),
+    ProviderCache,
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
     moduleNameDirectory,
     newModuleProvider,
+    newProviderCache,
     providerInstanceFacts,
     providerPackagesOf,
     providerResolved,
@@ -130,7 +133,7 @@ import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Resolve qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyVersions,
     LockMode (..),
@@ -752,7 +755,11 @@ data InstallShared = InstallShared
     -- published from its root when the graph ends, and what is left after
     -- that is removed.
     sharedTemporaryRoots :: !(IORef (Set.Set FilePath)),
-    sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings)
+    sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings),
+    -- | The facts of the store modules that the packages read. Each
+    -- package reads them through its own provider, and this cache lets
+    -- the providers decode each artifact only once.
+    sharedProviderCache :: !ProviderCache
   }
 
 -- | One package of a plan, as the graph installs it. The package has four
@@ -860,12 +867,14 @@ installGraph config locations plans components = do
   executablesRef <- newIORef []
   temporaryRoots <- newIORef Set.empty
   phaseTimings <- newIORef mempty
+  providerCache <- newProviderCache
   let shared =
         InstallShared
           { sharedConfig = config,
             sharedLocations = locations,
             sharedTemporaryRoots = temporaryRoots,
-            sharedBackendPhaseTimings = phaseTimings
+            sharedBackendPhaseTimings = phaseTimings,
+            sharedProviderCache = providerCache
           }
       removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
       publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
@@ -1025,7 +1034,7 @@ prepareExecutable shared graph slot = do
       finished compiledModules = do
         let names = map sourceName (compiledSources compiledModules)
         moduleObjects <- moduleObjectPaths (not (compileLto config)) outputRoot (compileTarget config) names
-        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
+        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileLto config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
         atomically $
           putTMVar
             (executableSlotCompiled slot)
@@ -1039,7 +1048,7 @@ prepareExecutable shared graph slot = do
         releaseReaders closure
   addModuleBuild
     graph
-    (sharedBackendPhaseTimings shared)
+    shared
     ModuleBuild
       { moduleBuildConfig = config,
         moduleBuildOutputRoot = outputRoot,
@@ -1121,7 +1130,7 @@ preparePackage shared graph slot = do
               taskAction = releaseReaders (slot : slotClosure slot)
             }
         ]
-    Just packageBuild -> addModuleBuild graph (sharedBackendPhaseTimings shared) (packageModuleBuild shared slot installed packageBuild)
+    Just packageBuild -> addModuleBuild graph shared (packageModuleBuild shared slot installed packageBuild)
 
 -- | The modules of a package of the plan, as the graph compiles them.
 packageModuleBuild :: InstallShared -> PackageSlot -> InstalledPackage -> PackageBuild -> ModuleBuild
@@ -1489,8 +1498,8 @@ finishPackageBuild config build compiled = do
     let current = not (Set.null written) || not archiveExists || previous /= Just archiveInputs
     if current
       then do
-        cObjects <- compilePackageCFiles target (compileOptimization config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
-        buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
+        cObjects <- compilePackageCFiles target (compileOptimization config) (compileLto config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
+        buildLibraryArchive target (compileLto config) verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
   let manifest = packageBuildManifest config build (map sourceName parsed)
@@ -1601,8 +1610,8 @@ data PreparedDependency = PreparedDependency
   }
 
 -- | Add the parse tasks and the partition task of a module build.
-addModuleBuild :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> IO ()
-addModuleBuild graph phaseTimings build = do
+addModuleBuild :: TaskGraph -> InstallShared -> ModuleBuild -> IO ()
+addModuleBuild graph shared build = do
   let config = moduleBuildConfig build
       files = moduleBuildFiles build
       order = moduleBuildOrder build
@@ -1634,7 +1643,7 @@ addModuleBuild graph phaseTimings build = do
             taskKind = TaskPackage,
             taskOrder = order,
             taskDependencies = Set.fromList (map taskId parseTasks <> moduleBuildPartitionAfter build),
-            taskAction = partitionModules graph phaseTimings build sourceSlots
+            taskAction = partitionModules graph shared build sourceSlots
           }
   addTasks graph (parseTasks <> [partitionTask])
 
@@ -1642,8 +1651,8 @@ addModuleBuild graph phaseTimings build = do
 -- the finish task. A unit waits on the units of its own package it
 -- imports, and on the units of the dependencies that hold the modules it
 -- imports.
-partitionModules :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> [TMVar SourceModule] -> IO ()
-partitionModules graph phaseTimings build sourceSlots = do
+partitionModules :: TaskGraph -> InstallShared -> ModuleBuild -> [TMVar SourceModule] -> IO ()
+partitionModules graph shared build sourceSlots = do
   let config = moduleBuildConfig build
       resolvePackage = moduleBuildPackage build
       order = moduleBuildOrder build
@@ -1659,6 +1668,7 @@ partitionModules graph phaseTimings build sourceSlots = do
   compileVerbose config ("Compute " <> show (length units) <> " SCC units")
   provider <-
     newModuleProvider
+      (sharedProviderCache shared)
       (Map.unions (map dependencyLocator dependencies))
       [(dependencyPackage dependency, Set.toAscList (dependencyExposed dependency), dependencySource dependency) | dependency <- dependencies]
   unitBase <- allocateTaskIds graph (3 * length units)
@@ -1679,7 +1689,7 @@ partitionModules graph phaseTimings build sourceSlots = do
             taskPackageRoot = moduleBuildPackageRoot build,
             taskModuleProvider = provider,
             taskCapiStubOptions = moduleBuildCapiOptions build,
-            taskBackendPhaseTimings = phaseTimings
+            taskBackendPhaseTimings = sharedBackendPhaseTimings shared
           }
       localRuntimes unit = map (lookupRuntime runtimeMap) (sourceUnitDependencies unit)
       -- The units of the dependencies that hold the modules the unit
@@ -3001,7 +3011,7 @@ compileUnitFcModules config capiOptions verbose outputPaths pending = do
         Just source -> do
           createDirectoryIfMissing True (takeDirectory (outputCapiSourcePath paths))
           TIO.writeFile (outputCapiSourcePath paths) source
-          arguments <- capiStubArguments target (compileOptimization config) capiOptions (compileHeaderDirectory config)
+          arguments <- capiStubArguments target (compileOptimization config) lto capiOptions (compileHeaderDirectory config)
           verbose ("Compile capi wrappers: " <> T.unpack name)
           (compiler, _) <- backendCompiler target
           runTool
@@ -3140,7 +3150,10 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
       when (isJust source) (verbose ("Write native source: " <> T.unpack name))
       when (isJust source) $ do
         (compiler, arguments) <- backendCompiler target
-        let levelArguments = [optimizationArgument (compileOptimization config) | target == Llvm]
+        -- A @--lto@ build of the LLVM target compiles the program to
+        -- bitcode, and the link optimizes it with the runtime; see
+        -- 'llvmLtoArguments'.
+        let levelArguments = [optimizationArgument (compileOptimization config) | target == Llvm] <> llvmLtoArguments target (compileLto config)
         runTool compiler (arguments <> levelArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
         unless keepNative (removeFile (outputNativePath paths))
       verbose ("Write object: " <> T.unpack name)
@@ -3307,8 +3320,12 @@ removeFileIfPresent path = do
 -- standard library, which the link adds for a package whose manifest says
 -- it has C++ sources; a target without that library refuses the package
 -- here rather than at the link of every program that depends on it.
-compilePackageCFiles :: NativeTarget -> OptimizationLevel -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
-compilePackageCFiles target level headerDirectory verbose packageRoot storePath info
+--
+-- A @--lto@ build of the LLVM target compiles every object here to bitcode,
+-- so that the link optimizes the runtime and the C of the packages with the
+-- program; see 'llvmLtoArguments'.
+compilePackageCFiles :: NativeTarget -> OptimizationLevel -> Bool -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
+compilePackageCFiles target level lto headerDirectory verbose packageRoot storePath info
   | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileCxxSources info) && null (HackageCabal.cCompileLirSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
@@ -3319,6 +3336,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
             sysrootIncludes
               <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
               <> ["-I" <> headerDirectory]
+          ltoArguments = llvmLtoArguments target lto
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot
       cObjects <- forM (HackageCabal.cCompileSources info) $ \source -> do
@@ -3330,6 +3348,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           compiler
           ( targetArguments
               <> handwrittenCArguments level
+              <> ltoArguments
               <> HackageCabal.cCompileCcOptions info
               <> handwrittenCOverrideArguments level
               <> includeArguments
@@ -3345,6 +3364,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           compiler
           ( targetArguments
               <> handwrittenCArguments level
+              <> ltoArguments
               <> HackageCabal.cCompileCxxOptions info
               <> handwrittenCOverrideArguments level
               <> includeArguments
@@ -3361,7 +3381,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           then do
             let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
             verbose ("Compile Lir source: " <> source)
-            compileLirObject target (dropExtension (takeFileName object)) lirModule objectRoot object
+            compileLirObject lto target (dropExtension (takeFileName object)) lirModule objectRoot object
             pure (Just object)
           else pure Nothing
       pure (cObjects <> cxxObjects <> catMaybes lirObjects)
@@ -3740,8 +3760,13 @@ cObjectFileName source =
         then '_'
         else character
 
-buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
-buildLibraryArchive target verbose archive objects = do
+-- | Archive the objects of a package. A link-time optimized build of the
+-- LLVM target writes the archive without a symbol table: its members are
+-- bitcode, which an archive tool of another LLVM cannot read, and the link
+-- takes the members as objects rather than through the archive; see
+-- 'llvmLto'.
+buildLibraryArchive :: NativeTarget -> Bool -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
+buildLibraryArchive target lto verbose archive objects = do
   createDirectoryIfMissing True (takeDirectory archive)
   archiveExists <- doesFileExist archive
   when archiveExists (removeFile archive)
@@ -3758,7 +3783,8 @@ buildLibraryArchive target verbose archive objects = do
       environment <- getEnvironment
       -- Set archive timestamps only in the child process environment.
       let archiveEnvironment = ("ZERO_AR_DATE", "1") : filter ((/= "ZERO_AR_DATE") . fst) environment
-      runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> objects)
+      let modifiers = if llvmLto target lto then "rcS" else "rcs"
+      runToolWithEnvironment (Just archiveEnvironment) archiver ([modifiers, archive] <> objects)
   verbose ("Write archive: " <> archive)
 
 -- | The global header every archive format begins with. An archive that
@@ -4024,4 +4050,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-44"
+packageArtifactFormatVersion = "aihc-artifacts-45"

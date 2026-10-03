@@ -1,0 +1,46 @@
+extensions:
+  - DataKinds
+  - RankNTypes
+  - ScopedTypeVariables
+modules:
+  - |
+    {-# LANGUAGE DataKinds, RankNTypes, ScopedTypeVariables #-}
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import qualified GHC.TypeNats as N
+    import qualified GHC.TypeLits as L
+    import Numeric.Natural (Natural)
+
+    reifyNat :: Natural -> Natural
+    reifyNat value = N.withSomeSNat value $ \(sn :: N.SNat n) ->
+      N.withKnownNat sn (N.natVal (Proxy :: Proxy n))
+
+    reifySymbol :: String -> String
+    reifySymbol value = L.withSomeSSymbol value $ \(ss :: L.SSymbol s) ->
+      L.withKnownSymbol ss (L.symbolVal (Proxy :: Proxy s))
+
+    nested :: Natural -> String -> (Natural, String)
+    nested value text = L.withSomeSNat value $ \(sn :: L.SNat n) ->
+      L.withKnownNat sn $ L.withSomeSSymbol text $ \(ss :: L.SSymbol s) ->
+        L.withKnownSymbol ss (N.natVal (Proxy :: Proxy n), L.symbolVal (Proxy :: Proxy s))
+
+    distinct :: Natural -> Natural -> (Natural, Natural)
+    distinct first second = N.withSomeSNat first $ \(sn :: N.SNat n) ->
+      N.withKnownNat sn $ N.withSomeSNat second $ \(sm :: N.SNat m) ->
+        N.withKnownNat sm (N.natVal (Proxy :: Proxy n), N.natVal (Proxy :: Proxy m))
+
+    matches :: Bool
+    matches =
+      map reifyNat [0, 1, 42, 18446744073709551617] == [0, 1, 42, 18446744073709551617]
+        && map reifySymbol ["", "hello", "λ"] == ["", "hello", "λ"]
+        && nested 7 "seven" == (7, "seven")
+        && distinct 1 2 == (1, 2)
+        && N.withKnownNat (N.natSing :: N.SNat 5) (N.natVal (Proxy :: Proxy 5)) == 5
+        && L.withKnownSymbol (L.symbolSing :: L.SSymbol "known") (L.symbolVal (Proxy :: Proxy "known")) == "known"
+output: |
+  True
+expression: |
+  matches
+status: pass
+reason: Runtime singletons supply KnownNat and KnownSymbol dictionaries through the public modules.

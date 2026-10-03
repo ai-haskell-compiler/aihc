@@ -1,6 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -26,6 +24,7 @@ module GHC.TypeLits
     natVal',
     SNat,
     fromSNat,
+    withSomeSNat,
     withKnownNat,
     KnownSymbol,
     symbolSing,
@@ -33,6 +32,7 @@ module GHC.TypeLits
     symbolVal',
     SSymbol,
     fromSSymbol,
+    withSomeSSymbol,
     withKnownSymbol,
     KnownChar,
     charSing,
@@ -60,13 +60,14 @@ module GHC.TypeLits
 where
 
 import Data.Type.Ord (type (<=), type (<=?))
+import GHC.Magic.Dict (withDict)
 import GHC.Num.Integer (Integer)
 import GHC.Prim (Proxy#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, withKnownNat, type (*), type (+), type (-), type (^))
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, fromSNat, natSing, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
-import GHC.Types (Char, Constraint, Symbol, Type)
+import GHC.Types (Any, Char, Constraint, Symbol, Type)
 
 -- | The value of a known type-level natural, as an 'Integer'.
 natVal :: forall n proxy. (KnownNat n) => proxy n -> Integer
@@ -105,6 +106,16 @@ newtype SSymbol s = UnsafeSSymbol [Char]
 fromSSymbol :: SSymbol s -> [Char]
 fromSSymbol (UnsafeSSymbol value) = value
 
+-- | Supply a singleton for a runtime symbol.
+-- Keep the type index private to each call.
+{-# NOINLINE withSomeSSymbol #-}
+withSomeSSymbol :: [Char] -> (forall s. SSymbol s -> r) -> r
+withSomeSSymbol value continuation = continuation (UnsafeSSymbol value :: SSymbol Any)
+
+-- | Supply the dictionary for a singleton symbol.
+withKnownSymbol :: forall s r. SSymbol s -> ((KnownSymbol s) => r) -> r
+withKnownSymbol (UnsafeSSymbol value) = withDict @(KnownSymbol s) value
+
 -- | A type-level character whose value is known.
 --
 -- GHC gives the method the name @charSing@ and the type @SChar c@. Here
@@ -134,17 +145,9 @@ newtype SChar c = UnsafeSChar Char
 fromSChar :: SChar c -> Char
 fromSChar (UnsafeSChar value) = value
 
--- | Supply class evidence from a singleton.
-withKnownSymbol :: forall s r. SSymbol s -> ((KnownSymbol s) => r) -> r
-withKnownSymbol (UnsafeSSymbol value) = withKnownSymbolValue# @s value
-
-foreign import prim "withKnownSymbolValue#" withKnownSymbolValue# :: forall s r. [Char] -> ((KnownSymbol s) => r) -> r
-
--- | Supply class evidence from a singleton.
+-- | Supply the dictionary for a singleton character.
 withKnownChar :: forall c r. SChar c -> ((KnownChar c) => r) -> r
-withKnownChar (UnsafeSChar value) = withKnownCharValue# @c value
-
-foreign import prim "withKnownCharValue#" withKnownCharValue# :: forall c r. Char -> ((KnownChar c) => r) -> r
+withKnownChar (UnsafeSChar value) = withDict @(KnownChar c) value
 
 type AppendSymbol :: Symbol -> Symbol -> Symbol
 type family AppendSymbol a b

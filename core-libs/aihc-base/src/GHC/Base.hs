@@ -5,7 +5,8 @@
 {-# LANGUAGE RankNTypes #-}
 
 module GHC.Base
-  ( module GHC.Prim.Base,
+  ( WithDict (withDict),
+    module GHC.Prim.Base,
     module GHC.Prim,
     module GHC.Classes,
     Bool (..),
@@ -48,6 +49,7 @@ where
 import GHC.CString (unpackCString#, unpackCStringUtf8#, unpackFoldrCString#)
 import GHC.Classes
 import GHC.Int (Int (..))
+import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim
 import GHC.Prim.Base
 import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, isTrue#)

@@ -98,6 +98,7 @@ primTcWiring prim =
       tcWiringAnyTyCon = types ResolutionNamespaceType "Any" 0,
       tcWiringEqualityTyCon = types ResolutionNamespaceType "~" 2,
       tcWiringCoercibleTyCon = types ResolutionNamespaceType "Coercible" 2,
+      tcWiringWithDictTyCon = tyCon ResolutionNamespaceType "GHC.Magic.Dict" "WithDict" 2,
       tcWiringImplicitParamTyCon = \name ->
         tyCon ResolutionNamespaceType "GHC.Classes" name 1,
       tcWiringPrimitiveTyCon = \name ->

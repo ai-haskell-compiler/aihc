@@ -635,7 +635,9 @@ typeKindInEnv kinds kindEnv = go
         TcArrowTy -> Right (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
         TcFunTy {} -> Right (typeKind kinds)
         TcForAllTy _ body -> go body
-        TcQualTy _ body -> go body
+        -- Dictionary arguments make a qualified type a lifted function.
+        TcQualTy (_ : _) _ -> Right (typeKind kinds)
+        TcQualTy [] body -> go body
         TcAppTy function argument -> do
           functionKind <- go function
           applyKind functionKind argument
