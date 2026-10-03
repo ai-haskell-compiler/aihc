@@ -54,14 +54,14 @@ expected: |-
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
       λ(z : 2.tBool).
-        case case case x as (_scrut : 2.tBool) return (1.tState) of {
+        case case x as (_scrut : 2.tBool) return (1.tState) of {
             2.cTrue →
                 1.cState y z x;
             2.cFalse →
                 1.cState x z y
         } as (_scrut : 1.tState) return (1.tState) of {
             1.cState (a : 2.tBool) (b : 2.tBool) (c : 2.tBool) →
-                case y as (_scrut{1} : 2.tBool) return (1.tState) of {
+                case case y as (_scrut{1} : 2.tBool) return (1.tState) of {
                     2.cTrue →
                         1.cState b c a;
                     2.cFalse →
@@ -71,18 +71,18 @@ expected: |-
                             2.cFalse →
                                 1.cState a c b
                         }
-                }
-        } as (_scrut : 1.tState) return (1.tState) of {
-            1.cState (a : 2.tBool) (b : 2.tBool) (c : 2.tBool) →
-                case z as (_scrut{1} : 2.tBool) return (1.tState) of {
-                    2.cTrue →
-                        1.cState b c a;
-                    2.cFalse →
-                        case a as (_scrut{2} : 2.tBool) return (1.tState) of {
+                } as (_scrut{1} : 1.tState) return (1.tState) of {
+                    1.cState (a{1} : 2.tBool) (b{1} : 2.tBool) (c{1} : 2.tBool) →
+                        case z as (_scrut{2} : 2.tBool) return (1.tState) of {
                             2.cTrue →
-                                1.cState c a b;
+                                1.cState b{1} c{1} a{1};
                             2.cFalse →
-                                1.cState a c b
+                                case a{1} as (_scrut{3} : 2.tBool) return (1.tState) of {
+                                    2.cTrue →
+                                        1.cState c{1} a{1} b{1};
+                                    2.cFalse →
+                                        1.cState a{1} c{1} b{1}
+                                }
                         }
                 }
         }

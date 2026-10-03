@@ -157,6 +157,10 @@ bindResults env vars value =
       | Just node <- knownNode rebound copied -> know var node rebound
       | isEvaluated rebound copied -> evaluated var rebound
     ([var], GrinEval {}) -> evaluated var rebound
+    -- A fetch reads a node whose tag is known, so the pointer it reads
+    -- is that node, with the fetched fields.
+    (_, GrinFetch tag@(GrinConstructor _ 0) (GrinVarValue pointer))
+      | pointer `notElem` vars -> know pointer (GrinNode tag (map GrinVarValue vars)) rebound
     _ -> rebound
   where
     rebound = forget vars env
@@ -191,6 +195,10 @@ simplifyExpr env expression =
           (inlined, freeExprVars inlined)
     GrinEval _ _ value
       | isEvaluated env value -> (GrinConstant [value], freeValueVars value)
+    GrinFetch tag value
+      | Just (GrinNode tag' fields) <- knownNode env value,
+        tag' == tag ->
+          (GrinConstant fields, foldMap freeValueVars fields)
     GrinApply resultRep function arguments
       | Just node <- knownNode env function,
         Just applied <- applyKnown env resultRep node arguments ->

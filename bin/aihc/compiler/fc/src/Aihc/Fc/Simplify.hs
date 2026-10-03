@@ -335,11 +335,23 @@ simplifyExpr env expr =
     ExLet bind body -> do
       let binder = bindBinder bind
       rhs <- simplifyExpr (rhsEnv env (binderName binder)) (bindRhs bind)
-      if isTrivial rhs
-        then simplifyExpr env (substExpr (Map.singleton (binderName binder) rhs) body)
-        else do
-          body' <- simplifyExpr (bindingEnv env binder rhs) body
-          mkLet env (Bind binder rhs) body'
+      let continue env' rhs'
+            | isTrivial rhs' = simplifyExpr env' (substExpr (Map.singleton (binderName binder) rhs') body)
+            | otherwise = do
+                body' <- simplifyExpr (bindingEnv env' binder rhs') body
+                mkLet env' (Bind binder rhs') body'
+      -- A strict let evaluates its right-hand side before its body, so the
+      -- chain of the right-hand side can move out of the let as it moves
+      -- out of a scrutinee. See 'floatChain'. The body is then simplified
+      -- once, where the chain knows its scrutinees. The cases of the chain
+      -- take the type of the body, so the body must show it.
+      if isStrictBinder (spEnv env) binder && isChain rhs
+        then case tailType env body of
+          Just resultType -> do
+            chain <- freshenExpr rhs
+            floatChain env resultType chain continue
+          Nothing -> continue env rhs
+        else continue env rhs
     ExRec binds body -> do
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv env (binderName (bindBinder bind))) (bindRhs bind)) binds
       ExRec binds' <$> simplifyExpr env body
@@ -350,14 +362,93 @@ simplifyExpr env expr =
           inlineScrutinee (noOneShot env) name candidate args binder resultType alternatives
       | otherwise -> do
           scrutinee' <- simplifyExpr (noOneShot env) scrutinee
-          simplifyCase env scrutinee' binder resultType alternatives
+          if isChain scrutinee'
+            then do
+              chain <- freshenExpr scrutinee'
+              floatChain env resultType chain (\env' tailExpr -> simplifyCase env' tailExpr binder resultType alternatives)
+            else simplifyCase env scrutinee' binder resultType alternatives
     ExCast body coercion -> do
       body' <- simplifyExpr env body
       mkCast body' coercion
     ExForeignCall call types arguments -> do
       arguments' <- mapM (simplifyExpr (noOneShot env)) arguments
-      let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
-      pure (maybe call' ExVar (Map.lookup call' (spCse env)))
+      floated <- floatPrimitiveArgument env call types arguments'
+      case floated of
+        Just result -> pure result
+        Nothing -> do
+          let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
+          pure (maybe call' ExVar (Map.lookup call' (spCse env)))
+
+-- | Whether an expression starts a chain: a let, or a case of one
+-- alternative. See 'floatChain'.
+isChain :: Expr -> Bool
+isChain expr =
+  case expr of
+    ExLet {} -> True
+    ExCase _ _ _ [_] -> True
+    _ -> False
+
+-- | Move the chain of a simplified scrutinee out of its case:
+-- @case (let x = a in case s of K y -> b) of alts@ is
+-- @let x = a in case s of K y -> case b of alts@. A strict let in the
+-- chain also gives up the chain of its right-hand side:
+-- @let v = (case s of K y -> b) in c@ is @case s of K y -> let v = b in c@.
+-- The scrutinee is evaluated before the alternatives, so each part of the
+-- chain runs at the same point in both forms, and no part is copied.
+--
+-- The tail of the chain is continued in the environment of the chain.
+-- There, a case of the chain gives the fields of its scrutinee to a
+-- later case on the same scrutinee, and a tail that is a constructor
+-- selects an alternative. The case of a primitive argument that
+-- 'floatPrimitiveArgument' moves out ends up here, in the scrutinee of
+-- the case or in the strict let around the next read.
+--
+-- The parts of the chain are simplified already and stay as they are.
+-- The caller gives the chain fresh binders, so that they capture no
+-- name of the alternatives.
+floatChain :: Simpl -> Type -> Expr -> (Simpl -> Expr -> SimplM Expr) -> SimplM Expr
+floatChain env resultType expr continue =
+  case expr of
+    ExLet bind inner
+      | isStrictBinder (spEnv env) binder,
+        isChain (bindRhs bind) ->
+          floatChain env resultType (bindRhs bind) $ \env' rhs ->
+            ExLet bind {bindRhs = rhs} <$> floatChain (bindingEnv env' binder rhs) resultType inner continue
+      | otherwise ->
+          ExLet bind <$> floatChain (bindingEnv env binder (bindRhs bind)) resultType inner continue
+      where
+        binder = bindBinder bind
+    ExCase scrutinee binder _ [alternative] -> do
+      rhs <- floatChain (alternativeEnv env scrutinee binder alternative) resultType (altRhs alternative) continue
+      pure (mkCase (spEnv env) scrutinee binder resultType [alternative {altRhs = rhs}])
+    _ -> continue env expr
+
+-- | The type of an expression, when its tail shows it: a case gives its
+-- result type, and a constructor, a top-level value or a primitive call
+-- gives its declared type at its arguments. A local variable or a
+-- literal gives nothing.
+tailType :: Simpl -> Expr -> Maybe Type
+tailType env expr =
+  case expr of
+    ExCase _ _ resultType _ -> Just resultType
+    ExLet _ body -> tailType env body
+    ExRec _ body -> tailType env body
+    ExForeignCall call types _ -> snd <$> primitiveSignature (spEnv env) call types
+    _ ->
+      case collectSpine expr of
+        (ExVar name, args) -> do
+          headType <- lookupHeaderType (spEnv env) name
+          foldM applyArgument headType args
+        _ -> Nothing
+  where
+    applyArgument ty argument =
+      case argument of
+        Left argumentType -> do
+          (binder, body) <- viewForAll (spEnv env) ty
+          Just (substType (binderName binder) argumentType body)
+        Right _ -> do
+          (_, _, _, result) <- viewFun (spEnv env) ty
+          Just result
 
 -- | Simplify a case whose scrutinee is simplified and whose alternatives
 -- are not. A scrutinee that compares a value with a literal turns into a
@@ -1973,6 +2064,62 @@ matchesLiteral literal con =
     (AltLit (LitChar _ left), LitChar _ right) -> left == right
     (AltLit (LitAddr _ left), LitAddr _ right) -> left == right
     _ -> False
+
+-- | Move a let, or a case of one alternative, out of an argument of a
+-- primitive call: @f# a (case s of K x -> e)@ is
+-- @case s of K x -> f# a e@. The call evaluates an unlifted argument
+-- before it runs, so the let or the case runs at the same point in both
+-- forms when every argument before it is trivial. The move repeats on
+-- the lets and cases inside the moved one.
+--
+-- In the alternative, a later case on the same scrutinee selects its
+-- fields. The read of a word from a byte string, such as @word32be@,
+-- reads each byte in an argument of a primitive call. After the move, it
+-- evaluates the string once instead of once for each byte.
+--
+-- A case of more alternatives stays where it is, because the call would
+-- be copied into each alternative. The moved expression gets fresh
+-- binders, so that they capture no name of the other arguments.
+floatPrimitiveArgument :: Simpl -> ForeignCall -> [Type] -> [Expr] -> SimplM (Maybe Expr)
+floatPrimitiveArgument env call types arguments
+  | foreignCallConvention call /= Prim = pure Nothing
+  | otherwise =
+      case (primitiveSignature (spEnv env) call types, span isTrivial arguments) of
+        (Just (argumentTypes, resultType), (before, argument : after))
+          | length argumentTypes == length arguments,
+            isUnliftedArgument (argumentTypes !! length before),
+            movable argument -> do
+              argument' <- freshenExpr argument
+              pure (Just (float resultType before after argument'))
+        _ -> pure Nothing
+  where
+    movable expr =
+      case expr of
+        ExCase _ _ _ [_] -> True
+        ExLet {} -> True
+        _ -> False
+    float resultType before after expr =
+      case expr of
+        ExCase scrutinee binder _ [alternative] ->
+          ExCase scrutinee binder resultType [alternative {altRhs = float resultType before after (altRhs alternative)}]
+        ExLet bind body -> ExLet bind (float resultType before after body)
+        _ -> ExForeignCall call types (before <> (expr : after))
+    -- An argument whose representation is known and is not lifted. A
+    -- representation variable can stand for a lifted one.
+    isUnliftedArgument ty =
+      case reduceType (spEnv env) <$> repOf (spEnv env) ty of
+        Just (TyVar _) -> False
+        Just _ -> not (isLiftedType (spEnv env) ty)
+        Nothing -> False
+
+-- | The argument types and the result type of a primitive call at its
+-- type arguments.
+primitiveSignature :: TypeEnv -> ForeignCall -> [Type] -> Maybe ([Type], Type)
+primitiveSignature env call types = foldM instantiate (foreignCallType call) types >>= foreignSignature env
+  where
+    instantiate ty argument = do
+      (binder, body) <- viewForAll env ty
+      Just (substType (binderName binder) argument body)
 
 -- | The argument types and the result type of a foreign type without
 -- binders.

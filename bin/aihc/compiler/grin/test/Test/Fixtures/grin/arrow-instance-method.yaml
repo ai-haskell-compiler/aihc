@@ -20,9 +20,9 @@ expected: |-
   1.$second ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data 1.$Dict$Arrow ($method0 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+    $method0 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Arrow) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
 
   1."$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
@@ -32,11 +32,11 @@ expected: |-
   1."$$fArrow(->)$csecond" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
-      data 1.Pair (d :: BoxedRep Lifted) (b :: BoxedRep Lifted) ->
-        argument :: BoxedRep Lifted <-
-          store (F1."$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted))
-        store (C1.Pair (d :: BoxedRep Lifted) (argument :: BoxedRep Lifted))
+    d :: BoxedRep Lifted, b :: BoxedRep Lifted <-
+      fetch (C1.Pair) (case_value :: BoxedRep Lifted)
+    argument :: BoxedRep Lifted <-
+      store (F1."$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+    store (C1.Pair (d :: BoxedRep Lifted) (argument :: BoxedRep Lifted))
 
   1.$apply (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_application :: BoxedRep Lifted <-
