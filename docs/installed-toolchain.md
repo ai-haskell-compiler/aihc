@@ -286,6 +286,13 @@ The linker then optimizes the whole program as one module.
 A call from the program into the runtime is inlined like a call inside one unit.
 A `--no-link` bundle records these link arguments, and `link-exe` passes them to the link.
 The other targets write machine code, and the flag does not change their objects.
+
+The archive tool of the `llvm` target must read the bitcode that Clang wrote.
+It reads each member to build the symbol table of the archive.
+An `llvm-ar` of an older LLVM refuses bitcode from a newer Clang.
+So the target takes the `llvm-ar` on the path only when its LLVM version is the version of Clang.
+Otherwise it takes the `ar` of the Clang toolchain, which Clang names with `-print-prog-name=ar`.
+`AIHC_LLVM_AR` names the archive tool outright for every target.
 A package build gives each of its executables a program object of its own, under `exe/<name>/lto`.
 
 The program object follows the System FC files and the backend options.

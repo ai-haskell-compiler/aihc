@@ -51,8 +51,9 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
-import Data.List (intercalate, intersperse)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Char (isDigit, isSpace)
+import Data.List (intercalate, intersperse, isPrefixOf, tails)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -61,7 +62,7 @@ import Data.Word (Word8)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (isAbsolute, (</>))
 import System.IO.Error (tryIOError)
 import System.Info qualified as System
 import System.Process (readProcessWithExitCode)
@@ -512,20 +513,78 @@ missingWasmSysrootMessage rejected =
         Nothing -> ["The wasm32-wasip3 target requires a WASI sysroot and none was found."]
 
 -- | Select an archive tool that keeps object files for the selected target.
+-- @AIHC_LLVM_AR@ names the tool outright. The @llvm@ target chooses as
+-- 'llvmTargetArchiver' does; every other target takes the @llvm-ar@ on the
+-- path, or @ar@ when there is none.
 backendArchiver :: NativeTarget -> IO FilePath
 backendArchiver target = do
   override <- lookupEnv "AIHC_LLVM_AR"
   case override of
     Just archiver -> pure archiver
-    Nothing -> do
-      llvmArchiver <- findExecutable "llvm-ar"
-      case llvmArchiver of
-        Just archiver -> pure archiver
-        Nothing -> do
-          archiver <- fromMaybe "ar" <$> findExecutable "ar"
-          if System.os == "darwin" && target `elem` [LinuxAmd64, Wasm32Wasip3] && archiver == "/usr/bin/ar"
-            then ioError (userError "The selected target requires LLVM ar. Set AIHC_LLVM_AR to its path.")
-            else pure archiver
+    Nothing
+      | target == Llvm -> llvmTargetArchiver
+      | otherwise -> do
+          llvmArchiver <- findExecutable "llvm-ar"
+          case llvmArchiver of
+            Just archiver -> pure archiver
+            Nothing -> do
+              archiver <- fromMaybe "ar" <$> findExecutable "ar"
+              if System.os == "darwin" && target `elem` [LinuxAmd64, Wasm32Wasip3] && archiver == "/usr/bin/ar"
+                then ioError (userError "The selected target requires LLVM ar. Set AIHC_LLVM_AR to its path.")
+                else pure archiver
+
+-- | The archive tool of the @llvm@ target. The archive holds what Clang
+-- wrote, and under @--lto@ that is bitcode. An archive tool reads each
+-- member to build the symbol table of the archive, so it must read the
+-- bitcode of the Clang in use: an @llvm-ar@ of an older LLVM refuses it
+-- with "Unknown attribute kind", and an environment can hold one beside a
+-- newer Clang, as the benchmark suite does for the LLVM backend of GHC.
+--
+-- So the @llvm-ar@ on the path is taken only when its LLVM version is the
+-- version of Clang. Otherwise the @ar@ of the Clang toolchain is taken,
+-- which Clang names with @-print-prog-name@: it is built against the LLVM
+-- of that Clang, or on Darwin it reads bitcode through the libLTO of that
+-- toolchain. The @ar@ on the path is the last resort.
+llvmTargetArchiver :: IO FilePath
+llvmTargetArchiver = do
+  (clang, _) <- backendCompiler Llvm
+  clangVersion <- llvmMajorVersion <$> toolOutput clang ["--version"]
+  llvmArchiver <- findExecutable "llvm-ar"
+  matching <-
+    case llvmArchiver of
+      Just archiver -> do
+        version <- llvmMajorVersion <$> toolOutput archiver ["--version"]
+        pure [archiver | isJust clangVersion, version == clangVersion]
+      Nothing -> pure []
+  case matching of
+    archiver : _ -> pure archiver
+    [] -> do
+      named <- dropWhileEnd' isSpace . dropWhile isSpace <$> toolOutput clang ["-print-prog-name=ar"]
+      if isAbsolute named
+        then pure named
+        else fromMaybe "ar" <$> findExecutable "ar"
+  where
+    dropWhileEnd' predicate = reverse . dropWhile predicate . reverse
+
+-- | The standard output of a tool, or nothing when it cannot be run.
+toolOutput :: FilePath -> [String] -> IO String
+toolOutput tool arguments = do
+  result <- tryIOError (readProcessWithExitCode tool arguments "")
+  pure (either (const "") (\(_, stdout, _) -> stdout) result)
+
+-- | The major LLVM version a tool reports with @--version@: the number after
+-- the first "version " in its output. Clang reports "clang version 21.1.8"
+-- or "Apple clang version 21.0.0", and llvm-ar reports "LLVM version 19.1.7".
+llvmMajorVersion :: String -> Maybe Int
+llvmMajorVersion output =
+  case [rest | rest <- tails output, marker `isPrefixOf` rest] of
+    rest : _ ->
+      case takeWhile isDigit (drop (length marker) rest) of
+        "" -> Nothing
+        digits -> Just (read digits)
+    [] -> Nothing
+  where
+    marker = "version " :: String
 
 -- | Deduplicate address literals and assign short, unit-local assembly labels.
 buildAddrLiteralPool :: GrinProgram -> [(ByteString, Text)]
