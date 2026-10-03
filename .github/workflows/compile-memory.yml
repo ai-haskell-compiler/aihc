@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   aihc-parser-stackage:
-    name: Compile aihc-parser-stackage in 1 GiB
+    name: Compile aihc-parser-stackage in 2 GiB
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -34,7 +34,7 @@ jobs:
       # program at once.
       TARGET: linux-amd64
       OPTIMIZATION: "2"
-      MEMORY_LIMIT_BYTES: "1073741824"
+      MEMORY_LIMIT_BYTES: "2147483648"
       CGROUP: /sys/fs/cgroup/aihc-compile-memory
     steps:
       - name: Checkout
