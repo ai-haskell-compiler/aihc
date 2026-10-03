@@ -605,8 +605,10 @@ static void report_collection(uint64_t required_bytes) {
       live_bytes += (uint64_t)(block->next - block->start);
     }
   }
-  qsort(object_starts, object_start_count, sizeof(*object_starts),
-        compare_object_addresses);
+  if (object_start_count != 0) {
+    qsort(object_starts, object_start_count, sizeof(*object_starts),
+          compare_object_addresses);
+  }
   printf("space %" PRIu64 " %" PRIu64 "\n", live_bytes, required_bytes);
 
   for (size_t index = 0; index < entry_capacity; ++index) {

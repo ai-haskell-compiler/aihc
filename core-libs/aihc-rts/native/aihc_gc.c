@@ -527,6 +527,10 @@ static int aihc_compare_addresses(const void *left, const void *right) {
    every store, so the list is compacted when it is full, and it grows only
    when distinct objects fill it. */
 static void aihc_remembered_compact(AihcMachine *machine) {
+  if (machine->remembered_count == 0) {
+    /* qsort takes no null list, and an empty list has nothing to sort. */
+    return;
+  }
   qsort(machine->remembered, machine->remembered_count,
         sizeof(*machine->remembered), aihc_compare_addresses);
   uint64_t kept = 0;
