@@ -1,0 +1,91 @@
+---
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test (count) where
+  data Nat = Z | S Nat
+  data List a = Nil | Cons a (List a)
+  build :: (forall b. (a -> b -> b) -> b -> b) -> List a
+  build g = g Cons Nil
+  {-# NOINLINE build #-}
+  foldr :: (a -> b -> b) -> b -> List a -> b
+  foldr k z xs = go xs
+    where
+      go Nil = z
+      go (Cons y ys) = k y (go ys)
+  {-# NOINLINE foldr #-}
+  {-# RULES
+  "fold/build" forall k z (g :: forall b. (a -> b -> b) -> b -> b). foldr k z (build g) = g k z
+    #-}
+  count :: Nat -> Nat
+  count n = foldr (\_ r -> S r) Z (let m = S n in build (\c e -> c m (c n e)))
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tNat :: 2.sType {
+      1.cZ :: 1.tNat;
+      1.cS :: 1.tNat 2.→ 1.tNat
+  }
+
+  type 1.tList (a : 2.sType) :: 2.sType {
+      1.cNil :: ∀(a : 2.sType). 1.tList a;
+      1.cCons :: ∀(a : 2.sType). a 2.→ 1.tList a 2.→ 1.tList a
+  }
+
+  val 1.vbuild noinline :: ∀(a : 2.sType). (∀(b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b) 2.→ 1.tList a
+   = Λ(a : 2.sType).
+    λ(x : ∀(b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b).
+      x @(1.tList a) (1.cCons @a) (1.cNil @a)
+
+  val 1.vfoldr noinline :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ 1.tList a 2.→ b
+   = Λ(a : 2.sType).
+    Λ(b : 2.sType).
+      λ(x : a 2.→ b 2.→ b).
+        λ(y : b).
+          λ(z : 1.tList a).
+            rec {
+                go : 1.tList a 2.→ b =
+                    λ(x{1} : 1.tList a).
+                      case x{1} as (_scrut : 1.tList a) return (b) of {
+                          1.cNil →
+                              y;
+                          1.cCons (y{1} : a) (ys : 1.tList a) →
+                              x y{1} (go ys)
+                      }
+            } in
+                go z
+
+  pub val 1.vcount :: 1.tNat 2.→ 1.tNat
+   = λ(x : 1.tNat).
+    let {
+        c : 1.tNat 2.→ 1.tNat 2.→ 1.tNat =
+            λ(_pat : 1.tNat).
+              λ(r : 1.tNat).
+                1.cS r
+    } in
+        c (1.cS x) (c x 1.cZ)
+
+  rule "fold/build" Λ(a : 2.sType). Λ(b : 2.sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : 2.sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
+    1.vfoldr @a @b k z (1.vbuild @a (Λ(b{1} : 2.sType).
+      g @b{1}))
+   = g @b k z
+   :: b
+status: pass
+reason: The argument of foldr is a build under a let, as the inliner leaves it. The rule matches the build, the let moves out around the result, and no list is built.

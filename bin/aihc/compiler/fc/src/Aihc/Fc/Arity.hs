@@ -461,8 +461,18 @@ expandDecl env decl =
 -- | Eta expand a body of the given type to the arity its arity type
 -- supports. The result is the new body and the number of lambdas that the
 -- expansion added, or 'Nothing' if the body stays as it is.
+--
+-- A trivial body, a variable under type applications, type lambdas and
+-- casts, stays as it is, as in GHC's Note [Do not eta-expand trivial
+-- expressions]. An alias is copied to every use, so its uses see the name
+-- it stands for. An expansion would make it a function, which the
+-- inliner weighs as one, and a rewrite rule for the name it stands for
+-- would then fire inside the alias and not at its uses: the instance
+-- method @enumFromTo = enumIntFromTo@ became @λa b. build ...@, and a
+-- @foldr@ over @[x .. y]@ never met that @build@.
 expandBinding :: Env -> Type -> Expr -> ExpandM (Maybe (Expr, Int))
 expandBinding env ty body
+  | isAlias body = pure Nothing
   | wanted <= manifest = pure Nothing
   | otherwise = do
       expanded <- expand env Set.empty ty (wanted - manifest) body
@@ -472,6 +482,16 @@ expandBinding env ty body
   where
     wanted = safeArity (trimArityType (typeArity env ty) (arityType env body))
     manifest = manifestArity env body
+
+-- | A variable under type applications, type lambdas and casts.
+isAlias :: Expr -> Bool
+isAlias expr =
+  case expr of
+    ExVar _ -> True
+    ExTyApp inner _ -> isAlias inner
+    ExTyLam _ inner -> isAlias inner
+    ExCast inner _ -> isAlias inner
+    _ -> False
 
 -- | Count one expansion in the report.
 record :: (EtaReport -> EtaReport) -> Int -> ExpandM ()
