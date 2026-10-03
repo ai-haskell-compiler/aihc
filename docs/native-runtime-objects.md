@@ -136,6 +136,42 @@ The copies link from the top down, and the lowest copy has a null parent.
 A resume pushes new copies of these frames on the stack from the bottom up.
 It never writes the heap copies, so a captured continuation can resume any number of times.
 
+## Heap regions
+
+The runtime reserves one address range at start and divides it into regions
+of 64 KiB. A region table holds one byte for each region. The byte gives the
+kind of the memory in the region:
+
+| Kind | Content |
+| --- | --- |
+| `OUTSIDE` | Memory the runtime did not acquire: static data, C allocations, or the memory of another allocator |
+| `FREE` | A region the runtime can acquire |
+| `SPACE` | A space of the semispace collector |
+| `LARGE` | A large object that never moves |
+| `PINNED` | A large pinned byte array or host buffer |
+| `STACK` | Sixteen stack chunks of 4 KiB |
+
+A pointer outside both spaces names an object that never moves. The
+collector marks such an object in its static address set and scans it in
+place. The region kind says which memory holds it.
+
+On a POSIX host the range is one private anonymous mapping of 64 GiB, or the
+largest smaller power of two the host accepts. Its pages cost memory only
+when the runtime writes them, and a released run gets fresh pages. On
+`wasm32-wasip3` the range is the whole linear memory. A region is one
+WebAssembly page, and the runtime grows the memory by whole regions. The
+pages of the C allocator keep the kind `OUTSIDE`.
+
+An object of 32 KiB or more gets a run of regions of its own and never
+moves. The runtime puts a pinned block header in front of it, so the object
+is on the pinned list: the collector sweeps it like a pinned block, the IO
+layer finds it as a buffer owner, and the `-M` budget charges it like a pinned
+block. A pinned byte array below 32 KiB stays a C allocation.
+
+Stack chunks come from `STACK` regions. A released chunk goes to the spare
+list of the machine and is used again. Stack regions are not in the heap
+statistics or in the `-M` limit.
+
 ## Runtime statistics
 
 Set the environment variable `AIHC_RTS_STATS` to a file path to get the

@@ -36,6 +36,38 @@ void aihc_program_environment_initialize(void) {}
 
 uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 
+/* The heap range is the whole linear memory. A region is one WebAssembly
+   page, so a page index is a region index. The pages that exist at the
+   reservation hold the static data and the memory of the C allocator. */
+_Static_assert(AIHC_REGION_BYTES == 65536, "a region is one wasm page");
+
+/* The index space of a 32-bit memory has 65536 pages. */
+#define AIHC_WASM_PAGE_COUNT ((size_t)65536)
+
+void aihc_host_reserve_regions(uint8_t **base, size_t *count, size_t *used,
+                               size_t *committed) {
+  *base = NULL;
+  *count = AIHC_WASM_PAGE_COUNT;
+  *used = __builtin_wasm_memory_size(0);
+  *committed = *used;
+}
+
+int aihc_host_grow_regions(size_t count, size_t *first) {
+  size_t previous = __builtin_wasm_memory_grow(0, count);
+  if (previous == (size_t)-1) {
+    *first = 0;
+    return 1;
+  }
+  *first = previous;
+  return 0;
+}
+
+void aihc_host_release_regions(void *base, size_t bytes) {
+  /* Linear memory never shrinks. The run waits in the table as it is. */
+  (void)base;
+  (void)bytes;
+}
+
 int aihc_host_write_file(const char *path, const void *bytes, size_t length) {
   (void)path;
   (void)bytes;

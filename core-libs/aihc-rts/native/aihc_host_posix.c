@@ -3,6 +3,13 @@
    standard defines for this purpose. */
 // NOLINTNEXTLINE(bugprone-reserved-identifier)
 #define _POSIX_C_SOURCE 200809L
+/* MAP_ANONYMOUS and MAP_NORESERVE are not in POSIX. glibc and Darwin hide
+   them when _POSIX_C_SOURCE is set unless these macros ask for the native
+   set as well. */
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+#define _DEFAULT_SOURCE
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+#define _DARWIN_C_SOURCE
 
 #include "aihc_runtime_internal.h"
 
@@ -15,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -39,6 +47,58 @@ _Noreturn void aihc_exit_process(int64_t status) {
 
 void aihc_program_environment_initialize(void) {
   aihc_environment_initialize(environ);
+}
+
+/* The heap range is one private anonymous mapping. The pages are committed
+   when they are first written, so the size of the mapping costs only address
+   space. The reservation halves until the host accepts it. */
+#define AIHC_HOST_RESERVE_BYTES ((size_t)64 << 30)
+#define AIHC_HOST_RESERVE_MINIMUM_BYTES ((size_t)64 << 20)
+
+#ifndef MAP_NORESERVE
+#define MAP_NORESERVE 0
+#endif
+
+void aihc_host_reserve_regions(uint8_t **base, size_t *count, size_t *used,
+                               size_t *committed) {
+  size_t bytes = AIHC_HOST_RESERVE_BYTES;
+  for (;;) {
+    /* One extra region aligns the start of the range to a region. */
+    void *mapping =
+        mmap(NULL, bytes + AIHC_REGION_BYTES, PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (mapping != MAP_FAILED) {
+      uintptr_t start = (uintptr_t)mapping;
+      uintptr_t aligned =
+          (start + AIHC_REGION_BYTES - 1) & ~(uintptr_t)(AIHC_REGION_BYTES - 1);
+      *base = (uint8_t *)aligned;
+      *count = bytes >> AIHC_REGION_SHIFT;
+      *used = 0;
+      *committed = *count;
+      return;
+    }
+    if (bytes <= AIHC_HOST_RESERVE_MINIMUM_BYTES) {
+      aihc_fail("cannot reserve the heap");
+    }
+    bytes /= 2;
+  }
+}
+
+int aihc_host_grow_regions(size_t count, size_t *first) {
+  (void)count;
+  *first = 0;
+  return 1;
+}
+
+void aihc_host_release_regions(void *base, size_t bytes) {
+  /* A fixed mapping over the run replaces its pages with fresh zero pages
+     and gives the old ones back. */
+  void *mapping =
+      mmap(base, bytes, PROT_READ | PROT_WRITE,
+           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0);
+  if (mapping == MAP_FAILED) {
+    aihc_fail("cannot release heap regions");
+  }
 }
 
 uint64_t aihc_host_monotonic_ns(void) {

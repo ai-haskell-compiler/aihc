@@ -27,6 +27,7 @@ library
   include-dirs: native
   c-sources:
     native/aihc_gc_semispace.c
+    native/aihc_heap_regions.c
     native/aihc_runtime.c
 
   x-aihc-lir-sources: native/rts.lir

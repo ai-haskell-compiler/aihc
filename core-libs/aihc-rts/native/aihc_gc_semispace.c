@@ -3,9 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The collector copies movable objects between two spaces.
+/* The collector copies movable objects between two spaces. Each space is a
+   run of heap regions, and the collector finds the objects that never move by
+   their address: a pointer outside both spaces names a static object, a
+   large object, a pinned block, or a continuation frame in a stack chunk.
    heap_space_bytes records physical capacity. heap_limit excludes the charge
-   for pinned blocks, so ordinary reservations use the shared budget.
+   for pinned blocks and large objects, so ordinary reservations use the
+   shared budget.
    other_space and other_space_bytes identify the inactive space.
    semispace_bytes is the target capacity for the next collection.
    The target doubles until it holds twice the occupied space.
@@ -213,12 +217,15 @@ static size_t aihc_semispace_capacity(const AihcMachine *machine) {
   return (size_t)(machine->heap_limit - machine->heap_start);
 }
 
-static uint8_t *aihc_semispace_new(size_t bytes) {
-  uint8_t *space = malloc(bytes == 0 ? 1 : bytes);
-  if (space == NULL) {
-    aihc_fail("out of memory");
+uint8_t *aihc_semispace_acquire(size_t bytes) {
+  return aihc_regions_acquire(aihc_regions_for_bytes(bytes == 0 ? 1 : bytes),
+                              AIHC_REGION_SPACE);
+}
+
+void aihc_semispace_release(uint8_t *space) {
+  if (space != NULL) {
+    aihc_regions_release(space);
   }
-  return space;
 }
 
 static _Noreturn void aihc_semispace_exhausted(const AihcMachine *machine) {
@@ -228,8 +235,8 @@ static _Noreturn void aihc_semispace_exhausted(const AihcMachine *machine) {
   aihc_fail("live data exceeds semispace");
 }
 
-/* The number of released chunks a machine keeps for later growth. */
-#define AIHC_STACK_SPARE_CHUNKS 64
+_Static_assert(AIHC_REGION_BYTES % AIHC_STACK_CHUNK_BYTES == 0,
+               "a stack region holds whole chunks");
 
 static AihcStackChunk *aihc_stack_chunk_of(const void *address) {
   return (AihcStackChunk *)((uintptr_t)address &
@@ -242,16 +249,23 @@ static uint8_t *aihc_stack_chunk_frames(AihcStackChunk *chunk) {
 
 static AihcStackChunk *aihc_stack_chunk_new(AihcMachine *machine,
                                             AihcStack *stack) {
-  AihcStackChunk *chunk = machine->spare_chunks;
-  if (chunk != NULL) {
-    machine->spare_chunks = chunk->above;
-    --machine->spare_chunk_count;
-  } else {
-    chunk = aligned_alloc(AIHC_STACK_CHUNK_BYTES, AIHC_STACK_CHUNK_BYTES);
-    if (chunk == NULL) {
-      aihc_fail("out of memory for the thread stack");
+  if (machine->spare_chunks == NULL) {
+    /* Chunks come from stack regions. The chunks of a region stay with the
+       machine: a released chunk goes to the spare list and is used again. */
+    uint8_t *region = aihc_regions_acquire(1, AIHC_REGION_STACK);
+    for (size_t offset = AIHC_REGION_BYTES; offset != 0;) {
+      offset -= AIHC_STACK_CHUNK_BYTES;
+      AihcStackChunk *spare = (AihcStackChunk *)(region + offset);
+      spare->stack = NULL;
+      spare->below = NULL;
+      spare->above = machine->spare_chunks;
+      machine->spare_chunks = spare;
+      ++machine->spare_chunk_count;
     }
   }
+  AihcStackChunk *chunk = machine->spare_chunks;
+  machine->spare_chunks = chunk->above;
+  --machine->spare_chunk_count;
   chunk->stack = stack;
   chunk->below = NULL;
   chunk->above = NULL;
@@ -259,15 +273,11 @@ static AihcStackChunk *aihc_stack_chunk_new(AihcMachine *machine,
 }
 
 static void aihc_stack_chunk_free(AihcMachine *machine, AihcStackChunk *chunk) {
-  if (machine->spare_chunk_count < AIHC_STACK_SPARE_CHUNKS) {
-    chunk->stack = NULL;
-    chunk->below = NULL;
-    chunk->above = machine->spare_chunks;
-    machine->spare_chunks = chunk;
-    ++machine->spare_chunk_count;
-  } else {
-    free(chunk);
-  }
+  chunk->stack = NULL;
+  chunk->below = NULL;
+  chunk->above = machine->spare_chunks;
+  machine->spare_chunks = chunk;
+  ++machine->spare_chunk_count;
 }
 
 AihcStack *aihc_stack_new(AihcMachine *machine, AihcThread *thread) {
@@ -615,8 +625,8 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   size_t from_bytes = (size_t)machine->heap_space_bytes;
   size_t to_bytes = aihc_destination_bytes(machine, required_bytes);
   if (machine->other_space == NULL || machine->other_space_bytes < to_bytes) {
-    free(machine->other_space);
-    machine->other_space = aihc_semispace_new(to_bytes);
+    aihc_semispace_release(machine->other_space);
+    machine->other_space = aihc_semispace_acquire(to_bytes);
     machine->other_space_bytes = to_bytes;
   }
   uint8_t *to_start = machine->other_space;
@@ -655,7 +665,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
     } else {
       *link = block->next;
       machine->pinned_bytes -= block->bytes;
-      free(block);
+      aihc_pinned_block_release(block);
     }
   }
   size_t copied = (size_t)(machine->heap_next - machine->heap_start);
@@ -685,13 +695,14 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
 }
 
 void aihc_gc_init(AihcMachine *machine) {
+  aihc_regions_init();
   machine->semispace_bytes = AIHC_SEMISPACE_BYTES;
   if (machine->heap_limit_enabled &&
       machine->semispace_bytes > machine->heap_max_bytes) {
     machine->semispace_bytes = machine->heap_max_bytes;
   }
   machine->heap_space_bytes = machine->semispace_bytes;
-  machine->heap_start = aihc_semispace_new(machine->semispace_bytes);
+  machine->heap_start = aihc_semispace_acquire(machine->semispace_bytes);
   machine->heap_next = machine->heap_start;
   machine->heap_alloc_base = machine->heap_start;
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
@@ -735,6 +746,45 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
   }
 }
 
+/* Put a block on the pinned list and charge it to the shared budget. The
+   caller has checked that charge_bytes fits below the heap limit. */
+static AihcValue *aihc_pinned_block_adopt(AihcMachine *machine,
+                                          AihcPinnedBlock *block,
+                                          size_t charge_bytes) {
+  aihc_heap_account(machine);
+  if (charge_bytes > UINT64_MAX - machine->heap_allocated_bytes) {
+    aihc_fail("allocated byte counter overflow");
+  }
+  block->bytes = charge_bytes;
+  block->next = machine->pinned_blocks;
+  machine->pinned_blocks = block;
+  machine->pinned_bytes += charge_bytes;
+  machine->heap_limit -= charge_bytes;
+  machine->heap_allocated_bytes += charge_bytes;
+  return (AihcValue *)block->object;
+}
+
+/* A large object or a large pinned block gets regions of its own. Its
+   pinned block header puts it on the pinned list, so the sweep, the owner
+   lookup of the IO layer, and the budget treat it like a pinned block. */
+static AihcPinnedBlock *aihc_fixed_block_new(size_t bytes,
+                                             AihcRegionKind kind) {
+  AihcPinnedBlock *block =
+      aihc_regions_acquire(aihc_regions_for_bytes(bytes), kind);
+  /* The content of a run is unspecified, so the header is set here. */
+  block->next = NULL;
+  block->bytes = 0;
+  return block;
+}
+
+void aihc_pinned_block_release(AihcPinnedBlock *block) {
+  if (aihc_region_kind(block) == AIHC_REGION_OUTSIDE) {
+    free(block);
+  } else {
+    aihc_regions_release(block);
+  }
+}
+
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   if (words > SIZE_MAX / sizeof(AihcSlot)) {
     aihc_fail("heap allocation is too large");
@@ -742,6 +792,16 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   size_t bytes = sizeof(AihcSlot) * words;
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_fail("unchecked allocation exceeded reserved heap");
+  }
+  if (bytes >= AIHC_LARGE_OBJECT_BYTES - sizeof(AihcPinnedBlock)) {
+    /* The reservation covers the object alone, so the budget takes the
+       object alone: the header lives in the slack of the region run. */
+    AihcPinnedBlock *block = aihc_fixed_block_new(
+        sizeof(AihcPinnedBlock) + bytes, AIHC_REGION_LARGE);
+#ifdef DEBUG
+    memset(block->object, 0, bytes);
+#endif
+    return aihc_pinned_block_adopt(machine, block, bytes);
   }
   AihcValue *value = (AihcValue *)machine->heap_next;
   machine->heap_next += bytes;
@@ -761,21 +821,18 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_fail("unchecked pinned allocation exceeded reserved heap");
   }
-  aihc_heap_account(machine);
-  if (bytes > UINT64_MAX - machine->heap_allocated_bytes) {
-    aihc_fail("allocated byte counter overflow");
+  AihcPinnedBlock *block;
+  if (bytes >= AIHC_LARGE_OBJECT_BYTES) {
+    block = aihc_fixed_block_new(bytes, AIHC_REGION_PINNED);
+    /* A pinned block reads as zero, as the C allocation below does. */
+    memset(block->object, 0, bytes - sizeof(AihcPinnedBlock));
+  } else {
+    block = calloc(1, bytes);
+    if (block == NULL) {
+      aihc_fail("out of memory");
+    }
   }
-  AihcPinnedBlock *block = calloc(1, bytes);
-  if (block == NULL) {
-    aihc_fail("out of memory");
-  }
-  block->bytes = bytes;
-  block->next = machine->pinned_blocks;
-  machine->pinned_blocks = block;
-  machine->pinned_bytes += bytes;
-  machine->heap_limit -= bytes;
-  machine->heap_allocated_bytes += bytes;
-  return (AihcValue *)block->object;
+  return aihc_pinned_block_adopt(machine, block, bytes);
 }
 
 void aihc_roots_enter(AihcMachine *machine, AihcRootFrame *frame,

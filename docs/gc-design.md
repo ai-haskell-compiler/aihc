@@ -25,10 +25,12 @@ start. On 64-bit hosts the reservation is large and committed by region. On
 wasm32 the range is the linear memory above the static data and grows at the
 end.
 
-The range is divided into regions of `AIHC_REGION_BYTES`, initially 1 MiB.
-A region table holds one byte for each region. The region index of an address
-is `(address - heap_base) >> AIHC_REGION_SHIFT`. The byte gives the kind of
-the region:
+The range is divided into regions of `AIHC_REGION_BYTES`, 64 KiB. A region
+is one WebAssembly page, so the wasm32 host grows its memory by whole
+regions, and a large object wastes at most half a region. A region table
+holds one byte for each region. The region index of an address is
+`(address - heap_base) >> AIHC_REGION_SHIFT`. The byte gives the kind of the
+region:
 
 | Kind | Content | Moves |
 | --- | --- | --- |
@@ -36,9 +38,9 @@ the region:
 | `NURSERY` | Bump allocated young objects | Yes |
 | `GEN1` | Bump allocated objects that survived one collection | Yes |
 | `GEN2` | Segments of one size class with a mark bitmap | No |
-| `LARGE` | One object of more than `AIHC_LARGE_OBJECT_BYTES` | No |
+| `LARGE` | One object of at least `AIHC_LARGE_OBJECT_BYTES`, 32 KiB | No |
 | `PINNED` | Pinned byte arrays and host buffers | No |
-| `STACK` | 4 KiB stack chunks | No |
+| `STACK` | Sixteen 4 KiB stack chunks | No |
 
 An address outside the range names a static object. This test replaces the
 two range tests of the semispace collector. The header keeps no generation
@@ -252,6 +254,9 @@ cycles, and the bytes of each generation after the last collection.
    heavy, large live set, deep stack, and mutable arrays.
 2. **Regions.** Add the reservation, the region table, `LARGE`, `PINNED`, and
    `STACK` regions. Keep semispace semantics. The fuzz model stays valid.
+   The semispace collector keeps a large object on its pinned list, so one
+   sweep covers both. Pinned byte arrays below the large bound stay C
+   allocations until the segment allocator of step 4 exists.
 3. **Generations.** Add the nursery, gen1, the write barrier, the remembered
    set, cards, the CAF list, and the stack chunk generations. Gen2 is a
    copying generation collected stop-the-world in this step, so the fuzz model

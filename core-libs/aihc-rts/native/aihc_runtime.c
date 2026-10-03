@@ -169,6 +169,14 @@ void aihc_record_allocation(AihcMachine *machine) {
   ++machine->allocation_count;
 }
 
+uint64_t aihc_array_words(int64_t count) {
+  /* The bound matches the plausibility check of aihc_array_new. */
+  if (count < 0 || (uint64_t)count > UINT64_C(2305843009213693949)) {
+    aihc_fail("boxed-array size is invalid");
+  }
+  return (uint64_t)count + 2;
+}
+
 /* Compute the complete allocation charge before a collection can occur. */
 uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
                                int64_t alignment) {

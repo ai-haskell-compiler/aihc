@@ -3,6 +3,16 @@
 
 #include <stdint.h>
 
+/* The heap is a range of regions. Every managed allocation lives in a
+   region, and a table with one byte per region gives the kind of the memory
+   at an address. A region is one WebAssembly page, so the wasm32 host grows
+   its memory by whole regions. See docs/native-runtime-objects.md. */
+#define AIHC_REGION_SHIFT 16
+#define AIHC_REGION_BYTES ((size_t)1 << AIHC_REGION_SHIFT)
+/* An object of this many bytes or more gets regions of its own and never
+   moves. The bound counts the object with its pinned block header. */
+#define AIHC_LARGE_OBJECT_BYTES (AIHC_REGION_BYTES / 2)
+
 #ifndef AIHC_SEMISPACE_BYTES
 #define AIHC_SEMISPACE_BYTES (UINT64_C(1024) * UINT64_C(1024))
 #endif
@@ -508,6 +518,11 @@ uint64_t aihc_byte_array_compare(void *opaque_left, int64_t left_offset,
 /* Byte arrays consume prior reservations and cannot collect.
    Size helpers include descriptor, payload, padding, and pinned metadata.
    Freeze and thaw preserve the representation. */
+/* The slots of a boxed array of count elements: the header, the length, and
+   the elements. A negative count or one whose slots cannot fit the address
+   space stops the program. The caller reserves these slots before the
+   allocation. */
+uint64_t aihc_array_words(int64_t count);
 uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
                                int64_t alignment);
 uint64_t aihc_byte_array_resize_words(void *array, int64_t size);
