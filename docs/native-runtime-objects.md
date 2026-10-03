@@ -136,6 +136,46 @@ The copies link from the top down, and the lowest copy has a null parent.
 A resume pushes new copies of these frames on the stack from the bottom up.
 It never writes the heap copies, so a captured continuation can resume any number of times.
 
+## Heap regions
+
+Every managed allocation lives in a run of regions of 64 KiB. The runtime
+takes each run from the host as one mapping of exactly that size, and a
+two-level region table gives the kind of the region that holds an address.
+The top level is indexed by the address bits above the leaf, and a leaf
+covers 4 GiB with one entry for each region. The runtime reserves no address
+space in advance, so it runs where a large reservation is refused. The
+kinds are:
+
+| Kind | Content |
+| --- | --- |
+| `OUTSIDE` | Memory the runtime did not acquire: static data, C allocations, or the memory of another allocator |
+| `FREE` | A region the runtime can acquire |
+| `SPACE` | A space of the semispace collector |
+| `LARGE` | A large object that never moves |
+| `PINNED` | A large pinned byte array or host buffer |
+| `STACK` | Sixteen stack chunks of 4 KiB |
+
+A pointer outside both spaces names an object that never moves. The
+collector marks such an object in its static address set and scans it in
+place. The region kind says which memory holds it.
+
+A released run waits in a free list for the next run that fits. When every
+region of a mapping is free and the free list holds more than 64 MiB, the
+mapping goes back to the host. On a POSIX host a mapping is one private
+anonymous mapping. On `wasm32-wasip3` a region is one WebAssembly page, a
+mapping is one growth of the linear memory, and the memory never shrinks.
+The pages of the C allocator keep the kind `OUTSIDE`.
+
+An object of 32 KiB or more gets a run of regions of its own and never
+moves. The runtime puts a pinned block header in front of it, so the object
+is on the pinned list: the collector sweeps it like a pinned block, the IO
+layer finds it as a buffer owner, and the `-M` budget charges it like a pinned
+block. A pinned byte array below 32 KiB stays a C allocation.
+
+Stack chunks come from `STACK` regions. A released chunk goes to the spare
+list of the machine and is used again. Stack regions are not in the heap
+statistics or in the `-M` limit.
+
 ## Runtime statistics
 
 Set the environment variable `AIHC_RTS_STATS` to a file path to get the
