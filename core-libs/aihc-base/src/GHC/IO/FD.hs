@@ -48,13 +48,14 @@ import GHC.IO.Runtime
   )
 import GHC.IO.Runtime.Open (openUtf8FilePath)
 import GHC.IO.Unsafe (unsafePerformIO)
-import GHC.Int (Int (..))
+import GHC.Int (Int (..), Int64)
+import GHC.Integer (Integer)
 import GHC.Internal.Classes (Eq (..), Ord (..))
-import GHC.Internal.IO.Types (BufferedIO (..), IODevice (..), IODeviceType (..), RawIO (..), ioError)
+import GHC.Internal.IO.Types (BufferedIO (..), IODevice (..), IODeviceType (..), RawIO (..), SeekMode (..), ioError, ioe_unsupportedOperation)
 import GHC.Num (Num (..))
 import GHC.Prim (Addr#)
 import GHC.Ptr (Ptr (..), plusPtr)
-import GHC.Real (fromIntegral)
+import GHC.Real (fromIntegral, toInteger)
 import GHC.Show (Show (..), showString)
 import GHC.Word (Word8)
 import System.Posix.Types (CDev, CIno)
@@ -174,6 +175,28 @@ instance IODevice FD where
       True -> ioError (errnoToIOError "GHC.IO.FD.close" (Errno (fromIntegral (decodeError result))) Nothing Nothing)
       False -> return ()
   devType _ = return Stream
+  isSeekable fd = do
+    descriptor <- ioHandleDescriptor (fdHandle fd)
+    case descriptor < 0 of
+      True -> return False
+      False -> do
+        -- A pipe, a socket, or a terminal cannot move its position.
+        position <- c_lseek (fromIntegral descriptor) 0 seekCurrent
+        return (position /= -1)
+  seek fd mode offset = do
+    descriptor <- seekableDescriptor fd
+    let whence =
+          case mode of
+            AbsoluteSeek -> seekSet
+            RelativeSeek -> seekCurrent
+            SeekFromEnd -> seekEnd
+    position <- throwErrnoIfMinus1Retry "GHC.IO.FD.seek" (c_lseek descriptor (fromIntegral offset) whence)
+    return (toInteger position)
+  tell fd = do
+    descriptor <- seekableDescriptor fd
+    position <- throwErrnoIfMinus1Retry "GHC.IO.FD.tell" (c_lseek descriptor 0 seekCurrent)
+    return (toInteger position)
+  getSize = fileSize
 
 -- | Read up to @count@ bytes. The result is zero at the end of the input.
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> Int -> IO Int
@@ -220,3 +243,35 @@ awaitRequest submission = do
   request <- submission
   awaitIO request
   takeResult request
+
+-- | The size of the file of a descriptor in bytes. The descriptor moves to
+-- the end of the file and then back to its position, so the next transfer
+-- starts where it would start without this call.
+fileSize :: FD -> IO Integer
+fileSize fd = do
+  descriptor <- seekableDescriptor fd
+  position <- throwErrnoIfMinus1Retry "GHC.IO.FD.getSize" (c_lseek descriptor 0 seekCurrent)
+  end <- throwErrnoIfMinus1Retry "GHC.IO.FD.getSize" (c_lseek descriptor 0 seekEnd)
+  _ <- throwErrnoIfMinus1Retry "GHC.IO.FD.getSize" (c_lseek descriptor position seekSet)
+  return (toInteger end)
+
+-- | The operating system descriptor of an 'FD'. A resource that is not a
+-- descriptor, such as a WASI stream, cannot seek.
+seekableDescriptor :: FD -> IO CInt
+seekableDescriptor fd = do
+  descriptor <- ioHandleDescriptor (fdHandle fd)
+  case descriptor < 0 of
+    True -> ioe_unsupportedOperation
+    False -> return (fromIntegral descriptor)
+
+foreign import capi unsafe "unistd.h lseek"
+  c_lseek :: CInt -> Int64 -> CInt -> IO Int64
+
+foreign import capi unsafe "unistd.h value SEEK_SET"
+  seekSet :: CInt
+
+foreign import capi unsafe "unistd.h value SEEK_CUR"
+  seekCurrent :: CInt
+
+foreign import capi unsafe "unistd.h value SEEK_END"
+  seekEnd :: CInt

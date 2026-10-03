@@ -1,0 +1,37 @@
+modules:
+  - |
+    module Test where
+
+    import Foreign.C.String (withCString)
+    import System.IO
+    import System.Posix.Internals (c_unlink)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      (path, handle) <- openTempFile "/tmp" "aihc-file-size.txt"
+      hPutStr handle "hello, world"
+      hClose handle
+      reader <- openFile path ReadMode
+      first <- hGetChar reader
+      size <- hFileSize reader
+      -- The size does not move the read position.
+      rest <- hGetLine reader
+      seekable <- hIsSeekable reader
+      hSeek reader AbsoluteSeek 7
+      position <- hTell reader
+      tailText <- hGetLine reader
+      hSeek reader SeekFromEnd (-5)
+      end <- hGetLine reader
+      hClose reader
+      _ <- withCString path c_unlink
+      print (first, size, rest)
+      print (seekable, position, tailText, end)
+stdout: |
+  ('h',12,"ello, world")
+  (True,7,"world","world")
+output: |
+  ()
+expression: main
+status: pass
+reason: A file handle can seek, and hFileSize gives the size of a regular file without a change to the read position of the handle
