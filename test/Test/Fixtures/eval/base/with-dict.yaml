@@ -1,0 +1,46 @@
+extensions: [AllowAmbiguousTypes, ConstraintKinds, DataKinds, FlexibleInstances, KindSignatures, MagicHash, MultiParamTypeClasses, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE AllowAmbiguousTypes, ConstraintKinds, DataKinds, FlexibleInstances, KindSignatures, MagicHash, MultiParamTypeClasses, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators #-}
+    module Test where
+    import GHC.Exts (Int (..), withDict)
+
+    class Value a where
+      value :: Int
+    class Predicate a where
+      predicate :: a -> Bool
+    class Flag where
+      flag :: Bool
+    class KindValue (a :: k) where
+      kindValue :: Int
+
+    unboxed :: Int
+    unboxed = I# (withDict @(Value Bool) 8 (case value @Bool of I# raw -> raw))
+
+    supplied :: forall a. (a ~ Int) => a -> Int
+    supplied input = withDict @(Value Bool) input (value @Bool)
+
+    class WithDict cls meth where
+      ordinary :: meth -> Bool
+    instance WithDict Bool Int where
+      ordinary input = input == 9
+
+    nested :: Int -> Int -> (Int, Int)
+    nested first second = withDict @(Value Bool) first $
+      withDict @(Value Char) second (value @Bool, value @Char)
+
+    matches :: Bool
+    matches =
+      withDict @(Value Bool) 42 (value @Bool) == 42
+        && withDict @(Predicate Int) (> 3) (predicate (5 :: Int))
+        && withDict @Flag True flag
+        && withDict @(KindValue 'True) 7 (kindValue @Bool @'True) == 7
+        && nested 1 2 == (1, 2)
+        && supplied (4 :: Int) == 4
+        && unboxed == 8
+        && ordinary @Bool (9 :: Int)
+output: |
+  True
+expression: matches
+status: pass
+reason: WithDict supplies dictionaries for classes with one method and no superclasses.

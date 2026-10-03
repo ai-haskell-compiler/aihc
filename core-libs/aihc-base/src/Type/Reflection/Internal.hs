@@ -1,7 +1,5 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
@@ -52,6 +50,7 @@ import Data.Type.Equality ((:~~:) (..))
 import GHC.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
 import GHC.Classes qualified
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
+import GHC.Magic.Dict (withDict)
 import GHC.Num qualified
 import GHC.Prim (ord#, seq, (==#))
 import GHC.Prim.Show (Show (..), ShowS)
@@ -382,6 +381,4 @@ runtimeRepresentationList values =
 
 -- | Supply class evidence from a type representation.
 withTypeable :: forall k (a :: k) r. TypeRep a -> ((Typeable a) => r) -> r
-withTypeable = withTypeableValue# @k @a
-
-foreign import prim "withTypeableValue#" withTypeableValue# :: forall k (a :: k) r. TypeRep a -> ((Typeable a) => r) -> r
+withTypeable = withDict @(Typeable a)
