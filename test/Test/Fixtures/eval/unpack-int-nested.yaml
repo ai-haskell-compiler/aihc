@@ -1,0 +1,20 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (Int (..))
+
+    data T = MkT {-# UNPACK #-} !Int
+
+    nested :: T -> Int
+    nested (MkT (I# n)) = I# n
+
+    result :: Int
+    result = nested (MkT 7)
+output: |
+  I# 7
+expression: result
+status: pass
+reason: A nested pattern on an unpacked Int binds the inner unboxed field.

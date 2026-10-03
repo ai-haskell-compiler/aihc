@@ -53,7 +53,7 @@ expected: |-
     3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
     3.cFalse :: 3.tBool;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    strict [0] 3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
     3.cIntRep :: 3.tRuntimeRep;
     3.cLifted :: 3.tLevity;
     3.cTrue :: 3.tBool;

@@ -43,7 +43,7 @@ expected: |-
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
     3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    strict [0] 3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
     3.cIntRep :: 3.tRuntimeRep;
     3.cLifted :: 3.tLevity;
     3.c[] :: ∀(a : 3.sType). 3.t[] a
@@ -53,7 +53,7 @@ expected: |-
     3.sType = 3.tTYPE 3.sLiftedRep
 
   type 1.tCursor :: 3.sType {
-      1.cCursor :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (3.tInt 3.→ 1.tCursor)
+      strict [0] 1.cCursor :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (3.tInt 3.→ 1.tCursor)
   }
 
   pub val 1.vfill :: (3.tInt 3.→ 3.tInt) 3.→ 1.tCursor 3.→ 3.t[] 3.tInt 3.→ 3.tInt

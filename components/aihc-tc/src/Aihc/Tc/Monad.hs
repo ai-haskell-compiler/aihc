@@ -4,6 +4,7 @@
 module Aihc.Tc.Monad
   ( -- * Monad
     TcM,
+    TcResult,
     runTcM,
     abortTc,
     tcAbortMessage,

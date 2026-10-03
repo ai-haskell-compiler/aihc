@@ -169,7 +169,14 @@ shareDataConInfo info = do
   where
     shareField field = do
       ty <- shareType (dcfiType field)
-      pure field {dcfiType = ty}
+      rep <- shareFieldRep (dcfiRep field)
+      pure field {dcfiType = ty, dcfiRep = rep}
+    shareFieldRep rep =
+      case rep of
+        RepStored ty strict -> RepStored <$> shareType ty <*> pure strict
+        RepUnpack key leaves -> RepUnpack key <$> mapM shareFieldRep leaves
+        RepCast tyCon arguments inner ->
+          RepCast <$> shareTyCon tyCon <*> mapM shareType arguments <*> shareFieldRep inner
 
 shareClassInfo :: ClassInfo -> Share ClassInfo
 shareClassInfo info = do

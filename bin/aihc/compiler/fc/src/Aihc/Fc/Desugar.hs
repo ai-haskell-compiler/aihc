@@ -50,6 +50,7 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     defaultMethodName,
+    repLeaves,
     tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
@@ -820,7 +821,7 @@ convertDataFamilyInst env package moduleName' bindings info = do
           familyAxiom
         ]
     else do
-      constructors <- mapM (convertFamilyConstructor bindersEnv bindings package moduleName' representationType) (dfiiConstructorNames info)
+      constructors <- mapM (convertFamilyConstructor bindersEnv representationType) (dfiiConstructors info)
       pure
         [ DeclType
             TypeDecl
@@ -834,22 +835,14 @@ convertDataFamilyInst env package moduleName' bindings info = do
           familyAxiom
         ]
 
-convertFamilyConstructor :: ConvertEnv -> Map.Map Entity TcBindingResult -> PackageId -> Text -> Type -> Text -> Either String ConDecl
-convertFamilyConstructor bindersEnv bindings package moduleName' representationType constructorName = do
-  constructorType <- lookupBindingType bindings package moduleName' constructorName
-  converted <- convertType bindersEnv constructorType
-  replaced <- replaceResultType converted representationType
+convertFamilyConstructor :: ConvertEnv -> Type -> DataConInfo -> Either String ConDecl
+convertFamilyConstructor bindersEnv representationType info = do
+  declaration <- convertConstructor bindersEnv info
+  replaced <- replaceResultType (conType declaration) representationType
   -- A module that uses a data instance builds and matches its constructor
   -- by name, so the constructor stays public, as the tables of the instance
   -- must be.
-  pure
-    ConDecl
-      { conVis = Pub,
-        conName = Name constructorName SortDataConstructor (OriginTop package moduleName'),
-        conType = replaced,
-        conRepresentation = HeapConstructor,
-        conStrictFields = []
-      }
+  pure declaration {conVis = Pub, conType = replaced}
 
 lookupBindingType :: Map.Map Entity TcBindingResult -> PackageId -> Text -> Text -> Either String TcType
 lookupBindingType bindings package moduleName' name =
@@ -924,13 +917,14 @@ convertConstructor env info = do
       bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   predicates <- mapM (convertPred bindersEnv) (dciTheta info)
-  fields <- mapM (convertType bindersEnv . dcfiType) (dciFields info)
+  let leaves = concatMap (repLeaves . dcfiRep) (dciFields info)
+  leafTypes <- mapM (convertType bindersEnv . fst) leaves
   result <- convertType bindersEnv (dciResTy info)
   body <-
     constructorFun
       bindersEnv
-      (replicate (length predicates) Nothing <> map (Just . dcfiType) (dciFields info))
-      (predicates <> fields)
+      (replicate (length predicates) Nothing <> map (Just . fst) leaves)
+      (predicates <> leafTypes)
       (dciResTy info)
       result
   let constructorType = foldr TyForAll body binders
@@ -953,12 +947,12 @@ convertConstructor env info = do
           UnboxedTupleDataCon -> UnboxedTupleConstructor
           UnboxedSumDataCon alternative arity -> UnboxedSumConstructor alternative arity
           _ -> HeapConstructor,
-        -- The strict constructor wrapper of the desugarer forces these
-        -- fields at every construction. The dictionaries come first.
+        -- The use-site wrapper forces each strict lifted leaf.
+        -- The dictionaries come first. The index counts representation leaves.
         conStrictFields =
           [ length predicates + position
-          | (position, field) <- zip [0 ..] (dciFields info),
-            dcfiStrict field
+          | (position, (_, strict)) <- zip [0 ..] leaves,
+            strict
           ]
       }
 

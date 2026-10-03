@@ -40,7 +40,7 @@ expected: |-
     4.c: :: ∀(a : 4.sType). a 4.→ 4.t[] a 4.→ 4.t[] a;
     4.cAddrRep :: 4.tRuntimeRep;
     4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.cC# :: FUN @4.cWordRep @4.sLiftedRep 3.tChar# 4.tChar;
+    strict [0] 4.cC# :: FUN @4.cWordRep @4.sLiftedRep 3.tChar# 4.tChar;
     4.cLifted :: 4.tLevity;
     4.cWordRep :: 4.tRuntimeRep;
     4.c[] :: ∀(a : 4.sType). 4.t[] a;

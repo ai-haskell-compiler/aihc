@@ -84,8 +84,21 @@ dataConInfoTyCons :: Collect DataConInfo
 dataConInfoTyCons info =
   each tyVarTyCons (dciUnivTyVars info <> dciExTyVars info)
     . each predTyCons (dciTheta info)
-    . each (typeTyConsInto . dcfiType) (dciFields info)
+    . each fieldInfoTyCons (dciFields info)
     . typeTyConsInto (dciResTy info)
+
+fieldInfoTyCons :: Collect DataConFieldInfo
+fieldInfoTyCons field =
+  typeTyConsInto (dcfiType field)
+    . fieldRepTyCons (dcfiRep field)
+
+fieldRepTyCons :: Collect FieldRep
+fieldRepTyCons rep =
+  case rep of
+    RepStored ty _ -> typeTyConsInto ty
+    RepUnpack _ leaves -> each fieldRepTyCons leaves
+    RepCast tyCon arguments inner ->
+      Set.insert tyCon . each typeTyConsInto arguments . fieldRepTyCons inner
 
 classInfoTyCons :: ClassInfo -> Set.Set TyCon
 classInfoTyCons = collected classInfoTyConsInto

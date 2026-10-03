@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data T = MkT {field :: {-# UNPACK #-} !Int}
+
+    rebuilt :: T -> Int
+    rebuilt (MkT n) = n
+
+    result :: Int
+    result = rebuilt (MkT {field = 7}) + field (MkT 1)
+output: |
+  I# 8
+expression: result
+status: pass
+reason: An unpacked strict Int is rebuilt from its representation field, and a record selector rebuilds that field.
