@@ -3657,14 +3657,16 @@ desugarListCompGenerator resultElementType cons expression pattern' source remai
   nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
   consName <- primitiveName "GHC.Types" ":" SortDataConstructor
   let recursiveCall = ExApp (ExVar (binderName function)) (ExVar (binderName items))
+  -- A generator matches its pattern like any other pattern. An element
+  -- that does not match goes on to the rest of the list.
   success <-
-    desugarListCompPattern
+    desugarPatternWithFailure
       resultListType
       item
       sourceElementType
       pattern'
       (desugarListCompStatements resultElementType cons expression remaining recursiveCall)
-      recursiveCall
+      (Just recursiveCall)
   source' <- desugarExpr source
   let loop =
         ExCase
@@ -3693,130 +3695,6 @@ desugarListCompGuard resultElementType guard success failure = do
           Alt (AltData falseName) [] [] failure
         ]
     )
-
-desugarListCompPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompPattern resultType binder ty pattern' success failure =
-  case pattern' of
-    Syn.PAnn annotation _
-      | Just checked <- Syn.fromAnnotation annotation,
-        not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)),
-        isJust (patternConstructorSourceName pattern') ->
-          desugarListCompConstructorPattern resultType binder pattern' success failure
-    Syn.PAnn _ inner -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PParen inner -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PStrict inner -> do
-      body <- desugarListCompPattern resultType binder ty inner success failure
-      forceDefaultPattern resultType binder inner body
-    Syn.PIrrefutable inner -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PTypeSig inner _ -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PVar name -> do
-      locals <- binderEntry name binder ty
-      withLocals locals success
-    Syn.PWildcard -> success
-    Syn.PAs name inner -> do
-      locals <- binderEntry name binder ty
-      withLocals locals (desugarListCompPattern resultType binder ty inner success failure)
-    _ -> do
-      -- The wrappers above are peeled off, so the pattern can have lost
-      -- its checked type. A list pattern needs it for its synthesized
-      -- tail, and a newtype pattern reads its type arguments from it.
-      let typed =
-            case patternType pattern' of
-              Just _ -> pattern'
-              Nothing -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) pattern'
-      desugarListCompConstructorPattern resultType binder typed success failure
-
-desugarListCompConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompConstructorPattern resultType binder pattern' success failure = do
-  maybeFamily <- doPatternFamily pattern'
-  maybeNewtype <- doPatternNewtype pattern'
-  case (maybeFamily, maybeNewtype) of
-    (Just info, _) -> desugarListCompFamilyPattern resultType binder pattern' info success failure
-    (_, Just dataType) -> desugarListCompNewtypePattern resultType binder pattern' dataType success failure
-    _ -> desugarListCompDataPattern resultType binder pattern' success failure
-
--- | A data-family pattern in a list comprehension generator, cast as in
--- 'desugarDoFamilyPattern'.
-desugarListCompFamilyPattern :: TcType -> Binder -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompFamilyPattern resultType binder pattern' info success failure = do
-  instanceType <- requiredPatternType pattern'
-  instanceArguments <- familyInstanceArguments info instanceType
-  axiomArguments <- familyAxiomArguments info instanceArguments
-  let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
-      scrutinee = ExVar (binderName binder)
-  if dfiiIsNewtype info
-    then do
-      child <-
-        case patternChildren pattern' of
-          [fieldPattern] -> pure fieldPattern
-          _ -> failValue ("newtype family list comprehension pattern does not have one field: " <> T.unpack (dfiiFamilyName info))
-      childType <- requiredPatternType child
-      field <- freshPatternBinder child childType
-      let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
-      body <- desugarListCompPattern resultType field childType child success failure
-      pure (ExLet (Bind field unwrapped) body)
-    else do
-      representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
-      representation <- freshBinderFromType "_list_comp_family" representationType
-      body <- desugarListCompDataPattern resultType representation pattern' success failure
-      pure (ExLet (Bind representation (ExCast scrutinee familyCoercion)) body)
-
-desugarListCompDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompDataPattern resultType binder pattern' success failure = do
-  let children = patternChildren pattern'
-      predicates = patternGivenPredicates pattern'
-      typeVariables = patternTypeVariables pattern'
-  withTypeVariables typeVariables $ do
-    typeBinders <- convertTypeBinders typeVariables
-    fieldTypes <- patternFieldTypes pattern' children
-    fields <- zipWithM freshPatternBinder children fieldTypes
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-    constructor <- patternConstructor pattern'
-    resultType' <- convertCheckedType resultType
-    caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
-    body <-
-      withAlternativeScope
-        (not (null typeBinders))
-        (zipWith Dictionary predicates dictionaries)
-        (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-    pure
-      ( ExCase
-          (ExVar (binderName binder))
-          caseBinder
-          resultType'
-          [ Alt constructor typeBinders (dictionaries <> fields) body,
-            Alt AltDefault [] [] failure
-          ]
-      )
-
-desugarListCompChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompChildPatterns resultType children success failure =
-  case children of
-    [] -> success
-    (binder, ty, pattern') : remaining ->
-      desugarListCompPattern
-        resultType
-        binder
-        ty
-        pattern'
-        (desugarListCompChildPatterns resultType remaining success failure)
-        failure
-
-desugarListCompNewtypePattern :: TcType -> Binder -> Syn.Pattern -> DataTypeInfo -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompNewtypePattern resultType binder pattern' dataType success failure = do
-  child <-
-    case patternChildren pattern' of
-      [fieldPattern] -> pure fieldPattern
-      _ -> failValue ("newtype list comprehension pattern does not have one field: " <> T.unpack (dtiName dataType))
-  childType <- requiredPatternType child
-  field <- freshPatternBinder child childType
-  typeArguments <- newtypePatternArguments pattern'
-  convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
-  let tyCon = dtiTyCon dataType
-      axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-      unwrapped = ExCast (ExVar (binderName binder)) (CoAxiom axiom convertedArguments)
-  body <- desugarListCompPattern resultType field childType child success failure
-  pure (ExLet (Bind field unwrapped) body)
 
 listElementType :: String -> TcType -> ValueM TcType
 listElementType label ty =
@@ -4056,14 +3934,19 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
                   Alt (AltData falseName) [] [] failure'
                 ]
             )
-    Syn.PAnn annotation _
+    Syn.PAnn annotation inner
       | Just checked <- Syn.fromAnnotation annotation,
-        not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)),
         isJust (patternConstructorSourceName pattern') -> do
+          -- A pattern synonym use keeps its own annotation, which has the
+          -- type arguments of the use, even when it binds no type variables
+          -- or evidence.
           maybePatSyn <- patternPatSyn pattern'
           case maybePatSyn of
             Just (info, checkedSynonym) -> desugarPatSynWithFailure resultType binder pattern' info checkedSynonym success failure
-            Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
+            Nothing
+              | not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)) ->
+                  desugarDoConstructorPattern resultType binder pattern' success failure
+              | otherwise -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> do
