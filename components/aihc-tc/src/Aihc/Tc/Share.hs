@@ -138,6 +138,7 @@ shareInterface interface =
     <*> traverse shareTypeFamilyInstanceInfo (tcInterfaceTypeFamilyInstanceMap interface)
     <*> traverse sharePatSynInfo (tcInterfacePatSynMap interface)
     <*> traverse shareForeignImportInfo (tcInterfaceForeignImportMap interface)
+    <*> pure (tcInterfaceUniqueBound interface)
 
 shareTyConInfo :: TyConInfo -> Share TyConInfo
 shareTyConInfo info = do
