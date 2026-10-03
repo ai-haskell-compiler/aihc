@@ -40,6 +40,7 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | splitmix | 0.1.3.2 | hackage:0 | deepseq |
 | stm | 2.5.3.1 | hackage:1 | array |
 | tagged | 0.8.11 | hackage:0 | deepseq |
+| terminal-size | 0.3.4 | hackage:1 |  |
 | text | 2.1.4 | hackage:0 | array, binary, bytestring, deepseq |
 | prettyprinter | 1.7.2 | hackage:0 | text |
 | prettyprinter-ansi-terminal | 1.1.4 | hackage:0 | ansi-terminal, prettyprinter, text |
@@ -96,4 +97,4 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | witherable | 0.5 | hackage:2 | base-orphans, containers, hashable, indexed-traversable, indexed-traversable-instances, transformers, unordered-containers, vector |
 | aeson | 2.2.5.1 | hackage:0 | OneTuple, QuickCheck, bytestring, character-ps, containers, data-fix, deepseq, dlist, exceptions, hashable, indexed-traversable, integer-conversion, integer-logarithms, network-uri, primitive, scientific, semialign, strict, tagged, text, text-iso8601, text-short, th-abstraction, these, time, time-compat, unordered-containers, uuid-types, vector, witherable |
 | aihc-package-plan | 0.1.0.0 | local:tooling/aihc-package-plan | aeson, aihc-cabal-syntax, aihc-cpp, aihc-hackage, aihc-parser, bytestring, containers, cryptohash-sha256, directory, filepath, text, time, transformers |
-| aihc | 0.1.0.0 | local:bin/aihc | aeson, aihc-cabal-syntax, aihc-cpp, aihc-hackage, aihc-package-plan, aihc-parser, aihc-resolve, aihc-tc, array, async, binary, bytestring, containers, cryptohash-sha256, deepseq, directory, filepath, megaparsec, optparse-applicative, prettyprinter, primitive, process, stm, text, transformers, unix, vector |
+| aihc | 0.1.0.0 | local:bin/aihc | aeson, aihc-cabal-syntax, aihc-cpp, aihc-hackage, aihc-package-plan, aihc-parser, aihc-resolve, aihc-tc, array, async, binary, bytestring, containers, cryptohash-sha256, deepseq, directory, filepath, megaparsec, optparse-applicative, prettyprinter, primitive, process, stm, terminal-size, text, transformers, unix, vector |
