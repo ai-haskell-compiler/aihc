@@ -1,0 +1,21 @@
+modules:
+  - |
+    module Test where
+
+    import qualified System.Info as Info
+
+    data Known = Known Bool Bool
+
+    -- The values depend on the host, so the test only checks that each one
+    -- is a name that GHC also gives.
+    result :: Known
+    result =
+      Known
+        (Info.os `elem` ["darwin", "linux", "wasi"])
+        (Info.arch `elem` ["aarch64", "x86_64", "wasm32"])
+output: |
+  Known True True
+expression: |
+  result
+status: pass
+reason: System.Info gives the operating system and the architecture with the names that GHC uses
