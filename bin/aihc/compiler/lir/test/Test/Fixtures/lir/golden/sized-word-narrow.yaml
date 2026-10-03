@@ -1,0 +1,38 @@
+program: |
+  primitive andWord32#%1 :: Word32Rep/2
+  primitive orWord32#%2 :: Word32Rep/2
+  primitive xorWord32#%3 :: Word32Rep/2
+  primitive uncheckedShiftRLWord32#%4 :: Word32Rep/2
+  primitive uncheckedShiftLWord32#%5 :: Word32Rep/2
+  primitive plusWord32#%6 :: Word32Rep/2
+  primitive word32ToWord#%7 :: WordRep/1
+
+  $entry (left :: Word32Rep) (right :: Word32Rep) -> WordRep =
+    (both%8 :: Word32Rep) <- primitive-call @Word32Rep andWord32# (left :: Word32Rep) (right :: Word32Rep)
+    (either%9 :: Word32Rep) <- primitive-call @Word32Rep orWord32# (both%8 :: Word32Rep) (right :: Word32Rep)
+    (mixed%10 :: Word32Rep) <- primitive-call @Word32Rep xorWord32# (either%9 :: Word32Rep) (left :: Word32Rep)
+    (low%11 :: Word32Rep) <- primitive-call @Word32Rep uncheckedShiftRLWord32# (mixed%10 :: Word32Rep) (3 :: IntRep)
+    (high%12 :: Word32Rep) <- primitive-call @Word32Rep uncheckedShiftLWord32# (low%11 :: Word32Rep) (29 :: IntRep)
+    (sum%13 :: Word32Rep) <- primitive-call @Word32Rep plusWord32# (high%12 :: Word32Rep) (low%11 :: Word32Rep)
+    primitive-call @WordRep word32ToWord# (sum%13 :: Word32Rep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, ptr, i64)
+
+  extern data @aihc_machine
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %hp_limit_1: ptr, %sp_2: ptr, %sp_limit_3: ptr, %left_4: i64, %right_5: i64, %$cps_return_6: ptr) {
+  entry:
+    %result_7 = and i64 %left_4, %right_5
+    %result_8 = or i64 %result_7, %right_5
+    %result_9 = xor i64 %result_8, %left_4
+    %result_10 = shr.u i64 %result_9, 3
+    %wide_11 = shl i64 %result_10, 29
+    %narrow_12 = trunc i64 %wide_11 to i32
+    %result_13 = zext i32 %narrow_12 to i64
+    %wide_14 = add i64 %result_13, %result_10
+    %narrow_15 = trunc i64 %wide_14 to i32
+    %result_16 = zext i32 %narrow_15 to i64
+    tailcall @aihc_lir_continue_i(%hp_0, %hp_limit_1, %sp_2, %sp_limit_3, %$cps_return_6, %result_16)
+  }
+status: pass
+reason: a bitwise operation or a right shift of two 32-bit words cannot exceed 32 bits, so only a left shift and an addition narrow their result
