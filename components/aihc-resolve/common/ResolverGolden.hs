@@ -30,20 +30,23 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Resolve
-  ( Identifier,
+  ( Entity (..),
+    GlobalName (..),
+    Identifier,
+    LocalId (..),
     ModuleUnit (..),
     Package (..),
     PackageId (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
-    ResolveResult (..),
-    ResolvedName (..),
+    ResolveError (..),
+    ResolveFailure (..),
+    ResolvedModule (..),
+    ResolvedUnit (..),
+    builtins,
     collectModuleExports,
     displayIdentifier,
-    emptyScope,
-    lookupImportedModule,
     resolveUnit,
-    unionScope,
     unnamedPackage,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
@@ -185,15 +188,10 @@ evaluateResolverCase meta =
         Right parsed ->
           let modules = [ModuleUnit package (fixtureExtensions fixtureLanguageEdition ast) ast | (package, ast) <- parsed]
               exports = collectModuleExports modules
-              lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name exports
-              builtinScope =
-                foldr
-                  (unionScope . lookupBuiltin)
-                  emptyScope
-                  builtinModuleNames
-              result = resolveUnit builtinScope exports modules
-              fixtureResult = result {resolvedModules = drop supportModuleCount (resolvedModules result)}
-              actualAnnotated = showAnnotated fixtureResult
+              builtinScope = builtins unnamedPackage exports builtinModuleNames
+              resolved = either failureModules resolvedModules (resolveUnit builtinScope exports modules)
+              fixtureModules = drop supportModuleCount resolved
+              actualAnnotated = showAnnotated fixtureModules
               outputMatches = actualAnnotated == caseAnnotated meta
            in case caseStatus meta of
                 StatusPass
@@ -227,7 +225,7 @@ fixtureLanguageEdition :: LanguageEdition
 fixtureLanguageEdition = Haskell2010Edition
 
 builtinModuleNames :: [Text]
-builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
+builtinModuleNames = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
 
 listSupportModule :: Text
 listSupportModule =
@@ -247,8 +245,8 @@ progressSummary outcomes =
   where
     count wanted = length [() | (_, out, _) <- outcomes, out == wanted]
 
-renderAnnotatedResolveResult :: [Text] -> ResolveResult -> [String]
-renderAnnotatedResolveResult sources result =
+renderAnnotatedResolveResult :: [Text] -> [ResolvedModule] -> [String]
+renderAnnotatedResolveResult sources resolved =
   case compare (length sources) (length modules) of
     LT -> error "renderAnnotatedResolveResult: fewer source texts than modules"
     GT -> error "renderAnnotatedResolveResult: more source texts than modules"
@@ -256,12 +254,17 @@ renderAnnotatedResolveResult sources result =
       let moduleSources = sortOn (moduleDisplayName . fst) (zip modules sources)
        in renderAnnotatedModuleSources resolutionAnnotationDoc (map snd moduleSources) (map fst moduleSources)
   where
-    modules = map moduleUnitAst (resolvedModules result)
+    modules = map (moduleUnitAst . resolvedModuleUnit) resolved
 
+-- | The label of a resolution that succeeded, or of one that failed.
 resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
-resolutionAnnotationDoc annotation = do
-  resolution <- fromAnnotation annotation
-  pure (pretty (annotationLabel resolution))
+resolutionAnnotationDoc annotation =
+  (pretty . annotationLabel <$> fromAnnotation annotation)
+    <|> (pretty . errorLabel <$> fromAnnotation annotation)
+
+errorLabel :: ResolveError -> Text
+errorLabel resolveError =
+  renderConciseNamespace (resolveErrorNamespace resolveError) <> " Error " <> T.pack (resolveErrorMessage resolveError)
 
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
@@ -279,15 +282,14 @@ renderConciseNamespace namespace =
     ResolutionNamespaceType -> "t"
     ResolutionNamespaceModule -> "m"
 
-renderConciseOrigin :: Identifier -> ResolvedName -> Text
-renderConciseOrigin identifier resolvedName =
-  case resolvedName of
-    ResolvedTopLevel identity moduleName' _
-      | packageIdText identity `elem` ["", "main"] -> moduleName'
-      | otherwise -> packageIdText identity <> ":" <> moduleName'
-    ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
-    ResolvedSyntax -> "Builtin " <> displayIdentifier identifier
-    ResolvedError msg -> T.pack ("Error " <> msg)
+renderConciseOrigin :: Identifier -> Entity -> Text
+renderConciseOrigin identifier entity =
+  case entity of
+    EntityGlobal global
+      | packageIdText (globalNamePackage global) `elem` ["", "main"] -> globalNameModule global
+      | otherwise -> packageIdText (globalNamePackage global) <> ":" <> globalNameModule global
+    EntityLocal (LocalId uniqueId) -> T.pack (show uniqueId)
+    EntitySyntax -> "Builtin " <> displayIdentifier identifier
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do

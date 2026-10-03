@@ -7,6 +7,7 @@ module Data.Functor.Identity
   )
 where
 
+import Data.Bits (Bits)
 import Data.Foldable (Foldable (..))
 import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
@@ -16,7 +17,7 @@ import Foreign.Storable (Storable)
 import Prelude
 
 newtype Identity (a :: Type) = Identity {runIdentity :: a}
-  deriving newtype (Eq, Ord, Bounded, Enum, Monoid, Storable)
+  deriving newtype (Eq, Ord, Bounded, Enum, Monoid, Storable, Num, Real, Integral, Fractional, Floating, RealFrac, RealFloat, Bits)
 
 instance (Read a) => Read (Identity a) where
   readsPrec precedence = readParen (precedence > 10) readIdentity

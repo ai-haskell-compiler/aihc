@@ -21,7 +21,6 @@ import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
     SourceSpan,
-    UnqualifiedName,
     mkAnnotation,
   )
 import Aihc.Resolve.Scope
@@ -97,25 +96,25 @@ withResolution ::
   Maybe SourceSpan ->
   Identifier ->
   ResolutionNamespace ->
-  ResolvedName ->
+  Resolution ->
   (Annotation -> a) ->
   ResolveM a
 withResolution span' identifier namespace target attach =
   ResolveM $ \_env state ->
-    let annotation = ResolutionAnnotation span' identifier namespace target
-        -- Settle whether this one failed now rather than leaving a thunk
-        -- over the state behind for every name in the module.
-        state' = case target of
-          ResolvedError message -> state {stateErrors = resolutionError annotation message : stateErrors state}
-          ResolvedTopLevel {} -> state
-          ResolvedLocal {} -> state
-          ResolvedSyntax -> state
-     in state' `seq` (attach (mkAnnotation annotation), state')
+    -- Settle whether this one failed now rather than leaving a thunk over
+    -- the state behind for every name in the module.
+    let (annotation, state') = case target of
+          Resolved entity ->
+            (mkAnnotation (ResolutionAnnotation span' identifier namespace entity), state)
+          Unresolved message ->
+            let resolveError = resolveErrorAt span' identifier namespace message
+             in (mkAnnotation resolveError, state {stateErrors = resolveError : stateErrors state})
+     in state' `seq` (attach annotation, state')
 {-# INLINE withResolution #-}
 
 -- | The annotation for one resolution, when the caller has nothing to
 -- attach it to yet.
-resolution :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> ResolvedName -> ResolveM Annotation
+resolution :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> Resolution -> ResolveM Annotation
 resolution span' identifier namespace target =
   withResolution span' identifier namespace target id
 
@@ -165,11 +164,11 @@ withPushedSpan ann action = do
   ambient <- currentSpan
   withAmbientSpan (pushSpanFromAnn ambient ann) action
 
-freshLocal :: UnqualifiedName -> ResolveM ResolvedName
-freshLocal name = do
+freshLocal :: ResolveM Entity
+freshLocal = do
   currentId <- gets stateNextLocal
   modify' (\state -> state {stateNextLocal = currentId + 1})
-  pure (ResolvedLocal currentId name)
+  pure (EntityLocal (LocalId currentId))
 
 withResetLocalSupply :: ResolveM a -> ResolveM a
 withResetLocalSupply action = do

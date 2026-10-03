@@ -3,6 +3,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
@@ -13,6 +14,7 @@
 module Type.Reflection.Internal
   ( Typeable (..),
     TypeRep,
+    withTypeable,
     (:~~:) (..),
     pattern Con,
     pattern Con',
@@ -48,6 +50,7 @@ import Data.Type.Equality ((:~~:) (..))
 import GHC.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
 import GHC.Classes qualified
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
+import GHC.Magic.Dict (withDict)
 import GHC.Num qualified
 import GHC.Prim (ord#, seq, (==#))
 import GHC.Prim.Show (Show (..), ShowS)
@@ -375,3 +378,7 @@ runtimeRepresentationList values =
    in case values of
         [] -> SomeTypeRep (TypeRep (constructor "[]" listKind) [element] [] :: TypeRep ())
         x : xs -> SomeTypeRep (TypeRep (constructor ":" (KindRepFun (KindRepVar 0) (KindRepFun listKind listKind))) [element] [runtimeRepresentation x, runtimeRepresentationList xs] :: TypeRep ())
+
+-- | Supply class evidence from a type representation.
+withTypeable :: forall k (a :: k) r. TypeRep a -> ((Typeable a) => r) -> r
+withTypeable = withDict @(Typeable a)

@@ -108,6 +108,10 @@ instance (Bounded a) => Bounded (Solo a) where
   minBound = MkSolo minBound
   maxBound = MkSolo maxBound
 
+instance (Bounded a, Bounded b) => Bounded (a, b) where
+  minBound = (minBound, minBound)
+  maxBound = (maxBound, maxBound)
+
 instance Bounded Bool where
   minBound = False
   maxBound = True

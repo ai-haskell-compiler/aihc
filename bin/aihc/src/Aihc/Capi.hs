@@ -25,8 +25,8 @@ module Aihc.Capi
   )
 where
 
-import Aihc.Resolve (PackageId (..))
-import Aihc.Tc (CType (..), TcInterface, TcTermKey (..), tcInterfaceForeignImports)
+import Aihc.Resolve (Entity (..), GlobalName (..), LocalId (..), PackageId (..))
+import Aihc.Tc (CType (..), TcInterface, tcInterfaceForeignImports)
 import Aihc.Tc.Annotations
   ( TcForeignAbiType (..),
     TcForeignCApi (..),
@@ -52,12 +52,13 @@ import Numeric (showHex)
 --
 -- The parts are escaped rather than concatenated, so that two different
 -- triples cannot spell the same symbol.
-capiWrapperSymbol :: TcTermKey -> Text
+capiWrapperSymbol :: Entity -> Text
 capiWrapperSymbol key =
   case key of
-    TcTermGlobal (PackageId package) owner name ->
+    EntityGlobal (GlobalName name (PackageId package) owner _) ->
       T.intercalate "_" ("aihc_capi" : map escapeSymbolPart [package, owner, name])
-    TcTermLocal unique -> "aihc_capi_local_" <> T.pack (show unique)
+    EntityLocal (LocalId unique) -> "aihc_capi_local_" <> T.pack (show unique)
+    EntitySyntax -> "aihc_capi_syntax"
 
 -- | Escape one part of a C identifier built from Haskell names.
 --
@@ -118,7 +119,7 @@ interfaceCapiWrappersWhere owned interface =
             capiWrapperArguments = map capiValue (tcForeignArguments plan),
             capiWrapperResult = capiValue (tcForeignResult plan)
           }
-      | (key@(TcTermGlobal _ owner _), TcForeignCCallImport _ plan) <- tcInterfaceForeignImports interface,
+      | (key@(GlobalTerm _ owner _), TcForeignCCallImport _ plan) <- tcInterfaceForeignImports interface,
         owned owner,
         Just capi <- [tcForeignCApi plan]
       ]

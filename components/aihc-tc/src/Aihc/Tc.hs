@@ -32,7 +32,7 @@ module Aihc.Tc
     derivingReferenceList,
     TcBindingResult (..),
     defaultMethodName,
-    TcTermKey (..),
+    Entity (..),
     TcInterface (..),
     InstanceKey,
     tcInterfaceTerms,
@@ -57,7 +57,7 @@ module Aihc.Tc
 
     -- * Re-exports for convenience
     TcType (..),
-    TcTypeKey,
+    GlobalName,
     TcAxiomKey (..),
     TcKindEnv,
     TyCon (..),
@@ -119,7 +119,7 @@ module Aihc.Tc
 where
 
 import Aihc.Parser.Syntax (Extension (..), Module (moduleDecls))
-import Aihc.Resolve (ModuleUnit (..))
+import Aihc.Resolve (ModuleUnit (..), ResolvedModule (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
 import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, collectTcDiagnostics, internalAbortDiagnostic)
@@ -153,29 +153,32 @@ tcModuleSuccess =
 
 -- | Type-check dependency-ordered modules with an imported semantic interface.
 -- Return only facts that the specified modules define.
-typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ModuleUnit] -> ([Module], TcInterface)
-typecheckModulesWithInterface config imported units
+typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckModulesWithInterface config imported resolved
   | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
-          (finalState, checkedModules) = List.mapAccumL check initialState units
+          (finalState, checkedModules) = List.mapAccumL check initialState resolved
        in (checkedModules, tcInterfaceDifference initialState finalState)
   where
+    units = map resolvedModuleUnit resolved
     check st m =
       let (result, st') = typecheckModuleWithState config st m
        in (st', result)
 
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
-typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ModuleUnit] -> ([Module], TcInterface)
-typecheckModuleSccWithInterface config imported units
+typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckModuleSccWithInterface config imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the component adds no types, evidence, or diagnostics.
   | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
-          (checkedModules, finalState) = typecheckModuleSccWithState config initialState units
+          (checkedModules, finalState) = typecheckModuleSccWithState config initialState resolved
        in (checkedModules, tcInterfaceDifference initialState finalState)
+  where
+    units = map resolvedModuleUnit resolved
 
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
@@ -214,7 +217,7 @@ tcInterfaceDifference initial state =
       | Map.size current == Map.size previous = Map.empty
       | otherwise = Map.difference current previous
 
-exportedGlobalTerms :: Map.Map TcTermKey TcBinder -> Map.Map TcTermKey TypeScheme
+exportedGlobalTerms :: Map.Map Entity TcBinder -> Map.Map Entity TypeScheme
 exportedGlobalTerms = Map.mapMaybe binderScheme
   where
     binderScheme binder =
@@ -222,9 +225,9 @@ exportedGlobalTerms = Map.mapMaybe binderScheme
         TcIdBinder scheme _ -> Just scheme
         _ -> Nothing
 
-typecheckModuleSccWithState :: TcConfig -> TcState -> [ModuleUnit] -> ([Module], TcState)
-typecheckModuleSccWithState config st units =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc units <* finalizeDiagnostics) of
+typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([Module], TcState)
+typecheckModuleSccWithState config st resolved =
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc resolved <* finalizeDiagnostics) of
     Left abort ->
       ( case map moduleUnitAst units of
           [] -> []
@@ -243,6 +246,7 @@ typecheckModuleSccWithState config st units =
               }
        in (results, nextState)
   where
+    units = map resolvedModuleUnit resolved
     tcEnv =
       (emptyTcEnv config)
         { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleUnitExtensions) units,
@@ -252,9 +256,9 @@ typecheckModuleSccWithState config st units =
           tcEnvPostfixOperators = any (elem PostfixOperators . moduleUnitExtensions) units
         }
 
-typecheckModuleWithState :: TcConfig -> TcState -> ModuleUnit -> (Module, TcState)
-typecheckModuleWithState config st unit =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule unit <* finalizeDiagnostics) of
+typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (Module, TcState)
+typecheckModuleWithState config st resolved =
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule resolved <* finalizeDiagnostics) of
     Left abort ->
       ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (moduleUnitAst unit),
         st
@@ -276,6 +280,8 @@ typecheckModuleWithState config st unit =
         { tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
           tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions,
           tcEnvScopedTypeVariables = ScopedTypeVariables `elem` enabledExtensions,
+          tcEnvUndecidableInstances = UndecidableInstances `elem` enabledExtensions,
           tcEnvPostfixOperators = PostfixOperators `elem` enabledExtensions
         }
+    unit = resolvedModuleUnit resolved
     enabledExtensions = moduleUnitExtensions unit

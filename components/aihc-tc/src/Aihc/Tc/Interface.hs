@@ -35,16 +35,16 @@ import GHC.Generics (Generic)
 -- Map operations can share unchanged subtrees with the checker state.
 -- The list views below use key order.
 data TcInterface = TcInterface
-  { tcInterfaceTermMap :: !(Map.Map TcTermKey TypeScheme),
-    tcInterfaceTyConMap :: !(Map.Map TcTypeKey TyConInfo),
-    tcInterfaceDataTypeMap :: !(Map.Map TcTypeKey DataTypeInfo),
-    tcInterfaceClassMap :: !(Map.Map TcTypeKey ClassInfo),
+  { tcInterfaceTermMap :: !(Map.Map Entity TypeScheme),
+    tcInterfaceTyConMap :: !(Map.Map GlobalName TyConInfo),
+    tcInterfaceDataTypeMap :: !(Map.Map GlobalName DataTypeInfo),
+    tcInterfaceClassMap :: !(Map.Map GlobalName ClassInfo),
     tcInterfaceInstanceMap :: !(Map.Map InstanceKey InstanceInfo),
     tcInterfaceDataFamilyInstanceMap :: !(Map.Map TcAxiomKey DataFamilyInstanceInfo),
     tcInterfaceTypeFamilyInstanceMap :: !(Map.Map TcAxiomKey TypeFamilyInstanceInfo),
-    tcInterfacePatSynMap :: !(Map.Map TcTermKey PatSynInfo),
+    tcInterfacePatSynMap :: !(Map.Map Entity PatSynInfo),
     -- | The checked calling convention of each foreign import.
-    tcInterfaceForeignImportMap :: !(Map.Map TcTermKey TcForeignImportInfo)
+    tcInterfaceForeignImportMap :: !(Map.Map Entity TcForeignImportInfo)
   }
   deriving (Eq, Show, Read, Generic)
 
@@ -53,7 +53,7 @@ instance NFData TcInterface
 -- | The identity of an instance: its dictionary origin and name.
 type InstanceKey = ((Text, Text), Text)
 
-tcInterfaceTerms :: TcInterface -> [(TcTermKey, TypeScheme)]
+tcInterfaceTerms :: TcInterface -> [(Entity, TypeScheme)]
 tcInterfaceTerms = Map.toList . tcInterfaceTermMap
 
 tcInterfaceTyCons :: TcInterface -> [TyConInfo]
@@ -77,12 +77,12 @@ tcInterfaceTypeFamilyInstances = Map.elems . tcInterfaceTypeFamilyInstanceMap
 tcInterfacePatSyns :: TcInterface -> [PatSynInfo]
 tcInterfacePatSyns = Map.elems . tcInterfacePatSynMap
 
-tcInterfaceForeignImports :: TcInterface -> [(TcTermKey, TcForeignImportInfo)]
+tcInterfaceForeignImports :: TcInterface -> [(Entity, TcForeignImportInfo)]
 tcInterfaceForeignImports = Map.toList . tcInterfaceForeignImportMap
 
 -- | Build an interface from lists of facts. Two facts with one identity
 -- must be equal.
-tcInterfaceFromLists :: [(TcTermKey, TypeScheme)] -> [TyConInfo] -> [DataTypeInfo] -> [ClassInfo] -> [InstanceInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [PatSynInfo] -> [(TcTermKey, TcForeignImportInfo)] -> TcInterface
+tcInterfaceFromLists :: [(Entity, TypeScheme)] -> [TyConInfo] -> [DataTypeInfo] -> [ClassInfo] -> [InstanceInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [PatSynInfo] -> [(Entity, TcForeignImportInfo)] -> TcInterface
 tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports =
   TcInterface
     { tcInterfaceTermMap = fromListChecked "term interface" id terms,

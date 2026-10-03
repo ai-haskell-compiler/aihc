@@ -28,6 +28,8 @@ module GHC.TypeNats
     fromSNat,
     withSomeSNat,
     withKnownNat,
+    type (<=),
+    type (<=?),
     CmpNat,
     type (+),
     type (-),
@@ -39,6 +41,7 @@ module GHC.TypeNats
   )
 where
 
+import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Magic.Dict (withDict)
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)

@@ -39,7 +39,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
@@ -102,6 +102,10 @@ inferExprAt ambient expr = case expr of
       isSyntaxTermResolution "fromString" resolution,
       EString _ _ <- inner ->
         inferOverloadedLiteral ambient "fromString" [] ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "fromListN" resolution ->
+        inferOverloadedList (resolutionSpan resolution <|> ambient) ann resolution inner
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       resolutionNamespace resolution == ResolutionNamespaceType,
@@ -275,7 +279,7 @@ inferNameOccurrence ambient nameSyntax = do
 
 -- | A unidirectional pattern synonym has no builder. An expression cannot
 -- use it.
-rejectUnidirectionalPatSyn :: Maybe SourceSpan -> Text -> ResolvedName -> TcM ()
+rejectUnidirectionalPatSyn :: Maybe SourceSpan -> Text -> Entity -> TcM ()
 rejectUnidirectionalPatSyn sp name target = do
   mPatSyn <- lookupPatSynTarget target
   case mPatSyn of
@@ -1010,8 +1014,8 @@ checkHigherRankArgument :: Maybe SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct]
 checkHigherRankArgument sp expectedTy arg
   | checksExpectedResult arg = do
       boundary <- getUniqueBoundary
-      skolemized@(_, _, expectedBody) <- skolemizeSigmaType expectedTy
-      (arg', actualTy, argCts) <- checkExpr expectedBody arg
+      skolemized@(_, predicates, expectedBody) <- skolemizeSigmaType expectedTy
+      (arg', actualTy, argCts) <- withGivenPredicates predicates (checkExpr expectedBody arg)
       finishHigherRankArgument sp boundary expectedTy skolemized arg' actualTy argCts
   | otherwise = do
       boundary <- getUniqueBoundary
@@ -1297,6 +1301,22 @@ inferTuple sp flavor elems = do
       pure (Just e', ty, cts)
 
     runtimeRepOrLifted kinds kind = fromRight (liftedRep kinds) (runtimeRepFromKind kind)
+
+-- | An overloaded list applies fromListN to its length and an ordinary list.
+inferOverloadedList :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedList sp resolutionAnn resolution inner = do
+  (list', listTy, listCts) <- inferExprAt sp inner
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "fromListN" resolution
+  kinds <- getKinds
+  intTyCon <- wiredTyCon tcWiringIntTyCon (typeKind kinds)
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = TcFunTy (TcTyCon intTyCon []) (TcFunTy listTy resultTy)
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromListN") sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+      resultPending = pendingAnnotation resultTy [] [] []
+      annotated = annotatePendingExpr methodPending (EAnn resolutionAnn list')
+  pure (annotatePendingExprAt sp resultPending annotated, resultTy, listCts <> methodCts <> [methodEquality])
 
 inferList :: Maybe SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = do

@@ -5,28 +5,27 @@ module Aihc.Cli.Install
     InstallLocations (..),
     InstalledPackage (..),
     archiveHasMembers,
+    CompiledExecutable (..),
+    ExecutableComponent (..),
     FcModule (..),
     ModuleCompileConfig (..),
-    ModuleCompileRequest (..),
-    ModuleCompileResult (..),
     ModuleOutputPaths (..),
     backendOptionsKey,
     cabalPlatformForTarget,
-    capiStubOptions,
     compileFcModules,
     optimizeFcProgram,
-    compileModules,
-    compilePackageCFiles,
     moduleOutputPaths,
     packageLinkArguments,
     buildEnvironmentIdentity,
     defaultBuildRoot,
-    dependencyIncludeDirs,
     install,
+    installExecutables,
     installWith,
-    installPlanPackages,
     installTargetRoot,
+    newModuleCompileConfig,
     parsePackageTarget,
+    planProgressItem,
+    planProgressItems,
     planRequestFor,
     runInstall,
     sourceFileModuleName,
@@ -55,6 +54,7 @@ module Aihc.Cli.Install
     primKinds,
     readPackageInputs,
     renderFrontendFailure,
+    runConfigureScript,
     selectInstanceProviders,
     sourceDependencyNames,
     sourceModuleUnits,
@@ -105,6 +105,7 @@ import Aihc.Cli.ModuleProvider
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
+import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), progressTaskObserver, quietProgress, withProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifactParts)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
@@ -151,7 +152,6 @@ import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
     Module,
-    Name (..),
     SourceSpan,
     moduleName,
     sourceSpanSourceName,
@@ -160,25 +160,27 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Prim.Wiring (primDerivingReferences, primTcConfig, primTcWiring)
 import Aihc.Resolve
-  ( ModuleExports,
+  ( Builtins,
+    Entity (..),
+    GlobalName (..),
+    ModuleExports,
     ModuleKey (..),
     ModuleUnit,
     Package (..),
     PackageId (..),
     ResolutionNamespace (..),
     ResolveError (..),
-    ResolveResult (..),
-    ResolvedName (..),
-    Scope (..),
+    ResolveFailure (..),
+    ResolvedUnit (..),
+    builtins,
     collectModuleExportsWithDeps,
-    emptyScope,
-    lookupImportedModule,
+    exportedTerms,
+    exportedTypes,
     lookupModuleExport,
     moduleExportKeys,
     moduleExportsFromList,
     modulesInPackage,
     resolveUnit,
-    unionScope,
   )
 import Aihc.Tc
   ( ClassInfo (..),
@@ -191,7 +193,6 @@ import Aihc.Tc
     TcInterface (..),
     TcKinds,
     TcSeverity (..),
-    TcTermKey (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     derivingReferenceList,
@@ -210,18 +211,21 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Share (shareTcInterface)
-import Aihc.Tc.Types (TcTypeKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
+import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (IOException, SomeException, evaluate, finally, throwIO, try)
+import Control.Exception (IOException, SomeException, bracket_, evaluate, finally, throwIO, try)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
+import Data.Either (fromRight)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
@@ -237,13 +241,14 @@ import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
+import GHC.IO.Handle.Lock qualified as HandleLock
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
-import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
+import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, stderr, stdout, withFile)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
@@ -294,13 +299,6 @@ data InstalledPackage = InstalledPackage
   deriving (Generic)
 
 instance NFData InstalledPackage
-
-installedPackageLocator :: [InstalledPackage] -> PackageLocator
-installedPackageLocator packages =
-  Map.fromList
-    [ (PackageId (packageManifestUnitId (installedManifest package)), StorePackage (installStorePath (installedResult package)))
-    | package <- packages
-    ]
 
 -- | A fact of each module of several packages, by module name and then by
 -- package. Two packages can each hold a module of one name, as @filepath@
@@ -366,7 +364,7 @@ instance NFData FcModule where
 -- task resolved them, or the parsed modules when the resolve artifacts were
 -- reused and the unit has to be resolved again before it can be checked.
 data TypeInput
-  = TypeInputResolved ResolveResult
+  = TypeInputResolved ResolvedUnit
   | TypeInputParsed [ModuleUnit]
 
 -- | The System FC of a unit, as the backend task takes it from the
@@ -472,28 +470,42 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileHeaderDirectory :: !FilePath,
     compileVerbose :: String -> IO (),
     compilePrintTimings :: String -> IO (),
-    compileUseColor :: !Bool
+    compileUseColor :: !Bool,
+    -- | Where the progress of the build goes.
+    compileProgress :: !ProgressReporter
   }
 
-data ModuleCompileRequest = ModuleCompileRequest
-  { compileOutputRoot :: !FilePath,
-    compilePackageRoot :: !FilePath,
-    compilePackage :: !Package,
-    compileSourceFiles :: ![HackageCabal.FileInfo],
-    -- | The installed packages the modules are compiled against. Only the
-    -- modules the sources import are read from them.
-    compileDependencies :: ![InstalledPackage],
-    -- | Where the capi wrappers of these modules look for their headers.
-    compileCapiStubOptions :: !CapiStubOptions
+-- | An executable that the install graph compiles beside the packages of
+-- the plan. Its modules are a package of their own, and its units start
+-- when the units they import are ready.
+data ExecutableComponent = ExecutableComponent
+  { -- | The package of the modules. The entry archive of the target refers
+    -- to the entry of the package whose identity is @exe@.
+    componentPackage :: !Package,
+    componentSourceRoot :: !FilePath,
+    -- | Where the artifacts of the modules and the C objects are written.
+    componentOutputRoot :: !FilePath,
+    componentDependencies :: ![PackagePlan],
+    -- | What the progress names the executable.
+    componentItem :: !ProgressItem,
+    -- | The source files and the C inputs of the executable, given every
+    -- package below it as it builds.
+    componentInputs :: [InstalledPackage] -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
   }
 
-data ModuleCompileResult = ModuleCompileResult
-  { -- | The objects of the modules, and of their capi wrappers. A @--lto@
+-- | An executable after the install graph: its objects, and the packages
+-- it links, as they are published.
+data CompiledExecutable = CompiledExecutable
+  { compiledModuleNames :: ![Text],
+    -- | The objects of the modules, and of their capi wrappers. A @--lto@
     -- build has wrapper objects only.
-    compileObjectPaths :: [FilePath],
-    compileModuleNames :: [Text]
+    compiledModuleObjects :: ![FilePath],
+    -- | The objects of the C sources of the executable itself.
+    compiledCObjects :: ![FilePath],
+    compiledCCompileInfo :: !HackageCabal.CCompileInfo,
+    -- | Every package below the executable, each once.
+    compiledPackages :: ![InstalledPackage]
   }
-  deriving (Eq, Show)
 
 data CompiledPackageModules = CompiledPackageModules
   { compiledSources :: ![SourceModule],
@@ -533,27 +545,32 @@ data PackageTaskContext = PackageTaskContext
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
+-- | Install a package with the progress on stderr, and name the store
+-- entry on stdout.
 runInstall :: InstallOptions -> IO ()
 runInstall options = do
-  result <- install options
+  result <- withProgress stderr (`installWith` options)
   putStrLn ("store: " <> installStorePath result)
 
--- | Install a package and write the verbose and timing messages to stdout.
+-- | Install a package without progress. The verbose and timing messages go
+-- to stdout. A library caller, such as a test, uses this entry point.
 install :: InstallOptions -> IO InstallResult
-install = installWith stdout
+install = installWith (quietProgress stdout)
 
--- | Install a package and write the verbose and timing messages to the given
--- handle. A test gives a file handle here and reads the file. The test must
--- not redirect the process stdout instead: the test runner writes its progress
--- to stdout from other threads, and a redirect would capture that progress.
-installWith :: Handle -> InstallOptions -> IO InstallResult
-installWith output options = do
+-- | Install a package and report the progress, the verbose messages, and
+-- the timing messages to the reporter. A test gives a reporter that writes
+-- to a file and reads the file. The test must not redirect the process
+-- stdout instead: the test runner writes its progress to stdout from other
+-- threads, and a redirect would capture that progress.
+installWith :: ProgressReporter -> InstallOptions -> IO InstallResult
+installWith reporter options = do
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
-  useColor <- hIsTerminalDevice output
   let target = installTarget options
       targetDirectory = nativeTargetStoreDirectory target
-  let verbose message = when (installVerbose options) (hPutStrLn output message)
-      printTimings message = when (installPrintTimings options) (hPutStrLn output message)
+      useColor = progressColor reporter
+      report = progressReport reporter
+  let verbose message = when (installVerbose options) (report (ProgressLog message))
+      printTimings message = when (installPrintTimings options) (report (ProgressLog message))
   hackageSource <- defaultHackageSource
   (root, origin, lockDirectory) <- installTargetRoot (installPackageTarget options)
   request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (installWorkspace options)) lockDirectory verbose
@@ -561,31 +578,21 @@ installWith output options = do
   plan <- case plannedRoots planned of
     [rootPlan] -> pure rootPlan
     _ -> ioError (userError "The plan has no root")
+  report (ProgressPlan (planProgressItems [plan]))
   buildRoot <- maybe (pure (defaultBuildRoot (planSourcePath plan))) pure (installBuildRoot options)
-  buildIdentity <- buildEnvironmentIdentity target
-  -- The headers go under the store and not under the build directory,
-  -- because an immutable install writes no build directory at all.
-  headerDirectory <- ensureCompilerHeaders target (storeRoot </> targetDirectory)
-  let levelPlan = optimizationPlan (installLto options) (installOptimization options)
-      config =
-        ModuleCompileConfig
-          { compileBuildIdentity = buildIdentity,
-            compileKeepCore = installKeepCore options,
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (installLto options) (installOptimization options)
+  let config =
+        levelConfig
+          { compileKeepCore = installKeepCore options,
             compileKeepGrin = installKeepGrin options,
-            compileKeepLir = False,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileCheckPrimBounds = installCheckPrimBounds options,
-            compileLto = planWholeProgram levelPlan,
-            compilePasses = planPasses levelPlan,
-            compileGrinPointsTo = planGrinPointsTo levelPlan,
             compileNoCode = installNoCode options,
-            compileOptimization = installOptimization options,
-            compileTarget = target,
-            compileHeaderDirectory = headerDirectory,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
-            compileUseColor = useColor
+            compileUseColor = useColor,
+            compileProgress = reporter
           }
       locations =
         InstallLocations
@@ -599,9 +606,68 @@ installWith output options = do
   -- a Hackage release is not.
   installedResult <$> installPackagePlan config locations plan {planOrigin = origin}
 
+-- | The compile config of a command at the given level, with no output
+-- kept, no lint, and no messages. Each command then sets what its own
+-- options ask for. The headers of the target go under the store and not
+-- under a build directory, because an immutable install writes no build
+-- directory at all.
+newModuleCompileConfig :: NativeTarget -> FilePath -> Bool -> OptimizationLevel -> IO ModuleCompileConfig
+newModuleCompileConfig target storeTargetRoot lto level = do
+  buildIdentity <- buildEnvironmentIdentity target
+  headerDirectory <- ensureCompilerHeaders target storeTargetRoot
+  let plan = optimizationPlan lto level
+  pure
+    ModuleCompileConfig
+      { compileBuildIdentity = buildIdentity,
+        compileKeepCore = False,
+        compileKeepGrin = False,
+        compileKeepLir = False,
+        compileKeepNative = False,
+        compileLint = False,
+        compileCheckPrimBounds = False,
+        compileLto = planWholeProgram plan,
+        compilePasses = planPasses plan,
+        compileGrinPointsTo = planGrinPointsTo plan,
+        compileNoCode = False,
+        compileOptimization = level,
+        compileTarget = target,
+        compileHeaderDirectory = headerDirectory,
+        compileVerbose = const (pure ()),
+        compilePrintTimings = const (pure ()),
+        compileUseColor = False,
+        compileProgress = quietProgress stdout
+      }
+
+-- | The config of a package the user did not name. The flags that keep the
+-- output of a phase name the packages the user named alone, so a
+-- dependency in the store is never rejected for lacking those outputs.
+dependencyCompileConfig :: ModuleCompileConfig -> ModuleCompileConfig
+dependencyCompileConfig config =
+  config
+    { compileKeepCore = False,
+      compileKeepGrin = False,
+      compileKeepLir = False,
+      compileKeepNative = False
+    }
+
 -- | Where a local package builds unless @--build-root@ says otherwise.
 defaultBuildRoot :: FilePath -> FilePath
 defaultBuildRoot root = root </> ".aihc-target"
+
+-- | What the progress names a planned package: its name and version.
+planProgressItem :: PackagePlan -> ProgressItem
+planProgressItem plan =
+  ItemPackage (T.pack (unPackageName (planName plan) <> "-" <> showVersion (Cabal.packageVersion (planDescription plan))))
+
+-- | The packages of the plans in the order they build: the dependencies
+-- of a package before it, and each package once.
+planProgressItems :: [PackagePlan] -> [ProgressItem]
+planProgressItems = reverse . foldl' visit []
+  where
+    visit seen plan =
+      let below = foldl' visit seen (planDependencyPlans plan)
+          item = planProgressItem plan
+       in if item `elem` below then below else item : below
 
 -- | Turn the install argument into a plan root, say where it came from,
 -- and where its lock file lives.
@@ -689,11 +755,13 @@ data InstallShared = InstallShared
     sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
--- | One package of a plan, as the graph installs it. The package has three
--- tasks of its own. Prepare reads, configures, and preprocesses it, or
--- takes it from the store. Partition cuts its modules into units and adds
--- their tasks. Finish collects the results and archives it. A dependent
--- waits on each of the three, and its units wait on the units they import.
+-- | One package of a plan, as the graph installs it. The package has four
+-- tasks of its own. Configure reads the package and runs its configure
+-- script. It waits for no other task, because the script sees only the C
+-- compiler. Prepare preprocesses the package, or takes it from the store.
+-- Partition cuts its modules into units and adds their tasks. Finish
+-- collects the results and archives it. A dependent waits on prepare,
+-- partition, and finish, and its units wait on the units they import.
 data PackageSlot = PackageSlot
   { slotPlan :: !PackagePlan,
     slotRoot :: !Bool,
@@ -703,9 +771,13 @@ data PackageSlot = PackageSlot
     slotClosure :: ![PackageSlot],
     -- | The place of the package in the plan, after its dependencies.
     slotOrder :: !Int,
+    slotConfigureTask :: !TaskId,
     slotPrepareTask :: !TaskId,
     slotPartitionTask :: !TaskId,
     slotFinishTask :: !TaskId,
+    -- | The inputs of the package and the directory its configure script
+    -- wrote, once its configure task ran.
+    slotConfigured :: !(TMVar (PackageInputs, Maybe FilePath)),
     slotPrepared :: !(TMVar PreparedPackage),
     -- | The unit of each compiled module, once the package is partitioned.
     -- Empty for a package the store already holds.
@@ -754,32 +826,38 @@ data PackageBuild = PackageBuild
 
 installPackagePlan :: ModuleCompileConfig -> InstallLocations -> PackagePlan -> IO InstalledPackage
 installPackagePlan config locations plan = do
-  (roots, _) <- installPlanSlots config locations [plan]
+  (roots, _) <- installGraph config locations [plan] []
   case roots of
     [slot] -> atomically (readTMVar (slotInstalled slot))
     _ -> ioError (userError "The plan has no root")
 
--- | Install every package of the plans and return the closure, each package
--- once.
-installPlanPackages :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO [InstalledPackage]
-installPlanPackages config locations plans = do
-  (_, slots) <- installPlanSlots config locations plans
-  mapM (atomically . readTMVar . slotInstalled) (Map.elems slots)
+-- | Install the packages below the executables and compile the modules and
+-- C sources of each executable, all in one task graph. The user named the
+-- executables, so they keep the outputs the config asks for; the packages
+-- below are dependencies.
+installExecutables :: ModuleCompileConfig -> InstallLocations -> [ExecutableComponent] -> IO [CompiledExecutable]
+installExecutables config locations components = do
+  (_, executables) <- installGraph config locations [] components
+  forM executables $ \slot -> do
+    compiled <- atomically (readTMVar (executableSlotCompiled slot))
+    packages <- mapM (atomically . readTMVar . slotInstalled) (executableSlotClosure slot)
+    pure compiled {compiledPackages = packages}
 
--- | Install the closure of the plans in one task graph. A unit of a package
--- waits on the units it imports and on nothing else of the packages
--- below. The result is the slots of the roots, and of every package by
--- source path.
+-- | Install the closure of the plans and of the executables in one task
+-- graph. A unit waits on the units it imports and on nothing else of the
+-- packages below. The result is the slots of the roots and of the
+-- executables.
 --
 -- A store package is published when the graph ends, not when its own
 -- tasks end: a dependent reads its headers from the directory it builds in
 -- while the graph runs. When a package fails, the packages that finished
 -- are published all the same.
-installPlanSlots :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> IO ([PackageSlot], Map.Map FilePath PackageSlot)
-installPlanSlots config locations plans = do
+installGraph :: ModuleCompileConfig -> InstallLocations -> [PackagePlan] -> [ExecutableComponent] -> IO ([PackageSlot], [ExecutableSlot])
+installGraph config locations plans components = do
   capabilities <- getNumCapabilities
   slotsRef <- newIORef Map.empty
   rootsRef <- newIORef []
+  executablesRef <- newIORef []
   temporaryRoots <- newIORef Set.empty
   phaseTimings <- newIORef mempty
   let shared =
@@ -791,7 +869,14 @@ installPlanSlots config locations plans = do
           }
       removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
       publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
-  outcome <- try (runTaskGraphWith (max 1 capabilities) (\graph -> mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef))
+      seed graph = do
+        mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef
+        -- The executables come after every package, so each executable
+        -- has an order of its own.
+        dependencies <- mapM (mapM (planSlot shared graph slotsRef False) . componentDependencies) components
+        packageCount <- Map.size <$> readIORef slotsRef
+        zipWithM (executableSlot shared graph) [packageCount ..] (zip components dependencies) >>= writeIORef executablesRef
+  outcome <- try (runTaskGraphWith (progressTaskObserver (compileProgress config)) (max 1 capabilities) seed)
   timings <- case outcome of
     Right timings -> do
       publishFinished `finally` removeTemporaryRoots
@@ -803,8 +888,14 @@ installPlanSlots config locations plans = do
   totals <- readIORef phaseTimings
   compilePrintTimings config (renderTaskTimeline (compileUseColor config) [] timings <> renderBackendPhaseTotals totals)
   roots <- readIORef rootsRef
-  slots <- readIORef slotsRef
-  pure (roots, slots)
+  executables <- readIORef executablesRef
+  pure (roots, executables)
+
+-- | The config a package of the graph compiles with.
+slotConfig :: InstallShared -> PackageSlot -> ModuleCompileConfig
+slotConfig shared slot
+  | slotRoot slot = sharedConfig shared
+  | otherwise = dependencyCompileConfig (sharedConfig shared)
 
 -- | The slot of a package, made after the slots of its dependencies, with
 -- its prepare task in the graph.
@@ -817,11 +908,12 @@ planSlot shared graph slotsRef root plan = do
     Nothing -> do
       dependencies <- mapM (planSlot shared graph slotsRef False) (planDependencyPlans plan)
       order <- Map.size <$> readIORef slotsRef
-      base <- allocateTaskIds graph 3
-      let closure = Map.elems (Map.fromList [(slotOrder below, below) | dependency <- dependencies, below <- dependency : slotClosure dependency])
+      base <- allocateTaskIds graph 4
+      let closure = slotsClosure dependencies
       slot <-
-        PackageSlot plan root dependencies closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2))
+        PackageSlot plan root dependencies closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2)) (TaskId (base + 3))
           <$> newEmptyTMVarIO
+          <*> newEmptyTMVarIO
           <*> newEmptyTMVarIO
           <*> newEmptyTMVarIO
           <*> newEmptyTMVarIO
@@ -831,14 +923,142 @@ planSlot shared graph slotsRef root plan = do
       addTasks
         graph
         [ Task
+            { taskId = slotConfigureTask slot,
+              taskKind = TaskPackage,
+              taskOrder = order,
+              taskDependencies = Set.empty,
+              taskAction = configureSlot shared slot
+            },
+          Task
             { taskId = slotPrepareTask slot,
               taskKind = TaskPackage,
               taskOrder = order,
-              taskDependencies = Set.fromList (map slotPrepareTask dependencies),
+              taskDependencies = Set.fromList (slotConfigureTask slot : map slotPrepareTask dependencies),
               taskAction = preparePackage shared graph slot
             }
         ]
       pure slot
+
+-- | Read a package and run its configure script.
+--
+-- The answers of the script are kept in a directory of their own, named
+-- after what they depend on, and not in the directory of the package. The
+-- directory of a store package has a name that depends on the
+-- dependencies, and the script does not need them. Thus every script of
+-- the plan can start at the start of the install, in parallel with the
+-- other scripts and with the compilation of the dependencies. A package
+-- that the store holds finds the answers of its earlier install there.
+configureSlot :: InstallShared -> PackageSlot -> IO ()
+configureSlot shared slot = do
+  let config = slotConfig shared slot
+      locations = sharedLocations shared
+      plan = slotPlan slot
+      root
+        | storeBound locations plan = locationStoreRoot locations
+        | otherwise = locationBuildRoot locations
+  inputs <- readPackageInputs config plan
+  configured <- runConfigureScript config (root </> ".configure") inputs
+  atomically (putTMVar (slotConfigured slot) (inputs, configured))
+
+-- | Whether a package of the plan goes into the store, or builds in place
+-- under the build root.
+storeBound :: InstallLocations -> PackagePlan -> Bool
+storeBound locations plan = locationImmutable locations || planOrigin plan /= PlanLocal
+
+-- | The packages below the slots and the slots themselves, each once, in
+-- the order of the plan.
+slotsClosure :: [PackageSlot] -> [PackageSlot]
+slotsClosure slots = Map.elems (Map.fromList [(slotOrder below, below) | slot <- slots, below <- slot : slotClosure slot])
+
+-- | An executable of the graph. Like a package it has a prepare task, a
+-- partition task, and a finish task, but nothing depends on it.
+data ExecutableSlot = ExecutableSlot
+  { executableSlotComponent :: !ExecutableComponent,
+    -- | Every package below the executable, each once.
+    executableSlotClosure :: ![PackageSlot],
+    executableSlotOrder :: !Int,
+    executableSlotPrepareTask :: !TaskId,
+    executableSlotPartitionTask :: !TaskId,
+    executableSlotFinishTask :: !TaskId,
+    -- | The executable once its finish task ran. The packages are added
+    -- after the graph, when they are published.
+    executableSlotCompiled :: !(TMVar CompiledExecutable)
+  }
+
+-- | The slot of an executable, made after the slots of its dependencies,
+-- with its prepare task in the graph. The executable reads the unit results
+-- of every package below it until it finishes.
+executableSlot :: InstallShared -> TaskGraph -> Int -> (ExecutableComponent, [PackageSlot]) -> IO ExecutableSlot
+executableSlot shared graph order (component, dependencies) = do
+  base <- allocateTaskIds graph 3
+  compiled <- newEmptyTMVarIO
+  let closure = slotsClosure dependencies
+      slot = ExecutableSlot component closure order (TaskId base) (TaskId (base + 1)) (TaskId (base + 2)) compiled
+  forM_ closure $ \below -> atomically (modifyTVar' (slotReaders below) (+ 1))
+  addTasks
+    graph
+    [ Task
+        { taskId = executableSlotPrepareTask slot,
+          taskKind = TaskPackage,
+          taskOrder = order,
+          taskDependencies = Set.fromList (map slotPrepareTask closure),
+          taskAction = prepareExecutable shared graph slot
+        }
+    ]
+  pure slot
+
+-- | Find the sources of an executable and add its parse tasks and its
+-- partition task. The modules of the executable see every package below
+-- it, as the packages of an install see their dependencies.
+prepareExecutable :: InstallShared -> TaskGraph -> ExecutableSlot -> IO ()
+prepareExecutable shared graph slot = do
+  let config = sharedConfig shared
+      component = executableSlotComponent slot
+      closure = executableSlotClosure slot
+      package = componentPackage component
+      outputRoot = componentOutputRoot component
+  dependencies <- mapM (fmap preparedPackage . atomically . readTMVar . slotPrepared) closure
+  (ownFiles, ownCInfo) <- componentInputs component dependencies
+  headerDirs <- dependencyIncludeDirs dependencies
+  let files = map (appendIncludeDirs headerDirs) ownFiles
+      cCompileInfo = ownCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs ownCInfo <> headerDirs)}
+      finished compiledModules = do
+        let names = map sourceName (compiledSources compiledModules)
+        moduleObjects <- moduleObjectPaths (not (compileLto config)) outputRoot (compileTarget config) names
+        cObjects <- compilePackageCFiles (compileTarget config) (compileOptimization config) (compileHeaderDirectory config) (compileVerbose config) (componentSourceRoot component) outputRoot cCompileInfo
+        atomically $
+          putTMVar
+            (executableSlotCompiled slot)
+            CompiledExecutable
+              { compiledModuleNames = names,
+                compiledModuleObjects = moduleObjects,
+                compiledCObjects = cObjects,
+                compiledCCompileInfo = cCompileInfo,
+                compiledPackages = []
+              }
+        releaseReaders closure
+  addModuleBuild
+    graph
+    (sharedBackendPhaseTimings shared)
+    ModuleBuild
+      { moduleBuildConfig = config,
+        moduleBuildOutputRoot = outputRoot,
+        moduleBuildPackageRoot = componentSourceRoot component,
+        moduleBuildPackage = package,
+        moduleBuildItem = componentItem component,
+        moduleBuildFiles = files,
+        moduleBuildVersions = dependencyVersionsFromManifests [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
+        moduleBuildCapiOptions = capiStubOptions files cCompileInfo,
+        moduleBuildPrimIdentity = dependencyPrimIdentity package dependencies,
+        moduleBuildOrder = executableSlotOrder slot,
+        moduleBuildPartitionTask = executableSlotPartitionTask slot,
+        moduleBuildFinishTask = executableSlotFinishTask slot,
+        moduleBuildPartitionAfter = map slotPartitionTask closure,
+        moduleBuildFinishAfter = map slotFinishTask closure,
+        moduleBuildDependencies = mapM slotDependency closure,
+        moduleBuildPartitioned = const (pure ()),
+        moduleBuildFinished = finished
+      }
 
 -- | Read, configure, and preprocess a package, or take it from the store.
 -- A package that builds gets its parse tasks and its partition task here;
@@ -847,18 +1067,21 @@ planSlot shared graph slotsRef root plan = do
 preparePackage :: InstallShared -> TaskGraph -> PackageSlot -> IO ()
 preparePackage shared graph slot = do
   prepared <- mapM (atomically . readTMVar . slotPrepared) (slotDependencies slot)
-  let config = sharedConfig shared
+  let config = slotConfig shared slot
       locations = sharedLocations shared
       plan = slotPlan slot
       dependencies = map preparedPackage prepared
       -- Only the package the user named is reinstalled.
       reinstall = slotRoot slot && locationReinstall locations
       order = slotOrder slot
-  inputs <- readPackageInputs config plan
+      item = planProgressItem plan
+      report = progressReport (compileProgress config)
+  report (ProgressPrepare item)
+  (inputs, configured) <- atomically (readTMVar (slotConfigured slot))
   (installed, build) <-
-    if locationImmutable locations || planOrigin plan /= PlanLocal
-      then prepareStorePackage shared (slotRoot slot) reinstall dependencies plan inputs
-      else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies plan inputs
+    if storeBound locations plan
+      then prepareStorePackage shared config (slotRoot slot) reinstall dependencies plan inputs configured
+      else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies plan inputs configured
   let identity = PackageId (packageManifestUnitId (installedManifest installed))
       package = Package (installedName installed) identity
       source = case build of
@@ -875,6 +1098,7 @@ preparePackage shared graph slot = do
         }
   case build of
     Nothing -> do
+      report (ProgressStore item)
       atomically $ do
         putTMVar (slotUnits slot) Map.empty
         putTMVar (slotBuilt slot) installed
@@ -894,7 +1118,7 @@ preparePackage shared graph slot = do
               -- A package the store holds can have a dependency that
               -- builds, whose finish task is not in the graph yet.
               taskDependencies = Set.singleton (slotPartitionTask slot),
-              taskAction = releasePackage slot
+              taskAction = releaseReaders (slot : slotClosure slot)
             }
         ]
     Just packageBuild -> addModuleBuild graph (sharedBackendPhaseTimings shared) (packageModuleBuild shared slot installed packageBuild)
@@ -903,10 +1127,11 @@ preparePackage shared graph slot = do
 packageModuleBuild :: InstallShared -> PackageSlot -> InstalledPackage -> PackageBuild -> ModuleBuild
 packageModuleBuild shared slot installed build =
   ModuleBuild
-    { moduleBuildConfig = sharedConfig shared,
+    { moduleBuildConfig = config,
       moduleBuildOutputRoot = buildPath build,
       moduleBuildPackageRoot = buildSourceRoot build,
       moduleBuildPackage = package,
+      moduleBuildItem = item,
       moduleBuildFiles = buildFiles build,
       moduleBuildVersions = dependencyVersionsFromManifests [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
       moduleBuildCapiOptions = capiStubOptions (buildFiles build) (buildCCompileInfo build),
@@ -916,35 +1141,43 @@ packageModuleBuild shared slot installed build =
       moduleBuildFinishTask = slotFinishTask slot,
       moduleBuildPartitionAfter = map slotPartitionTask (slotDependencies slot),
       moduleBuildFinishAfter = map slotFinishTask (slotDependencies slot),
-      moduleBuildDependencies = mapM preparedDependency (slotDependencies slot),
+      moduleBuildDependencies = mapM slotDependency (slotDependencies slot),
       moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
       moduleBuildFinished = \compiled -> do
-        built <- finishPackageBuild shared build compiled
+        built <- finishPackageBuild config build compiled
+        progressReport (compileProgress config) (ProgressDone item)
         atomically (putTMVar (slotBuilt slot) built)
-        releasePackage slot
+        releaseReaders (slot : slotClosure slot)
     }
   where
+    config = slotConfig shared slot
+    item = planProgressItem (slotPlan slot)
     package = Package (installedName installed) (PackageId (buildUnitIdentity build))
     dependencies = buildDependencies build
-    preparedDependency dependency = do
-      prepared <- atomically (readTMVar (slotPrepared dependency))
-      units <- atomically (readTMVar (slotUnits dependency))
-      let installedDependency = preparedPackage prepared
-          identity = PackageId (packageManifestUnitId (installedManifest installedDependency))
-      pure
-        PreparedDependency
-          { dependencyPackage = Package (installedName installedDependency) identity,
-            dependencyExposed = Set.fromList (preparedExposedModules prepared),
-            dependencySource = fromMaybe (StorePackage (installStorePath (installedResult installedDependency))) (Map.lookup identity (preparedLocator prepared)),
-            dependencyUnits = units,
-            dependencyLocator = preparedLocator prepared
-          }
 
--- | Release the unit results of a package that finished and of every
--- package below it: a package no reader waits on drops them, so that the
--- interfaces of a package die once the last package above it is done.
-releasePackage :: PackageSlot -> IO ()
-releasePackage slot = mapM_ releaseReader (slot : slotClosure slot)
+-- | A package of the graph as the partition task of a module build above
+-- it sees it, once the package is partitioned.
+slotDependency :: PackageSlot -> IO PreparedDependency
+slotDependency slot = do
+  prepared <- atomically (readTMVar (slotPrepared slot))
+  units <- atomically (readTMVar (slotUnits slot))
+  let installed = preparedPackage prepared
+      identity = PackageId (packageManifestUnitId (installedManifest installed))
+  pure
+    PreparedDependency
+      { dependencyPackage = Package (installedName installed) identity,
+        dependencyExposed = Set.fromList (preparedExposedModules prepared),
+        dependencySource = fromMaybe (StorePackage (installStorePath (installedResult installed))) (Map.lookup identity (preparedLocator prepared)),
+        dependencyUnits = units,
+        dependencyLocator = preparedLocator prepared
+      }
+
+-- | Release the unit results that a package or an executable read, when
+-- it finished: a package no reader waits on drops them, so that the
+-- interfaces of a package die once the last reader above it is done. A
+-- package reads its own results and those of every package below it.
+releaseReaders :: [PackageSlot] -> IO ()
+releaseReaders = mapM_ releaseReader
   where
     releaseReader reader = do
       remaining <- atomically $ do
@@ -1065,10 +1298,9 @@ readPackageInputs config plan = do
       }
 
 -- | Prepare an immutable package for the store, unless the store has it.
-prepareStorePackage :: InstallShared -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
-prepareStorePackage shared named reinstall dependencies plan inputs = do
-  let config = sharedConfig shared
-      storeRoot = locationStoreRoot (sharedLocations shared)
+prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+prepareStorePackage shared config named reinstall dependencies plan inputs configured = do
+  let storeRoot = locationStoreRoot (sharedLocations shared)
   (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
   forM_ dependencies $ \dependency ->
     unless (installedImmutable dependency) $
@@ -1092,7 +1324,7 @@ prepareStorePackage shared named reinstall dependencies plan inputs = do
       createDirectoryIfMissing True storeRoot
       temporaryRoot <- createTemporaryStoreRoot storeRoot packageDirectory
       atomicModifyIORef' (sharedTemporaryRoots shared) (\roots -> (Set.insert temporaryRoot roots, ()))
-      preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies plan inputs
+      preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies plan inputs configured
 
 -- | Move a built package from its temporary root to its store entry.
 publishStorePackage :: InstallShared -> PackageBuild -> InstalledPackage -> IO InstalledPackage
@@ -1113,14 +1345,14 @@ publishStorePackage shared build built = do
   pure package
 
 -- | Prepare a local package to build in place under the build root.
-prepareLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
-prepareLocalPackage config reinstall buildRoot dependencies plan inputs = do
+prepareLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+prepareLocalPackage config reinstall buildRoot dependencies plan inputs configured = do
   let (packageDirectory, unitIdentity) = localPackageIdentity inputs
       buildPath = buildRoot </> packageDirectory
   exists <- doesDirectoryExist buildPath
   when (exists && reinstall) (removeDirectoryRecursive buildPath)
   createDirectoryIfMissing True buildPath
-  preparePackageBuild config packageDirectory unitIdentity False buildPath buildPath False dependencies plan inputs
+  preparePackageBuild config packageDirectory unitIdentity False buildPath buildPath False dependencies plan inputs configured
 
 -- | The flags the store entry was built with must cover the flags of this
 -- install: the entry is never changed, so a missing output stays missing.
@@ -1153,16 +1385,17 @@ requireInstalledFlags config named package = do
           )
       )
 
--- | Configure and preprocess a package, and record what its finish needs.
--- The package is returned as its dependents see it while it builds.
-preparePackageBuild :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> FilePath -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> IO (InstalledPackage, Maybe PackageBuild)
-preparePackageBuild config packageDirectory unitIdentity immutable buildPath publishPath replaces dependencies plan inputs = do
+-- | Apply the answers of the configure script, preprocess a package, and
+-- record what its finish needs. The package is returned as its dependents
+-- see it while it builds.
+preparePackageBuild :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> FilePath -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+preparePackageBuild config packageDirectory unitIdentity immutable buildPath publishPath replaces dependencies plan inputs configured = do
   let root = planSourcePath plan
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
   let gpd = inputDescription inputs
       packageNameText = HackagePackage.packageNameText (packageNameOf gpd)
-  (configuredFiles, configuredCInfo) <- configurePackage config root buildPath packageNameText inputs
+  (configuredFiles, configuredCInfo) <- configurePackage root packageNameText inputs configured
   headerDirs <- dependencyIncludeDirs dependencies
   headerHash <- includeDirectoriesHash headerDirs
   let dependencyVersions =
@@ -1228,10 +1461,9 @@ packageLinkArguments :: NativeTarget -> HackageCabal.CCompileInfo -> [String]
 packageLinkArguments target = HackageCabal.cCompileLinkArguments (nativeTargetHasFrameworks target)
 
 -- | Archive the compiled modules of a package and write its manifest.
-finishPackageBuild :: InstallShared -> PackageBuild -> CompiledPackageModules -> IO InstalledPackage
-finishPackageBuild shared build compiled = do
-  let config = sharedConfig shared
-      target = compileTarget config
+finishPackageBuild :: ModuleCompileConfig -> PackageBuild -> CompiledPackageModules -> IO InstalledPackage
+finishPackageBuild config build compiled = do
+  let target = compileTarget config
       verbose = compileVerbose config
       inputs = buildInputs build
       root = buildSourceRoot build
@@ -1298,26 +1530,8 @@ compileFlagNames config =
     set
   ]
 
-compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
-compileModules config request = do
-  headerDirs <- dependencyIncludeDirs (compileDependencies request)
-  let options = compileCapiStubOptions request
-  compiled <-
-    compileModulesWithDependencies
-      config
-      options {capiStubIncludeDirs = nub (capiStubIncludeDirs options <> headerDirs)}
-      (compileOutputRoot request)
-      (compilePackageRoot request)
-      (compilePackage request)
-      (map (appendIncludeDirs headerDirs) (compileSourceFiles request))
-      (compileDependencies request)
-      (installedPackageLocator (compileDependencies request))
-  let names = map sourceName (compiledSources compiled)
-  objects <- moduleObjectPaths (not (compileLto config)) (compileOutputRoot request) (compileTarget config) names
-  pure ModuleCompileResult {compileObjectPaths = objects, compileModuleNames = names}
-
 -- | The module name that a source file declares. The file goes through the
--- same preprocessing and parse as in 'compileModules'.
+-- same preprocessing and parse as the modules of a package.
 sourceFileModuleName :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> HackageCabal.FileInfo -> IO Text
 sourceFileModuleName config packageRoot dependencies file = do
   headerDirs <- dependencyIncludeDirs dependencies
@@ -1353,6 +1567,8 @@ data ModuleBuild = ModuleBuild
     moduleBuildOutputRoot :: !FilePath,
     moduleBuildPackageRoot :: !FilePath,
     moduleBuildPackage :: !Package,
+    -- | What the progress names the package.
+    moduleBuildItem :: !ProgressItem,
     moduleBuildFiles :: ![HackageCabal.FileInfo],
     moduleBuildVersions :: !DependencyVersions,
     moduleBuildCapiOptions :: !CapiStubOptions,
@@ -1384,51 +1600,6 @@ data PreparedDependency = PreparedDependency
     dependencyLocator :: !PackageLocator
   }
 
--- | Compile the modules of one package against installed packages, in a
--- graph of their own.
-compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> PackageLocator -> IO CompiledPackageModules
-compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage files dependencies locator = do
-  capabilities <- getNumCapabilities
-  phaseTimings <- newIORef mempty
-  result <- newEmptyTMVarIO
-  let storeDependency dependency =
-        PreparedDependency
-          { dependencyPackage = Package (installedName dependency) (PackageId (packageManifestUnitId (installedManifest dependency))),
-            dependencyExposed = Set.fromList (packageManifestModules (installedManifest dependency)),
-            dependencySource = StorePackage (installStorePath (installedResult dependency)),
-            dependencyUnits = Map.empty,
-            dependencyLocator = locator
-          }
-  timings <-
-    runTaskGraphWith (max 1 capabilities) $ \graph -> do
-      base <- allocateTaskIds graph 2
-      addModuleBuild
-        graph
-        phaseTimings
-        ModuleBuild
-          { moduleBuildConfig = config,
-            moduleBuildOutputRoot = outputRoot,
-            moduleBuildPackageRoot = packageRoot,
-            moduleBuildPackage = resolvePackage,
-            moduleBuildFiles = files,
-            moduleBuildVersions =
-              dependencyVersionsFromManifests
-                [(installedName dependency, installedVersion dependency) | dependency <- dependencies],
-            moduleBuildCapiOptions = capiOptions,
-            moduleBuildPrimIdentity = dependencyPrimIdentity resolvePackage dependencies,
-            moduleBuildOrder = 0,
-            moduleBuildPartitionTask = TaskId base,
-            moduleBuildFinishTask = TaskId (base + 1),
-            moduleBuildPartitionAfter = [],
-            moduleBuildFinishAfter = [],
-            moduleBuildDependencies = pure (map storeDependency dependencies),
-            moduleBuildPartitioned = const (pure ()),
-            moduleBuildFinished = atomically . putTMVar result
-          }
-  totals <- readIORef phaseTimings
-  compilePrintTimings config (renderTaskTimeline (compileUseColor config) [] timings <> renderBackendPhaseTotals totals)
-  atomically (readTMVar result)
-
 -- | Add the parse tasks and the partition task of a module build.
 addModuleBuild :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> IO ()
 addModuleBuild graph phaseTimings build = do
@@ -1436,6 +1607,7 @@ addModuleBuild graph phaseTimings build = do
       files = moduleBuildFiles build
       order = moduleBuildOrder build
   compileVerbose config ("Parse " <> show (length files) <> " modules")
+  progressReport (compileProgress config) (ProgressBuild (moduleBuildItem build) (length files))
   sourceSlots <- mapM (const newEmptyTMVarIO) files
   parseBase <- allocateTaskIds graph (length files)
   let parseTasks =
@@ -1523,6 +1695,10 @@ partitionModules graph phaseTimings build sourceSlots = do
         let sources = sourceUnitSources unit
             names = map sourceName sources
          in [name | name <- nub (concatMap sourceDependencyNames sources <> wiredInterfaceModules), name `notElem` names]
+      -- The type-check task of a unit says that the package compiles, and
+      -- the last task of a unit reports its modules as compiled.
+      reportCompiling = progressReport (compileProgress config) (ProgressCompile (moduleBuildItem build))
+      reportCompiled unit = progressReport (compileProgress config) (ProgressModules (moduleBuildItem build) (length (sourceUnitSources unit)))
       unitTasks runtime =
         let unit = runtimeUnit runtime
             unitOrder = order * 1000000 + sourceUnitOrder unit
@@ -1539,7 +1715,7 @@ partitionModules graph phaseTimings build sourceSlots = do
                   taskKind = TaskTypeCheck,
                   taskOrder = unitOrder,
                   taskDependencies = Set.fromList (runtimeResolveTask runtime : map runtimeTypeTask below),
-                  taskAction = runTypeUnit context runtimeMap runtime
+                  taskAction = reportCompiling >> runTypeUnit context runtimeMap runtime >> when noCode (reportCompiled unit)
                 }
             ]
               <> [ Task
@@ -1547,7 +1723,7 @@ partitionModules graph phaseTimings build sourceSlots = do
                        taskKind = TaskBackend,
                        taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources unit))),
                        taskDependencies = Set.singleton (runtimeTypeTask runtime),
-                       taskAction = runBackendUnit context runtime
+                       taskAction = runBackendUnit context runtime >> reportCompiled unit
                      }
                  | not noCode
                  ]
@@ -2002,14 +2178,13 @@ renderResolveErrors sourceLines errors =
 renderResolveError :: DiagnosticSourceMap -> ResolveError -> String
 renderResolveError sourceLines resolveError =
   case resolveError of
-    ResolveResolutionError Nothing name namespace message ->
+    ResolveError Nothing name namespace message ->
       "error: " <> renderResolveMessage message name namespace
-    ResolveResolutionError (Just sourceSpan) name namespace message ->
+    ResolveError (Just sourceSpan) name namespace message ->
       renderResolveLocation sourceSpan
         <> ": error: "
         <> renderResolveMessage message name namespace
         <> renderResolveExcerpt sourceLines sourceSpan
-    ResolveNotImplemented message -> "error: not implemented: " <> message
 
 renderResolveLocation :: SourceSpan -> String
 renderResolveLocation (SourceSpan sourcePath startLine startColumn _ _ _ _) =
@@ -2058,7 +2233,7 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
   sourceLines <-
     loadExcerptSources
       loadSource
-      ( [sourceSpan | ResolveResolutionError (Just sourceSpan) _ _ _ <- resolveDiagnostics]
+      ( [sourceSpan | ResolveError (Just sourceSpan) _ _ _ <- resolveDiagnostics]
           <> [sourceSpan | (_, diagnostic) <- typeDiagnostics, Just sourceSpan <- [diagLoc diagnostic]]
       )
   let sections =
@@ -2220,8 +2395,10 @@ runResolveUnit context runtimes runtime = do
       let unitExports = collectModuleExportsWithDeps availableExports packageModules
           visibleExports = unitExports <> availableExports
           builtinScope = builtinFunctionScope resolvePackage visibleExports
-          resolved = resolveUnit builtinScope visibleExports packageModules
-          errors = resolveErrors resolved
+          (resolved, errors) =
+            case resolveUnit builtinScope visibleExports packageModules of
+              Right resolvedUnit' -> (resolvedUnit', [])
+              Left failure -> (ResolvedUnit (failureModules failure), failureErrors failure)
           success = parseSuccess && dependenciesSucceeded && null errors
       scopeHashes <-
         if success
@@ -2265,7 +2442,7 @@ reuseResolveUnit storePath stampPath inputs resolvePackage artifactPaths = do
             Right artifacts ->
               pure
                 ( Just
-                    ( moduleExportsFromList [(ModuleKey resolvePackage (resolveArtifactModuleName artifact), resolveArtifactScope artifact) | artifact <- artifacts],
+                    ( moduleExportsFromList [(ModuleKey resolvePackage (resolveArtifactModuleName artifact), resolveArtifactExports artifact) | artifact <- artifacts],
                       resolveStampScopes recorded
                     )
                 )
@@ -2356,7 +2533,9 @@ runTypeUnit context runtimes runtime = do
                 TypeInputResolved result -> result
                 TypeInputParsed packageModules ->
                   let visibleExports = collectModuleExportsWithDeps availableExports packageModules <> availableExports
-                   in resolveUnit (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules
+                   in -- The unit resolved when its artifacts were written, and the
+                      -- same inputs resolve the same way.
+                      fromRight (ResolvedUnit []) (resolveUnit (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules)
             checked =
               typecheckModuleSccWithInterface
                 (primTcConfig primIdentity)
@@ -2673,16 +2852,15 @@ wiredDerivingModules =
 -- | Every module whose type interface a compilation needs without an
 -- import.
 wiredInterfaceModules :: [Text]
-wiredInterfaceModules = wiredTypeModules <> wiredDerivingModules
+wiredInterfaceModules = wiredTypeModules <> ["GHC.IsList"] <> wiredDerivingModules
 
 -- | The scope of the functions that desugaring reaches without an import.
 -- The argument is everything the unit can see, as 'resolveUnit' takes it.
-builtinFunctionScope :: Package -> ModuleExports -> Scope
+builtinFunctionScope :: Package -> ModuleExports -> Builtins
 builtinFunctionScope currentPackage visibleExports =
-  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  builtins currentPackage visibleExports builtinFunctionModules
   where
-    lookupBuiltin name = lookupImportedModule currentPackage Nothing name visibleExports
-    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do
@@ -3188,43 +3366,70 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
           else pure Nothing
       pure (cObjects <> cxxObjects <> catMaybes lirObjects)
 
--- | Run the configure script of a @build-type: Configure@ package and return
--- the sources and C inputs with its outputs in their include paths.
+-- | Run the configure script of a @build-type: Configure@ package, and
+-- return the directory that holds its outputs. A package without a script
+-- has no such directory.
 --
 -- Cabal runs the script in the package directory, so the generated headers
 -- land beside their templates. Here the source tree is shared by every
 -- target -- a Hackage release is unpacked once into the cache -- while the
--- answers configure finds are per target, so the script runs out of tree
--- from a directory under the package's own output path. Autoconf supports
--- this: the outputs of @AC_CONFIG_HEADERS@ and @AC_CONFIG_FILES@ are written
--- relative to the working directory and @srcdir@ is derived from the script
--- path. Every include directory of the package then gets a counterpart under
--- the configure directory that is searched first, which is how the generated
--- headers reach both the CPP pass over the Haskell sources and the C
--- compiles. A @<package>.buildinfo@ the script writes is merged the way
--- Cabal merges it.
+-- answers configure finds are per target, so the script runs out of tree.
+-- Autoconf supports this: the outputs of @AC_CONFIG_HEADERS@ and
+-- @AC_CONFIG_FILES@ are written relative to the working directory and
+-- @srcdir@ is derived from the script path.
+--
+-- The directory is under the cache root, and its name is the package and
+-- the hash of what the outputs depend on. An earlier run with the same
+-- hash wrote a stamp, and then the script does not run again. A lock file
+-- beside the directory stops two installs that share the cache root from
+-- running the same script in the same directory.
 --
 -- The script sees the C compiler of the target, so its feature tests answer
 -- for the target rather than the host.
-configurePackage :: ModuleCompileConfig -> FilePath -> FilePath -> Text -> PackageInputs -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
-configurePackage config root storePath packageName inputs =
-  case inputConfigureScript inputs of
-    Nothing -> pure (files, cInfo)
-    Just script -> do
-      let buildDirectory = storePath </> "configure"
-          stampPath = buildDirectory </> "configure.hash"
-      (executable, arguments, environment) <- configureCommand (compileTarget config) (compileOptimization config) script
-      inputsHash <- configureInputsHash config script
+runConfigureScript :: ModuleCompileConfig -> FilePath -> PackageInputs -> IO (Maybe FilePath)
+runConfigureScript config cacheRoot inputs =
+  forM (inputConfigureScript inputs) $ \script -> do
+    inputsHash <- configureInputsHash config script
+    let (package, _, _) = packageUnitIdentity inputs
+        directory = cacheRoot </> (T.unpack package <> "-" <> take 16 inputsHash)
+        stampPath = directory </> "configure.hash"
+    createDirectoryIfMissing True cacheRoot
+    withFileLock (directory <.> "lock") $ do
       previous <- readStampText stampPath
       if previous == Just inputsHash
-        then verbose ("Reuse configure: " <> buildDirectory)
+        then verbose ("Reuse configure: " <> directory)
         else do
-          exists <- doesDirectoryExist buildDirectory
-          when exists (removeDirectoryRecursive buildDirectory)
-          createDirectoryIfMissing True buildDirectory
+          (executable, arguments, environment) <- configureCommand (compileTarget config) (compileOptimization config) script
+          exists <- doesDirectoryExist directory
+          when exists (removeDirectoryRecursive directory)
+          createDirectoryIfMissing True directory
           verbose ("Configure: " <> unwords (executable : arguments))
-          runToolIn buildDirectory environment executable arguments
+          runToolIn directory environment executable arguments
           BS8.writeFile stampPath (BS8.pack inputsHash)
+    pure directory
+  where
+    verbose = compileVerbose config
+
+-- | Run an action while this process holds the lock file. Another process
+-- that asks for the same lock waits until the action ends.
+withFileLock :: FilePath -> IO a -> IO a
+withFileLock path action =
+  withFile path ReadWriteMode $ \handle ->
+    bracket_ (HandleLock.hLock handle HandleLock.ExclusiveLock) (HandleLock.hUnlock handle) action
+
+-- | Return the sources and C inputs of a package with the outputs of its
+-- configure script in their include paths.
+--
+-- Every include directory of the package gets a counterpart under the
+-- configure directory that is searched first, which is how the generated
+-- headers reach both the CPP pass over the Haskell sources and the C
+-- compiles. A @<package>.buildinfo@ the script writes is merged the way
+-- Cabal merges it.
+configurePackage :: FilePath -> Text -> PackageInputs -> Maybe FilePath -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
+configurePackage root packageName inputs configured =
+  case configured of
+    Nothing -> pure (files, cInfo)
+    Just buildDirectory -> do
       let packageIncludeDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files <> HackageCabal.cCompileIncludeDirs cInfo)
           -- An include directory outside the package has no generated
           -- counterpart.
@@ -3262,7 +3467,6 @@ configurePackage config root storePath packageName inputs =
   where
     files = inputSources inputs
     cInfo = inputCCompileInfo inputs
-    verbose = compileVerbose config
 
 -- | The command that runs a configure script for a target: the shell, since
 -- an unpacked release does not keep the executable bit; the script and its
@@ -3319,8 +3523,15 @@ targetCCompiler target level = do
 -- resolves the file's @#if@ lines with a C compiler, which knows nothing of
 -- the macros aihc's own CPP pass prepends to a Haskell source. The header is
 -- per file because @cpp-options@ and @build-depends@ are per component.
+--
+-- The files are independent. Thus this function preprocesses them in
+-- parallel, with a maximum of one tool for each capability. Each tool runs
+-- the C compiler, and a package such as @unix@ has dozens of @.hsc@ files.
 preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> String -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
-preprocessPackage config versions root storePath configureScript headerHash cInfo = mapM preprocessFile
+preprocessPackage config versions root storePath configureScript headerHash cInfo files = do
+  capabilities <- getNumCapabilities
+  limit <- newQSem (max 1 capabilities)
+  mapConcurrently (bracket_ (waitQSem limit) (signalQSem limit) . preprocessFile) files
   where
     verbose = compileVerbose config
 
@@ -3376,12 +3587,21 @@ preprocessorCommand config preprocessor cInfo file output macrosPath = do
       Hsc2hs -> hsc2hsArguments config cInfo file output macrosPath
   pure (executable, arguments)
 
--- | The arguments Cabal would give hsc2hs, with one difference: aihc always
--- asks for cross-compilation mode. In that mode hsc2hs finds every constant
--- by compiling test programs with the C compiler of the target and never
--- runs one, so the same code path serves the host, a foreign machine and
--- wasm, and the result cannot depend on which of them aihc happens to run
--- on.
+-- | The arguments Cabal would give hsc2hs.
+--
+-- When the code of the target runs on the host, hsc2hs runs in its native
+-- mode, as Cabal runs it: it compiles one program for the file, runs that
+-- program, and the program writes the module. This is fast, and the
+-- program sees every @#include@ of the file before any condition, as GHC
+-- sees them. For example, the export list of a @unix@ module tests
+-- @B7200@ before the module includes @termios.h@.
+--
+-- For any other target, hsc2hs runs in cross-compilation mode. In that
+-- mode hsc2hs finds every constant by compiling test programs with the C
+-- compiler of the target and never runs one. It compiles one test program
+-- for each condition and for each constant, and it tests a condition with
+-- only the text above it. Thus a file the size of
+-- @System.Posix.Terminal.Common@ costs about 275 compiler runs.
 --
 -- Cross-compilation mode is paired with @--via-asm@, which reads the
 -- constants back out of the assembly of a single compilation per file.
@@ -3407,11 +3627,17 @@ hsc2hsArguments config cInfo file output macrosPath = do
   let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [compileHeaderDirectory config])
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
-    ( ["--cross-compile", "--via-asm", "--cc=" <> compiler, "--ld=" <> compiler]
+    ( [flag | not (targetRunsOnHost target), flag <- ["--cross-compile", "--via-asm"]]
+        <> ["--cc=" <> compiler, "--ld=" <> compiler]
         <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath])
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
     )
+
+-- | Whether the code of a target runs on the machine that aihc runs on. The
+-- LLVM target is always that machine.
+targetRunsOnHost :: NativeTarget -> Bool
+targetRunsOnHost target = target == Llvm || Just target == hostNativeTarget
 
 -- | Where a preprocessor's executable is: the environment variable named
 -- for it, or else the search path.
@@ -3515,23 +3741,24 @@ cObjectFileName source =
         else character
 
 buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
-buildLibraryArchive target verbose archive moduleObjects = do
+buildLibraryArchive target verbose archive objects = do
   createDirectoryIfMissing True (takeDirectory archive)
   archiveExists <- doesFileExist archive
   when archiveExists (removeFile archive)
   archiver <- backendArchiver target
-  nonemptyObjects <- filterM (fmap (> 0) . getFileSize) moduleObjects
   -- BSD ar refuses to create an archive with no members, and a package whose
-  -- modules are all empty standins (aihc-internal) has none. Every archive
-  -- format begins with the same global header, and an archive that stops
-  -- there is a valid empty archive for ld64, GNU ld, lld and wasm-ld alike.
-  if null nonemptyObjects
+  -- modules are all empty standins (aihc-internal) has none: 'moduleObjectPaths'
+  -- leaves out their empty objects. Every archive format begins with the
+  -- same global header, and an archive that stops there is a valid empty
+  -- archive for GNU ld, lld and wasm-ld. 'archiveHasMembers' keeps it away
+  -- from ld64.
+  if null objects
     then BS.writeFile archive emptyArchive
     else do
       environment <- getEnvironment
       -- Set archive timestamps only in the child process environment.
       let archiveEnvironment = ("ZERO_AR_DATE", "1") : filter ((/= "ZERO_AR_DATE") . fst) environment
-      runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> nonemptyObjects)
+      runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> objects)
   verbose ("Write archive: " <> archive)
 
 -- | The global header every archive format begins with. An archive that
@@ -3576,7 +3803,7 @@ runToolWith adjust executable arguments = do
 
 -- Applied to the unit's interface and no more, this gives a function the
 -- unit's modules share, so 'addReferencedFacts' prepares its tables once.
-moduleTypeInterface :: TcKinds -> [TcTermKey] -> ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
+moduleTypeInterface :: TcKinds -> [Entity] -> ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface kinds supportTerms exports package interface = go
   where
     addReference = addReferencedFacts (typeLiteralKindTyCons kinds) supportTerms interface
@@ -3596,16 +3823,20 @@ moduleTypeInterface kinds supportTerms exports package interface = go
       where
         name = sourceModuleName source
         scope = fromMaybe (error "missing resolve scope") (lookupModuleExport (ModuleKey package name) exports)
-        termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTerms scope)))
-        typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTypes scope)))
+        scopeTerms = exportedTerms scope
+        scopeTypes = exportedTypes scope
+        termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems scopeTerms))
+        typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems scopeTypes))
         localIdentity identifier = (packageId package, name, identifier)
         localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
-        visibleTerm (TcTermGlobal packageId' moduleName' identifier) =
-          visibleTermIdentity (packageId', moduleName', identifier)
-            || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
-        visibleTerm (TcTermLocal {}) = False
+        visibleTerm key = case key of
+          EntityGlobal (GlobalName identifier packageId' moduleName' _) ->
+            visibleTermIdentity (packageId', moduleName', identifier)
+              || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
+          EntityLocal {} -> False
+          EntitySyntax -> False
         visibleTermIdentity identity@(_, _, identifier) =
-          Map.member identifier (scopeTerms scope)
+          Map.member identifier scopeTerms
             || identity `Set.member` termIdentities
             || identity `Set.member` methodIdentities
             || identity == localIdentity identifier
@@ -3627,25 +3858,25 @@ moduleTypeInterface kinds supportTerms exports package interface = go
               identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
               (namespaceScope, namespaceIdentities) =
                 case tyConNamespace tyCon of
-                  ResolutionNamespaceTerm -> (scopeTerms scope, termIdentities)
-                  ResolutionNamespaceType -> (scopeTypes scope, typeIdentities)
+                  ResolutionNamespaceTerm -> (scopeTerms, termIdentities)
+                  ResolutionNamespaceType -> (scopeTypes, typeIdentities)
                   ResolutionNamespaceModule -> (Map.empty, Set.empty)
            in Map.member (tciName info) namespaceScope || identity `Set.member` namespaceIdentities || identity == localIdentity (tciName info)
-        visibleTypeIdentity (TcTypeKey identifier packageId' moduleName' namespace) =
+        visibleTypeIdentity (GlobalName identifier packageId' moduleName' namespace) =
           let identity = (packageId', moduleName', identifier)
            in namespace == ResolutionNamespaceType
-                && (Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier)
+                && (Map.member identifier scopeTypes || identity `Set.member` typeIdentities || identity == localIdentity identifier)
         visibleClass info =
           case ciOrigin info of
             Just (packageIdText, moduleName') ->
               let identity = (PackageId packageIdText, moduleName', ciName info)
-               in Map.member (ciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
+               in Map.member (ciName info) scopeTypes || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
             Nothing -> False
         visibleInstance info = iiDictOrigin info == (packageIdText (packageId package), name)
         visibleDataFamilyInstance = localTyCon . dfiiRepresentationTyCon
         visibleTypeFamilyInstance info = any localTyCon (typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info))
         resolvedIdentity resolved = case resolved of
-          ResolvedTopLevel packageId' resolvedModule resolvedName -> Just (packageId', resolvedModule, nameText resolvedName)
+          EntityGlobal global -> Just (globalNamePackage global, globalNameModule global, globalNameText global)
           _ -> Nothing
 
 -- | The kinds of the type-level literals. A literal names no type
@@ -3658,9 +3889,9 @@ typeLiteralKindTyCons kinds =
 -- | The terms that the evidence of a known type-level literal is built
 -- from. The desugarer writes a call of this whether or not the module
 -- names the module it comes from.
-typeLiteralSupportTerms :: PackageId -> [TcTermKey]
+typeLiteralSupportTerms :: PackageId -> [Entity]
 typeLiteralSupportTerms prim =
-  [TcTermGlobal prim "GHC.Prim.Natural" "naturalFromInteger#"]
+  [GlobalTerm prim "GHC.Prim.Natural" "naturalFromInteger#"]
 
 -- | Carry into an interface the facts it refers to but does not hold.
 -- The selected interface must contain only facts from the complete interface.
@@ -3671,7 +3902,7 @@ typeLiteralSupportTerms prim =
 -- Applying this to the complete interface and no more gives a function the
 -- modules of a unit share: they all close over the same facts, and the
 -- dependencies of each fact are then found once rather than once per module.
-addReferencedFacts :: [TyCon] -> [TcTermKey] -> TcInterface -> TcInterface -> TcInterface
+addReferencedFacts :: [TyCon] -> [Entity] -> TcInterface -> TcInterface -> TcInterface
 addReferencedFacts extraRoots extraTerms complete = go
   where
     availableTyCons = tcInterfaceTyConMap complete
@@ -3680,7 +3911,7 @@ addReferencedFacts extraRoots extraTerms complete = go
     -- The type constructors that each fact of the complete interface refers
     -- to. The values are thunks, so a fact no module reaches costs its key
     -- alone, and one that many modules reach is walked once for all of them.
-    tyConDependencies :: LazyMap.Map TcTypeKey [TyCon]
+    tyConDependencies :: LazyMap.Map GlobalName [TyCon]
     tyConDependencies =
       LazyMap.fromSet
         ( \key ->
@@ -3719,7 +3950,7 @@ addReferencedFacts extraRoots extraTerms complete = go
           [ (key, scheme)
           | (package', moduleName') <- Set.toList callStackModules,
             identifier <- ["pushCallStack", "emptyCallStack"],
-            let key = TcTermGlobal package' moduleName' identifier,
+            let key = GlobalTerm package' moduleName' identifier,
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
           ]
@@ -3753,7 +3984,7 @@ addReferencedFacts extraRoots extraTerms complete = go
           | tyCon <- Set.toList reachable,
             tyConName tyCon == "Typeable",
             tyConModuleName tyCon `elem` ["Type.Reflection", "Type.Reflection.Internal"],
-            let key = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
+            let key = GlobalTerm (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
           ]

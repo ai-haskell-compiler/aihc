@@ -1,0 +1,22 @@
+extensions: [ConstraintKinds, GADTs, StandaloneDeriving]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, GADTs, StandaloneDeriving #-}
+    module Test where
+    import Data.Kind (Constraint, Type)
+    data Dict :: Constraint -> Type where
+      Dict :: c => Dict c
+    deriving instance Eq (Dict c)
+    deriving instance Ord (Dict c)
+    deriving instance Show (Dict c)
+    deriving instance c => Read (Dict c)
+    answer :: Bool
+    answer = (Dict :: Dict (Eq Bool)) == Dict
+      && compare (Dict :: Dict (Eq Bool)) Dict == EQ
+      && show (Dict :: Dict (Eq Bool)) == "Dict"
+      && (read "Dict" :: Dict (Eq Bool)) == Dict
+expression: answer
+output: |
+  True
+status: pass
+reason: Stock deriving accepts a GADT with an inline kind signature.

@@ -301,12 +301,14 @@ entry:
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %follows = call @aihc_follows_indirection(%header)
-  br %follows, indirection, enter
+  %entry = call @aihc_info_entry(%header)
+  %forward = eq code %entry, null
+  br %forward, forward, enter
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+; A forward frame has no entry. It passes the values to its parent.
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
@@ -315,7 +317,6 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null) : (ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
@@ -325,12 +326,14 @@ entry:
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %follows = call @aihc_follows_indirection(%header)
-  br %follows, indirection, enter
+  %entry = call @aihc_info_entry(%header)
+  %forward = eq code %entry, null
+  br %forward, forward, enter
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+; A forward frame has no entry. It passes the values to its parent.
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
@@ -339,7 +342,6 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, i64)
 }
 
@@ -349,12 +351,14 @@ entry:
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %follows = call @aihc_follows_indirection(%header)
-  br %follows, indirection, enter
+  %entry = call @aihc_info_entry(%header)
+  %forward = eq code %entry, null
+  br %forward, forward, enter
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+; A forward frame has no entry. It passes the values to its parent.
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 enter:
   ; Entering a frame pops it and every frame above it: the frame is the new
@@ -363,7 +367,6 @@ enter:
   ; argument and only the copy moves.
   %entered_sp = ptr.add %current, 0
   %entered_limit = call @aihc_stack_chunk_end(%current)
-  %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %hp_limit, %entered_sp, %entered_limit, %current, null, %value) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
 }
 
@@ -492,25 +495,24 @@ slow:
 }
 
 ; The next-stage bitmap selects a pointer or an integer argument.
-; Follow indirections before the bitmap check.
+; Follow forward frames before the bitmap check, because the frame that
+; takes the value is the first frame with an entry.
 export func @aihc_lir_continue_slot(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %continuation: ptr, %value: i64) {
 entry:
   jump loop(%continuation)
 
 loop(%current: ptr):
   %header = call @aihc_info_table(%current)
-  %kind = call @aihc_info_kind(%header)
-  %indirection = eq i64 %kind, @AIHC_OBJECT_INDIRECTION
-  %frame = call @aihc_info_frame(%header)
-  %forward = eq i64 %frame, @AIHC_FRAME_FORWARD
-  %follows = or i1 %indirection, %forward
-  br %follows, indirection, check
+  %frame_entry = call @aihc_info_entry(%header)
+  %forward = eq code %frame_entry, null
+  br %forward, forward, check
 
-indirection:
-  %next = call @aihc_indirection_target(%current)
-  jump loop(%next)
+cold forward:
+  %parent = call @aihc_forward_parent(%current, %header)
+  jump loop(%parent)
 
 check:
+  %kind = call @aihc_info_kind(%header)
   %next_info = call @aihc_info_next(%header)
   %has_next = ne ptr %next_info, null
   br %has_next, count, word
@@ -595,12 +597,91 @@ word:
 ; does not need the context for it.
 extern func @aihc_heap_collect(ptr, i64, i64, ptr, ptr) cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
-extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+
+; Replace a blackhole with an indirection to the result. Most blackholes have
+; no waiters, so the two stores do the update here. A blackhole with waiters
+; goes to the C update, which also wakes the waiters. An object that is not
+; a blackhole also goes to the C update, which stops the program.
+inline func @aihc_update_blackhole_inline(%blackhole: ptr, %result: ptr) {
+entry:
+  %header_word = call @aihc_object_header_word(%blackhole)
+  %tag = and i64 %header_word, @AIHC_HEADER_TAG_MASK
+  %plain = eq i64 %tag, @AIHC_HEADER_EVALUATING
+  br %plain, plain, waiters
+
+plain:
+  %result_word = ptr.to_int %result
+  store i64 %result_word, [%blackhole + 8] align 8
+  %indirection_word = ptr.to_int @aihc_indirection_info
+  store i64 %indirection_word, [%blackhole] align 8
+  return
+
+cold waiters:
+  call @aihc_update_blackhole(@aihc_machine, %blackhole, %result)
+  return
+}
+
+; Update the blackhole with the result of its thunk, and tell whether the
+; result is a value. The result is usually a value, and then the parent
+; continuation takes it directly. Another object goes to @aihc_lir_eval.
+inline func @aihc_cps_update_ready(%blackhole: ptr, %result: ptr) -> i1 {
+entry:
+  call @aihc_update_blackhole_inline(%blackhole, %result)
+  %header = call @aihc_info_table(%result)
+  %needs_eval = load i8 [%header + @AIHC_INFO_NEEDS_EVAL_OFFSET] align 1
+  %ready = eq i8 %needs_eval, @AIHC_NEEDS_EVAL_NONE
+  return %ready
+}
 
 export func @aihc_lir_cps_update(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
 entry:
-  call @aihc_update_blackhole(@aihc_machine, %blackhole, %result)
+  %ready = call @aihc_cps_update_ready(%blackhole, %result)
+  br %ready, ready, evaluate
+
+ready:
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %outer, %result)
+
+evaluate:
   tailcall @aihc_lir_eval(%hp, %hp_limit, %sp, %sp_limit, %result, %outer)
+}
+
+; The backend entry of the update frame. A continue helper enters the frame
+; with the result, and this entry reads the two stored fields itself. Thus
+; the result does not go through a shared enter function and the identity
+; field.
+export func @aihc_lir_cps_update_entry(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %frame: ptr, %continuation: ptr, %result: ptr) {
+entry:
+  %outer_word = load i64 [%frame + 8] align 8
+  %outer = ptr.from_int %outer_word
+  %blackhole_word = load i64 [%frame + 16] align 8
+  %blackhole = ptr.from_int %blackhole_word
+  %ready = call @aihc_cps_update_ready(%blackhole, %result)
+  br %ready, ready, evaluate
+
+ready:
+  tailcall @aihc_lir_continue_p(%hp, %hp_limit, %sp, %sp_limit, %outer, %result)
+
+evaluate:
+  tailcall @aihc_lir_eval(%hp, %hp_limit, %sp, %sp_limit, %result, %outer)
+}
+
+data @aihc_indirection_bitmap align 1 = {
+  bytes "\x01"
+}
+
+; The info table of an updated thunk: one stored field, the result. The C
+; runtime also writes it in aihc_update.
+export data @aihc_indirection_info align 8 = {
+  code null,                         ; identity
+  ptr @aihc_indirection_bitmap,      ; field_is_pointer
+  ptr null,                          ; next
+  code null,                         ; backend_entry
+  ptr null,                          ; srt
+  i8 1,                              ; field_count
+  i8 0,                              ; remaining_arity
+  i8 @AIHC_FRAME_NONE,               ; frame_kind
+  i8 @AIHC_OBJECT_INDIRECTION,       ; object_kind
+  i8 @AIHC_NEEDS_EVAL_FOLLOW         ; needs_eval
 }
 
 data @aihc_lir_cps_update_bitmap align 1 = {
@@ -617,7 +698,7 @@ export data @aihc_lir_cps_update_info align 8 = {
   code @aihc_lir_cps_update,              ; identity
   ptr @aihc_lir_cps_update_bitmap,        ; field_is_pointer
   ptr @aihc_lir_cps_update_applied_info,  ; next
-  code @aihc_lir_enter_2_1,               ; backend_entry
+  code @aihc_lir_cps_update_entry,       ; backend_entry
   ptr null,                               ; srt
   i8 2,                                   ; field_count
   i8 1,                                   ; remaining_arity

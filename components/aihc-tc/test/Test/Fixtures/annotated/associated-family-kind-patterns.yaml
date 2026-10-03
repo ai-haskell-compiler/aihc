@@ -1,0 +1,21 @@
+extensions: [KindSignatures, GADTs, ConstraintKinds, FlexibleInstances, MultiParamTypeClasses, PolyKinds, TypeFamilies]
+modules:
+  - |
+    {-# LANGUAGE GADTs, ConstraintKinds, FlexibleInstances, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Constraint)
+    import GHC.Classes (Eq)
+    data Dict (c :: Constraint) where
+      Dict :: c => Dict c
+    class Select (p :: k) where
+      type Result (p :: k) :: Constraint
+    instance Select (p :: Constraint) where
+      type Result (p :: Constraint) = p
+    instance Select (p :: k -> Constraint) where
+      type Result (p :: k -> Constraint) = ()
+    lower :: Dict (Result (() :: Constraint))
+    lower = Dict
+    higher :: Dict (Result Eq)
+    higher = Dict
+status: pass
+reason: Kind signatures distinguish associated family equations.

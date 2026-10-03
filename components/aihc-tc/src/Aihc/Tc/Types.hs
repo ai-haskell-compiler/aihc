@@ -4,7 +4,7 @@
 
 -- | Core type representation for the type checker.
 module Aihc.Tc.Types
-  ( TcTermKey (..),
+  ( Entity (..),
     tyConTermKey,
     tyConMemberTermKey,
     termKeyName,
@@ -22,7 +22,8 @@ module Aihc.Tc.Types
     setTyVarKind,
     TcType (..),
     isPolyType,
-    TcTypeKey (..),
+    GlobalName (..),
+    LocalId (..),
     TcAxiomKey (..),
     TcKindEnv,
     TyCon (TyCon, tyConName, tyConArity),
@@ -120,7 +121,7 @@ module Aihc.Tc.Types
   )
 where
 
-import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
+import Aihc.Resolve (Entity (..), GlobalName (..), LocalId (..), PackageId (..), ResolutionNamespace (..))
 import Control.DeepSeq (NFData (..))
 import Control.Monad (zipWithM)
 import Data.Map.Strict (Map)
@@ -129,28 +130,22 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 
-data TcTermKey
-  = TcTermLocal !Int
-  | TcTermGlobal !PackageId !Text !Text
-  deriving (Eq, Ord, Show, Read, Generic)
-
-instance NFData TcTermKey
-
 -- | The term key with the name and origin of a type constructor.
-tyConTermKey :: TyCon -> TcTermKey
+tyConTermKey :: TyCon -> Entity
 tyConTermKey tyCon = tyConMemberTermKey tyCon (tyConName tyCon)
 
 -- | The term key of a constructor, record selector, or class method.
 -- The type constructor supplies the package and module.
-tyConMemberTermKey :: TyCon -> Text -> TcTermKey
-tyConMemberTermKey tyCon = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon)
+tyConMemberTermKey :: TyCon -> Text -> Entity
+tyConMemberTermKey tyCon = GlobalTerm (tyConPackageId tyCon) (tyConModuleName tyCon)
 
 -- | The name of a term key for a diagnostic.
-termKeyName :: TcTermKey -> Text
+termKeyName :: Entity -> Text
 termKeyName key =
   case key of
-    TcTermGlobal _ _ name -> name
-    TcTermLocal unique -> T.pack ("<local " <> show unique <> ">")
+    EntityGlobal global -> globalNameText global
+    EntityLocal (LocalId unique) -> T.pack ("<local " <> show unique <> ">")
+    EntitySyntax -> "<syntax>"
 
 newtype Unique = Unique Int
   deriving (Eq, Ord, Show, Read, Generic)
@@ -208,24 +203,6 @@ pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName _ _ _ tyConArit
 
 {-# COMPLETE TyCon #-}
 
--- | The identity a type constructor is registered under: everything a
--- 'TyCon' carries except its arity, which two constructors of one identity
--- may differ in.
---
--- The derived 'Ord' compares the fields in the order they are declared, and
--- the name comes first deliberately: it is what discriminates, where a
--- package id is a long 'Text' that a whole package shares.
-data TcTypeKey = TcTypeKey
-  { typeKeyName :: !Text,
-    typeKeyPackage :: !PackageId,
-    typeKeyModule :: !Text,
-    typeKeyNamespace :: !ResolutionNamespace
-  }
-  deriving (Eq, Ord, Show, Read, Generic)
-
-instance NFData TcTypeKey where
-  rnf key = key `seq` ()
-
 -- | Package, module, and axiom name. This identity is unique across modules.
 data TcAxiomKey = TcAxiomKey
   { axiomKeyPackage :: !PackageId,
@@ -237,7 +214,7 @@ data TcAxiomKey = TcAxiomKey
 instance NFData TcAxiomKey where
   rnf key = key `seq` ()
 
-type TcKindEnv = Map TcTypeKey TypeScheme
+type TcKindEnv = Map GlobalName TypeScheme
 
 tyConPackageId :: TyCon -> PackageId
 tyConPackageId (TyConInternal _ packageId _ _ _) = packageId
@@ -278,8 +255,11 @@ mkAppTy function argument =
 tyConNamespace :: TyCon -> ResolutionNamespace
 tyConNamespace (TyConInternal _ _ _ namespace _) = namespace
 
-tyConKey :: TyCon -> TcTypeKey
-tyConKey tyCon = TcTypeKey (tyConName tyCon) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
+-- | The identity a type constructor is registered under: everything a
+-- 'TyCon' carries except its arity, which two constructors of one identity
+-- may differ in.
+tyConKey :: TyCon -> GlobalName
+tyConKey tyCon = GlobalName (tyConName tyCon) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
 mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> TyCon
 mkTyConWithOrigin packageId moduleName name =
@@ -458,13 +438,10 @@ isConstraintTupleTyCon kinds tyCon =
 constraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
 constraintTypeToPred kinds ty =
   case collectForAllTypes ty of
-    (variables@(_ : _), qualified) -> do
-      let (antecedents, consequentType) =
-            case qualified of
-              TcQualTy predicates body -> (predicates, body)
-              body -> ([], body)
+    (variables, TcQualTy antecedents consequentType) -> do
       consequent <- atomicConstraintTypeToPred kinds consequentType
       pure (QuantifiedPred variables antecedents consequent)
+    (variables@(_ : _), body) -> QuantifiedPred variables [] <$> atomicConstraintTypeToPred kinds body
     ([], body) -> atomicConstraintTypeToPred kinds body
 
 atomicConstraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
@@ -478,6 +455,7 @@ atomicConstraintTypeToPred kinds ty =
       | isImplicitParamTyConName (tyConName tyCon) -> Just (IParamPred (tyConName tyCon) payload)
     (TcTyCon tyCon headArgs, arguments) ->
       Just (ClassPred tyCon (headArgs <> arguments))
+    (TcTyVar {}, _) -> Just (IrredPred ty)
     _ -> Nothing
 
 -- | Whether a type constructor is the nominal equality constraint @~@.

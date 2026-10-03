@@ -147,8 +147,9 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), nameText, unqualifiedNameText)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier, globalTerm, nameOrigin, resolutionOf)
+import Aihc.Resolve qualified as Resolve
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
@@ -168,7 +169,6 @@ import Data.IntSet qualified as IntSet
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -202,10 +202,10 @@ data TcEnv = TcEnv
   { tcEnvConfig :: !TcConfig,
     -- | Local term bindings in scope.
     --
-    -- The keys come from @aihc-resolve@'s 'ResolvedLocal' identifiers, not
+    -- The keys come from @aihc-resolve@'s 'EntityLocal' identifiers, not
     -- from source text. This lets TC preserve lexical identity without doing
     -- name resolution or conflating duplicate textual names.
-    tcEnvTerms :: !(Map TcTermKey TcBinder),
+    tcEnvTerms :: !(Map Entity TcBinder),
     -- | Whether local binding groups follow GHC's MonoLocalBinds rule.
     tcEnvMonoLocalBinds :: !Bool,
     -- | Whether the monomorphism restriction is active.
@@ -236,7 +236,7 @@ data TcEnv = TcEnv
     -- that every occurrence of the constructor shares until they are all
     -- defaulted together. An instance must not quantify one of those for
     -- itself, and these are the kind schemes to look in.
-    tcEnvComponentTyCons :: !(Set.Set TcTypeKey),
+    tcEnvComponentTyCons :: !(Set.Set GlobalName),
     -- | The lexically scoped type variables, by source name. A signature
     -- with an explicit @forall@, an instance head, or a class head binds
     -- them over the bodies it covers.
@@ -255,7 +255,7 @@ data TcEnv = TcEnv
     -- emitted without a span of its own, as the checks of internal types
     -- do, reports here instead of nowhere.
     tcEnvAmbientSpan :: !(Maybe SourceSpan),
-    tcEnvVisibleTerms :: !(Set.Set TcTermKey)
+    tcEnvVisibleTerms :: !(Set.Set Entity)
   }
   deriving (Show)
 
@@ -413,8 +413,7 @@ mkWiredTyCon tyCon kind = do
 -- the later stages need no special case for it. A representation becomes
 -- the lifted one, as GHC defaults it. A variable of each other kind, such
 -- as the @v :: Type -> Type@ that a phantom parameter leaves open, becomes
--- @Any@ at that kind. Its kind argument is invisible, so the place that
--- the type fills gives the kind.
+-- @Any@ at that kind. The checked type retains its implicit kind argument.
 undeterminedTypeOfKind :: TcType -> TcM TcType
 undeterminedTypeOfKind kind = do
   kinds <- getKinds
@@ -425,12 +424,9 @@ undeterminedTypeOfKind kind = do
     KRuntimeRep -> pure (liftedRep kinds)
     _ -> do
       anyTyCon <- anyTyConOfWiring
-      pure (TcTyCon anyTyCon [])
+      pure (TcKindedTyCon anyTyCon [kind])
 
--- | The type family @Any :: forall k. k@ of the wiring, with its kind
--- registered on first use. The kind argument is invisible, so the result
--- has no arguments: a use gets its kind from the place that it fills, as
--- a use that the source spells does.
+-- | Register the kind of the type family @Any :: forall k. k@ on first use.
 anyTyConOfWiring :: TcM TyCon
 anyTyConOfWiring = do
   wired <- wiredTyConIdentity tcWiringAnyTyCon
@@ -500,7 +496,7 @@ data TcState = TcState
     --
     -- Global keys store the package, module, and identifier selected by
     -- @aihc-resolve@.
-    tcsGlobalTerms :: !(Map TcTermKey TcBinder),
+    tcsGlobalTerms :: !(Map Entity TcBinder),
     -- | The global terms whose binder may still mention a meta-variable.
     --
     -- A binding the checker has not generalized yet is registered globally
@@ -511,13 +507,13 @@ data TcState = TcState
     -- conservative superset -- an entry stays in it until it is written
     -- again -- so that the generalizer can look at these alone instead of
     -- walking every term the imported interfaces brought in.
-    tcsMetaTerms :: !(Set.Set TcTermKey),
+    tcsMetaTerms :: !(Set.Set Entity),
     -- | Global type constructors accumulated by top-level declarations.
-    tcsGlobalTyCons :: !(Map TcTypeKey TyConInfo),
+    tcsGlobalTyCons :: !(Map GlobalName TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
-    tcsDataTypes :: !(Map TcTypeKey DataTypeInfo),
+    tcsDataTypes :: !(Map GlobalName DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
-    tcsClasses :: !(Map TcTypeKey ClassInfo),
+    tcsClasses :: !(Map GlobalName ClassInfo),
     -- | Class instances in scope.
     tcsInstances :: !InstanceEnv,
     -- | Standalone data-family instance equations in scope.
@@ -525,7 +521,7 @@ data TcState = TcState
     -- | Type-family equations in scope.
     tcsTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
     -- | Pattern synonyms in scope, keyed like their builder term.
-    tcsPatSyns :: !(Map TcTermKey PatSynInfo),
+    tcsPatSyns :: !(Map Entity PatSynInfo),
     -- | Record heads of the record pattern synonyms declared in the
     -- component being checked, keyed like their builder term.
     --
@@ -534,9 +530,9 @@ data TcState = TcState
     -- These heads are registered before any body is checked, which is all
     -- a record update needs to expand: the labels give it a field order,
     -- and the expansion checks against the pattern synonym itself.
-    tcsDeclaredRecordPatSyns :: !(Map TcTermKey RecordHead),
+    tcsDeclaredRecordPatSyns :: !(Map Entity RecordHead),
     -- | The checked calling convention of each foreign import in scope.
-    tcsForeignImports :: !(Map TcTermKey TcForeignImportInfo),
+    tcsForeignImports :: !(Map Entity TcForeignImportInfo),
     -- | Kind meta-variables a generalization left open on purpose.
     --
     -- Under PolyKinds a local binding is quantified before the body that
@@ -656,26 +652,27 @@ lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
 lookupEvidence (EvVar u) = lift $ gets $ \s ->
   Map.lookup u (tcsEvBinds s)
 
-lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
+lookupResolvedTerm :: Text -> Entity -> TcM (Maybe TcBinder)
 lookupResolvedTerm displayName resolved =
   resolvedNameTermKey displayName resolved >>= lookupTermKey
 
-lookupTermKey :: TcTermKey -> TcM (Maybe TcBinder)
+lookupTermKey :: Entity -> TcM (Maybe TcBinder)
 lookupTermKey key =
   case key of
-    TcTermLocal _ ->
+    EntityLocal _ ->
       asks $ \env -> Map.lookup key (tcEnvTerms env)
-    TcTermGlobal {} ->
+    EntityGlobal {} ->
       lift $ gets $ \s -> Map.lookup key (tcsGlobalTerms s)
+    EntitySyntax -> pure Nothing
 
-resolvedTermKey :: Name -> TcM TcTermKey
+resolvedTermKey :: Name -> TcM Entity
 resolvedTermKey name =
   resolvedTargetTermKey (nameText name) =<< resolvedTermTarget name
 
-resolvedTargetTermKey :: Text -> ResolvedName -> TcM TcTermKey
+resolvedTargetTermKey :: Text -> Entity -> TcM Entity
 resolvedTargetTermKey = resolvedNameTermKey
 
-resolvedUnqualifiedTermKey :: UnqualifiedName -> TcM TcTermKey
+resolvedUnqualifiedTermKey :: UnqualifiedName -> TcM Entity
 resolvedUnqualifiedTermKey name =
   case termResolution (unqualifiedNameAnns name) of
     Just resolution ->
@@ -683,20 +680,16 @@ resolvedUnqualifiedTermKey name =
     Nothing ->
       abortTc ("missing resolver annotation for binder " <> show (unqualifiedNameText name))
 
-resolvedNameTermKey :: Text -> ResolvedName -> TcM TcTermKey
+resolvedNameTermKey :: Text -> Entity -> TcM Entity
 resolvedNameTermKey displayName resolved =
   case resolved of
-    ResolvedLocal unique _ ->
-      pure (TcTermLocal unique)
-    ResolvedTopLevel packageId moduleName' name ->
-      pure (TcTermGlobal packageId moduleName' (nameText name))
-    ResolvedSyntax ->
+    EntityLocal {} -> pure resolved
+    EntityGlobal {} -> pure resolved
+    EntitySyntax ->
       abortTc ("built-in syntax has no term key: " <> show displayName)
-    ResolvedError msg ->
-      abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
 -- | Snapshot all visible term bindings keyed by resolver-selected identity.
-getTermEnv :: TcM (Map TcTermKey TcBinder)
+getTermEnv :: TcM (Map Entity TcBinder)
 getTermEnv = do
   locals <- asks tcEnvTerms
   globals <- lift $ gets tcsGlobalTerms
@@ -706,7 +699,7 @@ getTermEnv = do
 -- local ones, which the enclosing scope is still inferring, and the global
 -- placeholders of 'tcsMetaTerms'. A local binding shadows a global one, as
 -- in 'getTermEnv'.
-getMetaTermEnv :: TcM (Map TcTermKey TcBinder)
+getMetaTermEnv :: TcM (Map Entity TcBinder)
 getMetaTermEnv = do
   locals <- asks tcEnvTerms
   globals <- lift $ gets tcsGlobalTerms
@@ -715,7 +708,7 @@ getMetaTermEnv = do
 
 -- | Note a global term that a generalization has to look at, when its
 -- binder still mentions a meta-variable.
-noteMetaTerm :: TcTermKey -> TcBinder -> TcM ()
+noteMetaTerm :: Entity -> TcBinder -> TcM ()
 noteMetaTerm key binder
   | binderMentionsMeta binder =
       lift $ modify' $ \state -> state {tcsMetaTerms = Set.insert key (tcsMetaTerms state)}
@@ -729,21 +722,21 @@ binderMentionsMeta binder =
     TcMonoIdBinder ty -> typeMentionsMeta ty
 
 -- | Use the resolver's scope facts without another name resolution pass.
-withVisibleTerms :: [TcTermKey] -> TcM a -> TcM a
+withVisibleTerms :: [Entity] -> TcM a -> TcM a
 withVisibleTerms terms = local (\env -> env {tcEnvVisibleTerms = Set.fromList terms})
 
-isTermVisible :: TcTermKey -> TcM Bool
+isTermVisible :: Entity -> TcM Bool
 isTermVisible key = asks (Set.member key . tcEnvVisibleTerms)
 
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.
-extendTermEnv :: TcTermKey -> TcBinder -> TcM a -> TcM a
+extendTermEnv :: Entity -> TcBinder -> TcM a -> TcM a
 extendTermEnv key binder action = do
   terms <- asks tcEnvTerms
   terms' <- insertNewMap "local term environment" key binder terms
   local (\env -> env {tcEnvTerms = terms'}) action
 
-rebindTermEnv :: TcTermKey -> TcBinder -> TcM a -> TcM a
+rebindTermEnv :: Entity -> TcBinder -> TcM a -> TcM a
 rebindTermEnv key binder =
   local (\env -> env {tcEnvTerms = Map.insert key binder (tcEnvTerms env)})
 
@@ -754,7 +747,7 @@ extendResolvedTermEnv name binder action = do
 
 -- | Permanently extend the global term environment (for top-level
 -- declarations like data constructors and top-level bindings).
-extendTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
+extendTermKeyEnvPermanent :: Entity -> TcBinder -> TcM ()
 extendTermKeyEnvPermanent key binder = do
   terms <- lift $ gets tcsGlobalTerms
   terms' <- insertNewMap "global term environment" key binder terms
@@ -763,14 +756,14 @@ extendTermKeyEnvPermanent key binder = do
 
 -- | Replace a permanent global term entry. A synthesized binding registers
 -- a provisional type before its check and the checked type after it.
-replaceTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
+replaceTermKeyEnvPermanent :: Entity -> TcBinder -> TcM ()
 replaceTermKeyEnvPermanent key binder = do
   lift $ modify' $ \state -> state {tcsGlobalTerms = Map.insert key binder (tcsGlobalTerms state)}
   noteMetaTerm key binder
 
 -- | Replace the temporary monomorphic entries for one inferred top-level
 -- binding. No other permanent term entry can use this operation.
-finalizeInferredTermEnvPermanent :: TcTermKey -> TcType -> TypeScheme -> TcM ()
+finalizeInferredTermEnvPermanent :: Entity -> TcType -> TypeScheme -> TcM ()
 finalizeInferredTermEnvPermanent key placeholderTy scheme = do
   terms <- lift $ gets tcsGlobalTerms
   terms' <- finalizePlaceholder terms key
@@ -797,19 +790,19 @@ extendResolvedTermEnvPermanent name binder = do
   key <- resolvedUnqualifiedTermKey name
   extendTermKeyEnvPermanent key binder
 
-resolvedTermTarget :: Name -> TcM ResolvedName
+resolvedTermTarget :: Name -> TcM Entity
 resolvedTermTarget name =
-  case termResolution (nameAnns name) of
+  case Resolve.termResolution name of
     Just resolution -> pure (resolutionTarget resolution)
     Nothing ->
       abortTc ("missing resolver annotation for term occurrence " <> show (nameText name))
 
-resolvedLocalTermKey :: UnqualifiedName -> TcM TcTermKey
+resolvedLocalTermKey :: UnqualifiedName -> TcM Entity
 resolvedLocalTermKey name =
   case termResolution (unqualifiedNameAnns name) of
     Just resolution ->
       case resolutionTarget resolution of
-        ResolvedLocal unique _ -> pure (TcTermLocal unique)
+        localKey@EntityLocal {} -> pure localKey
         target ->
           abortTc ("expected local resolver annotation for binder " <> show (unqualifiedNameText name) <> ", got " <> show target)
     Nothing ->
@@ -819,18 +812,10 @@ resolvedLocalTermKey name =
 -- resolver chose for an occurrence. An occurrence without a resolver
 -- annotation, or one that names a local binder, gives Nothing.
 resolvedTermOrigin :: Name -> Maybe (PackageId, Text)
-resolvedTermOrigin name =
-  case termResolution (nameAnns name) of
-    Just resolution ->
-      case resolutionTarget resolution of
-        ResolvedTopLevel packageId moduleName _ -> Just (packageId, moduleName)
-        _ -> Nothing
-    Nothing -> Nothing
+resolvedTermOrigin = nameOrigin
 
 termResolution :: [Annotation] -> Maybe ResolutionAnnotation
-termResolution =
-  find ((== ResolutionNamespaceTerm) . resolutionNamespace)
-    . mapMaybe fromAnnotation
+termResolution = resolutionOf (== ResolutionNamespaceTerm)
 
 lookupTyCon :: Text -> TcM (Maybe TyConInfo)
 lookupTyCon = lookupTyConInNamespace ResolutionNamespaceType
@@ -858,10 +843,9 @@ lookupTyConQualifiedInNamespace namespace moduleName name =
 
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
-  case typeUseResolution (nameAnns name) of
-    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} ->
-      lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
-    Just ResolutionAnnotation {resolutionTarget = ResolvedError {}} -> pure Nothing
+  case Resolve.typeResolution name of
+    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} ->
+      lookupTyConOrigin namespace (globalNamePackage global) (globalNameModule global) (globalNameText global)
     Just ResolutionAnnotation {resolutionNamespace = namespace} ->
       maybe
         (lookupTyConInNamespace namespace (nameText name))
@@ -874,12 +858,9 @@ lookupResolvedTypeSyntax resolution =
   case resolution of
     ResolutionAnnotation
       { resolutionNamespace = namespace,
-        resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName
+        resolutionTarget = EntityGlobal global
       } ->
-        lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
-    ResolutionAnnotation
-      { resolutionTarget = ResolvedError {}
-      } -> pure Nothing
+        lookupTyConOrigin namespace (globalNamePackage global) (globalNameModule global) (globalNameText global)
     ResolutionAnnotation
       { resolutionIdentifier = identifier,
         resolutionNamespace = namespace
@@ -888,8 +869,8 @@ lookupResolvedTypeSyntax resolution =
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
   case typeResolution (unqualifiedNameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} ->
-      lookupTyConOrigin ResolutionNamespaceType packageId resolvedModule (nameText resolvedName)
+    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} ->
+      lookupTyConOrigin ResolutionNamespaceType (globalNamePackage global) (globalNameModule global) (globalNameText global)
     _ -> lookupTyCon (unqualifiedNameText name)
 
 lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
@@ -901,21 +882,14 @@ lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup (tyConKey tyCon) . tcsGlo
 lookupTyConOrigin :: ResolutionNamespace -> PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
 lookupTyConOrigin namespace packageId moduleName name = do
   wiring <- getWiring
-  let key = TcTypeKey name packageId moduleName namespace
+  let key = GlobalName name packageId moduleName namespace
       wiredKey
         | key == tyConKey (tcWiringListDeclaration wiring) = tyConKey (tcWiringListTyCon wiring)
         | otherwise = key
   lift $ gets $ Map.lookup wiredKey . tcsGlobalTyCons
 
 typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
-typeResolution =
-  find ((== ResolutionNamespaceType) . resolutionNamespace)
-    . mapMaybe fromAnnotation
-
-typeUseResolution :: [Annotation] -> Maybe ResolutionAnnotation
-typeUseResolution =
-  find ((/= ResolutionNamespaceModule) . resolutionNamespace)
-    . mapMaybe fromAnnotation
+typeResolution = resolutionOf (== ResolutionNamespaceType)
 
 extendTyConEnvPermanent :: TyConInfo -> TcM ()
 extendTyConEnvPermanent info = do
@@ -946,7 +920,7 @@ addPatSyn info = do
 
 -- | Register the record head of a pattern synonym the component declares,
 -- before its own binding group is checked.
-addDeclaredRecordPatSyn :: TcTermKey -> RecordHead -> TcM ()
+addDeclaredRecordPatSyn :: Entity -> RecordHead -> TcM ()
 addDeclaredRecordPatSyn key head' =
   lift $ modify' $ \state ->
     state {tcsDeclaredRecordPatSyns = Map.insert key head' (tcsDeclaredRecordPatSyns state)}
@@ -954,7 +928,7 @@ addDeclaredRecordPatSyn key head' =
 -- | The keys of the declared record pattern synonyms that own the given
 -- field labels. Dependency analysis uses them: a record update that names
 -- a label has to be checked after the pattern synonym it rebuilds.
-declaredRecordPatSynOwners :: [Text] -> TcM [TcTermKey]
+declaredRecordPatSynOwners :: [Text] -> TcM [Entity]
 declaredRecordPatSynOwners labels = lift $ gets $ \state ->
   [ key
   | (key, head') <- Map.toList (tcsDeclaredRecordPatSyns state),
@@ -973,18 +947,17 @@ recordPatSynHeads = lift $ gets $ \state ->
           ]
    in Map.elems (Map.union (tcsDeclaredRecordPatSyns state) imported)
 
-lookupPatSyn :: TcTermKey -> TcM (Maybe PatSynInfo)
+lookupPatSyn :: Entity -> TcM (Maybe PatSynInfo)
 lookupPatSyn key = lift $ gets (Map.lookup key . tcsPatSyns)
 
 getPatSyns :: TcM [PatSynInfo]
 getPatSyns = lift $ gets (Map.elems . tcsPatSyns)
 
 -- | The pattern synonym that a resolved top-level name refers to.
-lookupPatSynTarget :: ResolvedName -> TcM (Maybe PatSynInfo)
+lookupPatSynTarget :: Entity -> TcM (Maybe PatSynInfo)
 lookupPatSynTarget target =
   case target of
-    ResolvedTopLevel packageId resolvedModule resolvedName ->
-      lookupPatSyn (TcTermGlobal packageId resolvedModule (nameText resolvedName))
+    EntityGlobal global -> lookupPatSyn (globalTerm (globalNamePackage global) (globalNameModule global) (globalNameText global))
     _ -> pure Nothing
 
 lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)
@@ -1103,11 +1076,11 @@ getPolyKinds :: TcM Bool
 getPolyKinds = asks (not . null . tcEnvPolyKindOrigins)
 
 -- | The type constructors the component declares itself.
-getComponentTyCons :: TcM (Set.Set TcTypeKey)
+getComponentTyCons :: TcM (Set.Set GlobalName)
 getComponentTyCons = asks tcEnvComponentTyCons
 
 -- | Run an action with the component's own type constructors in scope.
-withComponentTyCons :: Set.Set TcTypeKey -> TcM a -> TcM a
+withComponentTyCons :: Set.Set GlobalName -> TcM a -> TcM a
 withComponentTyCons keys = local (\env -> env {tcEnvComponentTyCons = keys})
 
 -- | Run an action with the PolyKinds origins of the component in scope.

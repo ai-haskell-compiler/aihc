@@ -1,3 +1,5 @@
+{-# LANGUAGE ExplicitNamespaces #-}
+
 -- | GHC declares the type-level naturals here and re-exports them from
 -- @GHC.TypeNats@. @aihc-internal@ depends on @aihc-base@ rather than the
 -- other way round, so the declarations live in @GHC.TypeNats@ and this
@@ -13,7 +15,9 @@ module GHC.Internal.TypeNats
     fromSNat,
     withSomeSNat,
     withKnownNat,
+    type (<=),
+    type (<=?),
   )
 where
 
-import GHC.TypeNats (KnownNat, Nat, Natural, SNat, fromSNat, natSing, natVal, natVal', withKnownNat, withSomeSNat)
+import GHC.TypeNats (KnownNat, Nat, Natural, SNat, fromSNat, natSing, natVal, natVal', withKnownNat, withSomeSNat, type (<=), type (<=?))

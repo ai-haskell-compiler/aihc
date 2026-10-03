@@ -2,6 +2,8 @@
 -- from the body, and an eta-reduced alias is not inlined.
 {-# HLINT ignore foldl' "Eta reduce" #-}
 {-# HLINT ignore length "Eta reduce" #-}
+-- The fusion rules for concat keep the lambda of GHC, as in "Prelude".
+{-# HLINT ignore "Avoid lambda" #-}
 module GHC.List
   ( build,
     map,
@@ -63,6 +65,7 @@ module GHC.List
 where
 
 import GHC.Base (build)
+import GHC.Base qualified
 import GHC.Internal.Foldable (listFoldl', listLength)
 import Prelude hiding (all, and, any, concat, concatMap, elem, foldl', length, notElem, or)
 
@@ -73,6 +76,13 @@ concat = foldr (++) []
 
 concatMap :: (a -> [b]) -> [a] -> [b]
 concatMap function = foldr (\value rest -> function value ++ rest) []
+
+-- The same producers as the 'Foldable' ones of "Prelude". A form that did
+-- not fuse turns back into the "Prelude" call, through the rules there.
+{-# RULES
+"GHC.List.concat" [~1] forall xs. concat xs = build (\c n -> GHC.Base.foldr (\x y -> GHC.Base.foldr c y x) n xs)
+"GHC.List.concatMap" [~1] forall f xs. concatMap f xs = build (\c n -> GHC.Base.foldr (\x b -> GHC.Base.foldr c b (f x)) n xs)
+  #-}
 
 and :: [Bool] -> Bool
 and = foldr (&&) True

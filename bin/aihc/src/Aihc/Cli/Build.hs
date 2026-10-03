@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The @build@ command.
+-- | The @build@ command: an install with extra steps that link
+-- executables.
 --
 -- A Haskell source file is the main module of one executable, which
--- "Aihc.Cli.BuildModule" builds from the source directories and package
+-- "Aihc.Cli.BuildModule" finds from the source directories and package
 -- constraints of the command line. Anything else is a Cabal package: a local
 -- directory, or a Hackage release named as @install@ names it. Its
 -- executables are found in the Cabal file, and each is built from the
@@ -11,45 +12,36 @@
 -- the package, when an executable depends on it, is installed like any
 -- other dependency: in place under the build directory for a local package,
 -- and into the store for a Hackage release.
+--
+-- Either way, the install graph compiles the executables together with the
+-- packages below them, and then each executable is linked.
 module Aihc.Cli.Build
   ( build,
+    buildWith,
     runBuild,
   )
 where
 
-import Aihc.Cli.BuildModule
-  ( ExecutableInputs (..),
-    InstalledPackage (..),
-    entryModuleText,
-    finishExecutable,
-    installedPackage,
-    plannedPackage,
-    requirePackageArchive,
-    runBuildModule,
-    validateSelectedPackageNames,
-  )
-import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
+import Aihc.Cli.BuildModule (mainModuleExecutable, plannedPackage, writeEntryModule)
 import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.Install
-  ( InstallLocations (..),
+  ( ExecutableComponent (..),
+    InstallLocations (..),
+    InstalledPackage (..),
     ModuleCompileConfig (..),
-    ModuleCompileRequest (..),
-    buildEnvironmentIdentity,
     cabalPlatformForTarget,
-    capiStubOptions,
-    compileModules,
-    compilePackageCFiles,
     defaultBuildRoot,
-    dependencyIncludeDirs,
-    installPlanPackages,
+    installExecutables,
     installTargetRoot,
-    packageLinkArguments,
+    newModuleCompileConfig,
+    planProgressItems,
     planRequestFor,
     sourceFileModuleName,
   )
-import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
+import Aihc.Cli.Link (linkCompiledExecutable)
 import Aihc.Cli.Options (BuildOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
+import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..), quietProgress, withProgress)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
@@ -67,47 +59,102 @@ import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Monad (forM, forM_, unless, when)
 import Data.List (nub)
 import Data.Maybe (fromMaybe)
-import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory)
-import System.FilePath (takeDirectory, (<.>), (</>))
+import System.Directory (canonicalizePath, doesFileExist, getCurrentDirectory)
+import System.FilePath (dropExtension, (<.>), (</>))
+import System.IO (stderr, stdout)
 
+-- | Build with the progress on stderr, and name each output on stdout.
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
-  outputs <- build options
+  outputs <- withProgress stderr (`buildWith` options)
   let label = if buildNoLink options then "bundle: " else "executable: "
   mapM_ (putStrLn . (label <>)) outputs
+
+-- | Build without progress. The verbose messages go to stdout. A library
+-- caller, such as a test, uses this entry point.
+build :: BuildOptions -> IO [FilePath]
+build = buildWith (quietProgress stdout)
+
+-- | One executable of a build: what the install graph compiles, and where
+-- the executable or its link bundle goes.
+data ExecutableTarget = ExecutableTarget
+  { executableComponent :: !ExecutableComponent,
+    executableOutput :: !FilePath
+  }
 
 -- | Build what the input names and return the paths of the executables, or
 -- of their link bundles with @--no-link@. An existing file is a main
 -- module; everything else is a package.
-build :: BuildOptions -> IO [FilePath]
-build options = do
+buildWith :: ProgressReporter -> BuildOptions -> IO [FilePath]
+buildWith reporter options = do
   isFile <- doesFileExist (buildInput options)
-  case (isFile, buildExecutables options) of
-    (True, _ : _) -> ioError (userError "--executable selects the executables of a package, and a main module is one executable")
-    (True, []) -> pure <$> runBuildModule options
-    (False, _) -> buildPackage options
-
--- | Build every executable of the Cabal package the input names, or the
--- executables that @--executable@ selects.
-buildPackage :: BuildOptions -> IO [FilePath]
-buildPackage options = do
+  when (isFile && not (null (buildExecutables options))) $
+    ioError (userError "--executable selects the executables of a package, and a main module is one executable")
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
+  let target = buildTarget options
+      targetDirectory = nativeTargetStoreDirectory target
+      report = progressReport reporter
+      verbose message = when (buildVerbose options) (report (ProgressLog message))
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options) (buildOptimization options)
+  let config =
+        levelConfig
+          { compileKeepCore = buildKeepCore options,
+            compileKeepGrin = buildKeepGrin options,
+            compileKeepLir = buildKeepLir options,
+            compileKeepNative = buildKeepNative options,
+            compileLint = buildLint options,
+            compileCheckPrimBounds = buildCheckPrimBounds options,
+            compileVerbose = verbose,
+            compileUseColor = progressColor reporter,
+            compileProgress = reporter
+          }
+  (locations, targets) <-
+    (if isFile then mainModuleTarget else packageTargets) options config (storeRoot </> targetDirectory)
+  let components = map executableComponent targets
+  report (ProgressPlan (planProgressItems (concatMap componentDependencies components) <> map componentItem components))
+  compiled <- installExecutables config locations components
+  forM (zip targets compiled) $ \(executable, compiledExecutable) -> do
+    let output = executableOutput executable
+        component = executableComponent executable
+    report (ProgressLink (componentItem component))
+    linkCompiledExecutable config (buildNoLink options) (componentOutputRoot component) output compiledExecutable
+    report (ProgressDone (componentItem component))
+    pure output
+
+-- | The executable of a main module. Its modules build under the build
+-- root, and the packages that the constraints name go into the store. A
+-- main module has no Cabal file, so its lock lives in the working
+-- directory.
+mainModuleTarget :: BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
+mainModuleTarget options config storeTargetRoot = do
+  currentDirectory <- getCurrentDirectory
+  hackageSource <- defaultHackageSource
+  let target = compileTarget config
+      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildBuildRoot options)
+      buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
+  request <- planRequestFor hackageSource (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (compileVerbose config)
+  component <- mainModuleExecutable options currentDirectory buildRoot request
+  pure
+    ( buildLocations storeTargetRoot buildRoot True,
+      [ExecutableTarget component (fromMaybe (dropExtension (buildInput options)) (buildOutput options))]
+    )
+
+-- | Every executable of the Cabal package the input names, or the
+-- executables that @--executable@ selects.
+packageTargets :: BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
+packageTargets options config storeTargetRoot = do
   currentDirectory <- getCurrentDirectory
   hackageSource <- defaultHackageSource
   (rootPackage, origin, lockDirectory) <- installTargetRoot (buildInput options)
-  let target = buildTarget options
-      targetDirectory = nativeTargetStoreDirectory target
-      (os, arch) = cabalPlatformForTarget target
-      verbose message = when (buildVerbose options) (putStrLn message)
+  let target = compileTarget config
+      platform = cabalPlatformForTarget target
       -- The selected executables, or every executable when none is named.
       selection = if null (buildExecutables options) then Nothing else Just (nub (buildExecutables options))
   -- The package itself and its siblings resolve locally before the
   -- workspace and Hackage, so an executable that depends on the library
   -- of its own package finds it in the source tree.
-  request <- planRequestFor hackageSource (buildPlanOptions options) (os, arch) (maybe [] pure (buildWorkspace options)) lockDirectory verbose
+  request <- planRequestFor hackageSource (buildPlanOptions options) platform (maybe [] pure (buildWorkspace options)) lockDirectory (compileVerbose config)
   planned <- planPackages request {requestRoots = [rootPackage], requestExecutables = selection}
   rootPlan <- case plannedRoots planned of
     [plan] -> pure plan
@@ -121,9 +168,9 @@ buildPackage options = do
         fromMaybe
           (if origin == PlanLocal then defaultBuildRoot root else currentDirectory </> ".aihc-target")
           (buildBuildRoot options)
-      buildRoot = localBuildRoot </> targetDirectory
+      buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
       outputDirectory = fromMaybe (buildRoot </> "bin") (buildOutput options)
-  buildable <- HackageCabal.collectExecutablesIn (planBuildContext (os, arch) rootPlan) gpd root
+  buildable <- HackageCabal.collectExecutablesIn (planBuildContext platform rootPlan) gpd root
   when (null buildable) $
     ioError (userError ("The package " <> unPackageName (planName rootPlan) <> " has no buildable executable"))
   let buildableNames = map executableInfoName buildable
@@ -134,102 +181,47 @@ buildPackage options = do
         ( userError
             ("The package " <> unPackageName (planName rootPlan) <> " has no buildable executable " <> name <> "; its buildable executables are " <> unwords buildableNames)
         )
-  buildIdentity <- buildEnvironmentIdentity target
-  headerDirectory <- ensureCompilerHeaders target buildRoot
-  let plan = optimizationPlan (buildLto options) (buildOptimization options)
-      compileConfig =
-        ModuleCompileConfig
-          { compileBuildIdentity = buildIdentity,
-            compileKeepCore = buildKeepCore options,
-            compileKeepGrin = buildKeepGrin options,
-            compileKeepLir = buildKeepLir options,
-            compileKeepNative = buildKeepNative options,
-            compileLint = buildLint options,
-            compileCheckPrimBounds = buildCheckPrimBounds options,
-            compileLto = planWholeProgram plan,
-            compilePasses = planPasses plan,
-            compileGrinPointsTo = planGrinPointsTo plan,
-            compileNoCode = False,
-            compileOptimization = buildOptimization options,
-            compileTarget = target,
-            compileHeaderDirectory = headerDirectory,
-            compileVerbose = verbose,
-            compilePrintTimings = const (pure ()),
-            compileUseColor = False
-          }
-      -- The installed packages of an executable are built the way
-      -- @install@ builds them. The flags that keep the output of a phase
-      -- name the modules of the executable alone, so a dependency already
-      -- in the store is never rejected for lacking those outputs.
-      dependencyConfig =
-        compileConfig
-          { compileKeepCore = False,
-            compileKeepGrin = False,
-            compileKeepLir = False,
-            compileKeepNative = False
-          }
-      locations =
-        InstallLocations
-          { locationStoreRoot = storeRoot </> targetDirectory,
-            locationBuildRoot = buildRoot,
-            locationImmutable = False,
-            locationReinstall = False
-          }
   canonicalRoot <- canonicalizePath root
-  forM executables $ \executable -> do
+  targets <- forM executables $ \executable -> do
     let name = executableInfoName executable
-    verbose ("Build executable: " <> name)
-    let dependencyPackages =
-          nub (executableInfoDependencies executable <> map mkPackageName ["aihc-base", "aihc-prim"])
-    plans <- mapM (plannedPackage planned) dependencyPackages
+        outputRoot = buildRoot </> "exe" </> name
+    plans <- mapM (plannedPackage planned) (nub (executableInfoDependencies executable <> map mkPackageName ["aihc-base", "aihc-prim"]))
     -- The plan finds the package being built by its name, which marks
     -- it local. What the user asked for decides instead: a directory is
     -- local, a Hackage release is not.
     rootedPlans <- mapM (markRootPlan canonicalRoot origin) plans
-    installed <- installPlanPackages dependencyConfig locations rootedPlans
-    let selected = map installedPackage installed
-    validateSelectedPackageNames selected
-    mapM_ requirePackageArchive selected
-    let outputRoot = buildRoot </> "exe" </> name
-        dependencyNames = map (packageManifestName . installedManifest) selected
-    -- The main module is the module that the @main-is@ file declares, as
-    -- MicroHs builds it. GHC instead needs @-main-is@ for a main module
-    -- that is not @Main@.
-    mainModule <- maybe (pure "Main") (sourceFileModuleName compileConfig root installed) (executableInfoMainFile executable)
-    entryFile <- writeEntryModule outputRoot mainModule dependencyNames
-    headerDirs <- dependencyIncludeDirs installed
-    let sourceFiles = executableInfoFiles executable <> [entryFile]
-        ownCInfo = executableInfoCCompileInfo executable
-        cCompileInfo = ownCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs ownCInfo <> headerDirs)}
-        compileRequest =
-          ModuleCompileRequest
-            { compileOutputRoot = outputRoot,
-              compilePackageRoot = root,
-              -- The entry archive of the target refers to the entry of the
+    let component =
+          ExecutableComponent
+            { -- The entry archive of the target refers to the entry of the
               -- package whose identity is @exe@, so every executable
               -- carries that identity; its name is its own.
-              compilePackage = Package (T.pack name) (PackageId "exe"),
-              compileSourceFiles = sourceFiles,
-              compileDependencies = installed,
-              compileCapiStubOptions = capiStubOptions sourceFiles cCompileInfo
+              componentPackage = Package (T.pack name) (PackageId "exe"),
+              componentSourceRoot = root,
+              componentOutputRoot = outputRoot,
+              componentDependencies = rootedPlans,
+              componentItem = ItemExecutable (T.pack name),
+              componentInputs = \packages -> do
+                -- The main module is the module that the @main-is@ file
+                -- declares, as MicroHs builds it. GHC instead needs
+                -- @-main-is@ for a main module that is not @Main@.
+                mainModule <- maybe (pure "Main") (sourceFileModuleName config root packages) (executableInfoMainFile executable)
+                entry <- writeEntryModule outputRoot mainModule (map (packageManifestName . installedManifest) packages)
+                pure (executableInfoFiles executable <> [entry], executableInfoCCompileInfo executable)
             }
-    compiled <- compileModules compileConfig compileRequest
-    cObjects <- compilePackageCFiles target (buildOptimization options) headerDirectory verbose root outputRoot cCompileInfo
-    let output = outputDirectory </> executableFileName target name
-    finishExecutable
-      compileConfig
-      ExecutableInputs
-        { executableStoreRoot = storeRoot,
-          executableNoLink = buildNoLink options,
-          executableOutput = output,
-          executableBuildRoot = outputRoot,
-          executableModules = compiled,
-          executableExtraObjects = cObjects,
-          executableCxxStdLib = not (null (HackageCabal.cCompileCxxSources cCompileInfo)),
-          executableLibraryArguments = packageLinkArguments target cCompileInfo,
-          executablePackages = selected
-        }
-    pure output
+    pure (ExecutableTarget component (outputDirectory </> executableFileName target name))
+  pure (buildLocations storeTargetRoot buildRoot False, targets)
+
+-- | Where the packages below the executables go. Nothing is reinstalled:
+-- the user named the executables, and a package below them is a
+-- dependency.
+buildLocations :: FilePath -> FilePath -> Bool -> InstallLocations
+buildLocations storeTargetRoot buildRoot immutable =
+  InstallLocations
+    { locationStoreRoot = storeTargetRoot,
+      locationBuildRoot = buildRoot,
+      locationImmutable = immutable,
+      locationReinstall = False
+    }
 
 -- | Give the plan of the package being built the origin the user asked for.
 -- The dependencies of that plan keep theirs: a plan never names the package
@@ -246,22 +238,3 @@ executableFileName target name =
   case target of
     Wasm32Wasip3 -> name <.> "wasm"
     _ -> name
-
--- | Write the generated entry module of an executable and describe it the
--- way the Cabal file describes the executable's own sources. The entry
--- calls the function @main@ of the main module.
-writeEntryModule :: FilePath -> Text -> [Text] -> IO HackageCabal.FileInfo
-writeEntryModule outputRoot mainModule dependencyNames = do
-  let path = outputRoot </> "generated" </> "Aihc" </> "Entry.hs"
-  createDirectoryIfMissing True (takeDirectory path)
-  TIO.writeFile path (entryModuleText mainModule)
-  pure
-    HackageCabal.FileInfo
-      { HackageCabal.fileInfoPath = path,
-        HackageCabal.fileInfoExtensions = [],
-        HackageCabal.fileInfoCppOptions = [],
-        HackageCabal.fileInfoIncludeDirs = [],
-        HackageCabal.fileInfoLanguage = Nothing,
-        HackageCabal.fileInfoDependencies = dependencyNames,
-        HackageCabal.fileInfoPreprocessor = Nothing
-      }

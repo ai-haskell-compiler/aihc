@@ -75,6 +75,8 @@ data TcWiring = TcWiring
     -- | The type of a character literal, and the kind of a type-level
     -- character literal.
     tcWiringCharTyCon :: TyCon,
+    -- | The type of the length argument of an overloaded list.
+    tcWiringIntTyCon :: TyCon,
     -- | The kind of a type-level natural literal. GHC gives @3@ the kind
     -- @GHC.Num.Natural.Natural@ -- the data type itself, which is both a
     -- runtime type and the kind of the literals -- and @Nat@ is a synonym

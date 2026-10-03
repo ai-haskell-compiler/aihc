@@ -1,10 +1,10 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoStarIsType #-}
 
 -- | Type-level literals.
@@ -40,6 +40,10 @@ module GHC.TypeLits
     charVal',
     SChar,
     fromSChar,
+    withKnownChar,
+    AppendSymbol,
+    CharToNat,
+    NatToChar,
     TypeError,
     ErrorMessage (..),
     type (<=),
@@ -140,3 +144,16 @@ newtype SChar c = UnsafeSChar Char
 -- | The value a singleton stands for.
 fromSChar :: SChar c -> Char
 fromSChar (UnsafeSChar value) = value
+
+-- | Supply the dictionary for a singleton character.
+withKnownChar :: forall c r. SChar c -> ((KnownChar c) => r) -> r
+withKnownChar (UnsafeSChar value) = withDict @(KnownChar c) value
+
+type AppendSymbol :: Symbol -> Symbol -> Symbol
+type family AppendSymbol a b
+
+type CharToNat :: Char -> Nat
+type family CharToNat c
+
+type NatToChar :: Nat -> Char
+type family NatToChar n

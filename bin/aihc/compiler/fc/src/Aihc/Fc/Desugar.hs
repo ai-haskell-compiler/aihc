@@ -31,11 +31,11 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     peelDeclAnn,
     tyVarBinderName,
-    unqualifiedNameAnns,
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Syn
-import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), exportedLocalNames)
+import Aihc.Resolve (Entity (..), GlobalName (..), ModuleExports, Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderResolution, exportedLocalNames)
+import Aihc.Resolve qualified as Resolve
 import Aihc.Tc
   ( AssociatedTypeInfo (..),
     ClassInfo (..),
@@ -67,13 +67,12 @@ import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
     TcKinds,
-    TcTermKey (..),
     TcType (..),
-    TcTypeKey (..),
     TyVarId,
     TypeScheme (..),
     Unique (..),
     defaultMethodWorkerScheme,
+    isEqualityTyCon,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -149,7 +148,7 @@ compilerVisibleNames moduleName'
   | otherwise = Set.empty
 
 data HeaderSource
-  = HeaderTerm !(TcTermKey, TypeScheme)
+  = HeaderTerm !(Entity, TypeScheme)
   | HeaderTyCon !TyConInfo
   | HeaderDataType !DataTypeInfo
   | HeaderClass !ClassInfo
@@ -185,17 +184,20 @@ convertTyConHeader env info = do
   converted <- convertKindScheme env (tciKindScheme info)
   pure (tyConNameFc env (tciTyCon info), converted)
 
-convertTermHeader :: ConvertEnv -> (TcTermKey, TypeScheme) -> Either String (Maybe (Name, Type))
+convertTermHeader :: ConvertEnv -> (Entity, TypeScheme) -> Either String (Maybe (Name, Type))
 convertTermHeader env (key, scheme) =
   case key of
-    TcTermGlobal package moduleName' identifier -> do
+    EntityGlobal global -> do
+      let moduleName' = globalNameModule global
+          identifier = globalNameText global
       converted <-
         either
           (\message -> Left (T.unpack moduleName' <> "." <> T.unpack identifier <> ": " <> message))
           Right
           (convertTypeScheme env scheme)
-      pure (Just (Name identifier SortValue (OriginTop package moduleName'), converted))
-    TcTermLocal {} -> pure Nothing
+      pure (Just (Name identifier SortValue (OriginTop (globalNamePackage global) moduleName'), converted))
+    EntityLocal {} -> pure Nothing
+    EntitySyntax -> pure Nothing
 
 convertInstanceHeader :: ConvertEnv -> InstanceInfo -> Either String (Name, Type)
 convertInstanceHeader env info = do
@@ -281,12 +283,12 @@ headerIndex convertEnv interface =
   where
     termFacts =
       [ (Name identifier SortValue (OriginTop package moduleName'), HeaderTerm (key, scheme))
-      | (key@(TcTermGlobal package moduleName' identifier), scheme) <- tcInterfaceTerms interface,
+      | (key@(GlobalTerm package moduleName' identifier), scheme) <- tcInterfaceTerms interface,
         Set.notMember key familyConstructorKeys
       ]
     familyConstructorKeys =
       Set.fromList
-        [ TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) constructorName
+        [ GlobalTerm (tyConPackageId tyCon) (tyConModuleName tyCon) constructorName
         | info <- tcInterfaceDataFamilyInstances interface,
           let tyCon = dfiiRepresentationTyCon info,
           constructorName <- dfiiConstructorNames info
@@ -367,13 +369,13 @@ headerIndex convertEnv interface =
               origin = OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
         ]
 
-lookupHeader :: ConvertEnv -> Map.Map TcTermKey TcBindingResult -> Map.Map Name HeaderSource -> Name -> Either String (Maybe TypeOf.TypeEnv)
+lookupHeader :: ConvertEnv -> Map.Map Entity TcBindingResult -> Map.Map Name HeaderSource -> Name -> Either String (Maybe TypeOf.TypeEnv)
 lookupHeader convertEnv bindings headers name =
   case Map.lookup name headers of
     Nothing -> Right Nothing
     Just source -> Just . tidyTypeEnv <$> convertHeader convertEnv bindings source
 
-convertHeader :: ConvertEnv -> Map.Map TcTermKey TcBindingResult -> HeaderSource -> Either String TypeOf.TypeEnv
+convertHeader :: ConvertEnv -> Map.Map Entity TcBindingResult -> HeaderSource -> Either String TypeOf.TypeEnv
 convertHeader convertEnv bindings source =
   case source of
     HeaderTerm keyScheme -> do
@@ -425,19 +427,19 @@ declsEnv :: ConvertEnv -> [Decl] -> Either String TypeOf.TypeEnv
 declsEnv convertEnv declarations =
   Right (TypeOf.typeEnvFromProgram (cePrimPackage convertEnv) (Program emptyScopeTable emptyImports declarations))
 
-bindingsFromInterface :: TcInterface -> Map.Map TcTermKey TcBindingResult
+bindingsFromInterface :: TcInterface -> Map.Map Entity TcBindingResult
 bindingsFromInterface interface =
   Map.fromList (termBindings <> instanceBindings <> defaultMethodBindings)
   where
     termBindings =
       [ (key, TcBindingResult key identifier (interfaceSchemeType scheme))
-      | (key@(TcTermGlobal _ _ identifier), scheme) <- tcInterfaceTerms interface
+      | (key@(GlobalTerm _ _ identifier), scheme) <- tcInterfaceTerms interface
       ]
     instanceBindings =
       [ (key, TcBindingResult key (iiDictName info) (iiDictType info))
       | info <- tcInterfaceInstances interface,
         let (package, moduleName') = iiDictOrigin info
-            key = TcTermGlobal (PackageId package) moduleName' (iiDictName info)
+            key = GlobalTerm (PackageId package) moduleName' (iiDictName info)
       ]
     defaultMethodBindings =
       [ (key, TcBindingResult key workerName (interfaceSchemeType workerScheme))
@@ -446,7 +448,7 @@ bindingsFromInterface interface =
         methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
         let workerName = defaultMethodName methodName
-            key = TcTermGlobal (PackageId package) moduleName' workerName
+            key = GlobalTerm (PackageId package) moduleName' workerName
             workerScheme = maybe methodScheme (defaultMethodWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
 
@@ -467,18 +469,18 @@ failedDesugar messages =
 -- | Index bindings by the identity they carry. A binding names the module
 -- that declares it, so a list that spans several modules indexes without
 -- collision.
-localBindingMap :: [TcBindingResult] -> Map.Map TcTermKey TcBindingResult
+localBindingMap :: [TcBindingResult] -> Map.Map Entity TcBindingResult
 localBindingMap = Map.fromList . map (\binding -> (tbKey binding, binding))
 
 dsDecl ::
   ConvertEnv ->
   PackageId ->
   Text ->
-  Map.Map TcTypeKey DataTypeInfo ->
-  Map.Map TcTypeKey TyConInfo ->
-  Map.Map TcTypeKey ClassInfo ->
+  Map.Map GlobalName DataTypeInfo ->
+  Map.Map GlobalName TyConInfo ->
+  Map.Map GlobalName ClassInfo ->
   Map.Map TcAxiomKey TypeFamilyInstanceInfo ->
-  Map.Map TcTermKey TcBindingResult ->
+  Map.Map Entity TcBindingResult ->
   Syn.Decl ->
   Either String [Decl]
 dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings decl =
@@ -562,39 +564,39 @@ associatedFamilyParamNames familyName classDecl =
       typeFamilyDeclName familyDecl == familyName
     ]
 
-sourceTyConKey :: PackageId -> Text -> Text -> TcTypeKey
+sourceTyConKey :: PackageId -> Text -> Text -> GlobalName
 sourceTyConKey package moduleName' name =
-  TcTypeKey name package moduleName' ResolutionNamespaceType
+  GlobalName name package moduleName' ResolutionNamespaceType
 
-dataTypeSourceKey :: DataTypeInfo -> TcTypeKey
+dataTypeSourceKey :: DataTypeInfo -> GlobalName
 dataTypeSourceKey info =
   let tyCon = dtiTyCon info
-   in TcTypeKey (dtiName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
+   in GlobalName (dtiName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
-tyConSourceKey :: TyConInfo -> TcTypeKey
+tyConSourceKey :: TyConInfo -> GlobalName
 tyConSourceKey info =
   let tyCon = tciTyCon info
-   in TcTypeKey (tciName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
+   in GlobalName (tciName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
-classSourceKey :: ClassInfo -> TcTypeKey
+classSourceKey :: ClassInfo -> GlobalName
 classSourceKey info =
   let tyCon = ciTyCon info
-   in TcTypeKey (ciName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
+   in GlobalName (ciName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
-lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> Map.Map TcTypeKey DataTypeInfo -> Either String DataTypeInfo
+lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> Map.Map GlobalName DataTypeInfo -> Either String DataTypeInfo
 lookupDataType flavor package moduleName' name dataTypes =
   case Map.lookup (sourceTyConKey package moduleName' name) dataTypes of
     Just info
       | dtiFlavor info == flavor -> Right info
     _ -> Left ("missing checked data type " <> T.unpack moduleName' <> "." <> T.unpack name)
 
-lookupClassInfo :: PackageId -> Text -> Text -> Map.Map TcTypeKey ClassInfo -> Either String ClassInfo
+lookupClassInfo :: PackageId -> Text -> Text -> Map.Map GlobalName ClassInfo -> Either String ClassInfo
 lookupClassInfo package moduleName' name classes =
   case Map.lookup (sourceTyConKey package moduleName' name) classes of
     Just info -> Right info
     Nothing -> Left ("missing checked class " <> T.unpack moduleName' <> "." <> T.unpack name)
 
-lookupTyConFlavor :: TyConFlavor -> PackageId -> Text -> Text -> Map.Map TcTypeKey TyConInfo -> Either String TyConInfo
+lookupTyConFlavor :: TyConFlavor -> PackageId -> Text -> Text -> Map.Map GlobalName TyConInfo -> Either String TyConInfo
 lookupTyConFlavor flavor package moduleName' name tyCons =
   case Map.lookup (sourceTyConKey package moduleName' name) tyCons of
     Just info
@@ -621,7 +623,12 @@ convertClass env info = do
       dictName = classDictTypeName (ciTyCon info)
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (typeKind (ceKinds bindersEnv))
-  superFields <- mapM (convertType bindersEnv) (ciSuperClassTypes info)
+  superFields <-
+    if isEqualityTyCon (ceKinds env) (ciTyCon info)
+      then case ciTyVars info of
+        [left, right] -> (: []) <$> convertPred bindersEnv (EqPred (TcTyVar left) (TcTyVar right))
+        _ -> Left "equality class requires two parameters"
+      else mapM (convertType bindersEnv) (ciSuperClassTypes info)
   methodFields <- mapM (convertMethodField bindersEnv (ciName info) tyVars) (ciMethods info)
   let dictApp = foldl TyApp (TyCon dictName) (map (TyVar . binderName) binders)
       body = foldr (funType bindersEnv) dictApp (superFields <> methodFields)
@@ -750,7 +757,7 @@ dropKindParams remaining kind
 dropKindParams remaining (KFun _ result) = dropKindParams (remaining - 1) result
 dropKindParams _ kind = kind
 
-convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> Map.Map TcTermKey TcBindingResult -> DataFamilyInstanceInfo -> Either String [Decl]
+convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> Map.Map Entity TcBindingResult -> DataFamilyInstanceInfo -> Either String [Decl]
 convertDataFamilyInst env package moduleName' bindings info = do
   let visibleTyVars = dfiiTyVars info
       representationTyCon = dfiiRepresentationTyCon info
@@ -827,7 +834,7 @@ convertDataFamilyInst env package moduleName' bindings info = do
           familyAxiom
         ]
 
-convertFamilyConstructor :: ConvertEnv -> Map.Map TcTermKey TcBindingResult -> PackageId -> Text -> Type -> Text -> Either String ConDecl
+convertFamilyConstructor :: ConvertEnv -> Map.Map Entity TcBindingResult -> PackageId -> Text -> Type -> Text -> Either String ConDecl
 convertFamilyConstructor bindersEnv bindings package moduleName' representationType constructorName = do
   constructorType <- lookupBindingType bindings package moduleName' constructorName
   converted <- convertType bindersEnv constructorType
@@ -844,9 +851,9 @@ convertFamilyConstructor bindersEnv bindings package moduleName' representationT
         conStrictFields = []
       }
 
-lookupBindingType :: Map.Map TcTermKey TcBindingResult -> PackageId -> Text -> Text -> Either String TcType
+lookupBindingType :: Map.Map Entity TcBindingResult -> PackageId -> Text -> Text -> Either String TcType
 lookupBindingType bindings package moduleName' name =
-  case Map.lookup (TcTermGlobal package moduleName' name) bindings of
+  case Map.lookup (GlobalTerm package moduleName' name) bindings of
     Just binding -> Right (tbType binding)
     Nothing -> Left ("missing checked constructor type " <> T.unpack moduleName' <> "." <> T.unpack name)
 
@@ -887,7 +894,7 @@ convertTypeFamilyEquation env info = do
           }
     )
 
-lookupSynonym :: PackageId -> Text -> Text -> Map.Map TcTypeKey TyConInfo -> Either String TyConInfo
+lookupSynonym :: PackageId -> Text -> Text -> Map.Map GlobalName TyConInfo -> Either String TyConInfo
 lookupSynonym = lookupTyConFlavor SynonymTyCon
 
 convertDataType :: ConvertEnv -> DataTypeInfo -> Either String Decl
@@ -1193,8 +1200,7 @@ resolvedModuleOrigin resolvedModule =
   fromMaybe ("", fromMaybe "Main" (Syn.moduleName resolvedModule)) $ do
     resolved <- listToMaybe (mapMaybe definitionResolution (Syn.moduleDecls resolvedModule))
     case resolutionTarget resolved of
-      ResolvedTopLevel packageId moduleName' _ ->
-        pure (packageId, moduleName')
+      EntityGlobal global -> pure (globalNamePackage global, globalNameModule global)
       _ -> Nothing
 
 definitionResolution :: Syn.Decl -> Maybe ResolutionAnnotation
@@ -1227,14 +1233,14 @@ patternResolution pattern' =
     _ -> Nothing
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
-nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
+nameResolution = binderResolution
 
 -- | The resolution of the name at the head of a type family declaration.
 familyHeadResolution :: Syn.Type -> Maybe ResolutionAnnotation
 familyHeadResolution ty =
   case Syn.peelTypeHead ty of
-    Syn.TCon name _ -> listToMaybe (mapMaybe fromAnnotation (Syn.nameAnns name))
-    Syn.TInfix _ name _ _ -> listToMaybe (mapMaybe fromAnnotation (Syn.nameAnns name))
+    Syn.TCon name _ -> Resolve.nameResolution name
+    Syn.TInfix _ name _ _ -> Resolve.nameResolution name
     Syn.TApp function _ -> familyHeadResolution function
     Syn.TTypeApp function _ -> familyHeadResolution function
     _ -> Nothing

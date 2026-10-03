@@ -21,11 +21,12 @@ module Control.Applicative
 where
 
 import Control.Arrow (Arrow (..), ArrowPlus (..), ArrowZero (..), Kleisli (..), (>>>))
-import Data.Semigroup.Internal (Monoid (..))
+import Data.Bits (Bits)
+import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import Foreign.Storable (Storable (..))
 import GHC.List (drop)
 import GHC.Ptr (castPtr)
-import Prelude (Applicative (..), Eq (..), Foldable (..), Functor (..), Maybe (..), Monad (..), Ord (..), Read (..), Show (..), Traversable (..), const, lex, readParen, showParen, showString, (++), (.), (<$>))
+import Prelude (Applicative (..), Bounded, Enum, Eq (..), Floating, Foldable (..), Fractional, Functor (..), Integral, Maybe (..), Monad (..), Num, Ord (..), Read (..), Real, RealFloat, RealFrac, Show (..), Traversable (..), const, lex, readParen, showParen, showString, (++), (.), (<$>))
 
 -- | The first alternative that succeeds, from left to right.
 asum :: (Foldable t, Alternative f) => t (f a) -> f a
@@ -47,6 +48,7 @@ optional :: (Alternative f) => f a -> f (Maybe a)
 optional action = fmap Just action <|> pure Nothing
 
 newtype Const a b = Const {getConst :: a}
+  deriving newtype (Bounded, Enum, Num, Real, Integral, Fractional, Floating, RealFrac, RealFloat, Bits, Semigroup, Monoid)
 
 -- | The phantom second parameter plays no part: a 'Const' compares as the
 -- value it wraps.

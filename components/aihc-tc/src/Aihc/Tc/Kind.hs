@@ -768,7 +768,7 @@ typeApplicationSpine = go []
     go arguments (TTypeApp function argument) = go (argument : arguments) function
     go arguments headType = (headType, arguments)
 
-expandTcTypeSynonyms :: Set TcTypeKey -> TcType -> TcM TcType
+expandTcTypeSynonyms :: Set GlobalName -> TcType -> TcM TcType
 expandTcTypeSynonyms expanding ty = do
   case ty of
     TcTyVar {} -> pure ty

@@ -37,8 +37,8 @@ import Aihc.Parser.Syntax
     peelLiteralAnn,
     peelPatternAnn,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderEntity)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, TcPatternInstantiation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -183,18 +183,35 @@ withEarlierPatternBindings ((name, ty) : rest) action =
         Just _ -> withEarlierPatternBindings rest action
         Nothing -> extendTermEnv key (TcMonoIdBinder ty) (withEarlierPatternBindings rest action)
 
-localBinderKey :: UnqualifiedName -> Maybe TcTermKey
+localBinderKey :: UnqualifiedName -> Maybe Entity
 localBinderKey name =
-  case mapMaybe (fromAnnotation @ResolutionAnnotation) (unqualifiedNameAnns name) of
-    resolution : _ | ResolvedLocal unique _ <- resolutionTarget resolution -> Just (TcTermLocal unique)
+  case binderEntity name of
+    Just local@EntityLocal {} -> Just local
     _ -> Nothing
 
 checkPattern :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPattern sp pat (TcQualTy predicates body)
+  | patternNeedsInstantiation pat = do
+      wanted <- mapM (predToCt sp "pattern") predicates
+      check <- checkPattern sp pat body
+      let annotate = PAnn (mkAnnotation TcPatternInstantiation) . annotatePendingPatternAt sp (pendingAnnotation body [] (map ctEvVar wanted) [])
+      pure check {pcWantedCts = wanted <> pcWantedCts check, pcPatterns = map annotate (pcPatterns check)}
 checkPattern sp pat scrutTy = do
   check <- case literalPatternCheck sp pat scrutTy of
     Just literalCheck -> literalCheck
     Nothing -> checkPatternCore sp pat scrutTy
   pure check {pcPatterns = map (checkedPatternType sp scrutTy) (pcPatterns check)}
+
+-- | A variable keeps the constrained value. A constructor uses it.
+patternNeedsInstantiation :: Pattern -> Bool
+patternNeedsInstantiation pattern' = case pattern' of
+  PAnn _ inner -> patternNeedsInstantiation inner
+  PParen inner -> patternNeedsInstantiation inner
+  PVar {} -> False
+  PWildcard -> False
+  PAs _ inner -> patternNeedsInstantiation inner
+  PIrrefutable inner -> patternNeedsInstantiation inner
+  _ -> True
 
 checkPatternWithoutResultType :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWithoutResultType sp pat scrutTy =

@@ -65,7 +65,12 @@ optimizationPlan lto level =
     -- so -Os does not split. A worker body is new, and the growing
     -- inliner does not walk a body that calls no candidate, so a
     -- simplifying walk in the phase of the growing inliner follows.
-    split = [Fc.PassWorkerWrapper, Fc.PassSimplify 1]
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1] <> finish
+    split = [Fc.PassWorkerWrapper Fc.SplitAllFunctions, Fc.PassSimplify 1]
+    -- The growing inliner makes new local loops, such as a fused take of
+    -- an iterate, whose counter is still boxed. The eta expansion gives
+    -- such a loop all its lambdas, the local split then takes the box
+    -- off, and the simplifying walk reduces the copies of the wrapper at
+    -- the calls.
+    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLocalFunctions, Fc.PassSimplify 0, Fc.PassLiftConstants]
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4

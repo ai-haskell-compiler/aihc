@@ -12,7 +12,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
+import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, SplitScope (..), decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -27,7 +27,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
-import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, lookupImportedModule, modulesInPackage, resolveUnit, unionScope)
+import Aihc.Resolve (Builtins, ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
 import Aihc.Tc
   ( MergeCheck (..),
     TcInterface,
@@ -206,7 +206,7 @@ parseFcFixture path value = do
         casePasses = passes
       }
 
--- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@, @specialise@, @simplify@, @lift-constants@, or @inline@ with a
+-- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@ (or @worker-wrapper: locals@ for the local functions alone), @specialise@, @simplify@, @lift-constants@, or @inline@ with a
 -- policy. The policy is @shrink@, @grow@, or an object that names one of
 -- the two under @policy@ and overrides its knobs: @callee-limit@,
 -- @site-limit@, @discount@, @value-growth@, @value-slack@,
@@ -217,7 +217,8 @@ parsePass value =
   case value of
     Y.String "lift-constants" -> pure PassLiftConstants
     Y.String "eta" -> pure PassEtaExpand
-    Y.String "worker-wrapper" -> pure PassWorkerWrapper
+    Y.String "worker-wrapper" -> pure (PassWorkerWrapper SplitAllFunctions)
+    Y.Object obj | Just (Y.String "locals") <- KeyMap.lookup "worker-wrapper" obj -> pure (PassWorkerWrapper SplitLocalFunctions)
     Y.String "specialise" -> pure PassSpecialise
     Y.String "demand" -> pure (PassDemand StrictLetsAndArguments)
     Y.Object obj | Just (Y.String "lets") <- KeyMap.lookup "demand" obj -> pure (PassDemand StrictLetsOnly)
@@ -298,7 +299,7 @@ renderFcCase tc =
           let fixtureExports = collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureModules modules)
               visibleExports = fixtureExports <> supportScopes primitiveSupport
            in case resolveUnit (fixtureBuiltinScope visibleExports) visibleExports (fixtureModules modules) of
-                ResolveResult {resolvedModules, resolveErrors = []} ->
+                Right ResolvedUnit {resolvedModules} ->
                   let fixtureAsts = resolvedModules
                       primitiveInterface = supportTcInterface primitiveSupport
                       (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (primTcConfig (PackageId "aihc-prim")) primitiveInterface fixtureAsts
@@ -316,8 +317,8 @@ renderFcCase tc =
                                 else lintAndRenderResults fixtureResults
                             else Left (unlines (concatMap dsErrors fixtureResults))
                         else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
-                ResolveResult {resolveErrors} ->
-                  Left ("resolve error: " <> show resolveErrors)
+                Left failure ->
+                  Left ("resolve error: " <> show (failureErrors failure))
   where
     fixtureModules = modulesInPackage fixturePackage . map withPragmaExtensions
     parseFixtureModule input =
@@ -378,10 +379,9 @@ preparePrimitiveSupport primitiveModules =
     Right modules ->
       let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
           exports = collectModuleExportsWithDeps mempty packageModules
-          builtinScope = foldr (unionScope . lookupPrimitive) emptyScope ["GHC.Prim", "GHC.Types"]
-          lookupPrimitive name = lookupImportedModule primitivePackage Nothing name exports
+          builtinScope = builtins primitivePackage exports ["GHC.Prim", "GHC.Types"]
        in case resolveUnit builtinScope exports packageModules of
-            ResolveResult {resolvedModules, resolveErrors = []} ->
+            Right ResolvedUnit {resolvedModules} ->
               let primitiveAsts = resolvedModules
                   (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (primTcConfig (PackageId "aihc-prim")) emptyTcInterface primitiveAsts
                in if all tcModuleSuccess primitiveTcResults
@@ -399,8 +399,8 @@ preparePrimitiveSupport primitiveModules =
                                     supportTcInterface = tcInterface
                                   }
                             else Left (unlines (concatMap dsErrors primitiveResults))
-                    else Left ("typecheck error: " <> unlines [show (moduleName ast) <> ": " <> show diagnostic | (ast, result) <- zip (map moduleUnitAst primitiveAsts) primitiveTcResults, diagnostic <- tcModuleDiagnostics result])
-            ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+                    else Left ("typecheck error: " <> unlines [show (moduleName ast) <> ": " <> show diagnostic | (ast, result) <- zip (map (moduleUnitAst . resolvedModuleUnit) primitiveAsts) primitiveTcResults, diagnostic <- tcModuleDiagnostics result])
+            Left failure -> Left ("resolve error: " <> show (failureErrors failure))
 
 -- | A fixture module as the pipeline takes it: a fixture has no cabal file,
 -- so its own pragmas decide its extensions.
@@ -436,12 +436,11 @@ primitiveModulePaths =
     "GHC/Types.hs"
   ]
 
-fixtureBuiltinScope :: ModuleExports -> Scope
+fixtureBuiltinScope :: ModuleExports -> Builtins
 fixtureBuiltinScope visibleExports =
-  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  builtins fixturePackage visibleExports builtinFunctionModules
   where
-    lookupBuiltin name = lookupImportedModule fixturePackage Nothing name visibleExports
-    builtinFunctionModules = ["GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 -- | The kind vocabulary of the fixture compiler.
 fixtureWiring :: TcWiring

@@ -1,0 +1,56 @@
+extensions: [ConstraintKinds, DataKinds, GADTs, PolyKinds, TypeApplications, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, DataKinds, GADTs, KindSignatures, PolyKinds, TypeApplications, TypeOperators #-}
+    module Test where
+    import Data.Proxy (Proxy (..))
+    import GHC.TypeLits
+    import qualified GHC.TypeNats as Nats
+    import GHC.Num.Natural (naturalLog2)
+
+    bounded :: (1 Nats.<= n) => Proxy n -> Bool
+    bounded _ = True
+
+    data Equal (a :: k) (b :: k) where
+      Equal :: Equal a a
+
+    leftUnit :: Equal (AppendSymbol "" s) s
+    leftUnit = Equal
+
+    rightUnit :: Equal (AppendSymbol s "") s
+    rightUnit = Equal
+
+    data Dict c where
+      Dict :: c => Dict c
+
+    reflexive :: Dict (n Nats.<= n)
+    reflexive = Dict
+
+    plusZero :: Equal (n + 0) n
+    plusZero = Equal
+
+    minusZero :: Equal (n - 0) n
+    minusZero = Equal
+
+    timesZero :: Equal (n * 0) 0
+    timesZero = Equal
+
+    timesOne :: Equal (n * 1) n
+    timesOne = Equal
+
+    powerZero :: Equal (n ^ 0) 1
+    powerZero = Equal
+
+    answer :: Bool
+    answer = symbolVal (Proxy :: Proxy (AppendSymbol "ab" "cd")) == "abcd"
+      && natVal (Proxy :: Proxy (CharToNat 'A')) == 65
+      && charVal (Proxy :: Proxy (NatToChar 65)) == 'A'
+      && bounded (Proxy :: Proxy 2)
+      && naturalLog2 1 == 0
+      && naturalLog2 8 == 3
+      && naturalLog2 18446744073709551616 == 64
+expression: answer
+output: |
+  True
+status: pass
+reason: Literal families and natural logarithms give the expected values.

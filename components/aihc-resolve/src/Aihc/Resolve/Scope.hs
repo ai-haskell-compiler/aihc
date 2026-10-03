@@ -4,6 +4,14 @@ module Aihc.Resolve.Scope
   ( Scope (..),
     OperatorFixity (..),
     ModuleExports,
+    Exports,
+    ExportEntry (..),
+    exportsEntries,
+    exportsFromEntries,
+    exportedTerms,
+    exportedTypes,
+    Builtins (..),
+    builtins,
     moduleExportsFromList,
     moduleExportKeys,
     lookupModuleExport,
@@ -77,9 +85,9 @@ import Aihc.Parser.Syntax
     moduleName,
     peelPatternAnn,
     peelTypeHead,
-    qualifyName,
     recordFieldValue,
     renderUnqualifiedName,
+    unqualifiedNameText,
   )
 import Aihc.Resolve.Span (spanStartNameSpan)
 import Aihc.Resolve.Types
@@ -94,8 +102,8 @@ import Data.Text qualified as T
 import GHC.Generics (Generic)
 
 data Scope = Scope
-  { scopeTerms :: Map.Map Text ResolvedName,
-    scopeTypes :: Map.Map Text ResolvedName,
+  { scopeTerms :: Map.Map Text Entity,
+    scopeTypes :: Map.Map Text Entity,
     scopeConstructors :: Map.Map Text [Text],
     scopeRecordFields :: Map.Map Text [Text],
     scopeMethods :: Map.Map Text [Text],
@@ -146,8 +154,85 @@ instance Semigroup ModuleExports where
 instance Monoid ModuleExports where
   mempty = ModuleExports Map.empty
 
-moduleExportsFromList :: [(ModuleKey, Scope)] -> ModuleExports
-moduleExportsFromList entries =
+-- | What one module exports, as the modules that import it see it.
+newtype Exports = Exports Scope
+  deriving (Eq, Generic)
+
+instance NFData Exports
+
+-- | One fact of what a module exports. 'exportsEntries' and
+-- 'exportsFromEntries' turn an 'Exports' into these facts and back, which
+-- is how a store writes and reads it.
+data ExportEntry
+  = ExportTerm !Text !Entity
+  | ExportType !Text !Entity
+  | -- | The constructors of a type, for @T(..)@ imports and exports.
+    ExportConstructors !Text ![Text]
+  | -- | The record fields of a constructor.
+    ExportRecordFields !Text ![Text]
+  | -- | The methods of a class.
+    ExportMethods !Text ![Text]
+  | -- | The associated type families of a class.
+    ExportAssociatedTypes !Text ![Text]
+  | ExportFixity !Text !OperatorFixity
+  deriving (Eq, Show, Generic)
+
+instance NFData ExportEntry
+
+-- | The facts of what a module exports, in a fixed order.
+exportsEntries :: Exports -> [ExportEntry]
+exportsEntries (Exports scope) =
+  concat
+    [ [ExportTerm name entity | (name, entity) <- Map.toAscList (scopeTerms scope)],
+      [ExportType name entity | (name, entity) <- Map.toAscList (scopeTypes scope)],
+      [ExportConstructors name members | (name, members) <- Map.toAscList (scopeConstructors scope)],
+      [ExportRecordFields name members | (name, members) <- Map.toAscList (scopeRecordFields scope)],
+      [ExportMethods name members | (name, members) <- Map.toAscList (scopeMethods scope)],
+      [ExportAssociatedTypes name members | (name, members) <- Map.toAscList (scopeAssociatedTypes scope)],
+      [ExportFixity name fixity | (name, fixity) <- Map.toAscList (scopeFixities scope)]
+    ]
+
+-- | The exports that some facts describe.
+exportsFromEntries :: [ExportEntry] -> Exports
+exportsFromEntries = Exports . List.foldl' add emptyScope
+  where
+    add scope entry =
+      case entry of
+        ExportTerm name entity -> scope {scopeTerms = Map.insert name entity (scopeTerms scope)}
+        ExportType name entity -> scope {scopeTypes = Map.insert name entity (scopeTypes scope)}
+        ExportConstructors name members -> scope {scopeConstructors = Map.insert name members (scopeConstructors scope)}
+        ExportRecordFields name members -> scope {scopeRecordFields = Map.insert name members (scopeRecordFields scope)}
+        ExportMethods name members -> scope {scopeMethods = Map.insert name members (scopeMethods scope)}
+        ExportAssociatedTypes name members -> scope {scopeAssociatedTypes = Map.insert name members (scopeAssociatedTypes scope)}
+        ExportFixity name fixity -> scope {scopeFixities = Map.insert name fixity (scopeFixities scope)}
+
+-- | The terms a module exports, by name.
+exportedTerms :: Exports -> Map.Map Text Entity
+exportedTerms (Exports scope) = scopeTerms scope
+
+-- | The types a module exports, by name.
+exportedTypes :: Exports -> Map.Map Text Entity
+exportedTypes (Exports scope) = scopeTypes scope
+
+-- | The names that every module sees without an import: the terms that
+-- desugared syntax applies, such as @fromInteger@, the types of primitive
+-- literals, the list constructor @:@ and the equality type @~@.
+newtype Builtins = Builtins Scope
+
+-- | The builtins that some modules export, read as the given package
+-- sees them. A module that is not visible, or that more than one package
+-- defines, adds nothing.
+builtins :: Package -> ModuleExports -> [Text] -> Builtins
+builtins currentPackage visibleExports names =
+  Builtins (foldr (unionScope . lookupOne) emptyScope names)
+  where
+    lookupOne name = lookupImportedModule currentPackage Nothing name visibleExports
+
+moduleExportsFromList :: [(ModuleKey, Exports)] -> ModuleExports
+moduleExportsFromList entries = moduleExportsFromScopes [(key, scope) | (key, Exports scope) <- entries]
+
+moduleExportsFromScopes :: [(ModuleKey, Scope)] -> ModuleExports
+moduleExportsFromScopes entries =
   ModuleExports
     ( Map.fromListWith
         Map.union
@@ -159,8 +244,11 @@ moduleExportKeys :: ModuleExports -> [ModuleKey]
 moduleExportKeys (ModuleExports byName) =
   [ModuleKey package name | (name, byPackage) <- Map.toList byName, package <- Map.keys byPackage]
 
-lookupModuleExport :: ModuleKey -> ModuleExports -> Maybe Scope
-lookupModuleExport (ModuleKey package name) (ModuleExports byName) =
+lookupModuleExport :: ModuleKey -> ModuleExports -> Maybe Exports
+lookupModuleExport key exports = Exports <$> lookupExportScope key exports
+
+lookupExportScope :: ModuleKey -> ModuleExports -> Maybe Scope
+lookupExportScope (ModuleKey package name) (ModuleExports byName) =
   Map.lookup name byName >>= Map.lookup package
 
 filterModuleExports :: (ModuleKey -> Bool) -> ModuleExports -> ModuleExports
@@ -199,7 +287,7 @@ collectModuleExportsWithDeps depExports packageModules
         || (moduleImportsImplicitPrelude extensions modu && Set.member "Prelude" siblingNames)
 
     emptyLocalScopes =
-      moduleExportsFromList
+      moduleExportsFromScopes
         [ (exportKey package modu, emptyScope)
         | ModuleUnit {moduleUnitPackage = package, moduleUnitAst = modu} <- packageModules
         ]
@@ -208,7 +296,7 @@ collectModuleExportsWithDeps depExports packageModules
     -- scopes in hand for its siblings.
     exportScopes localScopes =
       let exports = localScopes <> depExports
-       in moduleExportsFromList
+       in moduleExportsFromScopes
             [ (exportKey package modu, exportedScope package exports extensions modu)
             | ModuleUnit {moduleUnitPackage = package, moduleUnitExtensions = extensions, moduleUnitAst = modu} <- packageModules
             ]
@@ -237,18 +325,18 @@ collectModuleExportsWithDeps depExports packageModules
 -- caller must read as \"assume every name is exported\".
 exportedLocalNames :: Package -> Text -> ModuleExports -> Maybe (Set (ResolutionNamespace, Text))
 exportedLocalNames package name exports =
-  localNames <$> lookupModuleExport (ModuleKey package name) exports
+  localNames <$> lookupExportScope (ModuleKey package name) exports
   where
     localNames scope =
       Set.fromList
-        [ (namespace, nameText resolved)
+        [ (namespace, globalNameText global)
         | (namespace, entries) <-
             [ (ResolutionNamespaceTerm, scopeTerms scope),
               (ResolutionNamespaceType, scopeTypes scope)
             ],
-          ResolvedTopLevel resolvedPackage resolvedModule resolved <- Map.elems entries,
-          resolvedPackage == packageId package,
-          resolvedModule == name
+          EntityGlobal global <- Map.elems entries,
+          globalNamePackage global == packageId package,
+          globalNameModule global == name
         ]
 
 exportedScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
@@ -272,7 +360,7 @@ exportedScope package exports extensions modu =
             [ (className, exportedMethods)
             | (className, resolvedClass) <- Map.toList (scopeTypes scope),
               candidate <- availableScope : Map.elems (scopeQualifiedModules availableScope),
-              lookupType className candidate == resolvedClass,
+              Map.lookup className (scopeTypes candidate) == Just resolvedClass,
               Just methods <- [Map.lookup className (scopeMethods candidate)],
               let exportedMethods =
                     [ method
@@ -299,7 +387,7 @@ exportedScope package exports extensions modu =
             [ (typeName, constructor, exportedFields)
             | (typeName, resolvedType) <- Map.toList (scopeTypes scope),
               candidate <- availableScope : Map.elems (scopeQualifiedModules availableScope),
-              lookupType typeName candidate == resolvedType,
+              Map.lookup typeName (scopeTypes candidate) == Just resolvedType,
               constructor <- Map.findWithDefault [] typeName (scopeConstructors candidate),
               let bundledFields = Map.findWithDefault [] constructor (scopeRecordFields scope),
               Just fields <- [Map.lookup constructor (scopeRecordFields candidate)],
@@ -385,7 +473,8 @@ selectTerm name scope =
 selectType :: Text -> Scope -> Scope
 selectType name scope =
   emptyScope
-    { scopeTypes = restrictToKey name (scopeTypes scope)
+    { scopeTypes = restrictToKey name (scopeTypes scope),
+      scopeFixities = restrictToKey name (scopeFixities scope)
     }
 
 -- | The entry a map holds for one key, as a map of its own. An export or
@@ -465,7 +554,7 @@ topLevelScope importedFields package modu =
   List.foldl' addDecl emptyScope (moduleDecls modu)
   where
     moduleKeyText = moduleKey modu
-    qualify = ResolvedTopLevel (packageId package) moduleKeyText . qualifyName Nothing
+    qualify namespace name = EntityGlobal (GlobalName (unqualifiedNameText name) (packageId package) moduleKeyText namespace)
     -- A pattern binding can come before the data declaration that gives it
     -- the record fields, so collect all fields of the module first.
     visibleFields =
@@ -475,8 +564,8 @@ topLevelScope importedFields package modu =
         )
     addDecl scope decl =
       let DeclExports termNames typeNames constructors recordFields methods associatedTypes fixities = declExportedNames visibleFields decl
-          scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
-          scope'' = List.foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
+          scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify ResolutionNamespaceTerm name) acc) scope termNames
+          scope'' = List.foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify ResolutionNamespaceType name) acc) scope' typeNames
           -- Each data instance of a data family adds constructors to the
           -- entry of the family, so keep the constructors of all instances.
           scope''' = scope'' {scopeConstructors = Map.unionWith (<>) (scopeConstructors scope'') constructors}
@@ -713,10 +802,10 @@ dataConDeclRecordFields dataConDecl =
 -- The builtin scope comes from the caller. The resolver does not know which
 -- module defines a builtin name.
 moduleScope :: Scope -> Package -> ModuleExports -> [Extension] -> Module -> Scope
-moduleScope builtins packageId exports extensions modu =
+moduleScope wired packageId exports extensions modu =
   ownScope
     `unionScope` imported
-    `unionScope` implicitSyntaxScope builtins
+    `unionScope` implicitSyntaxScope wired
     `unionScope` builtinScope
   where
     (unqualifiedOwnScope, imported) = ownAndImportedScopes packageId exports extensions modu
@@ -731,8 +820,8 @@ moduleScope builtins packageId exports extensions modu =
 -- is built-in syntax and needs no scope entry. Equality syntax uses the type
 -- @~@. Imported and local names shadow these names.
 implicitSyntaxScope :: Scope -> Scope
-implicitSyntaxScope builtins =
-  selectTerm ":" builtins `unionScope` selectType "~" builtins
+implicitSyntaxScope wired =
+  selectTerm ":" wired `unionScope` selectType "~" wired
 
 -- | What a module's own declarations bind, and what its imports bring in.
 --
@@ -813,7 +902,7 @@ filterImportSpec maybeSpec scope =
               scopeMethods = Map.restrictKeys (scopeMethods scope) allowedTypes,
               scopeAssociatedTypes =
                 Map.map (filter (`Set.member` allowedTypes)) (Map.restrictKeys (scopeAssociatedTypes scope) allowedTypes),
-              scopeFixities = Map.restrictKeys (scopeFixities scope) allowedTerms,
+              scopeFixities = Map.restrictKeys (scopeFixities scope) (allowedTerms `Set.union` allowedTypes),
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
@@ -889,7 +978,7 @@ importItemTypeName item =
     ImportItemWith _ itemName _ -> Just itemName
     ImportItemAllWith _ itemName _ _ -> Just itemName
 
-resolveTermName :: Scope -> Name -> ResolvedName
+resolveTermName :: Scope -> Name -> Resolution
 resolveTermName scope name =
   case nameQualifier name of
     Just qualifier ->
@@ -897,7 +986,7 @@ resolveTermName scope name =
     Nothing ->
       lookupTerm (nameText name) scope
 
-resolveTypeName :: Scope -> Name -> ResolvedName
+resolveTypeName :: Scope -> Name -> Resolution
 resolveTypeName scope name =
   case nameQualifier name of
     Just qualifier ->
@@ -905,14 +994,11 @@ resolveTypeName scope name =
     Nothing ->
       lookupType (nameText name) scope
 
-resolveQualifiedName :: Scope -> (Text -> Scope -> ResolvedName) -> Text -> Name -> ResolvedName
+resolveQualifiedName :: Scope -> (Text -> Scope -> Resolution) -> Text -> Name -> Resolution
 resolveQualifiedName scope lookupName qualifier name =
   case Map.lookup qualifier (scopeQualifiedModules scope) of
-    Nothing -> ResolvedError ("unknown qualified import: " <> T.unpack qualifier)
-    Just qualifiedScope ->
-      case lookupName (nameText name) qualifiedScope of
-        resolved@ResolvedTopLevel {} -> resolved
-        other -> other
+    Nothing -> Unresolved ("unknown qualified import: " <> T.unpack qualifier)
+    Just qualifiedScope -> lookupName (nameText name) qualifiedScope
 
 moduleKey :: Module -> Text
 moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
@@ -942,7 +1028,7 @@ builtinScope =
       scopeQualifiedModules = Map.empty
     }
   where
-    mkBuiltinType n = (n, ResolvedSyntax)
+    mkBuiltinType n = (n, EntitySyntax)
 
 -- | Wired-in type-namespace names.
 --
@@ -978,10 +1064,10 @@ unionScope left right =
           | leftType /= rightType -> leftConstructors
         _ -> List.nub (leftConstructors <> rightConstructors)
 
-insertTerm :: Text -> ResolvedName -> Scope -> Scope
+insertTerm :: Text -> Entity -> Scope -> Scope
 insertTerm name resolved scope = scope {scopeTerms = Map.insert name resolved (scopeTerms scope)}
 
-insertType :: Text -> ResolvedName -> Scope -> Scope
+insertType :: Text -> Entity -> Scope -> Scope
 insertType name resolved scope = scope {scopeTypes = Map.insert name resolved (scopeTypes scope)}
 
 -- | Add names from one qualified import. Combine scopes that share an alias.
@@ -992,19 +1078,13 @@ insertQualifiedModule qualifier imported scope =
         Map.insertWith unionScope qualifier imported (scopeQualifiedModules scope)
     }
 
-lookupTerm :: Text -> Scope -> ResolvedName
+lookupTerm :: Text -> Scope -> Resolution
 lookupTerm name scope =
-  Map.findWithDefault
-    (ResolvedError "unbound")
-    name
-    (scopeTerms scope)
+  maybe (Unresolved "unbound") Resolved (Map.lookup name (scopeTerms scope))
 
-lookupType :: Text -> Scope -> ResolvedName
+lookupType :: Text -> Scope -> Resolution
 lookupType name scope =
-  Map.findWithDefault
-    (ResolvedError "unbound")
-    name
-    (scopeTypes scope)
+  maybe (Unresolved "unbound") Resolved (Map.lookup name (scopeTypes scope))
 
 lookupFixity :: Text -> Scope -> OperatorFixity
 lookupFixity name scope =

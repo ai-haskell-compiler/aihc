@@ -26,7 +26,6 @@ import Test.Tasty.Runners
 import Test.Tc.Interface (tcInterfaceTests)
 import Test.Tc.Properties (tcProperties)
 import Test.Tc.Suite (tcAnnotatedGoldenTests)
-import Test.Tc.Traverse (tcTraverseTests)
 
 main :: IO ()
 main = do
@@ -64,12 +63,10 @@ main = do
 suiteTree :: IO TestTree
 suiteTree = do
   annotatedGoldenTests <- tcAnnotatedGoldenTests
-  traverseTests <- tcTraverseTests
   pure
     ( testGroup
         "aihc-tc"
         [ annotatedGoldenTests,
-          traverseTests,
           tcInterfaceTests,
           tcProperties
         ]

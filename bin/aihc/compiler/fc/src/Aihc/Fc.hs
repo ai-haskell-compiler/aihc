@@ -29,6 +29,7 @@ module Aihc.Fc
     SimplifyReport (..),
     Pass (..),
     PassReport (..),
+    SplitScope (..),
     passName,
     runPass,
     runPasses,
@@ -63,3 +64,4 @@ import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
+import Aihc.Fc.WorkerWrapper (SplitScope (..))

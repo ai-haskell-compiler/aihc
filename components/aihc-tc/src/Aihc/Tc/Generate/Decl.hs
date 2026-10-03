@@ -83,7 +83,6 @@ import Aihc.Parser.Syntax
     instanceHeadName,
     instanceHeadTypes,
     mkAnnotation,
-    mkUnqualifiedName,
     moduleExports,
     moduleName,
     nameText,
@@ -96,7 +95,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution)
 import Aihc.Resolve.Traverse (annotationList, collectAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
@@ -118,6 +117,7 @@ import Aihc.Tc.Annotations
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcModuleIdentity (..),
     TcPatSynAnnotation (..),
     annotateDecl,
     annotateRhsCast,
@@ -154,7 +154,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_)
+import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
@@ -188,7 +188,7 @@ data TcBindingResult = TcBindingResult
     -- under, so that a consumer never has to reattach a package and
     -- module of its own. Symbolic binders are keyed without
     -- prefix-position parentheses, e.g. @++@ rather than @(++)@.
-    tbKey :: !TcTermKey,
+    tbKey :: !Entity,
     -- | Human-facing rendering for diagnostics and golden output.
     tbDisplayName :: !Text,
     tbType :: !TcType
@@ -226,46 +226,25 @@ moduleBindings :: TcWiring -> Module -> [TcBindingResult]
 moduleBindings wiring modu =
   concatMap (declBindings wiring (mkTcKinds wiring) (resolvedModuleOrigin modu)) (moduleDecls modu)
 
+-- | Give a module the identity of its package and name, which the checked
+-- module keeps for the phases after the type checker. A module whose
+-- declarations are all instances names no top-level entity of its own, so
+-- the identity cannot come from a resolution.
+withModuleIdentity :: ModuleUnit -> Module -> Module
+withModuleIdentity unit modu =
+  modu {moduleAnns = mkAnnotation (TcModuleIdentity (packageId (moduleUnitPackage unit)) (fromMaybe "Main" (moduleName modu))) : moduleAnns modu}
+
+-- | The package and the name of a checked module.
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
-  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
-    resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
-    case resolutionTarget resolved of
-      ResolvedTopLevel packageId moduleName' _ ->
-        pure (packageIdText packageId, moduleName')
-      _ -> Nothing
-
-definitionResolution :: Decl -> Maybe ResolutionAnnotation
-definitionResolution declaration =
-  case peelDeclAnn declaration of
-    DeclValue (FunctionBind name _) -> nameResolution name
-    DeclValue (PatternBind _ pattern' _) -> patternResolution pattern'
-    DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
-    DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
-    DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (dataFamilyDeclHead familyDeclaration))
-    DeclTypeFamilyDecl familyDeclaration -> nameResolution =<< typeFamilyHeadName (typeFamilyDeclHead familyDeclaration)
-    DeclForeign foreignDeclaration -> nameResolution (foreignName foreignDeclaration)
-    DeclTypeSyn typeSynDeclaration -> nameResolution (binderHeadName (typeSynHead typeSynDeclaration))
-    DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    DeclPatSyn patSynDeclaration -> nameResolution (patSynDeclName patSynDeclaration)
-    DeclTypeSig names _ -> listToMaybe (mapMaybe nameResolution names)
-    _ -> Nothing
-
-patternResolution :: Pattern -> Maybe ResolutionAnnotation
-patternResolution pattern' =
-  case pattern' of
-    PVar name -> nameResolution name
-    PAnn _ inner -> patternResolution inner
-    PParen inner -> patternResolution inner
-    PStrict inner -> patternResolution inner
-    PIrrefutable inner -> patternResolution inner
-    PAs name _ -> nameResolution name
-    PTypeSig inner _ -> patternResolution inner
-    _ -> Nothing
+  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $
+    listToMaybe
+      [ (packageIdText packageId, moduleName')
+      | TcModuleIdentity packageId moduleName' <- mapMaybe fromAnnotation (moduleAnns resolvedModule)
+      ]
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
-nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
+nameResolution = binderResolution
 
 typeToScheme :: TcType -> TypeScheme
 typeToScheme ty =
@@ -277,8 +256,8 @@ typeToScheme ty =
 -- | The key a binding of this module gets. The module a binding is
 -- recovered from is the module that declares it, so its origin is the
 -- identity every consumer indexes it by.
-originTermKey :: (Text, Text) -> Text -> TcTermKey
-originTermKey (package, moduleName') = TcTermGlobal (PackageId package) moduleName'
+originTermKey :: (Text, Text) -> Text -> Entity
+originTermKey (package, moduleName') = GlobalTerm (PackageId package) moduleName'
 
 declBindings :: TcWiring -> TcKinds -> (Text, Text) -> Decl -> [TcBindingResult]
 declBindings wiring kinds origin decl =
@@ -453,7 +432,7 @@ dataConNames declaration = do
 -- constructor the source names has a resolver identity of its own; a
 -- built-in form takes the identity of the type it declares, which is what
 -- 'registerDataConWithResult' keys it by.
-dataConIdentityKey :: TyCon -> DataConIdentity -> TcM TcTermKey
+dataConIdentityKey :: TyCon -> DataConIdentity -> TcM Entity
 dataConIdentityKey parent identity =
   case identity of
     DeclaredDataCon name -> resolvedUnqualifiedTermKey name
@@ -462,7 +441,7 @@ dataConIdentityKey parent identity =
       pure (tyConMemberTermKey parent (tyConName (builtinDataCon wiring builtin)))
 
 -- | The keys of every constructor one declaration binds, in source order.
-dataConKeys :: TyCon -> DataConDecl -> TcM [TcTermKey]
+dataConKeys :: TyCon -> DataConDecl -> TcM [Entity]
 dataConKeys parent = mapM (dataConIdentityKey parent) . dataConIdentities
 
 binderBindingName :: UnqualifiedName -> (Text, Text)
@@ -472,19 +451,19 @@ binderBindingName name =
 -- | Type-check a module, returning the same syntax tree annotated with the
 -- inferred interface. Call 'moduleBindings' when a flat compatibility view is
 -- needed by older callers.
-tcModule :: ModuleUnit -> TcM Module
-tcModule unit = do
-  modules <- tcModuleScc [unit]
+tcModule :: ResolvedModule -> TcM Module
+tcModule resolved = do
+  modules <- tcModuleScc [resolved]
   case modules of
     [result] -> pure result
-    _ -> pure (moduleUnitAst unit)
+    _ -> pure (moduleUnitAst (resolvedModuleUnit resolved))
 
 -- | Type-check one strongly connected module component. Data declarations and
 -- explicit signatures are registered for the whole component before any
 -- value body is checked, allowing a module to refer back to a signed binding
 -- in another member of the same import cycle.
-tcModuleScc :: [ModuleUnit] -> TcM [Module]
-tcModuleScc sourceUnits = withPolyKindOrigins polyKindOrigins $ do
+tcModuleScc :: [ResolvedModule] -> TcM [Module]
+tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
   -- bodies, then register value-level declarations against those expanded
@@ -539,7 +518,7 @@ tcModuleScc sourceUnits = withPolyKindOrigins polyKindOrigins $ do
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
-  pending <- zipWithM tcModuleBody schemes derivingFinalized
+  pending <- sequence (zipWith3 tcModuleBody (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized)
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
@@ -547,7 +526,7 @@ tcModuleScc sourceUnits = withPolyKindOrigins polyKindOrigins $ do
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
   where
-    units = [unit {moduleUnitAst = hoistAssociatedDataFamilies (moduleUnitAst unit)} | unit <- sourceUnits]
+    units = [unit {moduleUnitAst = withModuleIdentity unit (hoistAssociatedDataFamilies (moduleUnitAst unit))} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
 
     atDeclOf check (origin, declaration) = atDecl (check origin) declaration
@@ -607,7 +586,7 @@ registerNominalRoles declaration = case peelDeclAnn declaration of
       Nothing -> pure ()
   _ -> pure ()
 
-checkModuleSignatures :: [Extension] -> Map TcTermKey UserSig -> TcM (Map TcTermKey CheckedSig)
+checkModuleSignatures :: [Extension] -> Map Entity UserSig -> TcM (Map Entity CheckedSig)
 checkModuleSignatures extensions signatures = do
   checked <- traverse checkUserSig signatures
   if PolyKinds `elem` extensions
@@ -659,7 +638,7 @@ generalizeSignatureKinds signature = do
   predicates' <- mapM defaultPredKinds predicates
   pure signature {checkedSigScheme = withInventedKindVariables (Scheme inferred' specified' predicates' body')}
 
-registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
+registerCheckedSig :: Entity -> CheckedSig -> TcM ()
 registerCheckedSig key sig = extendTermKeyEnvPermanent key binder
   where
     binder = TcIdBinder (flattenSchemeContexts (checkedSigScheme sig)) Closed
@@ -679,16 +658,10 @@ data PendingModule = PendingModule
     pendingValueResults :: ![TcBindingResult]
   }
 
-tcModuleBody :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
-tcModuleBody schemes m = withVisibleTerms visible $ do
+tcModuleBody :: [GlobalName] -> Map Entity CheckedSig -> Module -> TcM PendingModule
+tcModuleBody visibleTerms schemes m = withVisibleTerms (map EntityGlobal visibleTerms) $ do
   declaredDefaults <- moduleDefaultTypes (moduleDecls m)
   localDefaultTypes declaredDefaults (tcModuleBodyWithDefaults schemes m)
-  where
-    visible =
-      [ TcTermGlobal package moduleName' name
-      | VisibleTermIdentities identities <- mapMaybe fromAnnotation (moduleAnns m),
-        (package, moduleName', name) <- identities
-      ]
 
 -- | The candidate types of the module @default@ declaration.
 --
@@ -706,7 +679,7 @@ moduleDefaultTypes decls =
       kinds <- getKinds
       checkSurfaceType Map.empty ty (typeKind kinds)
 
-tcModuleBodyWithDefaults :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
+tcModuleBodyWithDefaults :: Map Entity CheckedSig -> Module -> TcM PendingModule
 tcModuleBodyWithDefaults schemes m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let sourceGroups = zip [0 :: Int ..] (groupValueDecls (moduleDecls m))
@@ -846,14 +819,14 @@ tcRuleDecl rule = withAmbientSpan sp $ do
 -- map costs nothing to hold on to, where taking its keys walked every
 -- entry the imported interfaces brought in, once per module and per table.
 data GlobalStateKeys = GlobalStateKeys
-  { globalTerms :: !(Map TcTermKey TcBinder),
-    globalTyCons :: !(Map TcTypeKey TyConInfo),
-    globalDataTypes :: !(Map TcTypeKey DataTypeInfo),
-    globalClasses :: !(Map TcTypeKey ClassInfo),
+  { globalTerms :: !(Map Entity TcBinder),
+    globalTyCons :: !(Map GlobalName TyConInfo),
+    globalDataTypes :: !(Map GlobalName DataTypeInfo),
+    globalClasses :: !(Map GlobalName ClassInfo),
     globalInstances :: !InstanceEnv,
     globalDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
     globalTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
-    globalPatSyns :: !(Map TcTermKey PatSynInfo)
+    globalPatSyns :: !(Map Entity PatSynInfo)
   }
 
 globalStateKeys :: TcState -> GlobalStateKeys
@@ -879,7 +852,7 @@ defaultDeferredKindMetas = do
   mapM_ (defaultKindMetas . TcMetaTv) deferred
 
 -- | The type constructors this component declared itself.
-componentTyConKeys :: GlobalStateKeys -> TcM (Set.Set TcTypeKey)
+componentTyConKeys :: GlobalStateKeys -> TcM (Set.Set GlobalName)
 componentTyConKeys initialKeys = do
   state <- lift get
   pure (Map.keysSet (Map.difference (tcsGlobalTyCons state) (globalTyCons initialKeys)))
@@ -911,13 +884,13 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
       | annotation <- annotationList declaration <> kindAnnotations declaration,
         Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
         resolutionNamespace resolution == ResolutionNamespaceType,
-        ResolvedTopLevel package moduleName' name <- [resolutionTarget resolution],
-        Just owner <- [Map.lookup (TcTypeKey (nameText name) package moduleName' ResolutionNamespaceType) owners]
+        EntityGlobal global <- [resolutionTarget resolution],
+        Just owner <- [Map.lookup global {globalNameNamespace = ResolutionNamespaceType} owners]
       ]
     flatten (AcyclicSCC declaration) = [declaration]
     flatten (CyclicSCC group) = group
 
-declarationTypeKeys :: Decl -> [TcTypeKey]
+declarationTypeKeys :: Decl -> [GlobalName]
 declarationTypeKeys declaration =
   case peelDeclAnn declaration of
     DeclData info -> key (binderHeadName (dataDeclHead info))
@@ -931,12 +904,15 @@ declarationTypeKeys declaration =
     key = maybeToList . resolvedTypeKey
 
 -- | Generalize data, newtype, and synonym kinds in their module extension scope.
-generalizeDeclarationKinds :: [(Text, Text)] -> Set.Set TcTypeKey -> TcM ()
+generalizeDeclarationKinds :: [(Text, Text)] -> Set.Set GlobalName -> TcM ()
 generalizeDeclarationKinds polyKindOrigins keys = do
   state <- lift get
-  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
+  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon, ClassTyCon, TypeFamilyTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
   generalized <- traverse generalizeDataKindInfo constructors
-  lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current})
+  let updateClass info = case Map.lookup (tyConKey (ciTyCon info)) generalized of
+        Just constructor -> info {ciKindTyVars = case tciKindScheme constructor of ForAll variables _ _ -> variables}
+        Nothing -> info
+  lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current, tcsClasses = Map.map updateClass (tcsClasses current)})
 
 generalizeDataKindInfo :: TyConInfo -> TcM TyConInfo
 generalizeDataKindInfo info = do
@@ -1104,8 +1080,8 @@ defaultGlobalKindMetas initialKeys = do
       kindTyVars <- mapM defaultTyVarKinds (ciKindTyVars info)
       tyVars <- mapM defaultTyVarKinds (ciTyVars info)
       superClassTypes <- mapM defaultTypeKinds (ciSuperClassTypes info)
-      methods <- mapM (traverse defaultTypeSchemeKinds) (ciMethods info)
-      defaultSignatures <- mapM (traverse defaultTypeSchemeKinds) (ciDefaultSignatures info)
+      methods <- mapM (traverse (fmap withInventedKindVariables . defaultTypeSchemeKinds)) (ciMethods info)
+      defaultSignatures <- mapM (traverse (fmap withInventedKindVariables . defaultTypeSchemeKinds)) (ciDefaultSignatures info)
       pure
         info
           { ciKindTyVars = kindTyVars,
@@ -1132,15 +1108,15 @@ defaultGlobalKindMetas initialKeys = do
             dfiiTyVars = tyVars
           }
     defaultTypeFamilyInstanceKinds info = do
-      -- An equation of a kind-polymorphic family quantifies the kinds it
-      -- leaves open, as a signature does: @OrdCond 'LT lt eq gt = lt@
-      -- must match at every kind. The solver matches types and ignores
-      -- kinds, so it never noticed; the System FC axiom matches the kind
-      -- argument too, and defaulting it to 'Type' confined the axiom to
-      -- that kind.
+      -- Keep the kind variables from the family declaration in each equation.
+      -- A standalone kind signature can supply them without PolyKinds.
       let (package, moduleName') = tfiiOrigin info
       polyKinds <- isPolyKindOrigin (packageIdText package, moduleName')
-      when polyKinds (generalizeTyVarKinds (tfiiTyVars info))
+      familyInfo <- maybe (pure Nothing) lookupTyConByIdentity (typeFamilyApplicationHead (tfiiLeft info))
+      let hasKindVariables = case tciKindScheme <$> familyInfo of
+            Just (ForAll variables _ _) -> not (null variables)
+            Nothing -> False
+      when (polyKinds || hasKindVariables) (generalizeTyVarKinds (tfiiTyVars info))
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
       left <- defaultTypeKinds (tfiiLeft info)
       right <- defaultTypeKinds (tfiiRight info)
@@ -1481,7 +1457,7 @@ annotateRecordSelectorNames parent declaration =
       ty <- bindingType (tyConMemberTermKey parent (unqualifiedNameText name))
       pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] [] []) name)
 
-dataConBindingType :: TcTermKey -> TcM TcType
+dataConBindingType :: Entity -> TcM TcType
 dataConBindingType key = do
   mBinder <- lookupTermKey key
   case mBinder of
@@ -1517,13 +1493,13 @@ annotateForeignDeclTc foreignDecl = do
     _ -> pure annotated
 
 -- | A primitive declaration must retain the configured primitive type.
-checkPrimitiveImportType :: Maybe SourceSpan -> TcTermKey -> TcType -> TcM ()
+checkPrimitiveImportType :: Maybe SourceSpan -> Entity -> TcType -> TcM ()
 checkPrimitiveImportType sourceSpan key declaredType = do
   wiring <- getWiring
   case key of
-    TcTermGlobal package declaredModule name -> do
+    GlobalTerm package declaredModule name -> do
       let canonicalIdentity@(canonicalPackage, canonicalModule, canonicalName) = tcWiringPrimitiveTerm wiring name
-          canonicalKey = TcTermGlobal canonicalPackage canonicalModule canonicalName
+          canonicalKey = GlobalTerm canonicalPackage canonicalModule canonicalName
           canonicalLabel = T.unpack (canonicalModule <> "." <> canonicalName)
       when ((package, declaredModule, name) /= canonicalIdentity) $
         if Set.member canonicalIdentity (tcWiringRestrictedPrimitiveTerms wiring)
@@ -1542,7 +1518,7 @@ checkPrimitiveImportType sourceSpan key declaredType = do
 
 -- | Record the checked calling convention of a foreign import, so that the
 -- interface of the module carries it.
-registerForeignImport :: TcTermKey -> TcForeignImportInfo -> TcM ()
+registerForeignImport :: Entity -> TcForeignImportInfo -> TcM ()
 registerForeignImport key info =
   lift $ modify' $ \state -> state {tcsForeignImports = Map.insert key info (tcsForeignImports state)}
 
@@ -1976,9 +1952,8 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       dictName <- lookupInstanceDictName origin (ciTyCon info) headTys
-      headKinds <- mapM tcTypeKind headTys
-      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
-          classSubstitution =
+      kindSubstitution <- instanceKindSubstitution info headTys
+      let classSubstitution =
             Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys] <> kindSubstitution
           superClassTypes = map (applySubst classSubstitution) (ciSuperClassTypes info)
           defaults = ciDefaultMethods info
@@ -2429,7 +2404,7 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
         EqPred {} -> False
         QuantifiedPred {} -> False
 
-bindingType :: TcTermKey -> TcM TcType
+bindingType :: Entity -> TcM TcType
 bindingType key = do
   mBinder <- lookupTermKey key
   case mBinder of
@@ -2468,16 +2443,23 @@ instanceMethodScheme :: Map Text TypeScheme -> Text -> TcM TypeScheme
 instanceMethodScheme schemes methodName =
   maybe (missingTypeInfo ("class method " <> T.unpack methodName)) pure (Map.lookup methodName schemes)
 
+instanceKindSubstitution :: ClassInfo -> [TcType] -> TcM (Map Unique TcType)
+instanceKindSubstitution info arguments = do
+  formalKinds <- mapM (zonkKind . tvKind) (ciTyVars info)
+  actualKinds <- mapM (tcTypeKind >=> zonkKind) arguments
+  let initial = Map.unions [fromMaybe Map.empty (matchTypes [formal] [actual]) | (formal, actual) <- zip formalKinds actualKinds]
+  zipWithM_ unifyKinds (map (applySubst initial) formalKinds) actualKinds
+  resolvedKinds <- mapM zonkKind actualKinds
+  pure (fromMaybe initial (matchTypes formalKinds resolvedKinds))
+
 methodExpectedScheme :: ClassInfo -> [TcType] -> Text -> TcM TypeScheme
 methodExpectedScheme classInfo headTys methodName =
   case lookup methodName (ciMethods classInfo) of
     Just (Scheme inferred specified predicates body) ->
       case splitClassReceiver predicates headTys of
         Just (receiverSubst, methodPredicates) -> do
-          headKinds <- mapM tcTypeKind headTys
-          let classKinds = map tvKind (ciTyVars classInfo)
-              kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
-              subst = receiverSubst <> kindSubst
+          kindSubst <- instanceKindSubstitution classInfo headTys
+          let subst = receiverSubst <> kindSubst
               -- A binder that stays quantified can still mention a class
               -- kind variable in its kind: @p :: k -> Type@ in
               -- @class HasResolution (a :: k) where resolution :: p a -> Integer@.
@@ -2599,7 +2581,7 @@ defaultMethodName methodName = "$dm" <> T.concatMap encodeCharacter methodName
       | otherwise = "$" <> T.pack (show (ord character)) <> "$"
 
 -- | Collect type signatures from a list of declarations.
-collectUserSigs :: [Decl] -> TcM (Map TcTermKey UserSig)
+collectUserSigs :: [Decl] -> TcM (Map Entity UserSig)
 collectUserSigs decls = do
   signatures <- concat <$> mapM (extractSig Nothing) decls
   foldM insertSignature Map.empty signatures
@@ -2723,7 +2705,7 @@ data DeclGroup
   | MergedFunctionBind (Maybe SourceSpan) UnqualifiedName [Decl] [Match]
 
 data DeclGraphKey
-  = DeclGraphBinder !TcTermKey
+  = DeclGraphBinder !Entity
   | DeclGraphSynthetic !Int
   deriving (Eq, Ord, Show)
 
@@ -2771,7 +2753,7 @@ sortDeclGroups groups = do
     flattenScc (AcyclicSCC group) = [group]
     flattenScc (CyclicSCC cyclicGroups) = cyclicGroups
 
-declGraphNode :: Map TcTermKey DeclGraphKey -> ((Int, DeclGroup), DeclGraphKey, [TcTermKey]) -> TcM ((Int, DeclGroup), DeclGraphKey, [DeclGraphKey])
+declGraphNode :: Map Entity DeclGraphKey -> ((Int, DeclGroup), DeclGraphKey, [Entity]) -> TcM ((Int, DeclGroup), DeclGraphKey, [DeclGraphKey])
 declGraphNode owners (numberedGroup, nodeKey, _) = do
   freeVars <- freeVarsGroup (snd numberedGroup)
   let deps = nub (mapMaybe (`Map.lookup` owners) (Set.toList freeVars))
@@ -2784,7 +2766,7 @@ groupKey ix group = do
     key : _ -> pure (DeclGraphBinder key)
     [] -> pure (DeclGraphSynthetic ix)
 
-declGroupBinderKeys :: DeclGroup -> TcM [TcTermKey]
+declGroupBinderKeys :: DeclGroup -> TcM [Entity]
 declGroupBinderKeys group =
   case group of
     MergedFunctionBind _sp binder _decls _matches -> (: []) <$> resolvedUnqualifiedTermKey binder
@@ -2801,7 +2783,7 @@ declGroupBinderKeys group =
           pure (key : fieldKeys)
         _ -> pure []
 
-freeVarsGroup :: DeclGroup -> TcM (Set.Set TcTermKey)
+freeVarsGroup :: DeclGroup -> TcM (Set.Set Entity)
 freeVarsGroup group =
   case group of
     MergedFunctionBind _sp binder _decls matches -> do
@@ -2856,13 +2838,13 @@ patternBinders :: Pattern -> [Text]
 patternBinders = map unqualifiedNameText . patternBinderNames
 
 -- | Type-check a declaration group.
-tcDeclGroup :: Map TcTermKey CheckedSig -> (Int, DeclGroup) -> TcM TcDeclGroupResult
+tcDeclGroup :: Map Entity CheckedSig -> (Int, DeclGroup) -> TcM TcDeclGroupResult
 tcDeclGroup sigs (groupId, group) =
   case group of
     SingleDecl d -> tcSingleDeclGroup sigs groupId d
     MergedFunctionBind _sp binder decls matches -> tcMergedFunctionGroup sigs groupId binder decls matches
 
-tcSingleDeclGroup :: Map TcTermKey CheckedSig -> Int -> Decl -> TcM TcDeclGroupResult
+tcSingleDeclGroup :: Map Entity CheckedSig -> Int -> Decl -> TcM TcDeclGroupResult
 tcSingleDeclGroup sigs groupId d =
   case peelDeclAnn d of
     DeclValue (PatternBind _ pat rhs) ->
@@ -2902,7 +2884,7 @@ tcSingleDeclGroup sigs groupId d =
 -- value. A type variable that the binder does not mention is instantiated
 -- at the type that 'undeterminedTypeOfKind' gives: the unit type at kind
 -- @Type@ and @Any@ at each other kind.
-tcTopLevelPatternBind :: Map TcTermKey CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
+tcTopLevelPatternBind :: Map Entity CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
 tcTopLevelPatternBind sigs groupId d pat rhs = do
   let sp = patternSpan pat <|> peelDeclSpan d
       binders = patternBinderNames pat
@@ -2997,11 +2979,11 @@ patternBindingResultName pat = "<pattern " <> T.unwords (patternBinders pat) <> 
 -- | The key of the right-hand side of a pattern binding that binds no
 -- single name. The right-hand side is not a binder of its own, so it
 -- borrows the module of the binders it feeds.
-patternRhsTermKey :: Pattern -> TcM TcTermKey
+patternRhsTermKey :: Pattern -> TcM Entity
 patternRhsTermKey pat = do
   keys <- mapM resolvedUnqualifiedTermKey (patternBinderNames pat)
-  case [(package, moduleName') | TcTermGlobal package moduleName' _ <- keys] of
-    (package, moduleName') : _ -> pure (TcTermGlobal package moduleName' resultName)
+  case [(package, moduleName') | GlobalTerm package moduleName' _ <- keys] of
+    (package, moduleName') : _ -> pure (GlobalTerm package moduleName' resultName)
     [] -> abortTc ("pattern binding " <> T.unpack resultName <> " binds no top-level name")
   where
     resultName = patternBindingResultName pat
@@ -3022,7 +3004,7 @@ replacePatternBind pat rhs decl =
 -- explicit builder equations. It is checked against the pattern synonym
 -- type. The checked pattern and the checked builder equations replace the
 -- source forms in the declaration.
-tcPatSynDecl :: Map TcTermKey CheckedSig -> Int -> Decl -> PatSynDecl -> TcM TcDeclGroupResult
+tcPatSynDecl :: Map Entity CheckedSig -> Int -> Decl -> PatSynDecl -> TcM TcDeclGroupResult
 tcPatSynDecl sigs groupId decl patSyn = do
   let binder = patSynDeclName patSyn
       name = unqualifiedNameText binder
@@ -3035,8 +3017,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
   key <- resolvedUnqualifiedTermKey binder
   (package, moduleName') <-
     case key of
-      TcTermGlobal package moduleName' _ -> pure (package, moduleName')
-      TcTermLocal {} -> abortTc ("pattern synonym " <> T.unpack name <> " is not a top-level binder")
+      EntityGlobal global -> pure (globalNamePackage global, globalNameModule global)
+      _ -> abortTc ("pattern synonym " <> T.unpack name <> " is not a top-level binder")
   case mapM (`patternVarBinder` pat) argNames of
     Nothing -> do
       emitError nameSpan (OtherError ("pattern synonym " <> T.unpack name <> " has an argument that its pattern does not bind"))
@@ -3044,8 +3026,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
     Just argBinders -> do
       let matcherName = "$m" <> name
           builderName = "$b" <> name
-          matcherKey = TcTermGlobal package moduleName' matcherName
-          builderKey = TcTermGlobal package moduleName' builderName
+          matcherKey = GlobalTerm package moduleName' matcherName
+          builderKey = GlobalTerm package moduleName' builderName
           matcherMatch = patSynMatcherMatch pat argBinders
       maybeLayout <-
         case Map.lookup key sigs of
@@ -3301,7 +3283,7 @@ patSynMatcherSig matcherName sp layout = do
 -- | Give a checked matcher or builder the type of its checked body. The
 -- signature check closes the body over fresh skolems, and the desugarer
 -- reads the exported type.
-commitCheckedHelper :: TcTermKey -> [TcBindingResult] -> TcM ()
+commitCheckedHelper :: Entity -> [TcBindingResult] -> TcM ()
 commitCheckedHelper key results =
   case [tbType result | result <- results, tbKey result == key] of
     ty : _ -> do
@@ -3320,15 +3302,15 @@ registerDeclaredRecordPatSyn decl =
       | fields@(_ : _) <- patSynRecordFields (patSynDeclArgs patSyn) -> do
           key <- resolvedUnqualifiedTermKey (patSynDeclName patSyn)
           case key of
-            TcTermGlobal package moduleName' name ->
+            EntityGlobal global ->
               addDeclaredRecordPatSyn
                 key
                 RecordHead
-                  { rhName = name,
-                    rhOrigin = (package, moduleName'),
+                  { rhName = globalNameText global,
+                    rhOrigin = (globalNamePackage global, globalNameModule global),
                     rhFields = map Just fields
                   }
-            TcTermLocal {} -> pure ()
+            _ -> pure ()
     _ -> pure ()
 
 -- | The field labels of a record pattern synonym. Other forms have none.
@@ -3340,11 +3322,11 @@ patSynRecordFields args =
 
 -- | A field selector of a record pattern synonym lives in the module of
 -- the synonym.
-patSynFieldTermKey :: TcTermKey -> Text -> TcM TcTermKey
+patSynFieldTermKey :: Entity -> Text -> TcM Entity
 patSynFieldTermKey key field =
   case key of
-    TcTermGlobal package moduleName' _ -> pure (TcTermGlobal package moduleName' field)
-    TcTermLocal {} -> abortTc ("record pattern synonym field " <> T.unpack field <> " is not a top-level binder")
+    EntityGlobal global -> pure (GlobalTerm (globalNamePackage global) (globalNameModule global) field)
+    _ -> abortTc ("record pattern synonym field " <> T.unpack field <> " is not a top-level binder")
 
 -- | Check the field selectors of a record pattern synonym. The selector
 -- of the field @f@ that the argument binder @x@ names is the function
@@ -3362,7 +3344,7 @@ tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders 
           emitError nameSpan (OtherError ("the field " <> T.unpack field <> " of a record pattern synonym has an existential type, so it has no selector"))
           pure ([], [])
       | otherwise = do
-          let key = TcTermGlobal package moduleName' field
+          let key = GlobalTerm package moduleName' field
               scheme = specifiedScheme (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
               sig = CheckedSig field scheme nameSpan [] False
           registerCheckedSig key sig
@@ -3439,7 +3421,7 @@ synthesizedLocal unique text =
   UnqualifiedName
     NameVarId
     text
-    [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
+    [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))]
 
 localVar :: UnqualifiedName -> Expr
 localVar = EVar . qualifyName Nothing
@@ -3566,7 +3548,7 @@ replacePatSynDecl patSyn decl =
     DeclPatSyn {} -> DeclPatSyn patSyn
     _ -> decl
 
-tcMergedFunctionGroup :: Map TcTermKey CheckedSig -> Int -> UnqualifiedName -> [Decl] -> [Match] -> TcM TcDeclGroupResult
+tcMergedFunctionGroup :: Map Entity CheckedSig -> Int -> UnqualifiedName -> [Decl] -> [Match] -> TcM TcDeclGroupResult
 tcMergedFunctionGroup sigs groupId binder decls matches = do
   let displayName = renderBinderName binder
   key <- resolvedUnqualifiedTermKey binder
@@ -3582,7 +3564,7 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
 
 -- | Check a top-level binding against its signature. A partial signature
 -- is then closed over what its wildcards left open.
-tcTopLevelWithSig :: TcTermKey -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
+tcTopLevelWithSig :: Entity -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
 tcTopLevelWithSig key displayName sig matches = do
   (maybeMatches, bindings) <- tcFunctionWithSig key displayName sig matches
   bindings' <-
@@ -3595,7 +3577,7 @@ tcTopLevelWithSig key displayName sig matches = do
 -- left open, as GHC infers the rest of a partial signature. The binder
 -- registered from the signature still mentions the wildcard
 -- meta-variables, so it is replaced by the generalized scheme.
-generalizePartialSigBinding :: TcTermKey -> TcBindingResult -> TcM TcBindingResult
+generalizePartialSigBinding :: Entity -> TcBindingResult -> TcM TcBindingResult
 generalizePartialSigBinding key (TcBindingResult resultKey displayName ty) = do
   let ForAll sigTyVars sigPreds body = typeSchemeFromType ty
   generalized <- generalizeAndCommitIgnoring (Set.singleton key) body sigPreds
@@ -3611,7 +3593,7 @@ generalizePartialSigBinding key (TcBindingResult resultKey displayName ty) = do
 -- The signature's type variables are opened as rigid skolems so that
 -- the body is checked against them. GADT patterns generate implication
 -- constraints using the signature's skolems as given equalities.
-tcFunctionWithSig :: TcTermKey -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
+tcFunctionWithSig :: Entity -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
 tcFunctionWithSig key displayName sig matches = do
   let scheme = checkedSigScheme sig
   ((skolems, sigPreds, sigTy, matches'), failed) <-
@@ -3646,7 +3628,7 @@ tcFunctionWithSig key displayName sig matches = do
       pure (Just matches', [TcBindingResult key displayName zonkedTy])
 
 -- | Type-check a function without a type signature (infer).
-tcFunctionInfer :: TcTermKey -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
+tcFunctionInfer :: Entity -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
 tcFunctionInfer key displayName matches = do
   placeholderTy <- freshMetaTv
   ((matches', ty, residualPreds), failed) <-
@@ -3759,7 +3741,7 @@ zonkPred pred' =
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred <$> mapM defaultTyVarKinds variables <*> mapM zonkPred antecedents <*> zonkPred consequent
 
-collectStandaloneKindSignatures :: [Decl] -> Map TcTypeKey Type
+collectStandaloneKindSignatures :: [Decl] -> Map GlobalName Type
 collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
   where
     collect declaration =
@@ -3768,14 +3750,14 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
         DeclStandaloneKindSig name kind -> (,kind) <$> resolvedTypeKey name
         _ -> Nothing
 
-resolvedTypeKey :: UnqualifiedName -> Maybe TcTypeKey
+resolvedTypeKey :: UnqualifiedName -> Maybe GlobalName
 resolvedTypeKey name = do
-  ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId moduleName' resolvedName} <- nameResolution name
-  pure (TcTypeKey (nameText resolvedName) packageId moduleName' namespace)
+  ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} <- nameResolution name
+  pure global {globalNameNamespace = namespace}
 
 -- | Register the head of a type-level declaration. A type constructor is
 -- not a term binding, so this reports nothing: it only stores the kind.
-registerTypeDeclHeader :: Map TcTypeKey TypeScheme -> Decl -> TcM ()
+registerTypeDeclHeader :: Map GlobalName TypeScheme -> Decl -> TcM ()
 registerTypeDeclHeader kindSchemes (DeclData dataDecl) =
   registerDataDeclHeader (resolvedTypeKey (binderHeadName (dataDeclHead dataDecl)) >>= (`Map.lookup` kindSchemes)) dataDecl
 registerTypeDeclHeader kindSchemes (DeclNewtype newtypeDecl) =
@@ -4010,7 +3992,14 @@ registerClassDecl origin classDecl = do
       <$> mapM
         (registerAssociatedTypeFamily origin (map tyVarBinderName params) (classDeclTypeFamilyDefaults classDecl))
         (classDeclTypeFamilies classDecl)
-  funDeps <- catMaybes <$> mapM (checkClassFunDep className (map tyVarBinderName params)) (classDeclFundeps classDecl)
+  forM_ associatedTypes $ \associated -> do
+    familyInfo <- lookupTyConByIdentity (atiTyCon associated)
+    forM_ familyInfo $ \info -> do
+      body <- zonkKind (typeSchemeBody (tciKindScheme info))
+      let ForAll variables predicates _ = tciKindScheme info
+          kindScheme = specifiedScheme (uniqueKindVariables (variables <> freeKindVariables body)) predicates body
+      storeTyConInfo info {tciKindScheme = kindScheme}
+  funDeps <- catMaybes <$> mapM (checkClassFunDep className (map tyVarBinderName params <> map paramName kindParams)) (classDeclFundeps classDecl)
   addClass
     ClassInfo
       { ciName = className,
@@ -4318,9 +4307,23 @@ lookupInstanceDictName origin classTyCon headTys = do
           -- Both directions preserve type structure and permit fresh type variables.
           && isJust (matchTypes (iiHead info) headTys)
           && isJust (matchTypes headTys (iiHead info))
-  case find matches instances of
+  matched <- filterM sameKinds (filter matches instances)
+  case listToMaybe matched of
     Just info -> pure (iiDictName info)
     Nothing -> allocateInstanceDictName origin (tyConName classTyCon) headTys
+  where
+    sameKinds info = do
+      forward <- matchedVariableKinds (iiHead info) headTys
+      backward <- matchedVariableKinds headTys (iiHead info)
+      pure (forward && backward)
+    matchedVariableKinds patterns targets = case matchTypes patterns targets of
+      Nothing -> pure False
+      Just substitution -> do
+        let variables = concatMap typeTyVars patterns
+            pairs = [(variable, target) | variable <- variables, Just target <- [Map.lookup (tvUnique variable) substitution]]
+        patternKinds <- mapM (zonkKind . tvKind . fst) pairs
+        targetKinds <- mapM ((tcTypeKind >=> zonkKind) . snd) pairs
+        pure (isJust (matchTypes patternKinds targetKinds))
 
 typeConstructorModule :: TcType -> Maybe Text
 typeConstructorModule ty =
@@ -4488,7 +4491,9 @@ sourceTypeFamilyAxiomName home ty = "$ax$" <> sourceTypeKey home ty
 
 sourceTypeKey :: (Text, Text) -> Type -> Text
 sourceTypeKey home ty =
-  case peelTypeHead ty of
+  case ty of
+    TParen inner -> sourceTypeKey home inner
+    TAnn _ inner -> sourceTypeKey home inner
     TCon name _ -> typeConKey home name
     TVar name -> unqualifiedNameText name
     TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
@@ -4503,7 +4508,7 @@ sourceTypeKey home ty =
     TTuple flavor _ arguments -> arguments `keyedUnder` (tupleFlavorKey flavor <> intKey (length arguments))
     TUnboxedSum arguments -> arguments `keyedUnder` ("Sum" <> intKey (length arguments))
     TStar {} -> "Star"
-    TKindSig inner _ -> sourceTypeKey home inner
+    TKindSig inner kind -> sourceTypeKey home inner <> "$Kind$" <> sourceTypeKey home kind
     _ -> "T"
   where
     arguments `keyedUnder` tag = T.concat (tag : [T.cons '$' (sourceTypeKey home argument) | argument <- arguments])
@@ -4522,9 +4527,9 @@ sourceTypeKey home ty =
 typeConKey :: (Text, Text) -> Name -> Text
 typeConKey home name =
   case nameResolution (unqualifiedFromResolvedName name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId definingModuleName resolvedName}
-      | (packageIdText packageId, definingModuleName) /= home ->
-          packageIdText packageId <> ":" <> definingModuleName <> "." <> nameText resolvedName
+    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global}
+      | (packageIdText (globalNamePackage global), globalNameModule global) /= home ->
+          packageIdText (globalNamePackage global) <> ":" <> globalNameModule global <> "." <> globalNameText global
     _ -> nameText name
 
 registerTypeFamilyDeclHeader :: Maybe TypeScheme -> TypeFamilyDecl -> TcM ()
@@ -4863,8 +4868,10 @@ registerDataConstructors origin dataDecl = do
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors origin constructors
-      let tyVars = map paramTyVar paramInfos
-      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
+      let writtenTyVars = map paramTyVar paramInfos
+      declaredResultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar writtenTyVars))
+      (implicitTyVars, resultKind) <- implicitDataParameters declaredResultKind
+      let tyVars = writtenTyVars <> implicitTyVars
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -4877,6 +4884,16 @@ registerDataConstructors origin dataDecl = do
             dtiCType = cTypePragma (dataDeclCTypePragma dataDecl)
           }
       pure (bindings <> selectorBindings)
+
+-- | An inline GADT kind can give parameters that the data head omits.
+implicitDataParameters :: TcType -> TcM ([TyVarId], TcType)
+implicitDataParameters kind =
+  case kind of
+    TcFunTy argument result -> do
+      variable <- freshSkolemTv "$parameter"
+      (variables, resultKind) <- implicitDataParameters result
+      pure (setTyVarKind argument variable : variables, resultKind)
+    _ -> pure ([], kind)
 
 -- | Register a newtype declaration's type constructor and representation
 -- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at
@@ -5086,8 +5103,8 @@ typeResultKind _ kind = kind
 mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
 mkDeclaredTyCon binder name arity =
   case nameResolution binder of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId definingModuleName _} ->
-      wiredDeclarationIdentity (mkTyConWithOrigin packageId definingModuleName name arity)
+    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} ->
+      wiredDeclarationIdentity (mkTyConWithOrigin (globalNamePackage global) (globalNameModule global) name arity)
     _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
 
 -- | Register a single data constructor as a polymorphic binding.
@@ -5277,7 +5294,7 @@ checkedDataConInfos tyCon declaration = do
 
 checkedDataConInfo :: (PackageId, Text) -> DataConSourceForm -> [(Maybe Text, BangType)] -> Text -> TcM DataConInfo
 checkedDataConInfo origin@(originPackage, originModule) sourceForm sourceFields constructorName = do
-  maybeBinder <- lookupTermKey (TcTermGlobal originPackage originModule constructorName)
+  maybeBinder <- lookupTermKey (GlobalTerm originPackage originModule constructorName)
   case maybeBinder of
     Just (TcIdBinder (ForAll tyVars predicates constructorType) _) -> do
       let (argumentTypes, resultType) = splitFunctionType constructorType

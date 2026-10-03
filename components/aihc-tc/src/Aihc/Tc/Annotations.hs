@@ -8,6 +8,7 @@
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
+    TcPatternInstantiation (..),
     TcCastAnnotation (..),
     PendingTcCastAnnotation (..),
     CastDirection (..),
@@ -40,6 +41,7 @@ module Aihc.Tc.Annotations
     TcCoercedMethod (..),
     TcPatSynAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcModuleIdentity (..),
 
     -- * Pattern synonyms for extracting annotations
 
@@ -67,7 +69,7 @@ import Aihc.Parser.Syntax
     SourceSpan,
     mkAnnotation,
   )
-import Aihc.Resolve (ResolutionNamespace (..))
+import Aihc.Resolve (PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
@@ -75,6 +77,11 @@ import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+
+-- | The package and the name of a checked module. The type checker attaches
+-- it to the module, and the phases after it read it from there.
+data TcModuleIdentity = TcModuleIdentity !PackageId !Text
+  deriving (Eq, Show)
 
 -- | A checked cast on an expression or a right-hand side. The type is the
 -- type after the cast, which is the right type of the proof. A reflexive
@@ -136,6 +143,10 @@ annotateSigCast ty evidence =
 annotateDoStmtCast :: TcType -> EvVar -> DoStmt body -> DoStmt body
 annotateDoStmtCast ty evidence =
   DoAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
+
+-- | The next type annotation describes an application of the scrutinee.
+data TcPatternInstantiation = TcPatternInstantiation
+  deriving (Eq, Show)
 
 -- | Annotation attached to AST nodes by the type checker.
 --

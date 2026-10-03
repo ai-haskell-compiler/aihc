@@ -3143,15 +3143,22 @@ generateHelper env helper =
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
       header <- loadHeader (OperandVar current)
-      kind <- loadInfoByte "kind" header infoObjectKindByte
-      isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
+      -- A continuation is never an indirection, because frames live on
+      -- thread stacks and only a thunk is updated. The one frame without an
+      -- entry is a forward frame, which passes the values to its parent,
+      -- so a null entry is the only check.
+      entry <- loadInfoCode "entry" header infoBackendEntryIndex
+      isForward <- emitValue "forward" I1 (Compare Eq Code (typedOperand entry) (OperandLiteral LitNull))
+      terminate (Branch (typedOperand isForward) (Target (Label "forward") []) (Target (Label "enter") []))
+      beginColdBlock (Label "forward") []
       frame <- loadInfoByte "frame" header infoFrameKindByte
-      isForward <- emitValue "forward" I1 (Compare Eq I64 (typedOperand frame) (OperandLiteral (LitInt (toInteger (continuationFrameKindCode (Just ContinuationFrameForward))))))
-      follows <- emitValue "follows" I1 (Binary Or I1 (typedOperand isIndirection) (typedOperand isForward))
-      terminate (Branch (typedOperand follows) (Target (Label "indirection") []) (Target (Label "enter") []))
-      beginBlock (Label "indirection") []
-      next <- loadSlot "next" Ptr (OperandVar current) 8
-      terminate (Jump (Target (Label "loop") [typedOperand next]))
+      isForwardFrame <- emitValue "forward_frame" I1 (Compare Eq I64 (typedOperand frame) (OperandLiteral (LitInt (toInteger (continuationFrameKindCode (Just ContinuationFrameForward))))))
+      terminate (Branch (typedOperand isForwardFrame) (Target (Label "parent") []) (Target (Label "invalid") []))
+      beginColdBlock (Label "parent") []
+      parent <- loadSlot "parent" Ptr (OperandVar current) 8
+      terminate (Jump (Target (Label "loop") [typedOperand parent]))
+      beginColdBlock (Label "invalid") []
+      terminate (Trap "continuation has no entry")
       beginBlock (Label "enter") []
       -- Entering a frame pops it and every frame above it: the frame is
       -- the new stack pointer, and its chunk gives the stack limit. The
@@ -3159,7 +3166,6 @@ generateHelper env helper =
       -- register of the object argument and only the copy moves.
       stack <- emitValue "sp" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 0)))
       stackLimit <- chunkEnd (OperandVar current)
-      entry <- loadInfoCode "entry" header infoBackendEntryIndex
       let entered = context {contextStack = typedOperand stack, contextStackLimit = stackLimit}
       terminate
         ( TailCallIndirect

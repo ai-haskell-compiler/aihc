@@ -2,77 +2,96 @@
 
 ## Summary
 
-- Total Extensions: 64
-- Supported: 49
-- In Progress: 15
-- Fixtures (eval): 670
-- Fixtures (fc): 309
+- Total Extensions: 83
+- Supported: 39
+- In Progress: 44
+- Fixtures (eval): 538
+- Fixtures (fc): 317
 
 ## Extension Status
 
 | Extension                  | Status | Tests Passing |
 |----------------------------|:------:|---------------|
-| AllowAmbiguousTypes        |   🟢    | 4/4           |
-| BangPatterns               |   🟢    | 11/11         |
+| AllowAmbiguousTypes        |   🔴    | 4/6           |
+| ApplicativeDo              |   🔴    | 0/1           |
+| Arrows                     |   🔴    | 0/1           |
+| BangPatterns               |   🟢    | 10/10         |
 | BlockArguments             |   🟢    | 2/2           |
-| CApiFFI                    |   🟢    | 5/5           |
-| ConstraintKinds            |   🟢    | 7/7           |
-| DataKinds                  |   🟡    | 27/28         |
+| CApiFFI                    |   🟢    | 2/2           |
+| ConstraintKinds            |   🟢    | 9/9           |
+| DataKinds                  |   🟡    | 27/30         |
 | DefaultSignatures          |   🟢    | 8/8           |
 | DeriveAnyClass             |   🟢    | 6/6           |
 | DeriveDataTypeable         |   🟢    | 3/3           |
 | DeriveFoldable             |   🟢    | 2/2           |
-| DeriveFunctor              |   🟢    | 3/3           |
-| DeriveGeneric              |   🟢    | 5/5           |
+| DeriveFunctor              |   🔴    | 3/4           |
+| DeriveGeneric              |   🔴    | 5/6           |
 | DeriveTraversable          |   🟢    | 1/1           |
-| DerivingStrategies         |   🟡    | 44/47         |
+| DerivingStrategies         |   🟡    | 45/48         |
 | DerivingVia                |   🔴    | 21/24         |
 | EmptyCase                  |   🟢    | 1/1           |
-| EmptyDataDecls             |   🟢    | 2/2           |
-| ExistentialQuantification  |   🟢    | 9/9           |
-| ExplicitForAll             |   🟢    | 13/13         |
-| ExplicitNamespaces         |   🟢    | 5/5           |
+| EmptyDataDecls             |   🔴    | 2/3           |
+| EmptyDataDeriving          |   🔴    | 0/1           |
+| ExistentialQuantification  |   🟡    | 10/11         |
+| ExplicitForAll             |   🔴    | 13/17         |
+| ExplicitNamespaces         |   🟢    | 4/4           |
+| ExtendedDefaultRules       |   🔴    | 0/1           |
 | ExtendedLiterals           |   🟢    | 13/13         |
-| FlexibleContexts           |   🟢    | 17/17         |
-| FlexibleInstances          |   🟡    | 44/46         |
-| ForeignFunctionInterface   |   🟢    | 43/43         |
+| FlexibleContexts           |   🟢    | 18/18         |
+| FlexibleInstances          |   🟡    | 43/45         |
+| ForeignFunctionInterface   |   🟢    | 41/41         |
 | FunctionalDependencies     |   🔴    | 18/22         |
-| GADTs                      |   🟢    | 106/106       |
-| GeneralizedNewtypeDeriving |   🟢    | 18/18         |
+| GADTs                      |   🟡    | 104/106       |
+| GeneralizedNewtypeDeriving |   🟢    | 19/19         |
 | GHCForeignImportPrim       |   🔴    | 7/9           |
 | ImplicitParams             |   🟢    | 5/5           |
-| ImportQualifiedPost        |   🟢    | 7/7           |
+| ImportQualifiedPost        |   🟢    | 2/2           |
+| ImpredicativeTypes         |   🔴    | 0/1           |
 | InstanceSigs               |   🟢    | 3/3           |
 | InterruptibleFFI           |   🟢    | 1/1           |
-| KindSignatures             |   🟢    | 52/52         |
+| KindSignatures             |   🟡    | 50/52         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 251/252       |
+| MagicHash                  |   🟡    | 215/217       |
+| MonadComprehensions        |   🔴    | 0/2           |
 | MultiParamTypeClasses      |   🔴    | 35/39         |
 | MultiWayIf                 |   🟢    | 2/2           |
 | NamedFieldPuns             |   🟢    | 3/3           |
+| NPlusKPatterns             |   🔴    | 0/1           |
 | NumDecimals                |   🟢    | 1/1           |
+| OrPatterns                 |   🔴    | 0/1           |
+| OverloadedLabels           |   🔴    | 0/1           |
+| OverloadedLists            |   🔴    | 0/1           |
+| OverloadedRecordDot        |   🔴    | 0/1           |
 | OverloadedStrings          |   🟢    | 4/4           |
 | PackageImports             |   🟢    | 1/1           |
+| ParallelListComp           |   🔴    | 0/1           |
 | PartialTypeSignatures      |   🟢    | 2/2           |
-| PatternSynonyms            |   🟢    | 27/27         |
-| PolyKinds                  |   🟢    | 34/34         |
+| PatternSynonyms            |   🟢    | 25/25         |
+| PolyKinds                  |   🟢    | 33/33         |
+| PostfixOperators           |   🟢    | 1/1           |
+| QualifiedDo                |   🔴    | 0/2           |
 | QuantifiedConstraints      |   🟢    | 2/2           |
-| RankNTypes                 |   🟢    | 29/29         |
-| RebindableSyntax           |   🟡    | 19/20         |
+| RankNTypes                 |   🟡    | 24/25         |
+| RebindableSyntax           |   🔴    | 19/24         |
 | RecordWildCards            |   🟢    | 2/2           |
 | RecursiveDo                |   🔴    | 0/11          |
+| RequiredTypeArguments      |   🔴    | 0/1           |
 | RoleAnnotations            |   🟢    | 4/4           |
-| ScopedTypeVariables        |   🟡    | 38/39         |
-| StandaloneDeriving         |   🟡    | 10/11         |
+| ScopedTypeVariables        |   🟡    | 37/40         |
+| StandaloneDeriving         |   🔴    | 10/13         |
 | StandaloneKindSignatures   |   🟢    | 6/6           |
 | StarIsType                 |   🟢    | 2/2           |
+| Strict                     |   🔴    | 0/1           |
+| StrictData                 |   🔴    | 0/1           |
 | TemplateHaskellQuotes      |   🟢    | 1/1           |
-| TypeApplications           |   🟢    | 13/13         |
-| TypeFamilies               |   🟡    | 48/50         |
+| TransformListComp          |   🔴    | 0/2           |
+| TypeAbstractions           |   🔴    | 0/1           |
+| TypeApplications           |   🟡    | 13/14         |
+| TypeFamilies               |   🟡    | 50/54         |
 | TypeFamilyDependencies     |   🟢    | 1/1           |
-| TypeOperators              |   🟢    | 115/115       |
+| TypeOperators              |   🟢    | 107/107       |
 | UnboxedSums                |   🟢    | 10/10         |
-| UnboxedTuples              |   🟡    | 85/86         |
+| UnboxedTuples              |   🟡    | 68/69         |
 | UndecidableInstances       |   🔴    | 11/14         |
 | UnliftedFFITypes           |   🟢    | 2/2           |
-| ViewPatterns               |   🟢    | 9/9           |
+| ViewPatterns               |   🔴    | 9/12          |

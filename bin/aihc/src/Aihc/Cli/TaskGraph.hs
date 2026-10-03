@@ -3,8 +3,10 @@ module Aihc.Cli.TaskGraph
     TaskGraph,
     TaskId (..),
     TaskKind (..),
+    TaskObserver (..),
     TaskTiming (..),
     addTasks,
+    noTaskObserver,
     allocateTaskIds,
     renderDuration,
     renderTaskTimeline,
@@ -82,6 +84,17 @@ data TaskTiming = TaskTiming
   }
   deriving (Eq, Show)
 
+-- | What a graph tells about its run: how many workers it has, and when
+-- a task of a kind starts and ends. The progress output counts them.
+data TaskObserver = TaskObserver
+  { observeWorkers :: Int -> IO (),
+    observeTaskStart :: TaskKind -> IO (),
+    observeTaskEnd :: TaskKind -> IO ()
+  }
+
+noTaskObserver :: TaskObserver
+noTaskObserver = TaskObserver (const (pure ())) (const (pure ())) (const (pure ()))
+
 data ReadyTask = ReadyTask !TaskKind !Int !TaskId
   deriving (Eq, Ord, Show)
 
@@ -107,12 +120,12 @@ data TaskGraph = TaskGraph
   }
 
 runTaskGraph :: Int -> [Task] -> IO [TaskTiming]
-runTaskGraph requestedWorkers tasks = runTaskGraphWith requestedWorkers (`addTasks` tasks)
+runTaskGraph requestedWorkers tasks = runTaskGraphWith noTaskObserver requestedWorkers (`addTasks` tasks)
 
 -- | Run a graph that the seed action fills. The seed runs before the
 -- workers start, and its tasks add the rest.
-runTaskGraphWith :: Int -> (TaskGraph -> IO ()) -> IO [TaskTiming]
-runTaskGraphWith requestedWorkers seed = do
+runTaskGraphWith :: TaskObserver -> Int -> (TaskGraph -> IO ()) -> IO [TaskTiming]
+runTaskGraphWith observer requestedWorkers seed = do
   graph <-
     TaskGraph
       <$> newTVarIO Map.empty
@@ -120,7 +133,9 @@ runTaskGraphWith requestedWorkers seed = do
       <*> newTVarIO 0
       <*> newIORef []
   seed graph
-  mapConcurrently_ (runWorker graph) [1 .. max 1 requestedWorkers]
+  let workers = max 1 requestedWorkers
+  observeWorkers observer workers
+  mapConcurrently_ (runWorker observer graph) [1 .. workers]
   sortOn timingStart <$> readIORef (graphTimings graph)
 
 -- | A range of identifiers no other task of the graph has: the first of
@@ -171,23 +186,25 @@ addTaskDependents dependents task =
 readyTask :: Task -> ReadyTask
 readyTask task = ReadyTask (taskKind task) (taskOrder task) (taskId task)
 
-runWorker :: TaskGraph -> Int -> IO ()
-runWorker graph worker = do
+runWorker :: TaskObserver -> TaskGraph -> Int -> IO ()
+runWorker observer graph worker = do
   next <- atomically (takeReadyTask (graphState graph))
   case next of
     Nothing -> pure ()
     Just ready@(ReadyTask kind _ identifier) -> do
       taskMap <- readTVarIO (graphTasks graph)
       let task = fromMaybe (error "missing ready task") (Map.lookup identifier taskMap)
+      observeTaskStart observer kind
       started <- getMonotonicTimeNSec
       result <- try (taskAction task)
       ended <- getMonotonicTimeNSec
+      observeTaskEnd observer kind
       atomicModifyIORef' (graphTimings graph) (\items -> (TaskTiming worker identifier kind started ended : items, ()))
       case result of
         Left exception -> throwIO (exception :: SomeException)
         Right () -> do
           atomically (completeTask graph ready)
-          runWorker graph worker
+          runWorker observer graph worker
 
 takeReadyTask :: TVar TaskState -> STM (Maybe ReadyTask)
 takeReadyTask stateVar = do

@@ -175,6 +175,8 @@ zonkEvTerm evTerm =
       EvCoercible constructor <$> finalizeType left <*> finalizeType right
     EvWithDict adapter arguments fieldType target targetArguments proof ->
       EvWithDict adapter <$> mapM finalizeType arguments <*> finalizeType fieldType <*> pure target <*> mapM finalizeType targetArguments <*> zonkCoercion proof
+    EvEqualityDict constructor left right proof ->
+      EvEqualityDict constructor <$> finalizeType left <*> finalizeType right <*> zonkCoercion proof
     EvCoercion coercion ->
       EvCoercion <$> zonkCoercion coercion
     EvSuperClass evidence sourceOrigin sourcePredicate fieldTypes index ->
@@ -382,6 +384,8 @@ firstMetaEvTerm evTerm =
       firstMetaType left <|> firstMetaType right
     EvWithDict _ arguments fieldType _ targetArguments proof ->
       firstJusts (map firstMetaType (fieldType : arguments ++ targetArguments)) <|> firstMetaCoercion proof
+    EvEqualityDict _ left right proof ->
+      firstMetaType left <|> firstMetaType right <|> firstMetaCoercion proof
     EvCoercion coercion ->
       firstMetaCoercion coercion
     EvSuperClass evidence _ sourcePredicate fieldTypes _ ->

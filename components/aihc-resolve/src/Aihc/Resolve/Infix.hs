@@ -11,7 +11,7 @@ module Aihc.Resolve.Infix
   )
 where
 
-import Aihc.Parser.Syntax (FixityAssoc (..), Name)
+import Aihc.Parser.Syntax (FixityAssoc (..))
 import Aihc.Resolve.Scope (OperatorFixity (..))
 import Data.List qualified as List
 
@@ -20,27 +20,29 @@ import Data.List qualified as List
 data InfixChain op a = InfixChain a [(op, a)]
   deriving (Functor, Foldable, Traversable)
 
-data ResolvedInfixOp = ResolvedInfixOp
+data ResolvedInfixOp op = ResolvedInfixOp
   { resolvedInfixIndex :: !Int,
-    resolvedInfixName :: !Name,
+    resolvedInfixName :: !op,
     resolvedInfixFixity :: !OperatorFixity
   }
 
--- | Collect a left-nested chain without repeated list append operations.
+-- | Collect an infix chain without repeated list append operations.
 -- The caller selects infix nodes. Parentheses and annotations remain operand boundaries.
 flattenInfix :: (a -> Maybe (a, op, a)) -> a -> InfixChain op a
-flattenInfix split = go []
+flattenInfix split = uncurry InfixChain . go []
   where
     go rest value =
       case split value of
-        Just (left, op, right) -> go ((op, right) : rest) left
-        Nothing -> InfixChain value rest
+        Just (left, op, right) ->
+          let (firstRight, remaining) = go rest right
+           in go ((op, firstRight) : remaining) left
+        Nothing -> (value, rest)
 
 traverseOperators :: (Applicative f) => (op -> f op') -> InfixChain op a -> f (InfixChain op' a)
 traverseOperators f (InfixChain first rest) =
   InfixChain first <$> traverse (\(op, operand) -> (,operand) <$> f op) rest
 
-prepareInfix :: (Name -> OperatorFixity) -> InfixChain Name a -> InfixChain ResolvedInfixOp a
+prepareInfix :: (op -> OperatorFixity) -> InfixChain op a -> InfixChain (ResolvedInfixOp op) a
 prepareInfix lookupFixity (InfixChain first rest) =
   InfixChain
     first
@@ -52,7 +54,7 @@ prepareInfix lookupFixity (InfixChain first rest) =
 -- Higher-precedence operators do not separate a pair. Lower-precedence operators do.
 -- The stack retains the nearest operator at each active precedence.
 -- Each operator enters and leaves the stack at most once.
-ambiguousInfixOp :: InfixChain ResolvedInfixOp a -> Maybe ResolvedInfixOp
+ambiguousInfixOp :: InfixChain (ResolvedInfixOp op) a -> Maybe (ResolvedInfixOp op)
 ambiguousInfixOp (InfixChain _ rest) =
   let (_, conflict) = List.foldl' step ([], Nothing) rest
    in snd <$> conflict
@@ -72,25 +74,25 @@ ambiguousInfixOp (InfixChain _ rest) =
       | candidateIndex < index = Just candidate
       | otherwise = previous
 
-incompatibleSamePrecedence :: ResolvedInfixOp -> ResolvedInfixOp -> Bool
+incompatibleSamePrecedence :: ResolvedInfixOp op -> ResolvedInfixOp op -> Bool
 incompatibleSamePrecedence left right =
   infixAssoc left /= infixAssoc right || infixAssoc left == Infix || infixAssoc right == Infix
 
-infixAssoc :: ResolvedInfixOp -> FixityAssoc
+infixAssoc :: ResolvedInfixOp op -> FixityAssoc
 infixAssoc = operatorFixityAssoc . resolvedInfixFixity
 
-infixPrecedence :: ResolvedInfixOp -> Int
+infixPrecedence :: ResolvedInfixOp op -> Int
 infixPrecedence = operatorFixityPrecedence . resolvedInfixFixity
 
-buildLeftInfix :: (a -> Name -> a -> a) -> InfixChain Name a -> a
+buildLeftInfix :: (a -> op -> a -> a) -> InfixChain op a -> a
 buildLeftInfix build (InfixChain first rest) =
   List.foldl' (\left (op, right) -> build left op right) first rest
 
 -- | Construct a tree from a chain with valid fixities.
-rebuildInfix :: (a -> Name -> a -> a) -> InfixChain ResolvedInfixOp a -> a
+rebuildInfix :: (a -> op -> a -> a) -> InfixChain (ResolvedInfixOp op) a -> a
 rebuildInfix build (InfixChain first rest) = fst (parseInfix build 0 first rest)
 
-parseInfix :: (a -> Name -> a -> a) -> Int -> a -> [(ResolvedInfixOp, a)] -> (a, [(ResolvedInfixOp, a)])
+parseInfix :: (a -> op -> a -> a) -> Int -> a -> [(ResolvedInfixOp op, a)] -> (a, [(ResolvedInfixOp op, a)])
 parseInfix build minPrec lhs rest =
   case rest of
     (op, rhsOperand) : remaining
