@@ -19,7 +19,7 @@ annotated:
         │││   │     └─ type: a → (Nat, Nat); type-args: a; evidence: given Ranged a
         │││   └─ type: Nat
         │└─ type: Nat
-        └─ type: Nat
+        └─ type: (Nat, Nat)
         └─ type: (Nat, Nat)
         lo' = S lo
         └─ type: Nat
@@ -36,7 +36,7 @@ annotated:
       [a, b] = xs
       │││  └─ type: Nat
       │└─ type: Nat
-      └─ type: Nat
+      └─ type: [Nat]
       └─ type: [Nat]
   fromBox :: Box Nat -> Nat
   fromBox box = inner
@@ -44,7 +44,8 @@ annotated:
   └─ type: Box Nat → Nat
     where
       Box { unBox = inner } = box
-      └─ type: Nat  └─ type: Nat
+      ││             └─ type: Nat
+      └─ type: Box Nat
       └─ type: Box Nat
   also :: a -> b -> b
   also _ b = b

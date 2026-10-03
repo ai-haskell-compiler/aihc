@@ -33,7 +33,7 @@ annotated:
                 │││   └─ type: a
                 ││└─ type: a
                 │└─ type: (a, a)
-                └─ type: a
+                └─ type: (a, a)
                 s2 = copyWord16 (unsafeRaw c) (p `plusAddr#` (-1#)) s1
                 │                │                            └─ type: GHC.Prim.Int#
                 │                └─ type: a → GHC.Prim.Word#; type-args: a; evidence: given Mantissa a
