@@ -131,6 +131,16 @@ a binding with one use under the second lambda moves there. A use that is
 not a call, such as the binding passed as an argument or returned, gives
 call arity zero.
 
+A lazy let of a constructor with trivial arguments only allocates, so the
+simplifier moves it to its uses even when it has more than one: past the
+lets after it, and into each alternative of a case that uses it, when the
+scrutinee and at least one alternative do not use it. Each path still
+allocates the constructor at most once, and a path that does not use it
+allocates nothing. When every alternative uses it, the let stays above the
+case, because a copy in each alternative would only add code. A worker
+builds its unboxed parameters again with such lets, and often only one
+branch needs the box.
+
 A function or a partial application is a value, so it moves to its one use
 under a lambda when that use is a call: the move repeats no work. A call
 with fewer arguments than the arity is a partial application at the use.
