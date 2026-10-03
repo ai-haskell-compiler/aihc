@@ -37,6 +37,9 @@ uint64_t aihc_nursery_bytes;
 #define AIHC_HEAP_BLOCK_BYTES (AIHC_HEAP_BLOCK_REGIONS * AIHC_REGION_BYTES)
 /* The generation that is older than every heap generation. */
 #define AIHC_GENERATION_STATIC 3U
+/* The largest -F factor, and the bits it takes. */
+#define AIHC_GEN2_FACTOR_BITS 10
+#define AIHC_GEN2_FACTOR_MAX (UINT64_C(1) << AIHC_GEN2_FACTOR_BITS)
 
 typedef struct {
   AihcMachine *machine;
@@ -1210,8 +1213,11 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   }
   free(context.kept);
   if (collected == 2) {
+    /* The factor is at most AIHC_GEN2_FACTOR_MAX, so the product fits when
+       the bytes leave the top bits clear. A check against a quotient would
+       become a wide multiply that the wasm32 link does not provide. */
     uint64_t limit = machine->generations[1].bytes;
-    if (limit > UINT64_MAX / machine->gen2_factor) {
+    if (limit > (UINT64_MAX >> AIHC_GEN2_FACTOR_BITS)) {
       limit = UINT64_MAX;
     } else {
       limit *= machine->gen2_factor;
@@ -1322,7 +1328,8 @@ void aihc_gc_apply_options(AihcMachine *machine) {
   }
   uint64_t factor = aihc_rts_gen2_factor();
   if (factor != 0) {
-    machine->gen2_factor = factor;
+    machine->gen2_factor =
+        factor > AIHC_GEN2_FACTOR_MAX ? AIHC_GEN2_FACTOR_MAX : factor;
   }
 }
 
