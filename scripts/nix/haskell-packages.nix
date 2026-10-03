@@ -287,14 +287,11 @@ in rec {
             ver = "2.0.0.0";
             sha256 = "1zfxrcrfnb5dylbnnhhcwcavwsp4gs307f7mjx8p5l99lca55nsl";
           } {});
-          # Pinned to a git commit until the next aihc-parser release is on
-          # Hackage. Keep this commit equal to the tag in cabal.project.
-          aihc-parser = mkHackageLibrary hsLib (final.callCabal2nix "aihc-parser" (pkgs.fetchFromGitHub {
-            owner = "ai-haskell-compiler";
-            repo = "aihc-parser";
-            rev = "46420da73d505555b46c03c00bd7fe44cb72e331";
-            hash = "sha256-TDBXKyMpgz81SKLbVS+eFzzNmjFNkbJdAaLs+1tYdl4=";
-          }) {});
+          aihc-parser = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "aihc-parser";
+            ver = "5.0.0.0";
+            sha256 = "0zbbk7nncmypkr50hpmm74c4fnkhl8lfyiwcs6m3m4amczg3z5kr";
+          } {});
           aihc-cabal-syntax = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-cabal-syntax";
             ver = "2.0.0.0";
