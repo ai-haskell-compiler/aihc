@@ -2365,3 +2365,5 @@ int rtsSupportsBoundThreads(void) { return 0; }
    action, so that a stopped child does not send SIGCHLD. The type is HsInt,
    because System.Posix.Signals reads and writes it as a Ptr Int. */
 int64_t nocldstop = 0;
+
+uint64_t aihc_clock_monotonic_ns(void) { return aihc_host_monotonic_ns(); }

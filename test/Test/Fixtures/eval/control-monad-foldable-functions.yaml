@@ -1,0 +1,33 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Monad (foldM, foldM_, forM, forM_, msum)
+    import Data.Foldable (forM_, msum)
+    import Data.Traversable (forM)
+    import Prelude
+
+    -- GHC gives these Control.Monad functions Foldable and Traversable
+    -- types, and Data.Foldable and Data.Traversable export the same
+    -- functions. The imports above are thus not ambiguous.
+    main :: IO ()
+    main = do
+      forM_ (Just (1 :: Int)) print
+      forM_ (Nothing :: Maybe Int) print
+      found <- forM (Just (2 :: Int)) (\value -> pure (value * 10))
+      print found
+      total <- foldM (\sum' value -> pure (sum' + value)) 0 (Just (3 :: Int))
+      print total
+      foldM_ (\_ value -> print value) () (Just (4 :: Int))
+      print (msum (Just [5, 6 :: Int]))
+stdout: |
+  1
+  Just 20
+  3
+  4
+  [5,6]
+output: |
+  ()
+expression: main
+status: pass
+reason: The Control.Monad functions forM_, forM, foldM, foldM_, and msum accept a Foldable or Traversable container, as in GHC
