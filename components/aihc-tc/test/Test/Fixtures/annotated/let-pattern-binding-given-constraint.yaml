@@ -31,7 +31,7 @@ annotated:
             ││    │ │   └─ type: i → Pair i i; type-args: i; evidence: given Num i
             ││    │ └─ type: i
             ││    └─ type: i
-            └─ type: i
+            └─ type: Pair i i
             └─ type: Pair i i
          in p + q
               └─ type: i → i → i; type-args: i; evidence: given Num i
