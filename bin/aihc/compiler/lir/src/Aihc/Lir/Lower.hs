@@ -883,7 +883,16 @@ machineOperand = do
 -- remembered set. The call allocates nothing and reads no context, so it
 -- needs no sync of the machine.
 emitWriteBarrier :: FunctionCtx -> Operand -> LowerM ()
-emitWriteBarrier ctx object = do
+emitWriteBarrier ctx object = emitBarrier ctx object Nothing
+
+-- | The write barrier of a store into a boxed array. The cold call takes
+-- the index of the element: a large array keeps a card for each run of
+-- elements, and the runtime marks the card of the store.
+emitWriteBarrierAt :: FunctionCtx -> Operand -> Operand -> LowerM ()
+emitWriteBarrierAt ctx object index = emitBarrier ctx object (Just index)
+
+emitBarrier :: FunctionCtx -> Operand -> Maybe Operand -> LowerM ()
+emitBarrier ctx object index = do
   requireExternData nurseryStartSymbol
   requireExternData nurseryBytesSymbol
   objectWord <- emitValue "object_word" I64 (PtrToInt object)
@@ -896,7 +905,9 @@ emitWriteBarrier ctx object = do
   done <- freshLabel "barrier_done"
   terminate (Branch (typedOperand young) (Target done []) (Target old []))
   beginColdBlock old []
-  _ <- callRuntime "aihc_write_barrier" [Ptr, Ptr] [] [ctxMachine ctx, object]
+  _ <- case index of
+    Nothing -> callRuntime "aihc_write_barrier" [Ptr, Ptr] [] [ctxMachine ctx, object]
+    Just element -> callRuntime "aihc_write_barrier_at" [Ptr, Ptr, I64] [] [ctxMachine ctx, object, element]
   terminate (Jump (Target done []))
   beginBlock done []
 
@@ -1685,14 +1696,17 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
     _ -> do
       nextWord <- emitValue "heap_word" I64 (PtrToInt (contextHeap context))
       limitWord <- emitValue "heap_end_word" I64 (PtrToInt (contextHeapLimit context))
-      -- The heap pointer never passes the heap limit, so this subtraction
-      -- does not wrap and the free bytes are exact.
+      -- A large allocation lowers the heap limit, and the stores of an
+      -- earlier reservation can then pass it, so the room is valid only
+      -- when the limit is not below the heap pointer.
+      below <- emitValue "heap_below_limit" I1 (Compare LeU I64 (typedOperand nextWord) (typedOperand limitWord))
       room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
       -- A dynamic size brings the room down to words rather than the words up
       -- to bytes: a reservation the address space cannot hold then fails the
       -- compare instead of wrapping past it into the unchecked store behind.
       roomWords <- emitValue "heap_room_words" I64 (Binary ShrU I64 (typedOperand room) (OperandLiteral (LitInt 3)))
-      emitValue "heap_fits" I1 (Compare GeU I64 (typedOperand roomWords) words')
+      enough <- emitValue "heap_enough" I1 (Compare GeU I64 (typedOperand roomWords) words')
+      emitValue "heap_fits" I1 (Binary And I1 (typedOperand below) (typedOperand enough))
   collect <- freshLabel "gc_collect"
   reserved <- freshLabel "gc_reserved"
   parameters <- forM vars $ \var -> do
@@ -2415,7 +2429,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [array, index, value])
       | name `elem` arrayStorePrimitives -> do
           base <- pointerValue ctx env array
-          emitWriteBarrier ctx base
+          indexOperand <- word index
+          emitWriteBarrierAt ctx base indexOperand
           slot <- arrayElement array index
           operand <- word value
           emit [] (Store I64 operand (byteAddress slot arrayElementsOffset) (byteAlignment 8))
@@ -2431,7 +2446,8 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [array, index, expected, replacement])
       | name `elem` arrayCasPrimitives -> do
           base <- pointerValue ctx env array
-          emitWriteBarrier ctx base
+          indexOperand <- word index
+          emitWriteBarrierAt ctx base indexOperand
           slot <- arrayElement array index
           expectedOperand <- word expected
           replacementOperand <- word replacement

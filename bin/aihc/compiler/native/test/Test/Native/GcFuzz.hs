@@ -134,6 +134,7 @@ prop_collect config getDriver = property $ do
           classify (fromString "more than four survivors") (any ((> 4) . Map.size . rObjects) (Map.elems reports))
           classify (fromString "more than sixteen survivors") (any ((> 16) . Map.size . rObjects) (Map.elems reports))
           classify (fromString "stale static object") (or [True | CSUpdate {} <- script])
+          classify (fromString "large array") (or [True | CArray _ count _ <- script, count >= largeArrayElements])
           unless (null problems) $ do
             annotate ("driver output:\n" <> unlines output)
             annotate (unlines problems)
@@ -846,6 +847,15 @@ genEpochs config profile model count = do
 
 data Shape = ShapeObject Kind [Bool] | ShapeArray Int
 
+-- | The smallest element count of a large array: with its two header words
+-- it reaches the large object bound of 32 KiB less the pinned block header.
+largeArrayElements :: Int
+largeArrayElements = 4094
+
+isLargeShape :: Shape -> Bool
+isLargeShape (ShapeArray count) = count >= largeArrayElements
+isLargeShape _ = False
+
 shapeWords :: Shape -> Int
 shapeWords (ShapeObject kind pointers)
   | kind == KThunk = 1 + max 1 (length pointers)
@@ -860,9 +870,12 @@ genShape profile =
       (1, object KClosure),
       (pThunkWeight profile + 1, object KThunk),
       (1, object KPartial),
-      (pArrayWeight profile, ShapeArray <$> Gen.int (Range.linear 0 (pArrayMax profile)))
+      (pArrayWeight profile, ShapeArray <$> arrayLength)
     ]
   where
+    -- One array in thirty-two is large: it gets regions of its own, a
+    -- card for each run of elements, and the ages of a pinned block.
+    arrayLength = Gen.frequency [(31, Gen.int (Range.linear 0 (pArrayMax profile))), (1, Gen.int (Range.constant largeArrayElements (largeArrayElements + 300)))]
     object kind = do
       count <- Gen.int (Range.linear 0 (pFieldMax profile))
       ShapeObject kind <$> replicateM count (percent (pPointerPercent profile))
@@ -890,8 +903,11 @@ genEpoch config profile start = do
   let identities = [mNextId collected .. mNextId collected + blockCount - 1]
   shapes <- replicateM blockCount (genShape profile)
   srts <- replicateM blockCount (elementOr Nothing (Nothing : map Just usableSrts))
+  -- The runtime gives a large array regions outside the nursery without a
+  -- collection, so the reservation of the block covers the small objects
+  -- alone.
   let newCommands = zipWith3 newCommand identities shapes srts
-      blockWords = sum (map shapeWords shapes)
+      blockWords = sum [shapeWords shape | shape <- shapes, not (isLargeShape shape)]
       pool = Pool (Set.toList (liveHeap live) <> identities) [slot | slot <- [0 .. staticCount - 1], not (Set.member slot stale)] usableSrts
   fill <- do
     wanted <- percent (pFillPercent profile)
@@ -1001,8 +1017,13 @@ genWord profile pool = do
 genInitial :: Profile -> Pool -> (Id, Shape) -> Gen [Command]
 genInitial profile pool (identity, shape) = case shape of
   ShapeObject _ pointers -> concat <$> forM (zip [0 ..] pointers) field
-  ShapeArray count -> concat <$> forM [0 .. count - 1] element
+  ShapeArray count -> concat <$> forM (arrayIndices count) element
   where
+    -- A large array gets a store into a sample of its cards, not into each
+    -- element: the operations of the epoch reach the other elements.
+    arrayIndices count
+      | count <= 64 = [0 .. count - 1]
+      | otherwise = [0, 97 .. count - 1] <> [count - 1]
     field (index, True) = element index
     field (index, False) = do
       value <- genWord profile pool

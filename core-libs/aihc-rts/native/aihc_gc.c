@@ -3,18 +3,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The generational copying collector. See docs/gc-design.md.
+/* The generational collector. See docs/gc-design.md.
 
    The heap has three generations. The nursery, generation zero, is one run
    of regions that compiled code fills with a bump pointer between heap_start
-   and heap_limit. Gen1 and gen2 are lists of blocks that only the collector
-   fills. A collection of the generations up to g copies every live object
-   of those generations one generation up, except that an object a scanned
-   object of generation k refers to goes to generation k at least. Thus an
-   old object points only at old objects after one scan, and the barrier
-   entry for it can be dropped.
+   and heap_limit. Gen1 is a list of blocks that only the collector fills.
+   Gen2 is a set of segments that never move an object. A collection of the
+   generations up to g copies every live object of the nursery and gen1 that
+   it covers one generation up, except that an object a scanned object of
+   generation k refers to goes to generation k at least. Thus an old object
+   points only at old objects after one scan, and the barrier entry for it
+   can be dropped. A full collection marks the live gen2 objects in place.
 
-   The blocks a collection copies away are relabeled FROM1 and FROM2 in the
+   The gen1 blocks a collection copies away are relabeled FROM1 in the
    region table at its start, so one lookup tells whether a pointer names an
    object that moves. A copied object keeps its new address in its old
    header with the low two bits set to two: an info table pointer never has
@@ -40,6 +41,70 @@ uint64_t aihc_nursery_bytes;
 /* The largest -F factor, and the bits it takes. */
 #define AIHC_GEN2_FACTOR_BITS 10
 #define AIHC_GEN2_FACTOR_MAX (UINT64_C(1) << AIHC_GEN2_FACTOR_BITS)
+
+/* Gen2 segments. A segment is one block of regions that holds slots of one
+   size class, with one bit for each slot. A set bit is an occupied slot. A
+   full collection takes the bits of a segment as cleared until it marks an
+   object in the segment, and sets the bit of each object it reaches. An
+   object copied into gen2 sets its bit when it is allocated. Thus the
+   bitmap is the free map of the allocator between full collections.
+
+   The size classes are the word counts two to eight, and then four classes
+   in each doubling: a class holds at most a quarter more than the object
+   needs. The largest class holds every object below the large object
+   bound. */
+#define AIHC_SEGMENT_BYTES AIHC_HEAP_BLOCK_BYTES
+#define AIHC_SEGMENT_REGIONS AIHC_HEAP_BLOCK_REGIONS
+#define AIHC_SLOT_MIN_WORDS 2
+#define AIHC_SLOT_MAX_WORDS 4096
+#define AIHC_SEGMENT_MAX_SLOTS                                                 \
+  (AIHC_SEGMENT_BYTES / (AIHC_SLOT_MIN_WORDS * sizeof(AihcSlot)))
+#define AIHC_SEGMENT_BITMAP_WORDS (AIHC_SEGMENT_MAX_SLOTS / 64)
+#define AIHC_SIZE_CLASS_COUNT 43U
+/* The unswept segments one collection sweeps when it ends. */
+#define AIHC_SWEEP_SLICE 64U
+
+/* A large boxed array keeps one card for each run of this many elements
+   after its elements. The card is set when a store touches the run. */
+#define AIHC_CARD_SHIFT 7
+#define AIHC_CARD_ELEMENTS (UINT64_C(1) << AIHC_CARD_SHIFT)
+
+typedef struct AihcSegment {
+  struct AihcSegment *link;
+  /* The full collection whose marks the bitmap holds. A segment with an
+     older epoch holds no object outside a full collection. */
+  uint64_t epoch;
+  uint32_t size_class;
+  uint32_t slot_words;
+  uint32_t slot_count;
+  /* The slot below which every slot is occupied. */
+  uint32_t cursor;
+  uint64_t bitmap[AIHC_SEGMENT_BITMAP_WORDS];
+} AihcSegment;
+
+_Static_assert(AIHC_SLOT_MAX_WORDS * sizeof(AihcSlot) >=
+                   AIHC_LARGE_OBJECT_BYTES,
+               "every object below the large object bound fits a size class");
+_Static_assert(sizeof(AihcSegment) % sizeof(AihcSlot) == 0,
+               "segment slots start at a word boundary");
+
+/* The segments of one size class. The allocator fills current. It takes
+   available segments, which a sweep found room in, before it sweeps an
+   unswept segment or acquires a new one. A filled segment waits for the
+   next full collection. */
+typedef struct {
+  AihcSegment *current;
+  AihcSegment *available;
+  AihcSegment *filled;
+  AihcSegment *unswept;
+} AihcSizeClass;
+
+static AihcSizeClass aihc_size_classes[AIHC_SIZE_CLASS_COUNT];
+/* Set while a full collection traces: the allocator then takes new
+   segments only, because the marks of an old segment are not final. */
+static int aihc_gen2_marking;
+/* The size class the sweep slice looks at first. */
+static unsigned aihc_sweep_class;
 
 typedef struct {
   AihcMachine *machine;
@@ -118,6 +183,10 @@ static const AihcInfo aihc_buffer_info = {
 static AihcAddressSet aihc_marked_statics;
 static AihcValueWorklist aihc_static_worklist;
 static AihcValueWorklist aihc_pinned_worklist;
+/* The gen2 objects a collection has marked or copied and not yet scanned.
+   Gen2 has no Cheney cursor, because its slots are not in allocation
+   order. */
+static AihcValueWorklist aihc_gen2_worklist;
 static AihcSrtWorklist aihc_srt_worklist;
 /* Terminates the list of tables this collection has walked. Tables form a
    cyclic graph across recursive functions, so each one is stamped once and the
@@ -263,6 +332,18 @@ static int aihc_in_nursery(const AihcMachine *machine, const void *value) {
          machine->nursery_bytes;
 }
 
+/* The room between the allocation pointer and the end of the nursery. A
+   caller of the runtime allocator has reserved its words against the heap
+   limit, and a large object adopted since then may have moved the limit
+   below the reserved words, so the check of a reservation is against the
+   end of the nursery and not against the limit. The allocation pointer can
+   thus pass the limit, and every compare against the limit allows for
+   that. */
+static size_t aihc_nursery_room(const AihcMachine *machine) {
+  return (size_t)(machine->heap_start + machine->nursery_bytes -
+                  machine->heap_next);
+}
+
 /* Whether an object outside every region is a block of the pinned list and
    not a static object. The only kinds the runtime allocates pinned are byte
    arrays and IO requests, and no static object has either kind. */
@@ -301,7 +382,6 @@ static unsigned aihc_generation_of(const AihcMachine *machine,
     return AIHC_GENERATION_STATIC;
   case AIHC_REGION_NURSERY:
   case AIHC_REGION_FROM1:
-  case AIHC_REGION_FROM2:
     if (aihc_in_nursery(machine, value)) {
       return 0;
     }
@@ -311,15 +391,11 @@ static unsigned aihc_generation_of(const AihcMachine *machine,
   }
 }
 
-/* The blocks of the old generations. */
+/* The blocks of gen1. */
 
 static AihcGeneration *aihc_generation(AihcMachine *machine,
                                        unsigned generation) {
   return &machine->generations[generation - 1];
-}
-
-static AihcRegionKind aihc_generation_kind(unsigned generation) {
-  return generation == 1 ? AIHC_REGION_GEN1 : AIHC_REGION_GEN2;
 }
 
 static uint64_t aihc_generation_used(const AihcGeneration *generation) {
@@ -331,10 +407,9 @@ static uint64_t aihc_generation_used(const AihcGeneration *generation) {
   return used;
 }
 
-/* Allocate bytes for a copied object in an old generation. */
-static uint8_t *aihc_generation_allocate(AihcMachine *machine,
-                                         unsigned generation, size_t bytes) {
-  AihcGeneration *target = aihc_generation(machine, generation);
+/* Allocate bytes for a copied object in gen1. */
+static uint8_t *aihc_gen1_allocate(AihcMachine *machine, size_t bytes) {
+  AihcGeneration *target = aihc_generation(machine, 1);
   AihcHeapBlock *block = target->last;
   if (block == NULL || bytes > (size_t)(block->limit - block->next)) {
     if (bytes > AIHC_HEAP_BLOCK_BYTES) {
@@ -344,8 +419,8 @@ static uint8_t *aihc_generation_allocate(AihcMachine *machine,
     if (block == NULL) {
       aihc_fail("out of memory");
     }
-    block->start = aihc_regions_acquire(AIHC_HEAP_BLOCK_REGIONS,
-                                        aihc_generation_kind(generation));
+    block->start =
+        aihc_regions_acquire(AIHC_HEAP_BLOCK_REGIONS, AIHC_REGION_GEN1);
     block->next = block->start;
     block->limit = block->start + AIHC_HEAP_BLOCK_BYTES;
     block->link = NULL;
@@ -377,18 +452,300 @@ static void aihc_blocks_release(AihcHeapBlock *blocks) {
   }
 }
 
+/* The segments of gen2. */
+
+/* The class of the smallest slot that holds the given words. */
+static unsigned aihc_size_class_of(uint64_t words) {
+  if (words <= 8) {
+    return words < AIHC_SLOT_MIN_WORDS ? 0 : (unsigned)words - 2;
+  }
+  if (words > AIHC_SLOT_MAX_WORDS) {
+    aihc_fail("object exceeds the largest gen2 size class");
+  }
+  /* words is in the doubling above two to the power, and the quarter of
+     that doubling that holds it names the class. */
+  unsigned power = 63U - (unsigned)__builtin_clzll(words - 1);
+  uint64_t quarter =
+      (words - (UINT64_C(1) << power) + (UINT64_C(1) << (power - 2)) - 1) >>
+      (power - 2);
+  return 7U + (power - 3U) * 4U + (unsigned)quarter - 1U;
+}
+
+static uint32_t aihc_size_class_words(unsigned size_class) {
+  if (size_class < 7U) {
+    return size_class + 2U;
+  }
+  unsigned power = 3U + (size_class - 7U) / 4U;
+  unsigned quarter = (size_class - 7U) % 4U + 1U;
+  return (1U << power) + quarter * (1U << (power - 2U));
+}
+
+static uint8_t *aihc_segment_slots(AihcSegment *segment) {
+  return (uint8_t *)segment + sizeof(AihcSegment);
+}
+
+static size_t aihc_segment_slot_bytes(const AihcSegment *segment) {
+  return (size_t)segment->slot_words * sizeof(AihcSlot);
+}
+
+static AihcSegment *aihc_segment_of(const void *object) {
+  AihcSegment *segment = aihc_region_run_base(object);
+  if (segment == NULL) {
+    aihc_fail("gen2 object is outside every segment");
+  }
+  return segment;
+}
+
+static uint32_t aihc_segment_slot_of(AihcSegment *segment, const void *object) {
+  return (uint32_t)(((const uint8_t *)object - aihc_segment_slots(segment)) /
+                    aihc_segment_slot_bytes(segment));
+}
+
+static int aihc_segment_test(const AihcSegment *segment, uint32_t slot) {
+  return (int)((segment->bitmap[slot >> 6] >> (slot & 63U)) & 1U);
+}
+
+static void aihc_segment_set(AihcSegment *segment, uint32_t slot) {
+  segment->bitmap[slot >> 6] |= UINT64_C(1) << (slot & 63U);
+}
+
+static AihcSegment *aihc_segment_new(AihcMachine *machine,
+                                     unsigned size_class) {
+  AihcSegment *segment =
+      aihc_regions_acquire(AIHC_SEGMENT_REGIONS, AIHC_REGION_GEN2);
+  segment->link = NULL;
+  segment->epoch = machine->gc_full_count;
+  segment->size_class = size_class;
+  segment->slot_words = aihc_size_class_words(size_class);
+  segment->slot_count = (uint32_t)((AIHC_SEGMENT_BYTES - sizeof(AihcSegment)) /
+                                   aihc_segment_slot_bytes(segment));
+  segment->cursor = 0;
+  memset(segment->bitmap, 0, sizeof(segment->bitmap));
+  return segment;
+}
+
+/* Take the first free slot at or above the cursor, or UINT32_MAX when the
+   segment is full. Every slot below the cursor is occupied. */
+static uint32_t aihc_segment_take(AihcSegment *segment) {
+  uint32_t word = segment->cursor >> 6;
+  uint32_t words = (segment->slot_count + 63U) >> 6;
+  while (word < words) {
+    uint64_t free = ~segment->bitmap[word];
+    if (free != 0) {
+      uint32_t slot = word * 64U + (uint32_t)__builtin_ctzll(free);
+      if (slot >= segment->slot_count) {
+        break;
+      }
+      segment->bitmap[word] |= UINT64_C(1) << (slot & 63U);
+      segment->cursor = slot + 1U;
+      return slot;
+    }
+    ++word;
+  }
+  segment->cursor = segment->slot_count;
+  return UINT32_MAX;
+}
+
+/* Sweep one segment after a full collection: release it when no object was
+   marked in it, and put it where the allocator finds it otherwise. A
+   segment the collection did not touch kept an older epoch, and nothing is
+   allocated in an unswept segment, so such a segment is empty. */
+static void aihc_segment_sweep(AihcMachine *machine, AihcSizeClass *class,
+                               AihcSegment *segment) {
+  uint32_t live = 0;
+  if (segment->epoch == machine->gc_full_count) {
+    for (size_t index = 0; index < AIHC_SEGMENT_BITMAP_WORDS; ++index) {
+      live += (uint32_t)__builtin_popcountll(segment->bitmap[index]);
+    }
+  }
+  if (live == 0) {
+    aihc_regions_release(segment);
+    return;
+  }
+  segment->cursor = 0;
+  if (live == segment->slot_count) {
+    segment->link = class->filled;
+    class->filled = segment;
+  } else {
+    segment->link = class->available;
+    class->available = segment;
+  }
+}
+
+/* Sweep a bounded number of unswept segments. Each collection runs one
+   slice, so the sweep is paced by collections and no pause depends on the
+   size of gen2. */
+static void aihc_sweep_slice(AihcMachine *machine) {
+  unsigned budget = AIHC_SWEEP_SLICE;
+  unsigned idle = 0;
+  while (budget != 0 && idle < AIHC_SIZE_CLASS_COUNT) {
+    AihcSizeClass *class = &aihc_size_classes[aihc_sweep_class];
+    AihcSegment *segment = class->unswept;
+    if (segment == NULL) {
+      ++idle;
+      aihc_sweep_class = (aihc_sweep_class + 1U) % AIHC_SIZE_CLASS_COUNT;
+      continue;
+    }
+    idle = 0;
+    class->unswept = segment->link;
+    aihc_segment_sweep(machine, class, segment);
+    --budget;
+  }
+}
+
+/* The segment the allocator fills next for a size class. */
+static AihcSegment *aihc_class_next_segment(AihcMachine *machine,
+                                            unsigned size_class) {
+  AihcSizeClass *class = &aihc_size_classes[size_class];
+  for (;;) {
+    AihcSegment *segment = class->available;
+    if (segment != NULL) {
+      class->available = segment->link;
+      segment->link = NULL;
+      return segment;
+    }
+    if (aihc_gen2_marking || class->unswept == NULL) {
+      return aihc_segment_new(machine, size_class);
+    }
+    segment = class->unswept;
+    class->unswept = segment->link;
+    aihc_segment_sweep(machine, class, segment);
+  }
+}
+
+/* Allocate a slot for a copied object in gen2. The slot is occupied from
+   now on: in a full collection the object is live by construction. */
+static uint8_t *aihc_gen2_allocate(AihcMachine *machine, size_t bytes) {
+  unsigned size_class = aihc_size_class_of(bytes / sizeof(AihcSlot));
+  AihcSizeClass *class = &aihc_size_classes[size_class];
+  for (;;) {
+    AihcSegment *segment = class->current;
+    if (segment == NULL) {
+      segment = aihc_class_next_segment(machine, size_class);
+      class->current = segment;
+    }
+    uint32_t slot = aihc_segment_take(segment);
+    if (slot != UINT32_MAX) {
+      machine->generations[1].bytes += aihc_segment_slot_bytes(segment);
+      return aihc_segment_slots(segment) +
+             (size_t)slot * aihc_segment_slot_bytes(segment);
+    }
+    segment->link = class->filled;
+    class->filled = segment;
+    class->current = NULL;
+  }
+}
+
+/* Mark one gen2 object in a full collection and queue it for scanning.
+   Returns whether the object was unmarked. */
+static int aihc_mark_gen2(AihcMachine *machine, AihcValue *object) {
+  AihcSegment *segment = aihc_segment_of(object);
+  if (segment->epoch != machine->gc_full_count) {
+    memset(segment->bitmap, 0, sizeof(segment->bitmap));
+    segment->epoch = machine->gc_full_count;
+  }
+  uint32_t slot = aihc_segment_slot_of(segment, object);
+  if (aihc_segment_test(segment, slot)) {
+    return 0;
+  }
+  aihc_segment_set(segment, slot);
+  machine->generations[1].bytes += aihc_segment_slot_bytes(segment);
+  aihc_value_worklist_push(&aihc_gen2_worklist, object);
+  return 1;
+}
+
+/* Whether a gen2 object is marked in the running full collection, or
+   occupied outside one. */
+static int aihc_gen2_marked(const AihcMachine *machine,
+                            const AihcValue *object) {
+  AihcSegment *segment = aihc_segment_of(object);
+  return segment->epoch == machine->gc_full_count &&
+         aihc_segment_test(segment, aihc_segment_slot_of(segment, object));
+}
+
+/* Move every segment to the unswept list at the start of a full
+   collection. The allocator takes new segments while the collection
+   traces. */
+static void aihc_gen2_begin_marking(AihcMachine *machine) {
+  for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
+    AihcSizeClass *class = &aihc_size_classes[index];
+    AihcSegment **lists[] = {&class->current, &class->available,
+                             &class->filled};
+    for (size_t list = 0; list < 3; ++list) {
+      while (*lists[list] != NULL) {
+        AihcSegment *segment = *lists[list];
+        *lists[list] = segment->link;
+        segment->link = class->unswept;
+        class->unswept = segment;
+      }
+    }
+  }
+  machine->generations[1].bytes = 0;
+  aihc_gen2_marking = 1;
+}
+
+static void aihc_segments_release(AihcSegment *segments) {
+  while (segments != NULL) {
+    AihcSegment *link = segments->link;
+    aihc_regions_release(segments);
+    segments = link;
+  }
+}
+
+static void aihc_gen2_release(AihcMachine *machine) {
+  for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
+    AihcSizeClass *class = &aihc_size_classes[index];
+    aihc_segments_release(class->current);
+    aihc_segments_release(class->available);
+    aihc_segments_release(class->filled);
+    aihc_segments_release(class->unswept);
+    *class = (AihcSizeClass){0};
+  }
+  machine->generations[1].bytes = 0;
+}
+
+static uint8_t *aihc_generation_allocate(AihcMachine *machine,
+                                         unsigned generation, size_t bytes) {
+  return generation == 1 ? aihc_gen1_allocate(machine, bytes)
+                         : aihc_gen2_allocate(machine, bytes);
+}
+
 /* The bytes the objects of the old generations and the pinned list take.
    The -M limit bounds this count, not the capacity of the blocks that hold
    it and not the nursery: a block is a whole run of regions, and a program
    with a limit far below one run still has to run. */
 static uint64_t aihc_old_bytes(const AihcMachine *machine) {
   return aihc_generation_used(&machine->generations[0]) +
-         aihc_generation_used(&machine->generations[1]) + machine->fixed_bytes;
+         machine->generations[1].bytes + machine->fixed_bytes;
 }
 
 static uint64_t aihc_occupied_bytes(const AihcMachine *machine) {
   return (uint64_t)(machine->heap_next - machine->heap_start) +
          aihc_old_bytes(machine);
+}
+
+/* Cards of large boxed arrays. */
+
+/* The bytes of the card table a large object of the given bytes needs
+   when it is a boxed array. The table follows the object in its run. */
+static size_t aihc_card_table_bytes(size_t object_bytes) {
+  return (object_bytes / sizeof(AihcSlot) + AIHC_CARD_ELEMENTS - 1) >>
+         AIHC_CARD_SHIFT;
+}
+
+/* Whether an object has a card table: a boxed array in a large region. */
+static int aihc_has_cards(const AihcValue *object) {
+  return aihc_region_kind(object) == AIHC_REGION_LARGE &&
+         aihc_value_kind(object) == AIHC_OBJECT_ARRAY;
+}
+
+static uint8_t *aihc_array_cards(AihcValue *array) {
+  AihcPinnedBlock *block = aihc_pinned_block_of(array);
+  return (uint8_t *)block->object + aihc_pinned_bytes(block);
+}
+
+static uint64_t aihc_array_card_count(const AihcValue *array) {
+  return (aihc_array_length(array) + AIHC_CARD_ELEMENTS - 1) >> AIHC_CARD_SHIFT;
 }
 
 /* Thread stacks. */
@@ -547,6 +904,11 @@ static void aihc_remembered_compact(AihcMachine *machine) {
 }
 
 void aihc_remember(AihcMachine *machine, AihcValue *object) {
+  if (machine->remembered_count != 0 &&
+      machine->remembered[machine->remembered_count - 1] == object) {
+    /* A loop that stores into one object enters it once. */
+    return;
+  }
   if (machine->remembered_count == machine->remembered_capacity) {
     if (machine->remembered_capacity != 0) {
       aihc_remembered_compact(machine);
@@ -573,6 +935,42 @@ void aihc_remember(AihcMachine *machine, AihcValue *object) {
 void aihc_write_barrier(AihcMachine *machine, AihcValue *object) {
   if (object == NULL || aihc_in_nursery(machine, object)) {
     return;
+  }
+  if (aihc_has_cards(object)) {
+    memset(aihc_array_cards(object), 1, aihc_array_card_count(object));
+  }
+  aihc_remember(machine, object);
+}
+
+void aihc_write_barrier_at(AihcMachine *machine, AihcValue *object,
+                           uint64_t index) {
+  if (object == NULL || aihc_in_nursery(machine, object)) {
+    return;
+  }
+  if (aihc_has_cards(object)) {
+    uint64_t card = index >> AIHC_CARD_SHIFT;
+    if (card < aihc_array_card_count(object)) {
+      aihc_array_cards(object)[card] = 1;
+    }
+  }
+  aihc_remember(machine, object);
+}
+
+void aihc_write_barrier_range(AihcMachine *machine, AihcValue *object,
+                              uint64_t offset, uint64_t count) {
+  if (object == NULL || count == 0 || aihc_in_nursery(machine, object)) {
+    return;
+  }
+  if (aihc_has_cards(object)) {
+    uint8_t *cards = aihc_array_cards(object);
+    uint64_t last = (offset + count - 1) >> AIHC_CARD_SHIFT;
+    uint64_t card_count = aihc_array_card_count(object);
+    if (last >= card_count) {
+      last = card_count - 1;
+    }
+    for (uint64_t card = offset >> AIHC_CARD_SHIFT; card <= last; ++card) {
+      cards[card] = 1;
+    }
   }
   aihc_remember(machine, object);
 }
@@ -603,6 +1001,9 @@ static AihcValue *aihc_copy(AihcGcContext *context, AihcValue *value,
                                                           generation, bytes);
   memcpy(copy, value, bytes);
   value->header = (AihcSlot)(uintptr_t)copy | AIHC_HEADER_WAITERS;
+  if (generation == 2) {
+    aihc_value_worklist_push(&aihc_gen2_worklist, copy);
+  }
   return copy;
 }
 
@@ -645,11 +1046,20 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
       case AIHC_REGION_FROM1:
         source = 1;
         break;
-      case AIHC_REGION_FROM2:
-        source = 2;
-        break;
       case AIHC_REGION_GEN1:
+        return value;
       case AIHC_REGION_GEN2:
+        if (context->collected < 2) {
+          return value;
+        }
+        /* A full collection follows a gen2 indirection as the copy follows
+           one in a from-space: the indirection stays unmarked, and its
+           slot is free after the collection. */
+        if (aihc_value_kind(value) == AIHC_OBJECT_INDIRECTION) {
+          value = (AihcValue *)(uintptr_t)value->fields[0];
+          continue;
+        }
+        aihc_mark_gen2(machine, value);
         return value;
       case AIHC_REGION_LARGE:
       case AIHC_REGION_PINNED:
@@ -764,6 +1174,41 @@ static void aihc_age_chunks(AihcGcContext *context) {
   free(context->touched);
 }
 
+/* Scan a large boxed array card by card. With dirty_only, only the cards
+   that stores touched are scanned: the array is in the remembered set, and
+   its clean cards point at objects of its generation or above. A card stays
+   dirty when a referent of it still ends younger than the array, and the
+   array then goes back to the remembered set. generation is where the
+   array lives, which is one at least: a young array is scanned after its
+   promotion. */
+static void aihc_scan_large_array(AihcGcContext *context, AihcValue *array,
+                                  unsigned generation, int dirty_only) {
+  AihcScanContext scan = {.gc = context, .target = generation};
+  uint8_t *cards = aihc_array_cards(array);
+  uint64_t length = aihc_array_length(array);
+  AihcSlot *elements = aihc_array_elements(array);
+  uint64_t card_count = aihc_array_card_count(array);
+  int kept = 0;
+  for (uint64_t card = 0; card < card_count; ++card) {
+    if (dirty_only && cards[card] == 0) {
+      continue;
+    }
+    uint64_t end = (card + 1) << AIHC_CARD_SHIFT;
+    if (end > length) {
+      end = length;
+    }
+    scan.youngest = AIHC_GENERATION_STATIC;
+    for (uint64_t index = card << AIHC_CARD_SHIFT; index < end; ++index) {
+      elements[index] = aihc_scan_slot(elements[index], &scan);
+    }
+    cards[card] = scan.youngest < generation;
+    kept |= cards[card];
+  }
+  if (kept) {
+    aihc_gc_keep(context, array);
+  }
+}
+
 /* Scan one object wherever it lives. generation is where the object lives
    now, or AIHC_GENERATION_STATIC for a frame or a static object. A referent
    lands in that generation at least. When a referent still ends younger,
@@ -789,6 +1234,10 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
          indirection because it cannot move. */
       object->fields[0] = aihc_scan_slot(object->fields[0], &scan);
     } else if (kind == AIHC_OBJECT_ARRAY) {
+      if (aihc_has_cards(object)) {
+        aihc_scan_large_array(context, object, generation, 0);
+        return;
+      }
       uint64_t length = aihc_array_length(object);
       AihcSlot *elements = aihc_array_elements(object);
       for (uint64_t index = 0; index < length; ++index) {
@@ -884,8 +1333,9 @@ static void aihc_trace(AihcGcContext *context) {
                        aihc_pinned_generation(aihc_pinned_block_of(object)));
       continue;
     }
-    if (aihc_generation_scan_pending(aihc_generation(machine, 2))) {
-      aihc_generation_scan_one(context, 2);
+    if (aihc_gen2_worklist.count != 0) {
+      AihcValue *object = aihc_gen2_worklist.items[--aihc_gen2_worklist.count];
+      aihc_scan_object(context, object, 2);
       continue;
     }
     if (aihc_generation_scan_pending(aihc_generation(machine, 1))) {
@@ -915,9 +1365,9 @@ static void aihc_scan_remembered(AihcGcContext *context) {
       continue;
     }
     unsigned generation;
-    switch (aihc_region_kind(object)) {
+    AihcRegionKind kind = aihc_region_kind(object);
+    switch (kind) {
     case AIHC_REGION_FROM1:
-    case AIHC_REGION_FROM2:
       continue;
     case AIHC_REGION_GEN1:
       generation = 1;
@@ -948,6 +1398,11 @@ static void aihc_scan_remembered(AihcGcContext *context) {
          reaches gives its value up. */
       continue;
     }
+    if (kind == AIHC_REGION_LARGE &&
+        aihc_value_kind(object) == AIHC_OBJECT_ARRAY) {
+      aihc_scan_large_array(context, object, generation, 1);
+      continue;
+    }
     aihc_scan_object(context, object, generation);
   }
   free(entries);
@@ -963,11 +1418,18 @@ static AihcValue *aihc_live_value(AihcGcContext *context, AihcValue *value) {
     if (!aihc_in_nursery(machine, value)) {
       switch (aihc_region_kind(value)) {
       case AIHC_REGION_FROM1:
-      case AIHC_REGION_FROM2:
         /* A from-space object: forwarded, followed, or dead, as below. */
         break;
-      case AIHC_REGION_GEN1:
       case AIHC_REGION_GEN2:
+        if (context->collected < 2 || aihc_gen2_marked(machine, value)) {
+          return value;
+        }
+        if (aihc_value_kind(value) != AIHC_OBJECT_INDIRECTION) {
+          return NULL;
+        }
+        value = (AihcValue *)(uintptr_t)value->fields[0];
+        continue;
+      case AIHC_REGION_GEN1:
       case AIHC_REGION_STACK:
         return value;
       case AIHC_REGION_LARGE:
@@ -1158,31 +1620,27 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   }
   AihcGcContext context = {.machine = machine, .collected = collected};
 
-  /* Detach the blocks this collection copies away, so the generations fill
-     fresh blocks. */
+  /* Detach the gen1 blocks this collection copies away, so gen1 fills fresh
+     blocks. A full collection marks gen2 in place. */
   AihcHeapBlock *from1 = NULL;
-  AihcHeapBlock *from2 = NULL;
-  for (unsigned generation = 1; generation <= 2; ++generation) {
-    AihcGeneration *target = aihc_generation(machine, generation);
-    if (generation <= collected) {
-      aihc_blocks_set_kind(target->first, generation == 1 ? AIHC_REGION_FROM1
-                                                          : AIHC_REGION_FROM2);
-      if (generation == 1) {
-        from1 = target->first;
-      } else {
-        from2 = target->first;
-      }
-      target->first = NULL;
-      target->last = NULL;
-      target->bytes = 0;
-    }
-    target->scan_block = target->last;
-    target->scan = target->last == NULL ? NULL : target->last->next;
+  AihcGeneration *gen1 = aihc_generation(machine, 1);
+  if (collected >= 1) {
+    aihc_blocks_set_kind(gen1->first, AIHC_REGION_FROM1);
+    from1 = gen1->first;
+    gen1->first = NULL;
+    gen1->last = NULL;
+    gen1->bytes = 0;
+  }
+  gen1->scan_block = gen1->last;
+  gen1->scan = gen1->last == NULL ? NULL : gen1->last->next;
+  if (collected == 2) {
+    aihc_gen2_begin_marking(machine);
   }
 
   aihc_address_set_clear(&aihc_marked_statics);
   aihc_static_worklist.count = 0;
   aihc_pinned_worklist.count = 0;
+  aihc_gen2_worklist.count = 0;
   aihc_srt_worklist.count = 0;
   if (collected == 2) {
     /* The table of the code that requested the collection, or NULL when
@@ -1196,14 +1654,15 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   aihc_visit_roots(machine, root_count, roots, aihc_evacuate_root, &context);
   aihc_scan_remembered(&context);
   aihc_trace(&context);
+  aihc_gen2_marking = 0;
   aihc_update_stable_names(&context);
   aihc_sweep_stacks(&context);
   aihc_sweep_pinned(&context);
   aihc_age_chunks(&context);
   aihc_clear_srt_stamps();
+  aihc_sweep_slice(machine);
 
   aihc_blocks_release(from1);
-  aihc_blocks_release(from2);
   machine->heap_next = machine->heap_start;
   machine->heap_limit = machine->heap_start + machine->nursery_bytes;
   machine->heap_alloc_base = machine->heap_next;
@@ -1284,15 +1743,15 @@ void aihc_nursery_replace(AihcMachine *machine, size_t bytes) {
 }
 
 void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes) {
-  for (unsigned generation = 1; generation <= 2; ++generation) {
-    AihcGeneration *target = aihc_generation(machine, generation);
-    aihc_blocks_release(target->first);
-    target->first = NULL;
-    target->last = NULL;
-    target->bytes = 0;
-    target->scan_block = NULL;
-    target->scan = NULL;
-  }
+  AihcGeneration *gen1 = aihc_generation(machine, 1);
+  aihc_blocks_release(gen1->first);
+  gen1->first = NULL;
+  gen1->last = NULL;
+  gen1->bytes = 0;
+  gen1->scan_block = NULL;
+  gen1->scan = NULL;
+  aihc_gen2_release(machine);
+  aihc_gen2_worklist.count = 0;
   while (machine->pinned_blocks != NULL) {
     AihcPinnedBlock *block = machine->pinned_blocks;
     machine->pinned_blocks = block->next;
@@ -1388,7 +1847,7 @@ void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
     return;
   }
   aihc_collect_for(machine, bytes, root_count, roots, srt);
-  if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
+  if (bytes > aihc_nursery_room(machine)) {
     /* The nursery is empty now, so a reservation it cannot hold grows it.
        Only a nursery far below the default, as the tests use, reaches this
        branch: a reservation below the large object bound fits the default. */
@@ -1405,14 +1864,18 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
     aihc_ensure_large(machine, bytes, root_count, roots, srt);
     return;
   }
-  if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
+  if (machine->heap_next > machine->heap_limit ||
+      bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_gc_collect(machine, words, root_count, roots, srt);
   }
 }
 
 /* Put a block on the pinned list and charge it to the budget. The charge
    also shortens the nursery, so fixed allocation brings the next collection
-   closer as nursery allocation does. */
+   closer as nursery allocation does. Compiled code reserves a large object
+   with one compare against the heap limit and allocates it through the
+   runtime, so this is the only pressure a large object below the nursery
+   size puts on the collector. */
 static AihcValue *aihc_pinned_block_adopt(AihcMachine *machine,
                                           AihcPinnedBlock *block,
                                           size_t charge_bytes) {
@@ -1454,14 +1917,22 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   }
   size_t bytes = sizeof(AihcSlot) * words;
   if (aihc_reservation_is_large(bytes)) {
+    /* The card table of a boxed array follows the object. The runtime does
+       not know the kind of the object yet, so every large object gets the
+       room, which is below a thousandth of its size. */
+    size_t card_bytes = aihc_card_table_bytes(bytes);
+    if (bytes > SIZE_MAX - sizeof(AihcPinnedBlock) - card_bytes) {
+      aihc_fail("heap allocation is too large");
+    }
     AihcPinnedBlock *block = aihc_fixed_block_new(
-        sizeof(AihcPinnedBlock) + bytes, AIHC_REGION_LARGE);
+        sizeof(AihcPinnedBlock) + bytes + card_bytes, AIHC_REGION_LARGE);
 #ifdef DEBUG
     memset(block->object, 0, bytes);
 #endif
+    memset((uint8_t *)block->object + bytes, 0, card_bytes);
     return aihc_pinned_block_adopt(machine, block, bytes);
   }
-  if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
+  if (bytes > aihc_nursery_room(machine)) {
     aihc_fail("unchecked allocation exceeded reserved heap");
   }
   AihcValue *value = (AihcValue *)machine->heap_next;
@@ -1485,7 +1956,7 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
     /* A pinned block reads as zero, as the C allocation below does. */
     memset(block->object, 0, bytes - sizeof(AihcPinnedBlock));
   } else {
-    if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
+    if (bytes > aihc_nursery_room(machine)) {
       aihc_fail("unchecked pinned allocation exceeded reserved heap");
     }
     block = calloc(1, bytes);
@@ -1494,6 +1965,66 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
     }
   }
   return aihc_pinned_block_adopt(machine, block, bytes);
+}
+
+/* The heap walk of the test drivers. */
+
+static void aihc_walk_range(uint8_t *start, uint8_t *end,
+                            AihcObjectVisitor visitor, void *context) {
+  uint8_t *cursor = start;
+  while (cursor < end) {
+    AihcValue *object = (AihcValue *)cursor;
+    if (object->header == 0) {
+      /* The slop behind a thunk that an update turned into an indirection. */
+      cursor += sizeof(AihcSlot);
+      continue;
+    }
+    visitor(object, context);
+    cursor += sizeof(AihcSlot) * aihc_value_words(object);
+  }
+  if (cursor != end) {
+    aihc_fail("object sizes do not end at the allocation pointer");
+  }
+}
+
+static void aihc_walk_segments(const AihcMachine *machine,
+                               AihcSegment *segments, AihcObjectVisitor visitor,
+                               void *context) {
+  for (AihcSegment *segment = segments; segment != NULL;
+       segment = segment->link) {
+    if (segment->epoch != machine->gc_full_count) {
+      continue;
+    }
+    for (uint32_t slot = 0; slot < segment->slot_count; ++slot) {
+      if (aihc_segment_test(segment, slot)) {
+        visitor((AihcValue *)(aihc_segment_slots(segment) +
+                              (size_t)slot * aihc_segment_slot_bytes(segment)),
+                context);
+      }
+    }
+  }
+}
+
+void aihc_gc_walk_objects(AihcMachine *machine, AihcObjectVisitor visitor,
+                          void *context) {
+  aihc_walk_range(machine->heap_start, machine->heap_next, visitor, context);
+  for (const AihcHeapBlock *block = machine->generations[0].first;
+       block != NULL; block = block->link) {
+    aihc_walk_range(block->start, block->next, visitor, context);
+  }
+  for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
+    const AihcSizeClass *class = &aihc_size_classes[index];
+    aihc_walk_segments(machine, class->current, visitor, context);
+    aihc_walk_segments(machine, class->available, visitor, context);
+    aihc_walk_segments(machine, class->filled, visitor, context);
+    aihc_walk_segments(machine, class->unswept, visitor, context);
+  }
+  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
+       block = block->next) {
+    if (aihc_region_kind(block) == AIHC_REGION_LARGE) {
+      visitor((AihcValue *)block->object, context);
+    }
+  }
 }
 
 void aihc_roots_enter(AihcMachine *machine, AihcRootFrame *frame,
