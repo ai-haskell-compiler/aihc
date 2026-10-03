@@ -1624,7 +1624,8 @@ addModuleBuild graph shared build = do
             { taskId = TaskId (parseBase + index),
               taskKind = TaskParse,
               taskOrder = order,
-              taskDependencies = Set.empty,
+              -- Delay source trees until dependency packages finish.
+              taskDependencies = Set.fromList (moduleBuildFinishAfter build),
               taskAction = do
                 source <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
                 -- The header fields of the module are strict, so the import
@@ -2918,62 +2919,33 @@ configMergeCheck config
 -- and write it when a later build or a @--lto@ link reads it. This is the
 -- last phase that sees the Haskell AST.
 desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO [FcModule]
-desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
-  let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-  do
-    let kinds = primKinds primIdentity
-        -- A module the resolver did not report on keeps every name public.
-        desugarConfig name =
-          Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
-        -- Each module is desugared against its own bindings; the rest of
-        -- the unit reaches it through the interface.
-        desugarResults =
-          [ Fc.desugarModuleFc (desugarConfig name) (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
-          | (name, checked) <- zip moduleNames checkedModules
-          ]
-        desugarErrors =
-          [ T.unpack name <> ": " <> err
-          | (name, result) <- zip moduleNames desugarResults,
-            err <- dsErrors result
-          ]
-    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
-    -- The FC waits in memory for the backend, so equal names and types
-    -- are made one object each before it is kept.
-    let fcModules = zipWith FcModule moduleNames (map (Fc.shareProgram . dsProgram) desugarResults)
-    fcErrors <-
-      fmap concat $
-        forM fcModules $ \fcModule -> do
-          when lint (verbose ("Lint FC: " <> T.unpack (fcModuleName fcModule)))
-          let errors = [(fcModuleName fcModule, err) | err <- Fc.lintProgram (fcProgram fcModule)]
-          when lint (void (evaluate (length errors)))
-          pure errors
-    let fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
-    when lint $
-      unless (null fcErrors) $
-        ioError
-          ( userError
-              ( unlines
-                  ( ["FC lint failed:"]
-                      <> fcReport
-                  )
-              )
-          )
-    -- A @--lto@ build keeps the System FC of every module: it is what the
-    -- executable compiles.
-    when (keepCore || lto) (mapM_ writeFcModule fcModules)
-    -- The FC is forced here so that no thunk into the checked AST leaves
-    -- with it.
-    evaluate (force fcModules)
+desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules =
+  catMaybes <$> mapM desugarOne checkedModules
   where
     keepCore = compileKeepCore config
     lint = compileLint config
     lto = compileLto config
+    kinds = primKinds primIdentity
 
-    writeFcModule fcModule = do
-      let name = fcModuleName fcModule
-          path = outputFcPath (outputPaths name)
-      Fc.writeProgramFile path (fcProgram fcModule)
-      verbose ("Write FC: " <> T.unpack name)
+    -- Complete one module before the next module starts. A whole-program
+    -- build keeps its FC file and releases its FC program here.
+    desugarOne checked = do
+      let name = fromMaybe "Main" (moduleName checked)
+          desugarConfig = Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
+          result = Fc.desugarModuleFc desugarConfig (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
+      unless (dsSuccess result) $
+        ioError (userError ("FC generation failed: " <> unlines [T.unpack name <> ": " <> err | err <- dsErrors result]))
+      fcModule <- evaluate (force (FcModule name (Fc.shareProgram (dsProgram result))))
+      when lint $ do
+        verbose ("Lint FC: " <> T.unpack name)
+        let errors = Fc.lintProgram (fcProgram fcModule)
+        unless (null errors) $
+          ioError (userError (unlines ("FC lint failed:" : ["    " <> T.unpack name <> ": " <> show err | err <- errors])))
+      when (keepCore || lto) $ do
+        let path = outputFcPath (outputPaths name)
+        Fc.writeProgramFile path (fcProgram fcModule)
+        verbose ("Write FC: " <> T.unpack name)
+      pure (if lto then Nothing else Just fcModule)
 
 -- | Compile the System FC of a unit to objects, and its capi wrappers
 -- beside them. Only the FC and the rendered wrappers come in: the frontend
@@ -3047,7 +3019,8 @@ optimizeFcProgram config verbose roots name = foldM step `flip` compilePasses co
       let (program', report) = Fc.runPass roots pass program
       verbose (renderPassReport name report)
       lintOptimized config (T.unpack (Fc.reportPass report)) name program'
-      pure program'
+      -- Force the result before the next pass can retain its input.
+      evaluate (force program')
 
 -- | One log line for a pass: its name, the program, the sizes before and
 -- after, and what else it counted.

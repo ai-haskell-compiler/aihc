@@ -109,9 +109,9 @@ data TaskState = TaskState
   }
 
 -- | A graph that runs. A task that runs can add tasks to it, each with
--- dependencies on tasks already in the graph, run or not. The graph ends
--- when every task added has run, so a task that adds tasks does so before
--- it ends.
+-- dependencies on existing tasks or reserved identifiers. The graph ends
+-- after every task completes. Each task must add its new tasks before
+-- it completes.
 data TaskGraph = TaskGraph
   { graphTasks :: !(TVar (Map TaskId Task)),
     graphState :: !(TVar TaskState),
@@ -147,19 +147,18 @@ allocateTaskIds graph count =
     writeTVar (graphNextId graph) (next + count)
     pure next
 
--- | Add tasks to the graph. Each dependency is a task of the graph, added
--- before or in this call. A cycle among the tasks is not checked: the
--- callers build their graphs from a dependency order that is already
--- acyclic, and a phase of a unit only ever waits on an earlier phase of
--- the same unit or on a unit before it.
+-- | Add tasks to the graph. Each dependency must name an existing task
+-- or an identifier reserved with allocateTaskIds. The caller must add
+-- each reserved dependency before the graph can complete. The caller
+-- must prevent dependency cycles.
 addTasks :: TaskGraph -> [Task] -> IO ()
 addTasks graph tasks = do
   let added = Map.fromList [(taskId task, task) | task <- tasks]
       duplicateCount = length tasks - Map.size added
-  (known, completed) <- atomically $ (,) <$> readTVar (graphTasks graph) <*> (stateCompleted <$> readTVar (graphState graph))
+  (known, completed, next) <- atomically $ (,,) <$> readTVar (graphTasks graph) <*> (stateCompleted <$> readTVar (graphState graph)) <*> readTVar (graphNextId graph)
   let knownIds = Map.keysSet known <> completed
       duplicates = knownIds `Set.intersection` Map.keysSet added
-      missingIds = Set.unions (map taskDependencies tasks) Set.\\ (knownIds <> Map.keysSet added)
+      missingIds = Set.filter (\(TaskId identifier) -> identifier < 0 || identifier >= next) (Set.unions (map taskDependencies tasks) Set.\\ (knownIds <> Map.keysSet added))
   when (duplicateCount /= 0 || not (Set.null duplicates)) $
     ioError (userError "Task graph has duplicate task identifiers")
   unless (Set.null missingIds) $

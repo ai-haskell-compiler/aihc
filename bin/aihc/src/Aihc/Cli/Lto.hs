@@ -18,7 +18,8 @@ import Aihc.Resolve (PackageId (..))
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.Exception (bracket_)
+import Control.DeepSeq (force)
+import Control.Exception (bracket_, evaluate)
 import Control.Monad (forM_, unless, when)
 import Data.ByteString.Char8 qualified as BS8
 import Data.Text (Text)
@@ -63,7 +64,7 @@ compileLtoProgram config buildRoot corePaths = do
       -- reachability, here and in GRIN alike, so stating it once here is
       -- what makes them sweep a whole program to the entry without a flag
       -- that says a whole program is what they are looking at.
-      let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))
+      merged <- evaluate (force (Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))))
       verbose ("Merge System FC: " <> show (length programs) <> " modules, " <> show (length (Fc.programDecls merged)) <> " reachable declarations")
       -- The whole program is known here, so the inliner keeps only the
       -- entry and what it reaches.
