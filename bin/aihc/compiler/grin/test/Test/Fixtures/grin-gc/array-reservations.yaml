@@ -1,0 +1,50 @@
+program: |
+  primitive newArray# :: BoxedRep Unlifted/2
+  primitive cloneArray# :: BoxedRep Unlifted/3
+  primitive resizeSmallMutableArray# :: BoxedRep Unlifted/3
+
+  allocate (count :: IntRep) (initial :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) newArray# (count :: IntRep) (initial :: BoxedRep Lifted)
+
+  clone (array :: BoxedRep Unlifted) (offset :: IntRep) (count :: IntRep) -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) cloneArray# (array :: BoxedRep Unlifted) (offset :: IntRep) (count :: IntRep)
+
+  resize (array :: BoxedRep Unlifted) (count :: IntRep) (initial :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    primitive-call @(BoxedRep Unlifted) resizeSmallMutableArray# (array :: BoxedRep Unlifted) (count :: IntRep) (initial :: BoxedRep Lifted)
+expected: |
+  primitive newArray# :: BoxedRep Unlifted/2
+
+  primitive cloneArray# :: BoxedRep Unlifted/3
+
+  primitive resizeSmallMutableArray# :: BoxedRep Unlifted/3
+
+  primitive aihcArrayWords# :: WordRep/1
+
+  allocate (count :: IntRep) (initial :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $gc_array_words :: WordRep <-
+      primitive-call @WordRep aihcArrayWords# (count :: IntRep)
+    $cps_return$gc :: BoxedRep Lifted, initial$gc :: BoxedRep Lifted <-
+      ensure-heap ($gc_array_words :: WordRep) ($cps_return :: BoxedRep Lifted) (initial :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) newArray# (count :: IntRep) (initial$gc :: BoxedRep Lifted)
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
+
+  clone (array :: BoxedRep Unlifted) (offset :: IntRep) (count :: IntRep) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $gc_array_words :: WordRep <-
+      primitive-call @WordRep aihcArrayWords# (count :: IntRep)
+    $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted <-
+      ensure-heap ($gc_array_words :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted)
+    $cps_result :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) cloneArray# (array$gc :: BoxedRep Unlifted) (offset :: IntRep) (count :: IntRep)
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
+
+  resize (array :: BoxedRep Unlifted) (count :: IntRep) (initial :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Unlifted =
+    $gc_array_words :: WordRep <-
+      primitive-call @WordRep aihcArrayWords# (count :: IntRep)
+    $cps_return$gc :: BoxedRep Lifted, array$gc :: BoxedRep Unlifted, initial$gc :: BoxedRep Lifted <-
+      ensure-heap ($gc_array_words :: WordRep) ($cps_return :: BoxedRep Lifted) (array :: BoxedRep Unlifted) (initial :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) resizeSmallMutableArray# (array$gc :: BoxedRep Unlifted) (count :: IntRep) (initial$gc :: BoxedRep Lifted)
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Unlifted)
+status: pass
+reason: A boxed array takes its element count plus two words, so its reservation is dynamic and must protect the source array, the initial element, and the caller continuation.

@@ -3,6 +3,13 @@
    standard defines for this purpose. */
 // NOLINTNEXTLINE(bugprone-reserved-identifier)
 #define _POSIX_C_SOURCE 200809L
+/* MAP_ANONYMOUS is not in POSIX. glibc and Darwin hide it when
+   _POSIX_C_SOURCE is set unless these macros ask for the native set as
+   well. */
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+#define _DEFAULT_SOURCE
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+#define _DARWIN_C_SOURCE
 
 #include "aihc_runtime_internal.h"
 
@@ -15,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -39,6 +47,40 @@ _Noreturn void aihc_exit_process(int64_t status) {
 
 void aihc_program_environment_initialize(void) {
   aihc_environment_initialize(environ);
+}
+
+/* Each run of regions is one private anonymous mapping. The mapping takes
+   one extra region, so a region boundary falls inside it, and the slack on
+   both sides goes back at once. */
+uint8_t *aihc_host_map_regions(size_t count) {
+  if (count > (SIZE_MAX >> AIHC_REGION_SHIFT) - 1) {
+    return NULL;
+  }
+  size_t bytes = count << AIHC_REGION_SHIFT;
+  void *mapping = mmap(NULL, bytes + AIHC_REGION_BYTES, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (mapping == MAP_FAILED) {
+    return NULL;
+  }
+  uintptr_t start = (uintptr_t)mapping;
+  uintptr_t aligned =
+      (start + AIHC_REGION_BYTES - 1) & ~(uintptr_t)(AIHC_REGION_BYTES - 1);
+  size_t head = (size_t)(aligned - start);
+  if (head != 0 && munmap(mapping, head) != 0) {
+    aihc_fail("cannot trim a heap mapping");
+  }
+  size_t tail = AIHC_REGION_BYTES - head;
+  if (tail != 0 && munmap((uint8_t *)aligned + bytes, tail) != 0) {
+    aihc_fail("cannot trim a heap mapping");
+  }
+  return (uint8_t *)aligned;
+}
+
+int aihc_host_unmap_regions(void *base, size_t count) {
+  if (munmap(base, count << AIHC_REGION_SHIFT) != 0) {
+    aihc_fail("cannot unmap heap regions");
+  }
+  return 0;
 }
 
 uint64_t aihc_host_monotonic_ns(void) {

@@ -5218,14 +5218,13 @@ typeableTypeArguments name argument = case nameOrigin name of
 -- the module that name the constructor.
 typeableTypeView :: TcType -> ValueM (Text, Text, Text, [TcType])
 typeableTypeView ty =
-  case ty of
-    TcTyCon tyCon arguments ->
+  case Tc.collectTypeApplications ty of
+    (TcTyCon tyCon arguments, appliedArguments) ->
+      pure (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon, tyConName tyCon, arguments <> appliedArguments)
+    -- The evidence contains the kind arguments of a partial application.
+    (TcKindedTyCon tyCon _, arguments) ->
       pure (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon, tyConName tyCon, arguments)
-    -- The evidence carries the kind arguments. A bare constructor has no
-    -- visible argument.
-    TcKindedTyCon tyCon _ ->
-      pure (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon, tyConName tyCon, [])
-    TcFunTy argument result -> do
+    (TcFunTy argument result, []) -> do
       package <- gets (cePrimPackage . vsConvertEnv)
       pure (packageIdText package, "GHC.Types", "(->)", [argument, result])
     _ -> failValue ("cannot construct Typeable evidence for " <> show ty)

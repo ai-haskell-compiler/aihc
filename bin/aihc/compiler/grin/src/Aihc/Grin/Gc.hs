@@ -78,7 +78,25 @@ lowerGc cps =
 reservationHelpers :: [([Text], Text, Int)]
 reservationHelpers =
   [ (["newByteArray#", "newPinnedByteArray#", "newAlignedPinnedByteArray#"], "aihcByteArrayWords#", 3),
-    (["resizeMutableByteArray#"], "aihcResizeByteArrayWords#", 2)
+    (["resizeMutableByteArray#"], "aihcResizeByteArrayWords#", 2),
+    (arrayCountPrimitives, "aihcArrayWords#", 1)
+  ]
+
+-- | The boxed-array primitives that allocate an array of a given element
+-- count. The small-array family shares the representation and the helper.
+arrayCountPrimitives :: [Text]
+arrayCountPrimitives =
+  [ "newArray#",
+    "cloneArray#",
+    "cloneMutableArray#",
+    "freezeArray#",
+    "thawArray#",
+    "newSmallArray#",
+    "cloneSmallArray#",
+    "cloneSmallMutableArray#",
+    "freezeSmallArray#",
+    "thawSmallArray#",
+    "resizeSmallMutableArray#"
   ]
 
 insertDynamicFunction :: GrinFunction -> State Int GrinFunction
@@ -89,10 +107,10 @@ insertDynamicFunction function = do
 insertDynamic :: GrinExpr -> State Int GrinExpr
 insertDynamic expression = case expression of
   GrinBind results call@(GrinPrimitiveCall _ name arguments) body
-    | Just (helper, operands) <- byteArrayReservation name arguments -> do
+    | Just (helper, operands) <- dynamicReservation name arguments -> do
         unique <- get
         put (unique + 1)
-        let wordsVar = GrinVar "$gc_byte_array_words" unique WordRep
+        let wordsVar = GrinVar (if helper == "aihcArrayWords#" then "$gc_array_words" else "$gc_byte_array_words") unique WordRep
         rest <- insertDynamic body
         pure
           ( GrinBind
@@ -111,15 +129,24 @@ insertDynamic expression = case expression of
       rhs <- insertDynamic (grinAltRhs alternative)
       pure alternative {grinAltRhs = rhs}
 
-byteArrayReservation :: Text -> [GrinValue] -> Maybe (Text, [GrinValue])
-byteArrayReservation name arguments = case (name, arguments) of
+-- | The size helper and its operands for a primitive whose allocation size
+-- depends on an argument. A boxed array of n elements takes n plus two
+-- words: the header and the length.
+dynamicReservation :: Text -> [GrinValue] -> Maybe (Text, [GrinValue])
+dynamicReservation name arguments = case (name, arguments) of
   ("newByteArray#", [size]) -> Just ("aihcByteArrayWords#", [size, literal 0, literal 8])
   ("newPinnedByteArray#", [size]) -> Just ("aihcByteArrayWords#", [size, literal 1, literal 8])
   ("newAlignedPinnedByteArray#", [size, alignment]) -> Just ("aihcByteArrayWords#", [size, literal 1, alignment])
   ("resizeMutableByteArray#", [array, size]) -> Just ("aihcResizeByteArrayWords#", [array, size])
+  ("newArray#", [count, _]) -> arrayWords count
+  ("newSmallArray#", [count, _]) -> arrayWords count
+  ("resizeSmallMutableArray#", [_, count, _]) -> arrayWords count
+  (_, [_, _, count])
+    | name `elem` arrayCountPrimitives -> arrayWords count
   _ -> Nothing
   where
     literal = GrinLitValue . GrinLitInt IntRep
+    arrayWords count = Just ("aihcArrayWords#", [count])
 
 -- | Give each managed store a reservation. A continuation frame is not a
 -- managed object: the backend pushes it on the stack of the thread, which

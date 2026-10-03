@@ -728,15 +728,15 @@ static void command_machine(char **tokens, size_t count) {
   }
   if (machine != NULL) {
     free(machine->globals);
-    free(machine->heap_start);
-    free(machine->other_space);
+    aihc_semispace_release(machine->heap_start);
+    aihc_semispace_release(machine->other_space);
     for (uint64_t index = 0; index < 3; ++index) {
       aihc_rts_set_root(index, NULL);
     }
     while (machine->pinned_blocks != NULL) {
       AihcPinnedBlock *block = machine->pinned_blocks;
       machine->pinned_blocks = block->next;
-      free(block);
+      aihc_pinned_block_release(block);
     }
     machine->heap_start = NULL;
     machine->other_space = NULL;
@@ -770,13 +770,14 @@ static void command_machine(char **tokens, size_t count) {
     fail("initial space is too large");
   }
   space_bytes += sizeof(initial_thread);
-  free(machine->heap_start);
-  free(machine->other_space);
+  aihc_semispace_release(machine->heap_start);
+  aihc_semispace_release(machine->other_space);
   machine->other_space = NULL;
   machine->other_space_bytes = 0;
   machine->semispace_bytes = space_bytes;
   machine->heap_space_bytes = space_bytes;
-  machine->heap_start = checked_calloc(1, space_bytes);
+  machine->heap_start = aihc_semispace_acquire(space_bytes);
+  memset(machine->heap_start, 0, space_bytes);
   machine->heap_next = machine->heap_start + sizeof(initial_thread);
   machine->heap_alloc_base = machine->heap_next;
   machine->heap_limit =
@@ -1000,14 +1001,28 @@ static void command_fill(char **tokens, size_t count) {
     return;
   }
   uint64_t words = remaining - keep;
-  AihcInfo *info = checked_calloc(1, sizeof(*info));
-  info->field_count = words - 1;
-  info->frame_kind = AIHC_FRAME_NONE;
-  info->object_kind = AIHC_OBJECT_NODE;
-  AihcValue *object = aihc_gc_allocate(machine, words);
-  object->header = (AihcSlot)(uintptr_t)info;
-  /* The filler is garbage. Its info table stays allocated because a later
-     walk of the old space must not read freed memory. */
+  /* The filler is garbage in the space. A field count is one byte, and an
+     object at or above the large object bound would get regions of its own
+     instead, so the filler is cut into pieces of at most 256 words. The info
+     tables stay allocated because a later walk of the old space must not
+     read freed memory. */
+  const uint64_t piece_limit = 256;
+  _Static_assert(256 * sizeof(AihcSlot) < AIHC_LARGE_OBJECT_BYTES,
+                 "a filler piece stays in the space");
+  while (words != 0) {
+    uint64_t piece = words > piece_limit ? piece_limit : words;
+    if (words - piece == 1) {
+      /* An object has at least one word, so leave two for the last piece. */
+      piece -= 1;
+    }
+    AihcInfo *info = checked_calloc(1, sizeof(*info));
+    info->field_count = piece - 1;
+    info->frame_kind = AIHC_FRAME_NONE;
+    info->object_kind = AIHC_OBJECT_NODE;
+    AihcValue *object = aihc_gc_allocate(machine, piece);
+    object->header = (AihcSlot)(uintptr_t)info;
+    words -= piece;
+  }
 }
 
 static void command_thread(char **tokens, size_t count) {

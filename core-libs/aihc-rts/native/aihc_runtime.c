@@ -169,6 +169,14 @@ void aihc_record_allocation(AihcMachine *machine) {
   ++machine->allocation_count;
 }
 
+uint64_t aihc_array_words(int64_t count) {
+  /* The bound matches the plausibility check of aihc_array_new. */
+  if (count < 0 || (uint64_t)count > UINT64_C(2305843009213693949)) {
+    aihc_fail("boxed-array size is invalid");
+  }
+  return (uint64_t)count + 2;
+}
+
 /* Compute the complete allocation charge before a collection can occur. */
 uint64_t aihc_byte_array_words(int64_t size, uint64_t pinned,
                                int64_t alignment) {
@@ -457,6 +465,65 @@ static char *aihc_append_decimal(char *cursor, uint64_t value) {
   return cursor;
 }
 
+static const char *const *aihc_allocation_names;
+static const uint64_t *aihc_allocation_counts;
+static uint64_t aihc_allocation_size;
+
+void aihc_allocation_profile_register(const char *const *names,
+                                      const uint64_t *counts,
+                                      const uint64_t *size) {
+  aihc_allocation_names = names;
+  aihc_allocation_counts = counts;
+  aihc_allocation_size = *size;
+}
+
+/* The order of the allocation report: the most bytes first. */
+static int aihc_allocation_order(const void *left, const void *right) {
+  uint64_t left_words = aihc_allocation_counts[2 * *(const uint64_t *)left + 1];
+  uint64_t right_words =
+      aihc_allocation_counts[2 * *(const uint64_t *)right + 1];
+  return left_words < right_words ? 1 : left_words > right_words ? -1 : 0;
+}
+
+/* A JSON string. A name holds no control character, so only a quote and a
+   backslash need an escape. */
+static char *aihc_append_json_string(char *cursor, const char *text) {
+  *cursor++ = '"';
+  for (; *text != 0; ++text) {
+    if (*text == '"' || *text == '\\') {
+      *cursor++ = '\\';
+    }
+    *cursor++ = *text;
+  }
+  *cursor++ = '"';
+  return cursor;
+}
+
+/* The counters as a JSON array, one object for each info table that
+   allocated, the most bytes first. */
+static char *aihc_append_allocations(char *cursor, const uint64_t *order) {
+  cursor = aihc_append_text(cursor, ", \"allocations\": [");
+  int first = 1;
+  for (uint64_t index = 0; index < aihc_allocation_size; ++index) {
+    uint64_t site = order[index];
+    uint64_t objects = aihc_allocation_counts[2 * site];
+    if (objects == 0) {
+      continue;
+    }
+    cursor = aihc_append_text(cursor,
+                              first ? "\n  {\"name\": " : ",\n  {\"name\": ");
+    first = 0;
+    cursor = aihc_append_json_string(cursor, aihc_allocation_names[site]);
+    cursor = aihc_append_text(cursor, ", \"objects\": ");
+    cursor = aihc_append_decimal(cursor, objects);
+    cursor = aihc_append_text(cursor, ", \"bytes\": ");
+    cursor =
+        aihc_append_decimal(cursor, 8 * aihc_allocation_counts[2 * site + 1]);
+    *cursor++ = '}';
+  }
+  return aihc_append_text(cursor, "]");
+}
+
 void aihc_runtime_statistics_report(void) {
   const char *path = aihc_rts_stats_path();
   AihcMachine *machine = aihc_process_machine;
@@ -466,8 +533,26 @@ void aihc_runtime_statistics_report(void) {
   aihc_statistics_reported = 1;
   aihc_gc_record_peak(machine);
   aihc_heap_account(machine);
-  /* The fixed text is 123 bytes and the six numbers take at most 120. */
-  char text[512];
+  /* The fixed text is 123 bytes and the six numbers take at most 120. An
+     allocation entry takes its name, which can double with escapes, and at
+     most 90 more bytes. */
+  size_t capacity = 512;
+  uint64_t *order = NULL;
+  if (aihc_allocation_size != 0) {
+    order = malloc(aihc_allocation_size * sizeof(uint64_t));
+    if (order == NULL) {
+      aihc_fail("out of memory");
+    }
+    for (uint64_t index = 0; index < aihc_allocation_size; ++index) {
+      order[index] = index;
+      capacity += 2 * strlen(aihc_allocation_names[index]) + 90;
+    }
+    qsort(order, aihc_allocation_size, sizeof(uint64_t), aihc_allocation_order);
+  }
+  char *text = malloc(capacity);
+  if (text == NULL) {
+    aihc_fail("out of memory");
+  }
   char *cursor = text;
   cursor = aihc_append_text(cursor, "{\"schema\": 2, \"peak_heap_bytes\": ");
   cursor = aihc_append_decimal(cursor, machine->heap_peak_bytes);
@@ -481,10 +566,15 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_decimal(cursor, machine->gc_max_pause_ns);
   cursor = aihc_append_text(cursor, ", \"live_bytes\": ");
   cursor = aihc_append_decimal(cursor, machine->heap_live_bytes);
+  if (order != NULL) {
+    cursor = aihc_append_allocations(cursor, order);
+    free(order);
+  }
   cursor = aihc_append_text(cursor, "}\n");
   if (aihc_host_write_file(path, text, (size_t)(cursor - text)) != 0) {
     aihc_fail("cannot write the runtime statistics file");
   }
+  free(text);
 }
 
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,

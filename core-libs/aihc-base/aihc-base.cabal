@@ -274,6 +274,8 @@ library
     GHC.Read.Lex
     System.CPUTime.Clock
     System.Environment.ExecutablePath
+    System.Info.Arch
+    System.Info.OS
     System.Posix.Internals.Repr
     System.Posix.Internals.Syscalls
     System.Posix.Internals.Types
@@ -302,6 +304,12 @@ library
       src-posix
       src
 
+  -- GHC gives the architecture name in System.Info. Each architecture has
+  -- its own directory. The wasm32 directory above has the wasm32 name.
+  if arch(aarch64)
+    hs-source-dirs: src-aarch64
+  elif arch(x86_64)
+    hs-source-dirs: src-x86_64
   build-depends: aihc-prim ==0.13.0
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall

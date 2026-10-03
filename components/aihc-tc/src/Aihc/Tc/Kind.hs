@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Tc.Kind
@@ -72,7 +73,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (normalizeFamilyPred)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_)
+import Control.Monad (foldM, forM_, replicateM, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get)
 import Data.IntMap.Strict qualified as IntMap
@@ -859,29 +860,35 @@ inferTypeConstructor name = do
 kindedTyConUse :: TyConInfo -> TcM (TcType, TcType)
 kindedTyConUse info = do
   instantiation <- instantiateWithArgs (tciKindScheme info)
+  kinds <- getKinds
+  -- Record kind metavariables so that the module boundary can finalize them.
+  forM_ (instTypeArgs instantiation) $ \case
+    TcMetaTv unique -> do
+      kind <- readMetaTvKind unique >>= zonkKind
+      when (kind == typeKind kinds) (trackKindMeta unique)
+    _ -> pure ()
   pure (kindedTyCon (tciTyCon info) (instTypeArgs instantiation), instType instantiation)
 
--- | Give a bare type constructor the kind arguments of a use. A type
--- constructor with a visible argument, or with no kind variable, keeps its
--- form.
+-- | Give a partial type constructor application the kind arguments of its use.
 kindedTyConAt :: TcType -> TcType -> TcM TcType
 kindedTyConAt useKind ty =
   case ty of
-    TcTyCon tyCon [] -> do
+    TcTyCon tyCon arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
       case maybeInfo of
         Just info
-          | ForAll (_ : _) _ _ <- tciKindScheme info -> do
+          | ForAll (_ : _) _ _ <- tciKindScheme info,
+            length arguments < tciArity info -> do
               (kinded, kind) <- kindedTyConUse info
-              unifyKinds useKind kind
-              pure kinded
+              let applied = foldl mkAppTy kinded arguments
+              resultKind <- if null arguments then pure kind else tcTypeKind applied
+              unifyKinds useKind resultKind
+              pure applied
         _ -> pure ty
     _ -> pure ty
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
-instantiateTyConKind info = do
-  (kindType, _) <- instantiate (tciKindScheme info)
-  pure kindType
+instantiateTyConKind info = snd <$> kindedTyConUse info
 
 -- | A built-in constructor used as a type: @[]@, @(:)@, @(,)@, @(->)@, and
 -- their promoted forms such as @\'[]@.  A promoted constructor is a data

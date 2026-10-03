@@ -132,6 +132,7 @@ import Aihc.Hackage.Package (Arch, OS, mkPackageName, packageNameOf, parsePackag
 import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
+import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Resolve qualified as Lir
 import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
@@ -463,6 +464,14 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- | Run the heap points-to analysis of GRIN and its rewrites on each
     -- program that the backend lowers. Only a whole-program plan sets it.
     compileGrinPointsTo :: !Bool,
+    -- | Count the heap objects of the whole program, as
+    -- @--profile-allocations@ asks. Only the whole-program object and the
+    -- entry get the counters, because the counters of two units would have
+    -- the same symbols.
+    compileProfileAllocations :: !Bool,
+    -- | Give the units this config compiles the counters. 'compileLtoProgram'
+    -- sets it for the whole-program object alone.
+    compileProfileUnit :: !Bool,
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
     compileOptimization :: !OptimizationLevel,
@@ -631,6 +640,8 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileLto = planWholeProgram plan,
         compilePasses = planPasses plan,
         compileGrinPointsTo = planGrinPointsTo plan,
+        compileProfileAllocations = False,
+        compileProfileUnit = False,
         compileNoCode = False,
         compileOptimization = level,
         compileTarget = target,
@@ -2011,6 +2022,7 @@ backendOptionsKey config =
         <> optimizationKeyParts config
         <> ltoKeyParts config
         <> checkPrimBoundsKeyParts config
+        <> ["profile-allocations" | compileProfileAllocations config]
     )
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
@@ -3144,7 +3156,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
     writeModule name gcProgram = do
       let paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
-      source <- compileGrinTo (compileLint config) (compileCheckPrimBounds config) target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputObjectPath paths)
+      source <- compileGrinTo (compileLint config) (Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config)) target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputObjectPath paths)
       when keepLir (verbose ("Write Lir: " <> T.unpack name))
       mapM_ (TIO.writeFile (outputNativePath paths)) source
       when (isJust source) (verbose ("Write native source: " <> T.unpack name))

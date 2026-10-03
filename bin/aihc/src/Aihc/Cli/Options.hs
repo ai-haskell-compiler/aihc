@@ -49,6 +49,10 @@ data BuildOptions = BuildOptions
     buildKeepNative :: !Bool,
     buildLint :: !Bool,
     buildCheckPrimBounds :: !Bool,
+    -- | Count the heap objects the program allocates, by info table, and
+    -- write the counts to the runtime statistics. The flag implies a
+    -- whole-program build.
+    buildProfileAllocations :: !Bool,
     buildLto :: !Bool,
     buildOptimization :: !OptimizationLevel,
     buildNoLink :: !Bool,
@@ -203,6 +207,10 @@ buildOptionsParser =
     <*> keepNativeOption
     <*> lintOption
     <*> checkPrimBoundsOption
+    <*> OA.switch
+      ( OA.long "profile-allocations"
+          <> OA.help "Count the heap objects that the program allocates, by info table, and write the counts to the AIHC_RTS_STATS file. Implies --lto"
+      )
     <*> ltoOption
     <*> optimizationOption
     <*> OA.switch

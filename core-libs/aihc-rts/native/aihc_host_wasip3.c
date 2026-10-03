@@ -36,6 +36,25 @@ void aihc_program_environment_initialize(void) {}
 
 uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 
+/* A region is one WebAssembly page, so a run of regions is a growth of the
+   linear memory by that many pages, and the previous page count is the
+   address of the run. Linear memory never shrinks. */
+_Static_assert(AIHC_REGION_BYTES == 65536, "a region is one wasm page");
+
+uint8_t *aihc_host_map_regions(size_t count) {
+  size_t previous = __builtin_wasm_memory_grow(0, count);
+  if (previous == (size_t)-1) {
+    return NULL;
+  }
+  return (uint8_t *)(uintptr_t)(previous << AIHC_REGION_SHIFT);
+}
+
+int aihc_host_unmap_regions(void *base, size_t count) {
+  (void)base;
+  (void)count;
+  return 1;
+}
+
 int aihc_host_write_file(const char *path, const void *bytes, size_t length) {
   (void)path;
   (void)bytes;
