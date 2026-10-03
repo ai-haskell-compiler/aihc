@@ -70,7 +70,10 @@ import GHC.Prim
     neWord#,
     neWord64#,
     plusWord#,
+    plusWord32#,
+    subWord32#,
     timesWord#,
+    timesWord32#,
     word16ToWord#,
     word32ToWord#,
     word64ToWord#,
@@ -140,11 +143,14 @@ instance Num Word16 where
   signum (W16# value) = W16# (wordToWord16# (wordSignum (word16ToWord# value)))
   fromInteger value = W16# (wordToWord16# (int2Word# (integerToInt# value)))
 
+-- The Word32 methods use the 32-bit primops. A method that widens to
+-- Word# and narrows back costs a mask after each operation on a 64-bit
+-- target.
 instance Num Word32 where
-  W32# left + W32# right = W32# (wordToWord32# (plusWord# (word32ToWord# left) (word32ToWord# right)))
-  W32# left - W32# right = W32# (wordToWord32# (minusWord# (word32ToWord# left) (word32ToWord# right)))
-  W32# left * W32# right = W32# (wordToWord32# (timesWord# (word32ToWord# left) (word32ToWord# right)))
-  negate (W32# value) = W32# (wordToWord32# (wordNegate (word32ToWord# value)))
+  W32# left + W32# right = W32# (plusWord32# left right)
+  W32# left - W32# right = W32# (subWord32# left right)
+  W32# left * W32# right = W32# (timesWord32# left right)
+  negate (W32# value) = W32# (subWord32# (wordToWord32# (int2Word# 0#)) value)
   abs value = value
   signum (W32# value) = W32# (wordToWord32# (wordSignum (word32ToWord# value)))
   fromInteger value = W32# (wordToWord32# (int2Word# (integerToInt# value)))

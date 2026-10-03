@@ -27,7 +27,9 @@ import GHC.Internal.Integer
 import GHC.Prim
   ( Int#,
     Word#,
+    Word32#,
     and#,
+    andWord32#,
     clz#,
     ctz#,
     int16ToInt#,
@@ -42,9 +44,12 @@ import GHC.Prim
     minusWord#,
     not#,
     or#,
+    orWord32#,
     popCnt#,
     uncheckedShiftL#,
+    uncheckedShiftLWord32#,
     uncheckedShiftRL#,
+    uncheckedShiftRLWord32#,
     word16ToWord#,
     word2Int#,
     word32ToWord#,
@@ -55,6 +60,7 @@ import GHC.Prim
     wordToWord64#,
     wordToWord8#,
     xor#,
+    xorWord32#,
     (+#),
     (-#),
     (<#),
@@ -429,22 +435,25 @@ instance FiniteBits Word16 where
   countLeadingZeros (W16# value) = I# (sizedCountLeadingZeros# 16# (word16ToWord# value))
   countTrailingZeros (W16# value) = I# (sizedCountTrailingZeros# 16# (word16ToWord# value))
 
+-- The Word32 methods use the 32-bit primops. A method that widens to
+-- Word# and narrows back costs a mask after each operation on a 64-bit
+-- target.
 instance Bits Word32 where
-  W32# left .&. W32# right = W32# (wordToWord32# (and# (word32ToWord# left) (word32ToWord# right)))
-  W32# left .|. W32# right = W32# (wordToWord32# (or# (word32ToWord# left) (word32ToWord# right)))
-  xor (W32# left) (W32# right) = W32# (wordToWord32# (xor# (word32ToWord# left) (word32ToWord# right)))
-  complement (W32# value) = W32# (wordToWord32# (not# (word32ToWord# value)))
+  W32# left .&. W32# right = W32# (andWord32# left right)
+  W32# left .|. W32# right = W32# (orWord32# left right)
+  xor (W32# left) (W32# right) = W32# (xorWord32# left right)
+  complement (W32# value) = W32# (xorWord32# value (wordToWord32# (not# (int2Word# 0#))))
   shiftL (W32# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W32# value) (I# count)
-      _ -> W32# (wordToWord32# (sizedShiftL# 32# (word32ToWord# value) count))
-  unsafeShiftL (W32# value) (I# count) = W32# (wordToWord32# (sizedShiftL# 32# (word32ToWord# value) count))
+      _ -> W32# (shiftLWord32# value count)
+  unsafeShiftL (W32# value) (I# count) = W32# (shiftLWord32# value count)
   shiftR (W32# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W32# value) (I# count)
-      _ -> W32# (wordToWord32# (sizedShiftRL# 32# (word32ToWord# value) count))
-  unsafeShiftR (W32# value) (I# count) = W32# (wordToWord32# (sizedShiftRL# 32# (word32ToWord# value) count))
-  rotate (W32# value) (I# amount) = W32# (wordToWord32# (sizedRotate# 32# (word32ToWord# value) amount))
+      _ -> W32# (shiftRLWord32# value count)
+  unsafeShiftR (W32# value) (I# count) = W32# (shiftRLWord32# value count)
+  rotate (W32# value) (I# amount) = W32# (rotateWord32# value amount)
   zeroBits = W32# (wordToWord32# (int2Word# 0#))
   bit (I# index) = W32# (wordToWord32# (sizedBit# 32# index))
   testBit (W32# value) (I# index) = sizedTestBit# 32# (word32ToWord# value) index
@@ -673,6 +682,29 @@ sizedRotate# width value amount =
   case word2Int# (and# (int2Word# amount) (int2Word# ((-#) width 1#))) of
     0# -> value
     normalized -> narrowWord# width (or# (uncheckedShiftL# value normalized) (uncheckedShiftRL# value ((-#) width normalized)))
+
+-- | Shift a 32-bit word to the left. A count of 32 or more gives zero.
+shiftLWord32# :: Word32# -> Int# -> Word32#
+shiftLWord32# value count =
+  case (<#) count 32# of
+    1# -> uncheckedShiftLWord32# value count
+    _ -> wordToWord32# (int2Word# 0#)
+
+-- | Shift a 32-bit word to the right and put zero bits in. A count of 32
+-- or more gives zero.
+shiftRLWord32# :: Word32# -> Int# -> Word32#
+shiftRLWord32# value count =
+  case (<#) count 32# of
+    1# -> uncheckedShiftRLWord32# value count
+    _ -> wordToWord32# (int2Word# 0#)
+
+-- | Rotate a 32-bit word to the left. The amount wraps at 32, so a
+-- negative amount rotates to the right.
+rotateWord32# :: Word32# -> Int# -> Word32#
+rotateWord32# value amount =
+  case word2Int# (and# (int2Word# amount) (int2Word# 31#)) of
+    0# -> value
+    normalized -> orWord32# (uncheckedShiftLWord32# value normalized) (uncheckedShiftRLWord32# value ((-#) 32# normalized))
 
 -- | Make a fixed-width word that has one bit set.
 sizedBit# :: Int# -> Int# -> Word#
