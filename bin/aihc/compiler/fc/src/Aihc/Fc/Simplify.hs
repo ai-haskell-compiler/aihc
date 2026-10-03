@@ -46,6 +46,7 @@ module Aihc.Fc.Simplify
     castedSpine,
     exprValueNames,
     maxLocalUnique,
+    safePrimitiveCall,
     freshenExprFrom,
 
     -- * Substitution
