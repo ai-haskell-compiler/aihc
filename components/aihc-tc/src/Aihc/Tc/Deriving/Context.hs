@@ -520,8 +520,14 @@ etaReduce tyVars ty =
 targetTypeArguments :: String -> DataTypeInfo -> TcDerivingPlan -> Either String [TcType]
 targetTypeArguments mechanism dataType plan =
   case reverse (tcDerivingHeadTypes plan) of
-    TcTyCon tyCon arguments : _
-      | tyConKey tyCon == tyConKey (dtiTyCon dataType),
+    target : _
+      | (constructor, appliedArguments) <- collectTypeApplications target,
+        Just (tyCon, supplied) <- case constructor of
+          TcTyCon tyCon arguments -> Just (tyCon, arguments)
+          TcKindedTyCon tyCon _ -> Just (tyCon, [])
+          _ -> Nothing,
+        let arguments = supplied <> appliedArguments,
+        tyConKey tyCon == tyConKey (dtiTyCon dataType),
         length arguments <= length (dtiTyVars dataType) ->
           Right arguments
     _ -> Left (mechanism <> " target does not match its checked datatype metadata")

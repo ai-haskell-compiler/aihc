@@ -1945,7 +1945,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       let classNameText = nameText className
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawContext <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
-      tvIds <- resolveInstanceTyVars origin rawTvIds
+      tvIds <- resolveInstanceTyVars origin rawTvIds rawHeadTys
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
       kinds <- getKinds
@@ -2648,14 +2648,17 @@ orderTyVarsByKind = go []
 -- kind 'generalizeSignatureKinds' turned into a skolem, so quantify over
 -- the kind instead, the way GHC does. Without PolyKinds the kinds default
 -- as before.
-resolveInstanceTyVars :: (Text, Text) -> [TyVarId] -> TcM [TyVarId]
-resolveInstanceTyVars origin rawTyVars = do
+resolveInstanceTyVars :: (Text, Text) -> [TyVarId] -> [TcType] -> TcM [TyVarId]
+resolveInstanceTyVars origin rawTyVars headTypes = do
   polyKinds <- isPolyKindOrigin origin
   if polyKinds
     then do
-      generalizeKindMetas AllKindMetas rawTyVars
+      headKinds <- mapM tcTypeKind headTypes
+      headVariables <- mapM (freshSkolemTvOfKind "_head") headKinds
+      generalizeKindMetas AllKindMetas (rawTyVars <> headVariables)
       tyVars <- mapM defaultTyVarKinds rawTyVars
-      pure (orderTyVarsByKind (closeKindVariables tyVars))
+      heads <- mapM zonkType headTypes
+      pure (orderTyVarsByKind (closeKindVariables (tyVars <> concatMap typeTyVars heads)))
     else orderTyVarsByKind <$> mapM defaultTyVarKinds rawTyVars
 
 makeInstanceTyVarEnv :: InstanceDecl -> [Type] -> TcM ([TyVarId], TvKindEnv)
@@ -4226,7 +4229,7 @@ registerInstanceDecl origin instanceDecl =
       -- The head check fixed the kinds; the same order as the annotation
       -- pass keeps the dictionary's type arguments aligned with its
       -- type lambdas.
-      tvIds <- resolveInstanceTyVars origin rawTvIds
+      tvIds <- resolveInstanceTyVars origin rawTvIds headTys
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
       checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys context
@@ -4279,6 +4282,9 @@ typeSuffix kinds ty =
     TcTyCon tc [_]
       | tyConKey tc == tyConKey (kindsListTyCon kinds) -> tyConName (kindsListDeclaration kinds)
     TcTyCon tc args -> tyConName tc <> T.concat (map (typeSuffix kinds) args)
+    TcAppTy function argument
+      | (TcKindedTyCon {}, _) <- collectTypeApplications ty ->
+          typeSuffix kinds function <> typeSuffix kinds argument
     _ -> "T"
 
 allocateInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text

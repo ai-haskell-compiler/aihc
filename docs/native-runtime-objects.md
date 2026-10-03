@@ -136,6 +136,46 @@ The copies link from the top down, and the lowest copy has a null parent.
 A resume pushes new copies of these frames on the stack from the bottom up.
 It never writes the heap copies, so a captured continuation can resume any number of times.
 
+## Heap regions
+
+Every managed allocation lives in a run of regions of 64 KiB. The runtime
+takes each run from the host as one mapping of exactly that size, and a
+two-level region table gives the kind of the region that holds an address.
+The top level is indexed by the address bits above the leaf, and a leaf
+covers 4 GiB with one entry for each region. The runtime reserves no address
+space in advance, so it runs where a large reservation is refused. The
+kinds are:
+
+| Kind | Content |
+| --- | --- |
+| `OUTSIDE` | Memory the runtime did not acquire: static data, C allocations, or the memory of another allocator |
+| `FREE` | A region the runtime can acquire |
+| `SPACE` | A space of the semispace collector |
+| `LARGE` | A large object that never moves |
+| `PINNED` | A large pinned byte array or host buffer |
+| `STACK` | Sixteen stack chunks of 4 KiB |
+
+A pointer outside both spaces names an object that never moves. The
+collector marks such an object in its static address set and scans it in
+place. The region kind says which memory holds it.
+
+A released run waits in a free list for the next run that fits. When every
+region of a mapping is free and the free list holds more than 64 MiB, the
+mapping goes back to the host. On a POSIX host a mapping is one private
+anonymous mapping. On `wasm32-wasip3` a region is one WebAssembly page, a
+mapping is one growth of the linear memory, and the memory never shrinks.
+The pages of the C allocator keep the kind `OUTSIDE`.
+
+An object of 32 KiB or more gets a run of regions of its own and never
+moves. The runtime puts a pinned block header in front of it, so the object
+is on the pinned list: the collector sweeps it like a pinned block, the IO
+layer finds it as a buffer owner, and the `-M` budget charges it like a pinned
+block. A pinned byte array below 32 KiB stays a C allocation.
+
+Stack chunks come from `STACK` regions. A released chunk goes to the spare
+list of the machine and is used again. Stack regions are not in the heap
+statistics or in the `-M` limit.
+
 ## Runtime statistics
 
 Set the environment variable `AIHC_RTS_STATS` to a file path to get the
@@ -159,6 +199,41 @@ writes no file. An empty value counts as an unset variable.
 - `gc_max_pause_ns` is the monotonic time of the longest collection, in nanoseconds.
 - `live_bytes` is the occupied space directly after the last collection.
   It counts the copied objects and the pinned blocks.
+
+### Allocation profile
+
+`aihc build --profile-allocations` makes a whole-program build (the flag
+implies `--lto`) that counts the heap objects the program allocates. The
+statistics object then has one more field, `allocations`: one entry for each
+info table that allocated, the most bytes first.
+
+```json
+"allocations": [
+  {"name": "C aihc-prim-0.13.0:GHC.Types::", "objects": 3614166, "bytes": 86739984},
+  {"name": "F exe:Main:$main_argument_thunk", "objects": 2891008, "bytes": 69384192}
+]
+```
+
+- The first letter of a name gives the kind of object: `C` a constructor, `F`
+  a thunk, and `P` a closure or a partial application. The rest is the
+  package, the module, and the name of the constructor or the function. A
+  partial application also shows the number of argument groups it waits for.
+- The counts are the objects that the generated code allocates. Objects that
+  the runtime allocates, such as byte arrays, buffers, and the partial
+  applications of `aihc_apply_slow`, are not in the list, so the sum of the
+  list can be less than `allocated_bytes`. Continuation frames live on thread
+  stacks, so they are not in the list either.
+- The counters cost a load, an add, and a store for each count at each
+  allocation, so a profiled program runs more slowly. Only measure the
+  counts of such a program, not its time.
+
+The lowering keeps two counters for each info table (the objects and the
+words) in the exported data `aihc_allocation_profile_counts`, with the names
+in `aihc_allocation_profile_names` and their number in
+`aihc_allocation_profile_size`. Only the whole-program object defines them,
+because the counters of two units would have the same symbols. The `main` of
+the entry unit calls `aihc_allocation_profile_register` with the three before
+the machine starts, and `aihc_runtime_statistics_report` writes the entries.
 
 The environment parser lives in `aihc_runtime_options.lir` next to the RTS
 option parser. The POSIX host flattens `environ` into one buffer of

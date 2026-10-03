@@ -5,7 +5,8 @@ where
 
 import Aihc.Native (NativeTarget (Llvm), backendCompiler)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), cachedRuntimeArchive)
-import Data.Aeson (eitherDecodeFileStrict)
+import Data.Aeson (Value, eitherDecodeFileStrict, object, toJSON, (.=))
+import Data.Aeson.Key qualified as Key
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import System.Directory (doesFileExist)
@@ -41,7 +42,8 @@ tests =
         staticReferenceSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the machine halts" True EndsWithReturn,
-      runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit
+      runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit,
+      allocationProfileTest
     ]
 
 -- | Compile one C program against the selected runtime with a 64-byte initial
@@ -472,6 +474,56 @@ runtimeStatisticsTest name requested ending =
           assertBool "live_bytes stays below the peak" (Map.lookup "live_bytes" statistics <= Map.lookup "peak_heap_bytes" statistics)
           assertBool "gc_max_pause_ns is one of the collections" (Map.lookup "gc_max_pause_ns" statistics <= Map.lookup "gc_time_ns" statistics)
         else assertBool "no statistics file exists" (not present)
+
+-- | The allocation profile in the statistics file.
+--
+-- Exception to the fixture rule, approved by the user on Oct 3 2026. The
+-- tested property is that the runtime writes the counters that the entry
+-- registers: the entries with no objects are left out, the others come
+-- with the most bytes first, and a name is a valid JSON string. No fixture
+-- can test this today: the fixture harnesses that run a program link it
+-- with their own main, not with the generated entry that registers the
+-- counters, and the Lir fixture @profile-allocations.yaml@ only shows the
+-- lowering. This program registers a table by hand, as the entry does.
+allocationProfileTest :: TestTree
+allocationProfileTest =
+  runtimeProgramTestWith "AIHC_RTS_STATS lists the registered allocation counters" [] environment allocationProfileSource check
+  where
+    statisticsFile directory = directory </> "stats.json"
+    environment directory = [("AIHC_RTS_STATS", statisticsFile directory)]
+    check directory = do
+      decoded <- eitherDecodeFileStrict (statisticsFile directory)
+      statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Value)
+      assertEqual
+        "allocations"
+        ( Just
+            ( toJSON
+                [ object [Key.fromString "name" .= ("C big" :: String), Key.fromString "objects" .= (5 :: Int), Key.fromString "bytes" .= (80 :: Int)],
+                  object [Key.fromString "name" .= ("F \"quoted\\name\"" :: String), Key.fromString "objects" .= (1 :: Int), Key.fromString "bytes" .= (32 :: Int)]
+                ]
+            )
+        )
+        (Map.lookup "allocations" statistics)
+
+-- | Register three counters, one of them without objects, and write the
+-- statistics.
+allocationProfileSource :: String
+allocationProfileSource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
+      "static const char *const names[] = {\"F \\\"quoted\\\\name\\\"\", \"P empty/1\", \"C big\"};",
+      "static uint64_t counts[] = {1, 4, 0, 0, 5, 10};",
+      "static const uint64_t size = 3;",
+      "int main(int argc, char *const argv[]) {",
+      "  aihc_program_arguments_initialize(argc, argv);",
+      "  aihc_program_environment_initialize();",
+      "  aihc_allocation_profile_register(names, counts, &size);",
+      "  (void)aihc_machine_new(1);",
+      "  aihc_runtime_statistics_report();",
+      "  return 0;",
+      "}"
+    ]
 
 -- | Check the environment parser of aihc_runtime_options.lir on crafted
 -- environments, then take the real one. Build a live list of 1000 cells so

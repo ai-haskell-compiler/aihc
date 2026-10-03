@@ -231,6 +231,49 @@ _Static_assert(offsetof(AihcPinnedBlock, object) == 16,
                "pinned allocation metadata size");
 
 AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words);
+/* Give a block of the pinned list back: a region run to the region table, a
+   C allocation to the C allocator. */
+void aihc_pinned_block_release(AihcPinnedBlock *block);
+
+/* Heap regions. Every managed allocation lives in a run of regions of
+   AIHC_REGION_BYTES that the runtime takes from the host one mapping at a
+   time. A two-level table gives the kind of the region that holds an
+   address. An address outside every mapping has the kind
+   AIHC_REGION_OUTSIDE: it names a static object, a C allocation, or the
+   memory of another allocator. */
+typedef enum {
+  AIHC_REGION_OUTSIDE = 0,
+  AIHC_REGION_FREE,
+  AIHC_REGION_SPACE,
+  AIHC_REGION_LARGE,
+  AIHC_REGION_PINNED,
+  AIHC_REGION_STACK,
+} AihcRegionKind;
+
+/* The number of regions that hold the given bytes. */
+size_t aihc_regions_for_bytes(size_t bytes);
+/* Acquire a run of consecutive regions with the given kind. The run starts
+   at a region boundary. The function does not return when the host has no
+   room for the run. */
+void *aihc_regions_acquire(size_t count, AihcRegionKind kind);
+/* Give a run back. The address is the start of a run that acquire gave. */
+void aihc_regions_release(void *base);
+/* The kind of the region that holds an address. */
+AihcRegionKind aihc_region_kind(const void *address);
+
+/* The host side of the region table. Map count regions at a region
+   boundary, or give null when the host has no room. The content of the
+   mapping is unspecified. */
+uint8_t *aihc_host_map_regions(size_t count);
+/* Give a mapping back to the host. The result is zero when the memory is
+   unmapped, or nonzero when the host keeps it, as linear memory does. */
+int aihc_host_unmap_regions(void *base, size_t count);
+
+/* The spaces of the semispace collector. acquire gives a space of at least
+   the given bytes, and release gives the space back. The collector fuzz
+   driver replaces the spaces of a machine through these two functions. */
+uint8_t *aihc_semispace_acquire(size_t bytes);
+void aihc_semispace_release(uint8_t *space);
 
 /* Thread stacks. Each thread owns a doubly linked list of chunks, and the
    continuation frames of the thread live in them. A chunk has

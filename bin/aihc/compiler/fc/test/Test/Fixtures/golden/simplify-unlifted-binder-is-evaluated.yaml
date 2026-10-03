@@ -1,0 +1,72 @@
+---
+extensions:
+- BangPatterns
+- MagicHash
+modules:
+- |
+  module Test (box) where
+
+  import GHC.Prim (Addr#, addr2Int#, (*#), (+#))
+  import GHC.Types (Int (..))
+
+  data P = P Addr#
+
+  wrap :: Addr# -> P
+  wrap !b = P b
+  {-# INLINE wrap #-}
+
+  box :: (Int -> Int) -> Addr# -> Int
+  box f a = case wrap a of
+    P c -> case f (I# (addr2Int# c)) of
+      I# x -> case f (I# (x *# 3#)) of
+        I# y -> f (I# (x +# y))
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tAddr# :: 3.tTYPE 3.cAddrRep;
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cAddrRep :: 3.tRuntimeRep;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tP :: 3.sType {
+      1.cP :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 1.tP
+  }
+
+  pub val 1.vbox :: (3.tInt 3.→ 3.tInt) 3.→ FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 3.tInt
+   = λ(x : 3.tInt 3.→ 3.tInt).
+    λ(y : 2.tAddr#).
+      case x (3.cI# (foreign {prim 2.vaddr2Int# :: FUN @3.cAddrRep @3.cIntRep 2.tAddr# 2.tInt#} y)) as (_scrut : 3.tInt) return (3.tInt) of {
+          3.cI# (x{1} : 2.tInt#) →
+              case let {
+                  argument : 2.tInt# =
+                      foreign {prim 2.v*# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 3#3.cIntRep
+              } in
+                  x (3.cI# argument) as (_scrut{1} : 3.tInt) return (3.tInt) of {
+                  3.cI# (y{1} : 2.tInt#) →
+                      let {
+                          argument : 2.tInt# =
+                              foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} y{1}
+                      } in
+                          x (3.cI# argument)
+              }
+      }
+status: pass
+reason: The bang pattern on the unlifted parameter of wrap gives a case with one default alternative. A variable of an unlifted type always holds a value, so that case only names it, the copy of wrap is the constructor, and the case on it in box selects the alternative. No box is built.

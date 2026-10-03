@@ -46,6 +46,7 @@ module Aihc.Fc.Simplify
     castedSpine,
     exprValueNames,
     maxLocalUnique,
+    safePrimitiveCall,
     freshenExprFrom,
 
     -- * Substitution
@@ -76,7 +77,7 @@ import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -330,7 +331,7 @@ simplifyExpr env expr =
       | Just pushed <- pushHeadCasts expr -> simplifyExpr env pushed
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
-    ExLam binder body -> ExLam binder <$> simplifyExpr (passLambda env) body
+    ExLam binder body -> ExLam binder <$> simplifyExpr (markUnlifted [binder] (passLambda env)) body
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
       let binder = bindBinder bind
@@ -725,7 +726,14 @@ bindingEnv env binder rhs
   where
     evaluatedEnv
       | isValue env rhs = markEvaluated [binderName binder] env
-      | otherwise = env
+      | otherwise = markUnlifted [binder] env
+
+-- | Record that the binders of an unlifted type hold values: such a value
+-- is never a thunk. A case with one default alternative on such a binder
+-- then only names it, as on any evaluated variable.
+markUnlifted :: [Binder] -> Simpl -> Simpl
+markUnlifted binders env =
+  markEvaluated [binderName binder | binder <- binders, not (isLiftedBinder (spEnv env) binder)] env
 
 -- | Record that binders hold values in weak-head normal form.
 markEvaluated :: [Name] -> Simpl -> Simpl
@@ -779,7 +787,7 @@ simplifyAlt env scrutinee binder alternative = do
 -- later case on that variable, cast the same way, selects its fields.
 alternativeEnv :: Simpl -> Expr -> Binder -> Alt -> Simpl
 alternativeEnv env scrutinee binder alternative =
-  markEvaluated (binderName binder : maybe [] pure scrutineeName <> strictBinders) $ case known of
+  markUnlifted (altBinders alternative) . markEvaluated (binderName binder : maybe [] pure scrutineeName <> strictBinders) $ case known of
     Just application ->
       typeEnv
         { spLocals =
@@ -1035,20 +1043,54 @@ speculateArguments env headExpr args
 -- match, and applied to the arguments the left-hand side did not name.
 -- Rules are tried before the head is inlined, as in GHC, so that a rule
 -- written for a function sees its calls.
+--
+-- The inliner binds the arguments of a copy to lets, so an argument that
+-- a rule wants to see as an application often arrives under lets:
+-- @foldr k z (let x = e in build g)@ does not match @foldr k z (build g)@.
+-- When no rule matches the arguments as they are, the lazy lets at the
+-- front of each value argument come off, and the rules are tried again.
+-- A rule that then matches fires, and the lets go around the result, as
+-- in GHC's Note [Matching lets]. The lets get fresh binders first, so
+-- that they capture no name of another argument. A lazy let only
+-- allocates, so the move changes no evaluation. A strict let stays.
 fireRule :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
 fireRule env headExpr args =
   case headExpr of
     ExVar name
       | Just rules <- Map.lookup name (spRules env) -> do
           fuel <- gets ssRuleFuel
-          case [(rule, match) | fuel > 0, rule <- rules, Just match <- [matchRule (spEnv env) rule args]] of
-            (rule, match) : _ -> do
-              rhs <- freshenExpr (ruleRhs rule)
-              modify' (\st -> st {ssRulesFired = ssRulesFired st + 1, ssRuleFuel = ssRuleFuel st - 1})
-              let instantiated = substExpr (matchValues match) (substTypeExpr (matchTypes match) rhs)
-              pure (Just (rebuildSpine instantiated (matchSurplus match)))
-            [] -> pure Nothing
+          let firstMatch current = listToMaybe [(rule, match) | fuel > 0, rule <- rules, Just match <- [matchRule (spEnv env) rule current]]
+          case firstMatch args of
+            Just (rule, match) -> Just <$> fire rule match
+            Nothing
+              | fuel > 0,
+                any (either (const False) (not . null . fst . frontLets)) args -> do
+                  peeled <- traverse peelArgument args
+                  let floated = concatMap fst peeled
+                  case firstMatch (map snd peeled) of
+                    Just (rule, match) -> Just . (\result -> foldr ExLet result floated) <$> fire rule match
+                    Nothing -> pure Nothing
+              | otherwise -> pure Nothing
     _ -> pure Nothing
+  where
+    fire rule match = do
+      rhs <- freshenExpr (ruleRhs rule)
+      modify' (\st -> st {ssRulesFired = ssRulesFired st + 1, ssRuleFuel = ssRuleFuel st - 1})
+      let instantiated = substExpr (matchValues match) (substTypeExpr (matchTypes match) rhs)
+      pure (rebuildSpine instantiated (matchSurplus match))
+    frontLets expr =
+      case expr of
+        ExLet bind body
+          | isLiftedBinder (spEnv env) (bindBinder bind) ->
+              let (binds, inner) = frontLets body in (bind : binds, inner)
+        _ -> ([], expr)
+    peelArgument arg =
+      case arg of
+        Right expr
+          | (binds@(_ : _), inner) <- frontLets expr -> do
+              (binds', inner') <- freshenLets binds inner
+              pure (binds', Right inner')
+        _ -> pure ([], arg)
 
 -- | The discount a call site takes off the growth of inlining, one for
 -- each value argument that names a function and that the callee applies.
@@ -1678,7 +1720,9 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
           then Nothing
           else do
             let typeSubst = Map.fromList (zip (map binderName (altTypeBinders alternative)) existentials)
-                fieldBinds = zipWith Bind (altBinders alternative) fields
+                -- The type of a field binder can name an existential type
+                -- binder of the alternative, which the case no longer binds.
+                fieldBinds = zipWith (\field -> Bind field {binderType = substTypes typeSubst (binderType field)}) (altBinders alternative) fields
             Just (foldr ExLet (substTypeExpr typeSubst rhs) fieldBinds)
     Just (foldr ExLet body (binds <> caseBinds))
 

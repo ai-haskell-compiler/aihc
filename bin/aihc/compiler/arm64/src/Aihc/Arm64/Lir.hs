@@ -48,7 +48,7 @@ import Aihc.Arm64.Assemble
 import Aihc.Grin.Gc (GcGrinProgram)
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError)
-import Aihc.Lir.Lower (appleArm64Target)
+import Aihc.Lir.Lower (ModuleSettings, appleArm64Target)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
 import Aihc.Native.Emit qualified as Emit
@@ -89,7 +89,7 @@ writeLirObjectWith :: Bool -> Module -> FilePath -> IO ()
 writeLirObjectWith = Emit.writeLirObjectWith objectBackend
 
 -- | Consume each LIR item as GC-GRIN conversion completes it.
-writeGrinObjectWith :: Bool -> Bool -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
+writeGrinObjectWith :: Bool -> ModuleSettings -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
 writeGrinObjectWith = Emit.writeGrinObjectWith objectBackend
 
 objectBackend :: Emit.ObjectBackend Arm64Statement Arm64Register Arm64LirError

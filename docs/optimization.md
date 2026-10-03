@@ -64,6 +64,7 @@ after each pass under `--lint`.
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
 | `PassWorkerWrapper scope` | Split each function in the scope that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. The scope is every function, or the local recursive functions only. `Aihc.Fc.WorkerWrapper`. |
 | `PassSpecialise` | Copy each local recursive function whose calls give a constant dictionary, with the dictionary in place of the parameter. `Aihc.Fc.Specialise`. |
+| `PassCallPatterns phase` | Copy each local loop whose calls give a constructor in a position, with the fields in place of the parameter, in rounds with a simplifying walk in a phase. `Aihc.Fc.CallPattern`. |
 
 A phase is a number that counts down as GHC's phases do: the shrinking
 inliner runs in phase 2, the growing inliner in phase 1, and the final
@@ -82,7 +83,7 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, worker/wrapper of the local functions, inline `growPolicy` [0] for one round, demand, simplify [0], lift constants |
+| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, worker/wrapper of the local functions, inline `growPolicy` [0] for one round, demand, simplify [0], call patterns [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
 | `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
@@ -472,6 +473,42 @@ a module calls with a constant dictionary gets no copy from this pass;
 the inliner copies it into the caller when its policy permits, and the
 pass then copies the local loop that the copy exposes.
 
+## Call-pattern specialisation
+
+`PassCallPatterns` is `Aihc.Fc.CallPattern`, after GHC's SpecConstr. A loop
+can take a boxed parameter that it does not always evaluate, so the
+worker/wrapper split, which needs a strict parameter, leaves the box. When
+every call of the loop gives a constructor in that position, the pass copies
+the loop with the fields of the constructor in place of the parameter, and
+the calls name the copy:
+
+```text
+go = λx n. ... c x (go (case x of W64# s -> W64# (f s)) (n -# 1#))
+go (W64# s0) 64#
+
+$sgo = λs n. let x = W64# s in ... c x ($sgo (f s) (n -# 1#))
+$sgo s0 64#
+```
+
+- An argument counts as the constructor when it is the constructor
+  application, a case on a parameter of the copy that is that constructor,
+  or a case or a strict let around such an argument whose scrutinee is a
+  safe primitive call. A field of an unlifted type must be a safe primitive
+  call or trivial. Thus no call evaluates anything earlier than before.
+- A position is specialised only when every recursive call gives the
+  constructor there, so that the copy calls only itself, and when a call
+  from outside the loop gives the constructor in every specialised position.
+- A local loop that is the only member of its recursive group gets at most
+  one copy. The original stays when a use of it remains.
+- The rewrite of an outer loop can show the constructor in a call of an
+  inner loop, after the simplifier reduces the cases on the parameter that
+  the copy builds again. So the pass runs in at most `callPatternRounds`
+  rounds, with a simplifying walk after each round that changes the program.
+
+The `-O1` and `-O2` plans run it at the end of the growing phase. In
+`snappy-roundtrip` it copies the fused loop over the block index and then the
+loop of `take` over `iterate`, and the 722,752 thunks of the seeds go away.
+
 ## The inliner
 
 The inliner follows the non-recursive inliner of MLton. It walks the values
@@ -629,6 +666,12 @@ is `Aihc.Fc.Rules`.
 - A template that is an eta-expansion of a binder, `Λb. g @b` or `λx. g x`,
   is matched eta-reduced: the desugarer expands a binder passed at a
   polymorphic or a function type, and the source meant the binder alone.
+- The inliner binds the arguments of a copy to lets, so an argument often
+  arrives under lets: `foldr k z (let x = e in build g)`. When no rule
+  matches the arguments as they are, the lazy lets at the front of each
+  value argument come off, with fresh binders, and the rules are tried
+  again. A rule that then matches fires, and the lets go around the result,
+  as in GHC's Note [Matching lets]. A strict let stays where it is.
 
 ### List fusion in the core libraries
 
@@ -646,6 +689,14 @@ Two things differ from GHC:
   as a partial application, `sum = foldr (+) 0`, has the arity of its type
   and is copied at its calls. The arity pass reads arity from the body, and
   GHC's `foldr k z = go` gives it arity 2.
+
+An alias, such as the instance method `enumFromTo = enumIntFromTo`, must
+stay an alias for the rules of the name it stands for to fire at its uses.
+Thus the arity pass does not eta expand a trivial body, as in GHC's Note
+[Do not eta-expand trivial expressions]. An expansion made such a method a
+function: the `[~1]` rule of `enumIntFromTo` fired inside it, the inliner did
+not copy it into a large caller, and a `foldr` over `[x .. y]` never met the
+`build`.
 
 Rules are matched in the program the pass is given. At the per-module scope
 that is the module's own rules; at the whole-program scope it is every rule

@@ -65,14 +65,18 @@ expected: |-
                               $method0 @p @q @a @b
                       }
 
-  pub val 1.v$fBifunctorFunctorFlip :: 1.t$Dict$BifunctorFunctor (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted)) (1.tFlip (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted)))
-   = 1.c$Dict$BifunctorFunctor @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(1.tFlip (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted))) 1.v$fBifunctorFunctorFlip$cbifmap
+  pub val 1.v$fBifunctorFunctorFlip :: ∀(k0 : 2.sType) (k1 : 2.sType). 1.t$Dict$BifunctorFunctor k0 k1 k1 k0 (1.tFlip k0 k1)
+   = Λ(k0 : 2.sType).
+    Λ(k1 : 2.sType).
+      1.c$Dict$BifunctorFunctor @k0 @k1 @k1 @k0 @(1.tFlip k0 k1) (1.v$fBifunctorFunctorFlip$cbifmap @k0 @k1)
 
-  val 1.v$fBifunctorFunctorFlip$cbifmap :: ∀(p : 2.sType 2.→ 2.sType 2.→ 2.sType) (q : 2.sType 2.→ 2.sType 2.→ 2.sType) (a : 2.sType) (b : 2.sType). (∀(a{1} : 2.sType) (b{1} : 2.sType). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ 1.tFlip (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted)) p a b 2.→ 1.tFlip (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted)) q a b
-   = Λ(p : 2.sType 2.→ 2.sType 2.→ 2.sType).
-    Λ(q : 2.sType 2.→ 2.sType 2.→ 2.sType).
-      Λ(a : 2.sType).
-        Λ(b : 2.sType).
-          λ(x : ∀(a{1} : 2.sType) (b{1} : 2.sType). p a{1} b{1} 2.→ q a{1} b{1}).
-            λ(y : 1.tFlip (2.tTYPE (2.cBoxedRep 2.cLifted)) (2.tTYPE (2.cBoxedRep 2.cLifted)) p a b).
-              (x @b @a (y ▷ axiom-co 1.$ax$Flip @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted)) @p @a @b)) ▷ sym (axiom-co 1.$ax$Flip @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted)) @q @a @b)
+  val 1.v$fBifunctorFunctorFlip$cbifmap :: ∀(k0 : 2.sType) (k1 : 2.sType) (p : k0 2.→ k1 2.→ 2.sType) (q : k0 2.→ k1 2.→ 2.sType) (a : k1) (b : k0). (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ 1.tFlip k0 k1 p a b 2.→ 1.tFlip k0 k1 q a b
+   = Λ(k0 : 2.sType).
+    Λ(k1 : 2.sType).
+      Λ(p : k0 2.→ k1 2.→ 2.sType).
+        Λ(q : k0 2.→ k1 2.→ 2.sType).
+          Λ(a : k1).
+            Λ(b : k0).
+              λ(x : ∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}).
+                λ(y : 1.tFlip k0 k1 p a b).
+                  (x @b @a (y ▷ axiom-co 1.$ax$Flip @k0 @k1 @p @a @b)) ▷ sym (axiom-co 1.$ax$Flip @k0 @k1 @q @a @b)

@@ -20,15 +20,20 @@ that does not allocate does not reach a safepoint. GHC has the same limit.
 
 ## Heap layout
 
-The heap is one contiguous virtual address range that the runtime reserves at
-start. On 64-bit hosts the reservation is large and committed by region. On
-wasm32 the range is the linear memory above the static data and grows at the
-end.
+The heap is a set of runs of regions of `AIHC_REGION_BYTES`, 64 KiB. The
+runtime takes each run from the host as one mapping of exactly that size and
+reserves no address space in advance. A large reservation is refused on hosts
+with strict overcommit, under address space limits, and in some hardened
+container policies, so the design does not depend on one. A region is one
+WebAssembly page, so the wasm32 host grows its memory by whole regions, and a
+large object wastes at most half a region.
 
-The range is divided into regions of `AIHC_REGION_BYTES`, initially 1 MiB.
-A region table holds one byte for each region. The region index of an address
-is `(address - heap_base) >> AIHC_REGION_SHIFT`. The byte gives the kind of
-the region:
+A two-level region table gives the kind of the region that holds an
+address. The top level is indexed by the address bits above the leaf, and a
+leaf covers 4 GiB with one entry for each region. A lookup is two dependent
+loads. The collector pays it only for a pointer outside the spaces it
+copies, and the write barrier never pays it, because its test is a range
+compare against the nursery. The kinds are:
 
 | Kind | Content | Moves |
 | --- | --- | --- |
@@ -36,13 +41,14 @@ the region:
 | `NURSERY` | Bump allocated young objects | Yes |
 | `GEN1` | Bump allocated objects that survived one collection | Yes |
 | `GEN2` | Segments of one size class with a mark bitmap | No |
-| `LARGE` | One object of more than `AIHC_LARGE_OBJECT_BYTES` | No |
+| `LARGE` | One object of at least `AIHC_LARGE_OBJECT_BYTES`, 32 KiB | No |
 | `PINNED` | Pinned byte arrays and host buffers | No |
-| `STACK` | 4 KiB stack chunks | No |
+| `STACK` | Sixteen 4 KiB stack chunks | No |
 
-An address outside the range names a static object. This test replaces the
-two range tests of the semispace collector. The header keeps no generation
-information. Info tables stay 48 bytes.
+An address outside every mapping has the kind `OUTSIDE` and names a static
+object. The header keeps no generation information. Info tables stay 48
+bytes. A released run waits in a free list for reuse, and a mapping whose
+regions are all free goes back to the host.
 
 A `LARGE` object takes a whole number of regions. A `GEN2` region holds
 segments of one size class. Each segment has a mark bitmap with one bit for
@@ -252,6 +258,9 @@ cycles, and the bytes of each generation after the last collection.
    heavy, large live set, deep stack, and mutable arrays.
 2. **Regions.** Add the reservation, the region table, `LARGE`, `PINNED`, and
    `STACK` regions. Keep semispace semantics. The fuzz model stays valid.
+   The semispace collector keeps a large object on its pinned list, so one
+   sweep covers both. Pinned byte arrays below the large bound stay C
+   allocations until the segment allocator of step 4 exists.
 3. **Generations.** Add the nursery, gen1, the write barrier, the remembered
    set, cards, the CAF list, and the stack chunk generations. Gen2 is a
    copying generation collected stop-the-world in this step, so the fuzz model

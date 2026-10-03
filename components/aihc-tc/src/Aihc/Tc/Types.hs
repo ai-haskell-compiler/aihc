@@ -239,18 +239,21 @@ bareTyCon ty =
 
 -- | Apply a type to an argument.
 --
--- An application of a type constructor stays a constructor application,
--- and a saturated arrow becomes the function type. The arrow is a form of
--- its own rather than a type constructor, so recognising it here is a
--- pattern match: this module needs to know no library to normalise.
+-- A partial application retains its invisible kind arguments.
+-- A saturated application uses its visible arguments to determine these kinds.
+-- A saturated arrow becomes the function type.
 mkAppTy :: TcType -> TcType -> TcType
-mkAppTy function argument =
-  case function of
-    TcTyCon tyCon arguments -> TcTyCon tyCon (arguments <> [argument])
-    -- An application gets its kind arguments from its visible arguments.
-    TcKindedTyCon tyCon _ -> TcTyCon tyCon [argument]
-    TcAppTy TcArrowTy domain -> TcFunTy domain argument
-    _ -> TcAppTy function argument
+mkAppTy function argument
+  | (TcKindedTyCon tyCon _, arguments) <- collectTypeApplications function,
+    length arguments + 1 >= tyConArity tyCon =
+      TcTyCon tyCon (arguments <> [argument])
+  | otherwise =
+      case function of
+        TcTyCon tyCon arguments -> TcTyCon tyCon (arguments <> [argument])
+        -- A partial application must retain its invisible kind arguments.
+        TcKindedTyCon {} -> TcAppTy function argument
+        TcAppTy TcArrowTy domain -> TcFunTy domain argument
+        _ -> TcAppTy function argument
 
 tyConNamespace :: TyCon -> ResolutionNamespace
 tyConNamespace (TyConInternal _ _ _ namespace _) = namespace
