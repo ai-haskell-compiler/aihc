@@ -93,10 +93,12 @@ import Aihc.Cli.ModuleProvider
     ModuleProvider,
     PackageLocator,
     PackageSource (..),
+    ProviderCache,
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
     moduleNameDirectory,
     newModuleProvider,
+    newProviderCache,
     providerInstanceFacts,
     providerPackagesOf,
     providerResolved,
@@ -752,7 +754,11 @@ data InstallShared = InstallShared
     -- published from its root when the graph ends, and what is left after
     -- that is removed.
     sharedTemporaryRoots :: !(IORef (Set.Set FilePath)),
-    sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings)
+    sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings),
+    -- | The facts of the store modules that the packages read. Each
+    -- package reads them through its own provider, and this cache lets
+    -- the providers decode each artifact only once.
+    sharedProviderCache :: !ProviderCache
   }
 
 -- | One package of a plan, as the graph installs it. The package has four
@@ -860,12 +866,14 @@ installGraph config locations plans components = do
   executablesRef <- newIORef []
   temporaryRoots <- newIORef Set.empty
   phaseTimings <- newIORef mempty
+  providerCache <- newProviderCache
   let shared =
         InstallShared
           { sharedConfig = config,
             sharedLocations = locations,
             sharedTemporaryRoots = temporaryRoots,
-            sharedBackendPhaseTimings = phaseTimings
+            sharedBackendPhaseTimings = phaseTimings,
+            sharedProviderCache = providerCache
           }
       removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
       publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
@@ -1039,7 +1047,7 @@ prepareExecutable shared graph slot = do
         releaseReaders closure
   addModuleBuild
     graph
-    (sharedBackendPhaseTimings shared)
+    shared
     ModuleBuild
       { moduleBuildConfig = config,
         moduleBuildOutputRoot = outputRoot,
@@ -1121,7 +1129,7 @@ preparePackage shared graph slot = do
               taskAction = releaseReaders (slot : slotClosure slot)
             }
         ]
-    Just packageBuild -> addModuleBuild graph (sharedBackendPhaseTimings shared) (packageModuleBuild shared slot installed packageBuild)
+    Just packageBuild -> addModuleBuild graph shared (packageModuleBuild shared slot installed packageBuild)
 
 -- | The modules of a package of the plan, as the graph compiles them.
 packageModuleBuild :: InstallShared -> PackageSlot -> InstalledPackage -> PackageBuild -> ModuleBuild
@@ -1601,8 +1609,8 @@ data PreparedDependency = PreparedDependency
   }
 
 -- | Add the parse tasks and the partition task of a module build.
-addModuleBuild :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> IO ()
-addModuleBuild graph phaseTimings build = do
+addModuleBuild :: TaskGraph -> InstallShared -> ModuleBuild -> IO ()
+addModuleBuild graph shared build = do
   let config = moduleBuildConfig build
       files = moduleBuildFiles build
       order = moduleBuildOrder build
@@ -1634,7 +1642,7 @@ addModuleBuild graph phaseTimings build = do
             taskKind = TaskPackage,
             taskOrder = order,
             taskDependencies = Set.fromList (map taskId parseTasks <> moduleBuildPartitionAfter build),
-            taskAction = partitionModules graph phaseTimings build sourceSlots
+            taskAction = partitionModules graph shared build sourceSlots
           }
   addTasks graph (parseTasks <> [partitionTask])
 
@@ -1642,8 +1650,8 @@ addModuleBuild graph phaseTimings build = do
 -- the finish task. A unit waits on the units of its own package it
 -- imports, and on the units of the dependencies that hold the modules it
 -- imports.
-partitionModules :: TaskGraph -> IORef BackendPhaseTimings -> ModuleBuild -> [TMVar SourceModule] -> IO ()
-partitionModules graph phaseTimings build sourceSlots = do
+partitionModules :: TaskGraph -> InstallShared -> ModuleBuild -> [TMVar SourceModule] -> IO ()
+partitionModules graph shared build sourceSlots = do
   let config = moduleBuildConfig build
       resolvePackage = moduleBuildPackage build
       order = moduleBuildOrder build
@@ -1659,6 +1667,7 @@ partitionModules graph phaseTimings build sourceSlots = do
   compileVerbose config ("Compute " <> show (length units) <> " SCC units")
   provider <-
     newModuleProvider
+      (sharedProviderCache shared)
       (Map.unions (map dependencyLocator dependencies))
       [(dependencyPackage dependency, Set.toAscList (dependencyExposed dependency), dependencySource dependency) | dependency <- dependencies]
   unitBase <- allocateTaskIds graph (3 * length units)
@@ -1679,7 +1688,7 @@ partitionModules graph phaseTimings build sourceSlots = do
             taskPackageRoot = moduleBuildPackageRoot build,
             taskModuleProvider = provider,
             taskCapiStubOptions = moduleBuildCapiOptions build,
-            taskBackendPhaseTimings = phaseTimings
+            taskBackendPhaseTimings = sharedBackendPhaseTimings shared
           }
       localRuntimes unit = map (lookupRuntime runtimeMap) (sourceUnitDependencies unit)
       -- The units of the dependencies that hold the modules the unit
