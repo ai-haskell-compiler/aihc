@@ -2101,7 +2101,8 @@ parseSource headerDir root versions fileInfo = do
       imports = [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- Syntax.moduleImports modu]
   -- Force the header fields before the parse tree enters its channel.
   -- A header thunk can keep the tree after the resolve task takes it.
-  evaluate (rnf (path, name, imports, extensions, parseDiagnostics))
+  -- Keep diagnostics lazy because a module-name query needs only the header.
+  evaluate (rnf (path, name, imports, extensions))
   parsed <- newMVar modu
   -- Built here rather than returned as a thunk: the strict fields below
   -- are what the phases after this one read instead of the parse tree,
