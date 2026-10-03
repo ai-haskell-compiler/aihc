@@ -143,7 +143,7 @@ runtime statistics of a program. When the program exits normally, the runtime
 writes one JSON object to that file:
 
 ```json
-{"schema": 1, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0}
+{"schema": 2, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0, "gc_max_pause_ns": 0, "live_bytes": 0}
 ```
 
 A normal exit is a return from `main` or an `exitWith` call. A runtime failure
@@ -156,6 +156,9 @@ writes no file. An empty value counts as an unset variable.
   Host buffers use the same count and heap budget.
 - `gc_count` is the number of collections.
 - `gc_time_ns` is the monotonic time the collections took, in nanoseconds.
+- `gc_max_pause_ns` is the monotonic time of the longest collection, in nanoseconds.
+- `live_bytes` is the occupied space directly after the last collection.
+  It counts the copied objects and the pinned blocks.
 
 The environment parser lives in `aihc_runtime_options.lir` next to the RTS
 option parser. The POSIX host flattens `environ` into one buffer of

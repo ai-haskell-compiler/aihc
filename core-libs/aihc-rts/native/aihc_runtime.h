@@ -250,6 +250,10 @@ struct AihcMachine {
   /* Released chunks that the next stack growth can use again. */
   struct AihcStackChunk *spare_chunks;
   uint64_t spare_chunk_count;
+  /* The longest collection so far, in monotonic nanoseconds, and the bytes
+     the last collection kept: the copied objects and the pinned blocks. */
+  uint64_t gc_max_pause_ns;
+  uint64_t heap_live_bytes;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),

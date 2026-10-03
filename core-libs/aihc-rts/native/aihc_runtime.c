@@ -466,10 +466,10 @@ void aihc_runtime_statistics_report(void) {
   aihc_statistics_reported = 1;
   aihc_gc_record_peak(machine);
   aihc_heap_account(machine);
-  /* The fixed text is 86 bytes and the four numbers take at most 80. */
-  char text[256];
+  /* The fixed text is 123 bytes and the six numbers take at most 120. */
+  char text[512];
   char *cursor = text;
-  cursor = aihc_append_text(cursor, "{\"schema\": 1, \"peak_heap_bytes\": ");
+  cursor = aihc_append_text(cursor, "{\"schema\": 2, \"peak_heap_bytes\": ");
   cursor = aihc_append_decimal(cursor, machine->heap_peak_bytes);
   cursor = aihc_append_text(cursor, ", \"allocated_bytes\": ");
   cursor = aihc_append_decimal(cursor, machine->heap_allocated_bytes);
@@ -477,6 +477,10 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_decimal(cursor, machine->gc_count);
   cursor = aihc_append_text(cursor, ", \"gc_time_ns\": ");
   cursor = aihc_append_decimal(cursor, machine->gc_time_ns);
+  cursor = aihc_append_text(cursor, ", \"gc_max_pause_ns\": ");
+  cursor = aihc_append_decimal(cursor, machine->gc_max_pause_ns);
+  cursor = aihc_append_text(cursor, ", \"live_bytes\": ");
+  cursor = aihc_append_decimal(cursor, machine->heap_live_bytes);
   cursor = aihc_append_text(cursor, "}\n");
   if (aihc_host_write_file(path, text, (size_t)(cursor - text)) != 0) {
     aihc_fail("cannot write the runtime statistics file");

@@ -461,12 +461,16 @@ runtimeStatisticsTest name requested ending =
           assertBool "the statistics file exists" present
           decoded <- eitherDecodeFileStrict (statisticsFile directory)
           statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
-          assertEqual "field names" ["allocated_bytes", "gc_count", "gc_time_ns", "peak_heap_bytes", "schema"] (Map.keys statistics)
-          assertEqual "schema" (Just 1) (Map.lookup "schema" statistics)
+          assertEqual "field names" ["allocated_bytes", "gc_count", "gc_max_pause_ns", "gc_time_ns", "live_bytes", "peak_heap_bytes", "schema"] (Map.keys statistics)
+          assertEqual "schema" (Just 2) (Map.lookup "schema" statistics)
           -- After the counter reset, one leaf and 1000 cells use 8 + 1000 * 16 bytes.
           assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)
           assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16008)
           assertBool "gc_count counts the collections" (Map.lookup "gc_count" statistics >= Just 1)
+          -- The last collection kept the leaf and the cells built so far.
+          assertBool "live_bytes holds part of the list" (Map.lookup "live_bytes" statistics > Just 0)
+          assertBool "live_bytes stays below the peak" (Map.lookup "live_bytes" statistics <= Map.lookup "peak_heap_bytes" statistics)
+          assertBool "gc_max_pause_ns is one of the collections" (Map.lookup "gc_max_pause_ns" statistics <= Map.lookup "gc_time_ns" statistics)
         else assertBool "no statistics file exists" (not present)
 
 -- | Check the environment parser of aihc_runtime_options.lir on crafted
