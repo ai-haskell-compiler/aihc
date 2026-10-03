@@ -83,6 +83,7 @@ import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 import System.IO (Handle, hClose, stdout)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory, withSystemTempFile)
+import System.Info qualified as Info
 import System.Posix.DynamicLinker (RTLDFlags (RTLD_GLOBAL, RTLD_NOW), dlopen)
 import System.Process (readProcessWithExitCode)
 
@@ -619,9 +620,11 @@ packageSourceDirectories root = do
 -- @aihc-base.cabal@ says the same thing as a condition on @hs-source-dirs@,
 -- and nothing here can read it, so a new platform directory has to be added
 -- in both places. Every host aihc runs on is a POSIX one, so @src-posix@ is
--- always among them; wasm32 is a target, never a host.
+-- always among them; wasm32 is a target, never a host. The architecture
+-- directory has the name that GHC gives the host architecture, such as
+-- @src-aarch64@.
 platformModuleDirectories :: [FilePath]
-platformModuleDirectories = [posixWidthModuleDirectory, "src-posix"]
+platformModuleDirectories = [posixWidthModuleDirectory, "src-posix", "src-" <> Info.arch]
 
 -- | The directory of @aihc-base@ that holds the modules stating something
 -- only this platform's headers know, such as the width of @mode_t@.
