@@ -37,7 +37,7 @@ expected: |-
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
     3.sType :: 3.sType;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    strict [0] 3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
     3.cIntRep :: 3.tRuntimeRep;
     3.cLifted :: 3.tLevity;
     3.cTrue :: 3.tBool
@@ -82,7 +82,7 @@ expected: |-
     2.v== :: 7.tInt 7.→ 7.tInt 7.→ 7.tBool;
     7.cBoxedRep :: 7.tLevity 7.→ 7.tRuntimeRep;
     7.cFalse :: 7.tBool;
-    4.cIS :: FUN @7.cIntRep @7.sLiftedRep 3.tInt# 4.tInteger;
+    strict [0] 4.cIS :: FUN @7.cIntRep @7.sLiftedRep 3.tInt# 4.tInteger;
     7.cIntRep :: 7.tRuntimeRep;
     7.cLifted :: 7.tLevity;
     7.cTrue :: 7.tBool;

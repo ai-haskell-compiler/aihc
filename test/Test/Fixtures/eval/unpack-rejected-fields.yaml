@@ -1,0 +1,31 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Unit = Unit
+    data Sum = A | B
+    data Fun = Fun {-# UNPACK #-} !(Unit -> Unit)
+    data SumBox = SumBox {-# UNPACK #-} !Sum
+    data LazyBox = LazyBox {-# UNPACK #-} ~Unit
+
+    applyFun :: Fun -> Unit
+    applyFun (Fun function) = function Unit
+
+    readSum :: SumBox -> Bool
+    readSum (SumBox A) = False
+    readSum (SumBox B) = True
+
+    readLazy :: LazyBox -> Bool
+    readLazy (LazyBox _) = True
+
+    result :: (Unit, Bool, Bool)
+    result = (applyFun (Fun (\Unit -> Unit)), readSum (SumBox B), readLazy (LazyBox (raise# Unit)))
+output: |
+  (Unit,True,True)
+expression: result
+status: pass
+reason: UNPACK on a function or a sum keeps one strict field, and UNPACK on a lazy field stays lazy.

@@ -1,0 +1,68 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Types (Int (..))
+
+  data T = MkT {-# UNPACK #-} !Int
+
+  build :: Int -> T
+  build n = MkT n
+
+  nested :: T -> Int
+  nested (MkT (I# n)) = I# n
+
+  rebuilt :: T -> Int
+  rebuilt (MkT n) = n
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    strict [0] 3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tT :: 3.sType {
+      pub strict [0] 1.cMkT :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tT
+  }
+
+  pub val 1.vbuild :: 3.tInt 3.→ 1.tT
+   = λ(x : 3.tInt).
+    (λ(_strict_field : 3.tInt).
+      case _strict_field as (_unpack_scrut : 3.tInt) return (1.tT) of {
+          3.cI# (_unpack_leaf0 : 2.tInt#) →
+              1.cMkT _unpack_leaf0
+      }) x
+
+  pub val 1.vnested :: 1.tT 3.→ 3.tInt
+   = λ(x : 1.tT).
+    case x as (_scrut : 1.tT) return (3.tInt) of {
+        1.cMkT (n : 2.tInt#) →
+            3.cI# n
+    }
+
+  pub val 1.vrebuilt :: 1.tT 3.→ 3.tInt
+   = λ(x : 1.tT).
+    case x as (_scrut : 1.tT) return (3.tInt) of {
+        1.cMkT (_unpack_leaf0 : 2.tInt#) →
+            3.cI# _unpack_leaf0
+    }
+status: pass
+reason: UNPACK on a strict Int stores one unboxed field. A nested pattern binds that field. A variable pattern rebuilds the Int.

@@ -249,11 +249,10 @@ data ConDecl = ConDecl
     conName :: Name,
     conType :: Type,
     conRepresentation :: ConRepresentation,
-    -- | The zero-based positions of the strict fields among the value
-    -- arguments of the constructor, in ascending order. The dictionary
-    -- arguments of a constraint count as positions. Every construction
-    -- gives a strict field a value in weak-head normal form, so a binder
-    -- that a case alternative binds to a strict field is evaluated.
+    -- | The zero-based positions of the strict representation arguments.
+    -- Dictionary arguments come first and count as positions.
+    -- A strict argument is in weak-head normal form at every construction.
+    -- A case binder for a strict argument is evaluated.
     conStrictFields :: [Int]
   }
   deriving stock (Eq, Ord, Show, Read, Generic)

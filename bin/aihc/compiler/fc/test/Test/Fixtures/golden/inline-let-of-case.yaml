@@ -32,7 +32,7 @@ expected: |-
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
     3.sType :: 3.sType;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    strict [0] 3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
     3.cIntRep :: 3.tRuntimeRep;
     3.cLifted :: 3.tLevity
 

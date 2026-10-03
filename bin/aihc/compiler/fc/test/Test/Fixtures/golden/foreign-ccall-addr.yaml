@@ -47,7 +47,7 @@ expected: |-
     3.sType = 3.tTYPE 3.sLiftedRep
 
   pub type 1.tInt32 :: 3.sType {
-      pub 1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
+      pub strict [0] 1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
   }
 
   pub type 1.tCInt :: 3.sType {}

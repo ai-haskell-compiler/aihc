@@ -40,7 +40,7 @@ expected: |-
     3.sType = 3.tTYPE 3.sLiftedRep
 
   type 1.tCount :: 3.sType {
-      1.cCount :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tCount
+      strict [0] 1.cCount :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tCount
   }
 
   type 1.tStrict :: 3.sType {

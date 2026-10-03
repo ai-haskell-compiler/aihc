@@ -32,13 +32,16 @@ import Aihc.Tc
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    FieldRep (..),
     InstanceInfo (..),
     PatSynInfo (..),
     TcBindingResult (..),
     TcInterface (..),
     TyConFlavor (..),
+    applySubstRep,
     defaultMethodName,
     patSynKey,
+    repLeaves,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
     tcInterfaceForeignImports,
@@ -104,13 +107,12 @@ import Aihc.Tc.Types
   )
 import Aihc.Tc.Types qualified as Tc
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, mapAndUnzipM, unless, zipWithM)
+import Control.Monad (foldM, mapAndUnzipM, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.Char (isAsciiUpper, isDigit)
-import Data.Foldable (foldrM)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -142,7 +144,6 @@ data ValueState = ValueState
     vsConstructorInfos :: !(Map Text [DataConInfo]),
     vsNewtypeConstructors :: !(Map Entity DataTypeInfo),
     vsFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
-    vsStrictConstructors :: !(Map Entity [Bool]),
     vsPatSyns :: !(Map Entity PatSynInfo),
     -- | The checked calling convention of each foreign import in scope.
     vsForeignImports :: !(Map Entity TcForeignImportInfo),
@@ -156,9 +157,6 @@ data PreparedValueInterface = PreparedValueInterface
     preparedConstructorInfos :: !(Map Text [DataConInfo]),
     preparedNewtypeConstructors :: !(Map Entity DataTypeInfo),
     preparedFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
-    -- | Strict field flags of each data constructor that has one strict
-    -- field or more. The list gives one flag for each source field.
-    preparedStrictConstructors :: !(Map Entity [Bool]),
     preparedPatSyns :: !(Map Entity PatSynInfo),
     preparedForeignImports :: !(Map Entity TcForeignImportInfo),
     -- | Enumeration data types by type-constructor identity.
@@ -245,7 +243,6 @@ prepareValueInterface interface =
       preparedConstructorInfos = constructorInfos,
       preparedNewtypeConstructors = newtypes,
       preparedFamilyConstructors = familyConstructors,
-      preparedStrictConstructors = strictConstructors,
       preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
       preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface),
       preparedEnumerations = enumerations
@@ -305,16 +302,6 @@ prepareValueInterface interface =
           all (null . dciFields) constructors,
           let tyCon = dtiTyCon dataType
         ]
-    strictConstructors =
-      Map.fromList
-        [ (GlobalTerm package moduleName' (dciName constructor), flags)
-        | dataType <- tcInterfaceDataTypes interface,
-          dtiFlavor dataType /= NewtypeTyCon,
-          constructor <- dtiConstructors dataType,
-          let flags = map dcfiStrict (dciFields constructor),
-          or flags,
-          let (package, moduleName') = dciOrigin constructor
-        ]
 
 desugarValues :: ConvertEnv -> TypeOf.TypeEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
 desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
@@ -339,7 +326,6 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsConstructorInfos = preparedConstructorInfos interface,
             vsNewtypeConstructors = preparedNewtypeConstructors interface,
             vsFamilyConstructors = preparedFamilyConstructors interface,
-            vsStrictConstructors = preparedStrictConstructors interface,
             vsPatSyns = preparedPatSyns interface,
             vsForeignImports = preparedForeignImports interface,
             vsEnumerations = preparedEnumerations interface
@@ -735,7 +721,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
         else do
           caseBinder <- freshBinder "$record_scrut" (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
           fieldType' <- convertCheckedType fieldType
-          alternatives <- concat <$> mapM (recordSelectorAlternative label) constructors
+          alternatives <- concat <$> mapM (recordSelectorAlternative label scrutineeType fieldType) constructors
           pure (ExCase (ExCast record familyCoercion) caseBinder fieldType' alternatives)
     (dataType : _, _) -> do
       typeArguments <-
@@ -749,26 +735,28 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
     ([], []) -> do
       caseBinder <- freshBinder "$record_scrut" scrutineeType
       fieldType' <- convertCheckedType fieldType
-      alternatives <- concat <$> mapM (recordSelectorAlternative label) constructors
+      alternatives <- concat <$> mapM (recordSelectorAlternative label scrutineeType fieldType) constructors
       pure (ExCase (ExVar (binderName argument)) caseBinder fieldType' alternatives)
 
-recordSelectorAlternative :: Text -> DataConInfo -> ValueM [Alt]
-recordSelectorAlternative label constructor =
+recordSelectorAlternative :: Text -> TcType -> TcType -> DataConInfo -> ValueM [Alt]
+recordSelectorAlternative label scrutineeType fieldType constructor =
   case List.findIndex ((== Just label) . dcfiLabel) (dciFields constructor) of
     Nothing -> pure []
     Just index -> do
       let (package, moduleName') = dciOrigin constructor
           existentials = dciExTyVars constructor
+          substitution = fromMaybe Map.empty (matchTypes [dciResTy constructor] [scrutineeType])
+          reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields constructor]
       typeBinders <- convertTypeBinders existentials
       withTypeVariables existentials $ do
         dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] (dciTheta constructor)
-        fields <- zipWithM (freshIndexedBinder "$field") [0 :: Int ..] (map dcfiType (dciFields constructor))
-        selected <-
-          case drop index fields of
-            field : _ -> pure field
-            [] -> failValue ("record selector field index is out of range: " <> T.unpack label)
+        leafGroups <- mapM representationBinders reps
+        let leaves = concat leafGroups
+            before = sum (map length (take index leafGroups))
+            selectedLeaves = take (length (leafGroups !! index)) (drop before leaves)
+        selected <- rebuildField fieldType (reps !! index) (map (ExVar . binderName) selectedLeaves)
         let constructorName = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
-        pure [Alt (AltData constructorName) typeBinders (dictionaries <> fields) (ExVar (binderName selected))]
+        pure [Alt (AltData constructorName) typeBinders (dictionaries <> leaves) selected]
 
 annotatedForeignDecl :: Syn.Decl -> Maybe (TcAnnotation, Maybe TcForeignImportAnnotation, Syn.ForeignDecl)
 annotatedForeignDecl = go Nothing Nothing
@@ -2469,23 +2457,33 @@ desugarPatternGroup resultType fallback remaining restTypes scrutineeType caseBi
     case [candidate | (match, _) <- works, candidate : _ <- [Syn.matchPats match], not (patternIsDefault candidate), patternKey candidate == key] of
       candidate : _ -> pure candidate
       [] -> failValue ("missing representative pattern for " <> T.unpack key)
-  constructor <- patternConstructor pattern'
-  let subpatterns = patternChildren pattern'
-      predicates = patternGivenPredicates pattern'
-      typeVariables = patternTypeVariables pattern'
-  withTypeVariables typeVariables $ do
-    typeBinders <- convertTypeBinders typeVariables
-    fieldTypes <- patternFieldTypes pattern' subpatterns
-    fields <- zipWithM freshPatternBinder subpatterns fieldTypes
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-    rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
-    expanded <- mapMaybeM (specializeMatchWork key (length fields) fields fieldTypes) rooted
-    body <-
-      withAlternativeScope
-        (not (null typeBinders))
-        (zipWith Dictionary predicates dictionaries)
-        (desugarMatchArguments resultType fallback (fields <> remaining) (fieldTypes <> restTypes) expanded)
-    pure (Alt constructor typeBinders (dictionaries <> fields) body)
+  maybeInfo <- patternDataCon pattern'
+  case maybeInfo of
+    Just info -> do
+      identity <- representationIsIdentity info scrutineeType
+      if identity
+        then sourceGroup pattern'
+        else desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info
+    Nothing -> sourceGroup pattern'
+  where
+    sourceGroup pattern' = do
+      constructor <- patternConstructor pattern'
+      let subpatterns = patternChildren pattern'
+          predicates = patternGivenPredicates pattern'
+          typeVariables = patternTypeVariables pattern'
+      withTypeVariables typeVariables $ do
+        typeBinders <- convertTypeBinders typeVariables
+        fieldTypes <- patternFieldTypes pattern' subpatterns
+        fields <- zipWithM freshPatternBinder subpatterns fieldTypes
+        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+        rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
+        expanded <- mapMaybeM (specializeMatchWork key (length fields) fields fieldTypes) rooted
+        body <-
+          withAlternativeScope
+            (not (null typeBinders))
+            (zipWith Dictionary predicates dictionaries)
+            (desugarMatchArguments resultType fallback (fields <> remaining) (fieldTypes <> restTypes) expanded)
+        pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
 specializeMatchWork :: Text -> Int -> [Binder] -> [TcType] -> MatchWork -> ValueM (Maybe MatchWork)
 specializeMatchWork key arity fields fieldTypes (match, locals) =
@@ -3138,20 +3136,23 @@ convertCheckedTypeArguments declaredType arguments = do
 desugarInfixOperator :: Syn.Name -> ValueM Expr
 desugarInfixOperator operator = do
   let maybeAnnotation = listToMaybe (mapMaybe Syn.fromAnnotation (Syn.nameAnns operator))
-  maybeStrict <- strictConstructorData operator
-  case (maybeStrict, maybeAnnotation) of
-    (Just strictFlags, Just annotation) ->
-      desugarStrictConstructor operator annotation strictFlags
-    (Just strictFlags, Nothing) -> do
+  maybeInfo <- constructorForName operator
+  needsWrapper <- maybe (pure False) constructorNeedsWrapper maybeInfo
+  case (needsWrapper, maybeInfo, maybeAnnotation) of
+    (True, Just info, Just annotation) ->
+      desugarUnpackConstructor operator annotation info Nothing
+    (True, Just info, Nothing) -> do
       constructorType <- lookupBindingType =<< requiredNameTermKey operator
       let annotation = TcAnnotation constructorType [] [] [] [] []
-      desugarStrictConstructor operator annotation strictFlags
-    (Nothing, Just annotation) -> do
+      desugarUnpackConstructor operator annotation info Nothing
+    (True, Nothing, _) ->
+      failValue ("constructor " <> T.unpack (Syn.nameText operator) <> " has no constructor information")
+    (False, _, Just annotation) -> do
       variable <- resolvedTermName operator
       types <- convertOccurrenceTypeArguments operator (tcAnnTypeArgs annotation)
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
-    (Nothing, Nothing) -> do
+    (False, _, Nothing) -> do
       variable <- resolvedTermName operator
       desugarTermReference variable [] [] []
 
@@ -3189,17 +3190,18 @@ desugarVariable :: Maybe TcAnnotation -> Syn.Name -> ValueM Expr
 desugarVariable maybeAnnotation name = do
   maybeFamily <- familyConstructorData name
   maybeNewtype <- newtypeConstructorData name
-  maybeStrict <- strictConstructorData name
-  case (maybeFamily, maybeNewtype, maybeStrict) of
-    (Just info, _, _) -> do
+  maybeInfo <- constructorForName name
+  needsWrapper <- maybe (pure False) constructorNeedsWrapper maybeInfo
+  case (maybeFamily, maybeNewtype, needsWrapper, maybeInfo) of
+    (Just info, _, _, _) -> do
       annotation <- constructorAnnotation
       desugarFamilyConstructor name annotation info
-    (_, Just dataType, _) -> do
+    (_, Just dataType, _, _) -> do
       annotation <- constructorAnnotation
       desugarNewtypeConstructor annotation dataType
-    (_, _, Just strictFlags) -> do
+    (_, _, True, Just info) -> do
       annotation <- constructorAnnotation
-      desugarStrictConstructor name annotation strictFlags
+      desugarUnpackConstructor name annotation info Nothing
     _ -> do
       variable <- patSynBuilderName =<< resolvedTermName name
       case maybeAnnotation of
@@ -3364,52 +3366,399 @@ desugarPrimitiveSeq termArgumentTypes =
         )
     argumentTypes -> failValue ("GHC.Prim.seq has " <> show (length argumentTypes) <> " checked term argument types")
 
--- | The strict field flags of a data constructor that has one strict field
--- or more.
-strictConstructorData :: Syn.Name -> ValueM (Maybe [Bool])
-strictConstructorData name = do
-  strictConstructors <- gets vsStrictConstructors
-  pure (nameTermKey name >>= (`Map.lookup` strictConstructors))
+-- | The data constructor a name denotes, when the name has an origin.
+constructorForName :: Syn.Name -> ValueM (Maybe DataConInfo)
+constructorForName name =
+  case nameTermKey name of
+    Just (GlobalTerm package moduleName' text) -> do
+      infos <- gets vsConstructorInfos
+      pure (List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] text infos))
+    _ -> pure Nothing
 
--- | A data constructor with strict fields evaluates each strict field before
--- it builds the value. Give the constructor a wrapper that does this. The
--- wrapper takes each field, forces the strict lifted fields in field order,
--- and then applies the constructor. An unlifted field is already evaluated,
--- so the wrapper does not force it.
-desugarStrictConstructor :: Syn.Name -> TcAnnotation -> [Bool] -> ValueM Expr
-desugarStrictConstructor name annotation strictFlags = do
+constructorInfoByName :: Name -> ValueM (Maybe DataConInfo)
+constructorInfoByName name = do
+  infos <- gets vsConstructorInfos
+  pure $
+    case nameOrigin name of
+      OriginTop package moduleName' ->
+        List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] (nameText name) infos)
+      _ ->
+        listToMaybe (Map.findWithDefault [] (nameText name) infos)
+
+-- | A wrapper is required when a field is unpacked, cast, or a strict lifted value.
+constructorNeedsWrapper :: DataConInfo -> ValueM Bool
+constructorNeedsWrapper info = do
+  flags <- mapM (repNeedsWrapper . dcfiRep) (dciFields info)
+  pure (or flags)
+
+repNeedsWrapper :: FieldRep -> ValueM Bool
+repNeedsWrapper rep =
+  case rep of
+    RepUnpack {} -> pure True
+    RepCast {} -> pure True
+    RepStored ty strict
+      | not strict -> pure False
+      | otherwise -> do
+          kinds <- valueKinds
+          kindEnv <- gets (ceKindEnv . vsConvertEnv)
+          pure (not (isUnliftedTypeInEnv kinds kindEnv ty))
+
+-- | Build a use of a data constructor from its source fields.
+-- The body forces each strict lifted leaf, matches each unpacked product,
+-- and casts each newtype. It then applies the representation constructor.
+-- 'resultCast' wraps a data-family result.
+desugarUnpackConstructor :: Syn.Name -> TcAnnotation -> DataConInfo -> Maybe Coercion -> ValueM Expr
+desugarUnpackConstructor name annotation info resultCast = do
   let (_, afterForAlls) = peelForAlls (tcAnnType annotation)
       (_, bodyType) = peelConstraints afterForAlls
       (fieldTypes, resultType) = splitFunctionType bodyType
-  if length fieldTypes /= length strictFlags
-    then failValue ("strict constructor " <> T.unpack (Syn.nameText name) <> " has an unexpected field count")
-    else do
-      constructor <- resolvedTermName name
-      let inferredTypes = tcAnnTypeArgs annotation
-      types <- convertOccurrenceTypeArguments name inferredTypes
-      evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-      fields <- mapM (freshBinder "_strict_field") fieldTypes
-      convertedResult <- convertCheckedType resultType
+  when (length fieldTypes /= length (dciFields info)) $
+    failValue ("constructor " <> T.unpack (Syn.nameText name) <> " has an unexpected field count")
+  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [resultType])
+      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+  constructor <- resolvedTermName name
+  types <- convertOccurrenceTypeArguments name (tcAnnTypeArgs annotation)
+  evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+  fields <- mapM bindSourceField (zip fieldTypes reps)
+  convertedResult <- convertCheckedType resultType
+  body <-
+    lowerFields convertedResult (zip3 fields fieldTypes reps) $ \leaves ->
+      pure (buildWorker constructor types evidence leaves resultCast)
+  pure (foldr ExLam body fields)
+
+-- | A strict or unpacked source field keeps the historical strict-wrapper name.
+bindSourceField :: (TcType, FieldRep) -> ValueM Binder
+bindSourceField (fieldType, rep) =
+  freshBinder (if forcesField rep then "_strict_field" else "_field") fieldType
+
+forcesField :: FieldRep -> Bool
+forcesField rep =
+  case rep of
+    RepStored _ strict -> strict
+    RepUnpack {} -> True
+    RepCast {} -> True
+
+buildWorker :: Name -> [Type] -> [Expr] -> [Expr] -> Maybe Coercion -> Expr
+buildWorker constructor types evidence leaves resultCast =
+  let applied = foldl ExApp (foldl ExApp (foldl ExTyApp (ExVar constructor) types) evidence) leaves
+   in case resultCast of
+        Nothing -> applied
+        Just coercion -> ExCast applied coercion
+
+lowerFields :: Type -> [(Binder, TcType, FieldRep)] -> ([Expr] -> ValueM Expr) -> ValueM Expr
+lowerFields _ [] continue = continue []
+lowerFields result ((binder, fieldType, rep) : rest) continue =
+  lowerRep result (ExVar (binderName binder)) fieldType rep $ \leaves ->
+    lowerFields result rest $ \more ->
+      continue (leaves <> more)
+
+lowerRep :: Type -> Expr -> TcType -> FieldRep -> ([Expr] -> ValueM Expr) -> ValueM Expr
+lowerRep result source sourceType rep continue =
+  case rep of
+    RepStored _ strict ->
+      forceLifted result source sourceType strict (continue [source])
+    RepUnpack key _ ->
+      caseStoredProduct result source sourceType key rep continue
+    RepCast tyCon arguments inner -> do
+      innerType <- newtypeFieldTypeOf tyCon arguments
+      unwrapped <- castNewtype id tyCon arguments source
+      lowerRep result unwrapped innerType inner continue
+
+forceLifted :: Type -> Expr -> TcType -> Bool -> ValueM Expr -> ValueM Expr
+forceLifted result source sourceType strict inner
+  | not strict = inner
+  | otherwise = do
       kinds <- valueKinds
       kindEnv <- gets (ceKindEnv . vsConvertEnv)
-      let applied =
-            foldl
-              ExApp
-              (foldl ExApp (foldl ExTyApp (ExVar constructor) types) evidence)
-              (map (ExVar . binderName) fields)
-          forced (strict, binder, fieldType) inner
-            | strict && not (isUnliftedTypeInEnv kinds kindEnv fieldType) = do
-                evaluated <- freshBinder "_strict_forced" fieldType
-                pure
-                  ( ExCase
-                      (ExVar (binderName binder))
-                      evaluated
-                      convertedResult
-                      [Alt AltDefault [] [] inner]
-                  )
-            | otherwise = pure inner
-      body <- foldrM forced applied (zip3 strictFlags fields fieldTypes)
-      pure (foldr ExLam body fields)
+      if isUnliftedTypeInEnv kinds kindEnv sourceType
+        then inner
+        else do
+          evaluated <- freshBinder "_strict_forced" sourceType
+          body <- inner
+          pure (ExCase source evaluated result [Alt AltDefault [] [] body])
+
+caseStoredProduct :: Type -> Expr -> TcType -> (PackageId, Text, Text) -> FieldRep -> ([Expr] -> ValueM Expr) -> ValueM Expr
+caseStoredProduct result source sourceType (package, moduleName', constructorName) rep continue = do
+  let types = map fst (repLeaves rep)
+  binders <- zipWithM (freshIndexedBinder "_unpack_leaf") [0 :: Int ..] types
+  body <- continue (map (ExVar . binderName) binders)
+  scrutinee <- freshBinder "_unpack_scrut" sourceType
+  let name = Name constructorName SortDataConstructor (OriginTop package moduleName')
+  pure (ExCase source scrutinee result [Alt (AltData name) [] binders body])
+
+representationBinders :: FieldRep -> ValueM [Binder]
+representationBinders rep =
+  zipWithM (freshIndexedBinder "$field") [0 :: Int ..] (map fst (repLeaves rep))
+
+-- | Rebuild one source field from its representation leaves.
+-- An unpacked product uses the representation constructor, not the source wrapper.
+rebuildField :: TcType -> FieldRep -> [Expr] -> ValueM Expr
+rebuildField sourceType rep leaves =
+  case rep of
+    RepStored _ _ ->
+      case leaves of
+        [leaf] -> pure leaf
+        _ -> failValue "a stored field does not have one representation argument"
+    RepUnpack key _ ->
+      applyWorker key sourceType leaves
+    RepCast tyCon arguments inner -> do
+      innerType <- newtypeFieldTypeOf tyCon arguments
+      innerExpr <- rebuildField innerType inner leaves
+      castNewtype CoSym tyCon arguments innerExpr
+
+applyWorker :: (PackageId, Text, Text) -> TcType -> [Expr] -> ValueM Expr
+applyWorker (package, moduleName', constructorName) resultType leaves = do
+  (tyCon, arguments) <-
+    case resultType of
+      TcTyCon tyCon arguments -> pure (tyCon, arguments)
+      _ -> failValue ("representation constructor result is not a type constructor: " <> show resultType)
+  types <- convertTyConApplicationArguments tyCon arguments
+  let name = Name constructorName SortDataConstructor (OriginTop package moduleName')
+  pure (foldl ExApp (foldl ExTyApp (ExVar name) types) leaves)
+
+castNewtype :: (Coercion -> Coercion) -> TyCon -> [TcType] -> Expr -> ValueM Expr
+castNewtype direction tyCon arguments expr = do
+  dataType <- lookupNewtypeTyCon tyCon
+  converted <- convertNewtypeAxiomArguments dataType arguments
+  let axiom = Name ("$ax$" <> tyConName tyCon) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+  pure (ExCast expr (direction (CoAxiom axiom converted)))
+
+newtypeFieldTypeOf :: TyCon -> [TcType] -> ValueM TcType
+newtypeFieldTypeOf tyCon arguments = do
+  dataType <- lookupNewtypeTyCon tyCon
+  case dtiConstructors dataType of
+    [constructor]
+      | [field] <- dciFields constructor ->
+          pure (instantiateStored constructor (TcTyCon tyCon arguments) (dcfiType field))
+    _ -> failValue ("newtype " <> T.unpack (tyConName tyCon) <> " does not have one field")
+
+lookupNewtypeTyCon :: TyCon -> ValueM DataTypeInfo
+lookupNewtypeTyCon tyCon = do
+  newtypes <- gets vsNewtypeConstructors
+  case List.find (\dataType -> dtiTyCon dataType == tyCon) (Map.elems newtypes) of
+    Just dataType -> pure dataType
+    Nothing -> failValue ("missing newtype " <> T.unpack (tyConName tyCon))
+
+instantiateStored :: DataConInfo -> TcType -> TcType -> TcType
+instantiateStored info useTy fieldTy =
+  case matchTypes [dciResTy info] [useTy] of
+    Just substitution -> applySubst substitution fieldTy
+    Nothing -> fieldTy
+
+patternDataCon :: Syn.Pattern -> ValueM (Maybe DataConInfo)
+patternDataCon pattern' = do
+  constructor <- patternConstructor pattern'
+  case constructor of
+    AltData name -> constructorInfoByName name
+    _ -> pure Nothing
+
+representationIsIdentity :: DataConInfo -> TcType -> ValueM Bool
+representationIsIdentity info scrutineeType = do
+  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
+  pure
+    ( and
+        [ case applySubstRep substitution (dcfiRep field) of
+            RepStored ty _ -> ty == applySubst substitution (dcfiType field)
+            _ -> False
+        | field <- dciFields info
+        ]
+    )
+
+desugarUnpackedPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> Syn.Pattern -> DataConInfo -> ValueM Alt
+desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info = do
+  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
+      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+      fieldTypes = [applySubst substitution (dcfiType field) | field <- dciFields info]
+  canFlatten <- allRowsFlatten key fieldTypes reps works
+  if canFlatten
+    then desugarFlattenedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' fieldTypes reps
+    else desugarRebuiltPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' reps
+
+desugarFlattenedPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> Syn.Pattern -> [TcType] -> [FieldRep] -> ValueM Alt
+desugarFlattenedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' fieldTypes reps = do
+  constructor <- patternConstructor pattern'
+  flattened <- flattenChildren fieldTypes reps (patternChildren pattern')
+  leaves <-
+    case flattened of
+      Just patterns' -> pure patterns'
+      Nothing -> failValue ("unpacked pattern does not flatten: " <> T.unpack key)
+  let leafTypes = concatMap (map fst . repLeaves) reps
+      predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  when (length leaves /= length leafTypes) $
+    failValue ("unpacked pattern leaf count does not match " <> T.unpack key)
+  let annotated = zipWith annotatePattern leafTypes leaves
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fields <- zipWithM freshPatternBinder annotated leafTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
+    expanded <- mapMaybeM (specializeFlattened key fieldTypes reps fields leafTypes) rooted
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        (desugarMatchArguments resultType fallback (fields <> remaining) (leafTypes <> restTypes) expanded)
+    pure (Alt constructor typeBinders (dictionaries <> fields) body)
+
+desugarRebuiltPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> Syn.Pattern -> [FieldRep] -> ValueM Alt
+desugarRebuiltPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' reps = do
+  constructor <- patternConstructor pattern'
+  let subpatterns = patternChildren pattern'
+      predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  when (length subpatterns /= length reps) $
+    failValue ("unpacked pattern field count does not match " <> T.unpack key)
+  fieldTypes <- patternFieldTypes pattern' subpatterns
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    prepared <- mapM (\(child, childType, childRep) -> prepareRebuiltField child childType childRep) (zip3 subpatterns fieldTypes reps)
+    let leafBinders = concatMap (\(leaves, _, _) -> leaves) prepared
+        sourceBinders = map (\(_, source, _) -> source) prepared
+        rebuilds = mapMaybe (\(_, _, binding) -> binding) prepared
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
+    expanded <- mapMaybeM (specializeMatchWork key (length sourceBinders) sourceBinders fieldTypes) rooted
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        $ do
+          inner <- desugarMatchArguments resultType fallback (sourceBinders <> remaining) (fieldTypes <> restTypes) expanded
+          pure (foldr ExLet inner rebuilds)
+    pure (Alt constructor typeBinders (dictionaries <> leafBinders) body)
+
+prepareRebuiltField :: Syn.Pattern -> TcType -> FieldRep -> ValueM ([Binder], Binder, Maybe Bind)
+prepareRebuiltField pattern' fieldType rep
+  | storedIdentity fieldType rep = do
+      binder <- freshPatternBinder pattern' fieldType
+      pure ([binder], binder, Nothing)
+  | otherwise = do
+      let types = map fst (repLeaves rep)
+      leaves <- zipWithM (freshIndexedBinder "_unpack_leaf") [0 :: Int ..] types
+      source <- freshPatternBinder pattern' fieldType
+      rebuilt <- rebuildField fieldType rep (map (ExVar . binderName) leaves)
+      pure (leaves, source, Just (Bind source rebuilt))
+
+storedIdentity :: TcType -> FieldRep -> Bool
+storedIdentity fieldType rep =
+  case rep of
+    RepStored ty _ -> ty == fieldType
+    _ -> False
+
+allRowsFlatten :: Text -> [TcType] -> [FieldRep] -> [MatchWork] -> ValueM Bool
+allRowsFlatten key fieldTypes reps works = do
+  flags <- mapM (rowFlattens key fieldTypes reps) works
+  pure (and flags)
+
+rowFlattens :: Text -> [TcType] -> [FieldRep] -> MatchWork -> ValueM Bool
+rowFlattens key fieldTypes reps (match, _) =
+  case Syn.matchPats match of
+    pattern' : _
+      | patternIsDefault pattern' -> pure True
+      | patternKey pattern' /= key -> pure True
+      | otherwise -> isJust <$> flattenChildren fieldTypes reps (patternChildren pattern')
+    _ -> pure True
+
+flattenChildren :: [TcType] -> [FieldRep] -> [Syn.Pattern] -> ValueM (Maybe [Syn.Pattern])
+flattenChildren fieldTypes reps patterns
+  | length fieldTypes /= length reps || length reps /= length patterns = pure Nothing
+  | otherwise = do
+      parts <- sequence (zipWith3 flattenField fieldTypes reps patterns)
+      pure (concat <$> sequence parts)
+
+-- | The checked type of a nested constructor, or the type of its field.
+-- A nested unboxed constructor often has no annotation of its own.
+patternUseType :: Syn.Pattern -> TcType -> TcType
+patternUseType pattern' fieldType =
+  case patternType pattern' of
+    Just ty -> constructorResultType (length (patternChildren pattern')) ty
+    Nothing -> fieldType
+
+flattenField :: TcType -> FieldRep -> Syn.Pattern -> ValueM (Maybe [Syn.Pattern])
+flattenField fieldType rep pattern' =
+  case rep of
+    RepStored ty _ ->
+      pure (Just [annotatePattern ty pattern'])
+    RepUnpack key _ ->
+      case peelUnpackPattern pattern' of
+        Nothing -> pure Nothing
+        Just inner -> do
+          info <- constructorByKey key
+          actual <- patternConstructor inner
+          let (package, moduleName', constructorName) = key
+              expected = Name constructorName SortDataConstructor (OriginTop package moduleName')
+          if actual == AltData expected
+            then do
+              let useType = patternUseType inner fieldType
+                  substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [useType])
+                  innerTypes = [instantiateStored info useType (dcfiType field) | field <- dciFields info]
+                  innerReps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+              flattenChildren innerTypes innerReps (patternChildren inner)
+            else pure Nothing
+    RepCast tyCon arguments innerRep ->
+      case peelUnpackPattern pattern' of
+        Nothing -> pure Nothing
+        Just inner -> do
+          dataType <- lookupNewtypeTyCon tyCon
+          case dtiConstructors dataType of
+            [constructor] -> do
+              let (package, moduleName') = dciOrigin constructor
+                  expected = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
+              actual <- patternConstructor inner
+              case (actual == AltData expected, patternChildren inner) of
+                (True, [child]) -> do
+                  innerType <- newtypeFieldTypeOf tyCon arguments
+                  flattenField innerType innerRep child
+                _ -> pure Nothing
+            _ -> pure Nothing
+
+peelUnpackPattern :: Syn.Pattern -> Maybe Syn.Pattern
+peelUnpackPattern pattern' =
+  case pattern' of
+    Syn.PAnn _ inner -> peelUnpackPattern inner
+    Syn.PParen inner -> peelUnpackPattern inner
+    Syn.PStrict inner -> peelUnpackPattern inner
+    Syn.PTypeSig inner _ -> peelUnpackPattern inner
+    Syn.PAs {} -> Nothing
+    Syn.PIrrefutable {} -> Nothing
+    Syn.PVar {} -> Nothing
+    Syn.PWildcard -> Nothing
+    other -> Just other
+
+annotatePattern :: TcType -> Syn.Pattern -> Syn.Pattern
+annotatePattern ty pattern'
+  | isJust (patternType pattern') = pattern'
+  | otherwise = Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) pattern'
+
+specializeFlattened :: Text -> [TcType] -> [FieldRep] -> [Binder] -> [TcType] -> MatchWork -> ValueM (Maybe MatchWork)
+specializeFlattened key sourceTypes reps fields fieldTypes (match, locals) =
+  case Syn.matchPats match of
+    pattern' : rest
+      | patternIsDefault pattern' ->
+          let wildcards = map (`annotatePattern` Syn.PWildcard) fieldTypes
+           in pure (Just (match {Syn.matchPats = wildcards <> rest}, locals))
+      | patternKey pattern' == key -> do
+          flattened <- flattenChildren sourceTypes reps (patternChildren pattern')
+          case flattened of
+            Nothing -> pure Nothing
+            Just leaves -> do
+              let annotated = zipWith annotatePattern fieldTypes leaves
+              extra <-
+                concat
+                  <$> mapM
+                    (\(child, field, fieldType) -> patternMatchBindings child field fieldType)
+                    (zip3 annotated fields fieldTypes)
+              pure (Just (match {Syn.matchPats = annotated <> rest}, locals <> matchBinderLocals extra))
+      | otherwise -> pure Nothing
+    [] -> pure Nothing
+
+constructorByKey :: (PackageId, Text, Text) -> ValueM DataConInfo
+constructorByKey (package, moduleName', name) = do
+  infos <- gets vsConstructorInfos
+  case List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] name infos) of
+    Just info -> pure info
+    Nothing -> failValue ("missing constructor " <> T.unpack moduleName' <> "." <> T.unpack name)
 
 newtypeConstructorData :: Syn.Name -> ValueM (Maybe DataTypeInfo)
 newtypeConstructorData name = do
@@ -3432,21 +3781,22 @@ desugarFamilyConstructor name annotation info = do
       (fieldTypes, resultType) = splitFunctionType bodyType
   instanceArguments <- familyInstanceArguments info resultType
   axiomArguments <- familyAxiomArguments info instanceArguments
-  fields <- mapM (freshBinder "_field") fieldTypes
   let familyCoercion = CoSym (CoAxiom (familyAxiomName info) axiomArguments)
-  body <-
-    if dfiiIsNewtype info
-      then case fields of
-        [field] ->
-          pure (ExCast (ExVar (binderName field)) (CoTrans (CoSym (CoAxiom (familyRepresentationAxiomName info) axiomArguments)) familyCoercion))
-        _ -> failValue ("newtype family constructor does not have one field: " <> T.unpack (Syn.nameText name))
-      else do
-        constructor <- resolvedTermName name
-        types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
-        evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-        let applied = foldl ExApp (foldl ExApp (foldl ExTyApp (ExVar constructor) types) evidence) (map (ExVar . binderName) fields)
-        pure (ExCast applied familyCoercion)
-  pure (foldr ExLam body fields)
+  if dfiiIsNewtype info
+    then do
+      fields <- mapM (freshBinder "_field") fieldTypes
+      body <-
+        case fields of
+          [field] ->
+            pure (ExCast (ExVar (binderName field)) (CoTrans (CoSym (CoAxiom (familyRepresentationAxiomName info) axiomArguments)) familyCoercion))
+          _ -> failValue ("newtype family constructor does not have one field: " <> T.unpack (Syn.nameText name))
+      pure (foldr ExLam body fields)
+    else do
+      constructor <-
+        case List.find (\item -> dciName item == Syn.nameText name) (dfiiConstructors info) of
+          Just item -> pure item
+          Nothing -> failValue ("missing data-family constructor " <> T.unpack (Syn.nameText name))
+      desugarUnpackConstructor name annotation constructor (Just familyCoercion)
 
 splitFunctionType :: TcType -> ([TcType], TcType)
 splitFunctionType ty =

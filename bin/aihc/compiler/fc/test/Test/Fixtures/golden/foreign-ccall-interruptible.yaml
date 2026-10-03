@@ -36,7 +36,7 @@ expected: |-
     3.sType = 3.tTYPE 3.sLiftedRep
 
   pub type 1.tInt :: 3.sType {
-      pub 1.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tInt
+      pub strict [0] 1.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tInt
   }
 
   pub val 1.vrun :: 1.tInt 3.→ 1.tInt

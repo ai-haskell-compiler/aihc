@@ -29,7 +29,7 @@ import Aihc.Tc.Annotations
     TcPatSynAnnotation (..),
     renderTcType,
   )
-import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
@@ -367,9 +367,21 @@ firstMetaDataConInfo :: DataConInfo -> Maybe Unique
 firstMetaDataConInfo info =
   firstJusts
     ( map firstMetaPred (dciTheta info)
-        ++ map (firstMetaType . dcfiType) (dciFields info)
+        ++ map firstMetaField (dciFields info)
         ++ [firstMetaType (dciResTy info)]
     )
+
+firstMetaField :: DataConFieldInfo -> Maybe Unique
+firstMetaField field =
+  firstMetaType (dcfiType field) <|> firstMetaFieldRep (dcfiRep field)
+
+firstMetaFieldRep :: FieldRep -> Maybe Unique
+firstMetaFieldRep rep =
+  case rep of
+    RepStored ty _ -> firstMetaType ty
+    RepUnpack _ leaves -> firstJusts (map firstMetaFieldRep leaves)
+    RepCast _ arguments inner ->
+      firstJusts (map firstMetaType arguments) <|> firstMetaFieldRep inner
 
 firstMetaEvTerm :: EvTerm -> Maybe Unique
 firstMetaEvTerm evTerm =

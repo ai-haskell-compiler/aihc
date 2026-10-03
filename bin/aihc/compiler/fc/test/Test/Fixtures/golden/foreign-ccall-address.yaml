@@ -40,7 +40,7 @@ expected: |-
   }
 
   pub type 1.tPtr (a : 3.sType) :: 3.sType {
-      pub 1.cPtr :: ∀(a : 3.sType). FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (1.tPtr a)
+      pub strict [0] 1.cPtr :: ∀(a : 3.sType). FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (1.tPtr a)
   }
 
   pub val 1.vaddress :: 1.tPtr 1.tUnit
