@@ -3742,6 +3742,9 @@ flattenField fieldType rep pattern' =
                 _ -> pure Nothing
             _ -> pure Nothing
 
+-- | The constructor pattern under the wrappers of one subpattern.
+-- 'Nothing' means the subpattern does not flatten, so the alternative
+-- rebuilds the field and matches the subpattern against it.
 peelUnpackPattern :: Syn.Pattern -> Maybe Syn.Pattern
 peelUnpackPattern pattern' =
   case pattern' of
@@ -3749,11 +3752,10 @@ peelUnpackPattern pattern' =
     Syn.PParen inner -> peelUnpackPattern inner
     Syn.PStrict inner -> peelUnpackPattern inner
     Syn.PTypeSig inner _ -> peelUnpackPattern inner
-    Syn.PAs {} -> Nothing
-    Syn.PIrrefutable {} -> Nothing
-    Syn.PVar {} -> Nothing
-    Syn.PWildcard -> Nothing
-    other -> Just other
+    Syn.PCon {} -> Just pattern'
+    Syn.PInfix {} -> Just pattern'
+    Syn.PTuple {} -> Just pattern'
+    _ -> Nothing
 
 annotatePattern :: TcType -> Syn.Pattern -> Syn.Pattern
 annotatePattern ty pattern'
