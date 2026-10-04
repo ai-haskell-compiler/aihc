@@ -39,7 +39,7 @@ expected: |-
                     2.c[] →
                         2.c[] @a;
                     2.c: (_pat : 1.tMaybe a) (_list_comp_tail : 2.t[] (1.tMaybe a)) →
-                        case _pat as (_list_comp_pattern : 1.tMaybe a) return (2.t[] a) of {
+                        case _pat as (_do_scrut : 1.tMaybe a) return (2.t[] a) of {
                             1.cJust (x{1} : a) →
                                 2.c: @a x{1} (_list_comp _list_comp_tail);
                             _ →
