@@ -1,0 +1,25 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (map fromEnum (concatMap readChar ["'\\NUL'", "'\\SOH'", "'\\SO'", "'\\DEL'", "'\\^A'", "'\\^['"]))
+      print (map fromEnum (concatMap readChar ["'\\x41'", "'\\o101'", "'\\65'", "'\\n'"]))
+      print (read "\"a\\NULb\\SOH\\&c\\x41\"" :: String)
+      print (readChar "'\\x110000'")
+      where
+        readChar :: String -> [Char]
+        readChar text = [char | (char, "") <- reads text]
+stdout: |
+  [0,1,14,127,1,27]
+  [65,65,65,10]
+  "a\NULb\SOHcA"
+  ""
+output: |
+  ()
+expression: main
+status: pass
+reason: Read Char and Read String accept the named, control, hexadecimal, and octal escapes of the Haskell 2010 report, as GHC does
