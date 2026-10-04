@@ -35,11 +35,11 @@ expected: |-
     3.sType = 3.tTYPE 3.sLiftedRep
 
   pub type 1.tBoxInt :: 3.sType {
-      pub strict [0] 1.cBoxInt :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tBoxInt
+      pub 1.cBoxInt :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tBoxInt
   }
 
   pub type 1.tBoxAddr :: 3.sType {
-      pub strict [0] 1.cBoxAddr :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 1.tBoxAddr
+      pub 1.cBoxAddr :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 1.tBoxAddr
   }
 
   pub val 1.vintValue :: 1.tBoxInt

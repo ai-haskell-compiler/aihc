@@ -179,6 +179,9 @@ instance NFData DataConFieldUnpack
 -- leaves of the tree. 'RepStored' is one argument. 'RepUnpack' is one
 -- product constructor, and its children are the leaves of that constructor.
 -- 'RepCast' erases one newtype and then uses the inner layout.
+--
+-- A 'RepStored' at the top of a field layout has the type of the field.
+-- The leaves of a 'RepUnpack' are 'RepStored' nodes with the leaf types.
 data FieldRep
   = RepStored !TcType !Bool
   | RepUnpack !(PackageId, Text, Text) ![FieldRep]

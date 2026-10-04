@@ -34,7 +34,7 @@ expected: |-
     5.c: :: ∀(a : 5.sType). a 5.→ 5.t[] a 5.→ 5.t[] a;
     5.cAddrRep :: 5.tRuntimeRep;
     5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
-    strict [0] 5.cC# :: FUN @5.cWordRep @5.sLiftedRep 3.tChar# 5.tChar;
+    5.cC# :: FUN @5.cWordRep @5.sLiftedRep 3.tChar# 5.tChar;
     5.cFalse :: 5.tBool;
     5.cLifted :: 5.tLevity;
     5.cTrue :: 5.tBool;

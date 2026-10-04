@@ -44,7 +44,7 @@ expected: |-
     4.c(,) :: ∀(a1 : 5.sType) (a2 : 5.sType). a1 5.→ a2 5.→ 4.tTuple2 a1 a2;
     5.cAddrRep :: 5.tRuntimeRep;
     5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
-    strict [0] 5.cI# :: FUN @5.cIntRep @5.sLiftedRep 3.tInt# 5.tInt;
+    5.cI# :: FUN @5.cIntRep @5.sLiftedRep 3.tInt# 5.tInt;
     5.cIntRep :: 5.tRuntimeRep;
     5.cLifted :: 5.tLevity;
     5.c[] :: ∀(a : 5.sType). 5.t[] a;

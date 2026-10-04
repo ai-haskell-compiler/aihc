@@ -31,7 +31,7 @@ expected: |-
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
     3.sType :: 3.sType;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    strict [0] 3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
     3.cIntRep :: 3.tRuntimeRep;
     3.cLifted :: 3.tLevity
 
@@ -40,7 +40,7 @@ expected: |-
     3.sType = 3.tTYPE 3.sLiftedRep
 
   pub type 1.tT :: 3.sType {
-      pub strict [0] 1.cMkT :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tT
+      pub 1.cMkT :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tT
   }
 
   pub val 1.vbuild :: 3.tInt 3.→ 1.tT

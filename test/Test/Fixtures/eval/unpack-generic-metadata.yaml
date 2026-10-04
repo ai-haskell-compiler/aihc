@@ -54,10 +54,10 @@ modules:
            , "kept", "SourceNoUnpack", "SourceStrict", "DecidedStrict"
            , "plain", "NoSourceUnpackedness", "NoSourceStrictness", "DecidedLazy"
            , "function", "SourceUnpack", "SourceStrict", "DecidedStrict"
-           , "", "SourceUnpack", "NoSourceStrictness", "DecidedStrict"
+           , "", "SourceUnpack", "NoSourceStrictness", "DecidedLazy"
            ]
 output: |
   True
 expression: result
 status: pass
-reason: Generic metadata reports SourceUnpack and DecidedUnpack only for a field that unpacks a product.
+reason: Generic metadata reports SourceUnpack and DecidedUnpack only for a field that unpacks a product. A newtype field has no decided strictness, as in GHC.

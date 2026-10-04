@@ -57,7 +57,7 @@ expected: |-
     3.sType :: 3.sType;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
     3.cFalse :: 3.tBool;
-    strict [0] 3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
     3.cInt32Rep :: 3.tRuntimeRep;
     3.cIntRep :: 3.tRuntimeRep;
     3.cLifted :: 3.tLevity;
@@ -72,7 +72,7 @@ expected: |-
   }
 
   type 1.tInt32 :: 3.sType {
-      strict [0] 1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
+      1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
   }
 
   type 1.tCInt :: 3.sType {}

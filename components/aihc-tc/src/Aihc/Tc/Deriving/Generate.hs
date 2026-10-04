@@ -1294,7 +1294,7 @@ genericMetaSelType gen field =
     -- one pointer is only strict.
     decided
       | repHasUnpack (dcfiRep field) = genericPromoted gen genericDecidedUnpack
-      | dcfiStrict field || dcfiUnpack field == UnpackField = genericPromoted gen genericDecidedStrict
+      | dcfiStrict field = genericPromoted gen genericDecidedStrict
       | otherwise = genericPromoted gen genericDecidedLazy
 
 -- | One @from@ equation: the constructor's fields, wrapped in the metadata

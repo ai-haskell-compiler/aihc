@@ -2501,12 +2501,10 @@ desugarPatternGroup resultType fallback remaining restTypes scrutineeType caseBi
       [] -> failValue ("missing representative pattern for " <> T.unpack key)
   maybeInfo <- patternDataCon pattern'
   case maybeInfo of
-    Just info -> do
-      identity <- representationIsIdentity info scrutineeType
-      if identity
-        then sourceGroup pattern'
-        else desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info
-    Nothing -> sourceGroup pattern'
+    Just info
+      | not (all (repIsStored . dcfiRep) (dciFields info)) ->
+          desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info
+    _ -> sourceGroup pattern'
   where
     sourceGroup pattern' = do
       constructor <- patternConstructor pattern'
@@ -3412,20 +3410,27 @@ desugarPrimitiveSeq termArgumentTypes =
 constructorForName :: Syn.Name -> ValueM (Maybe DataConInfo)
 constructorForName name =
   case nameTermKey name of
-    Just (GlobalTerm package moduleName' text) -> do
-      infos <- gets vsConstructorInfos
-      pure (List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] text infos))
+    Just (GlobalTerm package moduleName' text) -> constructorInfo package moduleName' text
     _ -> pure Nothing
 
 constructorInfoByName :: Name -> ValueM (Maybe DataConInfo)
-constructorInfoByName name = do
+constructorInfoByName name =
+  case nameOrigin name of
+    OriginTop package moduleName' -> constructorInfo package moduleName' (nameText name)
+    _ -> pure Nothing
+
+-- | The data constructor with one origin and name.
+constructorInfo :: PackageId -> Text -> Text -> ValueM (Maybe DataConInfo)
+constructorInfo package moduleName' name = do
   infos <- gets vsConstructorInfos
-  pure $
-    case nameOrigin name of
-      OriginTop package moduleName' ->
-        List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] (nameText name) infos)
-      _ ->
-        listToMaybe (Map.findWithDefault [] (nameText name) infos)
+  pure (List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] name infos))
+
+-- | Whether the field is one stored argument of the field type.
+repIsStored :: FieldRep -> Bool
+repIsStored rep =
+  case rep of
+    RepStored {} -> True
+    _ -> False
 
 -- | A wrapper is required when a field is unpacked, cast, or a strict lifted value.
 constructorNeedsWrapper :: DataConInfo -> ValueM Bool
@@ -3594,18 +3599,6 @@ patternDataCon pattern' = do
     AltData name -> constructorInfoByName name
     _ -> pure Nothing
 
-representationIsIdentity :: DataConInfo -> TcType -> ValueM Bool
-representationIsIdentity info scrutineeType = do
-  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
-  pure
-    ( and
-        [ case applySubstRep substitution (dcfiRep field) of
-            RepStored ty _ -> ty == applySubst substitution (dcfiType field)
-            _ -> False
-        | field <- dciFields info
-        ]
-    )
-
 desugarUnpackedPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> Syn.Pattern -> DataConInfo -> ValueM Alt
 desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info = do
   let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
@@ -3672,7 +3665,7 @@ desugarRebuiltPatternGroup resultType fallback remaining restTypes scrutineeType
 
 prepareRebuiltField :: Syn.Pattern -> TcType -> FieldRep -> ValueM ([Binder], Binder, Maybe Bind)
 prepareRebuiltField pattern' fieldType rep
-  | storedIdentity fieldType rep = do
+  | repIsStored rep = do
       binder <- freshPatternBinder pattern' fieldType
       pure ([binder], binder, Nothing)
   | otherwise = do
@@ -3681,12 +3674,6 @@ prepareRebuiltField pattern' fieldType rep
       source <- freshPatternBinder pattern' fieldType
       rebuilt <- rebuildField fieldType rep (map (ExVar . binderName) leaves)
       pure (leaves, source, Just (Bind source rebuilt))
-
-storedIdentity :: TcType -> FieldRep -> Bool
-storedIdentity fieldType rep =
-  case rep of
-    RepStored ty _ -> ty == fieldType
-    _ -> False
 
 allRowsFlatten :: Text -> [TcType] -> [FieldRep] -> [MatchWork] -> ValueM Bool
 allRowsFlatten key fieldTypes reps works = do
@@ -3797,10 +3784,8 @@ specializeFlattened key sourceTypes reps fields fieldTypes (match, locals) =
 
 constructorByKey :: (PackageId, Text, Text) -> ValueM DataConInfo
 constructorByKey (package, moduleName', name) = do
-  infos <- gets vsConstructorInfos
-  case List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] name infos) of
-    Just info -> pure info
-    Nothing -> failValue ("missing constructor " <> T.unpack moduleName' <> "." <> T.unpack name)
+  maybeInfo <- constructorInfo package moduleName' name
+  maybe (failValue ("missing constructor " <> T.unpack moduleName' <> "." <> T.unpack name)) pure maybeInfo
 
 newtypeConstructorData :: Syn.Name -> ValueM (Maybe DataTypeInfo)
 newtypeConstructorData name = do

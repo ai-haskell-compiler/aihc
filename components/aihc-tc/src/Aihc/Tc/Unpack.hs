@@ -17,21 +17,18 @@ import Aihc.Tc.Env
     DataTypeInfo (..),
     FieldRep (..),
     TyConFlavor (..),
-    TyConInfo (..),
     applySubstRep,
-    repHasUnpack,
     repLeaves,
   )
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (expandTcTypeSynonyms)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcEnv, TcM, TcResult, TcState (..), emitError, emitWarning, getKinds, lookupDataType)
+import Aihc.Tc.Monad (TcEnv, TcM, TcResult, TcState (..), emitError, emitWarning, lookupDataType)
 import Aihc.Tc.Types
   ( TcAxiomKey,
     TcType (..),
     TyCon,
     applySubst,
-    isUnliftedTypeInEnv,
   )
 import Aihc.Tc.Zonk (defaultTypeKinds, zonkType)
 import Control.Monad (when)
@@ -39,7 +36,6 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, modify')
 import Control.Monad.Trans.State.Strict qualified as Memo
-import Data.Graph (SCC (..), stronglyConnComp)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -54,8 +50,6 @@ type ConKey = (PackageId, Text, Text)
 -- | The memo for one unpack decision. 'TcM' is a synonym, so this stack
 -- names the same transformers directly.
 type MemoM a = Memo.StateT (Map ConKey [FieldRep]) (ReaderT TcEnv (StateT TcState TcResult)) a
-
-type FieldId = (ConKey, Int)
 
 data KnownCon = KnownCon
   { knownNewtype :: !Bool,
@@ -77,20 +71,16 @@ decideConstructorRepresentations previousTypes previousFamilies = do
   state <- lift get
   let localTypes = Map.difference (tcsDataTypes state) previousTypes
       localFamilies = Map.difference (tcsDataFamilyInstances state) previousFamilies
-      known =
-        Map.union
-          (Map.union (typeConstructors True localTypes) (familyConstructors True localFamilies))
-          (Map.union (typeConstructors False (tcsDataTypes state)) (familyConstructors False (tcsDataFamilyInstances state)))
-      localKeys = [key | (key, item) <- Map.toList known, knownLocal item]
-  edges <- mapM (fieldTargets known) localKeys
-  let cyclic = cyclicFields edges
-  decided <- Memo.evalStateT (mapM (\key -> (,) key <$> decideCon known cyclic Set.empty key) localKeys) Map.empty
+      local = typeConstructors True localTypes <> familyConstructors True localFamilies
+      known = local <> typeConstructors False (tcsDataTypes state) <> familyConstructors False (tcsDataFamilyInstances state)
+      localKeys = Map.keys local
+  decided <- Memo.evalStateT (mapM (\key -> (,) key <$> decideCon known key) localKeys) Map.empty
   let reps = Map.fromList decided
       rewrite info =
         case Map.lookup (conKey info) reps of
           Just fieldReps -> info {dciFields = zipWith (\field rep -> field {dcfiRep = rep}) (dciFields info) fieldReps}
           Nothing -> info
-  mapM_ (checkWidth . rewrite) [knownInfo item | key <- localKeys, Just item <- [Map.lookup key known]]
+  mapM_ (checkWidth . rewrite . knownInfo) (Map.elems local)
   lift $
     modify' $ \current ->
       current
@@ -119,143 +109,83 @@ conKey info =
   let (package, moduleName) = dciOrigin info
    in (package, moduleName, dciName info)
 
--- | The product constructor each unpacked field names, after newtype erasure.
-fieldTargets :: Map ConKey KnownCon -> ConKey -> TcM (ConKey, [(Int, Maybe ConKey)])
-fieldTargets known key =
-  case Map.lookup key known of
-    Nothing -> pure (key, [])
-    Just item
-      | knownNewtype item -> pure (key, [])
-      | otherwise -> do
-          targets <- mapM fieldTarget (zip [0 ..] (dciFields (knownInfo item)))
-          pure (key, targets)
-
-fieldTarget :: (Int, DataConFieldInfo) -> TcM (Int, Maybe ConKey)
-fieldTarget (index, field)
-  | dcfiUnpack field == UnpackField && not (dcfiLazy field) = do
-      target <- productTarget Set.empty (dcfiType field)
-      pure (index, target)
-  | otherwise = pure (index, Nothing)
-
--- | The product at the end of one unpack walk.
---
--- 'Nothing' means the walk found no algebraic product. 'Just' the same
--- constructor means the walk met that constructor again.
-productTarget :: Set ConKey -> TcType -> TcM (Maybe ConKey)
-productTarget seen ty = do
-  (_, classified) <- classifyType ty
-  case classified of
-    HeadOther -> pure Nothing
-    HeadProduct info -> pure (Just (conKey info))
-    HeadNewtype info _ _ inner
-      | conKey info `Set.member` seen -> pure (Just (conKey info))
-      | otherwise -> productTarget (Set.insert (conKey info) seen) inner
-
--- | Fields whose unpack walk meets a constructor that is already on the walk.
-cyclicFields :: [(ConKey, [(Int, Maybe ConKey)])] -> Set FieldId
-cyclicFields edges =
-  Set.fromList
-    [ (owner, index)
-    | (owner, targets) <- edges,
-      (index, Just target) <- targets,
-      owner == target || sameCycle owner target
-    ]
-  where
-    graph = [(key, key, [target | (_, Just target) <- targets, Map.member target nodes]) | (key, targets) <- edges]
-    nodes = Map.fromList [(key, ()) | (key, _) <- edges]
-    components = zip [0 :: Int ..] (stronglyConnComp graph)
-    mark = Map.fromList [(key, (number, cyclic)) | (number, component) <- components, (key, cyclic) <- componentKeys component]
-    componentKeys (AcyclicSCC key) = [(key, False)]
-    componentKeys (CyclicSCC keys) = [(key, True) | key <- keys]
-    sameCycle owner target =
-      case (Map.lookup owner mark, Map.lookup target mark) of
-        (Just (left, True), Just (right, _)) -> left == right
-        _ -> False
-
-decideCon :: Map ConKey KnownCon -> Set FieldId -> Set ConKey -> ConKey -> MemoM [FieldRep]
-decideCon known cyclic seen key = do
+-- | The field layouts of one constructor. A constructor from an earlier
+-- component keeps its stored layouts.
+decideCon :: Map ConKey KnownCon -> ConKey -> MemoM [FieldRep]
+decideCon known key = do
   memo <- Memo.get
-  case Map.lookup key memo of
-    Just reps -> pure reps
-    Nothing ->
-      case Map.lookup key known of
-        Nothing -> pure []
-        Just item
-          | not (knownLocal item) -> pure (map dcfiRep (dciFields (knownInfo item)))
-          | key `Set.member` seen -> pure (map storedField (dciFields (knownInfo item)))
-          | otherwise -> do
-              let next = Set.insert key seen
-              reps <- mapM (decideField known cyclic next key item) (zip [0 ..] (dciFields (knownInfo item)))
-              Memo.modify' (Map.insert key reps)
-              pure reps
+  case (Map.lookup key memo, Map.lookup key known) of
+    (Just reps, _) -> pure reps
+    (Nothing, Nothing) -> pure []
+    (Nothing, Just item)
+      | not (knownLocal item) -> pure (map dcfiRep (dciFields (knownInfo item)))
+      | otherwise -> do
+          reps <- mapM (decideField known item) (dciFields (knownInfo item))
+          Memo.modify' (Map.insert key reps)
+          pure reps
 
 storedField :: DataConFieldInfo -> FieldRep
 storedField field = RepStored (dcfiType field) (dcfiStrict field)
 
-decideField :: Map ConKey KnownCon -> Set FieldId -> Set ConKey -> ConKey -> KnownCon -> (Int, DataConFieldInfo) -> MemoM FieldRep
-decideField known cyclic seen key item (index, field) = do
-  prepared <- lift (prepareType (dcfiType field))
-  unlifted <- lift (typeIsUnlifted prepared)
-  let wantUnpack = dcfiUnpack field == UnpackField && not (dcfiLazy field)
-      constructorName = T.unpack (dciName (knownInfo item))
-      stored = RepStored (dcfiType field)
-      -- A concrete unlifted field of a heap constructor is strict.
-      -- An unboxed tuple or an unboxed sum is not a heap object.
-      strictUnlifted = unlifted && heapConstructor (knownInfo item)
-  if knownNewtype item
-    then do
-      when (dcfiUnpack field == UnpackField) $
-        lift (emitWarning Nothing (OtherError ("The UNPACK pragma on " <> constructorName <> " has no effect because a newtype has no heap field.")))
-      pure (stored (dcfiStrict field || strictUnlifted || (dcfiUnpack field == UnpackField && not (dcfiLazy field))))
-    else
-      if dcfiLazy field && dcfiUnpack field == UnpackField
-        then do
-          lift (emitWarning Nothing (OtherError ("The UNPACK pragma on " <> constructorName <> " has no effect because the field is lazy.")))
-          pure (stored False)
-        else
-          if not wantUnpack
-            then pure (stored (dcfiStrict field || strictUnlifted))
-            else
-              if (key, index) `Set.member` cyclic
-                then do
-                  lift (emitWarning Nothing (OtherError ("The UNPACK pragma on " <> constructorName <> " has no effect because the field type is recursive.")))
-                  pure (stored True)
-                else do
-                  rep <- representationOf known cyclic seen prepared
-                  case rep of
-                    Just layout
-                      | repHasUnpack layout -> pure layout
-                    Just layout -> do
-                      lift (emitWarning Nothing (OtherError ("The UNPACK pragma on " <> constructorName <> " has no effect because the field type is not one product.")))
-                      pure layout
-                    Nothing -> do
-                      lift (emitWarning Nothing (OtherError ("The UNPACK pragma on " <> constructorName <> " has no effect because the field type is not one product.")))
-                      pure (stored True)
+-- | Whether the field has an UNPACK pragma and a bang. GHC ignores an
+-- UNPACK pragma on a field without a bang.
+unpackRequested :: DataConFieldInfo -> Bool
+unpackRequested field = dcfiUnpack field == UnpackField && dcfiStrict field
 
-representationOf :: Map ConKey KnownCon -> Set FieldId -> Set ConKey -> TcType -> MemoM (Maybe FieldRep)
-representationOf known cyclic seen ty = do
+decideField :: Map ConKey KnownCon -> KnownCon -> DataConFieldInfo -> MemoM FieldRep
+decideField known item field
+  | dcfiUnpack field /= UnpackField = pure (storedField field)
+  | knownNewtype item = keep "a newtype has no heap field"
+  | not (dcfiStrict field) = keep "the field is not strict"
+  | otherwise = do
+      acyclic <- lift (acyclicUnpack known Set.empty (dcfiType field))
+      if not acyclic
+        then keep "the field type is recursive"
+        else do
+          rep <- representationOf known (dcfiType field)
+          maybe (keep "the field type is not one product") pure rep
+  where
+    keep reason = do
+      let constructorName = T.unpack (dciName (knownInfo item))
+      lift (emitWarning Nothing (OtherError ("The UNPACK pragma on " <> constructorName <> " has no effect because " <> reason <> ".")))
+      pure (storedField field)
+
+-- | Whether the unpack walk from one type meets no constructor twice.
+--
+-- The walk goes through each newtype and into each unpacked field of a
+-- local product. A constructor from an earlier component cannot name a
+-- local type, so the walk stops there. A walk that meets a constructor
+-- again marks a recursive field, which stays one pointer as in GHC.
+acyclicUnpack :: Map ConKey KnownCon -> Set ConKey -> TcType -> TcM Bool
+acyclicUnpack known seen ty = do
+  (_, classified) <- classifyType ty
+  case classified of
+    HeadOther -> pure True
+    HeadNewtype info _ _ inner -> continue info [inner]
+    HeadProduct info
+      | maybe False knownLocal (Map.lookup (conKey info) known) ->
+          continue info [dcfiType field | field <- dciFields info, unpackRequested field]
+      | otherwise -> pure True
+  where
+    continue info types
+      | conKey info `Set.member` seen = pure False
+      | otherwise = and <$> mapM (acyclicUnpack known (Set.insert (conKey info) seen)) types
+
+-- | The layout of one unpacked field type. 'Nothing' means the type is not
+-- one product after newtype erasure. The walk must be acyclic.
+representationOf :: Map ConKey KnownCon -> TcType -> MemoM (Maybe FieldRep)
+representationOf known ty = do
   (prepared, classified) <- lift (classifyType ty)
   case classified of
     HeadOther -> pure Nothing
-    HeadNewtype info tyCon arguments inner
-      | conKey info `Set.member` seen -> pure Nothing
-      | otherwise -> do
-          innerRep <- representationOf known cyclic (Set.insert (conKey info) seen) inner
-          body <- case innerRep of
-            Just layout -> pure layout
-            Nothing -> pure (RepStored inner True)
-          pure (Just (RepCast tyCon arguments body))
-    HeadProduct info
-      | conKey info `Set.member` seen -> pure Nothing
-      | otherwise -> do
-          reps <- decideCon known cyclic seen (conKey info)
-          let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [prepared])
-              leaves = concatMap (repLeaves . applySubstRep substitution) reps
-          pure (Just (RepUnpack (conKey info) (map flattenLeaf leaves)))
-
--- | A leaf stored for an outer product. The outer case binds these arguments.
-flattenLeaf :: (TcType, Bool) -> FieldRep
-flattenLeaf (ty, strict) = RepStored ty strict
+    HeadNewtype _ tyCon arguments inner ->
+      fmap (RepCast tyCon arguments) <$> representationOf known inner
+    HeadProduct info -> do
+      reps <- decideCon known (conKey info)
+      let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [prepared])
+          leaves = concatMap (repLeaves . applySubstRep substitution) reps
+      -- The outer case binds these arguments, so each leaf is stored.
+      pure (Just (RepUnpack (conKey info) [RepStored leafType strict | (leafType, strict) <- leaves]))
 
 classifyType :: TcType -> TcM (TcType, TypeHead)
 classifyType ty = do
@@ -275,7 +205,7 @@ typeHead tyCon arguments maybeType =
         [field] <- dciFields info,
         null (dciExTyVars info),
         null (dciTheta info) ->
-          HeadNewtype info tyCon arguments (instantiate info (tyConType tyCon arguments) (dcfiType field))
+          HeadNewtype info tyCon arguments (instantiate info (TcTyCon tyCon arguments) (dcfiType field))
     Just dataType
       | dtiFlavor dataType == DataTyCon,
         [info] <- dtiConstructors dataType,
@@ -285,21 +215,13 @@ typeHead tyCon arguments maybeType =
 
 unpackableProduct :: DataConInfo -> Bool
 unpackableProduct info =
-  null (dciExTyVars info)
-    && null (dciTheta info)
-    && case dciSourceForm info of
-      UnboxedTupleDataCon -> False
-      UnboxedSumDataCon {} -> False
-      _ -> True
+  null (dciExTyVars info) && null (dciTheta info) && heapConstructor info
 
 instantiate :: DataConInfo -> TcType -> TcType -> TcType
 instantiate info useTy fieldTy =
   case matchTypes [dciResTy info] [useTy] of
     Just substitution -> applySubst substitution fieldTy
     Nothing -> fieldTy
-
-tyConType :: TyCon -> [TcType] -> TcType
-tyConType = TcTyCon
 
 splitTyCon :: TcType -> Maybe (TyCon, [TcType])
 splitTyCon ty =
@@ -317,13 +239,6 @@ prepareType ty = do
   zonked <- zonkType ty
   expanded <- expandTcTypeSynonyms Set.empty zonked
   defaultTypeKinds expanded
-
-typeIsUnlifted :: TcType -> TcM Bool
-typeIsUnlifted ty = do
-  kinds <- getKinds
-  state <- lift get
-  let kindEnv = Map.map tciKindScheme (tcsGlobalTyCons state)
-  pure (isUnliftedTypeInEnv kinds kindEnv ty)
 
 -- | Reject a heap object that needs more than 255 machine fields.
 checkWidth :: DataConInfo -> TcM ()

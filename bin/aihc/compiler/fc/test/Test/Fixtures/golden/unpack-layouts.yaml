@@ -45,7 +45,7 @@ expected: |-
     4.sType :: 4.sType;
     3.c(,,,,,,) :: ∀(a1 : 4.sType) (a2 : 4.sType) (a3 : 4.sType) (a4 : 4.sType) (a5 : 4.sType) (a6 : 4.sType) (a7 : 4.sType). a1 4.→ a2 4.→ a3 4.→ a4 4.→ a5 4.→ a6 4.→ a7 4.→ 3.tTuple7 a1 a2 a3 a4 a5 a6 a7;
     4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    strict [0] 4.cI# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 4.tInt;
+    4.cI# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 4.tInt;
     4.cIntRep :: 4.tRuntimeRep;
     4.cLifted :: 4.tLevity
 
@@ -58,11 +58,11 @@ expected: |-
   }
 
   pub type 1.tPacked :: 4.sType {
-      pub strict [0, 1] 1.cPacked :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tPacked)
+      pub 1.cPacked :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tPacked)
   }
 
   pub type 1.tOuter :: 4.sType {
-      pub strict [0, 1] 1.cOuter :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tOuter)
+      pub 1.cOuter :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tOuter)
   }
 
   pub type 1.tLazyPair :: 4.sType {
@@ -95,7 +95,7 @@ expected: |-
   axiom 1.$ax$N : 1.tN ~R 4.tInt
 
   pub type 1.tThrough :: 4.sType {
-      pub strict [0] 1.cThrough :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tThrough
+      pub 1.cThrough :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tThrough
   }
 
   pub val 1.vbuild :: 1.tPacked 4.→ 1.tPair 4.→ 4.tInt 4.→ (4.tInt 4.→ 4.tInt) 4.→ 1.tSum 4.→ 4.tInt 4.→ 1.tN 4.→ 3.tTuple7 1.tOuter 1.tLazyPair 1.tKept 1.tFun 1.tSumBox 1.tLazyBox 1.tThrough

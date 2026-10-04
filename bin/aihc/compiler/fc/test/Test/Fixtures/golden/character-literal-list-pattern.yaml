@@ -30,7 +30,7 @@ expected: |-
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
     3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    strict [0] 3.cC# :: FUN @3.cWordRep @3.sLiftedRep 2.tChar# 3.tChar;
+    3.cC# :: FUN @3.cWordRep @3.sLiftedRep 2.tChar# 3.tChar;
     3.cLifted :: 3.tLevity;
     3.cWordRep :: 3.tRuntimeRep;
     3.c[] :: ∀(a : 3.sType). 3.t[] a
