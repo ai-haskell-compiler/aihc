@@ -1960,8 +1960,9 @@ buildEnvironmentIdentity target = do
   archiver <- backendArchiver target
   compilerHash <- executableIdentity compiler
   archiverHash <- executableIdentity archiver
+  compilerIdentity <- compilerBuildIdentity
   let headerHash = compilerHeaderIdentity target
-  pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
+  pure (stableHash (map BS8.pack [compilerIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 -- | The part of the configuration that changes what a package is: the
 -- compiler, the target, the optimization level, whether the package stops
