@@ -10,6 +10,7 @@ module Aihc.Tc.Solve.Equality
 where
 
 import Aihc.Tc.Constraint
+import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
@@ -166,10 +167,8 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
 solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult
 solveMetaEq ct u ty
   | occursIn u ty = do
-      -- An occurrence in a family argument can disappear when the family
-      -- reduces. The equality waits until then.
       outside <- occursOutsideFamilies
-      pure (if outside u ty then EqError ct else EqStuck ct)
+      if outside u ty then pure (EqError ct) else breakFamilyCycle ct u ty
   -- A meta-variable stands for a monotype. Binding it to a polytype
   -- would let inference guess an impredicative instantiation.
   | isPolyType ty = pure (EqError ct)
@@ -183,6 +182,85 @@ solveMetaEq ct u ty
       writeMetaTv u solved
       bindEvidence (ctEvVar ct) (EvCoercion (Refl solved))
       pure EqSolved
+
+-- | Solve @u ~ ty@ when the meta variable @u@ occurs in @ty@ only in the
+-- arguments of type family applications.
+--
+-- Each family application that mentions @u@ changes to a fresh meta
+-- variable, and @u@ gets the result as its solution. Then each fresh
+-- variable must be equal to its application. For example, @m ~ ST
+-- (PrimState m)@ gives @m := ST b@ and the equality @b ~ PrimState (ST
+-- b)@. The application then reduces to @b@, and the equality holds.
+--
+-- When the solution itself is a family application, this procedure only
+-- gives a new name to the same problem. The equality then waits, because a
+-- family reduction can still remove the occurrence. This also stops the
+-- procedure on its own equalities, which have a family application on one
+-- side.
+breakFamilyCycle :: Ct -> Unique -> TcType -> TcM EqResult
+breakFamilyCycle ct u ty = do
+  topFamily <- unsaturateFamilyApplication ty >>= isTypeFamilyApplication
+  if topFamily
+    then pure (EqStuck ct)
+    else do
+      (solution, breakers) <- replaceFamilyApplications u ty
+      bound <- if occursIn u solution then pure (EqStuck ct) else solveMetaEq ct u solution
+      case bound of
+        EqSolved -> do
+          results <- mapM solveBreaker breakers
+          pure $ case firstUnsolved results of
+            Nothing -> EqSolved
+            -- A family application that does not reduce yet keeps the
+            -- original equality. Its retry decomposes to the same
+            -- application, after the solution of @u@.
+            Just EqStuck {} -> EqStuck ct
+            Just result -> result
+        _ -> pure bound
+  where
+    solveBreaker (breaker, application) = do
+      evidence <- freshEvVar
+      solveEquality (ct {ctPred = EqPred breaker application, ctEvVar = evidence})
+
+-- | Replace each saturated type family application that mentions the meta
+-- variable with a fresh meta variable of the same kind. The result gives
+-- each fresh variable together with the application that it replaces.
+replaceFamilyApplications :: Unique -> TcType -> TcM (TcType, [(TcType, TcType)])
+replaceFamilyApplications u = go
+  where
+    go ty = case ty of
+      TcTyCon tyCon arguments -> do
+        maybeInfo <- lookupTyConByIdentity tyCon
+        case maybeInfo of
+          Just info
+            | tciFlavor info == TypeFamilyTyCon,
+              length arguments >= tciArity info ->
+                do
+                  let (familyArguments, extraArguments) = splitAt (tciArity info) arguments
+                      application = TcTyCon tyCon familyArguments
+                  (application', applicationBreakers) <-
+                    if occursIn u application
+                      then do
+                        kind <- tcTypeKind application
+                        breaker <- freshMetaTvOfKind kind
+                        pure (breaker, [(breaker, application)])
+                      else pure (application, [])
+                  (extraArguments', extraBreakers) <- goList extraArguments
+                  pure (foldl mkAppTy application' extraArguments', applicationBreakers <> extraBreakers)
+          _ -> do
+            (arguments', breakers) <- goList arguments
+            pure (TcTyCon tyCon arguments', breakers)
+      TcFunTy argument result -> do
+        (argument', argumentBreakers) <- go argument
+        (result', resultBreakers) <- go result
+        pure (TcFunTy argument' result', argumentBreakers <> resultBreakers)
+      TcAppTy function argument -> do
+        (function', functionBreakers) <- go function
+        (argument', argumentBreakers) <- go argument
+        pure (mkAppTy function' argument', functionBreakers <> argumentBreakers)
+      _ -> pure (ty, [])
+    goList arguments = do
+      results <- mapM go arguments
+      pure (map fst results, concatMap snd results)
 
 solveDecomposed :: Ct -> TcType -> [(TcType, TcType)] -> TcM EqResult
 solveDecomposed ct witness pairs = do
