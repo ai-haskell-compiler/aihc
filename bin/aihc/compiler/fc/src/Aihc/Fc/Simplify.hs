@@ -46,6 +46,7 @@ module Aihc.Fc.Simplify
     castedSpine,
     exprValueNames,
     maxLocalUnique,
+    safePrimitiveCall,
     freshenExprFrom,
 
     -- * Substitution
@@ -72,6 +73,7 @@ import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM)
 import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
+import Data.Bifunctor (first)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -330,19 +332,33 @@ simplifyExpr env expr =
       | Just pushed <- pushHeadCasts expr -> simplifyExpr env pushed
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
-    ExLam binder body -> ExLam binder <$> simplifyExpr (markUnlifted [binder] (passLambda env)) body
+    ExLam binder body -> do
+      body' <- simplifyExpr (markUnlifted [binder] (passLambda env)) body
+      ExLam binder <$> readFieldsInside env body'
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
       let binder = bindBinder bind
       rhs <- simplifyExpr (rhsEnv env (binderName binder)) (bindRhs bind)
-      if isTrivial rhs
-        then simplifyExpr env (substExpr (Map.singleton (binderName binder) rhs) body)
-        else do
-          body' <- simplifyExpr (bindingEnv env binder rhs) body
-          mkLet env (Bind binder rhs) body'
+      let continue env' rhs'
+            | isTrivial rhs' = simplifyExpr env' (substExpr (Map.singleton (binderName binder) rhs') body)
+            | otherwise = do
+                body' <- simplifyExpr (bindingEnv env' binder rhs') body
+                mkLet env' (Bind binder rhs') body'
+      -- A strict let evaluates its right-hand side before its body, so the
+      -- chain of the right-hand side can move out of the let as it moves
+      -- out of a scrutinee. See 'floatChain'. The body is then simplified
+      -- once, where the chain knows its scrutinees. The cases of the chain
+      -- take the type of the body, so the body must show it.
+      if isStrictBinder (spEnv env) binder && isChain rhs
+        then case tailType env body of
+          Just resultType -> do
+            chain <- freshenExpr rhs
+            floatChain env resultType chain continue
+          Nothing -> continue env rhs
+        else continue env rhs
     ExRec binds body -> do
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv env (binderName (bindBinder bind))) (bindRhs bind)) binds
-      ExRec binds' <$> simplifyExpr env body
+      simplifyExpr env body >>= sinkGroup binds' ExRec
     ExCase scrutinee binder resultType alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
@@ -350,14 +366,153 @@ simplifyExpr env expr =
           inlineScrutinee (noOneShot env) name candidate args binder resultType alternatives
       | otherwise -> do
           scrutinee' <- simplifyExpr (noOneShot env) scrutinee
-          simplifyCase env scrutinee' binder resultType alternatives
+          if isChain scrutinee'
+            then do
+              chain <- freshenExpr scrutinee'
+              floatChain env resultType chain (\env' tailExpr -> simplifyCase env' tailExpr binder resultType alternatives)
+            else simplifyCase env scrutinee' binder resultType alternatives
     ExCast body coercion -> do
       body' <- simplifyExpr env body
       mkCast body' coercion
     ExForeignCall call types arguments -> do
       arguments' <- mapM (simplifyExpr (noOneShot env)) arguments
-      let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
-      pure (maybe call' ExVar (Map.lookup call' (spCse env)))
+      floated <- floatPrimitiveArgument env call types arguments'
+      case floated of
+        Just result -> pure result
+        Nothing -> do
+          let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
+          pure (maybe call' ExVar (Map.lookup call' (spCse env)))
+
+-- | Read the fields of a known constructor inside a lambda that uses both
+-- the constructor and its fields: @λx. f b v@ where @b@ is @K v@ is
+-- @λx. case b of K v' -> f b v'@. The closure of the lambda then holds
+-- @b@ only, and does not hold each field beside it. The case selects the
+-- fields of a value, so it reads them and evaluates nothing.
+--
+-- Such a lambda comes from a case of a known constructor inside it,
+-- which put the field where the code read it from @b@. A chain of
+-- continuation closures, such as the reads of the @Get@ monad, each hold
+-- every earlier value, so each value held twice doubles every closure.
+--
+-- The case needs the result type of the body, which the body must show.
+readFieldsInside :: Simpl -> Expr -> SimplM Expr
+readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
+  where
+    readFields body (name, application)
+      | Set.member name used,
+        (ExVar con, args) <- collectSpine application,
+        isConstructorName con,
+        Just fields <- mapM fieldVariable (rights args),
+        any (`Set.member` used) fields,
+        name `notElem` fields,
+        Just (fieldTypes, conResult) <- constructorFields (lefts args) con,
+        length fieldTypes == length fields,
+        isLiftedType (spEnv env) conResult,
+        Just resultType <- tailType env body = do
+          fresh <- mapM freshLocal fields
+          binder <- freshLocal name
+          let renamed = substExpr (Map.fromList (zip fields (map ExVar fresh))) body
+              binders = zipWith Binder fresh fieldTypes
+          pure (ExCase (ExVar name) (Binder binder conResult) resultType [Alt (AltData con) [] binders renamed])
+      | otherwise = pure body
+      where
+        used = exprValueNames body
+    fieldVariable argument =
+      case argument of
+        ExVar var -> Just var
+        _ -> Nothing
+    -- The field types and the result type of a constructor at its type
+    -- arguments. A constructor with an existential type takes more type
+    -- arguments than its result type has, and gives nothing: the
+    -- alternative would have to bind the existential types.
+    constructorFields types con = do
+      conType <- lookupHeaderType (spEnv env) con
+      instantiated <- foldM instantiate conType types
+      (fieldTypes, result) <- split instantiated
+      let (_, resultArgs) = typeSpine (reduceType (spEnv env) result)
+      if length resultArgs == length types then Just (fieldTypes, result) else Nothing
+    instantiate ty argument = do
+      (binder, inner) <- viewForAll (spEnv env) ty
+      Just (substType (binderName binder) argument inner)
+    split ty =
+      case viewFun (spEnv env) ty of
+        Just (_, _, argument, result) -> do
+          (arguments, final) <- split result
+          Just (argument : arguments, final)
+        Nothing
+          | Just _ <- viewForAll (spEnv env) ty -> Nothing
+          | otherwise -> Just ([], ty)
+
+-- | Whether an expression starts a chain: a let, or a case of one
+-- alternative. See 'floatChain'.
+isChain :: Expr -> Bool
+isChain expr =
+  case expr of
+    ExLet {} -> True
+    ExCase _ _ _ [_] -> True
+    _ -> False
+
+-- | Move the chain of a simplified scrutinee out of its case:
+-- @case (let x = a in case s of K y -> b) of alts@ is
+-- @let x = a in case s of K y -> case b of alts@. A strict let in the
+-- chain also gives up the chain of its right-hand side:
+-- @let v = (case s of K y -> b) in c@ is @case s of K y -> let v = b in c@.
+-- The scrutinee is evaluated before the alternatives, so each part of the
+-- chain runs at the same point in both forms, and no part is copied.
+--
+-- The tail of the chain is continued in the environment of the chain.
+-- There, a case of the chain gives the fields of its scrutinee to a
+-- later case on the same scrutinee, and a tail that is a constructor
+-- selects an alternative. The case of a primitive argument that
+-- 'floatPrimitiveArgument' moves out ends up here, in the scrutinee of
+-- the case or in the strict let around the next read.
+--
+-- The parts of the chain are simplified already and stay as they are.
+-- The caller gives the chain fresh binders, so that they capture no
+-- name of the alternatives.
+floatChain :: Simpl -> Type -> Expr -> (Simpl -> Expr -> SimplM Expr) -> SimplM Expr
+floatChain env resultType expr continue =
+  case expr of
+    ExLet bind inner
+      | isStrictBinder (spEnv env) binder,
+        isChain (bindRhs bind) ->
+          floatChain env resultType (bindRhs bind) $ \env' rhs ->
+            ExLet bind {bindRhs = rhs} <$> floatChain (bindingEnv env' binder rhs) resultType inner continue
+      | otherwise ->
+          ExLet bind <$> floatChain (bindingEnv env binder (bindRhs bind)) resultType inner continue
+      where
+        binder = bindBinder bind
+    ExCase scrutinee binder _ [alternative] -> do
+      rhs <- floatChain (alternativeEnv env scrutinee binder alternative) resultType (altRhs alternative) continue
+      pure (mkCase (spEnv env) scrutinee binder resultType [alternative {altRhs = rhs}])
+    _ -> continue env expr
+
+-- | The type of an expression, when its tail shows it: a case gives its
+-- result type, and a constructor, a top-level value or a primitive call
+-- gives its declared type at its arguments. A local variable or a
+-- literal gives nothing.
+tailType :: Simpl -> Expr -> Maybe Type
+tailType env expr =
+  case expr of
+    ExCase _ _ resultType _ -> Just resultType
+    ExLet _ body -> tailType env body
+    ExRec _ body -> tailType env body
+    ExForeignCall call types _ -> snd <$> primitiveSignature (spEnv env) call types
+    _ ->
+      case collectSpine expr of
+        (ExVar name, args) -> do
+          headType <- lookupHeaderType (spEnv env) name
+          foldM applyArgument headType args
+        _ -> Nothing
+  where
+    applyArgument ty argument =
+      case argument of
+        Left argumentType -> do
+          (binder, body) <- viewForAll (spEnv env) ty
+          Just (substType (binderName binder) argumentType body)
+        Right _ -> do
+          (_, _, _, result) <- viewFun (spEnv env) ty
+          Just result
 
 -- | Simplify a case whose scrutinee is simplified and whose alternatives
 -- are not. A scrutinee that compares a value with a literal turns into a
@@ -627,7 +782,7 @@ bindingEnv :: Simpl -> Binder -> Expr -> Simpl
 bindingEnv env binder rhs
   | isKnownConstructor (spArity env) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
   | isStrictBinder (spEnv env) binder,
-    isPurePrimitiveCall (spEnv env) rhs,
+    isPurePrimitiveCall (spEnv env) rhs || isStateToken rhs,
     Map.notMember rhs (spCse env) =
       evaluatedEnv {spCse = Map.insert rhs (binderName binder) (spCse env)}
   | otherwise = evaluatedEnv
@@ -1301,8 +1456,10 @@ mkLet env bind body
   -- often only one branch needs the box.
   | lifted,
     isConstructorOfTrivials rhs =
-      pure (sinkConstructorLet bind body)
-  | lifted = pure (ExLet bind body)
+      pure (fst (sinkGroupWith EveryAlternative (exprValueNames rhs) [bind] (ExLet bind) body))
+  -- Any other lifted binding moves into the one alternative that uses
+  -- it. A path that does not use it then allocates nothing for it.
+  | lifted = sinkGroup [bind] (flip (foldr ExLet)) body
   -- A strict binding whose one use is the scrutinee of the case that
   -- follows it is that case on the right-hand side: the case evaluates it
   -- first either way. Only a comparison with a literal gains from the
@@ -1328,51 +1485,101 @@ isConstructorOfTrivials expr =
     (ExVar name, args@(_ : _)) -> isConstructorName name && all (either (const True) isTrivial) args
     _ -> False
 
--- | Move a let to its uses, as 'mkLet' describes. The let passes a let
--- whose right-hand side does not use it, and goes into each alternative
--- of a case that uses it, when the scrutinee does not use it and a path
--- through the case does not use it. When every path uses it, a copy in
--- each alternative would only add code, so the let stops above the case. It also stops at
--- anything else, and where a binder would capture a name of its
--- right-hand side or would hide its own binder. A body that does not use
--- the binder drops the let.
-sinkConstructorLet :: Bind -> Expr -> Expr
-sinkConstructorLet bind = go
+-- | Which alternatives of a case a moved group may enter.
+data SinkMode
+  = -- | Each alternative that uses the group gets a copy, when a path
+    -- through the case does not use it. Only a constructor of trivial
+    -- arguments moves this way: a copy of it is small, and each path
+    -- still allocates it at most once.
+    EveryAlternative
+  | -- | The group enters a case only when exactly one alternative uses
+    -- it. The move copies nothing, so it suits a function or a thunk of
+    -- any size.
+    OneAlternative
+  deriving (Eq)
+
+-- | Move a let or a recursive group into the one alternative of a case
+-- that uses it, as 'sinkGroupWith' describes in the 'OneAlternative'
+-- mode. The group stays where it was when it enters no case, since a
+-- move past lets alone gains nothing.
+--
+-- The right-hand sides get fresh binders before the move. A loop body
+-- often binds the same names as the code around it, and a tidied program
+-- has no binder that hides another. The move would put such a binder
+-- under its namesake, and the walks that follow, such as the common
+-- subexpression map, then see the wrong value for the name. The capture
+-- check with every name of the right-hand sides then passes, because
+-- only their free names can be the same as a binder they move under.
+--
+-- A local loop is often used in one branch of its function only. The
+-- copy loop of @snappy-hs@ defines two loops above its guards, and its
+-- most frequent branch, a short copy, uses neither. Above the guards,
+-- each call allocated a closure for each loop.
+sinkGroup :: [Bind] -> ([Bind] -> Expr -> Expr) -> Expr -> SimplM Expr
+sinkGroup binds wrap body
+  | snd (sinkGroupWith OneAlternative (foldMap (exprFreeNames . bindRhs) binds) binds (wrap binds) body) = do
+      fresh <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> freshenExpr (bindRhs bind)) binds
+      pure (fst (sinkGroupWith OneAlternative (foldMap (exprValueNames . bindRhs) fresh) fresh (wrap fresh) body))
+  | otherwise = pure (wrap binds body)
+
+-- | Move a let or a recursive group to its uses, as 'mkLet' describes.
+-- The group passes a let or a recursive group whose right-hand sides do
+-- not use it, and enters the alternatives of a case that use it, as the
+-- mode permits, when the scrutinee does not use it. It stops at anything
+-- else, and where a binder would hide one of its own binders or one of
+-- the given names of its right-hand sides. A body that does not use the
+-- group drops it. The move never enters a lambda, so the group is
+-- evaluated at most as often as before.
+--
+-- The result tells whether the group entered a case or went away.
+sinkGroupWith :: SinkMode -> Set Name -> [Bind] -> (Expr -> Expr) -> Expr -> (Expr, Bool)
+sinkGroupWith mode rhsNames binds wrap = go
   where
-    name = binderName (bindBinder bind)
-    rhsNames = exprValueNames (bindRhs bind)
-    uses expr = Set.member name (exprValueNames expr)
-    safeBinder binder = binderName binder /= name && Set.notMember (binderName binder) rhsNames
+    names = Set.fromList (map (binderName . bindBinder) binds)
+    uses expr = not (Set.disjoint names (exprValueNames expr))
+    safeBinder binder = Set.notMember (binderName binder) names && Set.notMember (binderName binder) rhsNames
+    -- The moved expression, and whether the group entered a case or
+    -- went away.
     go expr
-      | not (uses expr) = expr
+      | not (uses expr) = (expr, True)
       | otherwise =
           case expr of
-            ExLet inner body
+            ExLet inner rest
               | safeBinder (bindBinder inner),
                 not (uses (bindRhs inner)) ->
-                  ExLet inner (go body)
+                  ExLet inner `first` go rest
+            ExRec inners rest
+              | all (safeBinder . bindBinder) inners,
+                not (any (uses . bindRhs) inners) ->
+                  ExRec inners `first` go rest
             ExCase scrutinee binder ty alternatives
               | movable expr ->
-                  ExCase scrutinee binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
-            _ -> ExLet bind expr
-    -- Whether the let can enter a case, and a path through it then does
-    -- not use the binder.
+                  (ExCase scrutinee binder ty [alternative {altRhs = fst (go (altRhs alternative))} | alternative <- alternatives], True)
+            _ -> (wrap expr, False)
+    -- Whether the group can enter a case.
     movable expr =
       case expr of
         ExCase scrutinee binder _ alternatives ->
           safeBinder binder
             && not (uses scrutinee)
             && all (all safeBinder . altBinders) alternatives
-            && any (avoids . altRhs) alternatives
+            && case mode of
+              EveryAlternative -> any (avoids . altRhs) alternatives
+              OneAlternative -> length (filter (uses . altRhs) alternatives) == 1
         _ -> False
+    -- Whether a path through the expression does not use the group.
     avoids expr
       | not (uses expr) = True
       | otherwise =
           case expr of
-            ExLet inner body
+            ExLet inner rest
               | safeBinder (bindBinder inner),
                 not (uses (bindRhs inner)) ->
-                  avoids body
+                  avoids rest
+            ExRec inners rest
+              | all (safeBinder . bindBinder) inners,
+                not (any (uses . bindRhs) inners) ->
+                  avoids rest
             _ -> movable expr
 
 -- | Accept a growth of the program: always when nothing grows, and in
@@ -1628,7 +1835,9 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
           then Nothing
           else do
             let typeSubst = Map.fromList (zip (map binderName (altTypeBinders alternative)) existentials)
-                fieldBinds = zipWith Bind (altBinders alternative) fields
+                -- The type of a field binder can name an existential type
+                -- binder of the alternative, which the case no longer binds.
+                fieldBinds = zipWith (\field -> Bind field {binderType = substTypes typeSubst (binderType field)}) (altBinders alternative) fields
             Just (foldr ExLet (substTypeExpr typeSubst rhs) fieldBinds)
     Just (foldr ExLet body (binds <> caseBinds))
 
@@ -2015,6 +2224,62 @@ matchesLiteral literal con =
     (AltLit (LitAddr _ left), LitAddr _ right) -> left == right
     _ -> False
 
+-- | Move a let, or a case of one alternative, out of an argument of a
+-- primitive call: @f# a (case s of K x -> e)@ is
+-- @case s of K x -> f# a e@. The call evaluates an unlifted argument
+-- before it runs, so the let or the case runs at the same point in both
+-- forms when every argument before it is trivial. The move repeats on
+-- the lets and cases inside the moved one.
+--
+-- In the alternative, a later case on the same scrutinee selects its
+-- fields. The read of a word from a byte string, such as @word32be@,
+-- reads each byte in an argument of a primitive call. After the move, it
+-- evaluates the string once instead of once for each byte.
+--
+-- A case of more alternatives stays where it is, because the call would
+-- be copied into each alternative. The moved expression gets fresh
+-- binders, so that they capture no name of the other arguments.
+floatPrimitiveArgument :: Simpl -> ForeignCall -> [Type] -> [Expr] -> SimplM (Maybe Expr)
+floatPrimitiveArgument env call types arguments
+  | foreignCallConvention call /= Prim = pure Nothing
+  | otherwise =
+      case (primitiveSignature (spEnv env) call types, span isTrivial arguments) of
+        (Just (argumentTypes, resultType), (before, argument : after))
+          | length argumentTypes == length arguments,
+            isUnliftedArgument (argumentTypes !! length before),
+            movable argument -> do
+              argument' <- freshenExpr argument
+              pure (Just (float resultType before after argument'))
+        _ -> pure Nothing
+  where
+    movable expr =
+      case expr of
+        ExCase _ _ _ [_] -> True
+        ExLet {} -> True
+        _ -> False
+    float resultType before after expr =
+      case expr of
+        ExCase scrutinee binder _ [alternative] ->
+          ExCase scrutinee binder resultType [alternative {altRhs = float resultType before after (altRhs alternative)}]
+        ExLet bind body -> ExLet bind (float resultType before after body)
+        _ -> ExForeignCall call types (before <> (expr : after))
+    -- An argument whose representation is known and is not lifted. A
+    -- representation variable can stand for a lifted one.
+    isUnliftedArgument ty =
+      case reduceType (spEnv env) <$> repOf (spEnv env) ty of
+        Just (TyVar _) -> False
+        Just _ -> not (isLiftedType (spEnv env) ty)
+        Nothing -> False
+
+-- | The argument types and the result type of a primitive call at its
+-- type arguments.
+primitiveSignature :: TypeEnv -> ForeignCall -> [Type] -> Maybe ([Type], Type)
+primitiveSignature env call types = foldM instantiate (foreignCallType call) types >>= foreignSignature env
+  where
+    instantiate ty argument = do
+      (binder, body) <- viewForAll env ty
+      Just (substType (binderName binder) argument body)
+
 -- | The argument types and the result type of a foreign type without
 -- binders.
 foreignSignature :: TypeEnv -> Type -> Maybe ([Type], Type)
@@ -2040,6 +2305,14 @@ isPurePrimitiveCall env expr =
         && case foreignSignature env (foreignCallType call) of
           Just (argumentTypes, resultType) -> not (any (mentionsState env) (resultType : argumentTypes))
           Nothing -> False
+    _ -> False
+
+-- | The call that makes the state token. Every call gives the same token
+-- of no width, so a binder of one call stands for every later call.
+isStateToken :: Expr -> Bool
+isStateToken expr =
+  case expr of
+    ExForeignCall call [] [] -> foreignCallConvention call == Prim && nameText (foreignCallName call) == "realWorld#"
     _ -> False
 
 -- | Whether a type mentions a state token or a mutable or address type.
@@ -2354,6 +2627,26 @@ exprValueNames = go
         ExCase scrutinee _ _ alternatives -> go scrutinee <> foldMap (go . altRhs) alternatives
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> foldMap go arguments
+
+-- | The value names that occur free in an expression.
+exprFreeNames :: Expr -> Set Name
+exprFreeNames = go
+  where
+    go expr =
+      case expr of
+        ExVar name -> Set.singleton name
+        ExLit {} -> Set.empty
+        ExCoercion {} -> Set.empty
+        ExApp function argument -> go function <> go argument
+        ExTyApp function _ -> go function
+        ExLam binder body -> Set.delete (binderName binder) (go body)
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) <> Set.delete (binderName (bindBinder bind)) (go body)
+        ExRec binds body -> (foldMap (go . bindRhs) binds <> go body) `Set.difference` Set.fromList (map (binderName . bindBinder) binds)
+        ExCase scrutinee binder _ alternatives -> go scrutinee <> Set.delete (binderName binder) (foldMap alternative alternatives)
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> foldMap go arguments
+    alternative alt = go (altRhs alt) `Set.difference` Set.fromList (map binderName (altBinders alt))
 
 -- * Substitution
 

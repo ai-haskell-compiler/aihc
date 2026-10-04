@@ -20,6 +20,7 @@ include "aihc_constants.lir"
 
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
+extern func @aihc_write_barrier_range(ptr, ptr, i64, i64) cc c
 extern func @aihc_array_length(ptr) -> i64 cc c
 extern func @aihc_memory_move(ptr, ptr, i64) cc c
 
@@ -128,6 +129,9 @@ run:
 ; overlap intact when the source and the target are the same array.
 export func @aihc_array_copy(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %count: i64) -> i64 cc c {
 entry:
+  ; The copy stores pointers into the target, which can be old. The run
+  ; tells the runtime which cards of a large target the copy touches.
+  call @aihc_write_barrier_range(@aihc_machine, %target, %target_offset, %count)
   %from = call @aihc_array_run(%source, %source_offset, %count)
   %to = call @aihc_array_run(%target, %target_offset, %count)
   %bytes = mul i64 %count, 8

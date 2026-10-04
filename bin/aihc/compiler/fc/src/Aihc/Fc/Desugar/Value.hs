@@ -1430,7 +1430,10 @@ groupLocalValues (declaration : rest) =
         Nothing ->
           case Syn.peelDeclAnn declaration of
             Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> do
-              checkedType <- requiredPatternType pattern'
+              -- The declaration gives the type of the right-hand side,
+              -- which is polymorphic when the type checker generalized the
+              -- binding.
+              checkedType <- maybe (requiredPatternType pattern') pure (declarationType declaration)
               (LocalPatternGroup pattern' rhs checkedType (patternIsStrict pattern') :) <$> groupLocalValues rest
             Syn.DeclImplicitParam name expr whereDecls ->
               case declarationType declaration of
@@ -1469,6 +1472,15 @@ patternBinderSpecs pattern' =
     Syn.PUnboxedSum _ _ inner -> patternBinderSpecs inner
     Syn.PTuple _ children -> concat <$> mapM patternBinderSpecs children
     _ -> pure []
+
+-- | The binders of a local pattern binding with their complete types. A
+-- binder of a generalized pattern binding abstracts the type variables
+-- that the type checker records on it.
+patternBinderSchemes :: Syn.Pattern -> ValueM [(Entity, Text, TcType)]
+patternBinderSchemes pattern' = do
+  specs <- patternBinderSpecs pattern'
+  let binderVariables = Map.fromList [(name, tcAnnTypeBinders annotation) | (name, annotation) <- patternBinderAnnotations pattern']
+  pure [(key, name, foldr TcForAllTy ty (Map.findWithDefault [] name binderVariables)) | (key, name, ty) <- specs]
 
 functionBinding :: Syn.Decl -> Maybe (Maybe Entity, Text, [Syn.Match], Maybe TcType)
 functionBinding declaration =
@@ -1655,7 +1667,9 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
     monomorphicSelector rhsName (key, name, ty) = do
       moduleOrigin <- gets vsModuleOrigin
       rhsBinder <- freshBinder "_pat_rhs" rhsType
-      body <- desugarDoPattern ty rhsBinder rhsType pattern' (selectedBinder key name)
+      body <- desugarDoPattern ty rhsBinder rhsType pattern' $ do
+        (field, _) <- lookupLocal key name
+        pure (ExVar (binderName field))
       convertedType <- convertCheckedType ty
       vis <- termVisibility name
       pure
@@ -1669,47 +1683,75 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
 
     polymorphicSelector rhsName rhsTyVars rhsBodyType (key, name, ty) = do
       moduleOrigin <- gets vsModuleOrigin
-      (tyVars, typeArgs) <- patternBinderInstantiation name rhsTyVars
+      selector <- patternSelector pattern' rhsTyVars rhsBodyType (key, name, ty)
       let selectName = topName moduleOrigin ("$patsel$" <> name)
-      -- The hidden selection function is generic in the whole group, so the
-      -- pattern keeps the types the type checker gave it.
-      selectBinders <- convertTypeBinders rhsTyVars
-      (argumentBinder, selectBody) <- withTypeVariables rhsTyVars $ do
-        argumentBinder <- freshBinder "_pat_rhs" rhsBodyType
-        body <- desugarDoPattern ty argumentBinder rhsBodyType pattern' (selectedBinder key name)
-        pure (argumentBinder, body)
-      selectType <- convertCheckedType (foldr TcForAllTy (TcFunTy rhsBodyType ty) rhsTyVars)
-      typeBinders <- convertTypeBinders tyVars
-      -- A type argument can be @Any@, whose kind only the variable that it
-      -- instantiates gives.
-      convertedArgs <- withTypeVariables tyVars (convertCheckedTypeArguments (foldr TcForAllTy rhsBodyType rhsTyVars) typeArgs)
-      convertedType <- convertCheckedType (foldr TcForAllTy ty tyVars)
+      selectType <- convertCheckedType (selectorType selector)
+      convertedType <- convertCheckedType (selectorBinderType selector)
       vis <- termVisibility name
-      let instantiate expression = foldl ExTyApp expression convertedArgs
       pure
         [ ValDecl
             { valVis = Private,
               valInline = InlineDefault,
               valName = selectName,
               valType = selectType,
-              valBody = foldr ExTyLam (ExLam argumentBinder selectBody) selectBinders
+              valBody = selectorExpr selector
             },
           ValDecl
             { valVis = vis,
               valInline = InlineDefault,
               valName = topName moduleOrigin name,
               valType = convertedType,
-              valBody = foldr ExTyLam (ExApp (instantiate (ExVar selectName)) (instantiate (ExVar rhsName))) typeBinders
+              valBody = selectorUse selector (ExVar selectName) (ExVar rhsName)
             }
         ]
 
-    selectedBinder key name = do
+-- | The selection of one binder of a polymorphic pattern binding.
+--
+-- The selection goes through a hidden function that is generic in every
+-- type variable of the right-hand side, so the pattern keeps the types that
+-- the type checker gave it. The binder applies this function and the
+-- right-hand side to the type arguments that the type checker records on
+-- the binder, one for each type variable of the right-hand side.
+data PatternSelector = PatternSelector
+  { -- | The checked type of the selection function.
+    selectorType :: !TcType,
+    -- | The selection function.
+    selectorExpr :: !Expr,
+    -- | The checked type of the binder.
+    selectorBinderType :: !TcType,
+    -- | The value of the binder, from a reference to the selection function
+    -- and a reference to the right-hand side.
+    selectorUse :: Expr -> Expr -> Expr
+  }
+
+patternSelector :: Syn.Pattern -> [TyVarId] -> TcType -> (Entity, Text, TcType) -> ValueM PatternSelector
+patternSelector pattern' rhsTyVars rhsBodyType (key, name, ty) = do
+  (tyVars, typeArgs) <- patternBinderInstantiation
+  selectBinders <- convertTypeBinders rhsTyVars
+  (argumentBinder, selectBody) <- withTypeVariables rhsTyVars $ do
+    argumentBinder <- freshBinder "_pat_rhs" rhsBodyType
+    body <- desugarDoPattern ty argumentBinder rhsBodyType pattern' selectedBinder
+    pure (argumentBinder, body)
+  typeBinders <- convertTypeBinders tyVars
+  -- A type argument can be @Any@, whose kind only the variable that it
+  -- instantiates gives.
+  convertedArgs <- withTypeVariables tyVars (convertCheckedTypeArguments (foldr TcForAllTy rhsBodyType rhsTyVars) typeArgs)
+  let instantiate expression = foldl ExTyApp expression convertedArgs
+  pure
+    PatternSelector
+      { selectorType = foldr TcForAllTy (TcFunTy rhsBodyType ty) rhsTyVars,
+        selectorExpr = foldr ExTyLam (ExLam argumentBinder selectBody) selectBinders,
+        selectorBinderType = foldr TcForAllTy ty tyVars,
+        selectorUse = \select rhs -> foldr ExTyLam (ExApp (instantiate select) (instantiate rhs)) typeBinders
+      }
+  where
+    selectedBinder = do
       (field, _) <- lookupLocal key name
       pure (ExVar (binderName field))
 
-    -- The type variables one binder abstracts, and the type arguments that
-    -- instantiate the group for it.
-    patternBinderInstantiation name rhsTyVars =
+    -- The type variables the binder abstracts, and the type arguments that
+    -- instantiate the right-hand side for it.
+    patternBinderInstantiation =
       case [annotation | (binderName', annotation) <- patternBinderAnnotations pattern', binderName' == name] of
         annotation : _
           | length (tcAnnTypeArgs annotation) == length rhsTyVars ->
@@ -4007,14 +4049,16 @@ desugarListCompGenerator resultElementType cons expression pattern' source remai
   nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
   consName <- primitiveName "GHC.Types" ":" SortDataConstructor
   let recursiveCall = ExApp (ExVar (binderName function)) (ExVar (binderName items))
+  -- A generator matches its pattern like any other pattern. An element
+  -- that does not match goes on to the rest of the list.
   success <-
-    desugarListCompPattern
+    desugarPatternWithFailure
       resultListType
       item
       sourceElementType
       pattern'
       (desugarListCompStatements resultElementType cons expression remaining recursiveCall)
-      recursiveCall
+      (Just recursiveCall)
   source' <- desugarExpr source
   let loop =
         ExCase
@@ -4043,130 +4087,6 @@ desugarListCompGuard resultElementType guard success failure = do
           Alt (AltData falseName) [] [] failure
         ]
     )
-
-desugarListCompPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompPattern resultType binder ty pattern' success failure =
-  case pattern' of
-    Syn.PAnn annotation _
-      | Just checked <- Syn.fromAnnotation annotation,
-        not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)),
-        isJust (patternConstructorSourceName pattern') ->
-          desugarListCompConstructorPattern resultType binder pattern' success failure
-    Syn.PAnn _ inner -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PParen inner -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PStrict inner -> do
-      body <- desugarListCompPattern resultType binder ty inner success failure
-      forceDefaultPattern resultType binder inner body
-    Syn.PIrrefutable inner -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PTypeSig inner _ -> desugarListCompPattern resultType binder ty inner success failure
-    Syn.PVar name -> do
-      locals <- binderEntry name binder ty
-      withLocals locals success
-    Syn.PWildcard -> success
-    Syn.PAs name inner -> do
-      locals <- binderEntry name binder ty
-      withLocals locals (desugarListCompPattern resultType binder ty inner success failure)
-    _ -> do
-      -- The wrappers above are peeled off, so the pattern can have lost
-      -- its checked type. A list pattern needs it for its synthesized
-      -- tail, and a newtype pattern reads its type arguments from it.
-      let typed =
-            case patternType pattern' of
-              Just _ -> pattern'
-              Nothing -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) pattern'
-      desugarListCompConstructorPattern resultType binder typed success failure
-
-desugarListCompConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompConstructorPattern resultType binder pattern' success failure = do
-  maybeFamily <- doPatternFamily pattern'
-  maybeNewtype <- doPatternNewtype pattern'
-  case (maybeFamily, maybeNewtype) of
-    (Just info, _) -> desugarListCompFamilyPattern resultType binder pattern' info success failure
-    (_, Just dataType) -> desugarListCompNewtypePattern resultType binder pattern' dataType success failure
-    _ -> desugarListCompDataPattern resultType binder pattern' success failure
-
--- | A data-family pattern in a list comprehension generator, cast as in
--- 'desugarDoFamilyPattern'.
-desugarListCompFamilyPattern :: TcType -> Binder -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompFamilyPattern resultType binder pattern' info success failure = do
-  instanceType <- requiredPatternType pattern'
-  instanceArguments <- familyInstanceArguments info instanceType
-  axiomArguments <- familyAxiomArguments info instanceArguments
-  let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
-      scrutinee = ExVar (binderName binder)
-  if dfiiIsNewtype info
-    then do
-      child <-
-        case patternChildren pattern' of
-          [fieldPattern] -> pure fieldPattern
-          _ -> failValue ("newtype family list comprehension pattern does not have one field: " <> T.unpack (dfiiFamilyName info))
-      childType <- requiredPatternType child
-      field <- freshPatternBinder child childType
-      let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
-      body <- desugarListCompPattern resultType field childType child success failure
-      pure (ExLet (Bind field unwrapped) body)
-    else do
-      representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
-      representation <- freshBinderFromType "_list_comp_family" representationType
-      body <- desugarListCompDataPattern resultType representation pattern' success failure
-      pure (ExLet (Bind representation (ExCast scrutinee familyCoercion)) body)
-
-desugarListCompDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompDataPattern resultType binder pattern' success failure = do
-  let children = patternChildren pattern'
-      predicates = patternGivenPredicates pattern'
-      typeVariables = patternTypeVariables pattern'
-  withTypeVariables typeVariables $ do
-    typeBinders <- convertTypeBinders typeVariables
-    fieldTypes <- patternFieldTypes pattern' children
-    fields <- zipWithM freshPatternBinder children fieldTypes
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-    constructor <- patternConstructor pattern'
-    resultType' <- convertCheckedType resultType
-    caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
-    body <-
-      withAlternativeScope
-        (not (null typeBinders))
-        (zipWith Dictionary predicates dictionaries)
-        (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
-    pure
-      ( ExCase
-          (ExVar (binderName binder))
-          caseBinder
-          resultType'
-          [ Alt constructor typeBinders (dictionaries <> fields) body,
-            Alt AltDefault [] [] failure
-          ]
-      )
-
-desugarListCompChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompChildPatterns resultType children success failure =
-  case children of
-    [] -> success
-    (binder, ty, pattern') : remaining ->
-      desugarListCompPattern
-        resultType
-        binder
-        ty
-        pattern'
-        (desugarListCompChildPatterns resultType remaining success failure)
-        failure
-
-desugarListCompNewtypePattern :: TcType -> Binder -> Syn.Pattern -> DataTypeInfo -> ValueM Expr -> Expr -> ValueM Expr
-desugarListCompNewtypePattern resultType binder pattern' dataType success failure = do
-  child <-
-    case patternChildren pattern' of
-      [fieldPattern] -> pure fieldPattern
-      _ -> failValue ("newtype list comprehension pattern does not have one field: " <> T.unpack (dtiName dataType))
-  childType <- requiredPatternType child
-  field <- freshPatternBinder child childType
-  typeArguments <- newtypePatternArguments pattern'
-  convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
-  let tyCon = dtiTyCon dataType
-      axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-      unwrapped = ExCast (ExVar (binderName binder)) (CoAxiom axiom convertedArguments)
-  body <- desugarListCompPattern resultType field childType child success failure
-  pure (ExLet (Bind field unwrapped) body)
 
 listElementType :: String -> TcType -> ValueM TcType
 listElementType label ty =
@@ -4406,14 +4326,19 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
                   Alt (AltData falseName) [] [] failure'
                 ]
             )
-    Syn.PAnn annotation _
+    Syn.PAnn annotation inner
       | Just checked <- Syn.fromAnnotation annotation,
-        not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)),
         isJust (patternConstructorSourceName pattern') -> do
+          -- A pattern synonym use keeps its own annotation, which has the
+          -- type arguments of the use, even when it binds no type variables
+          -- or evidence.
           maybePatSyn <- patternPatSyn pattern'
           case maybePatSyn of
             Just (info, checkedSynonym) -> desugarPatSynWithFailure resultType binder pattern' info checkedSynonym success failure
-            Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
+            Nothing
+              | not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)) ->
+                  desugarDoConstructorPattern resultType binder pattern' success failure
+              | otherwise -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> do
@@ -4693,7 +4618,7 @@ desugarLocalDecls declarations bodyType body = do
       pure (LocalNamedAllocation key binder ty group)
     allocateLocal (LocalPatternGroup pattern' rhs rhsType strict) = do
       rhsBinder <- freshBinder "_pat_rhs" rhsType
-      specs <- patternBinderSpecs pattern'
+      specs <- patternBinderSchemes pattern'
       binders <- mapM (\(key, name, ty) -> (key,,ty) <$> freshBinder name ty) specs
       pure (LocalPatternAllocation pattern' rhs rhsBinder rhsType binders strict)
     allocateLocal (LocalImplicitParamGroup name rhs rhsType) = do
@@ -4707,10 +4632,29 @@ desugarLocalDecls declarations bodyType body = do
       pure [Bind binder rhs]
     desugarLocal (LocalPatternAllocation pattern' sourceRhs rhsBinder rhsType binders _) = do
       rhs <- desugarMatches rhsType [emptyMatch sourceRhs]
-      selectors <- mapM (desugarPatternSelector pattern' rhsBinder rhsType) binders
+      selectors <-
+        case peelForAlls rhsType of
+          ([], _) -> mapM (desugarPatternSelector pattern' rhsBinder rhsType) binders
+          (rhsTyVars, rhsBodyType) -> do
+            specs <- patternBinderSpecs pattern'
+            concat <$> mapM (polymorphicPatternSelector pattern' rhsBinder rhsTyVars rhsBodyType specs) binders
       pure (Bind rhsBinder rhs : selectors)
     desugarLocal (LocalImplicitParamAllocation name _ _ _) =
       failValue ("implicit parameter binding " <> T.unpack name <> " in a mixed local group")
+    -- A binder of a generalized pattern binding selects through a local
+    -- function that is generic in the type variables of the right-hand
+    -- side, as at the top level.
+    polymorphicPatternSelector pattern' rhsBinder rhsTyVars rhsBodyType specs (key, binder, _) = do
+      spec <- case [spec | spec@(specKey, _, _) <- specs, specKey == key] of
+        spec : _ -> pure spec
+        [] -> failValue ("pattern binding selector " <> T.unpack (nameText (binderName binder)) <> " is not a binder of its pattern")
+      let (_, name, _) = spec
+      selector <- patternSelector pattern' rhsTyVars rhsBodyType spec
+      selectBinder <- freshBinder ("$patsel$" <> name) (selectorType selector)
+      pure
+        [ Bind selectBinder (selectorExpr selector),
+          Bind binder (selectorUse selector (ExVar (binderName selectBinder)) (ExVar (binderName rhsBinder)))
+        ]
     desugarPatternSelector pattern' rhsBinder rhsType (key, binder, ty) = do
       selector <- desugarDoPattern ty rhsBinder rhsType pattern' $ do
         (field, _) <- lookupLocal key (nameText (binderName binder))
@@ -5538,7 +5482,7 @@ localGroupBinderTypes :: LocalValueGroup -> ValueM [(Entity, TcType)]
 localGroupBinderTypes group =
   case group of
     LocalNamedGroup named -> pure [(groupKey named, groupType named)]
-    LocalPatternGroup pattern' _ _ _ -> map (\(key, _, ty) -> (key, ty)) <$> patternBinderSpecs pattern'
+    LocalPatternGroup pattern' _ _ _ -> map (\(key, _, ty) -> (key, ty)) <$> patternBinderSchemes pattern'
     LocalImplicitParamGroup {} -> pure []
 
 -- | Run an action with the checked types of more bindings in scope, for

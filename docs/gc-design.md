@@ -1,7 +1,8 @@
 # Generational incremental garbage collector
 
-This document gives the design of the collector that replaces the semispace
-collector in `core-libs/aihc-rts/native/aihc_gc_semispace.c`.
+This document gives the design of the generational collector in
+`core-libs/aihc-rts/native/aihc_gc.c`, which replaced the semispace
+collector.
 
 ## Goals
 
@@ -50,9 +51,10 @@ object. The header keeps no generation information. Info tables stay 48
 bytes. A released run waits in a free list for reuse, and a mapping whose
 regions are all free goes back to the host.
 
-A `LARGE` object takes a whole number of regions. A `GEN2` region holds
-segments of one size class. Each segment has a mark bitmap with one bit for
-each slot. Objects above the largest size class go to `LARGE`. Arrays and
+A `LARGE` object takes a whole number of regions. A `GEN2` segment is one
+block of four regions that holds slots of one size class, with a mark
+bitmap of one bit for each slot. Objects above the largest size class go to
+`LARGE`. Arrays and
 byte arrays already allocate through the runtime, so the runtime selects the
 space. Compiled code stores only fixed-size nodes into reserved nursery space.
 
@@ -156,11 +158,12 @@ whole object for an update.
 
 The cold path does two independent things:
 
-- **Remembered set.** If the stored value is younger than the object, the
-  object enters the remembered set once. Header bit 1 marks membership. The
-  bit is free on every object that is not a blackhole, and info table loads
-  already mask it. The minor collection clears the bit when it drops the
-  entry. A large pointer array marks the card of the field instead.
+- **Remembered set.** The object enters the remembered set. The set is a
+  list without a membership bit: a hot object enters it at every store, and
+  the list is compacted when it is full and before a collection scans it.
+  Header bit 1 is taken by the forwarding pattern of a copied object. A
+  large pointer array marks the card of the field as well, and a collection
+  scans only its dirty cards.
 - **Deletion barrier.** If a gen2 cycle is active and the object is in gen2
   or static, the old value of the field goes to the mark buffer. A thunk
   update pushes every pointer field of the thunk, because the update deletes
@@ -208,8 +211,10 @@ referent, unmarked pinned blocks, and blackhole table entries with an unmarked
 key are dropped. The lists are short, and the work is one bounded slice.
 
 **Sweep.** The mark bitmap of a segment becomes its free map. A segment is
-swept when the promotion allocator takes it, so sweep work is paced by
-promotion. Unmarked `LARGE` regions return to `FREE` at the end of the cycle.
+swept when the promotion allocator takes it, and each collection sweeps a
+bounded slice of the rest, so sweep work is paced by promotion and by
+collections. Unmarked `LARGE` regions return to `FREE` at the end of the
+cycle.
 
 ## Pause bound
 
@@ -261,12 +266,16 @@ cycles, and the bytes of each generation after the last collection.
    The semispace collector keeps a large object on its pinned list, so one
    sweep covers both. Pinned byte arrays below the large bound stay C
    allocations until the segment allocator of step 4 exists.
-3. **Generations.** Add the nursery, gen1, the write barrier, the remembered
-   set, cards, the CAF list, and the stack chunk generations. Gen2 is a
-   copying generation collected stop-the-world in this step, so the fuzz model
-   validates the barrier before the segment allocator exists.
+3. **Generations.** Add the nursery, gen1, the write barrier, the
+   remembered set, the CAF list, and the stack chunk generations. Gen2 is a
+   copying generation collected stop-the-world in this step, so the fuzz
+   model validates the barrier before the segment allocator exists. Cards
+   for large pointer arrays wait for step 4. The implemented details are in
+   the generations section of `docs/native-runtime-objects.md`.
 4. **Non-moving gen2.** Add segments, bitmaps, stop-the-world marking, and
-   lazy sweep.
+   lazy sweep. Cards for large pointer arrays belong to this step. The
+   implemented details are in the gen2 segments section of
+   `docs/native-runtime-objects.md`.
 5. **Incremental marking.** Add the deletion barrier, the snapshot, slices,
    pacing, and the deferred chunk scan.
 6. **Policy.** Set the defaults from the measurements.

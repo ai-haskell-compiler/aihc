@@ -142,7 +142,7 @@ runInterface tyCons bytes =
 
 putInterface :: PartIndex -> TcInterface -> Builder.Builder
 putInterface table interface =
-  cborArray 9
+  cborArray 10
     <> encodeList (putTerm table) (tcInterfaceTerms interface)
     <> encodeList (putTyConInfo table) (tcInterfaceTyCons interface)
     <> encodeList (putDataTypeInfo table) (tcInterfaceDataTypes interface)
@@ -152,6 +152,7 @@ putInterface table interface =
     <> encodeList (putTypeFamilyInstanceInfo table) (tcInterfaceTypeFamilyInstances interface)
     <> encodeList (putPatSynInfo table) (tcInterfacePatSyns interface)
     <> encodeList (putForeignImport table) (tcInterfaceForeignImports interface)
+    <> cborInt (tcInterfaceUniqueBound interface)
 
 getInterface :: PartTable -> Get.Get TcInterface
 getInterface table = do
@@ -174,9 +175,13 @@ getInterface table = do
     if length' >= 9
       then getList (getForeignImport table)
       else pure []
-  when (length' < 6 || length' > 9) $
+  uniqueBound <-
+    if length' >= 10
+      then getInt
+      else pure 0
+  when (length' < 6 || length' > 10) $
     fail ("unsupported type interface array length: " <> show length')
-  pure (tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports)
+  pure (tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports) {tcInterfaceUniqueBound = uniqueBound}
 
 putForeignImport :: PartIndex -> (Entity, TcForeignImportInfo) -> Builder.Builder
 putForeignImport table (key, info) = cborArray 2 <> putTermKey key <> putForeignImportInfo table info

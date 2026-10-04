@@ -33,6 +33,8 @@ typedef struct {
   AihcRegionMapping *mapping;
   /* The length of the run that starts here, or zero elsewhere. */
   uint32_t run;
+  /* The position of the region in its run. */
+  uint32_t offset;
   uint8_t kind;
 } AihcRegionEntry;
 
@@ -124,6 +126,7 @@ static void aihc_regions_mark(uint8_t *base, size_t count,
     entry->mapping = mapping;
     entry->kind = (uint8_t)kind;
     entry->run = index == 0 ? run : 0;
+    entry->offset = (uint32_t)index;
   }
 }
 
@@ -250,7 +253,26 @@ void aihc_regions_release(void *base) {
   }
 }
 
+void aihc_regions_set_kind(void *base, AihcRegionKind kind) {
+  AihcRegionEntry *entry = aihc_region_entry(base, 0);
+  if (entry == NULL || entry->mapping == NULL || entry->run == 0 ||
+      kind == AIHC_REGION_OUTSIDE || kind == AIHC_REGION_FREE) {
+    aihc_fail("relabeled memory is not an acquired run");
+  }
+  aihc_regions_mark(base, entry->run, entry->mapping, kind, entry->run);
+}
+
 AihcRegionKind aihc_region_kind(const void *address) {
   const AihcRegionEntry *entry = aihc_region_entry(address, 0);
   return entry == NULL ? AIHC_REGION_OUTSIDE : (AihcRegionKind)entry->kind;
+}
+
+void *aihc_region_run_base(const void *address) {
+  const AihcRegionEntry *entry = aihc_region_entry(address, 0);
+  if (entry == NULL || entry->mapping == NULL) {
+    return NULL;
+  }
+  uint8_t *region =
+      (uint8_t *)((uintptr_t)address & ~(uintptr_t)(AIHC_REGION_BYTES - 1));
+  return region - ((size_t)entry->offset << AIHC_REGION_SHIFT);
 }

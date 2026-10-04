@@ -732,10 +732,22 @@ The lowering keeps the control model of CPS-GRIN:
   a block whose parameters carry the roots, `%hp`, and `%hp_limit`, so the
   code after a reservation names them the same way whichever path reached
   it.
+- A reservation of a dynamic size compares the room below the heap limit
+  in words with the size, and first tests that the heap pointer is not
+  above the limit: a large allocation lowers the limit, and the stores of
+  an earlier reservation can pass it.
 - A store takes its object from that reservation itself: the object starts
   at `%hp`, and `%hp` advances by the words of the object. Then the store
   writes the header and the fields. Neither step touches memory other than
   the object. The runtime exports no allocator.
+- A pointer store into an existing object, through `writeArray#`,
+  `writeMutVar#`, or a compare-and-swap primitive, starts with the write
+  barrier: the object address less `aihc_nursery_start` is compared with
+  `aihc_nursery_bytes`, and an object outside the nursery goes to
+  `aihc_write_barrier` in a cold block. A store into a boxed array calls
+  `aihc_write_barrier_at` with the element index instead, so the runtime
+  can mark the card of a large array. The call allocates nothing, so it
+  needs no sync of the machine.
 - A continuation frame goes on the stack of the thread. The push adds the
   bytes of the frame to `%sp` and branches on whether the result is not
   above `%sp_limit`. When it is above, `aihc_stack_grow` gives the first
@@ -744,7 +756,9 @@ The lowering keeps the control model of CPS-GRIN:
   context, so the push stores nothing in the machine.
 - A continue helper enters a frame: the frame becomes `%sp`, and the end of
   its chunk becomes `%sp_limit`. That pops the frame and every frame above
-  it.
+  it. When the new `%sp_limit` differs from the old one, the frame is in a
+  lower chunk, and a cold call to `aihc_stack_enter_chunk` makes that chunk
+  young again for the collector.
 - `GrinIfWhnf` loads the header, masks the two tag bits, loads the `needs_eval` byte, and branches on it.
   It does no allocation or suspension.
   A zero byte sends the object to its ready branch.
@@ -840,7 +854,7 @@ module that parses and lints by itself.
 
 A program links the objects of the installed package. A test harness that
 needs its own runtime — an instrumented one, or one with a smaller
-semispace — calls `Aihc.Testing.RuntimeArchive.buildRuntimeArchive`, which reads the
+nursery — calls `Aihc.Testing.RuntimeArchive.buildRuntimeArchive`, which reads the
 same Cabal file and builds one archive outside the store with the extra C
 arguments, instead of naming the runtime sources. Moving a unit from C to
 Lir then changes no test. A link places that archive after the objects that

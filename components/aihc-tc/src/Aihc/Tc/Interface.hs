@@ -44,7 +44,12 @@ data TcInterface = TcInterface
     tcInterfaceTypeFamilyInstanceMap :: !(Map.Map TcAxiomKey TypeFamilyInstanceInfo),
     tcInterfacePatSynMap :: !(Map.Map Entity PatSynInfo),
     -- | The checked calling convention of each foreign import.
-    tcInterfaceForeignImportMap :: !(Map.Map Entity TcForeignImportInfo)
+    tcInterfaceForeignImportMap :: !(Map.Map Entity TcForeignImportInfo),
+    -- | A number above each unique in the facts. Each type checker run
+    -- starts its unique supply at 0, so two runs can give one unique to two
+    -- variables. A run that imports these facts starts its supply here, so
+    -- a fresh variable never has the unique of an imported variable.
+    tcInterfaceUniqueBound :: !Int
   }
   deriving (Eq, Show, Read, Generic)
 
@@ -81,7 +86,7 @@ tcInterfaceForeignImports :: TcInterface -> [(Entity, TcForeignImportInfo)]
 tcInterfaceForeignImports = Map.toList . tcInterfaceForeignImportMap
 
 -- | Build an interface from lists of facts. Two facts with one identity
--- must be equal.
+-- must be equal. The unique bound is 0. Set it if the facts contain uniques.
 tcInterfaceFromLists :: [(Entity, TypeScheme)] -> [TyConInfo] -> [DataTypeInfo] -> [ClassInfo] -> [InstanceInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [PatSynInfo] -> [(Entity, TcForeignImportInfo)] -> TcInterface
 tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports =
   TcInterface
@@ -93,7 +98,8 @@ tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstance
       tcInterfaceDataFamilyInstanceMap = fromListChecked "data family instance interface" (keyed dataFamilyAxiomKey) dataFamilyInstances,
       tcInterfaceTypeFamilyInstanceMap = fromListChecked "type family instance interface" (keyed typeFamilyAxiomKey) typeFamilyInstances,
       tcInterfacePatSynMap = fromListChecked "pattern synonym interface" (keyed patSynKey) patSyns,
-      tcInterfaceForeignImportMap = fromListChecked "foreign import interface" id foreignImports
+      tcInterfaceForeignImportMap = fromListChecked "foreign import interface" id foreignImports,
+      tcInterfaceUniqueBound = 0
     }
   where
     keyed key value = (key value, value)
@@ -110,7 +116,8 @@ emptyTcInterface =
       tcInterfaceDataFamilyInstanceMap = Map.empty,
       tcInterfaceTypeFamilyInstanceMap = Map.empty,
       tcInterfacePatSynMap = Map.empty,
-      tcInterfaceForeignImportMap = Map.empty
+      tcInterfaceForeignImportMap = Map.empty,
+      tcInterfaceUniqueBound = 0
     }
 
 -- | The policy for facts with the same identity.
@@ -142,7 +149,8 @@ mergeTcInterface check left right =
       tcInterfaceDataFamilyInstanceMap = merge "data family instance interface" tcInterfaceDataFamilyInstanceMap,
       tcInterfaceTypeFamilyInstanceMap = merge "type family instance interface" tcInterfaceTypeFamilyInstanceMap,
       tcInterfacePatSynMap = merge "pattern synonym interface" tcInterfacePatSynMap,
-      tcInterfaceForeignImportMap = merge "foreign import interface" tcInterfaceForeignImportMap
+      tcInterfaceForeignImportMap = merge "foreign import interface" tcInterfaceForeignImportMap,
+      tcInterfaceUniqueBound = max (tcInterfaceUniqueBound left) (tcInterfaceUniqueBound right)
     }
   where
     merge :: (Ord key, Show key, Eq value) => String -> (TcInterface -> Map.Map key value) -> Map.Map key value

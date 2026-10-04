@@ -212,7 +212,10 @@ typedef struct {
   uint64_t words;
 } AihcByteArray;
 
-/* Two metadata slots precede each pinned object on both target word sizes. */
+/* Two metadata slots precede each pinned object on both target word sizes.
+   The second slot packs the charge of the block with its generation and
+   its mark: the low 56 bits are the bytes, bits 56 to 59 the generation,
+   and bit 63 the mark of the running collection. */
 typedef struct AihcPinnedBlock {
   union {
     struct AihcPinnedBlock *next;
@@ -221,6 +224,33 @@ typedef struct AihcPinnedBlock {
   uint64_t bytes;
   AihcSlot object[];
 } AihcPinnedBlock;
+
+#define AIHC_PINNED_BYTES_MASK ((UINT64_C(1) << 56) - 1)
+#define AIHC_PINNED_GENERATION_SHIFT 56
+#define AIHC_PINNED_GENERATION_MASK                                            \
+  (UINT64_C(15) << AIHC_PINNED_GENERATION_SHIFT)
+#define AIHC_PINNED_MARK (UINT64_C(1) << 63)
+
+static inline uint64_t aihc_pinned_bytes(const AihcPinnedBlock *block) {
+  return block->bytes & AIHC_PINNED_BYTES_MASK;
+}
+
+static inline unsigned aihc_pinned_generation(const AihcPinnedBlock *block) {
+  return (unsigned)((block->bytes & AIHC_PINNED_GENERATION_MASK) >>
+                    AIHC_PINNED_GENERATION_SHIFT);
+}
+
+static inline void aihc_pinned_set_generation(AihcPinnedBlock *block,
+                                              unsigned generation) {
+  block->bytes = (block->bytes & ~AIHC_PINNED_GENERATION_MASK) |
+                 ((uint64_t)generation << AIHC_PINNED_GENERATION_SHIFT);
+}
+
+/* The block of a pinned object or a large object. */
+static inline AihcPinnedBlock *aihc_pinned_block_of(const AihcValue *object) {
+  return (AihcPinnedBlock *)((uint8_t *)(uintptr_t)object -
+                             offsetof(AihcPinnedBlock, object));
+}
 
 _Static_assert(sizeof(AihcByteArray) == 48, "byte-array descriptor size");
 _Static_assert(offsetof(AihcByteArray, contents) == 16,
@@ -244,7 +274,11 @@ void aihc_pinned_block_release(AihcPinnedBlock *block);
 typedef enum {
   AIHC_REGION_OUTSIDE = 0,
   AIHC_REGION_FREE,
-  AIHC_REGION_SPACE,
+  AIHC_REGION_NURSERY,
+  AIHC_REGION_GEN1,
+  AIHC_REGION_GEN2,
+  /* The blocks of gen1 that the running collection copies away. */
+  AIHC_REGION_FROM1,
   AIHC_REGION_LARGE,
   AIHC_REGION_PINNED,
   AIHC_REGION_STACK,
@@ -258,8 +292,20 @@ size_t aihc_regions_for_bytes(size_t bytes);
 void *aihc_regions_acquire(size_t count, AihcRegionKind kind);
 /* Give a run back. The address is the start of a run that acquire gave. */
 void aihc_regions_release(void *base);
+/* Change the kind of every region of an acquired run. */
+void aihc_regions_set_kind(void *base, AihcRegionKind kind);
 /* The kind of the region that holds an address. */
 AihcRegionKind aihc_region_kind(const void *address);
+/* The start of the acquired run that holds an address, or null outside every
+   mapping. */
+void *aihc_region_run_base(const void *address);
+
+/* Visit every object of the heap: the nursery, the blocks of gen1, the
+   occupied slots of gen2, and the large objects. The visitor must not
+   allocate. The test drivers use this walk. */
+typedef void (*AihcObjectVisitor)(AihcValue *object, void *context);
+void aihc_gc_walk_objects(AihcMachine *machine, AihcObjectVisitor visitor,
+                          void *context);
 
 /* The host side of the region table. Map count regions at a region
    boundary, or give null when the host has no room. The content of the
@@ -269,11 +315,19 @@ uint8_t *aihc_host_map_regions(size_t count);
    unmapped, or nonzero when the host keeps it, as linear memory does. */
 int aihc_host_unmap_regions(void *base, size_t count);
 
-/* The spaces of the semispace collector. acquire gives a space of at least
-   the given bytes, and release gives the space back. The collector fuzz
-   driver replaces the spaces of a machine through these two functions. */
-uint8_t *aihc_semispace_acquire(size_t bytes);
-void aihc_semispace_release(uint8_t *space);
+/* Add an object to the remembered set. */
+void aihc_remember(AihcMachine *machine, AihcValue *object);
+/* Replace the nursery of a machine with an empty one of the given bytes.
+   The collector fuzz driver uses it to force frequent collections. */
+void aihc_nursery_replace(AihcMachine *machine, size_t bytes);
+/* Empty the heap of a machine: release every block, every pinned block,
+   and the remembered set, and give the machine an empty nursery of the
+   given bytes. The caller holds no pointer into the old heap afterwards. */
+void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes);
+/* Run one collection of the generations up to the given one. */
+void aihc_gc_collect_generation(AihcMachine *machine, unsigned generation,
+                                uint64_t root_count, AihcSlot *roots,
+                                const AihcSrt *srt);
 
 /* Thread stacks. Each thread owns a doubly linked list of chunks, and the
    continuation frames of the thread live in them. A chunk has
@@ -311,6 +365,12 @@ struct AihcStackChunk {
   AihcStack *stack;
   AihcStackChunk *below;
   AihcStackChunk *above;
+  /* The age of the frames in the chunk, packed with the bookkeeping of the
+     running collection: bits 0 to 7 hold the generation, bits 8 to 15 the
+     youngest generation a referent of a scanned frame ended in, and the
+     rest the number of the collection those bits belong to. See
+     docs/gc-design.md. */
+  uint64_t state;
 };
 
 _Static_assert(sizeof(AihcStackChunk) <= AIHC_STACK_CHUNK_HEADER_BYTES,
@@ -383,6 +443,15 @@ uint64_t aihc_stable_name_take_hash(AihcMachine *machine);
    the arguments the host passed. */
 uint64_t aihc_rts_heap_max_bytes(void);
 uint64_t aihc_rts_heap_limit_enabled(void);
+/* The -A, -B, and -F options, or zero for the default. */
+uint64_t aihc_rts_nursery_bytes(void);
+uint64_t aihc_rts_gen1_max_bytes(void);
+uint64_t aihc_rts_gen2_factor(void);
+/* Apply the parsed collector options to a machine whose nursery is empty. */
+void aihc_gc_apply_options(AihcMachine *machine);
+/* Cap the nursery at the -M limit once the limit applies, so a reservation
+   above the limit reaches the runtime, which refuses it. */
+void aihc_gc_apply_limit(AihcMachine *machine);
 /* The zero-terminated path of the statistics file, or null when the
    environment names none. */
 const char *aihc_rts_stats_path(void);

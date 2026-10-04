@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
--- | Fuzz tests for the semispace collector.
+-- | Fuzz tests for the generational collector.
 --
 -- No source fixture can drive this test. The collector's input is a heap
 -- state, and a compiled program reaches only the states its own evaluation
@@ -65,7 +65,7 @@ tests :: TestTree
 tests =
   withResource compileDriver (removeDirectoryRecursive . fst) $ \getBuild ->
     testGroup
-      "semispace collector fuzz"
+      "generational collector fuzz"
       [ withResource (newDriver getBuild config) stopDriver $ \getDriver ->
           testGroup
             (cfgName config)
@@ -123,6 +123,9 @@ prop_collect config getDriver = property $ do
         Right reports -> do
           let problems = replay config script reports
           classify (fromString "several collections") (Map.size reports > 1)
+          classify (fromString "gen1 collection") (any ((== 1) . rCollected) (Map.elems reports))
+          classify (fromString "full collection") (any ((== 2) . rCollected) (Map.elems reports))
+          classify (fromString "floating garbage") (or [not (Set.null (mFloatingAfter report)) | report <- Map.elems reports])
           classify (fromString "collection at a reservation") (or [Map.member index reports | (index, CReserve _) <- zip [0 ..] script])
           classify (fromString "thunk update") (or [True | CUpdate {} <- script])
           classify (fromString "blackhole") (or [True | CBlackhole _ <- script])
@@ -131,6 +134,7 @@ prop_collect config getDriver = property $ do
           classify (fromString "more than four survivors") (any ((> 4) . Map.size . rObjects) (Map.elems reports))
           classify (fromString "more than sixteen survivors") (any ((> 16) . Map.size . rObjects) (Map.elems reports))
           classify (fromString "stale static object") (or [True | CSUpdate {} <- script])
+          classify (fromString "large array") (or [True | CArray _ count _ <- script, count >= largeArrayElements])
           unless (null problems) $ do
             annotate ("driver output:\n" <> unlines output)
             annotate (unlines problems)
@@ -186,7 +190,20 @@ data Model = Model
     mStaticNodes :: [[Value]],
     mStaticNodeSrts :: [Maybe Int],
     mSrts :: Map Int ([Int], [Int]),
-    mCurrentSrt :: Maybe Int
+    mCurrentSrt :: Maybe Int,
+    -- | The generation of each heap object after the last reported
+    -- collection. An object the driver has not reported is in the nursery.
+    mAges :: Map Id Int,
+    -- | Dead objects of a generation the last collection did not copy, with
+    -- the fields they had. They stay in the heap until a collection of their
+    -- generation, and the driver reports them, but no command names them
+    -- again.
+    mFloating :: Map Id Object,
+    -- | The objects the last collection may have kept without a live path:
+    -- the floating objects and everything they reach. A floating object that
+    -- was written since the collection before is in the remembered set, and
+    -- a collection below its generation scans it.
+    mNepotism :: Set Id
   }
   deriving (Show)
 
@@ -216,7 +233,10 @@ emptyModel =
       mStaticNodes = replicate staticNodeCount (replicate staticNodeFields VNull),
       mStaticNodeSrts = replicate staticNodeCount Nothing,
       mSrts = Map.empty,
-      mCurrentSrt = Nothing
+      mCurrentSrt = Nothing,
+      mAges = Map.empty,
+      mFloating = Map.empty,
+      mNepotism = Set.empty
     }
 
 objectWords :: Object -> Int
@@ -267,6 +287,7 @@ data Command
   | CMvarTake Int
   | CThread ThreadSlot Value
   | CCollect
+  | CCollectGeneration Int
   deriving (Eq, Show)
 
 renderValue :: Value -> String
@@ -303,6 +324,7 @@ renderCommand command = unwords $ case command of
   CMvarTake index -> ["mvar_take", show index]
   CThread slot value -> ["thread", threadSlotName slot, renderValue value]
   CCollect -> ["collect"]
+  CCollectGeneration generation -> ["collect", show generation]
 
 kindName :: Kind -> String
 kindName KNode = "node"
@@ -358,6 +380,7 @@ applyCommand command model = case command of
   CThread SlotContinuation value -> model {mThreadContinuation = value}
   CThread SlotValue value -> model {mThreadValue = Just value}
   CCollect -> model
+  CCollectGeneration _ -> model
   where
     insertObject identity object =
       model {mHeap = Map.insert identity object (mHeap model), mNextId = max (mNextId model) (identity + 1)}
@@ -381,9 +404,18 @@ data Item = IHeap Id | IStatic Int | ISrt Int
 -- static objects it marks.
 --
 -- The collector starts from the published table and the explicit roots.
-liveness :: Config -> Model -> Live
-liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
+-- | The objects a collection of the generations up to the given one keeps.
+-- A minor collection and a gen1 collection do not trace the static
+-- reference tables: every static object is old, and the remembered set
+-- keeps whatever an evaluated one names. Only a full collection finds the
+-- static objects that no table reaches.
+liveness :: Config -> Int -> Model -> Live
+liveness _config collected model = go initial (Live Set.empty Set.empty) Set.empty
   where
+    allStatics
+      | collected < 2 = [IStatic slot | slot <- [0 .. staticCount - 1], not (isStale slot)]
+      | otherwise = []
+    isStale slot = slot < staticThunkCount && mStaticThunks model !! slot == SStale
     rootValues =
       mGlobals model
         <> mRoots model
@@ -392,7 +424,7 @@ liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
         <> maybe [] pure (mThreadValue model)
         <> map VHeap (mBlackholes model)
     staticStart = maybe [] (pure . ISrt) (mCurrentSrt model)
-    initial = concatMap fromValue rootValues <> staticStart
+    initial = concatMap fromValue rootValues <> staticStart <> allStatics
     fromValue value = case resolve model value of
       VHeap identity -> [IHeap identity]
       VStatic slot -> [IStatic slot]
@@ -416,7 +448,13 @@ liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
                   | slot < staticThunkCount = case mStaticThunks model !! slot of
                       SThunk -> fromSrt (mStaticThunkSrts model !! slot)
                       SInd target -> fromValue target
-                      SStale -> error "a stale static object became live"
+                      -- A minor collection scans no static object that was not
+                      -- updated, so a stale one is a leaf. A full collection
+                      -- must not reach one: the generator keeps them out of
+                      -- every table and field.
+                      SStale
+                        | collected < 2 -> []
+                        | otherwise -> error "a stale static object became live"
                   | slot < staticRootedCount =
                       let node = slot - staticThunkCount
                        in concatMap fromValue (mStaticNodes model !! node) <> fromSrt (mStaticNodeSrts model !! node)
@@ -428,11 +466,15 @@ liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
             let (objects, children) = fromMaybe (error "reference table is not defined") (Map.lookup index (mSrts model))
              in go (map IStatic objects <> map ISrt children <> rest) live (Set.insert index seenSrts)
 
--- | Apply one collection to the model.
-collectModel :: Config -> Model -> Model
-collectModel config model =
+-- | Apply one collection of the generations up to the given one to the
+-- model. A dead object of an older generation floats: it stays in the heap
+-- until its generation is collected.
+collectModel :: Config -> Int -> Model -> Model
+collectModel config collected model =
   model
     { mHeap = Map.mapWithKey resolveObject (Map.restrictKeys (mHeap model) (liveHeap live)),
+      mFloating = floating,
+      mNepotism = nepotism,
       mGlobals = map r (mGlobals model),
       mRoots = map r (mRoots model),
       mStable = map weak (mStable model),
@@ -443,7 +485,22 @@ collectModel config model =
       mStaticThunks = zipWith updateStatic [0 ..] (mStaticThunks model)
     }
   where
-    live = liveness config model
+    live = liveness config collected model
+    known = Map.union (mHeap model) (mFloating model)
+    floats identity _ = not (Set.member identity (liveHeap live)) && Map.findWithDefault 0 identity (mAges model) > collected
+    floating = Map.filterWithKey floats known
+    nepotism = reach (Map.keys floating) Set.empty
+    reach [] seen = seen
+    reach (identity : rest) seen
+      | Set.member identity seen = reach rest seen
+      | otherwise = case Map.lookup identity known of
+          Nothing -> reach rest seen
+          Just object -> reach (children object <> rest) (Set.insert identity seen)
+    children object = [identity | VHeap identity <- map r (pointerFields object)]
+    pointerFields object = case object of
+      Object _ pointers fields _ _ -> [field | (True, field) <- zip pointers fields]
+      Array elements _ -> elements
+      Ind target -> [target]
     r = resolve model
     weak value = case r value of
       result@(VHeap identity) | Set.member identity (liveHeap live) -> result
@@ -470,11 +527,10 @@ data RStatic = RThunk | RInd RValue | RNode [RValue]
   deriving (Eq, Show)
 
 data Report = Report
-  { rLive :: Int,
-    rCapacity :: Int,
-    rTarget :: Int,
-    rOldCapacity :: Int,
+  { rCollected :: Int,
+    rLive :: Int,
     rRequired :: Int,
+    rAges :: Map Id Int,
     rObjects :: Map Id (String, [RValue]),
     rGlobals :: [RValue],
     rRoots :: [RValue],
@@ -488,7 +544,12 @@ data Report = Report
   deriving (Show)
 
 emptyReport :: Report
-emptyReport = Report 0 0 0 0 0 Map.empty [] [] [] [] [] [] Map.empty []
+emptyReport = Report 0 0 0 Map.empty Map.empty [] [] [] [] [] [] Map.empty []
+
+-- | The reported objects that the model does not count as live: the floating
+-- garbage of an older generation.
+mFloatingAfter :: Report -> Set Id
+mFloatingAfter report = Map.keysSet (rAges report)
 
 parseRValue :: String -> Either String RValue
 parseRValue token = case token of
@@ -516,19 +577,24 @@ parseReports = go Map.empty
   where
     go reports [] = Right reports
     go reports (line : rest) = case words line of
-      ["collection", index] -> do
+      ["collection", index, generation] -> do
         command <- readNumber index
-        (report, remaining) <- block emptyReport rest
+        collected <- readNumber generation
+        (report, remaining) <- block emptyReport {rCollected = collected} rest
         go (Map.insert command report reports) remaining
       _ -> Left ("unexpected driver line " <> line)
     block _ [] = Left "report without end"
     block report (line : rest) = case words line of
       ["endcollection"] -> Right (report, rest)
-      ["space", live, capacity, target, old, required] -> do
-        values <- traverse readNumber [live, capacity, target, old, required]
+      ["space", live, required] -> do
+        values <- traverse readNumber [live, required]
         case values of
-          [l, c, t, o, q] -> block report {rLive = l, rCapacity = c, rTarget = t, rOldCapacity = o, rRequired = q} rest
+          [l, q] -> block report {rLive = l, rRequired = q} rest
           _ -> Left "invalid space line"
+      ["age", identity, generation] -> do
+        key <- readNumber identity
+        age <- readNumber generation
+        block report {rAges = Map.insert key age (rAges report)} rest
       "obj" : identity : kind : _count : values -> do
         key <- readNumber identity
         parsed <- traverse parseRValue values
@@ -566,27 +632,40 @@ parseReports = go Map.empty
 
 -- | Run the script against the model and check every reported collection.
 replay :: Config -> [Command] -> Map Int Report -> [String]
-replay config script reports = go (zip [0 ..] script) emptyModel 0 <> extra
+replay config script reports = go (zip [0 ..] script) emptyModel <> extra
   where
     extra = ["report for command " <> show index <> " which is not in the script" | index <- Map.keys reports, index >= length script]
-    go [] _ _ = []
-    go ((index, command) : rest) model capacity = case Map.lookup index reports of
+    go [] _ = []
+    go ((index, command) : rest) model = case Map.lookup index reports of
       Nothing
-        | CCollect <- command -> ("command " <> show index <> ": collect did not report a collection") : go rest model capacity
-        | otherwise -> go rest (applyCommand command model) (capacityAfter command capacity)
+        | CCollect <- command -> ("command " <> show index <> ": collect did not report a collection") : go rest model
+        | CCollectGeneration _ <- command -> ("command " <> show index <> ": collect did not report a collection") : go rest model
+        | otherwise -> go rest (applyCommand command model)
       Just report
         | collects command ->
-            let expected = collectModel config model
-                problems = checkReport expected capacity report
+            let expected = collectModel config (rCollected report) model
+                problems = generationProblems command report <> checkReport expected report
+                -- The driver says where each survivor lives and which dead
+                -- objects float. The model takes both for the next collection.
+                -- A weak name the driver kept through nepotism keeps its
+                -- referent in the model as well.
+                settledStable = zipWith (\value actual -> case actual of RHeap identity | value == VNull -> VHeap identity; _ -> value) (mStable expected) (rStable report)
+                settled = expected {mAges = rAges report, mStable = settledStable, mFloating = Map.restrictKeys (Map.union (mHeap model) (mFloating model)) (mFloatingAfter report `Set.difference` Map.keysSet (mHeap expected))}
              in map (\p -> "command " <> show index <> ": " <> p) problems
-                  <> go rest (applyCommand command expected) (rCapacity report)
-        | otherwise -> ("command " <> show index <> ": collection at a command that cannot collect") : go rest (applyCommand command model) capacity
+                  <> go rest (applyCommand command settled)
+        | otherwise -> ("command " <> show index <> ": collection at a command that cannot collect") : go rest (applyCommand command model)
     collects (CMvars _) = True
     collects (CReserve _) = True
     collects CCollect = True
+    collects (CCollectGeneration _) = True
     collects _ = False
-    capacityAfter (CMachine _ _ bytes) _ = bytes + 72
-    capacityAfter _ capacity = capacity
+    generationProblems command report = case command of
+      CCollectGeneration generation
+        | rCollected report /= generation -> ["collected generation " <> show (rCollected report) <> " instead of " <> show generation]
+      CCollectGeneration _ -> []
+      _
+        | rCollected report /= 0 -> ["a reservation collected generation " <> show (rCollected report)]
+        | otherwise -> []
 
 matchesValue :: Value -> RValue -> Bool
 matchesValue VNull RNull = True
@@ -602,16 +681,18 @@ checkValues what expected actual
   | and (zipWith matchesValue expected actual) = []
   | otherwise = [what <> ": expected " <> show expected <> " but the driver reported " <> show actual]
 
--- | Compare one reported collection with the collected model. The model
--- before the collection gives the capacity the driver must have kept.
-checkReport :: Model -> Int -> Report -> [String]
-checkReport expected capacityBefore report =
+-- | Compare one reported collection with the collected model. The ages of
+-- the model are the ones before the collection, so the report can be
+-- checked against them.
+checkReport :: Model -> Report -> [String]
+checkReport expected report =
   map ("violation: " <>) (rViolations report)
     <> spaceProblems
+    <> ageProblems
     <> objectProblems
     <> checkValues "globals" (mGlobals expected) (rGlobals report)
     <> checkValues "roots" (mRoots expected) (rRoots report)
-    <> checkValues "stable names" (mStable expected) (rStable report)
+    <> stableProblems
     <> mvarProblems
     <> threadProblems
     <> checkValues "blackholes" (map VHeap (mBlackholes expected)) (rBlackholes report)
@@ -620,19 +701,37 @@ checkReport expected capacityBefore report =
     -- MVars and threads have nine slots on the 64-bit test targets.
     -- Active thunk roots model update continuations without extra objects.
     liveBytes = 8 * (sum (map objectWords (Map.elems (mHeap expected))) + 9 * (1 + length (mMvars expected)) + 4 * length (mStable expected))
-    occupied = rLive report + rRequired report
-    spaceProblems =
-      ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]
-        <> ["capacity " <> show (rCapacity report) <> " is below live data plus reservation " <> show occupied | rCapacity report < occupied]
-        <> ["target " <> show (rTarget report) <> " is below twice the occupied bytes " <> show occupied | rTarget report < 2 * occupied]
-        <> ["old capacity: expected " <> show capacityBefore <> " but the driver reported " <> show (rOldCapacity report) | rOldCapacity report /= capacityBefore]
+    collected = rCollected report
+    -- A name whose referent only nepotism can keep is weak either way: the
+    -- model says null, and the driver may still have the object.
+    stableProblems
+      | length (mStable expected) /= length (rStable report) = ["stable names: expected " <> show (mStable expected) <> " but the driver reported " <> show (rStable report)]
+      | and (zipWith stableMatches (mStable expected) (rStable report)) = []
+      | otherwise = ["stable names: expected " <> show (mStable expected) <> " but the driver reported " <> show (rStable report)]
+    stableMatches value actual =
+      matchesValue value actual || case actual of
+        RHeap identity -> value == VNull && Set.member identity (mNepotism expected)
+        _ -> False
+    -- A full collection keeps the live objects alone. A smaller one keeps
+    -- the floating garbage of the older generations as well.
+    spaceProblems
+      | collected == 2 = ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]
+      | otherwise = ["live bytes: expected at least " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report < liveBytes]
+    -- An object of a collected generation moves up at least one generation
+    -- and at most to gen2. An older object stays where it is.
+    ageProblems = concatMap ageProblem (Map.toList (rAges report))
+    ageProblem (identity, age) =
+      let before = Map.findWithDefault 0 identity (mAges expected)
+       in if before <= collected
+            then ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
+            else ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
     expectedObjects = Map.map expectedObject (mHeap expected)
     expectedObject object = case object of
       Object kind pointers fields _ blackholed -> (if blackholed then "blackhole" else kindName kind, pointers, fields)
       Array elements _ -> ("array", map (const True) elements, elements)
       Ind _ -> ("indirection", [], [])
     objectProblems =
-      ["object " <> show identity <> " survived but is not live in the model" | identity <- Map.keys (rObjects report), not (Map.member identity expectedObjects)]
+      ["object " <> show identity <> " survived but is not live in the model" | identity <- Map.keys (rObjects report), not (Map.member identity expectedObjects), not (Set.member identity (mNepotism expected))]
         <> concatMap objectProblem (Map.toList expectedObjects)
     objectProblem (identity, (kind, _, fields)) = case Map.lookup identity (rObjects report) of
       Nothing -> ["object " <> show identity <> " is live in the model but did not survive"]
@@ -748,6 +847,15 @@ genEpochs config profile model count = do
 
 data Shape = ShapeObject Kind [Bool] | ShapeArray Int
 
+-- | The smallest element count of a large array: with its two header words
+-- it reaches the large object bound of 32 KiB less the pinned block header.
+largeArrayElements :: Int
+largeArrayElements = 4094
+
+isLargeShape :: Shape -> Bool
+isLargeShape (ShapeArray count) = count >= largeArrayElements
+isLargeShape _ = False
+
 shapeWords :: Shape -> Int
 shapeWords (ShapeObject kind pointers)
   | kind == KThunk = 1 + max 1 (length pointers)
@@ -762,9 +870,12 @@ genShape profile =
       (1, object KClosure),
       (pThunkWeight profile + 1, object KThunk),
       (1, object KPartial),
-      (pArrayWeight profile, ShapeArray <$> Gen.int (Range.linear 0 (pArrayMax profile)))
+      (pArrayWeight profile, ShapeArray <$> arrayLength)
     ]
   where
+    -- One array in thirty-two is large: it gets regions of its own, a
+    -- card for each run of elements, and the ages of a pinned block.
+    arrayLength = Gen.frequency [(31, Gen.int (Range.linear 0 (pArrayMax profile))), (1, Gen.int (Range.constant largeArrayElements (largeArrayElements + 300)))]
     object kind = do
       count <- Gen.int (Range.linear 0 (pFieldMax profile))
       ShapeObject kind <$> replicateM count (percent (pPointerPercent profile))
@@ -784,16 +895,19 @@ genEpoch config profile start = do
   -- The generator does not know whether the reservation collects, so its
   -- model assumes that it does. A collection that did not happen keeps more
   -- objects and static slots valid, so the assumption is conservative.
-  let collected = collectModel config start
-      live = liveness config collected
+  let collected = collectModel config 0 start
+      live = liveness config 0 collected
       stale = taintedStatics collected
       usableSrts = [index | index <- Map.keys (mSrts collected), Set.null (Set.intersection stale (srtClosure collected index))]
   blockCount <- Gen.int (Range.constant 0 (pBlockMax profile))
   let identities = [mNextId collected .. mNextId collected + blockCount - 1]
   shapes <- replicateM blockCount (genShape profile)
   srts <- replicateM blockCount (elementOr Nothing (Nothing : map Just usableSrts))
+  -- The runtime gives a large array regions outside the nursery without a
+  -- collection, so the reservation of the block covers the small objects
+  -- alone.
   let newCommands = zipWith3 newCommand identities shapes srts
-      blockWords = sum (map shapeWords shapes)
+      blockWords = sum [shapeWords shape | shape <- shapes, not (isLargeShape shape)]
       pool = Pool (Set.toList (liveHeap live) <> identities) [slot | slot <- [0 .. staticCount - 1], not (Set.member slot stale)] usableSrts
   fill <- do
     wanted <- percent (pFillPercent profile)
@@ -819,9 +933,13 @@ genEpoch config profile start = do
   opCount <- Gen.int (Range.constant 0 (pOpsMax profile))
   (ops, afterOps) <- genOps config profile pool afterInitial opCount
   collect <- percent (pCollectPercent profile)
-  let final = if collect then collectModel config afterOps else afterOps
+  -- A collection the script asks for names the oldest generation to copy,
+  -- or leaves the choice to a reservation that does not fit.
+  generation <- Gen.frequency [(1, pure Nothing), (3, Just <$> Gen.int (Range.constant 0 2))]
+  let collectCommand = maybe CCollect CCollectGeneration generation
+      final = if collect then collectModel config (fromMaybe 0 generation) afterOps else afterOps
       stableNameWords = 4 * length [() | CStable _ <- ops]
-  pure (fill <> [CReserve (blockWords + stableNameWords)] <> newCommands <> initial <> rooting <> ops <> [CCollect | collect], final)
+  pure (fill <> [CReserve (blockWords + stableNameWords)] <> newCommands <> initial <> rooting <> ops <> [collectCommand | collect], final)
   where
     newCommand identity (ShapeObject kind pointers) srt = CNew identity kind pointers srt
     newCommand identity (ShapeArray count) srt = CArray identity count srt
@@ -899,8 +1017,13 @@ genWord profile pool = do
 genInitial :: Profile -> Pool -> (Id, Shape) -> Gen [Command]
 genInitial profile pool (identity, shape) = case shape of
   ShapeObject _ pointers -> concat <$> forM (zip [0 ..] pointers) field
-  ShapeArray count -> concat <$> forM [0 .. count - 1] element
+  ShapeArray count -> concat <$> forM (arrayIndices count) element
   where
+    -- A large array gets a store into a sample of its cards, not into each
+    -- element: the operations of the epoch reach the other elements.
+    arrayIndices count
+      | count <= 64 = [0 .. count - 1]
+      | otherwise = [0, 97 .. count - 1] <> [count - 1]
     field (index, True) = element index
     field (index, False) = do
       value <- genWord profile pool

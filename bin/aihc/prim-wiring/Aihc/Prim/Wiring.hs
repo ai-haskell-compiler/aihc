@@ -10,9 +10,11 @@
 -- for @aihc-prim@ and the core libraries built on it, so that the layout of
 -- those packages is stated in one place outside the type checker.
 --
--- This is not a library component of any package. The compiler and the
--- type checker test suites each compile this directory in place, so the
--- wiring is shared without becoming part of a released interface.
+-- This is not a library component of any package. It is a source
+-- directory of the compiler package, so the compiler builds from its own
+-- package directory. The type checker test suites compile the same
+-- directory in place, so the wiring is shared without becoming part of a
+-- released interface.
 module Aihc.Prim.Wiring
   ( primTcConfig,
     primTcWiring,

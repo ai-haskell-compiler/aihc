@@ -4,6 +4,7 @@ module Control.Concurrent
     forkFinally,
     forkIO,
     forkOS,
+    getNumCapabilities,
     killThread,
     myThreadId,
     threadDelay,
@@ -15,7 +16,7 @@ where
 import Control.Concurrent.MVar
 import Control.Exception.Base (SomeException, mask, try)
 import GHC.Conc.IO (threadDelay)
-import GHC.Conc.Sync (ThreadId, forkIO, killThread, myThreadId, throwTo, yield)
+import GHC.Conc.Sync (ThreadId, forkIO, getNumCapabilities, killThread, myThreadId, throwTo, yield)
 import GHC.Exception (ErrorCall (..))
 import GHC.IO (throwIO)
 import Prelude (Either, IO, ($), (>>=))

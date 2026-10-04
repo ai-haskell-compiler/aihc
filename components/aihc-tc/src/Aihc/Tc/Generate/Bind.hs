@@ -43,7 +43,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), nameResolution)
 import Aihc.Resolve.Traverse (Collect, Walk (..), collected, idWalk, runCollect, walk)
-import Aihc.Tc.Annotations (annotateRhsCast, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
@@ -62,6 +62,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, when)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
@@ -276,13 +277,13 @@ inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
         solveResult <- solveConstraints bindingCts
         residuals <- partitionLocalResiduals binderSet placeholderMap groups binders solveResult
         polyBinders <- generalizedBinders sigs binderSet placeholderMap residuals binders
-        decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults) >>= annotateRecursiveOccurrences polyBinders
+        decls' <- annotateLocalBindingDecls (Set.difference binderSet (Map.keysSet sigs)) polyBinders (concatMap (renderGroup . fst) groupResults) >>= annotateRecursiveOccurrences polyBinders
         withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
           pure (decls', bodyResult, bodyTy, localResidualOuterCts residuals ++ bodyCts)
       else do
         monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
-        decls' <- annotateLocalBindingDecls monoBinders (concatMap (renderGroup . fst) groupResults)
+        decls' <- annotateLocalBindingDecls Set.empty monoBinders (concatMap (renderGroup . fst) groupResults)
         (bodyResult, bodyTy, bodyCts) <- body
         pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
 
@@ -352,28 +353,61 @@ distinctLocalBinders = fmap snd . foldM addBinder (Set.empty, [])
         then pure (keys, binders)
         else pure (Set.insert key keys, binders <> [binder])
 
-annotateLocalBindingDecls :: [(UnqualifiedName, TcBinder)] -> [Decl] -> TcM [Decl]
-annotateLocalBindingDecls binders decls = do
-  binderTypes <- Map.fromList <$> mapM binderTypeEntry binders
-  mapM (annotateLocalBindingDecl binderTypes) decls
+-- | Annotate the local bindings of a group. The set gives the binders that
+-- the group generalized, which excludes the binders with a signature.
+annotateLocalBindingDecls :: Set.Set Entity -> [(UnqualifiedName, TcBinder)] -> [Decl] -> TcM [Decl]
+annotateLocalBindingDecls generalized binders decls = do
+  binderEntries <- Map.fromList <$> mapM binderEntry binders
+  mapM (annotateLocalBindingDecl generalized binderEntries) decls
   where
-    binderTypeEntry (name, binder) = do
+    binderEntry (name, binder) = do
       key <- resolvedLocalTermKey name
-      pure (key, binderType binder)
+      pure (key, binder)
 
-annotateLocalBindingDecl :: Map Entity TcType -> Decl -> TcM Decl
-annotateLocalBindingDecl binderTypes decl =
+-- | Annotate a local binding with its checked type. A binding of one name
+-- gets the type of its binder.
+--
+-- A pattern binding with other binders already records the type of its
+-- right-hand side. The binders of a generalized group can be polymorphic.
+-- Then the right-hand side abstracts over the type variables of all its
+-- binders, and each binder abstracts only over the ones that its own type
+-- mentions, as at the top level. Each binder records the type arguments
+-- that instantiate the right-hand side for it. A type variable that the
+-- binder does not mention gets an undetermined type.
+annotateLocalBindingDecl :: Set.Set Entity -> Map Entity TcBinder -> Decl -> TcM Decl
+annotateLocalBindingDecl generalized binders decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateLocalBindingDecl binderTypes inner
+    DeclAnn ann (DeclValue (PatternBind mult pat rhs))
+      | Just pending <- fromAnnotation ann,
+        Nothing <- patternBinderName pat -> do
+          keys <- patternBinderKeyList pat
+          let schemes = [(name, scheme) | (name, key) <- zip (patternBinderNames pat) keys, Set.member key generalized, Just (TcIdBinder scheme _) <- [Map.lookup key binders]]
+              rhsTyVars = List.nub (concat [tyVars | (_, ForAll tyVars _ _) <- schemes])
+          if null rhsTyVars
+            then pure decl
+            else do
+              pendings <- mapM (binderPending rhsTyVars) schemes
+              let pending' = pending {pendingTcAnnType = foldr TcForAllTy (pendingTcAnnType pending) rhsTyVars}
+              pure (DeclAnn (mkAnnotation pending') (DeclValue (PatternBind mult (reannotatePatternBinders pendings pat) rhs)))
+    DeclAnn ann inner -> DeclAnn ann <$> annotateLocalBindingDecl generalized binders inner
+    DeclValue (PatternBind _ pat _)
+      | Nothing <- patternBinderName pat -> pure decl
     DeclValue valueDecl ->
       do
         keys <- valueDeclBinderKeys valueDecl
         case keys of
           key : _
-            | Just ty <- Map.lookup key binderTypes ->
-                pure (DeclAnn (mkAnnotation (pendingAnnotation ty [] [] [])) decl)
+            | Just binder <- Map.lookup key binders ->
+                pure (DeclAnn (mkAnnotation (pendingAnnotation (binderType binder) [] [] [])) decl)
           _ -> pure decl
     _ -> pure decl
+  where
+    binderPending rhsTyVars (name, ForAll tyVars _ body) = do
+      typeArgs <- mapM (typeArgument tyVars) rhsTyVars
+      pure (unqualifiedNameText name, PendingTcAnnotation body tyVars typeArgs 0 [] [] [])
+    typeArgument tyVars tyVar
+      | tyVar `elem` tyVars = pure (TcTyVar tyVar)
+      | otherwise = undeterminedTypeOfKind =<< zonkType (tvKind tyVar)
 
 binderType :: TcBinder -> TcType
 binderType (TcIdBinder scheme _) = schemeToType scheme
@@ -679,7 +713,9 @@ inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
               patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
               cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
               let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
-              pure (DeclValue (PatternBind mult pat' rhs'), cts)
+              -- The declaration records the type of the right-hand side.
+              -- 'annotateLocalBindingDecl' generalizes it with the group.
+              pure (DeclAnn (mkAnnotation (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts)
         FunctionBind name matches -> do
           (matches', _ty, cts) <- inferLocalFunction inferExpr sigs scopedSigs placeholders name matches
           pure (DeclValue (FunctionBind name matches'), cts)

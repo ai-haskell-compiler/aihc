@@ -42,6 +42,7 @@ module Aihc.Tc.Kind
     zonkKind,
     kindNeedsZonkIn,
     expandTcTypeSynonyms,
+    kindMentionsMeta,
   )
 where
 

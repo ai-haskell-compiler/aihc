@@ -1,0 +1,56 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+
+    import Control.Monad.ST (ST, runST)
+    import Data.STRef (STRef, newSTRef, readSTRef)
+
+    class Monad m => PrimMonad m where
+      type PrimState m
+      liftPrim :: ST (PrimState m) a -> m a
+
+    instance PrimMonad (ST s) where
+      type PrimState (ST s) = s
+      liftPrim action = action
+
+    readRef :: PrimMonad m => STRef (PrimState m) Int -> m Int
+    readRef reference = liftPrim (readSTRef reference)
+
+    data Box s = Box (STRef s Int) (STRef s Int)
+
+    sizeOf :: Box s -> ST s Int
+    sizeOf (Box size _) = readSTRef size
+
+    counter :: Box s -> STRef s Int
+    counter (Box _ count) = count
+
+    -- The lambda gets the type of box only from its body. The first
+    -- statement gives the body the monad ST s0. The second statement gives
+    -- s0 the solution PrimState m. The third statement then gives the
+    -- equality m ~ ST (PrimState m).
+    layout :: STRef s Int -> [(Box s, Int)] -> ST s [Int]
+    layout scale boxes = do
+      placed <- mapM (\(box, extra) -> do
+        size <- sizeOf box
+        count <- readRef (counter box)
+        again <- sizeOf box
+        factor <- readRef scale
+        pure ((size + count + again + extra) * factor)) boxes
+      pure placed
+
+    run :: [Int]
+    run = runST (do
+      scale <- newSTRef 10
+      first <- Box <$> newSTRef 1 <*> newSTRef 2
+      second <- Box <$> newSTRef 3 <*> newSTRef 4
+      layout scale [(first, 0), (second, 0)])
+output: |
+  : (I# 40) (: (I# 100) [])
+expression: |
+  run
+status: pass
+reason: a meta variable that occurs only under a family application on the
+  other side of an equality gets a solution through a fresh variable for that
+  application

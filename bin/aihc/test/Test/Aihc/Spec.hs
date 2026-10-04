@@ -1378,7 +1378,7 @@ test_installRuntimePackage getStore = do
           hostObject = case target of
             Wasm32Wasip3 -> "native_aihc_host_wasip3.o"
             _ -> "native_aihc_host_posix.o"
-      forM_ ["native_aihc_runtime.o", "native_aihc_gc_semispace.o", "native_aihc_heap_regions.o", hostObject, "native_rts.o"] $ \object ->
+      forM_ ["native_aihc_runtime.o", "native_aihc_gc.o", "native_aihc_heap_regions.o", hostObject, "native_rts.o"] $ \object ->
         assertFileExists (cbits </> object)
       -- The Lir units are one object: rts.lir includes them, and only it is
       -- named by x-aihc-lir-sources.

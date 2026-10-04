@@ -42,6 +42,11 @@ global @aihc_program_environment_bytes: i64
 ; initializes the arguments, so a program without options gets the defaults.
 global @aihc_rts_option_heap_max_bytes: i64
 global @aihc_rts_option_heap_limit_enabled: i64
+; The generational collector: -A sets the nursery bytes, -B the gen1
+; maximum, and -F the growth factor of gen2. Zero means the default.
+global @aihc_rts_option_nursery_bytes: i64
+global @aihc_rts_option_gen1_max_bytes: i64
+global @aihc_rts_option_gen2_factor: i64
 ; The zero-terminated path of the statistics file, or null when the
 ; environment does not request one.
 global @aihc_rts_option_stats_path: ptr
@@ -76,6 +81,24 @@ entry:
 export func @aihc_rts_heap_limit_enabled() -> i64 cc c {
 entry:
   %value = global.get @aihc_rts_option_heap_limit_enabled
+  return %value
+}
+
+export func @aihc_rts_nursery_bytes() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_nursery_bytes
+  return %value
+}
+
+export func @aihc_rts_gen1_max_bytes() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_gen1_max_bytes
+  return %value
+}
+
+export func @aihc_rts_gen2_factor() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_gen2_factor
   return %value
 }
 
@@ -243,14 +266,41 @@ entry:
 
 letter:
   %second = load i8 [%argument + 1] align 1
+  %size_text = ptr.add %argument, 2
   %is_heap_limit = eq i8 %second, 'M'
-  br %is_heap_limit, heap_limit, unknown
+  br %is_heap_limit, heap_limit, nursery_option
 
 heap_limit:
-  %size_text = ptr.add %argument, 2
   %size = call @aihc_rts_parse_heap_size(%size_text)
   global.set @aihc_rts_option_heap_max_bytes, %size
   global.set @aihc_rts_option_heap_limit_enabled, 1
+  return
+
+nursery_option:
+  %is_nursery = eq i8 %second, 'A'
+  br %is_nursery, nursery, gen1_option
+
+nursery:
+  %nursery_size = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_nursery_bytes, %nursery_size
+  return
+
+gen1_option:
+  %is_gen1 = eq i8 %second, 'B'
+  br %is_gen1, gen1, factor_option
+
+gen1:
+  %gen1_size = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_gen1_max_bytes, %gen1_size
+  return
+
+factor_option:
+  %is_factor = eq i8 %second, 'F'
+  br %is_factor, factor, unknown
+
+factor:
+  %factor_value = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_gen2_factor, %factor_value
   return
 
 unknown:

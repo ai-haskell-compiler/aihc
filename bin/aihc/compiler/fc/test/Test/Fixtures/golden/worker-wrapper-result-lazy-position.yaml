@@ -89,14 +89,10 @@ expected: |-
                                 3.cI# (y{1} : 2.tInt#) →
                                     case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{3} y{1} as (field : 2.tInt#) return (3.tInt) of {
                                         _ →
-                                            let {
-                                                wrapped{3} : 3.tInt =
-                                                    3.cI# field
-                                            } in
-                                                case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{2} field as (field{1} : 2.tInt#) return (3.tInt) of {
-                                                    _ →
-                                                        3.cI# field{1}
-                                                }
+                                            case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{2} field as (field{1} : 2.tInt#) return (3.tInt) of {
+                                                _ →
+                                                    3.cI# field{1}
+                                            }
                                     }
                             }
                     }

@@ -19,6 +19,7 @@ module Aihc.Fc.Pass
 where
 
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
+import Aihc.Fc.CallPattern (CallPatternReport (..), callPatternProgram)
 import Aihc.Fc.ConstantLift (liftConstants)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
@@ -56,6 +57,10 @@ data Pass
     -- dictionary, with the dictionary in place of the parameter.
     -- @Aihc.Fc.Specialise@.
     PassSpecialise
+  | -- | Copy each local loop whose calls give a constructor in a position,
+    -- with the fields in place of the parameter, in rounds with a
+    -- simplifying walk in a phase. @Aihc.Fc.CallPattern@.
+    PassCallPatterns !Int
   deriving (Eq, Show)
 
 -- | The phase a pass runs in. Phases count down as GHC's do, from 2 to
@@ -68,6 +73,7 @@ passPhase pass =
     PassDemand _ -> Nothing
     PassWorkerWrapper _ -> Nothing
     PassSpecialise -> Nothing
+    PassCallPatterns phase -> Just phase
     PassInline _ _ phase -> Just phase
     PassSimplify phase -> Just phase
 
@@ -90,6 +96,7 @@ passName pass =
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
     PassWorkerWrapper SplitLocalFunctions -> "worker/wrapper locals"
     PassSpecialise -> "specialise"
+    PassCallPatterns phase -> "call patterns [" <> T.pack (show phase) <> "]"
     PassEtaExpand -> "eta expand"
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
     PassSimplify phase -> "simplify [" <> T.pack (show phase) <> "]"
@@ -137,6 +144,16 @@ runPass roots pass program =
                 reportBefore = programSize program,
                 reportAfter = programSize specialised,
                 reportDetail = count (reportSpecialisedBindings report) "bindings" <> ", " <> count (reportCopies report) "copies" <> ", " <> count (reportRewrittenCalls report) "calls"
+              }
+          )
+    PassCallPatterns phase ->
+      let (specialised, report) = callPatternProgram phase program
+       in ( specialised,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize program,
+                reportAfter = programSize specialised,
+                reportDetail = count (reportCallPatternLoops report) "loops" <> ", " <> count (reportCallPatternCalls report) "calls" <> ", " <> count (reportCallPatternRounds report) "rounds"
               }
           )
     PassEtaExpand ->

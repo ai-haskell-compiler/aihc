@@ -10,7 +10,7 @@
 /* On a 32-bit target, stack_next takes a slot that alignment padding held
    before. Thus stack_next moves current_thread by one word on a 64-bit
    target and does not move it on a 32-bit target. */
-_Static_assert(offsetof(AihcMachine, current_thread) == 8 * sizeof(void *) + 40,
+_Static_assert(offsetof(AihcMachine, current_thread) == 6 * sizeof(void *) + 16,
                "machine current-thread ABI");
 /* Five words and five bytes, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
@@ -109,6 +109,10 @@ void aihc_lir_take_resume(AihcMachine *machine, AihcResume *resume,
      pointer itself when the continue helper enters it. */
   if (resume->kind == AIHC_RESUME_APPLY) {
     aihc_stack_resume_after(machine, resume->continuation);
+  } else if (resume->continuation != NULL) {
+    /* The continue helper enters the frame without a chunk change when the
+       same thread runs again, so the chunk is made young here. */
+    aihc_stack_enter_chunk(machine, resume->continuation);
   }
   slots[0] = resume->kind;
   slots[1] = (uintptr_t)resume->function;
@@ -533,7 +537,7 @@ void aihc_runtime_statistics_report(void) {
   aihc_statistics_reported = 1;
   aihc_gc_record_peak(machine);
   aihc_heap_account(machine);
-  /* The fixed text is 123 bytes and the six numbers take at most 120. An
+  /* The fixed text is 190 bytes and the nine numbers take at most 180. An
      allocation entry takes its name, which can double with escapes, and at
      most 90 more bytes. */
   size_t capacity = 512;
@@ -554,7 +558,7 @@ void aihc_runtime_statistics_report(void) {
     aihc_fail("out of memory");
   }
   char *cursor = text;
-  cursor = aihc_append_text(cursor, "{\"schema\": 2, \"peak_heap_bytes\": ");
+  cursor = aihc_append_text(cursor, "{\"schema\": 3, \"peak_heap_bytes\": ");
   cursor = aihc_append_decimal(cursor, machine->heap_peak_bytes);
   cursor = aihc_append_text(cursor, ", \"allocated_bytes\": ");
   cursor = aihc_append_decimal(cursor, machine->heap_allocated_bytes);
@@ -566,6 +570,12 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_decimal(cursor, machine->gc_max_pause_ns);
   cursor = aihc_append_text(cursor, ", \"live_bytes\": ");
   cursor = aihc_append_decimal(cursor, machine->heap_live_bytes);
+  cursor = aihc_append_text(cursor, ", \"gc_minor_count\": ");
+  cursor = aihc_append_decimal(cursor, machine->gc_minor_count);
+  cursor = aihc_append_text(cursor, ", \"gc_gen1_count\": ");
+  cursor = aihc_append_decimal(cursor, machine->gc_gen1_count);
+  cursor = aihc_append_text(cursor, ", \"gc_full_count\": ");
+  cursor = aihc_append_decimal(cursor, machine->gc_full_count);
   if (order != NULL) {
     cursor = aihc_append_allocations(cursor, order);
     free(order);
@@ -1059,6 +1069,7 @@ static void aihc_enqueue_thread(AihcMachine *machine, AihcThread *thread) {
   if (machine->run_queue_tail == NULL) {
     machine->run_queue_head = thread;
   } else {
+    aihc_write_barrier(machine, (AihcValue *)machine->run_queue_tail);
     machine->run_queue_tail->next = thread;
   }
   machine->run_queue_tail = thread;
@@ -1200,6 +1211,7 @@ static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
   if (entry->tail == NULL) {
     entry->head = waiter;
   } else {
+    aihc_write_barrier(machine, (AihcValue *)entry->tail);
     entry->tail->next = waiter;
   }
   entry->tail = waiter;
@@ -1233,6 +1245,7 @@ static AihcBlackholeWaiter *aihc_remove_blackhole_waiters(AihcMachine *machine,
 }
 
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
+  aihc_write_barrier(aihc_process_machine, value);
   aihc_value_fields(value)[index] = field;
 }
 
@@ -1301,8 +1314,10 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
   /* Startup scopes have ended. Collect temporary imports before the limit
    * applies. */
   aihc_gc_collect(machine, 0, 0, NULL, NULL);
+  aihc_gc_apply_options(machine);
   machine->heap_max_bytes = aihc_rts_heap_max_bytes();
   machine->heap_limit_enabled = aihc_rts_heap_limit_enabled() != 0;
+  aihc_gc_apply_limit(machine);
   aihc_gc_collect(machine, 0, 0, NULL, NULL);
   if (global_count > INT64_MAX / sizeof(*machine->globals)) {
     aihc_fail("global table is too large");
@@ -1362,6 +1377,7 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
 
 static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
                                AihcValue *continuation) {
+  aihc_write_barrier(aihc_process_machine, (AihcValue *)thread);
   thread->resume_kind = AIHC_RESUME_APPLY;
   thread->resume_function = function;
   thread->resume_continuation = continuation;
@@ -1370,6 +1386,7 @@ static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
 
 static void aihc_suspend_raise(AihcThread *thread, AihcValue *exception,
                                AihcValue *continuation) {
+  aihc_write_barrier(aihc_process_machine, (AihcValue *)thread);
   thread->resume_kind = AIHC_RESUME_RAISE;
   thread->resume_function = exception;
   thread->resume_continuation = continuation;
@@ -1381,6 +1398,7 @@ static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
   if (count > 1) {
     aihc_fail("suspended continuation has too many immediate values");
   }
+  aihc_write_barrier(aihc_process_machine, (AihcValue *)thread);
   thread->resume_kind = AIHC_RESUME_CONTINUE;
   thread->resume_function = continuation;
   thread->resume_continuation = NULL;
@@ -1469,10 +1487,16 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
                                   size_t offset, size_t length) {
   AihcMachine *machine = request->machine;
   uintptr_t address = (uintptr_t)buffer;
-  uintptr_t heap_start = (uintptr_t)machine->heap_start;
-  if (address >= heap_start &&
-      address - heap_start < machine->heap_space_bytes) {
+  /* A buffer in a region that moves is rejected. A large byte array never
+     moves, and the pinned list below finds it. */
+  switch (aihc_region_kind(buffer)) {
+  case AIHC_REGION_NURSERY:
+  case AIHC_REGION_GEN1:
+  case AIHC_REGION_GEN2:
+  case AIHC_REGION_FROM1:
     return 0;
+  default:
+    break;
   }
   for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
        block = block->next) {
@@ -1487,6 +1511,7 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
       if (offset > available || length > available - offset) {
         return 0;
       }
+      aihc_write_barrier(machine, (AihcValue *)request);
       request->buffer_owner = object;
       break;
     }
@@ -1503,6 +1528,7 @@ static AihcIoRequest *aihc_io_submit(AihcMachine *machine, AihcIoKind kind,
   AihcIoRequest *request = aihc_io_request_new(machine);
   request->kind = kind;
   request->state = AIHC_IO_SUBMITTED;
+  aihc_write_barrier(machine, (AihcValue *)request);
   request->handle = handle;
   if (handle == NULL || handle->closed) {
     request->state = AIHC_IO_COMPLETED;
@@ -1537,7 +1563,9 @@ static AihcIoRequest *aihc_io_submit_open_request(AihcMachine *machine,
                                                   int64_t requested_mode) {
   AihcIoRequest *request = aihc_io_request_new(machine);
   request->kind = AIHC_IO_OPEN;
-  request->handle = aihc_io_handle_new(machine);
+  AihcIoHandle *open_handle = aihc_io_handle_new(machine);
+  aihc_write_barrier(machine, (AihcValue *)request);
+  request->handle = open_handle;
   request->state = AIHC_IO_SUBMITTED;
   if (requested_length < 0 || (uint64_t)requested_length > SIZE_MAX ||
       (path == NULL && requested_length != 0) || requested_mode < 0 ||
@@ -1654,6 +1682,7 @@ static void aihc_mvar_append_waiter(AihcMVarWaiter **head,
   if (*tail == NULL) {
     *head = waiter;
   } else {
+    aihc_write_barrier(aihc_process_machine, (AihcValue *)*tail);
     (*tail)->next = waiter;
   }
   *tail = waiter;
@@ -1705,6 +1734,7 @@ void *aihc_mvar_new(AihcMachine *machine) {
 const AihcResume *aihc_mvar_read(AihcMachine *machine, void *opaque_mvar,
                                  AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  aihc_write_barrier(machine, (AihcValue *)mvar);
   if (mvar->full) {
     return aihc_resume_current_value(machine, continuation, mvar->value);
   }
@@ -1716,6 +1746,7 @@ const AihcResume *aihc_mvar_read(AihcMachine *machine, void *opaque_mvar,
 const AihcResume *aihc_mvar_take(AihcMachine *machine, void *opaque_mvar,
                                  AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  aihc_write_barrier(machine, (AihcValue *)mvar);
   if (!mvar->full) {
     AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, 0);
     aihc_mvar_append_waiter(&mvar->takers_head, &mvar->takers_tail, waiter);
@@ -1738,6 +1769,7 @@ const AihcResume *aihc_mvar_take(AihcMachine *machine, void *opaque_mvar,
 const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
                                 AihcSlot value, AihcValue *continuation) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  aihc_write_barrier(machine, (AihcValue *)mvar);
   if (mvar->full) {
     AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, value);
     aihc_mvar_append_waiter(&mvar->putters_head, &mvar->putters_tail, waiter);
@@ -1768,6 +1800,7 @@ const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
    the variable between the load and the take. */
 uint64_t aihc_mvar_try_take(AihcMachine *machine, void *opaque_mvar) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  aihc_write_barrier(machine, (AihcValue *)mvar);
   if (!mvar->full) {
     return 0;
   }
@@ -1786,6 +1819,7 @@ uint64_t aihc_mvar_try_take(AihcMachine *machine, void *opaque_mvar) {
 uint64_t aihc_mvar_try_put(AihcMachine *machine, void *opaque_mvar,
                            AihcSlot value) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  aihc_write_barrier(machine, (AihcValue *)mvar);
   if (mvar->full) {
     return 0;
   }
@@ -1841,6 +1875,7 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
   continuation = (AihcValue *)(uintptr_t)roots[1];
   aihc_roots_leave(machine, &frame);
   request->state = AIHC_IO_PENDING;
+  aihc_write_barrier(machine, (AihcValue *)request);
   request->thread = machine->current_thread;
   request->continuation = continuation;
   if (machine->io_requests_tail == NULL) {
@@ -1894,8 +1929,18 @@ void aihc_update(AihcValue *object, AihcValue *value) {
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
+  aihc_write_barrier(aihc_process_machine, object);
+  /* An indirection has two words, and the rest of the thunk is slop. The
+     collector never walks it: it follows an indirection of a generation it
+     copies and leaves an older one in place. A heap walker, such as the
+     collector fuzz driver, does walk old generations, so the slop reads as
+     zero words, which no object header is. */
+  uint64_t words = aihc_value_words(object);
   object->fields[0] = (AihcSlot)value;
   object->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
+  for (uint64_t index = 1; index < words - 1; ++index) {
+    object->fields[index] = 0;
+  }
 }
 
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
@@ -2215,6 +2260,7 @@ uint64_t aihc_stm_begin(AihcMachine *machine) {
   transaction->header = (AihcSlot)(uintptr_t)&aihc_transaction_info;
   transaction->writes = NULL;
   transaction->parent = machine->current_thread->transaction;
+  aihc_write_barrier(machine, (AihcValue *)machine->current_thread);
   machine->current_thread->transaction = transaction;
   return 0;
 }
@@ -2236,7 +2282,9 @@ uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
   write->variable = variable;
   write->previous = variable->fields[1];
   write->next = transaction->writes;
+  aihc_write_barrier(machine, (AihcValue *)transaction);
   transaction->writes = write;
+  aihc_write_barrier(machine, variable);
   variable->fields[1] = value;
   return 0;
 }
@@ -2249,9 +2297,11 @@ uint64_t aihc_stm_abort(AihcMachine *machine) {
   AihcTransactionWrite *write = transaction->writes;
   while (write != NULL) {
     AihcTransactionWrite *next = write->next;
+    aihc_write_barrier(machine, write->variable);
     write->variable->fields[1] = write->previous;
     write = next;
   }
+  aihc_write_barrier(machine, (AihcValue *)machine->current_thread);
   machine->current_thread->transaction = transaction->parent;
   return 0;
 }
@@ -2267,9 +2317,12 @@ uint64_t aihc_stm_commit(AihcMachine *machine) {
     while (last->next != NULL) {
       last = last->next;
     }
+    aihc_write_barrier(machine, (AihcValue *)last);
     last->next = transaction->parent->writes;
+    aihc_write_barrier(machine, (AihcValue *)transaction->parent);
     transaction->parent->writes = write;
   }
+  aihc_write_barrier(machine, (AihcValue *)machine->current_thread);
   machine->current_thread->transaction = transaction->parent;
   return 0;
 }
@@ -2302,6 +2355,7 @@ static void aihc_stm_expire_timers(AihcMachine *machine) {
   while (*link != NULL) {
     AihcTransactionTimer *timer = *link;
     if (timer->deadline <= now) {
+      aihc_write_barrier(machine, timer->variable);
       timer->variable->fields[1] = timer->final;
       *link = timer->next;
     } else {
@@ -2365,3 +2419,5 @@ int rtsSupportsBoundThreads(void) { return 0; }
    action, so that a stopped child does not send SIGCHLD. The type is HsInt,
    because System.Posix.Signals reads and writes it as a Ptr Int. */
 int64_t nocldstop = 0;
+
+uint64_t aihc_clock_monotonic_ns(void) { return aihc_host_monotonic_ns(); }

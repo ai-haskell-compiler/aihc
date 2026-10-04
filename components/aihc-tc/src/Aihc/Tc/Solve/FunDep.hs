@@ -32,7 +32,7 @@ import Aihc.Tc.Monad (TcM, getClassInstances, getKinds, lookupClass)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred)
-import Control.Monad (foldM, forM_, unless, void, zipWithM_)
+import Control.Monad (foldM, forM, forM_, void, zipWithM_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
@@ -51,7 +51,7 @@ improveFunDeps givens constraints = do
       expandedGivens <- superClassClosure givens
       let siblings = map fst improvable
       before <- mapM (zonkPred . ctPred) constraints
-      forM_ improvable (uncurry (improveConstraint expandedGivens siblings))
+      forM_ improvable (uncurry (improveConstraint expandedGivens siblings 0))
       after <- mapM (zonkPred . ctPred) constraints
       pure (before /= after)
 
@@ -98,18 +98,25 @@ superClassesOf predicate =
 constraintFunDeps :: Ct -> TcM [(Pred, ClassInfo)]
 constraintFunDeps constraint =
   case ctPred constraint of
+    ClassPred {} -> predicateFunDeps =<< zonkPred (ctPred constraint)
+    _ -> pure []
+
+-- | The class predicates that a class predicate entails, itself included,
+-- whose class declares a functional dependency.
+predicateFunDeps :: Pred -> TcM [(Pred, ClassInfo)]
+predicateFunDeps predicate =
+  case predicate of
     ClassPred {} -> do
-      predicate <- zonkPred (ctPred constraint)
       closure <- superClassClosure [predicate]
       catMaybes <$> mapM withFunDeps closure
     _ -> pure []
   where
-    withFunDeps predicate =
-      case predicate of
+    withFunDeps entailed =
+      case entailed of
         ClassPred className _ -> do
           classInfo <- lookupClass className
           pure $ case classInfo of
-            Just info | not (null (ciFunDeps info)) -> Just (predicate, info)
+            Just info | not (null (ciFunDeps info)) -> Just (entailed, info)
             _ -> Nothing
         _ -> pure Nothing
 
@@ -117,13 +124,16 @@ constraintFunDeps constraint =
 -- constraint shares its meta variables with the wanted that entails it, so
 -- solving them improves the wanted. A constraint improves against itself
 -- trivially, so the sibling list may hold it.
-improveConstraint :: [Pred] -> [Pred] -> Pred -> ClassInfo -> TcM ()
-improveConstraint givens siblings constraint info = do
+--
+-- The depth counts the instance contexts that the improvement went
+-- through. See 'improveThroughContext'.
+improveConstraint :: [Pred] -> [Pred] -> Int -> Pred -> ClassInfo -> TcM ()
+improveConstraint givens siblings depth constraint info = do
   siblingPredicates <- mapM zonkPred siblings
   forM_ (ciFunDeps info) $ \dependency -> do
     forM_ (givens <> siblingPredicates) $ \other ->
       improveFromPredicate info dependency constraint other
-    improveFromInstances info dependency constraint
+    improveFromInstances givens siblings depth info dependency constraint
 
 -- | Improve a wanted from another class constraint of the same class.
 improveFromPredicate :: ClassInfo -> FunDep -> Pred -> Pred -> TcM ()
@@ -156,25 +166,72 @@ improveFromPredicate info dependency constraint other =
 -- An instance accepted under the liberal coverage condition can take a
 -- dependent parameter from its context rather than from its head, which
 -- leaves a variable of the instance in the parameter the match determined.
--- Such an instance says nothing about the wanted on its own, so it improves
--- nothing; the constraint its context states does the determining once the
--- instance is selected.
-improveFromInstances :: ClassInfo -> FunDep -> Pred -> TcM ()
-improveFromInstances info dependency constraint = do
+-- The head of such an instance says nothing about the wanted, so the
+-- improvement goes through the context of the instance instead. See
+-- 'improveThroughContext'.
+improveFromInstances :: [Pred] -> [Pred] -> Int -> ClassInfo -> FunDep -> Pred -> TcM ()
+improveFromInstances givens siblings depth info dependency constraint = do
   instances <- getClassInstances (ciTyCon info)
-  forM_ instances $ \instanceInfo -> do
-    predicate <- zonkPred constraint
-    case predicate of
-      ClassPred _ arguments -> do
-        arguments' <- classDependencyArguments info arguments
+  predicate <- zonkPred constraint
+  case predicate of
+    ClassPred _ arguments -> do
+      arguments' <- classDependencyArguments info arguments
+      candidates <- fmap catMaybes . forM instances $ \instanceInfo -> do
         instanceHead <- classDependencyArguments info (iiHead instanceInfo)
-        case matchTypes (determiners dependency instanceHead) (determiners dependency arguments') of
-          Just substitution -> do
-            let instanceDetermined = map (applySubst substitution) (determined dependency instanceHead)
-                undetermined = any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
-            unless undetermined $ improveEqualities instanceDetermined (determined dependency arguments')
-          Nothing -> pure ()
-      _ -> pure ()
+        pure $ do
+          substitution <- matchTypes (determiners dependency instanceHead) (determiners dependency arguments')
+          pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
+      forM_ candidates $ \(instanceInfo, instanceDetermined) ->
+        if any (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
+          then case candidates of
+            [_] -> improveThroughContext givens siblings depth instanceInfo arguments
+            _ -> pure ()
+          else improveEqualities instanceDetermined (determined dependency arguments')
+    _ -> pure ()
+
+-- | Improve a wanted from the context of the one instance that its
+-- determining parameters select, when the head of that instance does not
+-- determine the dependent parameters.
+--
+-- The standard lifting instance of a monad transformer is an example:
+-- @instance MonadParsec e s m => MonadParsec e s (ReaderT r m)@. Its head
+-- matches every wanted on @ReaderT r m@, and the solver selects it for
+-- each one. The wanted @MonadParsec t0 t1 (ReaderT r (ParsecT Void Text
+-- Identity))@ then needs @MonadParsec t0 t1 (ParsecT Void Text Identity)@,
+-- and the instance for @ParsecT@ improves @t0@ and @t1@. The solver
+-- solves an instance context as one unit and does not keep its constraints
+-- as wanteds, so the improvement has to go through the context here.
+--
+-- The whole head has to match the wanted, because only then does the
+-- solver select the instance. No other instance may match the determining
+-- parameters, because an overlapping instance could be selected instead.
+-- A context predicate that mentions a variable that the head does not
+-- bind says nothing about the wanted, so it is not used.
+--
+-- An instance context can be as large as the head or larger under
+-- @UndecidableInstances@, so a depth limit stops a chain of contexts that
+-- does not end.
+improveThroughContext :: [Pred] -> [Pred] -> Int -> InstanceInfo -> [TcType] -> TcM ()
+improveThroughContext givens siblings depth instanceInfo arguments
+  | depth >= contextDepthLimit = pure ()
+  | otherwise =
+      case matchTypes (iiHead instanceInfo) arguments of
+        Nothing -> pure ()
+        Just substitution -> do
+          let bound tyVar = Map.member (tvUnique tyVar) substitution
+              unbound = filter (not . bound) (iiTyVars instanceInfo)
+              context =
+                [ applySubstPred substitution contextPredicate
+                | contextPredicate <- iiContext instanceInfo,
+                  not (any (`predicateMentionsTyVar` contextPredicate) unbound)
+                ]
+          improvable <- concat <$> mapM predicateFunDeps context
+          forM_ improvable (uncurry (improveConstraint givens siblings (depth + 1)))
+
+-- | The maximum number of instance contexts that one improvement goes
+-- through.
+contextDepthLimit :: Int
+contextDepthLimit = 32
 
 determiners :: FunDep -> [TcType] -> [TcType]
 determiners dependency = atPositions (fdDeterminers dependency)
