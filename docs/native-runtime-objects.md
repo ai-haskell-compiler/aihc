@@ -36,8 +36,10 @@ full collection, and the program stops if the heap is still above it.
 
 The `-A<size>` option sets the size of the nursery, 4 MiB by default.
 The `-B<size>` option sets the maximum size of gen1, 16 MiB by default.
-The `-F<factor>` option sets the growth of gen2 between two full collections,
+The `-F<factor>` option sets the growth of gen2 between two gen2 cycles,
 2 by default.
+The `-k<factor>` option sets the mark work of a gen2 cycle for each byte
+promoted into gen2 since the last slice, 2 by default.
 The `wasm32-wasip3` host starts its machine before it parses the arguments,
 so a `-A` option takes effect only when the nursery is still empty.
 
@@ -90,7 +92,7 @@ Each thread has a stack, and the frames of the thread are on this stack.
 A stack is a doubly linked list of chunks.
 Each chunk has 4096 bytes and the same alignment.
 Thus the chunk of an address is the address with the low 12 bits cleared.
-A chunk starts with a 32-byte header: the owner stack and the chunks below and above.
+A chunk starts with a 64-byte header: the owner stack, the chunks below and above, the depth of the chunk, its age, and the scan record of the gen2 marking.
 The frames of a chunk follow the header.
 
 The stack pointer is the first free byte of the stack of the running thread.
@@ -227,9 +229,58 @@ bits: a segment with none, and a segment whose epoch is older than the last
 full collection, goes back to the region table, a full segment waits for
 the next full collection, and the others are available to the allocator.
 
-The bytes of gen2 are the bytes of its occupied slots. A full collection
-starts the count at zero and adds each marked and each copied slot. The
-`-M` limit and the `-F` growth rule read this count.
+The bytes of gen2 are the bytes of its occupied slots. A cycle counts the
+bytes it marks and the slots allocated while it runs, and gen2 takes that
+count when the cycle ends. The `-M` limit and the `-F` growth rule read
+this count.
+
+### Gen2 cycles
+
+Gen2 is collected by a snapshot-at-the-beginning marking that runs in
+slices on the mutator thread. A cycle starts at the end of a collection
+that copied gen1 into gen2, when gen2 is above its limit. The snapshot
+marks the roots, scans the gen1 objects and the young pinned blocks, which
+are older than the snapshot and outside the barrier, and scans the top
+chunk of each stack. A full collection runs a whole cycle in one pause: it
+starts a cycle, marks what it reaches while it copies, and ends the cycle.
+A full collection while a cycle is active gives the cycle up and marks
+again from the start.
+
+The write barrier shades: before a store into an object the cycle marks,
+the old values of its pointer fields are marked, and a store into an array
+shades the element or the run it writes. A thunk update shades every
+field. Marking follows the current fields of an object, so a value stored
+after the snapshot is marked when it is old, and left to the young
+collections when it is young. An object copied into gen2 while a cycle
+runs is marked when it is allocated. A gen2 indirection is marked like any
+object, because the marker does not rewrite the fields that name it.
+
+Frames are write-once, and a pop deletes them without a store. The marker
+scans a frame together with the frames below it in its chunk, down to the
+frames an earlier scan covered, and records in the chunk the highest frame
+it was scanned from. When the chain leaves the chunk, the frame below is
+the pending frame of the stack: a slice scans it, or the pop that enters
+its chunk does through `aihc_stack_enter_chunk`. The exception walk and
+the continuation capture read frames they pop, so they scan them first
+through `aihc_gc_frame_read`. A frame named by a heap object is scanned
+only when it is live: at or below the stack pointer of the running stack,
+or at or below the frame its thread suspended with, which
+`aihc_stack_note_top` records.
+
+Each collection ends with a slice. The slice does the mark work the
+promotions since the last slice owe, `-k` times their bytes, within a
+floor of 256 KiB and a cap of 4 MiB of scanned bytes, the size of the
+default nursery. A collection that copied more than the cap may mark as
+much as it copied, so a gen1 collection that moves gen1 into gen2 marks
+the data it added within a pause of the same order. A boxed array is
+scanned in pieces of 4096 elements. The cycle ends at a slice that finds
+the mark stack, the static reference tables, and the pending frames of
+every stack empty. The end drops the remembered set entries of unmarked
+heap objects, the stable names and the stacks of unmarked objects, frees
+the unmarked gen2 blocks of the pinned list, and hands the segments to the
+lazy sweep. A static object keeps its remembered set entry. When gen2
+has doubled since the snapshot while a cycle is active, the next collection
+is a full one: this is the degradation mode.
 
 When the collector scans an object of generation k, it copies each referent
 that moves into generation k at least. Thus an old object points only at old

@@ -860,7 +860,7 @@ stackChunkBytes = 4096
 -- | The bytes of the header of a stack chunk. The first frame of a chunk
 -- follows it.
 stackChunkHeaderBytes :: Integer
-stackChunkHeaderBytes = 32
+stackChunkHeaderBytes = 64
 
 -- Context
 

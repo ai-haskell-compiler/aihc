@@ -103,5 +103,5 @@ const @AIHC_STACK_CHUNK_BYTES = 4096
 const @AIHC_STACK_CHUNK_LAST = @AIHC_STACK_CHUNK_BYTES - 1
 ; The frames of a chunk follow its header. aihc_stack_grow gives the first
 ; frame of a chunk, so the chunk ends this many bytes after that frame.
-const @AIHC_STACK_CHUNK_HEADER_BYTES = 32
+const @AIHC_STACK_CHUNK_HEADER_BYTES = 64
 const @AIHC_STACK_CHUNK_FRAME_BYTES = @AIHC_STACK_CHUNK_BYTES - @AIHC_STACK_CHUNK_HEADER_BYTES
