@@ -29,6 +29,7 @@ import GHC.Bits (complement, (.&.), (.|.))
 import GHC.IO (FilePath, IO (..))
 import GHC.IO.Buffer (newByteBuffer)
 import GHC.IO.BufferedIO (readBuf, readBufNonBlocking, writeBuf, writeBufNonBlocking)
+import GHC.IO.FD.Position (descriptorSeek, descriptorSeekable, descriptorSize)
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.Runtime
   ( IOHandle,
@@ -50,7 +51,7 @@ import GHC.IO.Runtime.Open (openUtf8FilePath)
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
-import GHC.Internal.IO.Types (BufferedIO (..), IODevice (..), IODeviceType (..), RawIO (..), ioError)
+import GHC.Internal.IO.Types (BufferedIO (..), IODevice (..), IODeviceType (..), RawIO (..), SeekMode (..), ioError, ioe_unsupportedOperation)
 import GHC.Num (Num (..))
 import GHC.Prim (Addr#)
 import GHC.Ptr (Ptr (..), plusPtr)
@@ -174,6 +175,20 @@ instance IODevice FD where
       True -> ioError (errnoToIOError "GHC.IO.FD.close" (Errno (fromIntegral (decodeError result))) Nothing Nothing)
       False -> return ()
   devType _ = return Stream
+  isSeekable fd = do
+    descriptor <- ioHandleDescriptor (fdHandle fd)
+    case descriptor < 0 of
+      True -> return False
+      False -> descriptorSeekable (fromIntegral descriptor)
+  seek fd mode offset = do
+    descriptor <- seekableDescriptor fd
+    descriptorSeek "GHC.IO.FD.seek" descriptor mode offset
+  tell fd = do
+    descriptor <- seekableDescriptor fd
+    descriptorSeek "GHC.IO.FD.tell" descriptor RelativeSeek 0
+  getSize fd = do
+    descriptor <- seekableDescriptor fd
+    descriptorSize "GHC.IO.FD.getSize" descriptor
 
 -- | Read up to @count@ bytes. The result is zero at the end of the input.
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> Int -> IO Int
@@ -220,3 +235,12 @@ awaitRequest submission = do
   request <- submission
   awaitIO request
   takeResult request
+
+-- | The operating system descriptor of an 'FD'. A resource that is not a
+-- descriptor, such as a WASI stream, cannot seek.
+seekableDescriptor :: FD -> IO CInt
+seekableDescriptor fd = do
+  descriptor <- ioHandleDescriptor (fdHandle fd)
+  case descriptor < 0 of
+    True -> ioe_unsupportedOperation
+    False -> return (fromIntegral descriptor)
