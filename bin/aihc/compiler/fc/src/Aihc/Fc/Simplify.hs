@@ -73,6 +73,7 @@ import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM)
 import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
+import Data.Bifunctor (first)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -357,7 +358,7 @@ simplifyExpr env expr =
         else continue env rhs
     ExRec binds body -> do
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv env (binderName (bindBinder bind))) (bindRhs bind)) binds
-      ExRec binds' <$> simplifyExpr env body
+      simplifyExpr env body >>= sinkGroup binds' ExRec
     ExCase scrutinee binder resultType alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
@@ -1455,8 +1456,10 @@ mkLet env bind body
   -- often only one branch needs the box.
   | lifted,
     isConstructorOfTrivials rhs =
-      pure (sinkConstructorLet bind body)
-  | lifted = pure (ExLet bind body)
+      pure (fst (sinkGroupWith EveryAlternative (exprValueNames rhs) [bind] (ExLet bind) body))
+  -- Any other lifted binding moves into the one alternative that uses
+  -- it. A path that does not use it then allocates nothing for it.
+  | lifted = sinkGroup [bind] (flip (foldr ExLet)) body
   -- A strict binding whose one use is the scrutinee of the case that
   -- follows it is that case on the right-hand side: the case evaluates it
   -- first either way. Only a comparison with a literal gains from the
@@ -1482,51 +1485,101 @@ isConstructorOfTrivials expr =
     (ExVar name, args@(_ : _)) -> isConstructorName name && all (either (const True) isTrivial) args
     _ -> False
 
--- | Move a let to its uses, as 'mkLet' describes. The let passes a let
--- whose right-hand side does not use it, and goes into each alternative
--- of a case that uses it, when the scrutinee does not use it and a path
--- through the case does not use it. When every path uses it, a copy in
--- each alternative would only add code, so the let stops above the case. It also stops at
--- anything else, and where a binder would capture a name of its
--- right-hand side or would hide its own binder. A body that does not use
--- the binder drops the let.
-sinkConstructorLet :: Bind -> Expr -> Expr
-sinkConstructorLet bind = go
+-- | Which alternatives of a case a moved group may enter.
+data SinkMode
+  = -- | Each alternative that uses the group gets a copy, when a path
+    -- through the case does not use it. Only a constructor of trivial
+    -- arguments moves this way: a copy of it is small, and each path
+    -- still allocates it at most once.
+    EveryAlternative
+  | -- | The group enters a case only when exactly one alternative uses
+    -- it. The move copies nothing, so it suits a function or a thunk of
+    -- any size.
+    OneAlternative
+  deriving (Eq)
+
+-- | Move a let or a recursive group into the one alternative of a case
+-- that uses it, as 'sinkGroupWith' describes in the 'OneAlternative'
+-- mode. The group stays where it was when it enters no case, since a
+-- move past lets alone gains nothing.
+--
+-- The right-hand sides get fresh binders before the move. A loop body
+-- often binds the same names as the code around it, and a tidied program
+-- has no binder that hides another. The move would put such a binder
+-- under its namesake, and the walks that follow, such as the common
+-- subexpression map, then see the wrong value for the name. The capture
+-- check with every name of the right-hand sides then passes, because
+-- only their free names can be the same as a binder they move under.
+--
+-- A local loop is often used in one branch of its function only. The
+-- copy loop of @snappy-hs@ defines two loops above its guards, and its
+-- most frequent branch, a short copy, uses neither. Above the guards,
+-- each call allocated a closure for each loop.
+sinkGroup :: [Bind] -> ([Bind] -> Expr -> Expr) -> Expr -> SimplM Expr
+sinkGroup binds wrap body
+  | snd (sinkGroupWith OneAlternative (foldMap (exprFreeNames . bindRhs) binds) binds (wrap binds) body) = do
+      fresh <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> freshenExpr (bindRhs bind)) binds
+      pure (fst (sinkGroupWith OneAlternative (foldMap (exprValueNames . bindRhs) fresh) fresh (wrap fresh) body))
+  | otherwise = pure (wrap binds body)
+
+-- | Move a let or a recursive group to its uses, as 'mkLet' describes.
+-- The group passes a let or a recursive group whose right-hand sides do
+-- not use it, and enters the alternatives of a case that use it, as the
+-- mode permits, when the scrutinee does not use it. It stops at anything
+-- else, and where a binder would hide one of its own binders or one of
+-- the given names of its right-hand sides. A body that does not use the
+-- group drops it. The move never enters a lambda, so the group is
+-- evaluated at most as often as before.
+--
+-- The result tells whether the group entered a case or went away.
+sinkGroupWith :: SinkMode -> Set Name -> [Bind] -> (Expr -> Expr) -> Expr -> (Expr, Bool)
+sinkGroupWith mode rhsNames binds wrap = go
   where
-    name = binderName (bindBinder bind)
-    rhsNames = exprValueNames (bindRhs bind)
-    uses expr = Set.member name (exprValueNames expr)
-    safeBinder binder = binderName binder /= name && Set.notMember (binderName binder) rhsNames
+    names = Set.fromList (map (binderName . bindBinder) binds)
+    uses expr = not (Set.disjoint names (exprValueNames expr))
+    safeBinder binder = Set.notMember (binderName binder) names && Set.notMember (binderName binder) rhsNames
+    -- The moved expression, and whether the group entered a case or
+    -- went away.
     go expr
-      | not (uses expr) = expr
+      | not (uses expr) = (expr, True)
       | otherwise =
           case expr of
-            ExLet inner body
+            ExLet inner rest
               | safeBinder (bindBinder inner),
                 not (uses (bindRhs inner)) ->
-                  ExLet inner (go body)
+                  ExLet inner `first` go rest
+            ExRec inners rest
+              | all (safeBinder . bindBinder) inners,
+                not (any (uses . bindRhs) inners) ->
+                  ExRec inners `first` go rest
             ExCase scrutinee binder ty alternatives
               | movable expr ->
-                  ExCase scrutinee binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
-            _ -> ExLet bind expr
-    -- Whether the let can enter a case, and a path through it then does
-    -- not use the binder.
+                  (ExCase scrutinee binder ty [alternative {altRhs = fst (go (altRhs alternative))} | alternative <- alternatives], True)
+            _ -> (wrap expr, False)
+    -- Whether the group can enter a case.
     movable expr =
       case expr of
         ExCase scrutinee binder _ alternatives ->
           safeBinder binder
             && not (uses scrutinee)
             && all (all safeBinder . altBinders) alternatives
-            && any (avoids . altRhs) alternatives
+            && case mode of
+              EveryAlternative -> any (avoids . altRhs) alternatives
+              OneAlternative -> length (filter (uses . altRhs) alternatives) == 1
         _ -> False
+    -- Whether a path through the expression does not use the group.
     avoids expr
       | not (uses expr) = True
       | otherwise =
           case expr of
-            ExLet inner body
+            ExLet inner rest
               | safeBinder (bindBinder inner),
                 not (uses (bindRhs inner)) ->
-                  avoids body
+                  avoids rest
+            ExRec inners rest
+              | all (safeBinder . bindBinder) inners,
+                not (any (uses . bindRhs) inners) ->
+                  avoids rest
             _ -> movable expr
 
 -- | Accept a growth of the program: always when nothing grows, and in
@@ -2574,6 +2627,26 @@ exprValueNames = go
         ExCase scrutinee _ _ alternatives -> go scrutinee <> foldMap (go . altRhs) alternatives
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> foldMap go arguments
+
+-- | The value names that occur free in an expression.
+exprFreeNames :: Expr -> Set Name
+exprFreeNames = go
+  where
+    go expr =
+      case expr of
+        ExVar name -> Set.singleton name
+        ExLit {} -> Set.empty
+        ExCoercion {} -> Set.empty
+        ExApp function argument -> go function <> go argument
+        ExTyApp function _ -> go function
+        ExLam binder body -> Set.delete (binderName binder) (go body)
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) <> Set.delete (binderName (bindBinder bind)) (go body)
+        ExRec binds body -> (foldMap (go . bindRhs) binds <> go body) `Set.difference` Set.fromList (map (binderName . bindBinder) binds)
+        ExCase scrutinee binder _ alternatives -> go scrutinee <> Set.delete (binderName binder) (foldMap alternative alternatives)
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> foldMap go arguments
+    alternative alt = go (altRhs alt) `Set.difference` Set.fromList (map binderName (altBinders alt))
 
 -- * Substitution
 
