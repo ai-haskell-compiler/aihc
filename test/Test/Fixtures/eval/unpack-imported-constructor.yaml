@@ -1,0 +1,24 @@
+extensions: []
+modules:
+  - |
+    module Lib where
+
+    data T = MkT {-# UNPACK #-} !Int
+
+    make :: Int -> T
+    make = MkT
+
+    readT :: T -> Int
+    readT (MkT n) = n
+  - |
+    module Test where
+
+    import Lib
+
+    result :: Int
+    result = readT (make 6)
+output: |
+  I# 6
+expression: result
+status: pass
+reason: An imported constructor uses the unpack layout that its defining module stored.

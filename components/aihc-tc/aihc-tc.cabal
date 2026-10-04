@@ -71,6 +71,7 @@ library
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy
     Aihc.Tc.Unify
+    Aihc.Tc.Unpack
 
   hs-source-dirs: src
   build-depends:

@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data T = MkT {-# NOUNPACK #-} !Int
+
+    result :: Int
+    result = case MkT 4 of
+      MkT n -> n
+output: |
+  I# 4
+expression: result
+status: pass
+reason: NOUNPACK keeps one strict field, and a match returns that field.

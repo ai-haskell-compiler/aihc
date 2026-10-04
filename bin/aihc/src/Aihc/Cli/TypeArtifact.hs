@@ -21,6 +21,7 @@ import Aihc.Tc
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
     Entity (..),
+    FieldRep (..),
     FunDep (..),
     InstanceInfo (..),
     Pred (..),
@@ -704,17 +705,47 @@ getDataConInfo table = do
   pure DataConInfo {dciName, dciOrigin, dciUnivTyVars, dciExTyVars, dciTheta, dciFields, dciResTy, dciSourceForm}
 
 putDataConFieldInfo :: PartIndex -> DataConFieldInfo -> Builder.Builder
-putDataConFieldInfo table info = cborArray 5 <> putMaybe cborText (dcfiLabel info) <> putType table (dcfiType info) <> putBool (dcfiStrict info) <> putBool (dcfiLazy info) <> putDataConFieldUnpack (dcfiUnpack info)
+putDataConFieldInfo table info =
+  cborArray 6
+    <> putMaybe cborText (dcfiLabel info)
+    <> putType table (dcfiType info)
+    <> putBool (dcfiStrict info)
+    <> putBool (dcfiLazy info)
+    <> putDataConFieldUnpack (dcfiUnpack info)
+    <> putFieldRep table (dcfiRep info)
 
 getDataConFieldInfo :: PartTable -> Get.Get DataConFieldInfo
 getDataConFieldInfo table = do
-  expectArray 5
+  expectArray 6
   dcfiLabel <- getMaybe getText
   dcfiType <- getType table
   dcfiStrict <- getBool
   dcfiLazy <- getBool
   dcfiUnpack <- getDataConFieldUnpack
-  pure DataConFieldInfo {dcfiLabel, dcfiType, dcfiStrict, dcfiLazy, dcfiUnpack}
+  dcfiRep <- getFieldRep table
+  pure DataConFieldInfo {dcfiLabel, dcfiType, dcfiStrict, dcfiLazy, dcfiUnpack, dcfiRep}
+
+-- | One field layout. The tag selects the node.
+-- A stored field is tag 0. An unpacked product is tag 1. A newtype cast is tag 2.
+putFieldRep :: PartIndex -> FieldRep -> Builder.Builder
+putFieldRep table rep =
+  case rep of
+    RepStored ty strict ->
+      cborArray 3 <> cborWord 0 <> putType table ty <> putBool strict
+    RepUnpack (packageId, moduleName, name) leaves ->
+      cborArray 5 <> cborWord 1 <> putPackageId packageId <> cborText moduleName <> cborText name <> encodeList (putFieldRep table) leaves
+    RepCast tyCon arguments inner ->
+      cborArray 4 <> cborWord 2 <> putTyCon table tyCon <> encodeList (putType table) arguments <> putFieldRep table inner
+
+getFieldRep :: PartTable -> Get.Get FieldRep
+getFieldRep table = do
+  length' <- getArrayLength
+  tag <- getWord
+  case (length', tag) of
+    (3, 0) -> RepStored <$!> getType table <*!> getBool
+    (5, 1) -> RepUnpack <$!> ((,,) <$!> getPackageId <*!> getText <*!> getText) <*!> getList (getFieldRep table)
+    (4, 2) -> RepCast <$!> getTyCon table <*!> getList (getType table) <*!> getFieldRep table
+    _ -> fail "unsupported field representation"
 
 putClassInfo :: PartIndex -> ClassInfo -> Builder.Builder
 putClassInfo table info =

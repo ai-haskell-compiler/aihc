@@ -1,0 +1,63 @@
+extensions:
+  - DeriveGeneric
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    import GHC.Generics
+
+    data Record = Record
+      { unpacked :: {-# UNPACK #-} !Int
+      , kept :: {-# NOUNPACK #-} !Char
+      , plain :: Bool
+      , function :: {-# UNPACK #-} !(Int -> Int)
+      }
+      deriving stock (Generic)
+
+    newtype Wrap = Wrap {-# UNPACK #-} Int
+      deriving stock (Generic)
+
+    class Names f where
+      names :: f p -> [String]
+
+    instance (Selector s) => Names (S1 s f) where
+      names value =
+        [ selName value
+        , show (selSourceUnpackedness value)
+        , show (selSourceStrictness value)
+        , show (selDecidedStrictness value)
+        ]
+
+    instance (Names f, Names g) => Names (f :*: g) where
+      names (left' :*: right') = names left' ++ names right'
+
+    instance (Constructor c, Names f) => Names (C1 c f) where
+      names value = names (unM1 value)
+
+    instance (Datatype d, Names f) => Names (D1 d f) where
+      names value = names (unM1 value)
+
+    instance Names U1 where
+      names _ = []
+
+    nameList :: (Generic a, Names (Rep a)) => a -> [String]
+    nameList value = names (from value)
+
+    result :: Bool
+    result =
+      nameList (Record 1 'k' True (\n -> n))
+        ++ nameList (Wrap 1)
+        == [ "unpacked", "SourceUnpack", "SourceStrict", "DecidedUnpack"
+           , "kept", "SourceNoUnpack", "SourceStrict", "DecidedStrict"
+           , "plain", "NoSourceUnpackedness", "NoSourceStrictness", "DecidedLazy"
+           , "function", "SourceUnpack", "SourceStrict", "DecidedStrict"
+           , "", "SourceUnpack", "NoSourceStrictness", "DecidedLazy"
+           ]
+output: |
+  True
+expression: result
+status: pass
+reason: Generic metadata reports SourceUnpack and DecidedUnpack only for a field that unpacks a product. A newtype field has no decided strictness, as in GHC.

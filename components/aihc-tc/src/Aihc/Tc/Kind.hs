@@ -41,6 +41,7 @@ module Aihc.Tc.Kind
     surfaceTypeSpan,
     zonkKind,
     kindNeedsZonkIn,
+    expandTcTypeSynonyms,
     kindMentionsMeta,
   )
 where

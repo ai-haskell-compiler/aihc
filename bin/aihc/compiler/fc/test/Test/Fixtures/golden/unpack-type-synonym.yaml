@@ -1,0 +1,61 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  import GHC.Types (Int)
+
+  data Pair a = Pair a a
+  type IntPair = Pair Int
+  data Boxed = Boxed {-# UNPACK #-} !IntPair
+
+  build :: IntPair -> Boxed
+  build = Boxed
+
+  unwrap :: Boxed -> IntPair
+  unwrap (Boxed pair) = pair
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cI#] 2.tInt :: 2.sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tPair (a : 2.sType) :: 2.sType {
+      pub 1.cPair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tPair a
+  }
+
+  pub type 1.sIntPair :: 2.sType =
+   1.tPair 2.tInt
+
+  pub type 1.tBoxed :: 2.sType {
+      pub 1.cBoxed :: 2.tInt 2.→ 2.tInt 2.→ 1.tBoxed
+  }
+
+  pub val 1.vbuild :: 1.tPair 2.tInt 2.→ 1.tBoxed
+   = λ(_strict_field : 1.tPair 2.tInt).
+    case _strict_field as (_unpack_scrut : 1.tPair 2.tInt) return (1.tBoxed) of {
+        1.cPair (_unpack_leaf0 : 2.tInt) (_unpack_leaf1 : 2.tInt) →
+            1.cBoxed _unpack_leaf0 _unpack_leaf1
+    }
+
+  pub val 1.vunwrap :: 1.tBoxed 2.→ 1.tPair 2.tInt
+   = λ(x : 1.tBoxed).
+    case x as (_scrut : 1.tBoxed) return (1.tPair 2.tInt) of {
+        1.cBoxed (_unpack_leaf0 : 2.tInt) (_unpack_leaf1 : 2.tInt) →
+            1.cPair @2.tInt _unpack_leaf0 _unpack_leaf1
+    }
+status: pass
+reason: UNPACK looks through a type synonym and rebuilds the product with its type arguments.

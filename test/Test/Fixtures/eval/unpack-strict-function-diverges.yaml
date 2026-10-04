@@ -1,0 +1,18 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Unit = Unit
+    data Fun = Fun {-# UNPACK #-} !(Unit -> Unit)
+
+    result :: Bool
+    result = seq (Fun (raise# Unit)) True
+output: ""
+exception: Unit
+expression: result
+status: pass
+reason: UNPACK on a function field makes that field strict, so construction raises the field exception.

@@ -129,7 +129,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvSince, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvSince, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -152,6 +152,7 @@ import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
+import Aihc.Tc.Unpack (decideConstructorRepresentations)
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
@@ -498,6 +499,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   -- batch before checking signatures and bodies so sibling derived instances
   -- are mutually visible and ordinary values can use them.
   defaultGlobalKindMetas initialKeys
+  decideConstructorRepresentations (globalDataTypes initialKeys) (globalDataFamilyInstances initialKeys)
   structuralKeys <- globalStateKeys <$> lift get
   derivingAnnotated <- zipWithM annotateModuleDerivingTc moduleExtensions modules
   -- A derived Generic instance needs no context but declares the Rep
@@ -1080,7 +1082,13 @@ defaultGlobalKindMetas initialKeys = do
           }
     defaultDataConFieldKinds field = do
       fieldType' <- defaultTypeKinds (dcfiType field)
-      pure field {dcfiType = fieldType'}
+      rep <- defaultFieldRep (dcfiRep field)
+      pure field {dcfiType = fieldType', dcfiRep = rep}
+    defaultFieldRep rep =
+      case rep of
+        RepStored ty strict -> RepStored <$> defaultTypeKinds ty <*> pure strict
+        RepUnpack key leaves -> RepUnpack key <$> mapM defaultFieldRep leaves
+        RepCast tyCon arguments inner -> RepCast tyCon <$> mapM defaultTypeKinds arguments <*> defaultFieldRep inner
     defaultClassKinds info = do
       kindTyVars <- mapM defaultTyVarKinds (ciKindTyVars info)
       tyVars <- mapM defaultTyVarKinds (ciTyVars info)
@@ -1107,10 +1115,12 @@ defaultGlobalKindMetas initialKeys = do
     defaultDataFamilyInstanceKinds info = do
       familyType <- defaultTypeKinds (dfiiFamilyType info)
       tyVars <- mapM defaultTyVarKinds (dfiiTyVars info)
+      constructors <- mapM defaultDataConKinds (dfiiConstructors info)
       pure
         info
           { dfiiFamilyType = familyType,
-            dfiiTyVars = tyVars
+            dfiiTyVars = tyVars,
+            dfiiConstructors = constructors
           }
     defaultTypeFamilyInstanceKinds info = do
       -- Keep the kind variables from the family declaration in each equation.
@@ -5346,7 +5356,8 @@ checkedFieldInfo (label, bang) fieldType' =
       dcfiType = fieldType',
       dcfiStrict = bangStrict bang,
       dcfiLazy = bangLazy bang,
-      dcfiUnpack = fieldUnpack bang
+      dcfiUnpack = fieldUnpack bang,
+      dcfiRep = RepStored fieldType' (bangStrict bang)
     }
 
 fieldUnpack :: BangType -> DataConFieldUnpack
