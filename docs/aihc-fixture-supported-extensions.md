@@ -5,8 +5,8 @@
 - Total Extensions: 84
 - Supported: 41
 - In Progress: 43
-- Fixtures (eval): 563
-- Fixtures (fc): 340
+- Fixtures (eval): 570
+- Fixtures (fc): 347
 
 ## Extension Status
 
@@ -32,7 +32,7 @@
 | EmptyCase                  |   🟢    | 1/1           |
 | EmptyDataDecls             |   🔴    | 2/3           |
 | EmptyDataDeriving          |   🔴    | 0/1           |
-| ExistentialQuantification  |   🟡    | 11/12         |
+| ExistentialQuantification  |   🟡    | 12/13         |
 | ExplicitForAll             |   🔴    | 13/17         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedDefaultRules       |   🔴    | 0/1           |
@@ -51,7 +51,7 @@
 | InterruptibleFFI           |   🟢    | 1/1           |
 | KindSignatures             |   🟡    | 55/57         |
 | LambdaCase                 |   🟢    | 6/6           |
-| MagicHash                  |   🟡    | 231/233       |
+| MagicHash                  |   🟡    | 237/239       |
 | MonadComprehensions        |   🔴    | 0/2           |
 | MultiParamTypeClasses      |   🟡    | 40/43         |
 | MultiWayIf                 |   🟢    | 2/2           |
@@ -66,7 +66,7 @@
 | PackageImports             |   🟢    | 1/1           |
 | ParallelListComp           |   🔴    | 0/1           |
 | PartialTypeSignatures      |   🟢    | 2/2           |
-| PatternSynonyms            |   🟢    | 25/25         |
+| PatternSynonyms            |   🟢    | 26/26         |
 | PolyKinds                  |   🟢    | 42/42         |
 | PostfixOperators           |   🟢    | 1/1           |
 | QualifiedDo                |   🔴    | 0/2           |
@@ -91,8 +91,8 @@
 | TypeFamilyDependencies     |   🟢    | 1/1           |
 | TypeOperators              |   🟢    | 114/114       |
 | UnboxedSums                |   🟢    | 10/10         |
-| UnboxedTuples              |   🟡    | 70/71         |
+| UnboxedTuples              |   🟡    | 71/72         |
 | UndecidableInstances       |   🔴    | 15/17         |
 | UndecidableSuperClasses    |   🟢    | 3/3           |
 | UnliftedFFITypes           |   🟢    | 2/2           |
-| ViewPatterns               |   🔴    | 9/12          |
+| ViewPatterns               |   🔴    | 10/13         |
