@@ -17,7 +17,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Numeric (showHex)
 import System.Directory (XdgDirectory (XdgCache), canonicalizePath, createDirectoryIfMissing, findExecutable, getFileSize, getModificationTime, getXdgDirectory, renameFile)
-import System.Environment (getExecutablePath)
+import System.Environment (getExecutablePath, lookupEnv)
 import System.FilePath (makeRelative, (<.>), (</>))
 
 -- Each field has a length prefix to prevent ambiguous concatenation.
@@ -34,8 +34,24 @@ hashChunks = concatMap hex . BS.unpack . SHA256.hashlazy . BL.fromChunks . conca
 --
 -- A hash of the whole executable takes a fraction of a second. A cache file
 -- keeps it for each path, size, and modification time of the executable.
+--
+-- A build system can set @AIHC_COMPILER_IDENTITY@ to give one identity to
+-- every executable that it builds from one source, such as the compiler and
+-- a test suite that links the same library. The identity is then the hash of
+-- that value.
 compilerBuildIdentity :: IO String
 compilerBuildIdentity = do
+  override <- lookupEnv compilerIdentityVariable
+  case override of
+    Just value | not (null value) -> pure (hashChunks [TE.encodeUtf8 (T.pack value)])
+    _ -> executableBuildIdentity
+
+-- | The environment variable that gives the compiler identity.
+compilerIdentityVariable :: String
+compilerIdentityVariable = "AIHC_COMPILER_IDENTITY"
+
+executableBuildIdentity :: IO String
+executableBuildIdentity = do
   path <- canonicalizePath =<< getExecutablePath
   size <- getFileSize path
   modified <- getModificationTime path
