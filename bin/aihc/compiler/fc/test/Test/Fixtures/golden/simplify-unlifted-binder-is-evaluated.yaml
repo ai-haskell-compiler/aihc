@@ -55,18 +55,18 @@ expected: |-
     λ(y : 2.tAddr#).
       case x (3.cI# (foreign {prim 2.vaddr2Int# :: FUN @3.cAddrRep @3.cIntRep 2.tAddr# 2.tInt#} y)) as (_scrut : 3.tInt) return (3.tInt) of {
           3.cI# (x{1} : 2.tInt#) →
-              case let {
+              let {
                   argument : 2.tInt# =
                       foreign {prim 2.v*# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 3#3.cIntRep
               } in
-                  x (3.cI# argument) as (_scrut{1} : 3.tInt) return (3.tInt) of {
-                  3.cI# (y{1} : 2.tInt#) →
-                      let {
-                          argument : 2.tInt# =
-                              foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} y{1}
-                      } in
-                          x (3.cI# argument)
-              }
+                  case x (3.cI# argument) as (_scrut{1} : 3.tInt) return (3.tInt) of {
+                      3.cI# (y{1} : 2.tInt#) →
+                          let {
+                              argument{1} : 2.tInt# =
+                                  foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} y{1}
+                          } in
+                              x (3.cI# argument{1})
+                  }
       }
 status: pass
 reason: The bang pattern on the unlifted parameter of wrap gives a case with one default alternative. A variable of an unlifted type always holds a value, so that case only names it, the copy of wrap is the constructor, and the case on it in box selects the alternative. No box is built.

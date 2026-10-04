@@ -1,0 +1,19 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+
+    -- Without MonoLocalBinds, a local pattern binding generalizes its
+    -- binders. Here pick is used at two types, and count stays an Int.
+    main :: IO ()
+    main = do
+      let (pick, count) = (\left _ -> left, length "abc")
+      print (pick True 'x', pick 'y' (), count)
+stdout: |
+  (True,'y',3)
+output: |
+  ()
+expression: main
+status: pass
+reason: The binders of a local tuple pattern binding are polymorphic, and each use instantiates them

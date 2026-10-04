@@ -1,0 +1,43 @@
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Pair [IntRep, IntRep]
+
+  pub constructor 1.Left [IntRep]
+
+  pub constructor 1.Right [IntRep]
+
+  pub global 1.first = (P1.$first/1)
+
+  pub global 1.pick = (P1.$pick/1)
+
+  1.$first (x :: BoxedRep Lifted) -> IntRep =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    a :: IntRep, _pat :: IntRep <-
+      fetch (C1.Pair) (case_value :: BoxedRep Lifted)
+    constant (a :: IntRep)
+
+  1.$pick (x :: BoxedRep Lifted) -> IntRep =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+      data 1.Left (a :: IntRep) ->
+        constant (a :: IntRep)
+      data 1.Right (b :: IntRep) ->
+        constant (b :: IntRep)
+extensions:
+- MagicHash
+reason: a case on a type of one constructor reads the fields with a fetch and no test of the tag, and a type of two constructors keeps the case
+source: |
+  module Test where
+  import GHC.Prim
+  data Pair = Pair Int# Int#
+  data Choice = Left Int# | Right Int#
+  first :: Pair -> Int#
+  first p = case p of Pair a _ -> a
+  pick :: Choice -> Int#
+  pick c = case c of
+    Left a -> a
+    Right b -> b
+status: pass

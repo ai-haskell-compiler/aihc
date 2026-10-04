@@ -108,6 +108,7 @@
       '';
 
   aihcTestSetup = ''
+    ${compilerIdentitySetup}
     # The LLVM bintools must shadow the GNU binutils that the clang wrapper
     # links into its own bin directory: the foreign-target suites
     # archive their objects with llvm-ar.
@@ -374,7 +375,16 @@
     done
   '';
 
+  # The compiler identity keys the store. Without this value, it is the hash
+  # of the running executable, so the test suite, which links the compiler
+  # library into its own executable, could not use a store that the aihc
+  # executable built. Every compiler of one aihc derivation gets one identity.
+  compilerIdentitySetup = ''
+    export AIHC_COMPILER_IDENTITY=${hsPkgs.aihc}
+  '';
+
   aihcExe = pkgs.writeShellScript "aihc-with-memory-limit" ''
+    ${compilerIdentitySetup}
     exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M4G -RTS "$@"
   '';
 

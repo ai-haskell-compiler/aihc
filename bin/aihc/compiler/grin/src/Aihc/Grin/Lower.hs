@@ -39,7 +39,10 @@ data LowerEnv = LowerEnv
     lowerTypeSubstitution :: !(Map Fc.Name Fc.Type),
     lowerGlobalNames :: !(Map Fc.Name Text),
     lowerConstructorArities :: !(Map Fc.Name Int),
-    lowerLocalFunctions :: !(Map Fc.Name LocalFunction)
+    lowerLocalFunctions :: !(Map Fc.Name LocalFunction),
+    -- | The constructors that the program declares. A fetch names the
+    -- layout of its constructor, which the program must declare.
+    lowerDeclaredConstructors :: !(Set Fc.Name)
   }
 
 -- | A top-level function of this module. Its entry function is named before
@@ -100,7 +103,8 @@ lowerProgram program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types
-      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
+      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors
+      declaredConstructors = Set.fromList [Fc.conName con | Fc.DeclType declaration <- Fc.programDecls program, con <- Fc.typeCons declaration]
       initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
     localFunctions <- localFunctionTable baseEnv program
@@ -1410,9 +1414,41 @@ lowerCase env scrutinee binder alternatives = do
       bindExpression env "case_value" scrutinee $ \case
         [value] -> do
           caseBinder <- freshVar (Fc.nameText (Fc.binderName binder)) representation
-          loweredAlternatives <- mapM (lowerAlt (bindLocal env binder [caseBinder])) alternatives
-          pure (GrinCase value caseBinder loweredAlternatives)
+          let binderEnv = bindLocal env binder [caseBinder]
+          case onlyConstructorAlternative env binder alternatives of
+            -- The type has one constructor, so the value is that
+            -- constructor and its fields need no test of the tag.
+            Just alternative -> do
+              GrinAlt _ fields body <- lowerAlt binderEnv alternative
+              let fetched
+                    | null fields = body
+                    | otherwise = GrinBind fields (GrinFetch (GrinConstructor (constructorTagOf alternative) 0) (GrinVarValue caseBinder)) body
+              pure (GrinBind [caseBinder] (GrinConstant [value]) fetched)
+            Nothing -> do
+              loweredAlternatives <- mapM (lowerAlt binderEnv) alternatives
+              pure (GrinCase value caseBinder loweredAlternatives)
         _ -> throwLower "GRIN case expected one scrutinee value"
+  where
+    constructorTagOf alternative =
+      case Fc.altCon alternative of
+        Fc.AltData name -> constructorTag name
+        _ -> ""
+
+-- | The alternative of a case on a type of one constructor, which every
+-- value of the type matches. A default beside it is never taken. A
+-- constructor with a representation of its own is not on the heap and is
+-- not a candidate.
+onlyConstructorAlternative :: LowerEnv -> Fc.Binder -> [Fc.Alt] -> Maybe Fc.Alt
+onlyConstructorAlternative env binder alternatives =
+  case [alternative | alternative <- alternatives, Fc.altCon alternative /= Fc.AltDefault] of
+    [alternative]
+      | Fc.AltData name <- Fc.altCon alternative,
+        constructorRepresentation env name == Fc.HeapConstructor,
+        Set.member name (lowerDeclaredConstructors env),
+        Just typeName <- TypeOf.typeHead (reduce env (Fc.binderType binder)),
+        Map.lookup typeName (TypeOf.teDataCons (lowerTypes env)) == Just [name] ->
+          Just alternative
+    _ -> Nothing
 
 lowerSumCase :: LowerEnv -> [GrinRep] -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerSumCase env representations scrutinee binder alternatives = do

@@ -56,9 +56,9 @@ annotated:
   │     │         │          │      ││    └─ type: MV (PrimState (ST (PrimState m))) a → ST (PrimState (ST (PrimState m))) Done; type-args: PrimState (ST (PrimState m)), a
   │     │         │          │      │└─ type: MV (PrimState (ST (PrimState m))) a
   │     │         │          │      └─ type: MV (PrimState (ST (PrimState m))) a → ST (PrimState (ST (PrimState m))) (MV (PrimState (ST (PrimState m))) a)
-  │     │         │          └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a) → (MV (PrimState (ST (PrimState m))) a → ST (PrimState m) (MV (PrimState (ST (PrimState m))) a)) → ST (PrimState m) (MV (PrimState (ST (PrimState m))) a); type-args: ST (PrimState m), MV (PrimState (ST (PrimState m))) a, MV (PrimState (ST (PrimState m))) a; evidence: $fPrimMonadSTs @PrimState m
+  │     │         │          └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a) → (MV (PrimState (ST (PrimState m))) a → ST (PrimState m) (MV (PrimState m) a)) → ST (PrimState m) (MV (PrimState m) a); type-args: ST (PrimState m), MV (PrimState (ST (PrimState m))) a, MV (PrimState m) a; evidence: $fPrimMonadSTs @PrimState m
   │     │         └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a); type-args: ST (PrimState m), a; evidence: $fPrimMonadSTs @PrimState m
-  │     └─ type: ST (PrimState m) (MV (PrimState (ST (PrimState m))) a) → m (MV (PrimState (ST (PrimState m))) a); type-args: m, MV (PrimState (ST (PrimState m))) a; evidence: given PrimMonad m
+  │     └─ type: ST (PrimState m) (MV (PrimState m) a) → m (MV (PrimState m) a); type-args: m, MV (PrimState m) a; evidence: given PrimMonad m
   └─ type: ∀ m a. (PrimMonad m) ⇒ m (MV (PrimState m) a)
   withLift :: (forall b. m b -> ST (PrimState m) b) -> m Done
   withLift = withLift

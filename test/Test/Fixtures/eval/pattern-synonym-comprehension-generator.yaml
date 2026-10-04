@@ -1,0 +1,48 @@
+extensions:
+  - PatternSynonyms
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+
+    import Prelude
+
+    data Entity = Global String Int | Local Int
+
+    -- A bidirectional synonym, as aihc-resolve declares GlobalTerm.
+    pattern Named :: String -> Entity
+    pattern Named name <- Global name _
+      where
+        Named name = Global name 0
+
+    -- A match-only synonym with a view pattern, as aihc-tc declares ForAll.
+    pattern Doubled :: Int -> Int
+    pattern Doubled half <- (halve -> Just half)
+
+    -- A polymorphic synonym, as containers declares CyclicSCC.
+    pattern Pair :: a -> a -> [a]
+    pattern Pair first second = [first, second]
+
+    halve :: Int -> Maybe Int
+    halve value = if even value then Just (value `div` 2) else Nothing
+
+    -- A generator pattern that does not match drops the element.
+    main :: IO ()
+    main = do
+      print [name | Named name <- [Global "a" 1, Local 2, Named "b"]]
+      print [half | Doubled half <- [4, 5, 6 :: Int]]
+      print [first | Pair first _ <- [[1, 2], [3], Pair 4 (5 :: Int)]]
+      -- A do bind matches the same way.
+      print (do { Pair first _ <- Just "xy"; pure first })
+stdout: |
+  ["a","b"]
+  [2,3]
+  [1,4]
+  Just 'x'
+output: |
+  ()
+expression: main
+status: pass
+reason: A pattern synonym in a list comprehension generator or a do bind matches through its matcher with the type arguments of the use, and an element that does not match is dropped

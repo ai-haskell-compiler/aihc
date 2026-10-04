@@ -24,6 +24,8 @@ module GHC.Conc.Sync
     readTVarIO,
     writeTVar,
     unsafeIOToSTM,
+    getNumCapabilities,
+    numCapabilities,
   )
 where
 
@@ -233,3 +235,14 @@ writeTVar :: TVar a -> a -> STM ()
 writeTVar (TVar variable) value = STM $ \state ->
   case writeTVar# variable value state of
     next -> (# next, () #)
+
+-- | The number of Haskell threads that can run at the same time. The
+-- runtime runs every green thread on one operating system thread, like the
+-- non-threaded runtime of GHC, so the number is always one.
+getNumCapabilities :: IO Int
+getNumCapabilities = return numCapabilities
+
+-- | The number of capabilities when the program starts. See
+-- 'getNumCapabilities'.
+numCapabilities :: Int
+numCapabilities = 1

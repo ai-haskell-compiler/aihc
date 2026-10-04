@@ -30,37 +30,37 @@ expected: |-
   1.$fmap' ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data 1.$Dict$Fun ($method0 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+    $method0 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Fun) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
 
   1.$unit ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data 1.$Dict$Ap ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ($method2 :: BoxedRep Lifted) ($method3 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method1 :: BoxedRep Lifted)
+    $method0 :: BoxedRep Lifted, $method1 :: BoxedRep Lifted, $method2 :: BoxedRep Lifted, $method3 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Ap) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($method1 :: BoxedRep Lifted)
 
   1.$ap ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data 1.$Dict$Ap ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ($method2 :: BoxedRep Lifted) ($method3 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method2 :: BoxedRep Lifted)
+    $method0 :: BoxedRep Lifted, $method1 :: BoxedRep Lifted, $method2 :: BoxedRep Lifted, $method3 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Ap) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($method2 :: BoxedRep Lifted)
 
   1.$lift2 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data 1.$Dict$Ap ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ($method2 :: BoxedRep Lifted) ($method3 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method3 :: BoxedRep Lifted)
+    $method0 :: BoxedRep Lifted, $method1 :: BoxedRep Lifted, $method2 :: BoxedRep Lifted, $method3 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Ap) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($method3 :: BoxedRep Lifted)
 
   1.$$dmlift2_argument_thunk_2 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as $super_source0 :: BoxedRep Lifted of
-      data 1.$Dict$Ap ($super_field0 :: BoxedRep Lifted) ($super_field1 :: BoxedRep Lifted) ($super_field2 :: BoxedRep Lifted) ($super_field3 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($super_field0 :: BoxedRep Lifted)
+    $super_field0 :: BoxedRep Lifted, $super_field1 :: BoxedRep Lifted, $super_field2 :: BoxedRep Lifted, $super_field3 :: BoxedRep Lifted <-
+      fetch (C1.$Dict$Ap) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($super_field0 :: BoxedRep Lifted)
 
   1.$$dmlift2_argument_thunk ($d0 :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
     argument :: BoxedRep Lifted <-

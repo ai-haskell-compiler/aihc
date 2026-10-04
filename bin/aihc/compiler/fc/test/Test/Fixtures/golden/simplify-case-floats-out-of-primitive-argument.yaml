@@ -1,0 +1,84 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Int#, (+#), negateInt#)
+  import GHC.Types (Int (..))
+
+  data Box = Box Int#
+
+  data Wrap = Wrap Int#
+
+  -- Each read of the box is a case in an argument of a primitive call.
+  -- The case moves out of the call and out of the strict let, so the
+  -- second read finds the box known and the program reads it once.
+  viaStrictLet :: Box -> Int
+  viaStrictLet b =
+    let x = negateInt# (case b of Box v -> v)
+     in let y = negateInt# (case b of Box w -> w)
+         in I# (x +# y)
+
+  -- The same chain in the scrutinee of a case moves out of the case. The
+  -- tail is then a known constructor, and the later read of the box is
+  -- known.
+  viaScrutinee :: Box -> Int
+  viaScrutinee b =
+    case (let x = negateInt# (case b of Box v -> v) in Wrap x) of
+      Wrap a -> case b of Box w -> I# (a +# w)
+passes:
+- simplify
+status: pass
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tBox :: 3.sType {
+      pub 1.cBox :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tBox
+  }
+
+  pub type 1.tWrap :: 3.sType {
+      pub 1.cWrap :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tWrap
+  }
+
+  pub val 1.vviaStrictLet :: 1.tBox 3.→ 3.tInt
+   = λ(x : 1.tBox).
+    case x as (_scrut : 1.tBox) return (3.tInt) of {
+        1.cBox (v : 2.tInt#) →
+            let {
+                x{1} : 2.tInt# =
+                    foreign {prim 2.vnegateInt# :: FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#} v
+            } in
+                3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} x{1})
+    }
+
+  pub val 1.vviaScrutinee :: 1.tBox 3.→ 3.tInt
+   = λ(x : 1.tBox).
+    case x as (_scrut : 1.tBox) return (3.tInt) of {
+        1.cBox (v : 2.tInt#) →
+            let {
+                x{1} : 2.tInt# =
+                    foreign {prim 2.vnegateInt# :: FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#} v
+            } in
+                3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} v)
+    }

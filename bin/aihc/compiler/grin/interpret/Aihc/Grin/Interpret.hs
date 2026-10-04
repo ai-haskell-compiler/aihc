@@ -2453,6 +2453,11 @@ callForeign foreignCall arguments
   -- The interpreter runs a foreign call in its own process, so the errno of
   -- that process is the one the call set. Only a reset ever reaches here,
   -- because that is all Foreign.C.Error asks for; base has no general setter.
+  -- The clock of the interpreter process is a monotonic clock too.
+  | symbol == "aihc_clock_monotonic_ns",
+    [] <- arguments = do
+      now <- liftEvalIO Host.getMonotonicTimeNSec
+      pure [RuntimeLit (GrinLitInt Word64Rep (toInteger now))]
   | symbol == "aihc_errno_get",
     [] <- arguments = do
       Errno current <- liftEvalIO getErrno

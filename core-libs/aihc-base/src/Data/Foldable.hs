@@ -26,7 +26,7 @@ module Data.Foldable
 where
 
 import Control.Applicative (asum)
-import Control.Monad (MonadPlus (..))
+import Control.Monad (forM_, msum)
 import GHC.Internal.Foldable (Foldable (..))
 import Prelude
   ( Applicative (..),
@@ -75,12 +75,6 @@ for_ structure f = traverse_ f structure
 
 sequenceA_ :: (Foldable t, Applicative f) => t (f a) -> f ()
 sequenceA_ = foldr thenApplicative (pure ())
-
-forM_ :: (Foldable t, Monad m) => t a -> (a -> m b) -> m ()
-forM_ = for_
-
-msum :: (Foldable t, MonadPlus m) => t (m a) -> m a
-msum = foldr mplus mzero
 
 maximumBy :: (Foldable t) => (a -> a -> Ordering) -> t a -> a
 maximumBy compareValues = foldr1 choose

@@ -1,0 +1,115 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Type)
+  data Chr = Chr
+       │     └─ type: Chr
+       └─ type: Type
+  data Txt = Txt
+       │     └─ type: Txt
+       └─ type: Type
+  data Void
+       └─ type: Type
+  newtype Identity a = Identity a
+          │            └─ type: ∀ a. a → Identity a
+          └─ type: Type → Type
+  type family Token s
+              └─ type: Type → Type
+  type instance Token Txt = Chr
+  class Stream s where
+  └─ class methods: tokenOf ∷ ∀ s. (Stream s) ⇒ s → Token s
+    tokenOf :: s -> Token s
+  instance Stream Txt where
+  └─ $fStreamTxt ∷ () ⇒ Stream Txt
+    tokenOf _ = Chr
+    │       └─ type: Txt
+    └─ tokenOf ∷ Txt → Token Txt
+  class Stream s => MonadParsec e s (m :: Type -> Type) | m -> e s where
+  └─ class methods: token ∷ ∀ e s m. (MonadParsec e s m) ⇒ Token s → m (Token s); fundeps: m → e s
+    token :: Token s -> m (Token s)
+  newtype ParsecT e s m a = ParsecT (s -> m a)
+          │                 └─ type: ∀ e s m a. (s → m a) → ParsecT e s m a
+          └─ type: Type → Type → (Type → Type) → Type → Type
+  newtype ReaderT r m a = ReaderT (r -> m a)
+          │               └─ type: ∀ r m a. (r → m a) → ReaderT r m a
+          └─ type: Type → (Type → Type) → Type → Type
+  instance Stream s => MonadParsec e s (ParsecT e s m) where
+  └─ $fMonadParsecesParsecTesm ∷ ∀ s e m. (Stream s) ⇒ MonadParsec e s (ParsecT e s m) [superclasses: given Stream s]
+    token t = token t
+    │     │   └─ type: Token s → ParsecT e s m (Token s); type-args: e, s, ParsecT e s m; evidence: $fMonadParsecesParsecTesm @s @e @m (given Stream s)
+    │     └─ type: Token s
+    └─ token ∷ Token s → ParsecT e s m (Token s)
+  instance MonadParsec e s m => MonadParsec e s (ReaderT r m) where
+  └─ $fMonadParsecesReaderTrm ∷ ∀ e s m r. (MonadParsec e s m) ⇒ MonadParsec e s (ReaderT r m) [superclasses: super[0](given MonadParsec e s m)]
+    token t = ReaderT (\_ -> token t)
+    │     │   │        │││    └─ type: Token s → m (Token s); type-args: e, s, m; evidence: given MonadParsec e s m
+    │     │   │        │└─ type: r
+    │     │   │        │└─ type: r
+    │     │   │        └─ type: r → m (Token s)
+    │     │   └─ type: (r → m (Token s)) → ReaderT r m (Token s); type-args: r, m, Token s
+    │     └─ type: Token s
+    └─ token ∷ Token s → ReaderT r m (Token s)
+  char :: (MonadParsec e s m, Token s ~ Chr) => Token s -> m (Token s)
+  char = token
+  │      └─ type: Token s → m (Token s); type-args: e, s, m; evidence: given MonadParsec e s m
+  └─ type: ∀ e s m. (MonadParsec e s m, (Token s) ~ Chr) ⇒ Token s → m (Token s)
+  type Parser = ReaderT Txt (ParsecT Void Txt Identity)
+       └─ type: Type → Type
+  equals :: Parser Chr
+  equals = char Chr
+  │        └─ type: Token Txt → ReaderT Txt (ParsecT Void Txt Identity) (Token Txt); type-args: Void, Txt, ReaderT Txt (ParsecT Void Txt Identity); evidence: $fMonadParsecesReaderTrm @Void @Txt @ParsecT Void Txt Identity @Txt ($fMonadParsecesParsecTesm @Txt @Void @Identity ($fStreamTxt)), refl Chr
+  └─ type: ReaderT Txt (ParsecT Void Txt Identity) Chr
+  attempt :: MonadParsec e s m => m a -> m a
+  attempt parser = parser
+  │       └─ type: m a
+  └─ type: ∀ e s m a. (MonadParsec e s m) ⇒ m a → m a
+  retry :: Parser Chr
+  retry = attempt equals
+  │       └─ type: ReaderT Txt (ParsecT Void Txt Identity) Chr → ReaderT Txt (ParsecT Void Txt Identity) Chr; type-args: Void, Txt, ReaderT Txt (ParsecT Void Txt Identity), Chr; evidence: $fMonadParsecesReaderTrm @Void @Txt @ParsecT Void Txt Identity @Txt ($fMonadParsecesParsecTesm @Txt @Void @Identity ($fStreamTxt))
+  └─ type: ReaderT Txt (ParsecT Void Txt Identity) Chr
+extensions:
+- TypeFamilies
+- MultiParamTypeClasses
+- FunctionalDependencies
+- FlexibleContexts
+- FlexibleInstances
+- UndecidableInstances
+- GADTs
+- TypeOperators
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Type)
+  data Chr = Chr
+  data Txt = Txt
+  data Void
+  newtype Identity a = Identity a
+  type family Token s
+  type instance Token Txt = Chr
+  class Stream s where
+    tokenOf :: s -> Token s
+  instance Stream Txt where
+    tokenOf _ = Chr
+  class Stream s => MonadParsec e s (m :: Type -> Type) | m -> e s where
+    token :: Token s -> m (Token s)
+  newtype ParsecT e s m a = ParsecT (s -> m a)
+  newtype ReaderT r m a = ReaderT (r -> m a)
+  instance Stream s => MonadParsec e s (ParsecT e s m) where
+    token t = token t
+  instance MonadParsec e s m => MonadParsec e s (ReaderT r m) where
+    token t = ReaderT (\_ -> token t)
+  char :: (MonadParsec e s m, Token s ~ Chr) => Token s -> m (Token s)
+  char = token
+  type Parser = ReaderT Txt (ParsecT Void Txt Identity)
+  equals :: Parser Chr
+  equals = char Chr
+  attempt :: MonadParsec e s m => m a -> m a
+  attempt parser = parser
+  retry :: Parser Chr
+  retry = attempt equals
+status: pass
+reason: The lifting instance of a transformer gets its dependent parameters from its context.
+  Thus, the solver improves the wanted through that context.

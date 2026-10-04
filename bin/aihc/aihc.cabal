@@ -1,7 +1,7 @@
 cabal-version: 3.8
 name: aihc
 version: 0.1.0.0
-build-type: Custom
+build-type: Simple
 license: Unlicense
 license-file: LICENSE
 author: David Himmelstrup
@@ -121,14 +121,6 @@ flag hackage
   default: True
   manual: True
 
-custom-setup
-  setup-depends:
-    Cabal >=3.14 && <3.17,
-    base >=4.16 && <5,
-    directory,
-    filepath,
-    process,
-
 library
   exposed-modules:
     Aihc.Amd64.Assemble
@@ -225,7 +217,6 @@ library
     Aihc.Cbor
     Aihc.Cli.InterfaceParts
     Aihc.Cli.InterfaceTyCons
-    Aihc.CompilerBuildIdentity
     Aihc.DataFiles
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
@@ -241,12 +232,11 @@ library
     Paths_aihc
 
   autogen-modules:
-    Aihc.CompilerBuildIdentity
     Paths_aihc
 
   hs-source-dirs:
     src
-    ../../components/aihc-tc/prim-wiring
+    prim-wiring
     compiler/amd64/src
     compiler/arm64/src
     compiler/fc/src
