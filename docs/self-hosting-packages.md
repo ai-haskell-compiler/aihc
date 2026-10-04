@@ -31,7 +31,7 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | ansi-terminal | 1.1.5 | hackage:0 | ansi-terminal-types, colour |
 | deepseq | 1.5.2.0 | hackage:0 |  |
 | bytestring | 0.12.2.0 | hackage:1 | deepseq |
-| containers | 0.8 | hackage:0 | array, deepseq |
+| containers | 0.8.1 | hackage:0 | array, deepseq |
 | binary | 0.8.9.3 | hackage:0 | array, bytestring, containers |
 | cryptohash-sha256 | 0.11.102.1 | hackage:6 | bytestring |
 | dlist | 1.0 | hackage:2 | deepseq |
