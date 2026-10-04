@@ -1494,7 +1494,6 @@ static int aihc_io_request_buffer(AihcIoRequest *request, uint8_t *buffer,
   case AIHC_REGION_GEN1:
   case AIHC_REGION_GEN2:
   case AIHC_REGION_FROM1:
-  case AIHC_REGION_FROM2:
     return 0;
   default:
     break;

@@ -158,9 +158,10 @@ kinds are:
 | `OUTSIDE` | Memory the runtime did not acquire: static data, C allocations, or the memory of another allocator |
 | `FREE` | A region the runtime can acquire |
 | `NURSERY` | The nursery |
-| `GEN1`, `GEN2` | A block of gen1 or gen2 |
-| `FROM1`, `FROM2` | A block of gen1 or gen2 that the running collection copies away |
-| `LARGE` | A large object that never moves |
+| `GEN1` | A block of gen1 |
+| `GEN2` | A segment of gen2 |
+| `FROM1` | A block of gen1 that the running collection copies away |
+| `LARGE` | A large object that never moves, with the card table of a boxed array behind it |
 | `PINNED` | A large pinned byte array or host buffer |
 | `STACK` | Sixteen stack chunks of 4 KiB |
 
@@ -174,23 +175,61 @@ The pages of the C allocator keep the kind `OUTSIDE`.
 ## Generations
 
 The heap has three generations. The nursery, generation zero, is one run of
-regions that compiled code fills with a bump pointer. Gen1 and gen2 are
-lists of blocks of 256 KiB that only the collector fills. A collection of
-the generations up to g copies every live object of those generations one
-generation up. The policy is:
+regions that compiled code fills with a bump pointer. Gen1 is a list of
+blocks of 256 KiB that only the collector fills. Gen2 is a set of segments
+of 256 KiB that never move an object. A collection of the generations up to
+g copies every live object of the nursery and gen1 that it covers one
+generation up, and a full collection marks the live gen2 objects in place.
+The policy is:
 
 - A minor collection runs when the nursery is full. It copies the live
   nursery objects into gen1.
 - When gen1 is above its maximum, the collection copies gen1 into gen2 as
   well, and the nursery survivors into fresh gen1 blocks.
 - When gen2 has grown by the factor since the last full collection, or the
-  `-M` limit is near, the collection copies every generation.
+  `-M` limit is near, the collection is a full one: it copies the nursery
+  and gen1 into gen2 and marks gen2.
 
 A copied object keeps its new address in its old header with the low two
 bits set to two. No live header has that pattern: the second bit is set only
 on a blackhole, whose first bit is set as well. Heap indirections in a
-copied generation are followed and not copied. An indirection in an older
-generation stays until a collection copies that generation.
+copied generation are followed and not copied, and a full collection
+follows a gen2 indirection and leaves it unmarked. An indirection in an
+older generation stays until a collection of that generation.
+
+### Gen2 segments
+
+A segment is one block of 256 KiB that holds slots of one size class. The
+size classes are the word counts two to eight and then four classes in each
+doubling, up to 4096 words, so a slot holds at most a quarter more than its
+object needs, and every object below the large object bound fits a class.
+The segment header holds a bitmap with one bit for each slot. A set bit is
+an occupied slot. An object copied into gen2 sets its bit when it is
+allocated, so the bitmap is the free map of the allocator between full
+collections. The allocator fills one segment for each size class and takes
+the first free slot above its cursor.
+
+A full collection marks in place. The header of a segment records the
+epoch, the count of full collections, whose marks its bitmap holds. The
+collection increments the count and clears the bitmap of a segment when it
+first marks an object in it, so the start of a full collection costs
+nothing for each segment. It sets the bit of each gen2 object it reaches
+and queues the object for a scan: gen2 has no Cheney cursor, because its
+slots are not in allocation order. While the collection traces, objects
+copied into gen2 go to new segments only, because the marks of an older
+segment are not final until the trace ends.
+
+The sweep is lazy. At the start of a full collection every segment goes to
+the unswept list of its class. The allocator sweeps an unswept segment of a
+class when the class has no segment with room, and every collection sweeps
+a bounded slice of 64 unswept segments when it ends. A sweep counts the set
+bits: a segment with none, and a segment whose epoch is older than the last
+full collection, goes back to the region table, a full segment waits for
+the next full collection, and the others are available to the allocator.
+
+The bytes of gen2 are the bytes of its occupied slots. A full collection
+starts the count at zero and adds each marked and each copied slot. The
+`-M` limit and the `-F` growth rule read this count.
 
 When the collector scans an object of generation k, it copies each referent
 that moves into generation k at least. Thus an old object points only at old
@@ -211,14 +250,27 @@ a pointer into an existing object in the C runtime: thread resumption,
 MVar operations, blackhole waiters, IO requests, transactions, `aihc_update`,
 and `aihc_set_field`. A thunk update of an old blackhole takes the C path.
 
-The remembered set is a list of objects. A hot object enters it at every
-store, so the list is compacted when it is full, and before a collection
-scans it. A collection scans each entry with the generation of the entry
+The remembered set is a list of objects. A store into the object that
+entered last is not recorded again. A hot object still enters the list at
+many stores, so the list is compacted when it is full, and before a
+collection scans it. A collection scans each entry with the generation of the entry
 as the floor of its referents and then drops the entry. An entry in a
 copied generation is dropped unscanned: the object is copied and scanned if
 it is live. A static entry is dropped unscanned in a full collection, which
 traces static objects through the reference tables alone, so an evaluated
 CAF that no live code reaches gives its value up.
+
+A large boxed array has a card table: one byte for each run of 128
+elements, behind the array in its region run. A store through `writeArray#`,
+`writeSmallArray#`, or the compare-and-swap primitives calls
+`aihc_write_barrier_at` with the index of the element, and the array copy
+calls `aihc_write_barrier_range` with the run it writes. The barrier sets
+the cards of the run and records the array. A collection that scans the
+array from the remembered set scans only its dirty cards. A card becomes
+clean when every referent of its run is in the generation of the array or
+above, and the array leaves the remembered set when every card is clean. A
+collection that reaches the array as a new object scans every card. The
+barrier without an index sets every card of a large array.
 
 ### Objects that never move
 

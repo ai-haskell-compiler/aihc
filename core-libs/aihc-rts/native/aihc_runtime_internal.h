@@ -277,9 +277,8 @@ typedef enum {
   AIHC_REGION_NURSERY,
   AIHC_REGION_GEN1,
   AIHC_REGION_GEN2,
-  /* The blocks of gen1 and gen2 that the running collection copies away. */
+  /* The blocks of gen1 that the running collection copies away. */
   AIHC_REGION_FROM1,
-  AIHC_REGION_FROM2,
   AIHC_REGION_LARGE,
   AIHC_REGION_PINNED,
   AIHC_REGION_STACK,
@@ -297,6 +296,16 @@ void aihc_regions_release(void *base);
 void aihc_regions_set_kind(void *base, AihcRegionKind kind);
 /* The kind of the region that holds an address. */
 AihcRegionKind aihc_region_kind(const void *address);
+/* The start of the acquired run that holds an address, or null outside every
+   mapping. */
+void *aihc_region_run_base(const void *address);
+
+/* Visit every object of the heap: the nursery, the blocks of gen1, the
+   occupied slots of gen2, and the large objects. The visitor must not
+   allocate. The test drivers use this walk. */
+typedef void (*AihcObjectVisitor)(AihcValue *object, void *context);
+void aihc_gc_walk_objects(AihcMachine *machine, AihcObjectVisitor visitor,
+                          void *context);
 
 /* The host side of the region table. Map count regions at a region
    boundary, or give null when the host has no room. The content of the
