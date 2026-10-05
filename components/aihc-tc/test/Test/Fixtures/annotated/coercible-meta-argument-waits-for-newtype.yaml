@@ -1,0 +1,31 @@
+extensions:
+- ScopedTypeVariables
+modules:
+- |
+  module Str (Str) where
+  data Unit = Unit
+  newtype Str = Str Unit
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  import Str
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  newtype Base a = Base a
+  newtype Rel a = Rel a
+  data Unit = Unit
+  append :: Str -> Str -> Str
+  append x _ = x
+  use :: Base Str -> Unit
+  use _ = Unit
+  f :: Rel Str -> Base Str -> Unit
+  f acc = h
+    where
+      h b = let r :: Rel Str
+                r = coerce (append :: Str -> Str -> Str) acc b
+            in use b
+reason: a Coercible wanted under a function type does not unify a meta variable with
+  a newtype that has a hidden constructor. The meta variable gets a newtype later.
+status: pass
