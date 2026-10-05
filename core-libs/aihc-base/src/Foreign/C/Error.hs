@@ -139,6 +139,10 @@ module Foreign.C.Error
     throwErrnoIfMinus1_,
     throwErrnoIfMinus1Retry,
     throwErrnoIfMinus1Retry_,
+    throwErrnoIfRetryMayBlock,
+    throwErrnoIfRetryMayBlock_,
+    throwErrnoIfMinus1RetryMayBlock,
+    throwErrnoIfMinus1RetryMayBlock_,
     throwErrnoIfNull,
     throwErrnoIfNullRetry,
     throwErrnoPath,
@@ -150,7 +154,7 @@ module Foreign.C.Error
   )
 where
 
-import Data.Bool (Bool (..), not)
+import Data.Bool (Bool (..), not, (||))
 import Data.Maybe (Maybe (..))
 import Foreign.C.Error.Repr
 import Foreign.C.Types (CInt)
@@ -651,6 +655,41 @@ throwErrnoIfMinus1Retry = throwErrnoIfRetry (\result -> result == negate 1)
 -- | 'throwErrnoIfMinus1Retry' discarding the result.
 throwErrnoIfMinus1Retry_ :: (Eq a, Num a) => String -> IO a -> IO ()
 throwErrnoIfMinus1Retry_ = throwErrnoIfRetry_ (\result -> result == negate 1)
+
+-- | 'throwErrnoIfRetry' that runs a second action before it tries again
+-- when the first action would block.
+--
+-- The second action usually waits until the descriptor is ready, for
+-- example with 'GHC.Conc.threadWaitRead'.
+throwErrnoIfRetryMayBlock :: (a -> Bool) -> String -> IO a -> IO b -> IO a
+throwErrnoIfRetryMayBlock failed location action onBlock = retry
+  where
+    retry =
+      action >>= \result ->
+        if failed result
+          then
+            getErrno >>= \errno ->
+              if errno == eINTR
+                then retry
+                else
+                  if errno == eWOULDBLOCK || errno == eAGAIN
+                    then onBlock >> retry
+                    else throwErrno location
+          else pure result
+
+-- | 'throwErrnoIfRetryMayBlock' discarding the result.
+throwErrnoIfRetryMayBlock_ :: (a -> Bool) -> String -> IO a -> IO b -> IO ()
+throwErrnoIfRetryMayBlock_ failed location action onBlock =
+  throwErrnoIfRetryMayBlock failed location action onBlock >> pure ()
+
+-- | 'throwErrnoIfMinus1Retry' that runs a second action before it tries
+-- again when the first action would block.
+throwErrnoIfMinus1RetryMayBlock :: (Eq a, Num a) => String -> IO a -> IO b -> IO a
+throwErrnoIfMinus1RetryMayBlock = throwErrnoIfRetryMayBlock (\result -> result == negate 1)
+
+-- | 'throwErrnoIfMinus1RetryMayBlock' discarding the result.
+throwErrnoIfMinus1RetryMayBlock_ :: (Eq a, Num a) => String -> IO a -> IO b -> IO ()
+throwErrnoIfMinus1RetryMayBlock_ = throwErrnoIfRetryMayBlock_ (\result -> result == negate 1)
 
 -- | Throw when the action returns a null pointer.
 throwErrnoIfNull :: String -> IO (Ptr a) -> IO (Ptr a)

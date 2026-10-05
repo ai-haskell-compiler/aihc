@@ -21,7 +21,9 @@ module Control.Concurrent
     myThreadId,
     threadDelay,
     threadWaitRead,
+    threadWaitReadSTM,
     threadWaitWrite,
+    threadWaitWriteSTM,
     throwTo,
     yield,
     rtsSupportsBoundThreads,
@@ -37,13 +39,12 @@ import Control.Concurrent.MVar
 import Control.Concurrent.QSem
 import Control.Concurrent.QSemN
 import Control.Exception.Base (SomeException, mask, try)
-import GHC.Conc.IO (threadDelay)
+import GHC.Conc.IO (threadDelay, threadWaitRead, threadWaitReadSTM, threadWaitWrite, threadWaitWriteSTM)
 import GHC.Conc.Sync (ThreadId (..), forkIO, getNumCapabilities, killThread, myThreadId, throwTo, yield)
 import GHC.Exception (ErrorCall (..))
 import GHC.IO (IO (..), throwIO, unsafeUnmask)
 import GHC.Prim (mkWeakNoFinalizer#)
 import GHC.Weak (Weak (..))
-import System.Posix.Types (Fd)
 import Prelude (Bool (..), Either, Int, fail, return, ($), (>>=))
 
 -- | Run the action in a child thread. Give its result to the callback.
@@ -80,16 +81,6 @@ setNumCapabilities _ = return ()
 -- capability. The runtime has only capability 0.
 threadCapability :: ThreadId -> IO (Int, Bool)
 threadCapability _ = return (0, False)
-
--- | Wait until a file descriptor has data to read. The runtime has no IO
--- manager, so this function returns immediately. The next read waits for
--- the data and stops all green threads during the wait.
-threadWaitRead :: Fd -> IO ()
-threadWaitRead _ = return ()
-
--- | Wait until a file descriptor can accept data. See 'threadWaitRead'.
-threadWaitWrite :: Fd -> IO ()
-threadWaitWrite _ = return ()
 
 -- | The runtime does not support bound threads.
 rtsSupportsBoundThreads :: Bool

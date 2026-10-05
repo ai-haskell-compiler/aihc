@@ -25,6 +25,8 @@ module System.Posix.Internals
 
     -- * Descriptors
     fdGetMode,
+    setNonBlockingFD,
+    setCloseOnExec,
 
     -- * The calls and their constants
     module System.Posix.Internals.Syscalls,
@@ -32,10 +34,11 @@ module System.Posix.Internals
 where
 
 import Control.Monad (when)
+import Data.Bits (complement, (.&.), (.|.))
 import Data.Bool (Bool (..))
 import Data.Foldable (elem)
 import Data.Maybe (Maybe (..))
-import Foreign.C.Error (Errno (..), eINVAL, errnoToIOError)
+import Foreign.C.Error (Errno (..), eINVAL, errnoToIOError, throwErrnoIfMinus1Retry, throwErrnoIfMinus1Retry_, throwErrnoIfMinus1_)
 import Foreign.C.String (CString, CStringLen, newCString, peekCString, peekCStringLen, withCString)
 import GHC.Base (Monad (..), (>>))
 import GHC.IO.IOMode (IOMode (..))
@@ -43,7 +46,7 @@ import GHC.IO.Runtime (decodeError, descriptorMode)
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..), ioError)
 import System.Posix.Internals.Syscalls
 import System.Posix.Internals.Types
-import Prelude (FilePath, IO, Int, fromIntegral, (<), (==))
+import Prelude (FilePath, IO, Int, fromIntegral, (/=), (<), (==))
 
 -- | Run an action on the encoded form of a file path.
 --
@@ -130,3 +133,23 @@ ioModeOfNumber number =
         False -> case number == 3 of
           True -> Just ReadWriteMode
           False -> Nothing
+
+-- | Set or clear the @O_NONBLOCK@ flag of a descriptor.
+--
+-- The call changes the flags only when they change. A socket library sets
+-- the flag and then waits with 'GHC.Conc.threadWaitRead' when a call
+-- returns @EAGAIN@.
+setNonBlockingFD :: FD -> Bool -> IO ()
+setNonBlockingFD descriptor enabled = do
+  flags <- throwErrnoIfMinus1Retry "setNonBlockingFD" (c_fcntl_read descriptor const_f_getfl)
+  let updated = case enabled of
+        True -> flags .|. o_NONBLOCK
+        False -> flags .&. complement o_NONBLOCK
+  when
+    (updated /= flags)
+    (throwErrnoIfMinus1Retry_ "setNonBlockingFD" (c_fcntl_write descriptor const_f_setfl (fromIntegral updated)))
+
+-- | Set the @FD_CLOEXEC@ flag of a descriptor.
+setCloseOnExec :: FD -> IO ()
+setCloseOnExec descriptor =
+  throwErrnoIfMinus1_ "setCloseOnExec" (c_fcntl_write descriptor const_f_setfd (fromIntegral const_fd_cloexec))
