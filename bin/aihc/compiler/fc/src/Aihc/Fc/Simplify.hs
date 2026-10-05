@@ -117,6 +117,7 @@ simplifyProgram phase program =
                 spKnown = Map.filter (isKnownConstructor arities) bodies,
                 spArity = arities,
                 spLocals = Map.empty,
+                spExcluded = Map.empty,
                 spCse = Map.empty,
                 spEvaluated = Set.empty,
                 spDone = Map.empty,
@@ -234,6 +235,8 @@ data Simpl = Simpl
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
+    -- | Alternatives that a variable cannot select in this scope.
+    spExcluded :: !(Map Expr (Set AltCon)),
     -- | Strict bindings in scope whose right-hand side is a pure
     -- primitive call, keyed by that call. A later binding of the same call
     -- names the earlier binder instead: the earlier binding is evaluated
@@ -484,7 +487,7 @@ floatChain env resultType expr continue =
       where
         binder = bindBinder bind
     ExCase scrutinee binder _ [alternative] -> do
-      rhs <- floatChain (alternativeEnv env scrutinee binder alternative) resultType (altRhs alternative) continue
+      rhs <- floatChain (alternativeEnv env scrutinee binder [alternative] alternative) resultType (altRhs alternative) continue
       pure (mkCase (spEnv env) scrutinee binder resultType [alternative {altRhs = rhs}])
     _ -> continue env expr
 
@@ -542,10 +545,17 @@ simplifyCase env scrutinee binder resultType originalAlternatives
           case pushed of
             Just pushed' | accepted -> expandJoins env (pushedJoins pushed') (pushedSmall pushed')
             _ -> do
-              alternatives' <- mapM (simplifyAlt env scrutinee binder) alternatives
+              alternatives' <- mapM (simplifyAlt env scrutinee binder alternatives) alternatives
               pure (mkCase (spEnv env) scrutinee binder resultType alternatives')
   where
-    alternatives = normalizeCaseAlternatives (spEnv env) binder originalAlternatives
+    alternatives =
+      normalizeCaseAlternatives
+        (spEnv env)
+        binder
+        [ alternative
+        | alternative <- originalAlternatives,
+          altCon alternative `Set.notMember` Map.findWithDefault Set.empty scrutinee (spExcluded env)
+        ]
 
 -- | Inline a candidate whose call is the scrutinee of a case, and decide
 -- the site on the case as a whole. The case of the inlined call takes
@@ -573,7 +583,7 @@ inlineScrutinee env name candidate args binder resultType originalAlternatives =
       callGrowth = exprSize (spEnv env) inlined - exprSize (spEnv env) original - discount
       fallback = do
         restoreSite before
-        alternatives' <- mapM (simplifyAlt env original binder) alternatives
+        alternatives' <- mapM (simplifyAlt env original binder alternatives) alternatives
         pure (mkCase (spEnv env) original binder resultType alternatives')
       decide growth result = do
         accepted <- acceptSite env candidate (siteReduction env (candidateBody candidate) args') paid growth
@@ -592,7 +602,7 @@ inlineScrutinee env name candidate args binder resultType originalAlternatives =
         -- The alternatives use the remaining allowance. Simplify them only
         -- after this site reserves its growth.
         Nothing -> decide callGrowth $ do
-          alternatives' <- mapM (simplifyAlt env inlined binder) alternatives
+          alternatives' <- mapM (simplifyAlt env inlined binder alternatives) alternatives
           pure (mkCase (spEnv env) inlined binder resultType alternatives')
 
 -- | The allowance the sites inside a copy took, from the state before
@@ -694,7 +704,7 @@ siteReduction env body args =
       case fst (peelCasts argument) of
         ExVar name
           | Map.member name (spKnown env) -> StrongReduction
-          | Map.member name (spLocals env) -> WeakReduction
+          | Map.member name (spLocals env) || maybe False (not . Set.null) (Map.lookup argument (spExcluded env)) -> WeakReduction
           | otherwise -> NoReduction
         core
           | tailsAreKnown env core -> StrongReduction
@@ -837,14 +847,14 @@ isValue env expr =
 -- | Simplify an alternative. Inside a constructor alternative, the case
 -- binder and a scrutinee variable are known to be that constructor
 -- applied to the alternative binders.
-simplifyAlt :: Simpl -> Expr -> Binder -> Alt -> SimplM Alt
-simplifyAlt env scrutinee binder alternative = do
+simplifyAlt :: Simpl -> Expr -> Binder -> [Alt] -> Alt -> SimplM Alt
+simplifyAlt env scrutinee binder alternatives alternative = do
   let body =
         case (scrutinee, altCon alternative) of
           (ExVar name, AltDefault) ->
             substExpr (Map.singleton name (ExVar (binderName binder))) (altRhs alternative)
           _ -> altRhs alternative
-  rhs <- simplifyExpr (alternativeEnv env scrutinee binder alternative) body
+  rhs <- simplifyExpr (alternativeEnv env scrutinee binder alternatives alternative) body
   pure alternative {altRhs = rhs}
 
 -- | The environment inside an alternative: its type binders are in scope,
@@ -852,8 +862,8 @@ simplifyAlt env scrutinee binder alternative = do
 -- applied to the alternative binders. A scrutinee that is a variable
 -- under casts is the same application under the symmetric casts, so a
 -- later case on that variable, cast the same way, selects its fields.
-alternativeEnv :: Simpl -> Expr -> Binder -> Alt -> Simpl
-alternativeEnv env scrutinee binder alternative =
+alternativeEnv :: Simpl -> Expr -> Binder -> [Alt] -> Alt -> Simpl
+alternativeEnv env scrutinee binder alternatives alternative =
   markUnlifted (altBinders alternative) . markEvaluated (binderName binder : maybe [] pure scrutineeName <> strictBinders) $ case known of
     Just application ->
       typeEnv
@@ -864,7 +874,18 @@ alternativeEnv env scrutinee binder alternative =
         }
     Nothing -> typeEnv
   where
-    typeEnv = List.foldl' extendTypeBinder env (altTypeBinders alternative)
+    typeEnv = (List.foldl' extendTypeBinder env (altTypeBinders alternative)) {spExcluded = exclusions}
+    exclusions
+      | AltDefault <- altCon alternative,
+        Just _ <- scrutineeName =
+          let excluded =
+                Map.findWithDefault Set.empty scrutinee (spExcluded env)
+                  <> Set.fromList [altCon alt | alt <- alternatives, altCon alt /= AltDefault]
+           in Map.insert
+                (ExVar (binderName binder))
+                excluded
+                (Map.insert scrutinee excluded (spExcluded env))
+      | otherwise = spExcluded env
     known =
       case altCon alternative of
         AltData con -> constructorApplication (spEnv env) con (binderType binder) alternative
@@ -1011,7 +1032,7 @@ rebuildApp env headExpr' args' = do
           -- The arguments are trivial, so a copy in each alternative costs
           -- no work. The alternative binders are distinct from every name
           -- in scope, so the copies capture nothing.
-          alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp env (altRhs alternative) args') alternatives
+          alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp (alternativeEnv env scrutinee binder alternatives alternative) (altRhs alternative) args') alternatives
           pure (ExCase scrutinee binder resultType' alternatives')
     ExRec binds body
       | not (null args'),
@@ -1432,6 +1453,24 @@ mkLet env bind body
     maybe True (\coercion -> castedBackUses name coercion body == 1) cast = do
       copy <- freshenExpr rhs
       simplifyExpr env (substExpr (Map.singleton name copy) body)
+  -- A shared case can reduce at each use under a case on the same variable.
+  -- Keep the original binding if the copies exceed the growth allowance.
+  | lifted,
+    not (spSpeculative env),
+    ExCase scrutinee _ _ _ <- rhs,
+    ExVar {} <- scrutinee,
+    ExCase outer _ _ _ <- body,
+    scrutinee == outer,
+    separateUses body = do
+      before <- get
+      copy <- freshenExpr rhs
+      result <- simplifyExpr env {spSpeculative = True} (substExpr (Map.singleton name copy) body)
+      accepted <- acceptGrowth env (exprSize (spEnv env) result - exprSize (spEnv env) (ExLet bind body))
+      if accepted
+        then pure result
+        else do
+          restoreSite before
+          sinkGroup [bind] (flip (foldr ExLet)) body
   -- Lifted lets around a value float out of the right-hand side. The
   -- binding is then a value, which gets a new chance to move to its use.
   --
@@ -1480,6 +1519,12 @@ mkLet env bind body
     binder = bindBinder bind
     name = binderName binder
     lifted = isLiftedBinder (spEnv env) binder
+    separateUses expr
+      | unused name expr = True
+      | Occurrences 1 False <- occurrences name expr = True
+      | ExCase scrutinee _ _ alternatives <- expr =
+          unused name scrutinee && all (separateUses . altRhs) alternatives
+      | otherwise = False
     uses = occurrencesUnder (spCredit env) (spInside env) name body
 
 -- | A saturated constructor application whose arguments are trivial.
@@ -1665,7 +1710,7 @@ expandJoins env joins = go env
         ExCase scrutinee binder resultType alternatives -> do
           alternatives' <-
             mapM
-              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee binder alternative) (altRhs alternative))
+              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee binder alternatives alternative) (altRhs alternative))
               alternatives
           pure (mkCase (spEnv env') scrutinee binder resultType alternatives')
         _ ->
@@ -1726,7 +1771,7 @@ pushSmall env binder resultType small = go env
         ExCase scrutinee innerBinder _ alternatives -> do
           alternatives' <-
             mapM
-              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee innerBinder alternative) (altRhs alternative))
+              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee innerBinder alternatives alternative) (altRhs alternative))
               alternatives
           pure (mkCase (spEnv env') scrutinee innerBinder resultType alternatives')
         _ -> do
@@ -1789,7 +1834,7 @@ pushIntoCaseRaw :: Simpl -> Expr -> (Expr -> Expr) -> Type -> SimplM (Maybe Expr
 pushIntoCaseRaw env scrutinee context resultType =
   case core of
     ExCase inner innerBinder _ innerAlternatives -> do
-      innerAlternatives' <- mapM (push inner innerBinder) innerAlternatives
+      innerAlternatives' <- mapM (push inner innerBinder innerAlternatives) innerAlternatives
       pure (Just (foldr ExLet (mkCase (spEnv env) inner innerBinder resultType innerAlternatives') floated))
     _ -> pure Nothing
   where
@@ -1797,9 +1842,9 @@ pushIntoCaseRaw env scrutinee context resultType =
     -- The floated bindings scope over the pushed copies, so the copies
     -- see them like the body of the let did.
     floatedEnv = List.foldl' (\acc bind -> bindingEnv acc (bindBinder bind) (bindRhs bind)) env floated
-    push inner innerBinder alternative = do
+    push inner innerBinder innerAlternatives alternative = do
       copy <- freshenExpr (context (altRhs alternative))
-      rhs <- simplifyExpr ((alternativeEnv floatedEnv inner innerBinder alternative) {spSpeculative = True}) copy
+      rhs <- simplifyExpr ((alternativeEnv floatedEnv inner innerBinder innerAlternatives alternative) {spSpeculative = True}) copy
       pure alternative {altRhs = rhs}
     peelLets expr =
       case expr of
