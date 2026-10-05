@@ -46,7 +46,8 @@ wit-bindgen c --world command --no-object-file \
 	--async=-export:wasi:cli/run@0.3.0#run \
 	--out-dir "$generated" "$world"
 
-# Keep canonical ABI buffers in the explicit host scope until the call ends.
+# Keep canonical ABI buffers in the explicit host scope until the call ends,
+# and take the buffers of a libc call from the libc allocator.
 python3 - "$generated/command.c" <<'PY'
 import pathlib
 import sys
@@ -58,13 +59,7 @@ allocator = """  (void) old_size;
   void *ret = realloc(ptr, new_size);
   if (!ret) abort();
   return ret;"""
-replacement = """  if (new_size == 0) return (void*) align;
-  if (align > _Alignof(max_align_t)) aihc_fail("unsupported canonical ABI alignment");
-  void *ret = aihc_wasi_allocate(new_size);
-  if (old_size != 0) {
-    memcpy(ret, ptr, old_size < new_size ? old_size : new_size);
-  }
-  return ret;"""
+replacement = """  return aihc_wasi_reallocate(ptr, old_size, align, new_size);"""
 if source.count(allocator) != 1:
     sys.exit("The canonical ABI allocator changed. Update its GC adapter.")
 source = source.replace('#include "command.h"', '#include "command.h"\n#include "aihc_runtime_internal.h"')

@@ -26,30 +26,24 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.Wasm (wasip3WorldPath)
-import Control.Exception (bracket)
 import Control.Monad (filterM, forM, forM_, unless, when)
 import Data.Aeson ((.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
-import Data.List (isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
+import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import System.Directory
   ( copyFile,
-    createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
-    getTemporaryDirectory,
     listDirectory,
-    removeDirectoryRecursive,
-    removeFile,
   )
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
 -- | Turn a compiled executable and the packages below it into the
@@ -352,32 +346,29 @@ data LinkLibraries = LinkLibraries
 -- the C++ standard library of the target. The system libraries of the
 -- packages follow the archives.
 linkExecutable :: NativeTarget -> FilePath -> LinkLibraries -> [FilePath] -> [FilePath] -> IO ()
-linkExecutable Wasm32Wasip3 output LinkLibraries {linkCxxStdLib, linkArguments} objects archives =
-  withTemporaryDirectory "aihc-wasm-link" $ \directory -> do
-    when linkCxxStdLib (either (ioError . userError) (const (pure ())) (cxxStandardLibraryArguments Wasm32Wasip3))
-    sysroot <- wasmSysroot
-    world <- wasip3WorldPath
-    let coreModule = directory </> "program.wasm"
-        typedModule = directory </> "program-typed.wasm"
-    -- The libc archive follows every other input. A linker takes only the
-    -- members that resolve a symbol it has already seen, so this pulls the
-    -- allocator, the memory routines, and the math functions the runtime
-    -- leaves undefined, and nothing else.
-    runTool
-      "wasm-ld"
-      ( ["--no-entry", "--export-memory", "--allow-undefined"]
-          <> objects
-          <> archives
-          <> linkArguments
-          <> [wasmSysrootLibc sysroot, "-o", coreModule]
-      )
-    -- The component type of the world the runtime implements. wit-bindgen
-    -- would put it in an object beside the bindings it generates; the
-    -- bindings are committed with the runtime instead, so the type is
-    -- embedded here from the same world.
-    runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
-    buildComponent typedModule output
-    runTool "wasm-tools" ["validate", output]
+linkExecutable Wasm32Wasip3 output LinkLibraries {linkCxxStdLib, linkArguments} objects archives = do
+  when linkCxxStdLib (either (ioError . userError) (const (pure ())) (cxxStandardLibraryArguments Wasm32Wasip3))
+  sysroot <- wasmSysroot
+  world <- wasip3WorldPath
+  -- wasm-component-ld links the core module with wasm-ld and encodes it as a
+  -- component. The libc of the sysroot carries the component type of the
+  -- interfaces it imports, and the world of the runtime is added to it. The
+  -- libc archive follows every other input: a linker takes only the members
+  -- that resolve a symbol it has already seen. The libc keeps its thread-local
+  -- storage in a segment, which needs the atomics feature, although the
+  -- program has one thread: the runtime supplies the functions that find the
+  -- stack pointer and the segment.
+  runTool
+    "wasm-component-ld"
+    ( ["-m", "wasm32", "--no-entry", "--export-memory", "--component-type", world, "--append-lld-flag=--extra-features=atomics"]
+        <> objects
+        <> archives
+        <> linkArguments
+        <> [wasmSysrootLibc sysroot]
+        <> maybe [] pure (wasmSysrootBuiltins sysroot)
+        <> ["-o", output]
+    )
+  runTool "wasm-tools" ["validate", output]
 linkExecutable target output LinkLibraries {linkCxxStdLib, linkArguments, linkLtoArguments} objects archives = do
   (compiler, arguments) <- backendCompiler target
   cxxArguments <- if linkCxxStdLib then either (ioError . userError) pure (cxxStandardLibraryArguments target) else pure []
@@ -385,27 +376,6 @@ linkExecutable target output LinkLibraries {linkCxxStdLib, linkArguments, linkLt
   -- platforms carry it inside libc, and -lm is how the older ones that keep
   -- it apart still resolve them.
   runTool compiler (arguments <> executableLinkArguments target <> linkLtoArguments <> objects <> archives <> linkArguments <> ["-lm"] <> cxxArguments <> ["-o", output])
-
--- | Encode the linked core module as a component. The component model has no
--- way to describe a WASI preview 1 import, so a runtime unit that reaches a
--- libc function needing one fails here rather than at run time. The notice
--- names that cause, which the encoder reports only as an unresolved import.
-buildComponent :: FilePath -> FilePath -> IO ()
-buildComponent coreModule output = do
-  result <- readProcessWithExitCode "wasm-tools" ["component", "new", coreModule, "-o", output] ""
-  case result of
-    (ExitSuccess, _, _) -> pure ()
-    (exitCode, stdout, stderr) -> do
-      let reported = if null stderr then stdout else stderr
-          notice
-            | "wasi_snapshot_preview1" `isInfixOf` reported =
-                reported
-                  <> "\n\nAIHC notice: the program imports WASI preview 1. The runtime reaches\n\
-                     \WASI through the preview 3 bindings only, so this comes from a libc\n\
-                     \function that needs the host, such as one of the stdio, exit, or clock\n\
-                     \families. Implement it in the P3 IO backend instead.\n"
-            | otherwise = reported
-      ioError (userError ("wasm-tools failed (" <> show exitCode <> "): " <> notice))
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do
@@ -416,14 +386,3 @@ runTool tool arguments = do
   case result of
     (ExitSuccess, _, _) -> pure ()
     (exitCode, stdout, stderr) -> ioError (userError (tool <> " failed (" <> show exitCode <> "): " <> if null stderr then stdout else stderr))
-
-withTemporaryDirectory :: String -> (FilePath -> IO value) -> IO value
-withTemporaryDirectory template = bracket acquire removeDirectoryRecursive
-  where
-    acquire = do
-      temporary <- getTemporaryDirectory
-      (path, handle) <- openTempFile temporary template
-      hClose handle
-      removeFile path
-      createDirectory path
-      pure path

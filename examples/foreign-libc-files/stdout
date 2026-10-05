@@ -1,0 +1,5 @@
+mkdir: 0
+entries: 4
+one.txt exists: True, absent.txt exists: False
+rename: 0, uno.txt exists: True, one.txt exists: False
+rmdir: 0, work exists: False

@@ -15,49 +15,60 @@ main GC-GRIN       -> Lir -> WebAssembly assembly -> program.o
 Lir entry unit     -> WebAssembly assembly -> entry object
 C runtime + P3 IO backend       -> runtime objects
 WIT C bindings                  -> binding object
-all objects -> wasm-ld -> core module -> wasm-tools -> component
+all objects + libc -> wasm-component-ld -> component
 ```
 
-The resulting output is one WebAssembly component. The object files and the
-intermediate core module are removed after linking.
+The resulting output is one WebAssembly component. The object files are
+removed after linking.
 
 The driver invokes the standard LLVM tools directly: `clang
---target=wasm32-wasip1`, `wasm-ld`, `wasm-tools`, and `wit-bindgen`. They may
-come from any LLVM/WASI installation on `PATH`; no `wasm32-clang` wrapper is
-required.
-
-The Clang triple names preview 1 while the target produces a preview 3
-component, because the two describe different things. Nothing in the
-compilation is specific to a WASI version: the objects are ordinary wasm32
-code, and the preview 3 interface arrives with the WIT bindings and the
-component `wasm-tools` encodes around the linked module. The triple decides
-which libc the runtime agrees with, and the wasi-libc it links was built as
-`wasm32-wasip1`. Clang offers no preview 3 triple; passing one leaves it
-unable to find the sysroot at all. `AIHC_WASM_CLANG` can select another Clang executable when a host
-toolchain wrapper is not cross-target safe. The Nix development environment
-uses that override to select its unwrapped LLVM Clang.
+--target=wasm32-wasip3`, `wasm-component-ld`, `wasm-ld`, `wasm-tools`, and
+`wit-bindgen`. They may come from any LLVM/WASI installation on `PATH`; no
+`wasm32-clang` wrapper is required. `wasm-component-ld` links the core module
+with `wasm-ld` and encodes it as a component. `AIHC_WASM_CLANG` can select
+another Clang executable when a host toolchain wrapper is not cross-target
+safe. The Nix development environment uses that override to select its
+unwrapped LLVM Clang.
 
 ## The WASI sysroot
 
-The runtime allocates, copies memory, and aborts through libc like every
-other target, so the target needs a WASI sysroot. Install one with
-`brew install wasi-libc` or from a
-[wasi-sdk release](https://github.com/WebAssembly/wasi-sdk/releases), and set
-`AIHC_WASM_SYSROOT` when it sits outside a standard prefix. The compiler
-reports the prefixes it searched when it finds none.
+The target links the libc that wasi-sdk 34 or later builds for
+`wasm32-wasip3`. That libc calls the host through the WASI 0.3 interfaces of
+the component model, so `opendir`, `readdir`, `stat`, `getcwd`, `getenv`, and
+the rest of the file and environment functions work in a program that uses
+the `unix` or `directory` package. The libc of the other wasi-sdk targets, and
+the wasi-libc of other distributions, call the host through WASI preview 1
+imports, which the component of a program cannot have.
 
-The C sources of the runtime compile against the headers of that sysroot and
-`wasm-ld` takes its `libc.a` after every other input, so the linker draws the
-allocator and the memory routines from it and nothing else. The build stays
-`-nostdlib`: the archive is an explicit input and the driver never adds a
-startup object of its own.
+Install the [wasi-sdk release](https://github.com/WebAssembly/wasi-sdk/releases)
+sysroot, and set `AIHC_WASM_SYSROOT` to the directory that holds
+`include/wasm32-wasip3` and `lib/wasm32-wasip3/libc.a` when it sits outside a
+standard prefix. The link also needs the compiler runtime archive
+`libclang_rt.builtins.a` of the target, which wasi-sdk ships as its own
+asset. The compiler looks for it in `lib/wasm32-wasip3` of the sysroot, then in
+the compiler library of a wasi-sdk installation beside it, and
+`AIHC_WASM_BUILTINS` names it directly. The Nix development environment
+builds a sysroot that holds both.
 
-Whatever the runtime takes from libc has to compute without the host. The
-component model cannot describe a WASI preview 1 import, and the P3 pipeline
-encodes the linked module with no adapter, so a libc function that calls the
-host, such as one of the stdio, exit, or clock families, fails when
-`wasm-tools component new` cannot resolve `wasi_snapshot_preview1`. The IO the
-runtime does perform goes through the P3 bindings below instead.
+The C sources of the runtime compile against the headers of that sysroot, and
+`wasm-component-ld` takes the `libc.a` after every other input, so the linker
+draws from it only what a symbol asks for. The build stays `-nostdlib`: the
+archive is an explicit input and the driver never adds a startup object of its
+own. The runtime calls the constructors of the libc, `__wasm_call_ctors`,
+before the program starts.
+
+The libc finds its stack pointer and its thread-local storage through
+functions, so that a component with several tasks can keep one of each per
+task. The runtime runs the whole program in one task, and
+`core-libs/aihc-rts/wasm/aihc_wasip3_libc.c` defines the functions over the
+global stack pointer and the one static thread-local segment of the linked
+module. That segment needs the `atomics` feature of the linker, which the
+link adds.
+
+The host allocator of the component model is the one `cabi_realloc` of the
+module. A request that the runtime makes inside an explicit host scope gets a
+byte array that the collector owns, and a request that comes from a libc call
+gets the memory of the libc allocator, which the libc frees.
 
 ## Runtime ABI
 

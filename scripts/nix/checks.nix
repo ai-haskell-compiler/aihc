@@ -519,7 +519,7 @@
     while IFS= read -r -d "" file; do
       if [[ "$file" == *core-libs/aihc-rts/wasm/*.c || "$file" == *aihc_host_wasip3.c ]]; then
         clang-tidy-unwrapped --quiet "$file" -- \
-          --target=wasm32-wasip1 \
+          --target=wasm32-wasip3 \
           --sysroot=${wasmSysroot} \
           -std=c11 -Wall -Wextra -Wpedantic \
           -Icore-libs/aihc-rts/wasm \
@@ -611,6 +611,7 @@
     pkgs.llvmPackages.clang
     pkgs.llvmPackages.clang-unwrapped
     pkgs.wasm-tools
+    pkgs.wasm-component-ld
     wasmLd
   ];
   coreLibraryInstallSetup = ''
@@ -804,6 +805,7 @@
         pkgs.llvmPackages.clang
         pkgs.llvmPackages.clang-unwrapped
         pkgs.wasm-tools
+        pkgs.wasm-component-ld
         wasmLd
         pkgs.haskellPackages.hsc2hs
       ];
@@ -1114,6 +1116,7 @@
     pkgs.llvmPackages.bintools
     pkgs.llvmPackages.clang-unwrapped
     pkgs.wasm-tools
+    pkgs.wasm-component-ld
     pkgs.wasmtime
     wasmLd
   ];
