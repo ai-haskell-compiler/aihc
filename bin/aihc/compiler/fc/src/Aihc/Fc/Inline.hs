@@ -426,6 +426,7 @@ simplifyValue config known recursive inTemplates st name
                             spKnown = known,
                             spArity = arities,
                             spLocals = Map.empty,
+                            spExcluded = Map.empty,
                             spCse = Map.empty,
                             spEvaluated = Set.empty,
                             spDone = Map.empty,

@@ -83,9 +83,7 @@ expected: |-
                   _ →
                     case _scrut{1} as (_scrut{2} : tT) return (tList) of {
                       cA (n : tInt) →
-                        cCons n (go cB);
-                      cB →
-                        cNil
+                        cCons n (go cB)
                     }
                 }
           } in

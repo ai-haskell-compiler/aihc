@@ -1,0 +1,83 @@
+---
+extensions: []
+modules:
+- |
+  module Test (integerMul) where
+  import GHC.Types (Bool (..))
+
+  data Number = IS Bool | IP Bool | IN Bool
+
+  small :: Bool -> Bool -> Number
+  small a b = IS a
+  {-# NOINLINE small #-}
+
+  byInt :: Number -> Bool -> Number
+  byInt a b = a
+  {-# NOINLINE byInt #-}
+
+  large :: Number -> Number -> Number
+  large (IS a) b = byInt b a
+  large a (IS b) = byInt a b
+  large a b = IP True
+
+  integerMul :: Number -> Number -> Number
+  integerMul (IS a) (IS b) = small a b
+  integerMul a b = large a b
+passes:
+- inline:
+    policy: grow
+    value-growth: 0
+    value-slack: 0
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tNumber :: sType {
+    1.cIS :: tBool 2.→ tNumber;
+    1.cIP :: tBool 2.→ tNumber;
+    1.cIN :: tBool 2.→ tNumber
+  }
+
+  val 1.vsmall noinline :: tBool 2.→ tBool 2.→ tNumber
+    = λ(x : tBool) (y : tBool).
+      cIS x
+
+  val 1.vbyInt noinline :: tNumber 2.→ tBool 2.→ tNumber
+    = λ(x : tNumber) (y : tBool).
+      x
+
+  pub val 1.vintegerMul :: tNumber 2.→ tNumber 2.→ tNumber
+    = λ(x : tNumber) (y : tNumber).
+      case x as (_scrut : tNumber) return (tNumber) of {
+        cIS (a : tBool) →
+          case y as (_scrut{1} : tNumber) return (tNumber) of {
+            cIS (b : tBool) →
+              vsmall a b;
+            _ →
+              vbyInt _scrut{1} a
+          };
+        _ →
+          case y as (_scrut{1} : tNumber) return (tNumber) of {
+            cIS (b : tBool) →
+              vbyInt _scrut b;
+            _ →
+              cIP cTrue
+          }
+      }
+status: pass
+reason: Each path tests each argument once.

@@ -1,0 +1,63 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE MagicHash #-}
+  module Test (pick) where
+  import GHC.Types (Bool (..))
+  import GHC.Prim (Int#)
+
+  pick :: Int# -> Int# -> Bool
+  pick x y = case x of
+    0# -> False
+    _ -> case y of
+      0# -> True
+      _ -> case x of
+        0# -> True
+        1# -> False
+        _ -> True
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vpick :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tBool)
+    = λ(x : tInt#) (y : tInt#).
+      case x as (_scrut : tInt#) return (tBool) of {
+        0#cIntRep →
+          cFalse;
+        _ →
+          case y as (_scrut{1} : tInt#) return (tBool) of {
+            0#cIntRep →
+              cTrue;
+            _ →
+              case _scrut as (_scrut{2} : tInt#) return (tBool) of {
+                1#cIntRep →
+                  cFalse;
+                _ →
+                  cTrue
+              }
+          }
+      }
+status: pass
+reason: A default alternative excludes previous literals across another case.
