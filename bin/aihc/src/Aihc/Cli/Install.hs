@@ -188,7 +188,9 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( ClassInfo (..),
+    DataConInfo (..),
     DataFamilyInstanceInfo (..),
+    DataTypeInfo (..),
     DerivingReference (..),
     InstanceInfo (..),
     MergeCheck (..),
@@ -3893,7 +3895,7 @@ moduleTypeInterface kinds supportTerms exports package interface = go
         interface
           { tcInterfaceTermMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceTermMap interface),
             tcInterfaceTyConMap = Map.filter visibleTyCon (tcInterfaceTyConMap interface),
-            tcInterfaceDataTypeMap = Map.filterWithKey (\key _ -> visibleTypeIdentity key) (tcInterfaceDataTypeMap interface),
+            tcInterfaceDataTypeMap = visibleDataTypes,
             tcInterfaceClassMap = Map.filter visibleClass (tcInterfaceClassMap interface),
             tcInterfaceInstanceMap = Map.filter visibleInstance (tcInterfaceInstanceMap interface),
             tcInterfaceDataFamilyInstanceMap = Map.filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstanceMap interface),
@@ -3910,9 +3912,23 @@ moduleTypeInterface kinds supportTerms exports package interface = go
         typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems scopeTypes))
         localIdentity identifier = (packageId package, name, identifier)
         localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
+        visibleDataTypes = Map.filterWithKey (\key _ -> visibleTypeIdentity key) (tcInterfaceDataTypeMap interface)
+        -- The constructors of a visible data type are visible to the
+        -- compiler, whether or not the scope names them. A record update
+        -- names its fields and not its constructor, and it rebuilds the
+        -- constructor that a hidden module defines, as @aeson@ does for
+        -- @Options@.
+        constructorIdentities =
+          Set.fromList
+            [ (constructorPackage, constructorModule, dciName constructor)
+            | dataType <- Map.elems visibleDataTypes,
+              constructor <- dtiConstructors dataType,
+              let (constructorPackage, constructorModule) = dciOrigin constructor
+            ]
         visibleTerm key = case key of
           EntityGlobal (GlobalName identifier packageId' moduleName' _) ->
             visibleTermIdentity (packageId', moduleName', identifier)
+              || (packageId', moduleName', identifier) `Set.member` constructorIdentities
               || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
           EntityLocal {} -> False
           EntitySyntax -> False
