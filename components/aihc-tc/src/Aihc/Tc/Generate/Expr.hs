@@ -61,7 +61,6 @@ import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (when)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Either (fromRight)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -1277,16 +1276,10 @@ inferTuple sp flavor elems = do
       tys = map (\(_, ty, _) -> ty) results
       cts = concatMap (\(_, _, elemCts) -> elemCts) results
       n = length tys
-  kinds <- getKinds
   wired <- wiredTupleTyCon flavor n
-  elementKinds <- mapM tcTypeKind tys
-  let fallbackKind =
-        case flavor of
-          Boxed -> foldr KFun (typeKind kinds) elementKinds
-          Unboxed -> foldr KFun (mkTYPEKind kinds (tupleRep kinds (map (runtimeRepOrLifted kinds) elementKinds))) elementKinds
   -- The wiring gives the full identity of the tuple type constructor.
   -- A bare name lookup can find a different constructor with the same name.
-  tc <- mkWiredTyCon wired fallbackKind
+  tc <- registeredWiredTyCon wired
   -- A tuple section such as @(0,)@ is a function of its missing fields.
   let tupleTy = TcTyCon tc tys
       missingTys = [ty | (Nothing, ty, _) <- results]
@@ -1301,7 +1294,6 @@ inferTuple sp flavor elems = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
 
-    runtimeRepOrLifted kinds kind = fromRight (liftedRep kinds) (runtimeRepFromKind kind)
 
 -- | An overloaded list applies fromListN to its length and an ordinary list.
 inferOverloadedList :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
