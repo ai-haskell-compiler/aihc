@@ -11,6 +11,7 @@ packages:
   bin/aihc-haddock
   tooling/aihc-hackage
   tooling/aihc-hackage-fetch
+  tooling/aihc-http
   tooling/aihc-package-plan
   tooling/aihc-testing
   tooling/aihc-resolve-tooling-common

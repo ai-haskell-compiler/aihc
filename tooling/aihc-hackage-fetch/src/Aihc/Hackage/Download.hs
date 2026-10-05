@@ -1,5 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 -- | Download Hackage packages into the local XDG cache.
 module Aihc.Hackage.Download
   ( downloadPackageWithOptions,
@@ -10,14 +8,10 @@ where
 
 import Aihc.Hackage.Cache (getHackageCacheDir)
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
+import Aihc.Http (httpGet)
 import Codec.Archive.Tar qualified as Tar
 import Codec.Compression.GZip qualified as GZip
-import Control.Exception (SomeException, displayException, try)
 import Control.Monad (when)
-import Data.ByteString.Lazy qualified as LBS
-import Network.HTTP.Client (Manager, httpLbs, newManager, parseRequest, responseBody, responseStatus)
-import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types.Status (statusCode)
 import System.Directory
   ( createDirectoryIfMissing,
     doesDirectoryExist,
@@ -30,17 +24,15 @@ import System.IO (hPutStrLn, stderr)
 -- | Options for downloading a package.
 data DownloadOptions = DownloadOptions
   { downloadVerbose :: !Bool,
-    downloadAllowNetwork :: !Bool,
-    downloadManager :: !(Maybe Manager)
+    downloadAllowNetwork :: !Bool
   }
 
--- | Default download options: verbose, network allowed, no shared manager.
+-- | Default download options: verbose, network allowed.
 defaultDownloadOptions :: DownloadOptions
 defaultDownloadOptions =
   DownloadOptions
     { downloadVerbose = True,
-      downloadAllowNetwork = True,
-      downloadManager = Nothing
+      downloadAllowNetwork = True
     }
 
 -- | Download a package with the given options.
@@ -65,10 +57,7 @@ downloadPackageWithOptions opts pkg = do
                   ++ "/"
                   ++ formatPackage pkg
                   ++ ".tar.gz"
-          manager <- case downloadManager opts of
-            Just m -> pure m
-            Nothing -> newManager tlsManagerSettings
-          tarballBytes <- httpGetLBS manager url
+          tarballBytes <- httpGet url
           case tarballBytes of
             Left err -> ioError (userError ("Failed to download " ++ formatPackage pkg ++ ": " ++ err))
             Right lbs -> do
@@ -78,17 +67,3 @@ downloadPackageWithOptions opts pkg = do
               Tar.unpack cacheDir entries
               writeFile markerFile ""
               pure pkgDir
-
--- | Perform an HTTP GET request and return the response body as lazy ByteString.
-httpGetLBS :: Manager -> String -> IO (Either String LBS.ByteString)
-httpGetLBS manager url = do
-  result <- try $ do
-    request <- parseRequest url
-    response <- httpLbs request manager
-    let status = statusCode (responseStatus response)
-    if status >= 200 && status < 300
-      then pure (Right (responseBody response))
-      else pure (Left ("HTTP " ++ show status ++ " for " ++ url))
-  case result of
-    Left (err :: SomeException) -> pure (Left (displayException err))
-    Right r -> pure r

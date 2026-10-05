@@ -1,0 +1,34 @@
+cabal-version: 3.8
+name: aihc-http
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: HTTP GET for the aihc tools on native and WASM targets
+description:
+  This package gives the aihc tools one small HTTP client interface.
+  Native targets use http-client with TLS.
+  The wasm32-wasip3 target uses wasi:http through the aihc runtime.
+
+library
+  exposed-modules:
+    Aihc.Http
+
+  build-depends:
+    base >=4.16 && <5,
+    bytestring >=0.10.8 && <0.13,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+  if os(wasi)
+    hs-source-dirs: src-wasi
+  else
+    hs-source-dirs: src-native
+    build-depends:
+      http-client >=0.5 && <0.8,
+      http-client-tls >=0.2 && <0.4,
+      http-types >=0.9 && <0.13,

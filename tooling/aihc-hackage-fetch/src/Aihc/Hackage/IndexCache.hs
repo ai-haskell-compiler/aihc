@@ -41,6 +41,7 @@ where
 import Aihc.Hackage.Cache (getHackageCacheDir)
 import Aihc.Hackage.Index (IndexEntry (..), IndexScan (..), readIndexEntry, scanIndex)
 import Aihc.Hackage.Package (Version, parseVersionRangeString, parseVersionString, showVersion, showVersionRange, withinRange)
+import Aihc.Http (httpGetToFile)
 import Codec.Compression.GZip qualified as GZip
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
@@ -54,12 +55,9 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Ord (Down (..))
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
-import Network.HTTP.Client (Manager, Request (responseTimeout), brRead, newManager, parseRequest, responseBody, responseStatus, responseTimeoutMicro, withResponse)
-import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types.Status (statusCode)
 import System.Directory (createDirectoryIfMissing, doesFileExist, getModificationTime, removeFile, renameFile)
 import System.FilePath ((</>))
-import System.IO (IOMode (ReadMode, WriteMode), hPutStrLn, stderr, withBinaryFile)
+import System.IO (IOMode (ReadMode), hPutStrLn, stderr, withBinaryFile)
 
 -- | Where the Hackage index tarball is fetched from.
 hackageIndexUrl :: String
@@ -71,8 +69,7 @@ data IndexOptions = IndexOptions
     indexMaxAge :: !NominalDiffTime,
     -- | Allow fetching the index. A cached copy is still read when this is off.
     indexAllowNetwork :: !Bool,
-    indexVerbose :: !Bool,
-    indexManager :: !(Maybe Manager)
+    indexVerbose :: !Bool
   }
 
 -- | Refetch a day-old index, over the network, with progress on stderr.
@@ -81,8 +78,7 @@ defaultIndexOptions =
   IndexOptions
     { indexMaxAge = 24 * 60 * 60,
       indexAllowNetwork = True,
-      indexVerbose = True,
-      indexManager = Nothing
+      indexVerbose = True
     }
 
 -- | A handle on the cached index.
@@ -244,16 +240,14 @@ refreshHackageIndex opts = do
   createDirectoryIfMissing True cacheDir
   when (indexVerbose opts) $
     hPutStrLn stderr "Updating the Hackage index..."
-  manager <- case indexManager opts of
-    Just m -> pure m
-    Nothing -> newManager tlsManagerSettings
-  request <- parseRequest hackageIndexUrl
   -- The index is a large download, so it is streamed to a file rather than
   -- held in memory, then decompressed file to file. The uncompressed
   -- tarball is what stays: the cabal files are read from it by offset.
   let compressedFile = cacheDir </> indexFileName <> ".gz"
       indexFile = cacheDir </> indexFileName
-  downloadToFile manager request {responseTimeout = responseTimeoutMicro (300 * 1000 * 1000)} compressedFile
+      temporaryFile = compressedFile ++ ".tmp"
+  httpGetToFile hackageIndexUrl temporaryFile
+  renameFile temporaryFile compressedFile
   writeFileAtomically indexFile (\path contents -> LBS.writeFile path (GZip.decompress contents)) =<< LBS.readFile compressedFile
   removeFile compressedFile
   scan <- either (ioError . userError) pure . scanIndex =<< LBS.readFile indexFile
@@ -265,23 +259,6 @@ refreshHackageIndex opts = do
   when legacy $ removeFile (cacheDir </> "preferred-versions.txt")
   when (indexVerbose opts) $
     hPutStrLn stderr ("Hackage index: " ++ show (Map.size (indexTableEntries table)) ++ " packages")
-
--- | Stream a response body to a file, replacing whatever was there.
-downloadToFile :: Manager -> Request -> FilePath -> IO ()
-downloadToFile manager request path =
-  withResponse request manager $ \response -> do
-    let status = statusCode (responseStatus response)
-    when (status < 200 || status >= 300) $
-      ioError (userError ("HTTP " ++ show status ++ " for " ++ hackageIndexUrl))
-    let temporary = path ++ ".tmp"
-    withBinaryFile temporary WriteMode $ \handle ->
-      let copyChunks = do
-            chunk <- brRead (responseBody response)
-            unless (BS.null chunk) $ do
-              BS.hPut handle chunk
-              copyChunks
-       in copyChunks
-    renameFile temporary path
 
 -- | Write through a temporary file so an interrupted write leaves no
 -- half-written cache behind.
