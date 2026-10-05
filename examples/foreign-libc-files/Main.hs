@@ -19,6 +19,10 @@ foreign import ccall unsafe "unlink" c_unlink :: CString -> IO CInt
 
 foreign import ccall unsafe "rename" c_rename :: CString -> CString -> IO CInt
 
+-- WASI has no file modes, so the runtime accepts the call and leaves the file
+-- as it is. A native host changes the mode and also returns zero.
+foreign import ccall unsafe "chmod" c_chmod :: CString -> CUInt -> IO CInt
+
 foreign import ccall unsafe "access" c_access :: CString -> CInt -> IO CInt
 
 foreign import ccall unsafe "opendir" c_opendir :: CString -> IO (Ptr ())
@@ -54,6 +58,8 @@ main = do
   putStrLn ("mkdir: " ++ show made)
   writeFile (work ++ "/one.txt") "one\n"
   writeFile (work ++ "/two.txt") "two\n"
+  mode <- withCString (work ++ "/one.txt") (\path -> c_chmod path 0o644)
+  putStrLn ("chmod: " ++ show mode)
   count <- entries work
   putStrLn ("entries: " ++ show count)
   before <- exists (work ++ "/one.txt")

@@ -34,3 +34,26 @@ void *__wasm_get_tls_base(void) {
   return base;
 }
 // NOLINTEND(bugprone-reserved-identifier)
+
+/* WASI has no file modes: a file has the permissions that the host gives it,
+   and the libc has no way to change them, so its chmod fails with ENOSYS.
+   A program that copies, unpacks or creates files sets a mode as a matter of
+   course (the tar package does so for each member of an archive), and the
+   failure would stop it for a mode that nothing can read back. The link
+   wraps chmod and fchmod, so that a call reaches these two functions. They
+   succeed and leave the file as it is. The libc defines both in one object
+   with the rest of its file calls, so a definition of the same name would
+   clash with it. */
+// NOLINTBEGIN(bugprone-reserved-identifier)
+int __wrap_chmod(const char *path, unsigned int mode) {
+  (void)path;
+  (void)mode;
+  return 0;
+}
+
+int __wrap_fchmod(int descriptor, unsigned int mode) {
+  (void)descriptor;
+  (void)mode;
+  return 0;
+}
+// NOLINTEND(bugprone-reserved-identifier)

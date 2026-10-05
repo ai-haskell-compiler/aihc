@@ -65,6 +65,11 @@ global stack pointer and the one static thread-local segment of the linked
 module. That segment needs the `atomics` feature of the linker, which the
 link adds.
 
+WASI has no file modes, and the libc fails `chmod` with `ENOSYS`. The same file
+defines `__wrap_chmod` and `__wrap_fchmod`. The link passes `--wrap` for both
+names, so that a call succeeds and leaves the file as it is. A program that sets a mode for each file it makes, as the `tar` package does,
+then runs to its end.
+
 The host allocator of the component model is the one `cabi_realloc` of the
 module. A request that the runtime makes inside an explicit host scope gets a
 byte array that the collector owns, and a request that comes from a libc call
