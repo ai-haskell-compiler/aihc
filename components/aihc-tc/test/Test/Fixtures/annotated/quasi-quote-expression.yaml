@@ -1,0 +1,28 @@
+annotated:
+- |-
+  module Test where
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  quoted :: Box -> Box
+  quoted b = [box|b|]
+  │      │   └─ type: Box
+  │      └─ type: Box
+  └─ type: Box → Box
+  applied :: Box -> Box
+  applied b = [box|.|] b
+  │       │   └─ type: Box → Box
+  │       └─ type: Box
+  └─ type: Box → Box
+extensions:
+- QuasiQuotes
+modules:
+- |
+  module Test where
+  data Box = Box
+  quoted :: Box -> Box
+  quoted b = [box|b|]
+  applied :: Box -> Box
+  applied b = [box|.|] b
+reason: A quasi-quote expression takes the type the context wants
+status: pass

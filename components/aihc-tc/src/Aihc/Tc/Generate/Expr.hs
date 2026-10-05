@@ -196,9 +196,10 @@ inferExprAt ambient expr = case expr of
     inferArithSeq (exprSpan expr <|> ambient) arithSeq
   EDo stmts flavor ->
     inferDo (exprSpan expr <|> ambient) flavor stmts
-  -- A Template Haskell quote compiles to a runtime error, so it has any
-  -- type the context wants.
+  -- A Template Haskell quote or a quasi-quote compiles to a runtime
+  -- error, so it has any type the context wants.
   _ | isTemplateHaskellQuote expr -> literalResult expr freshMetaTv
+  EQuasiQuote {} -> literalResult expr freshMetaTv
   other -> do
     emitError (exprSpan expr <|> ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv

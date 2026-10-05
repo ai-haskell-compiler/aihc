@@ -3060,6 +3060,7 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EString value _ -> desugarString annotation value
         _
           | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
+        Syn.EQuasiQuote {} -> desugarQuasiQuote annotation
         Syn.EStringHash value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (addrRep kinds)
@@ -4134,6 +4135,12 @@ isTemplateHaskellQuote expression =
 -- compiles.
 desugarTemplateHaskellQuote :: TcAnnotation -> ValueM Expr
 desugarTemplateHaskellQuote annotation = raiseErrorValue (tcAnnType annotation) "TH is unsupported"
+
+-- | Quasi-quotes are not supported. A quasi-quote expression compiles to
+-- a call of @raise#@ with a message, so code that only defines
+-- quasi-quotes still compiles.
+desugarQuasiQuote :: TcAnnotation -> ValueM Expr
+desugarQuasiQuote annotation = raiseErrorValue (tcAnnType annotation) "quasi-quoting is unsupported"
 
 -- | @raise# \@rep \@String \@ty message@: a value of any type that throws
 -- when it is forced.
