@@ -1,0 +1,48 @@
+annotated:
+- |-
+  module Left where
+  data X = X
+       │   └─ type: X
+       └─ type: Type
+  class C a where
+  └─ class methods: m ∷ ∀ a. (C a) ⇒ a → a
+    m :: a -> a
+  instance C X where
+  └─ $fCX ∷ () ⇒ C X
+    m x = x
+    │ └─ type: X
+    └─ m ∷ X → X
+- |-
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving #-}
+  module Right where
+  import Left (X)
+  class C a where
+  └─ class methods: m ∷ ∀ a. (C a) ⇒ a → a
+    m :: a -> a
+  newtype N = N X
+  │       │   └─ type: Left.X → N
+  │       └─ type: Type
+  └─ deriving plans: newtype C N [context: infer] [methods: m]
+    deriving newtype C
+                     └─ error: unsolved constraint C X
+extensions:
+- DerivingStrategies
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  module Left where
+  data X = X
+  class C a where
+    m :: a -> a
+  instance C X where
+    m x = x
+- |
+  {-# LANGUAGE DerivingStrategies, GeneralizedNewtypeDeriving #-}
+  module Right where
+  import Left (X)
+  class C a where
+    m :: a -> a
+  newtype N = N X
+    deriving newtype C
+reason: a derived instance context finds instances by the identity of the class, so an instance of a class with the same name from another module does not match
+status: pass
