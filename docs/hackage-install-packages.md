@@ -29,11 +29,32 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 
 ## Packages
 
+The list includes the direct and indirect Hackage dependencies of the
+`aihc` executable with its default `+hackage` flag. It also includes the
+Hackage dependencies of the `aihc-tc:fuzz` library that `cabal.project` enables.
+The versions use the pinned Nix package set where possible. Other versions
+match the existing table, the emulated GHC version, or the target dependencies.
+The core library versions match the GHC version that AIHC implements.
+
+AIHC provides `base`, `ghc-prim`, `ghc-internal`, `rts`, `template-haskell`,
+and `system-cxx-std-lib` from `core-libs`. The table does not include these
+packages or the local AIHC packages. The `aihc-dev` executable needs GHC.
+This list does not cover that executable or the full test suite.
+
+The table uses `containers-0.7` because `cborg-0.2.10.0` requires
+`containers <0.8`. The TLS library needs `cborg` through `serialise`.
+The list defines dependency coverage. It does not assert that AIHC can
+install every package yet.
+
+The Hackage release `ghc-bignum-1.3` needs a backend flag. Its library also
+requires `ghc-prim <0.10`, but AIHC provides `ghc-prim-0.13.0`. This package
+needs compatible version bounds before AIHC can use its library.
+
 | Package | Version |
 | ------- | ------- |
 | deepseq | 1.5.2.0 |
 | array | 0.5.8.0 |
-| containers | 0.8 |
+| containers | 0.7 |
 | data-default | 0.8.0.2 |
 | bytestring | 0.12.2.0 |
 | binary | 0.8.9.3 |
@@ -67,6 +88,110 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | megaparsec | 9.8.2 |
 | StateVar | 1.2.2 |
 | contravariant | 1.5.6 |
+| aihc-cabal-syntax | 2.0.0.0 |
+| aihc-parser | 5.0.0.0 |
+| appar | 0.1.8 |
+| assoc | 1.1.1 |
+| atomic-counter | 0.1.2.4 |
+| base-orphans | 0.9.4 |
+| basement | 0.0.16 |
+| blaze-builder | 0.4.4.1 |
+| boring | 0.2.2 |
+| byteorder | 1.0.4 |
+| cereal | 0.5.8.3 |
+| character-ps | 0.1 |
+| colour | 2.3.7 |
+| ansi-terminal-types | 1.1.3 |
+| ansi-terminal | 1.1.5 |
+| constraints | 0.14.4 |
+| cryptohash-sha256 | 0.11.102.1 |
+| data-default-class | 0.2.0.0 |
+| data-fix | 0.3.4 |
+| distributive | 0.6.3 |
+| barbies | 2.1.1.0 |
+| erf | 2.0.0.0 |
+| ghc-bignum | 1.3 |
+| half | 0.3.3 |
+| cborg | 0.2.10.0 |
+| haskell-lexer | 1.2.1 |
+| hourglass | 0.2.12 |
+| http-types | 0.12.4 |
+| indexed-traversable | 0.1.4 |
+| comonad | 5.0.10 |
+| bifunctors | 5.6.3 |
+| integer-conversion | 0.1.1 |
+| integer-gmp | 1.1 |
+| memory | 0.18.0 |
+| asn1-types | 0.3.4 |
+| asn1-encoding | 0.9.6 |
+| asn1-parse | 0.9.5 |
+| crypton | 1.0.6 |
+| mime-types | 0.1.2.2 |
+| old-locale | 1.0.0.7 |
+| old-time | 1.1.1.0 |
+| pem | 0.2.4 |
+| crypton-x509 | 1.7.7 |
+| pretty-show | 1.10 |
+| prettyprinter-ansi-terminal | 1.1.3 |
+| random | 1.2.1.3 |
+| QuickCheck | 2.15.0.1 |
+| safe-exceptions | 0.1.7.4 |
+| terminal-size | 0.3.4 |
+| text-short | 0.1.6.1 |
+| th-compat | 0.1.7 |
+| network-uri | 2.6.4.2 |
+| these | 1.2.1 |
+| strict | 0.5.1 |
+| time | 1.14 |
+| cookie | 0.5.1 |
+| time-compat | 1.9.9 |
+| text-iso8601 | 0.1.1.1 |
+| transformers-compat | 0.7.2 |
+| mmorph | 1.2.2 |
+| transformers-base | 0.4.6.1 |
+| monad-control | 1.0.3.1 |
+| lifted-base | 0.2.3.12 |
+| unix | 2.8.8.0 |
+| directory-ospath-streaming | 0.2.2 |
+| file-io | 0.1.6 |
+| directory | 1.3.10.1 |
+| crypton-x509-store | 1.6.14 |
+| network | 3.2.8.0 |
+| crypton-socks | 0.6.2 |
+| iproute | 1.7.15 |
+| crypton-x509-validation | 1.6.14 |
+| process | 1.6.26.1 |
+| crypton-x509-system | 1.6.8 |
+| optparse-applicative | 0.18.1.0 |
+| tar | 0.6.4.0 |
+| unbounded-delays | 0.1.1.1 |
+| tasty | 1.5.4 |
+| unix-time | 0.4.17 |
+| unliftio-core | 0.2.1.0 |
+| resourcet | 1.3.0 |
+| unordered-containers | 0.2.20.1 |
+| async | 2.2.6 |
+| concurrent-output | 1.10.21 |
+| lifted-async | 0.10.2.7 |
+| semigroupoids | 6.0.2 |
+| uuid-types | 1.0.6.1 |
+| vector-stream | 0.1.0.1 |
+| vector | 0.13.2.0 |
+| indexed-traversable-instances | 0.1.2.1 |
+| semialign | 1.3.1.1 |
+| serialise | 0.2.6.1 |
+| witherable | 0.5 |
+| aeson | 2.2.4.1 |
+| wl-pprint-annotated | 0.1.0.1 |
+| hedgehog | 1.5 |
+| tasty-hedgehog | 1.4.0.2 |
+| zlib-clib | 1.3.1 |
+| zlib | 0.7.1.1 |
+| streaming-commons | 0.2.3.1 |
+| http-client | 0.7.19 |
+| tls | 2.1.8 |
+| crypton-connection | 0.4.5 |
+| http-client-tls | 0.3.6.4 |
 
 ## Running it locally
 
