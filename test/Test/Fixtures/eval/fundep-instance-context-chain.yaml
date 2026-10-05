@@ -1,0 +1,59 @@
+extensions:
+  - EmptyDataDecls
+  - FlexibleContexts
+  - FlexibleInstances
+  - FunctionalDependencies
+  - ScopedTypeVariables
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE EmptyDataDecls, FlexibleContexts, FlexibleInstances, FunctionalDependencies, ScopedTypeVariables, UndecidableInstances #-}
+    module Test where
+
+    data T
+    data F
+
+    class And a b c | a b -> c
+
+    instance And T T T
+    instance And F F F
+    instance And T F F
+    instance And F T F
+
+    data Nullary
+    data Field
+    data Both a b
+
+    -- The result of the pair comes only from the context: the variables l
+    -- and r are bound by no head type, and the functional dependencies of
+    -- the context determine them and then the result.
+    class AllNullary f r | f -> r
+
+    instance AllNullary Nullary T
+    instance AllNullary Field F
+    instance (AllNullary a l, AllNullary b r, And l r all) => AllNullary (Both a b) all
+
+    data Proxy' a = Proxy'
+
+    class Verdict b where
+      verdict :: Proxy' b -> Bool
+
+    instance Verdict T where verdict _ = True
+    instance Verdict F where verdict _ = False
+
+    allNullary :: forall f r. (AllNullary f r, Verdict r) => Proxy' f -> Bool
+    allNullary _ = verdict (Proxy' :: Proxy' r)
+
+    data Results = Results Bool Bool Bool
+
+    results :: Results
+    results =
+      Results
+        (allNullary (Proxy' :: Proxy' (Both Nullary Nullary)))
+        (allNullary (Proxy' :: Proxy' (Both Nullary Field)))
+        (allNullary (Proxy' :: Proxy' (Both Nullary (Both Nullary Nullary))))
+output: |
+  Results True False True
+expression: results
+status: pass
+reason: the functional dependencies of an instance context determine a variable that the head does not bind, through other constraints of the context, so the instance of the pair is chosen
