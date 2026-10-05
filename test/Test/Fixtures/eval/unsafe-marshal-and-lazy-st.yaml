@@ -1,0 +1,21 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Monad.ST.Lazy (runST)
+    import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST, unsafeIOToST)
+    import Foreign.Marshal.Unsafe (unsafeLocalState)
+
+    data Results = Results Int Int
+
+    results :: Results
+    results =
+      Results
+        (unsafeLocalState (return 3))
+        (runST (unsafeInterleaveST (unsafeIOToST (return 4))))
+output: |
+  Results (I# 3) (I# 4)
+expression: results
+status: pass
+reason: unsafeLocalState runs an IO action as a pure value, and the lazy ST has the unsafe entry points that base-compat imports
