@@ -4313,8 +4313,8 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
                   Alt (AltData falseName) [] [] failure'
                 ]
             )
-    Syn.PAnn annotation inner
-      | Just checked <- Syn.fromAnnotation annotation,
+    Syn.PAnn annotation _
+      | isJust (Syn.fromAnnotation annotation :: Maybe TcAnnotation),
         isJust (patternConstructorSourceName pattern') -> do
           -- A pattern synonym use keeps its own annotation, which has the
           -- type arguments of the use, even when it binds no type variables
@@ -4322,10 +4322,11 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
           maybePatSyn <- patternPatSyn pattern'
           case maybePatSyn of
             Just (info, checkedSynonym) -> desugarPatSynWithFailure resultType binder pattern' info checkedSynonym success failure
-            Nothing
-              | not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)) ->
-                  desugarDoConstructorPattern resultType binder pattern' success failure
-              | otherwise -> desugarPatternWithFailure resultType binder ty inner success failure
+            -- A constructor keeps its annotation, which has the constructor
+            -- result type. The scrutinee type can be an unreduced family
+            -- application, and its arguments are not the arguments of a
+            -- newtype axiom.
+            Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> do
