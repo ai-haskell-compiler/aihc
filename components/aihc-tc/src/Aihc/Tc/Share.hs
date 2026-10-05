@@ -247,6 +247,7 @@ shareForeignImportInfo info =
       result <- shareMarshal (tcForeignResult plan)
       target <- case tcForeignTarget plan of
         TcForeignWrapper pointer -> TcForeignWrapper <$> shareMarshal pointer
+        TcForeignFunctionAddress pointer -> TcForeignFunctionAddress <$> shareMarshal pointer
         other -> pure other
       pure (TcForeignCCallImport safety plan {tcForeignArguments = arguments, tcForeignResult = result, tcForeignTarget = target})
   where

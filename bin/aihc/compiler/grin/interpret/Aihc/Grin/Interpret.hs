@@ -2432,6 +2432,14 @@ runtimeIoPrimitives =
     ("takeIOOpenResult#", ("aihc_io_take_open_result", [GrinForeignAddr], GrinForeignAddr))
   ]
 
+-- | Whether the foreign call gives the address of a symbol.
+isAddressTarget :: GrinForeignTarget -> Bool
+isAddressTarget target =
+  case target of
+    GrinForeignAddress -> True
+    GrinForeignFunctionAddress _ -> True
+    _ -> False
+
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM [RuntimeValue]
 callForeign foreignCall arguments
   -- An address import names static data; its value is the symbol address.
@@ -2439,7 +2447,7 @@ callForeign foreignCall arguments
       throwInterpret InterpretForeignCallbackUnsupported
   | grinForeignCallTarget foreignCall `elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic] =
       throwInterpret InterpretForeignCallbackUnsupported
-  | GrinForeignAddress <- grinForeignCallTarget foreignCall =
+  | isAddressTarget (grinForeignCallTarget foreignCall) =
       (: []) . RuntimeAddress . castFunPtrToPtr <$> lookupForeignFunction foreignCall
   | symbol == "aihc_io_stdin",
     [] <- arguments =

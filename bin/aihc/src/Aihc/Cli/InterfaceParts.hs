@@ -269,6 +269,7 @@ walkForeignImportInfo info = case info of
   TcForeignCCallImport _ plan ->
     traverse_ walkForeignMarshal (tcForeignResult plan : tcForeignArguments plan) >> case tcForeignTarget plan of
       TcForeignWrapper pointer -> walkForeignMarshal pointer
+      TcForeignFunctionAddress pointer -> walkForeignMarshal pointer
       _ -> pure ()
 
 walkForeignMarshal :: TcForeignMarshal -> Parts ()

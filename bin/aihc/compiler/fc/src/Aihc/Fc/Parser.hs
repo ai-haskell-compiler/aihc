@@ -283,7 +283,7 @@ callingConvention =
           }
 
 callTarget :: Parser CCallTarget
-callTarget = MP.option CCallFunction (MP.choice [keyword "address" $> CCallAddress, keyword "dynamic" $> CCallDynamic, keyword "wrapper" $> CCallWrapper])
+callTarget = MP.option CCallFunction (MP.choice [keyword "address" $> CCallAddress, keyword "dynamic" $> CCallDynamic, keyword "wrapper" $> CCallWrapper, keyword "function-address" $> CCallFunctionAddress])
 
 foreignSafety :: Parser ForeignSafety
 foreignSafety =

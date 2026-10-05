@@ -1,0 +1,29 @@
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Ptr [AddrRep]
+
+  pub constructor 1.FunPtr [AddrRep]
+
+  foreign 1.identityAddress = function-address (addr) -> addr ! pure "identity" :: () -> addr ! pure
+
+  pub global 1.address = (F1.$address_thunk)
+
+  1.$address_thunk -> BoxedRep Lifted =
+    foreign_result :: AddrRep <-
+      foreign-call 1.identityAddress = function-address (addr) -> addr ! pure "identity" :: () -> addr ! pure with
+    store (C1.FunPtr (foreign_result :: AddrRep))
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+source: |
+  module Test where
+  import GHC.Prim
+  data Ptr a = Ptr Addr#
+  data FunPtr a = FunPtr Addr#
+  foreign import ccall "&identity" identityAddress :: FunPtr (Ptr () -> Ptr ())
+
+  address :: FunPtr (Ptr () -> Ptr ())
+  address = identityAddress
+reason: the address of a C function keeps the signature of the function for a target that declares it
+status: pass

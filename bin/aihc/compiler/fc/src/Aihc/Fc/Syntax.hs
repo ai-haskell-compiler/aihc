@@ -336,6 +336,11 @@ data CCallTarget
   | CCallAddress
   | CCallDynamic
   | CCallWrapper
+  | -- | The address of a C function (@foreign import ccall "&f" :: FunPtr t@).
+    -- The argument types, the result type and the effect of the spec are those
+    -- of the function the address points at, not those of the import, which
+    -- takes no argument and gives the address.
+    CCallFunctionAddress
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 

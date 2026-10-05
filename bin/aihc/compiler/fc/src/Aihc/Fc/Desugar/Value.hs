@@ -863,6 +863,7 @@ foreignImportPlanDependencies ty plan = do
   typeDependencies <- foreignTypeNewtypeDependencies ty
   let pointerMarshals = case tcForeignTarget plan of
         TcForeignWrapper pointer -> [pointer]
+        TcForeignFunctionAddress pointer -> [pointer]
         _ -> []
   marshalDependencies <- concat <$> mapM foreignMarshalDependencies (pointerMarshals <> tcForeignArguments plan <> [tcForeignResult plan])
   pure (List.nub (typeDependencies <> marshalDependencies))
@@ -939,6 +940,7 @@ convertForeignTarget target =
     TcForeignAddress -> CCallAddress
     TcForeignDynamic -> CCallDynamic
     TcForeignWrapper _ -> CCallWrapper
+    TcForeignFunctionAddress _ -> CCallFunctionAddress
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =

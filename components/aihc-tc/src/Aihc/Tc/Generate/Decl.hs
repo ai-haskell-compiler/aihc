@@ -1497,7 +1497,8 @@ annotateForeignDeclTc foreignDecl = do
         _ -> do
           entity <- checkForeignEntity sourceSpan capi declaredName (foreignEntity foreignDecl)
           plan <- checkForeignImportType sourceSpan (foreignEntityTarget entity) (foreignEntityName entity) ty
-          checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
+          checked <- checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
+          refineFunctionAddress ty checked
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
@@ -1667,6 +1668,7 @@ checkForeignTarget sourceSpan plan =
   case tcForeignTarget plan of
     TcForeignDynamic -> pure plan
     TcForeignWrapper _ -> pure plan
+    TcForeignFunctionAddress _ -> pure plan
     TcForeignAddress -> do
       unless (null (tcForeignArguments plan)) $
         emitError sourceSpan (OtherError "an address foreign import must not take arguments")
@@ -1684,6 +1686,33 @@ checkForeignTarget sourceSpan plan =
             emitError sourceSpan (OtherError "a value foreign import must produce a value")
           pure plan
       | otherwise -> pure plan
+
+-- | An address import of type @FunPtr f@ takes the signature of @f@, so a
+-- target that declares the function can, as wasm does when it links.  A
+-- pointee that is no foreign function type, such as a type variable, leaves
+-- the import a plain address.
+refineFunctionAddress :: TcType -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
+refineFunctionAddress ty plan =
+  case (tcForeignTarget plan, snd (splitFunctionType ty)) of
+    (TcForeignAddress, TcTyCon (TyCon "FunPtr" 1) [pointee]) -> do
+      let (argumentTypes, resultType) = splitFunctionType pointee
+          (effect, valueResultType) =
+            case resultType of
+              TcTyCon (TyCon "IO" 1) [ioResult] -> (TcForeignRealWorld, ioResult)
+              _ -> (TcForeignPure, resultType)
+      arguments <- mapM resolveForeignValueType argumentTypes
+      result <- resolveForeignValueType valueResultType
+      pure $ case (sequence arguments, result) of
+        (Right argumentMarshals, Right resultMarshal)
+          | all ((/= TcForeignVoid) . tcForeignAbiType) argumentMarshals ->
+              plan
+                { tcForeignArguments = argumentMarshals,
+                  tcForeignResult = resultMarshal,
+                  tcForeignEffect = effect,
+                  tcForeignTarget = TcForeignFunctionAddress (tcForeignResult plan)
+                }
+        _ -> plan
+    _ -> pure plan
 
 checkForeignImportType :: Maybe SourceSpan -> TcForeignTarget -> Text -> TcType -> TcM TcForeignImportAnnotation
 checkForeignImportType sourceSpan target symbol ty = do
@@ -1735,7 +1764,9 @@ checkForeignDynamic sourceSpan ty =
   case ty of
     TcForAllTy _ body -> checkForeignDynamic sourceSpan body
     TcFunTy (TcTyCon (TyCon "FunPtr" 1) [pointed]) function
-      | equivalentTypeSchemes (typeSchemeFromType pointed) (typeSchemeFromType function) -> pure ()
+      -- A type variable of the import is free in both types, and a type
+      -- scheme comparison renames only variables that it binds.
+      | pointed == function || equivalentTypeSchemes (typeSchemeFromType pointed) (typeSchemeFromType function) -> pure ()
     _ -> emitError sourceSpan (OtherError "a dynamic import must have type FunPtr f -> f")
 
 splitFunctionType :: TcType -> ([TcType], TcType)

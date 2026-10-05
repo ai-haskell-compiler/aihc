@@ -1818,8 +1818,12 @@ lowerForeignCall name specification =
         Fc.CCallWrapper -> GrinForeignWrapper signature
         Fc.CCallFunction -> if unsafe then GrinForeignUnsafeFunction else GrinForeignFunction
         Fc.CCallDynamic -> if unsafe then GrinForeignUnsafeDynamic else GrinForeignDynamic
-        Fc.CCallAddress -> GrinForeignAddress,
-      grinForeignCallSignature = signature
+        Fc.CCallAddress -> GrinForeignAddress
+        Fc.CCallFunctionAddress -> GrinForeignFunctionAddress signature,
+      grinForeignCallSignature = case Fc.ccallTarget specification of
+        -- The call takes no argument and gives the address.
+        Fc.CCallFunctionAddress -> GrinForeignSignature [] GrinForeignAddr GrinForeignPure
+        _ -> signature
     }
   where
     unsafe = Fc.ccallSafety specification == Fc.ForeignUnsafe

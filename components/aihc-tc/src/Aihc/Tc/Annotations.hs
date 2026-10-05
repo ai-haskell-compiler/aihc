@@ -238,6 +238,11 @@ data TcForeignTarget
   | TcForeignAddress
   | TcForeignDynamic
   | TcForeignWrapper !TcForeignMarshal
+  | -- | The address of a C function, an import of type @FunPtr f@. The
+    -- marshal is the one of the pointer.  The arguments, the result and the
+    -- effect of the plan are the ones of @f@, which a target that declares
+    -- the function needs, as wasm does.
+    TcForeignFunctionAddress !TcForeignMarshal
   deriving (Eq, Show, Read, Generic)
 
 instance NFData TcForeignTarget

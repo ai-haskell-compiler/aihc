@@ -461,6 +461,7 @@ callTargetTag target =
     CCallAddress -> 1
     CCallDynamic -> 2
     CCallWrapper -> 3
+    CCallFunctionAddress -> 4
 
 safetyTag :: ForeignSafety -> Word64
 safetyTag safety =
@@ -826,7 +827,7 @@ getConvention tables = do
       CCall
         <$!> ( CCallSpec
                  <$!> getTextIndex tables
-                   <*!> getEnumeration "call target" [CCallFunction, CCallAddress, CCallDynamic, CCallWrapper]
+                   <*!> getEnumeration "call target" [CCallFunction, CCallAddress, CCallDynamic, CCallWrapper, CCallFunctionAddress]
                    <*!> getEnumeration "safety" [ForeignUnsafe, ForeignSafe, ForeignInterruptible]
                    <*!> getList getAbiType
                    <*!> getAbiType
