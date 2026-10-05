@@ -3791,12 +3791,19 @@ readHookedBuildInfo buildDirectory packageName = do
         Right value -> pure value
         Left errors -> ioError (userError ("Failed to parse " <> path <> ": " <> show errors))
 
+-- | What the C compiler is given for the headers of the wasm sysroot.
+--
+-- The sysroot has @dlfcn.h@, with @RTLD_NEXT@ and @RTLD_DEFAULT@ in it, so
+-- @HAVE_DLFCN_H@ is true here. A package that includes the header only when
+-- that macro is set cannot rely on its own configure script to set it:
+-- @unix@ never checks for the header, and on other platforms another header
+-- includes @dlfcn.h@ for it.
 wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
 wasmSysrootIncludeArguments target =
   case target of
     Wasm32Wasip3 -> do
       sysroot <- wasmSysroot
-      pure ["-isystem" <> wasmSysrootInclude sysroot]
+      pure ["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1"]
     _ -> pure []
 
 cObjectFileName :: FilePath -> FilePath
