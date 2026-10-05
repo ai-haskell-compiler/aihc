@@ -4,9 +4,11 @@
 module Aihc.Fc.Pretty
   ( renderProgram,
     reservedWords,
+    globalReferences,
   )
 where
 
+import Aihc.Fc.Imports (declReferences, referencesFromImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..), packageIdText)
@@ -15,11 +17,12 @@ import Data.ByteString qualified as BS
 import Data.Char (chr, isAscii, isPrint, ord)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word8)
 import Numeric (showHex)
-import Prettyprinter (Doc, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
+import Prettyprinter (Doc, LayoutOptions (..), PageWidth (..), fillSep, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
 import Prettyprinter.Render.Text (renderStrict)
 
 data Prec
@@ -32,27 +35,139 @@ data Prec
 
 -- | Reverse lookup from a scope's identity to its printed scope id, built
 -- once per program instead of re-scanning the scope table for every name.
-type ScopeIndex = Map.Map (PackageId, Text) Int
+data ScopeIndex = ScopeIndex
+  { scopeIds :: Map.Map (PackageId, Text) Int,
+    shortNames :: Map.Map Text Name,
+    primitiveNames :: Map.Map ForeignCall Name
+  }
 
-scopeIndexFromTable :: ScopeTable -> ScopeIndex
-scopeIndexFromTable table =
-  Map.fromList [((entryPackage, entryModule), scopeId) | (scopeId, entryPackage, entryModule) <- scopeEntries table]
+scopeIndexFromProgram :: Program -> ScopeIndex
+scopeIndexFromProgram program =
+  ScopeIndex
+    (Map.fromList [((entryPackage, entryModule), scopeId) | (scopeId, entryPackage, entryModule) <- scopeEntries (programScopes program)])
+    (globalReferences program)
+    (primitiveAliases program)
+
+-- | Give each primitive signature a separate text alias.
+primitiveAliases :: Program -> Map.Map ForeignCall Name
+primitiveAliases program = Map.fromList (concatMap aliases (Map.elems grouped))
+  where
+    calls = Set.toAscList (foldMap declarationCalls (programDecls program))
+    grouped = Map.fromListWith (<>) [(nameText (foreignCallName call), [call]) | call <- calls]
+    aliases variants =
+      [(call, Name (nameText (foreignCallName call)) SortValue (OriginLocal (Unique unique))) | (unique, call) <- zip [0 ..] (List.sort variants)]
+    declarationCalls declaration = case declaration of
+      DeclVal value -> expressionCalls (valBody value)
+      DeclRule value -> expressionCalls (ruleLhs value) <> expressionCalls (ruleRhs value)
+      _ -> mempty
+    expressionCalls expression = case expression of
+      ExApp function argument -> expressionCalls function <> expressionCalls argument
+      ExTyApp function _ -> expressionCalls function
+      ExLam _ body -> expressionCalls body
+      ExTyLam _ body -> expressionCalls body
+      ExLet binding body -> expressionCalls (bindRhs binding) <> expressionCalls body
+      ExRec bindings body -> foldMap (expressionCalls . bindRhs) bindings <> expressionCalls body
+      ExCase scrutinee _ _ alternatives -> expressionCalls scrutinee <> foldMap (expressionCalls . altRhs) alternatives
+      ExCast body _ -> expressionCalls body
+      ExForeignCall call _ arguments -> (if foreignCallConvention call == Prim then Set.singleton call else mempty) <> foldMap expressionCalls arguments
+      _ -> mempty
+
+-- | Short references require one global origin and no local binder conflict.
+globalReferences :: Program -> Map.Map Text Name
+globalReferences program = Map.mapMaybe unique grouped
+  where
+    imports = programImports program
+    declarations = programDecls program
+    introduced = Set.fromList (Map.keys (importHeaders imports) <> Map.keys (importSynonyms imports) <> Map.keys (importAxioms imports) <> Map.keys (importBinders imports) <> concat (Map.elems (importDataCons imports)) <> concatMap declarationNames declarations)
+    names = introduced <> referencesFromImports imports <> foldMap declReferences declarations
+    grouped = Map.fromListWith Set.union [(printedNameText name, Set.singleton name) | name <- Set.toList names, OriginTop {} <- [nameOrigin name]]
+    locals = Set.fromList [nameText name | name <- Map.keys (importBinders imports), OriginLocal {} <- [nameOrigin name]] <> foldMap declarationLocals declarations <> foldMap typeLocals (Map.elems (importHeaders imports) <> Map.elems (importSynonyms imports) <> Map.elems (importBinders imports)) <> foldMap axiomLocals (Map.elems (importAxioms imports))
+    unique candidates = case Set.toList candidates of
+      [name] | name `Set.member` introduced && printedNameText name `Set.notMember` locals && printedNameText name `notElem` reservedWords -> Just name
+      _ -> Nothing
+    declarationNames declaration = case declaration of
+      DeclType value -> typeName value : map conName (typeCons value)
+      DeclSynonym value -> [synName value]
+      DeclAxiom value -> [axiomName value]
+      DeclVal value -> [valName value]
+      DeclRule {} -> []
+    declarationLocals declaration = case declaration of
+      DeclType value -> foldMap binderLocals (typeBinders value) <> typeLocals (typeResult value) <> foldMap (typeLocals . conType) (typeCons value)
+      DeclSynonym value -> foldMap binderLocals (synBinders value) <> typeLocals (synResult value) <> typeLocals (synBody value)
+      DeclAxiom value -> axiomLocals value
+      DeclVal value -> typeLocals (valType value) <> expressionLocals (valBody value)
+      DeclRule value -> foldMap binderLocals (ruleTypeBinders value <> ruleBinders value) <> typeLocals (ruleType value) <> expressionLocals (ruleLhs value) <> expressionLocals (ruleRhs value)
+
+printedNameText :: Name -> Text
+printedNameText name = prefix <> nameText name
+  where
+    prefix = case nameSort name of
+      SortTypeConstructor -> "t"
+      SortSynonym -> "s"
+      SortValue -> "v"
+      SortDataConstructor -> "c"
+      _ -> ""
+
+binderLocals :: Binder -> Set.Set Text
+binderLocals binder = Set.singleton (nameText (binderName binder)) <> typeLocals (binderType binder)
+
+axiomLocals :: AxiomDecl -> Set.Set Text
+axiomLocals value = foldMap binderLocals (axiomBinders value) <> typeLocals (axiomLeft value) <> typeLocals (axiomRight value)
+
+typeLocals :: Type -> Set.Set Text
+typeLocals ty = case ty of
+  TyApp function argument -> typeLocals function <> typeLocals argument
+  TyFun r1 r2 argument result -> foldMap typeLocals [r1, r2, argument, result]
+  TyForAll binder body -> binderLocals binder <> typeLocals body
+  TyEq left right -> typeLocals left <> typeLocals right
+  _ -> mempty
+
+expressionLocals :: Expr -> Set.Set Text
+expressionLocals expression = case expression of
+  ExApp function argument -> expressionLocals function <> expressionLocals argument
+  ExTyApp function argument -> expressionLocals function <> typeLocals argument
+  ExLam binder body -> binderLocals binder <> expressionLocals body
+  ExTyLam binder body -> binderLocals binder <> expressionLocals body
+  ExLet binding body -> bindingLocals binding <> expressionLocals body
+  ExRec bindings body -> foldMap bindingLocals bindings <> expressionLocals body
+  ExCase scrutinee binder result alternatives -> expressionLocals scrutinee <> binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
+  ExCoercion proof -> coercionLocals proof
+  ExCast body proof -> expressionLocals body <> coercionLocals proof
+  ExForeignCall call types arguments -> typeLocals (foreignCallType call) <> foldMap typeLocals types <> foldMap expressionLocals arguments
+  _ -> mempty
+  where
+    bindingLocals binding = binderLocals (bindBinder binding) <> expressionLocals (bindRhs binding)
+    alternativeLocals alternative = foldMap binderLocals (altTypeBinders alternative <> altBinders alternative) <> expressionLocals (altRhs alternative)
+
+coercionLocals :: Coercion -> Set.Set Text
+coercionLocals proof = case proof of
+  CoRefl ty -> typeLocals ty
+  CoSym inner -> coercionLocals inner
+  CoTrans left right -> coercionLocals left <> coercionLocals right
+  CoApp function argument -> coercionLocals function <> coercionLocals argument
+  CoNth _ inner -> coercionLocals inner
+  CoFun argument result -> coercionLocals argument <> coercionLocals result
+  CoForAll binder body -> binderLocals binder <> coercionLocals body
+  CoTyConApp _ arguments -> foldMap coercionLocals arguments
+  CoAxiom _ arguments -> foldMap typeLocals arguments
+  _ -> mempty
 
 renderProgram :: Program -> Text
-renderProgram = renderStrict . layoutPretty defaultLayoutOptions . prettyProgram
+renderProgram = renderStrict . layoutPretty (LayoutOptions (AvailablePerLine 120 1)) . prettyProgram
 
 prettyProgram :: Program -> Doc ann
 prettyProgram program =
   vsep (punctuate hardline documents)
   where
     scopes = programScopes program
-    scopeIndex = scopeIndexFromTable scopes
+    scopeIndex = scopeIndexFromProgram program
     scopeDocuments =
       case scopeEntries scopes of
         [] -> []
         entries -> [prettyScopes entries]
     importDocuments = prettyImports scopeIndex (programImports program)
-    documents = scopeDocuments <> importDocuments <> map (prettyDecl scopeIndex) (programDecls program)
+    primitiveDocuments = prettyImportGroup "prims" [prettyPrimitiveAlias alias <+> "=" <+> prettyForeignImportDependencies scopeIndex (foreignCallDependencies call) <> prettyTopName scopeIndex (foreignCallName call) <+> "::" <+> prettyTypeWith scopeIndex PrecForAll (foreignCallType call) | (call, alias) <- Map.toAscList (primitiveNames scopeIndex)]
+    documents = scopeDocuments <> primitiveDocuments <> importDocuments <> map (prettyDecl scopeIndex) (programDecls program)
 
 prettyImports :: ScopeIndex -> Imports -> [Doc ann]
 prettyImports scopes imports =
@@ -71,7 +186,10 @@ prettyImports scopes imports =
     typeBinderEntries = map prettyBinderEntry (filter ((== SortTypeVariable) . nameSort . fst) binderEntries)
     valueBinderEntries = map prettyBinderEntry (filter ((/= SortTypeVariable) . nameSort . fst) binderEntries)
     binderEntries = importEntries (importBinders imports)
-    prettyBinderEntry (name, ty) = prettyName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty
+    prettyBinderEntry (name, ty) = introduction name <+> "::" <+> prettyTypeWith scopes PrecForAll ty
+    introduction name = case nameOrigin name of
+      OriginTop {} -> prettyTopName scopes name
+      OriginLocal {} -> prettyName scopes name
 
 -- | The entries of an import group, with the type names before the value
 -- names and each class in text order. The order is a presentation choice:
@@ -133,7 +251,7 @@ prettyConstructors _ [] = " {}"
 prettyConstructors scopes constructors =
   " {"
     <> hardline
-    <> indent 4 (vsep (punctuate ";" (map (prettyConDecl scopes) constructors)))
+    <> indent 2 (vsep (punctuate ";" (map (prettyConDecl scopes) constructors)))
     <> hardline
     <> "}"
 
@@ -167,7 +285,7 @@ prettySynonymDecl scopes declaration =
     <> prettyTypeWith scopes PrecForAll (synResult declaration)
     <> " ="
     <> hardline
-    <> indent 1 (prettyTypeWith scopes PrecForAll (synBody declaration))
+    <> indent 2 (prettyTypeWith scopes PrecForAll (synBody declaration))
 
 prettyAxiomDecl :: ScopeIndex -> AxiomDecl -> Doc ann
 prettyAxiomDecl scopes declaration =
@@ -209,8 +327,7 @@ prettyValDecl scopes declaration =
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (valType declaration)
     <> hardline
-    <> " = "
-    <> prettyExprWith scopes (valBody declaration)
+    <> indent 2 ("= " <> prettyExprWith scopes (valBody declaration))
 
 -- | A rule: @rule "name" [2] Λ(a : k). λ(x : t). lhs = rhs :: type@.
 prettyRuleDecl :: ScopeIndex -> RuleDecl -> Doc ann
@@ -248,16 +365,21 @@ prettyActivation activation =
     ActiveBefore phase -> " [~" <> pretty phase <> "]"
     NeverActive -> " [~]"
 
+prettyPrimitiveAlias :: Name -> Doc ann
+prettyPrimitiveAlias name = pretty (nameText name) <> prettyUniqueSuffix name
+
 -- | The head of a foreign call: @foreign {prim 1.vf :: type}@.
 prettyForeignCall :: ScopeIndex -> ForeignCall -> Doc ann
-prettyForeignCall scopes call =
-  "foreign {"
-    <> prettyCallingConvention (foreignCallConvention call)
-    <> prettyForeignImportDependencies scopes (foreignCallDependencies call)
-    <> prettyTopName scopes (foreignCallName call)
-    <> " :: "
-    <> prettyTypeWith scopes PrecForAll (foreignCallType call)
-    <> "}"
+prettyForeignCall scopes call
+  | Just alias <- Map.lookup call (primitiveNames scopes) = "prim" <+> prettyPrimitiveAlias alias
+  | otherwise =
+      "foreign {"
+        <> prettyCallingConvention (foreignCallConvention call)
+        <> prettyForeignImportDependencies scopes (foreignCallDependencies call)
+        <> prettyTopName scopes (foreignCallName call)
+        <> " :: "
+        <> prettyTypeWith scopes PrecForAll (foreignCallType call)
+        <> "}"
 
 prettyForeignImportDependencies :: ScopeIndex -> [ForeignImportDependency] -> Doc ann
 prettyForeignImportDependencies _ [] = mempty
@@ -398,26 +520,18 @@ prettyExprWith scopes expr =
       prettyApp scopes function <+> prettyExprAtom scopes argument
     ExTyApp function argument ->
       prettyApp scopes function <+> ("@" <> prettyTypeWith scopes PrecAtom argument)
-    ExLam binder body ->
-      "λ" <> prettyPiBinder scopes binder <> "." <> hardline <> indent 2 (prettyExprWith scopes body)
-    ExTyLam binder body ->
-      "Λ" <> prettyPiBinder scopes binder <> "." <> hardline <> indent 2 (prettyExprWith scopes body)
+    ExLam {} -> prettyLambda scopes expr
+    ExTyLam {} -> prettyLambda scopes expr
     ExLet bind body ->
-      "let {"
-        <> hardline
-        <> indent 4 (prettyBind scopes bind)
-        <> hardline
-        <> "} in"
-        <> hardline
-        <> indent 4 (prettyExprWith scopes body)
+      "let " <> prettyBind scopes bind <> ";" <> hardline <> prettyExprWith scopes body
     ExRec binds body ->
       "rec {"
         <> hardline
-        <> prettyIndentedItems 4 (map (prettyBind scopes) binds)
+        <> prettyIndentedItems 2 (map (prettyBind scopes) binds)
         <> hardline
         <> "} in"
         <> hardline
-        <> indent 4 (prettyExprWith scopes body)
+        <> prettyExprWith scopes body
     ExCase scrutinee binder resultType alts ->
       "case "
         <> prettyExprWith scopes scrutinee
@@ -427,7 +541,7 @@ prettyExprWith scopes expr =
         <> parens (prettyTypeWith scopes PrecForAll resultType)
         <> " of {"
         <> hardline
-        <> prettyIndentedItems 4 (map (prettyAlt scopes) alts)
+        <> prettyIndentedItems 2 (map (prettyAlt scopes) alts)
         <> hardline
         <> "}"
     ExCoercion proof -> "coercion " <> parens (prettyCoercion scopes proof)
@@ -439,6 +553,27 @@ prettyExprWith scopes expr =
             : map (\ty -> "@" <> prettyTypeWith scopes PrecAtom ty) types
               <> map (prettyExprAtom scopes) arguments
         )
+
+-- | Put consecutive lambda binders on one line when they fit.
+prettyLambda :: ScopeIndex -> Expr -> Doc ann
+prettyLambda scopes expression =
+  fillSep (concatMap prettyGroup groups) <> hardline <> indent 2 (prettyExprWith scopes body)
+  where
+    (binders, body) = collect expression
+    groups = List.groupBy (\(kind, _) (other, _) -> kind == other) binders
+    collect expr = case expr of
+      ExLam binder rest -> prepend False binder rest
+      ExTyLam binder rest -> prepend True binder rest
+      _ -> ([], expr)
+    prepend kind binder rest =
+      let (following, result) = collect rest
+       in ((kind, binder) : following, result)
+    prettyGroup [] = []
+    prettyGroup ((kind, binder) : rest) =
+      finish ((if kind then "Λ" else "λ") <> prettyPiBinder scopes binder : map (prettyPiBinder scopes . snd) rest)
+    finish [] = []
+    finish [document] = [document <> "."]
+    finish (document : rest) = document : finish rest
 
 prettyApp :: ScopeIndex -> Expr -> Doc ann
 prettyApp scopes expr =
@@ -461,14 +596,14 @@ prettyBind scopes bind =
     <> prettyTypeWith scopes PrecForAll (binderType (bindBinder bind))
     <> " ="
     <> hardline
-    <> indent 4 (prettyExprWith scopes (bindRhs bind))
+    <> indent 2 (prettyExprWith scopes (bindRhs bind))
 
 prettyAlt :: ScopeIndex -> Alt -> Doc ann
 prettyAlt scopes alternative =
   prettyAltHead scopes alternative
     <> " →"
     <> hardline
-    <> indent 4 (prettyExprWith scopes (altRhs alternative))
+    <> indent 2 (prettyExprWith scopes (altRhs alternative))
 
 prettyAltHead :: ScopeIndex -> Alt -> Doc ann
 prettyAltHead scopes alternative =
@@ -568,8 +703,12 @@ repName ty =
 prettyName :: ScopeIndex -> Name -> Doc ann
 prettyName scopes name =
   case nameOrigin name of
+    OriginLocal (Unique 0)
+      | Map.member (nameText name) (shortNames scopes) -> pretty (nameText name) <> "{0}"
     OriginLocal {} -> pretty (nameText name) <> prettyUniqueSuffix name
-    OriginTop {} -> prettyTopName scopes name
+    OriginTop {}
+      | Map.lookup (printedNameText name) (shortNames scopes) == Just name -> prettyPrintedName name
+      | otherwise -> prettyTopName scopes name
 
 prettyTopName :: ScopeIndex -> Name -> Doc ann
 prettyTopName scopes name =
@@ -586,7 +725,7 @@ prettyScopePrefix scopes package moduleName =
     Nothing -> error ("missing System FC scope for " <> show (packageIdText package, moduleName))
 
 lookupScopeId :: ScopeIndex -> PackageId -> Text -> Maybe Int
-lookupScopeId index package moduleName = Map.lookup (package, moduleName) index
+lookupScopeId index package moduleName = Map.lookup (package, moduleName) (scopeIds index)
 
 -- | A top name prints behind a letter that says its sort, so the parser
 -- reads back the same name: @t@ for a type constructor, @s@ for a synonym,
@@ -632,6 +771,7 @@ reservedWords =
     "foreign",
     "import",
     "prim",
+    "prims",
     "module",
     "where",
     "let",

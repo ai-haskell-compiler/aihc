@@ -28,72 +28,63 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : 3.sType) (a2 : 3.sType). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.c()] 2.tUnit :: 3.sType;
-    2.c(,) :: ∀(a1 : 3.sType) (a2 : 3.sType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cFalse :: 3.tBool;
-    3.cLifted :: 3.tLevity;
-    3.cTrue :: 3.tBool
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tDoc (ann : 3.sType) :: 3.sType {}
+  pub type 1.tDoc (ann : sType) :: sType {}
 
-  axiom 1.$ax$Doc (ann : 3.sType) : 1.tDoc ann ~R 3.tBool
+  axiom 1.$ax$Doc (ann : sType) : tDoc ann ~R tBool
 
-  pub val 1.vwrap :: ∀(ann : 3.sType). 1.tDoc ann 3.→ 1.tDoc ann
-   = Λ(ann : 3.sType).
-    λ(x : 1.tDoc ann).
+  pub val 1.vwrap :: ∀(ann : sType). tDoc ann 3.→ tDoc ann
+    = Λ(ann : sType). λ(x : tDoc ann).
       x
 
-  pub val 1.vrender :: ∀(ann : 3.sType). 3.tBool 3.→ 1.tDoc ann
-   = Λ(ann : 3.sType).
-    rec {
-        go : ∀(ann{1} : 3.sType). 3.tBool 3.→ 1.tDoc ann{1} =
-            Λ(ann{1} : 3.sType).
-              λ(x : 3.tBool).
-                let {
-                    _pat_rhs : ∀(a : 3.sType). 2.tTuple2 3.tBool (1.tDoc a) =
-                        Λ(a : 3.sType).
-                          case x as (_scrut : 3.tBool) return (2.tTuple2 3.tBool (1.tDoc a)) of {
-                              3.cTrue →
-                                  2.c(,) @3.tBool @(1.tDoc a) 3.cFalse (3.cTrue ▷ sym (axiom-co 1.$ax$Doc @a));
-                              3.cFalse →
-                                  2.c(,) @3.tBool @(1.tDoc a) 3.cTrue (1.vwrap @a (go @a 3.cTrue))
-                          }
-                } in
-                    let {
-                        document : ∀(a : 3.sType). 1.tDoc a =
-                            Λ(a : 3.sType).
-                              (Λ(a{1} : 3.sType).
-                                λ(_pat_rhs{1} : 2.tTuple2 3.tBool (1.tDoc a{1})).
-                                  case _pat_rhs{1} as (_do_scrut : 2.tTuple2 3.tBool (1.tDoc a{1})) return (1.tDoc a{1}) of {
-                                      2.c(,) (again : 3.tBool) (document : 1.tDoc a{1}) →
-                                          document
-                                  }) @a (_pat_rhs @a)
-                    } in
-                        case (Λ(a : 3.sType).
-                          λ(_pat_rhs{1} : 2.tTuple2 3.tBool (1.tDoc a)).
-                            case _pat_rhs{1} as (_do_scrut : 2.tTuple2 3.tBool (1.tDoc a)) return (3.tBool) of {
-                                2.c(,) (again : 3.tBool) (document{1} : 1.tDoc a) →
-                                    again
-                            }) @2.tUnit (_pat_rhs @2.tUnit) as (_scrut : 3.tBool) return (1.tDoc ann{1}) of {
-                            3.cTrue →
-                                1.vwrap @ann{1} (document @ann{1});
-                            3.cFalse →
-                                document @ann{1}
-                        }
-    } in
-        go @ann
-
+  pub val 1.vrender :: ∀(ann : sType). tBool 3.→ tDoc ann
+    = Λ(ann : sType).
+      rec {
+        go : ∀(ann{1} : sType). tBool 3.→ tDoc ann{1} =
+          Λ(ann{1} : sType). λ(x : tBool).
+            let _pat_rhs : ∀(a : sType). tTuple2 tBool (tDoc a) =
+              Λ(a : sType).
+                case x as (_scrut : tBool) return (tTuple2 tBool (tDoc a)) of {
+                  cTrue →
+                    c(,) @tBool @(tDoc a) cFalse (cTrue ▷ sym (axiom-co $ax$Doc @a));
+                  cFalse →
+                    c(,) @tBool @(tDoc a) cTrue (vwrap @a (go @a cTrue))
+                };
+            let document : ∀(a : sType). tDoc a =
+              Λ(a : sType).
+                (Λ(a{1} : sType). λ(_pat_rhs{1} : tTuple2 tBool (tDoc a{1})).
+                  case _pat_rhs{1} as (_do_scrut : tTuple2 tBool (tDoc a{1})) return (tDoc a{1}) of {
+                    c(,) (again : tBool) (document : tDoc a{1}) →
+                      document
+                  }) @a (_pat_rhs @a);
+            case (Λ(a : sType). λ(_pat_rhs{1} : tTuple2 tBool (tDoc a)).
+              case _pat_rhs{1} as (_do_scrut : tTuple2 tBool (tDoc a)) return (tBool) of {
+                c(,) (again : tBool) (document{1} : tDoc a) →
+                  again
+              }) @tUnit (_pat_rhs @tUnit) as (_scrut : tBool) return (tDoc ann{1}) of {
+              cTrue →
+                vwrap @ann{1} (document @ann{1});
+              cFalse →
+                document @ann{1}
+            }
+      } in
+      go @ann
 status: pass
 reason: a local tuple pattern binding generalizes over the result type of a recursive call to a local function with a signature

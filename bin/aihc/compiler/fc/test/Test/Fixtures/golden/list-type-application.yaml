@@ -12,27 +12,27 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : 2.sType). 2.sType;
-    2.c: :: ∀(a : 2.sType). a 2.→ 2.t[] a 2.→ 2.t[] a;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity;
-    2.c[] :: ∀(a : 2.sType). 2.t[] a
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.c: :: ∀(a : sType). a 2.→ t[] a 2.→ t[] a;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tBool :: 2.sType {
-      pub 1.cTrue :: 1.tBool;
-      pub 1.cFalse :: 1.tBool
+  pub type 1.tBool :: sType {
+    pub 1.cTrue :: tBool;
+    pub 1.cFalse :: tBool
   }
 
-  pub val 1.vxs :: 2.t[] 1.tBool
-   = 2.c: @1.tBool 1.cTrue (2.c[] @1.tBool)
+  pub val 1.vxs :: t[] tBool
+    = c: @tBool cTrue (c[] @tBool)
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

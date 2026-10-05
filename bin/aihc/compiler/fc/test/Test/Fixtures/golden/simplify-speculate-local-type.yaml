@@ -24,45 +24,46 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tCount :: 3.sType {
-      1.cCount :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tCount
+  type 1.tCount :: sType {
+    1.cCount :: FUN @cIntRep @sLiftedRep tInt# tCount
   }
 
-  type 1.tStrict :: 3.sType {
-      strict [0] 1.cStrict :: 1.tCount 3.→ 1.tStrict
+  type 1.tStrict :: sType {
+    strict [0] 1.cStrict :: tCount 3.→ tStrict
   }
 
-  type 1.tBox :: 3.sType {
-      1.cBox :: 1.tCount 3.→ 1.tBox
+  type 1.tBox :: sType {
+    1.cBox :: tCount 3.→ tBox
   }
 
-  pub val 1.vnext :: 1.tStrict 3.→ 1.tBox
-   = λ(x : 1.tStrict).
-    case x as (_scrut : 1.tStrict) return (1.tBox) of {
-        1.cStrict (x{1} : 1.tCount) →
-            case x{1} as (_scrut{1} : 1.tCount) return (1.tBox) of {
-                1.cCount (a : 2.tInt#) →
-                    let {
-                        argument : 2.tInt# =
-                            foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} a 1#3.cIntRep
-                    } in
-                        1.cBox (1.cCount argument)
-            }
-    }
+  pub val 1.vnext :: tStrict 3.→ tBox
+    = λ(x : tStrict).
+      case x as (_scrut : tStrict) return (tBox) of {
+        cStrict (x{1} : tCount) →
+          case x{1} as (_scrut{1} : tCount) return (tBox) of {
+            cCount (a : tInt#) →
+              let argument : tInt# =
+                prim +# a 1#cIntRep;
+              cBox (cCount argument)
+          }
+      }
 status: pass
 reason: The only constructor of a type that the module declares is known from its declaration, so the case on the evaluated field binder moves out of the lazy constructor argument.

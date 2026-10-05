@@ -24,48 +24,43 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : 3.sType) (a2 : 3.sType). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.c()] 2.tUnit :: 3.sType;
-    2.c() :: 2.tUnit;
-    2.c(,) :: ∀(a1 : 3.sType) (a2 : 3.sType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cFalse :: 3.tBool;
-    3.cLifted :: 3.tLevity;
-    3.cTrue :: 3.tBool
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c() :: tUnit;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub val 1.vpair :: ∀(a : 3.sType) (b : 3.sType). a 3.→ b 3.→ 2.tTuple2 a b
-   = Λ(a : 3.sType).
-    Λ(b : 3.sType).
-      λ(x : a).
-        λ(y : b).
-          2.c(,) @a @b x y
+  pub val 1.vpair :: ∀(a : sType) (b : sType). a 3.→ b 3.→ tTuple2 a b
+    = Λ(a : sType) (b : sType). λ(x : a) (y : b).
+      c(,) @a @b x y
 
-  pub val 1.vleftSection :: 3.tBool 3.→ 2.tTuple2 3.tBool 3.tBool
-   = λ(_section : 3.tBool).
-    1.vpair @3.tBool @3.tBool 3.cTrue _section
+  pub val 1.vleftSection :: tBool 3.→ tTuple2 tBool tBool
+    = λ(_section : tBool).
+      vpair @tBool @tBool cTrue _section
 
-  pub val 1.vrightSection :: 3.tBool 3.→ 2.tTuple2 3.tBool 3.tBool
-   = λ(_section : 3.tBool).
-    1.vpair @3.tBool @3.tBool _section 3.cFalse
+  pub val 1.vrightSection :: tBool 3.→ tTuple2 tBool tBool
+    = λ(_section : tBool).
+      vpair @tBool @tBool _section cFalse
 
-  pub val 1.vrwhnf :: ∀(a : 3.sType). a 3.→ 2.tUnit
-   = Λ(a : 3.sType).
-    λ(_section : a).
-      (λ(seq_first : a).
-        λ(seq_second : 2.tUnit).
-          case seq_first as (seq_evaluated : a) return (2.tUnit) of {
-              _ →
-                  seq_second
-          }) _section 2.c()
+  pub val 1.vrwhnf :: ∀(a : sType). a 3.→ tUnit
+    = Λ(a : sType). λ(_section : a).
+      (λ(seq_first : a) (seq_second : tUnit).
+        case seq_first as (seq_evaluated : a) return (tUnit) of {
+          _ →
+            seq_second
+        }) _section c()
 status: pass
 reason: Operator sections produce typed FC lambdas with the correct argument order.

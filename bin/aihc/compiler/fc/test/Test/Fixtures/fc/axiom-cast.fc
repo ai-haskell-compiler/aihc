@@ -5,4 +5,4 @@ pub type 1.tInt :: 2.tType {}
 
 pub type 1.tAge :: 2.tType {}
 
-axiom 1.$ax$Age : 1.tAge ~R 1.tInt
+axiom 1.$ax$Age : tAge ~R tInt

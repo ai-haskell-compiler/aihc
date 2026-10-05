@@ -28,68 +28,65 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tUnit :: 2.sType {
-      pub 1.cUnit :: 1.tUnit
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: tUnit
   }
 
-  pub type 1.tArray (a : 2.sType) :: 2.sType {
-      pub 1.cArray :: ∀(a : 2.sType). a 2.→ 1.tArray a
+  pub type 1.tArray (a : sType) :: sType {
+    pub 1.cArray :: ∀(a : sType). a 2.→ tArray a
   }
 
-  pub type 1.tMutableArray (s : 2.sType) (a : 2.sType) :: 2.sType {
-      pub 1.cMutableArray :: ∀(s : 2.sType) (a : 2.sType). a 2.→ 1.tMutableArray s a
+  pub type 1.tMutableArray (s : sType) (a : sType) :: sType {
+    pub 1.cMutableArray :: ∀(s : sType) (a : sType). a 2.→ tMutableArray s a
   }
 
-  pub type 1.tMVector (s : 2.sType) (a : 2.sType) :: 2.sType @N @N {}
+  pub type 1.tMVector (s : sType) (a : sType) :: sType @N @N {}
 
-  pub type 1.tVector (a : 2.sType) :: 2.sType @N {}
+  pub type 1.tVector (a : sType) :: sType @N {}
 
-  type 1.t$R$MVector$MVUnit (s : 2.sType) :: 2.sType {
-      pub 1.cMVUnit :: ∀(s : 2.sType). 1.tUnit 2.→ 1.t$R$MVector$MVUnit s
+  type 1.t$R$MVector$MVUnit (s : sType) :: sType {
+    pub 1.cMVUnit :: ∀(s : sType). tUnit 2.→ t$R$MVector$MVUnit s
   }
 
-  axiom 1.$ax$MVector$MVUnit (s : 2.sType) : 1.tMVector s 1.tUnit ~R 1.t$R$MVector$MVUnit s
+  axiom 1.$ax$MVector$MVUnit (s : sType) : tMVector s tUnit ~R t$R$MVector$MVUnit s
 
-  type 1.t$R$Vector$VUnit :: 2.sType {
-      pub 1.cVUnit :: 1.tUnit 2.→ 1.t$R$Vector$VUnit
+  type 1.t$R$Vector$VUnit :: sType {
+    pub 1.cVUnit :: tUnit 2.→ t$R$Vector$VUnit
   }
 
-  axiom 1.$ax$Vector$VUnit : 1.tVector 1.tUnit ~R 1.t$R$Vector$VUnit
+  axiom 1.$ax$Vector$VUnit : tVector tUnit ~R t$R$Vector$VUnit
 
-  pub type 1.tMutable (v : 2.sType 2.→ 2.sType) :: 2.sType 2.→ 2.sType 2.→ 2.sType @N {}
+  pub type 1.tMutable (v : sType 2.→ sType) :: sType 2.→ sType 2.→ sType @N {}
 
-  axiom 1.$ax$Mutable$Array : 1.tMutable 1.tArray ~N 1.tMutableArray
+  axiom 1.$ax$Mutable$Array : tMutable tArray ~N tMutableArray
 
-  axiom 1.$ax$Mutable$Vector : 1.tMutable 1.tVector ~N 1.tMVector
+  axiom 1.$ax$Mutable$Vector : tMutable tVector ~N tMVector
 
-  pub type 1.tItem (l : 2.sType) :: 2.sType @N {}
+  pub type 1.tItem (l : sType) :: sType @N {}
 
-  axiom 1.$ax$Item$Array$a (a : 2.sType) : 1.tItem (1.tArray a) ~N a
+  axiom 1.$ax$Item$Array$a (a : sType) : tItem (tArray a) ~N a
 
-  axiom 1.$ax$Item$Vector$e (e : 2.sType) : 1.tItem (1.tVector e) ~N e
+  axiom 1.$ax$Item$Vector$e (e : sType) : tItem (tVector e) ~N e
 
-  pub val 1.vnew :: ∀(s : 2.sType). 1.tUnit 2.→ 1.tMutable 1.tVector s 1.tUnit
-   = Λ(s : 2.sType).
-    λ(x : 1.tUnit).
-      (λ(_field : 1.tUnit).
-        (1.cMVUnit @s _field) ▷ sym (axiom-co 1.$ax$MVector$MVUnit @s)) x
+  pub val 1.vnew :: ∀(s : sType). tUnit 2.→ tMutable tVector s tUnit
+    = Λ(s : sType). λ(x : tUnit).
+      (λ(_field : tUnit).
+        (cMVUnit @s _field) ▷ sym (axiom-co $ax$MVector$MVUnit @s)) x
 
-  pub val 1.vitem :: ∀(e : 2.sType). 1.tVector e 2.→ 1.tItem (1.tVector e) 2.→ e
-   = Λ(e : 2.sType).
-    λ(x : 1.tVector e).
-      λ(y : 1.tItem (1.tVector e)).
-        y
+  pub val 1.vitem :: ∀(e : sType). tVector e 2.→ tItem (tVector e) 2.→ e
+    = Λ(e : sType). λ(x : tVector e) (y : tItem (tVector e)).
+      y
 status: pass
 reason: A data family is generative. Its instance axioms are representational, thus a type family equation for another type constructor does not block the equation for the data family.

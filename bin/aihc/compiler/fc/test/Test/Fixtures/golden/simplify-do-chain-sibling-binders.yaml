@@ -75,589 +75,507 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep))));
-    3.sType :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    unboxed-tuple 3.cTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). FUN @r1 @3.sLiftedRep a1 (FUN @r2 @(3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep)))) a2 (3.tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tHandle :: 3.sType {
-      1.cFileHandle :: 3.tInt 3.→ 1.tHandle;
-      1.cDuplexHandle :: 3.tInt 3.→ 3.tInt 3.→ 1.tHandle
+  type 1.tHandle :: sType {
+    1.cFileHandle :: tInt 3.→ tHandle;
+    1.cDuplexHandle :: tInt 3.→ tInt 3.→ tHandle
   }
 
-  type 1.tAction :: 3.sType {}
+  type 1.tAction :: sType {}
 
-  axiom 1.$ax$Action : 1.tAction ~R FUN @3.sLiftedRep @(3.cTupleRep (3.c: 3.tRuntimeRep 3.sLiftedRep (3.c: 3.tRuntimeRep 3.sLiftedRep (3.c[] 3.tRuntimeRep)))) 3.tInt (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt)
+  axiom 1.$ax$Action : tAction ~R FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt (tTuple2# sLiftedRep sLiftedRep tInt tInt)
 
-  val 1.v$wpick :: FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# 1.tHandle
-   = λ(x : 2.tInt#).
-    case x as (_scrut : 2.tInt#) return (1.tHandle) of {
-        0#3.cIntRep →
-            1.cFileHandle (3.cI# 0#3.cIntRep);
+  val 1.v$wpick :: FUN @cIntRep @(cBoxedRep cLifted) tInt# tHandle
+    = λ(x : tInt#).
+      case x as (_scrut : tInt#) return (tHandle) of {
+        0#cIntRep →
+          cFileHandle (cI# 0#cIntRep);
         _ →
-            let {
-                x{1} : 2.tInt# =
-                    foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut 1#3.cIntRep
-            } in
-                1.v$wpick x{1}
-    }
+          let x{1} : tInt# =
+            prim -# _scrut 1#cIntRep;
+          v$wpick x{1}
+      }
 
-  val 1.v$wwrite :: FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# (FUN @(3.cBoxedRep 3.cLifted) @(3.cBoxedRep 3.cLifted) 3.tInt (FUN @(3.cBoxedRep 3.cLifted) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cBoxedRep 3.cLifted) (3.c: 3.tRuntimeRep (3.cBoxedRep 3.cLifted) (3.c[] 3.tRuntimeRep)))) 3.tInt (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt)))
-   = λ(x : 2.tInt#).
-    λ(y : 3.tInt).
-      λ(z : 3.tInt).
-        case x as (_scrut : 2.tInt#) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-            0#3.cIntRep →
-                3.cTuple2# @3.sLiftedRep @3.sLiftedRep @3.tInt @3.tInt z y;
-            _ →
-                let {
-                    x{1} : 2.tInt# =
-                        foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut 1#3.cIntRep
-                } in
-                    1.v$wwrite x{1} y z
-        }
+  val 1.v$wwrite :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @(cTupleRep (c: tRuntimeRep (cBoxedRep cLifted) (c: tRuntimeRep (cBoxedRep cLifted) (c[] tRuntimeRep)))) tInt (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt)))
+    = λ(x : tInt#) (y : tInt) (z : tInt).
+      case x as (_scrut : tInt#) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+        0#cIntRep →
+          cTuple2# @sLiftedRep @sLiftedRep @tInt @tInt z y;
+        _ →
+          let x{1} : tInt# =
+            prim -# _scrut 1#cIntRep;
+          v$wwrite x{1} y z
+      }
 
-  val 1.vandThen :: 1.tAction 3.→ 1.tAction 3.→ 1.tAction
-   = λ(x : 1.tAction).
-    λ(y : 1.tAction).
-      (λ(eta : 3.tInt).
-        let {
-            _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                (x ▷ axiom-co 1.$ax$Action) eta
-        } in
-            case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                    (y ▷ axiom-co 1.$ax$Action) s'
-            }) ▷ sym (axiom-co 1.$ax$Action)
+  val 1.vandThen :: tAction 3.→ tAction 3.→ tAction
+    = λ(x : tAction) (y : tAction).
+      (λ(eta : tInt).
+        let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+          (x ▷ axiom-co $ax$Action) eta;
+        case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+          cTuple2# (s' : tInt) (_pat : tInt) →
+            (y ▷ axiom-co $ax$Action) s'
+        }) ▷ sym (axiom-co $ax$Action)
 
-  pub val 1.vrun :: 3.tInt 3.→ 3.tInt
-   = λ(eta : 3.tInt).
-    let {
-        _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-            ((1.vandThen ((λ(eta{1} : 3.tInt).
-              let {
-                  _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                      ((1.vandThen ((λ(eta{2} : 3.tInt).
-                        let {
-                            _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                ((1.vandThen ((λ(eta{3} : 3.tInt).
-                                  let {
-                                      _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                          ((1.vandThen ((λ(eta{4} : 3.tInt).
-                                            let {
-                                                _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                    ((1.vandThen ((λ(eta{5} : 3.tInt).
-                                                      let {
-                                                          _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                              ((1.vandThen ((λ(eta{6} : 3.tInt).
-                                                                let {
-                                                                    _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                        ((1.vandThen ((λ(eta{7} : 3.tInt).
-                                                                          let {
-                                                                              _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                  ((1.vandThen ((λ(eta{8} : 3.tInt).
-                                                                                    let {
-                                                                                        x : 3.tInt =
-                                                                                            3.cI# 1#3.cIntRep
-                                                                                    } in
-                                                                                        let {
-                                                                                            x{1} : 3.tInt =
-                                                                                                3.cI# 2#3.cIntRep
-                                                                                        } in
-                                                                                            let {
-                                                                                                x{2} : 3.tInt =
-                                                                                                    3.cI# 3#3.cIntRep
-                                                                                            } in
-                                                                                                case 1.v$wpick 1#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                    1.cFileHandle (h : 3.tInt) →
-                                                                                                        case h as (wrapped : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                            3.cI# (x{3} : 2.tInt#) →
-                                                                                                                let {
-                                                                                                                    _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                        1.v$wwrite x{3} x eta{8}
-                                                                                                                } in
-                                                                                                                    case _case as (_scrut{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                        3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                                                                                                                            case 1.v$wpick 2#3.cIntRep as (_scrut{2} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                1.cFileHandle (h{1} : 3.tInt) →
-                                                                                                                                    case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                        3.cI# (x{4} : 2.tInt#) →
-                                                                                                                                            let {
-                                                                                                                                                _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                                                    1.v$wwrite x{4} x{1} s'
-                                                                                                                                            } in
-                                                                                                                                                case _case{1} as (_scrut{3} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                    3.cTuple2# (s'{1} : 3.tInt) (_pat{1} : 3.tInt) →
-                                                                                                                                                        case 1.v$wpick 3#3.cIntRep as (_scrut{4} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                            1.cFileHandle (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                };
-                                                                                                                                                            1.cDuplexHandle (_pat{2} : 3.tInt) (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                }
-                                                                                                                                                        }
-                                                                                                                                                }
-                                                                                                                                    };
-                                                                                                                                1.cDuplexHandle (_pat{1} : 3.tInt) (h{1} : 3.tInt) →
-                                                                                                                                    case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                        3.cI# (x{4} : 2.tInt#) →
-                                                                                                                                            let {
-                                                                                                                                                _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                                                    1.v$wwrite x{4} x{1} s'
-                                                                                                                                            } in
-                                                                                                                                                case _case{1} as (_scrut{3} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                    3.cTuple2# (s'{1} : 3.tInt) (_pat{2} : 3.tInt) →
-                                                                                                                                                        case 1.v$wpick 3#3.cIntRep as (_scrut{4} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                            1.cFileHandle (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                };
-                                                                                                                                                            1.cDuplexHandle (_pat{3} : 3.tInt) (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                }
-                                                                                                                                                        }
-                                                                                                                                                }
-                                                                                                                                    }
-                                                                                                                            }
-                                                                                                                    }
-                                                                                                        };
-                                                                                                    1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                                                                                        case h as (wrapped : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                            3.cI# (x{3} : 2.tInt#) →
-                                                                                                                let {
-                                                                                                                    _case : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                        1.v$wwrite x{3} x eta{8}
-                                                                                                                } in
-                                                                                                                    case _case as (_scrut{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                        3.cTuple2# (s' : 3.tInt) (_pat{1} : 3.tInt) →
-                                                                                                                            case 1.v$wpick 2#3.cIntRep as (_scrut{2} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                1.cFileHandle (h{1} : 3.tInt) →
-                                                                                                                                    case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                        3.cI# (x{4} : 2.tInt#) →
-                                                                                                                                            let {
-                                                                                                                                                _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                                                    1.v$wwrite x{4} x{1} s'
-                                                                                                                                            } in
-                                                                                                                                                case _case{1} as (_scrut{3} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                    3.cTuple2# (s'{1} : 3.tInt) (_pat{2} : 3.tInt) →
-                                                                                                                                                        case 1.v$wpick 3#3.cIntRep as (_scrut{4} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                            1.cFileHandle (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                };
-                                                                                                                                                            1.cDuplexHandle (_pat{3} : 3.tInt) (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                }
-                                                                                                                                                        }
-                                                                                                                                                }
-                                                                                                                                    };
-                                                                                                                                1.cDuplexHandle (_pat{2} : 3.tInt) (h{1} : 3.tInt) →
-                                                                                                                                    case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                        3.cI# (x{4} : 2.tInt#) →
-                                                                                                                                            let {
-                                                                                                                                                _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                                                    1.v$wwrite x{4} x{1} s'
-                                                                                                                                            } in
-                                                                                                                                                case _case{1} as (_scrut{3} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                    3.cTuple2# (s'{1} : 3.tInt) (_pat{3} : 3.tInt) →
-                                                                                                                                                        case 1.v$wpick 3#3.cIntRep as (_scrut{4} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                                                            1.cFileHandle (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                };
-                                                                                                                                                            1.cDuplexHandle (_pat{4} : 3.tInt) (h{2} : 3.tInt) →
-                                                                                                                                                                case h{2} as (wrapped{2} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                                                    3.cI# (x{5} : 2.tInt#) →
-                                                                                                                                                                        1.v$wwrite x{5} x{2} s'{1}
-                                                                                                                                                                }
-                                                                                                                                                        }
-                                                                                                                                                }
-                                                                                                                                    }
-                                                                                                                            }
-                                                                                                                    }
-                                                                                                        }
-                                                                                                }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{8} : 3.tInt).
-                                                                                    let {
-                                                                                        x : 3.tInt =
-                                                                                            3.cI# 4#3.cIntRep
-                                                                                    } in
-                                                                                        case 1.v$wpick 4#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                            1.cFileHandle (h : 3.tInt) →
-                                                                                                case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                    3.cI# (x{1} : 2.tInt#) →
-                                                                                                        1.v$wwrite x{1} x eta{8}
-                                                                                                };
-                                                                                            1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                                                                                case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                    3.cI# (x{1} : 2.tInt#) →
-                                                                                                        1.v$wwrite x{1} x eta{8}
-                                                                                                }
-                                                                                        }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta{7}
-                                                                          } in
-                                                                              let {
-                                                                                  x : 3.tInt =
-                                                                                      3.cI# 6#3.cIntRep
-                                                                              } in
-                                                                                  let {
-                                                                                      x{1} : 3.tInt =
-                                                                                          3.cI# 5#3.cIntRep
-                                                                                  } in
-                                                                                      case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                          3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                                                                                              case 1.v$wpick 5#3.cIntRep as (_scrut{1} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                  1.cFileHandle (h : 3.tInt) →
-                                                                                                      case h as (wrapped : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                          3.cI# (x{2} : 2.tInt#) →
-                                                                                                              let {
-                                                                                                                  _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                      1.v$wwrite x{2} x{1} s'
-                                                                                                              } in
-                                                                                                                  case _case{1} as (_scrut{2} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                      3.cTuple2# (s'{1} : 3.tInt) (_pat{1} : 3.tInt) →
-                                                                                                                          case 1.v$wpick 6#3.cIntRep as (_scrut{3} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                              1.cFileHandle (h{1} : 3.tInt) →
-                                                                                                                                  case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                      3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                          1.v$wwrite x{3} x s'{1}
-                                                                                                                                  };
-                                                                                                                              1.cDuplexHandle (_pat{2} : 3.tInt) (h{1} : 3.tInt) →
-                                                                                                                                  case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                      3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                          1.v$wwrite x{3} x s'{1}
-                                                                                                                                  }
-                                                                                                                          }
-                                                                                                                  }
-                                                                                                      };
-                                                                                                  1.cDuplexHandle (_pat{1} : 3.tInt) (h : 3.tInt) →
-                                                                                                      case h as (wrapped : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                          3.cI# (x{2} : 2.tInt#) →
-                                                                                                              let {
-                                                                                                                  _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                                      1.v$wwrite x{2} x{1} s'
-                                                                                                              } in
-                                                                                                                  case _case{1} as (_scrut{2} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                      3.cTuple2# (s'{1} : 3.tInt) (_pat{2} : 3.tInt) →
-                                                                                                                          case 1.v$wpick 6#3.cIntRep as (_scrut{3} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                              1.cFileHandle (h{1} : 3.tInt) →
-                                                                                                                                  case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                      3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                          1.v$wwrite x{3} x s'{1}
-                                                                                                                                  };
-                                                                                                                              1.cDuplexHandle (_pat{3} : 3.tInt) (h{1} : 3.tInt) →
-                                                                                                                                  case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                                      3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                          1.v$wwrite x{3} x s'{1}
-                                                                                                                                  }
-                                                                                                                          }
-                                                                                                                  }
-                                                                                                      }
-                                                                                              }
-                                                                                      }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{7} : 3.tInt).
-                                                                          let {
-                                                                              x : 3.tInt =
-                                                                                  3.cI# 7#3.cIntRep
-                                                                          } in
-                                                                              case 1.v$wpick 7#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                  1.cFileHandle (h : 3.tInt) →
-                                                                                      case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                          3.cI# (x{1} : 2.tInt#) →
-                                                                                              1.v$wwrite x{1} x eta{7}
-                                                                                      };
-                                                                                  1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                                                                      case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                          3.cI# (x{1} : 2.tInt#) →
-                                                                                              1.v$wwrite x{1} x eta{7}
-                                                                                      }
-                                                                              }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta{6}
-                                                                } in
-                                                                    let {
-                                                                        x : 3.tInt =
-                                                                            3.cI# 9#3.cIntRep
-                                                                    } in
-                                                                        let {
-                                                                            x{1} : 3.tInt =
-                                                                                3.cI# 8#3.cIntRep
-                                                                        } in
-                                                                            case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                                                                                    case 1.v$wpick 8#3.cIntRep as (_scrut{1} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                        1.cFileHandle (h : 3.tInt) →
-                                                                                            case h as (wrapped : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                3.cI# (x{2} : 2.tInt#) →
-                                                                                                    let {
-                                                                                                        _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                            1.v$wwrite x{2} x{1} s'
-                                                                                                    } in
-                                                                                                        case _case{1} as (_scrut{2} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                            3.cTuple2# (s'{1} : 3.tInt) (_pat{1} : 3.tInt) →
-                                                                                                                case 1.v$wpick 9#3.cIntRep as (_scrut{3} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                    1.cFileHandle (h{1} : 3.tInt) →
-                                                                                                                        case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                            3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                1.v$wwrite x{3} x s'{1}
-                                                                                                                        };
-                                                                                                                    1.cDuplexHandle (_pat{2} : 3.tInt) (h{1} : 3.tInt) →
-                                                                                                                        case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                            3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                1.v$wwrite x{3} x s'{1}
-                                                                                                                        }
-                                                                                                                }
-                                                                                                        }
-                                                                                            };
-                                                                                        1.cDuplexHandle (_pat{1} : 3.tInt) (h : 3.tInt) →
-                                                                                            case h as (wrapped : 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                3.cI# (x{2} : 2.tInt#) →
-                                                                                                    let {
-                                                                                                        _case{1} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt =
-                                                                                                            1.v$wwrite x{2} x{1} s'
-                                                                                                    } in
-                                                                                                        case _case{1} as (_scrut{2} : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                            3.cTuple2# (s'{1} : 3.tInt) (_pat{2} : 3.tInt) →
-                                                                                                                case 1.v$wpick 9#3.cIntRep as (_scrut{3} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                                                                    1.cFileHandle (h{1} : 3.tInt) →
-                                                                                                                        case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                            3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                1.v$wwrite x{3} x s'{1}
-                                                                                                                        };
-                                                                                                                    1.cDuplexHandle (_pat{3} : 3.tInt) (h{1} : 3.tInt) →
-                                                                                                                        case h{1} as (wrapped{1} : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                                                            3.cI# (x{3} : 2.tInt#) →
-                                                                                                                                1.v$wwrite x{3} x s'{1}
-                                                                                                                        }
-                                                                                                                }
-                                                                                                        }
-                                                                                            }
-                                                                                    }
-                                                                            }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{6} : 3.tInt).
-                                                                let {
-                                                                    x : 3.tInt =
-                                                                        3.cI# 10#3.cIntRep
-                                                                } in
-                                                                    case 1.v$wpick 10#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                        1.cFileHandle (h : 3.tInt) →
-                                                                            case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                3.cI# (x{1} : 2.tInt#) →
-                                                                                    1.v$wwrite x{1} x eta{6}
-                                                                            };
-                                                                        1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                                                            case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                3.cI# (x{1} : 2.tInt#) →
-                                                                                    1.v$wwrite x{1} x eta{6}
-                                                                            }
-                                                                    }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta{5}
-                                                      } in
-                                                          let {
-                                                              x : 3.tInt =
-                                                                  3.cI# 11#3.cIntRep
-                                                          } in
-                                                              case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                  3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                                                                      case 1.v$wpick 11#3.cIntRep as (_scrut{1} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                          1.cFileHandle (h : 3.tInt) →
-                                                                              case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                  3.cI# (x{1} : 2.tInt#) →
-                                                                                      1.v$wwrite x{1} x s'
-                                                                              };
-                                                                          1.cDuplexHandle (_pat{1} : 3.tInt) (h : 3.tInt) →
-                                                                              case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                                  3.cI# (x{1} : 2.tInt#) →
-                                                                                      1.v$wwrite x{1} x s'
-                                                                              }
-                                                                      }
-                                                              }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{5} : 3.tInt).
-                                                      let {
-                                                          x : 3.tInt =
-                                                              3.cI# 12#3.cIntRep
-                                                      } in
-                                                          case 1.v$wpick 12#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                              1.cFileHandle (h : 3.tInt) →
-                                                                  case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                      3.cI# (x{1} : 2.tInt#) →
-                                                                          1.v$wwrite x{1} x eta{5}
+  pub val 1.vrun :: tInt 3.→ tInt
+    = λ(eta : tInt).
+      let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+        ((vandThen ((λ(eta{1} : tInt).
+          let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+            ((vandThen ((λ(eta{2} : tInt).
+              let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                ((vandThen ((λ(eta{3} : tInt).
+                  let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                    ((vandThen ((λ(eta{4} : tInt).
+                      let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                        ((vandThen ((λ(eta{5} : tInt).
+                          let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                            ((vandThen ((λ(eta{6} : tInt).
+                              let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                ((vandThen ((λ(eta{7} : tInt).
+                                  let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                    ((vandThen ((λ(eta{8} : tInt).
+                                      let x : tInt =
+                                        cI# 1#cIntRep;
+                                      let x{1} : tInt =
+                                        cI# 2#cIntRep;
+                                      let x{2} : tInt =
+                                        cI# 3#cIntRep;
+                                      case v$wpick 1#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                        cFileHandle (h : tInt) →
+                                          case h as (wrapped : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                            cI# (x{3} : tInt#) →
+                                              let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                v$wwrite x{3} x eta{8};
+                                              case _case as (_scrut{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                cTuple2# (s' : tInt) (_pat : tInt) →
+                                                  case v$wpick 2#cIntRep as (_scrut{2} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                    cFileHandle (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                        cI# (x{4} : tInt#) →
+                                                          let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                            v$wwrite x{4} x{1} s';
+                                                          case _case{1} as (_scrut{3} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                            cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
+                                                              case v$wpick 3#cIntRep as (_scrut{4} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                                cFileHandle (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
                                                                   };
-                                                              1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                                                  case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                      3.cI# (x{1} : 2.tInt#) →
-                                                                          1.v$wwrite x{1} x eta{5}
+                                                                cDuplexHandle (_pat{2} : tInt) (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
                                                                   }
-                                                          }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta{4}
-                                            } in
-                                                let {
-                                                    x : 3.tInt =
-                                                        3.cI# 13#3.cIntRep
-                                                } in
-                                                    case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                        3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                                                            case 1.v$wpick 13#3.cIntRep as (_scrut{1} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                                1.cFileHandle (h : 3.tInt) →
-                                                                    case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                        3.cI# (x{1} : 2.tInt#) →
-                                                                            1.v$wwrite x{1} x s'
-                                                                    };
-                                                                1.cDuplexHandle (_pat{1} : 3.tInt) (h : 3.tInt) →
-                                                                    case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                                        3.cI# (x{1} : 2.tInt#) →
-                                                                            1.v$wwrite x{1} x s'
-                                                                    }
-                                                            }
-                                                    }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{4} : 3.tInt).
-                                            let {
-                                                x : 3.tInt =
-                                                    3.cI# 14#3.cIntRep
-                                            } in
-                                                case 1.v$wpick 14#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                    1.cFileHandle (h : 3.tInt) →
-                                                        case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                            3.cI# (x{1} : 2.tInt#) →
-                                                                1.v$wwrite x{1} x eta{4}
-                                                        };
-                                                    1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                                        case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                            3.cI# (x{1} : 2.tInt#) →
-                                                                1.v$wwrite x{1} x eta{4}
-                                                        }
-                                                }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta{3}
-                                  } in
-                                      let {
-                                          x : 3.tInt =
-                                              3.cI# 15#3.cIntRep
-                                      } in
-                                          case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                              3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                                                  case 1.v$wpick 15#3.cIntRep as (_scrut{1} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                                      1.cFileHandle (h : 3.tInt) →
-                                                          case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                              3.cI# (x{1} : 2.tInt#) →
-                                                                  1.v$wwrite x{1} x s'
-                                                          };
-                                                      1.cDuplexHandle (_pat{1} : 3.tInt) (h : 3.tInt) →
-                                                          case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                              3.cI# (x{1} : 2.tInt#) →
-                                                                  1.v$wwrite x{1} x s'
+                                                              }
                                                           }
+                                                      };
+                                                    cDuplexHandle (_pat{1} : tInt) (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                        cI# (x{4} : tInt#) →
+                                                          let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                            v$wwrite x{4} x{1} s';
+                                                          case _case{1} as (_scrut{3} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                            cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
+                                                              case v$wpick 3#cIntRep as (_scrut{4} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                                cFileHandle (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
+                                                                  };
+                                                                cDuplexHandle (_pat{3} : tInt) (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
+                                                                  }
+                                                              }
+                                                          }
+                                                      }
                                                   }
-                                          }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{3} : 3.tInt).
-                                  let {
-                                      x : 3.tInt =
-                                          3.cI# 16#3.cIntRep
-                                  } in
-                                      case 1.v$wpick 16#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                          1.cFileHandle (h : 3.tInt) →
-                                              case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                  3.cI# (x{1} : 2.tInt#) →
-                                                      1.v$wwrite x{1} x eta{3}
-                                              };
-                                          1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                              case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                  3.cI# (x{1} : 2.tInt#) →
-                                                      1.v$wwrite x{1} x eta{3}
                                               }
-                                      }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta{2}
-                        } in
-                            let {
-                                x : 3.tInt =
-                                    3.cI# 17#3.cIntRep
-                            } in
-                                case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                    3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                                        case 1.v$wpick 17#3.cIntRep as (_scrut{1} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                            1.cFileHandle (h : 3.tInt) →
-                                                case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                    3.cI# (x{1} : 2.tInt#) →
-                                                        1.v$wwrite x{1} x s'
-                                                };
-                                            1.cDuplexHandle (_pat{1} : 3.tInt) (h : 3.tInt) →
-                                                case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                                    3.cI# (x{1} : 2.tInt#) →
-                                                        1.v$wwrite x{1} x s'
-                                                }
-                                        }
-                                }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{2} : 3.tInt).
-                        let {
-                            x : 3.tInt =
-                                3.cI# 18#3.cIntRep
-                        } in
-                            case 1.v$wpick 18#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                1.cFileHandle (h : 3.tInt) →
-                                    case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                        3.cI# (x{1} : 2.tInt#) →
-                                            1.v$wwrite x{1} x eta{2}
-                                    };
-                                1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                                    case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                        3.cI# (x{1} : 2.tInt#) →
-                                            1.v$wwrite x{1} x eta{2}
-                                    }
-                            }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta{1}
-              } in
-                  let {
-                      x : 3.tInt =
-                          3.cI# 19#3.cIntRep
-                  } in
-                      case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                          3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                              case 1.v$wpick 19#3.cIntRep as (_scrut{1} : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                                  1.cFileHandle (h : 3.tInt) →
-                                      case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                          3.cI# (x{1} : 2.tInt#) →
-                                              1.v$wwrite x{1} x s'
-                                      };
-                                  1.cDuplexHandle (_pat{1} : 3.tInt) (h : 3.tInt) →
-                                      case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                                          3.cI# (x{1} : 2.tInt#) →
-                                              1.v$wwrite x{1} x s'
+                                          };
+                                        cDuplexHandle (_pat : tInt) (h : tInt) →
+                                          case h as (wrapped : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                            cI# (x{3} : tInt#) →
+                                              let _case : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                v$wwrite x{3} x eta{8};
+                                              case _case as (_scrut{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                cTuple2# (s' : tInt) (_pat{1} : tInt) →
+                                                  case v$wpick 2#cIntRep as (_scrut{2} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                    cFileHandle (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                        cI# (x{4} : tInt#) →
+                                                          let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                            v$wwrite x{4} x{1} s';
+                                                          case _case{1} as (_scrut{3} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                            cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
+                                                              case v$wpick 3#cIntRep as (_scrut{4} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                                cFileHandle (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
+                                                                  };
+                                                                cDuplexHandle (_pat{3} : tInt) (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
+                                                                  }
+                                                              }
+                                                          }
+                                                      };
+                                                    cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                        cI# (x{4} : tInt#) →
+                                                          let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                            v$wwrite x{4} x{1} s';
+                                                          case _case{1} as (_scrut{3} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                            cTuple2# (s'{1} : tInt) (_pat{3} : tInt) →
+                                                              case v$wpick 3#cIntRep as (_scrut{4} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                                cFileHandle (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
+                                                                  };
+                                                                cDuplexHandle (_pat{4} : tInt) (h{2} : tInt) →
+                                                                  case h{2} as (wrapped{2} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                                    cI# (x{5} : tInt#) →
+                                                                      v$wwrite x{5} x{2} s'{1}
+                                                                  }
+                                                              }
+                                                          }
+                                                      }
+                                                  }
+                                              }
+                                          }
+                                      }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{8} : tInt).
+                                      let x : tInt =
+                                        cI# 4#cIntRep;
+                                      case v$wpick 4#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                        cFileHandle (h : tInt) →
+                                          case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                            cI# (x{1} : tInt#) →
+                                              v$wwrite x{1} x eta{8}
+                                          };
+                                        cDuplexHandle (_pat : tInt) (h : tInt) →
+                                          case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                            cI# (x{1} : tInt#) →
+                                              v$wwrite x{1} x eta{8}
+                                          }
+                                      }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{7};
+                                  let x : tInt =
+                                    cI# 6#cIntRep;
+                                  let x{1} : tInt =
+                                    cI# 5#cIntRep;
+                                  case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                    cTuple2# (s' : tInt) (_pat : tInt) →
+                                      case v$wpick 5#cIntRep as (_scrut{1} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                        cFileHandle (h : tInt) →
+                                          case h as (wrapped : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                            cI# (x{2} : tInt#) →
+                                              let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                v$wwrite x{2} x{1} s';
+                                              case _case{1} as (_scrut{2} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
+                                                  case v$wpick 6#cIntRep as (_scrut{3} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                    cFileHandle (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                        cI# (x{3} : tInt#) →
+                                                          v$wwrite x{3} x s'{1}
+                                                      };
+                                                    cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                        cI# (x{3} : tInt#) →
+                                                          v$wwrite x{3} x s'{1}
+                                                      }
+                                                  }
+                                              }
+                                          };
+                                        cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                                          case h as (wrapped : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                            cI# (x{2} : tInt#) →
+                                              let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                                v$wwrite x{2} x{1} s';
+                                              case _case{1} as (_scrut{2} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
+                                                  case v$wpick 6#cIntRep as (_scrut{3} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                    cFileHandle (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                        cI# (x{3} : tInt#) →
+                                                          v$wwrite x{3} x s'{1}
+                                                      };
+                                                    cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
+                                                      case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                        cI# (x{3} : tInt#) →
+                                                          v$wwrite x{3} x s'{1}
+                                                      }
+                                                  }
+                                              }
+                                          }
                                       }
+                                  }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{7} : tInt).
+                                  let x : tInt =
+                                    cI# 7#cIntRep;
+                                  case v$wpick 7#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                    cFileHandle (h : tInt) →
+                                      case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                        cI# (x{1} : tInt#) →
+                                          v$wwrite x{1} x eta{7}
+                                      };
+                                    cDuplexHandle (_pat : tInt) (h : tInt) →
+                                      case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                        cI# (x{1} : tInt#) →
+                                          v$wwrite x{1} x eta{7}
+                                      }
+                                  }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{6};
+                              let x : tInt =
+                                cI# 9#cIntRep;
+                              let x{1} : tInt =
+                                cI# 8#cIntRep;
+                              case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                cTuple2# (s' : tInt) (_pat : tInt) →
+                                  case v$wpick 8#cIntRep as (_scrut{1} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                    cFileHandle (h : tInt) →
+                                      case h as (wrapped : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                        cI# (x{2} : tInt#) →
+                                          let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                            v$wwrite x{2} x{1} s';
+                                          case _case{1} as (_scrut{2} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                            cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
+                                              case v$wpick 9#cIntRep as (_scrut{3} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                cFileHandle (h{1} : tInt) →
+                                                  case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                    cI# (x{3} : tInt#) →
+                                                      v$wwrite x{3} x s'{1}
+                                                  };
+                                                cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
+                                                  case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                    cI# (x{3} : tInt#) →
+                                                      v$wwrite x{3} x s'{1}
+                                                  }
+                                              }
+                                          }
+                                      };
+                                    cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                                      case h as (wrapped : tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                        cI# (x{2} : tInt#) →
+                                          let _case{1} : tTuple2# sLiftedRep sLiftedRep tInt tInt =
+                                            v$wwrite x{2} x{1} s';
+                                          case _case{1} as (_scrut{2} : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                            cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
+                                              case v$wpick 9#cIntRep as (_scrut{3} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                                cFileHandle (h{1} : tInt) →
+                                                  case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                    cI# (x{3} : tInt#) →
+                                                      v$wwrite x{3} x s'{1}
+                                                  };
+                                                cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
+                                                  case h{1} as (wrapped{1} : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                                    cI# (x{3} : tInt#) →
+                                                      v$wwrite x{3} x s'{1}
+                                                  }
+                                              }
+                                          }
+                                      }
+                                  }
+                              }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{6} : tInt).
+                              let x : tInt =
+                                cI# 10#cIntRep;
+                              case v$wpick 10#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                cFileHandle (h : tInt) →
+                                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                    cI# (x{1} : tInt#) →
+                                      v$wwrite x{1} x eta{6}
+                                  };
+                                cDuplexHandle (_pat : tInt) (h : tInt) →
+                                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                    cI# (x{1} : tInt#) →
+                                      v$wwrite x{1} x eta{6}
+                                  }
+                              }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{5};
+                          let x : tInt =
+                            cI# 11#cIntRep;
+                          case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                            cTuple2# (s' : tInt) (_pat : tInt) →
+                              case v$wpick 11#cIntRep as (_scrut{1} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                                cFileHandle (h : tInt) →
+                                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                    cI# (x{1} : tInt#) →
+                                      v$wwrite x{1} x s'
+                                  };
+                                cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                    cI# (x{1} : tInt#) →
+                                      v$wwrite x{1} x s'
+                                  }
                               }
-                      }) ▷ sym (axiom-co 1.$ax$Action)) ((λ(eta{1} : 3.tInt).
-              let {
-                  x : 3.tInt =
-                      3.cI# 20#3.cIntRep
-              } in
-                  case 1.v$wpick 20#3.cIntRep as (_scrut : 1.tHandle) return (3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) of {
-                      1.cFileHandle (h : 3.tInt) →
-                          case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                              3.cI# (x{1} : 2.tInt#) →
-                                  1.v$wwrite x{1} x eta{1}
-                          };
-                      1.cDuplexHandle (_pat : 3.tInt) (h : 3.tInt) →
-                          case h as (wrapped : 3.tInt) return (3.tTuple2# (3.cBoxedRep 3.cLifted) (3.cBoxedRep 3.cLifted) 3.tInt 3.tInt) of {
-                              3.cI# (x{1} : 2.tInt#) →
-                                  1.v$wwrite x{1} x eta{1}
+                          }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{5} : tInt).
+                          let x : tInt =
+                            cI# 12#cIntRep;
+                          case v$wpick 12#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                            cFileHandle (h : tInt) →
+                              case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                cI# (x{1} : tInt#) →
+                                  v$wwrite x{1} x eta{5}
+                              };
+                            cDuplexHandle (_pat : tInt) (h : tInt) →
+                              case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                cI# (x{1} : tInt#) →
+                                  v$wwrite x{1} x eta{5}
+                              }
+                          }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{4};
+                      let x : tInt =
+                        cI# 13#cIntRep;
+                      case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                        cTuple2# (s' : tInt) (_pat : tInt) →
+                          case v$wpick 13#cIntRep as (_scrut{1} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                            cFileHandle (h : tInt) →
+                              case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                cI# (x{1} : tInt#) →
+                                  v$wwrite x{1} x s'
+                              };
+                            cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                              case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                                cI# (x{1} : tInt#) →
+                                  v$wwrite x{1} x s'
+                              }
                           }
-                  }) ▷ sym (axiom-co 1.$ax$Action))) ▷ axiom-co 1.$ax$Action) eta
-    } in
-        case _case as (_scrut : 3.tTuple2# 3.sLiftedRep 3.sLiftedRep 3.tInt 3.tInt) return (3.tInt) of {
-            3.cTuple2# (s' : 3.tInt) (_pat : 3.tInt) →
-                s'
-        }
+                      }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{4} : tInt).
+                      let x : tInt =
+                        cI# 14#cIntRep;
+                      case v$wpick 14#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                        cFileHandle (h : tInt) →
+                          case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                            cI# (x{1} : tInt#) →
+                              v$wwrite x{1} x eta{4}
+                          };
+                        cDuplexHandle (_pat : tInt) (h : tInt) →
+                          case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                            cI# (x{1} : tInt#) →
+                              v$wwrite x{1} x eta{4}
+                          }
+                      }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{3};
+                  let x : tInt =
+                    cI# 15#cIntRep;
+                  case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                    cTuple2# (s' : tInt) (_pat : tInt) →
+                      case v$wpick 15#cIntRep as (_scrut{1} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                        cFileHandle (h : tInt) →
+                          case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                            cI# (x{1} : tInt#) →
+                              v$wwrite x{1} x s'
+                          };
+                        cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                          case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                            cI# (x{1} : tInt#) →
+                              v$wwrite x{1} x s'
+                          }
+                      }
+                  }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{3} : tInt).
+                  let x : tInt =
+                    cI# 16#cIntRep;
+                  case v$wpick 16#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                    cFileHandle (h : tInt) →
+                      case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                        cI# (x{1} : tInt#) →
+                          v$wwrite x{1} x eta{3}
+                      };
+                    cDuplexHandle (_pat : tInt) (h : tInt) →
+                      case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                        cI# (x{1} : tInt#) →
+                          v$wwrite x{1} x eta{3}
+                      }
+                  }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{2};
+              let x : tInt =
+                cI# 17#cIntRep;
+              case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                cTuple2# (s' : tInt) (_pat : tInt) →
+                  case v$wpick 17#cIntRep as (_scrut{1} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                    cFileHandle (h : tInt) →
+                      case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                        cI# (x{1} : tInt#) →
+                          v$wwrite x{1} x s'
+                      };
+                    cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                      case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                        cI# (x{1} : tInt#) →
+                          v$wwrite x{1} x s'
+                      }
+                  }
+              }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{2} : tInt).
+              let x : tInt =
+                cI# 18#cIntRep;
+              case v$wpick 18#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                cFileHandle (h : tInt) →
+                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                    cI# (x{1} : tInt#) →
+                      v$wwrite x{1} x eta{2}
+                  };
+                cDuplexHandle (_pat : tInt) (h : tInt) →
+                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                    cI# (x{1} : tInt#) →
+                      v$wwrite x{1} x eta{2}
+                  }
+              }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{1};
+          let x : tInt =
+            cI# 19#cIntRep;
+          case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+            cTuple2# (s' : tInt) (_pat : tInt) →
+              case v$wpick 19#cIntRep as (_scrut{1} : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+                cFileHandle (h : tInt) →
+                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                    cI# (x{1} : tInt#) →
+                      v$wwrite x{1} x s'
+                  };
+                cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                  case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                    cI# (x{1} : tInt#) →
+                      v$wwrite x{1} x s'
+                  }
+              }
+          }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{1} : tInt).
+          let x : tInt =
+            cI# 20#cIntRep;
+          case v$wpick 20#cIntRep as (_scrut : tHandle) return (tTuple2# sLiftedRep sLiftedRep tInt tInt) of {
+            cFileHandle (h : tInt) →
+              case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                cI# (x{1} : tInt#) →
+                  v$wwrite x{1} x eta{1}
+              };
+            cDuplexHandle (_pat : tInt) (h : tInt) →
+              case h as (wrapped : tInt) return (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) of {
+                cI# (x{1} : tInt#) →
+                  v$wwrite x{1} x eta{1}
+              }
+          }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta;
+      case _case as (_scrut : tTuple2# sLiftedRep sLiftedRep tInt tInt) return (tInt) of {
+        cTuple2# (s' : tInt) (_pat : tInt) →
+          s'
+      }
 status: pass
 reason: The inliner binds each argument of an inlined andThen to a let, and the tidied program gives the lets of sibling copies the same name. The move of such a let counts only the copies of its own walk, so the count of a sibling does not make it look copied twice, and the let moves to its use.

@@ -28,33 +28,32 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTrue :: 3.tBool
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub val 1.v== :: 3.tInt 3.→ 3.tInt 3.→ 3.tBool
-   = λ(x : 3.tInt).
-    λ(y : 3.tInt).
-      case x as (_scrut : 3.tInt) return (3.tBool) of {
-          3.cI# (x{1} : 2.tInt#) →
-              case y as (_scrut{1} : 3.tInt) return (3.tBool) of {
-                  3.cI# (y{1} : 2.tInt#) →
-                      3.cTrue
-              }
+  pub val 1.v== :: tInt 3.→ tInt 3.→ tBool
+    = λ(x : tInt) (y : tInt).
+      case x as (_scrut : tInt) return (tBool) of {
+        cI# (x{1} : tInt#) →
+          case y as (_scrut{1} : tInt) return (tBool) of {
+            cI# (y{1} : tInt#) →
+              cTrue
+          }
       }
   scope 1 = "" Main
   scope 2 = "" Types
@@ -65,51 +64,49 @@ expected: |-
   scope 7 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [5.c$Dict$Num] 5.t$Dict$Num :: ∀(a : 7.sType). 7.sType;
-    constructors [7.cFalse, 7.cTrue] 7.tBool :: 7.sType;
-    constructors [7.cI#] 7.tInt :: 7.sType;
-    3.tInt# :: 7.tTYPE 7.cIntRep;
-    constructors [4.cIS, 4.cIP, 4.cIN] 4.tInteger :: 7.sType;
-    constructors [7.cLifted, 7.cUnlifted] 7.tLevity :: 7.sType;
-    7.sLiftedRep :: 7.tRuntimeRep;
-    constructors [7.cAddrRep, 7.cBoxedRep, 7.cDoubleRep, 7.cFloatRep, 7.cInt16Rep, 7.cInt32Rep, 7.cInt64Rep, 7.cInt8Rep, 7.cIntRep, 7.cSumRep, 7.cTupleRep, 7.cVecRep, 7.cWord16Rep, 7.cWord32Rep, 7.cWord64Rep, 7.cWord8Rep, 7.cWordRep] 7.tRuntimeRep :: 7.sType;
-    7.tTYPE :: ∀(rep : 7.tRuntimeRep). 7.sType;
-    7.sType :: 7.sType;
-    constructors [6.c()] 6.tUnit :: 7.sType;
-    5.v$fNumInt :: 5.t$Dict$Num 7.tInt;
-    5.v$fNumInteger :: 5.t$Dict$Num 4.tInteger;
-    6.c() :: 6.tUnit;
-    2.v== :: 7.tInt 7.→ 7.tInt 7.→ 7.tBool;
-    7.cBoxedRep :: 7.tLevity 7.→ 7.tRuntimeRep;
-    7.cFalse :: 7.tBool;
-    4.cIS :: FUN @7.cIntRep @7.sLiftedRep 3.tInt# 4.tInteger;
-    7.cIntRep :: 7.tRuntimeRep;
-    7.cLifted :: 7.tLevity;
-    7.cTrue :: 7.tBool;
-    5.vfromInteger :: ∀(a : 7.sType). 5.t$Dict$Num a 7.→ 4.tInteger 7.→ a
+    constructors [5.c$Dict$Num] 5.t$Dict$Num :: ∀(a : sType). sType;
+    constructors [7.cFalse, 7.cTrue] 7.tBool :: sType;
+    constructors [7.cI#] 7.tInt :: sType;
+    3.tInt# :: tTYPE cIntRep;
+    constructors [4.cIS, 4.cIP, 4.cIN] 4.tInteger :: sType;
+    constructors [7.cLifted, 7.cUnlifted] 7.tLevity :: sType;
+    7.sLiftedRep :: tRuntimeRep;
+    constructors [7.cAddrRep, 7.cBoxedRep, 7.cDoubleRep, 7.cFloatRep, 7.cInt16Rep, 7.cInt32Rep, 7.cInt64Rep, 7.cInt8Rep, 7.cIntRep, 7.cSumRep, 7.cTupleRep, 7.cVecRep, 7.cWord16Rep, 7.cWord32Rep, 7.cWord64Rep, 7.cWord8Rep, 7.cWordRep] 7.tRuntimeRep :: sType;
+    7.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    7.sType :: sType;
+    constructors [6.c()] 6.tUnit :: sType;
+    5.v$fNumInt :: t$Dict$Num tInt;
+    5.v$fNumInteger :: t$Dict$Num tInteger;
+    6.c() :: tUnit;
+    2.v== :: tInt 7.→ tInt 7.→ tBool;
+    7.cBoxedRep :: tLevity 7.→ tRuntimeRep;
+    7.cFalse :: tBool;
+    4.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
+    7.cIntRep :: tRuntimeRep;
+    7.cLifted :: tLevity;
+    7.cTrue :: tBool;
+    5.vfromInteger :: ∀(a : sType). t$Dict$Num a 7.→ tInteger 7.→ a
 
   import synonyms
-    7.sLiftedRep = 7.cBoxedRep 7.cLifted;
-    7.sType = 7.tTYPE 7.sLiftedRep
+    7.sLiftedRep = cBoxedRep cLifted;
+    7.sType = tTYPE sLiftedRep
 
-  pub val 1.vasInt :: 7.tInt
-   = 5.vfromInteger @7.tInt 5.v$fNumInt (4.cIS 1#7.cIntRep)
+  pub val 1.vasInt :: tInt
+    = vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)
 
-  pub val 1.vasInteger :: 4.tInteger
-   = 5.vfromInteger @4.tInteger 5.v$fNumInteger (4.cIS 1#7.cIntRep)
+  pub val 1.vasInteger :: tInteger
+    = vfromInteger @tInteger v$fNumInteger (cIS 1#cIntRep)
 
-  pub val 1.vcaseInt :: 6.tUnit
-   = let {
-      _case : 7.tInt =
-          5.vfromInteger @7.tInt 5.v$fNumInt (4.cIS 1#7.cIntRep)
-  } in
-      case 2.v== _case (5.vfromInteger @7.tInt 5.v$fNumInt (4.cIS 1#7.cIntRep)) as (_case_guard : 7.tBool) return (6.tUnit) of {
-          7.cTrue →
-              6.c();
-          7.cFalse →
-              case _case as (_case_nomatch : 7.tInt) return (6.tUnit) of {
+  pub val 1.vcaseInt :: tUnit
+    = let _case : tInt =
+      vfromInteger @tInt v$fNumInt (cIS 1#cIntRep);
+    case v== _case (vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)) as (_case_guard : tBool) return (tUnit) of {
+      cTrue →
+        c();
+      cFalse →
+        case _case as (_case_nomatch : tInt) return (tUnit) of {
 
-              }
-      }
+        }
+    }
 status: pass
 reason: desugars concrete Int and Integer literals with primitive instances

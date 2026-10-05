@@ -17,40 +17,40 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tA :: 2.sType {
-      pub strict [0] 1.cMkA :: 1.tB 2.→ 1.tA
+  pub type 1.tA :: sType {
+    pub strict [0] 1.cMkA :: tB 2.→ tA
   }
 
-  pub type 1.tB :: 2.sType {
-      pub strict [0] 1.cMkB :: 1.tA 2.→ 1.tB
+  pub type 1.tB :: sType {
+    pub strict [0] 1.cMkB :: tA 2.→ tB
   }
 
-  pub val 1.vmakeA :: 1.tB 2.→ 1.tA
-   = λ(x : 1.tB).
-    (λ(_strict_field : 1.tB).
-      case _strict_field as (_strict_forced : 1.tB) return (1.tA) of {
+  pub val 1.vmakeA :: tB 2.→ tA
+    = λ(x : tB).
+      (λ(_strict_field : tB).
+        case _strict_field as (_strict_forced : tB) return (tA) of {
           _ →
-              1.cMkA _strict_field
-      }) x
+            cMkA _strict_field
+        }) x
 
-  pub val 1.vmakeB :: 1.tA 2.→ 1.tB
-   = λ(x : 1.tA).
-    (λ(_strict_field : 1.tA).
-      case _strict_field as (_strict_forced : 1.tA) return (1.tB) of {
+  pub val 1.vmakeB :: tA 2.→ tB
+    = λ(x : tA).
+      (λ(_strict_field : tA).
+        case _strict_field as (_strict_forced : tA) return (tB) of {
           _ →
-              1.cMkB _strict_field
-      }) x
+            cMkB _strict_field
+        }) x
 status: pass
 reason: Two constructors that unpack each other each keep one strict pointer.

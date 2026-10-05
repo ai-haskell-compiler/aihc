@@ -17,57 +17,56 @@ expected: |-
   scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [4.c$Dict$Show] 4.t$Dict$Show :: ∀(a : 5.sType). 5.sType;
-    3.tAddr# :: 5.tTYPE 5.cAddrRep;
-    constructors [5.cC#] 5.tChar :: 5.sType;
-    constructors [5.cI#] 5.tInt :: 5.sType;
-    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: 5.sType;
-    5.sLiftedRep :: 5.tRuntimeRep;
-    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: 5.sType;
-    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.sType;
-    5.sType :: 5.sType;
-    constructors [5.c[], 5.c:] 5.t[] :: ∀(a : 5.sType). 5.sType;
-    4.c$Dict$Show :: ∀(a : 5.sType). (5.tInt 5.→ a 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar) 5.→ (a 5.→ 5.t[] 5.tChar) 5.→ (5.t[] a 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar) 5.→ 4.t$Dict$Show a;
-    4.v$dmshow :: ∀(a : 5.sType). 4.t$Dict$Show a 5.→ a 5.→ 5.t[] 5.tChar;
-    4.v$dmshowList :: ∀(a : 5.sType). 4.t$Dict$Show a 5.→ 5.t[] a 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar;
-    5.cAddrRep :: 5.tRuntimeRep;
-    5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
-    5.cLifted :: 5.tLevity;
-    2.vunpackAppendCString# :: FUN @5.cAddrRep @5.sLiftedRep 3.tAddr# (5.t[] 5.tChar 5.→ 5.t[] 5.tChar);
-    2.vunpackAppendCStringUtf8# :: FUN @5.cAddrRep @5.sLiftedRep 3.tAddr# (5.t[] 5.tChar 5.→ 5.t[] 5.tChar)
+    constructors [4.c$Dict$Show] 4.t$Dict$Show :: ∀(a : sType). sType;
+    3.tAddr# :: tTYPE cAddrRep;
+    constructors [5.cC#] 5.tChar :: sType;
+    constructors [5.cI#] 5.tInt :: sType;
+    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: sType;
+    5.sLiftedRep :: tRuntimeRep;
+    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: sType;
+    5.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    5.sType :: sType;
+    constructors [5.c[], 5.c:] 5.t[] :: ∀(a : sType). sType;
+    4.c$Dict$Show :: ∀(a : sType). (tInt 5.→ a 5.→ t[] tChar 5.→ t[] tChar) 5.→ (a 5.→ t[] tChar) 5.→ (t[] a 5.→ t[] tChar 5.→ t[] tChar) 5.→ t$Dict$Show a;
+    4.v$dmshow :: ∀(a : sType). t$Dict$Show a 5.→ a 5.→ t[] tChar;
+    4.v$dmshowList :: ∀(a : sType). t$Dict$Show a 5.→ t[] a 5.→ t[] tChar 5.→ t[] tChar;
+    5.cAddrRep :: tRuntimeRep;
+    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
+    5.cLifted :: tLevity;
+    2.vunpackAppendCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar 5.→ t[] tChar);
+    2.vunpackAppendCStringUtf8# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar 5.→ t[] tChar)
 
   import synonyms
-    5.sLiftedRep = 5.cBoxedRep 5.cLifted;
-    5.sType = 5.tTYPE 5.sLiftedRep
+    5.sLiftedRep = cBoxedRep cLifted;
+    5.sType = tTYPE sLiftedRep
 
-  pub type 1.tCode :: 5.sType {
-      pub 1.cExitSuccess :: 1.tCode;
-      pub 1.cExitFailure :: 1.tCode;
-      pub 1.cCλ :: 1.tCode
+  pub type 1.tCode :: sType {
+    pub 1.cExitSuccess :: tCode;
+    pub 1.cExitFailure :: tCode;
+    pub 1.cCλ :: tCode
   }
 
-  pub val 1.v$fShowCode :: 4.t$Dict$Show 1.tCode
-   = 4.c$Dict$Show @1.tCode 1.v$fShowCode$cshowsPrec 1.v$fShowCode$cshow 1.v$fShowCode$cshowList
+  pub val 1.v$fShowCode :: t$Dict$Show tCode
+    = c$Dict$Show @tCode v$fShowCode$cshowsPrec v$fShowCode$cshow v$fShowCode$cshowList
 
-  val 1.v$fShowCode$cshowsPrec :: 5.tInt 5.→ 1.tCode 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar
-   = λ(x : 5.tInt).
-    λ(y : 1.tCode).
-      case y as (_scrut : 1.tCode) return (5.t[] 5.tChar 5.→ 5.t[] 5.tChar) of {
-          1.cExitSuccess →
-              λ(s : 5.t[] 5.tChar).
-                2.vunpackAppendCString# "ExitSuccess"#5.cAddrRep s;
-          1.cExitFailure →
-              λ(s : 5.t[] 5.tChar).
-                2.vunpackAppendCString# "ExitFailure"#5.cAddrRep s;
-          1.cCλ →
-              λ(s : 5.t[] 5.tChar).
-                2.vunpackAppendCStringUtf8# "C\xce\xbb"#5.cAddrRep s
+  val 1.v$fShowCode$cshowsPrec :: tInt 5.→ tCode 5.→ t[] tChar 5.→ t[] tChar
+    = λ(x : tInt) (y : tCode).
+      case y as (_scrut : tCode) return (t[] tChar 5.→ t[] tChar) of {
+        cExitSuccess →
+          λ(s : t[] tChar).
+            vunpackAppendCString# "ExitSuccess"#cAddrRep s;
+        cExitFailure →
+          λ(s : t[] tChar).
+            vunpackAppendCString# "ExitFailure"#cAddrRep s;
+        cCλ →
+          λ(s : t[] tChar).
+            vunpackAppendCStringUtf8# "C\xce\xbb"#cAddrRep s
       }
 
-  val 1.v$fShowCode$cshow :: 1.tCode 5.→ 5.t[] 5.tChar
-   = 4.v$dmshow @1.tCode 1.v$fShowCode
+  val 1.v$fShowCode$cshow :: tCode 5.→ t[] tChar
+    = v$dmshow @tCode v$fShowCode
 
-  val 1.v$fShowCode$cshowList :: 5.t[] 1.tCode 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar
-   = 4.v$dmshowList @1.tCode 1.v$fShowCode
+  val 1.v$fShowCode$cshowList :: t[] tCode 5.→ t[] tChar 5.→ t[] tChar
+    = v$dmshowList @tCode v$fShowCode
 status: pass
 reason: Derived Show uses compact constructor names with a variable suffix.

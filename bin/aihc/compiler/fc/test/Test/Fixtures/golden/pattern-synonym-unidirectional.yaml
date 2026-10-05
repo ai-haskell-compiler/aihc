@@ -13,45 +13,40 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.c()] 2.tUnit :: 3.sType;
-    2.c() :: 2.tUnit;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tL (a : 3.sType) :: 3.sType {
-      pub 1.cN :: ∀(a : 3.sType). 1.tL a;
-      pub 1.cC :: ∀(a : 3.sType). a 3.→ 1.tL a 3.→ 1.tL a
+  pub type 1.tL (a : sType) :: sType {
+    pub 1.cN :: ∀(a : sType). tL a;
+    pub 1.cC :: ∀(a : sType). a 3.→ tL a 3.→ tL a
   }
 
-  pub val 1.v$mHead :: ∀(a : 3.sType) (rep : 3.tRuntimeRep) (r : 3.tTYPE rep). 1.tL a 3.→ (FUN @3.sLiftedRep @rep a r) 3.→ FUN @3.sLiftedRep @rep (FUN @3.sLiftedRep @rep 2.tUnit r) r
-   = Λ(a : 3.sType).
-    Λ(rep : 3.tRuntimeRep).
-      Λ(r : 3.tTYPE rep).
-        λ(x : 1.tL a).
-          λ(y : FUN @3.sLiftedRep @rep a r).
-            λ(z : FUN @3.sLiftedRep @rep 2.tUnit r).
-              case x as (_scrut : 1.tL a) return (r) of {
-                  1.cC (x{1} : a) (_pat : 1.tL a) →
-                      y x{1};
-                  _ →
-                      z 2.c()
-              }
+  pub val 1.v$mHead :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tL a 3.→ (FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tL a) (y : FUN @sLiftedRep @rep a r)
+    (z : FUN @sLiftedRep @rep tUnit r).
+      case x as (_scrut : tL a) return (r) of {
+        cC (x{1} : a) (_pat : tL a) →
+          y x{1};
+        _ →
+          z c()
+      }
 
-  pub val 1.vfirst :: ∀(a : 3.sType). 1.tL a 3.→ a
-   = Λ(a : 3.sType).
-    λ(x : 1.tL a).
-      1.v$mHead @a @3.sLiftedRep @a x (λ(x{1} : a).
-        x{1}) (λ(_pattern_failure : 2.tUnit).
-        case x as (_case_nomatch : 1.tL a) return (a) of {
+  pub val 1.vfirst :: ∀(a : sType). tL a 3.→ a
+    = Λ(a : sType). λ(x : tL a).
+      v$mHead @a @sLiftedRep @a x (λ(x{1} : a).
+        x{1}) (λ(_pattern_failure : tUnit).
+        case x as (_case_nomatch : tL a) return (a) of {
 
         })
 status: pass

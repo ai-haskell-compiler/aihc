@@ -24,38 +24,38 @@ expected: |-
   scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [4.c$Dict$IsString] 4.t$Dict$IsString :: ∀(a : 5.sType). 5.sType;
-    3.tAddr# :: 5.tTYPE 5.cAddrRep;
-    constructors [5.cC#] 5.tChar :: 5.sType;
-    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: 5.sType;
-    5.sLiftedRep :: 5.tRuntimeRep;
-    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: 5.sType;
-    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.sType;
-    5.sType :: 5.sType;
-    constructors [5.c[], 5.c:] 5.t[] :: ∀(a : 5.sType). 5.sType;
-    4.c$Dict$IsString :: ∀(a : 5.sType). (5.t[] 5.tChar 5.→ a) 5.→ 4.t$Dict$IsString a;
-    5.cAddrRep :: 5.tRuntimeRep;
-    5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
-    5.cLifted :: 5.tLevity;
-    4.vfromString :: ∀(a : 5.sType). 4.t$Dict$IsString a 5.→ 5.t[] 5.tChar 5.→ a;
-    2.vunpackCString# :: FUN @5.cAddrRep @5.sLiftedRep 3.tAddr# (5.t[] 5.tChar)
+    constructors [4.c$Dict$IsString] 4.t$Dict$IsString :: ∀(a : sType). sType;
+    3.tAddr# :: tTYPE cAddrRep;
+    constructors [5.cC#] 5.tChar :: sType;
+    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: sType;
+    5.sLiftedRep :: tRuntimeRep;
+    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: sType;
+    5.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    5.sType :: sType;
+    constructors [5.c[], 5.c:] 5.t[] :: ∀(a : sType). sType;
+    4.c$Dict$IsString :: ∀(a : sType). (t[] tChar 5.→ a) 5.→ t$Dict$IsString a;
+    5.cAddrRep :: tRuntimeRep;
+    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
+    5.cLifted :: tLevity;
+    4.vfromString :: ∀(a : sType). t$Dict$IsString a 5.→ t[] tChar 5.→ a;
+    2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
 
   import synonyms
-    5.sLiftedRep = 5.cBoxedRep 5.cLifted;
-    5.sType = 5.tTYPE 5.sLiftedRep
+    5.sLiftedRep = cBoxedRep cLifted;
+    5.sType = tTYPE sLiftedRep
 
-  pub type 1.tName :: 5.sType {}
+  pub type 1.tName :: sType {}
 
-  axiom 1.$ax$Name : 1.tName ~R 5.t[] 5.tChar
+  axiom 1.$ax$Name : tName ~R t[] tChar
 
-  pub val 1.v$fIsStringName :: 4.t$Dict$IsString 1.tName
-   = 4.c$Dict$IsString @1.tName 1.v$fIsStringName$cfromString
+  pub val 1.v$fIsStringName :: t$Dict$IsString tName
+    = c$Dict$IsString @tName v$fIsStringName$cfromString
 
-  val 1.v$fIsStringName$cfromString :: 5.t[] 5.tChar 5.→ 1.tName
-   = λ(_newtype : 5.t[] 5.tChar).
-    _newtype ▷ sym (axiom-co 1.$ax$Name)
+  val 1.v$fIsStringName$cfromString :: t[] tChar 5.→ tName
+    = λ(_newtype : t[] tChar).
+      _newtype ▷ sym (axiom-co $ax$Name)
 
-  pub val 1.vgreeting :: 1.tName
-   = 4.vfromString @1.tName 1.v$fIsStringName (2.vunpackCString# "hi"#5.cAddrRep)
+  pub val 1.vgreeting :: tName
+    = vfromString @tName v$fIsStringName (vunpackCString# "hi"#cAddrRep)
 status: pass
 reason: OverloadedStrings applies the resolved fromString to the ordinary string literal.

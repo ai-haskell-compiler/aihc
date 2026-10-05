@@ -14,27 +14,24 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.c$Dict$Monad] 2.t$Dict$Monad :: ∀(m : 3.sType 3.→ 3.sType). 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    2.v>>= :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType). 2.t$Dict$Monad m 3.→ m a 3.→ (a 3.→ m b) 3.→ m b;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    2.vreturn :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType). 2.t$Dict$Monad m 3.→ a 3.→ m a
+    constructors [2.c$Dict$Monad] 2.t$Dict$Monad :: ∀(m : sType 3.→ sType). sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    2.v>>= :: ∀(m : sType 3.→ sType) (a : sType) (b : sType). t$Dict$Monad m 3.→ m a 3.→ (a 3.→ m b) 3.→ m b;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity;
+    2.vreturn :: ∀(m : sType 3.→ sType) (a : sType). t$Dict$Monad m 3.→ a 3.→ m a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub val 1.videntityAction :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType). 2.t$Dict$Monad m 3.→ m a 3.→ m a
-   = Λ(m : 3.sType 3.→ 3.sType).
-    Λ(a : 3.sType).
-      λ($d0 : 2.t$Dict$Monad m).
-        λ(x : m a).
-          2.v>>= @m @a @a $d0 x (λ(value : a).
-            2.vreturn @m @a $d0 value)
+  pub val 1.videntityAction :: ∀(m : sType 3.→ sType) (a : sType). t$Dict$Monad m 3.→ m a 3.→ m a
+    = Λ(m : sType 3.→ sType) (a : sType). λ($d0 : t$Dict$Monad m) (x : m a).
+      v>>= @m @a @a $d0 x (λ(value : a).
+        vreturn @m @a $d0 value)
 status: pass
 reason: type-checks and desugars do notation with only aihc-prim built-ins

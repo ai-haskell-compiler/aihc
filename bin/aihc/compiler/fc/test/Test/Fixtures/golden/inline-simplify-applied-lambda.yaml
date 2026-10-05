@@ -23,38 +23,38 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    2.tRealWorld :: 3.sType;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tEff (a : 3.sType) :: 3.sType {}
+  type 1.tEff (a : sType) :: sType {}
 
-  axiom 1.$ax$Eff (a : 3.sType) : 1.tEff a ~R FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (2.tState# 2.tRealWorld) a
+  axiom 1.$ax$Eff (a : sType) : tEff a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) a
 
-  val 1.vwrap :: 1.tEff 3.tInt 3.→ 1.tEff 3.tInt
-   = λ(x : 1.tEff 3.tInt).
-    (λ(s : 2.tState# 2.tRealWorld).
-      (x ▷ axiom-co 1.$ax$Eff @3.tInt) s) ▷ sym (axiom-co 1.$ax$Eff @3.tInt)
+  val 1.vwrap :: tEff tInt 3.→ tEff tInt
+    = λ(x : tEff tInt).
+      (λ(s : tState# tRealWorld).
+        (x ▷ axiom-co $ax$Eff @tInt) s) ▷ sym (axiom-co $ax$Eff @tInt)
 
-  pub val 1.vrun :: 1.tEff 3.tInt
-   = 1.vwrap ((λ(s : 2.tState# 2.tRealWorld).
-    3.cI# 2#3.cIntRep) ▷ sym (axiom-co 1.$ax$Eff @3.tInt))
+  pub val 1.vrun :: tEff tInt
+    = vwrap ((λ(s : tState# tRealWorld).
+      cI# 2#cIntRep) ▷ sym (axiom-co $ax$Eff @tInt))
 status: pass
 reason: The simplifying mode inlines nothing, so the call of wrap stays, but it still reduces a lambda applied to an argument and drops the unused let in its head.

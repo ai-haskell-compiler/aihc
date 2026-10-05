@@ -34,166 +34,132 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.c$Dict$Applicative] 2.t$Dict$Applicative :: ∀(f : 3.sType 3.→ 3.sType). 3.sType;
-    constructors [2.c$Dict$Functor] 2.t$Dict$Functor :: ∀(f : 3.sType 3.→ 3.sType). 3.sType;
-    constructors [2.c$Dict$Monad] 2.t$Dict$Monad :: ∀(m : 3.sType 3.→ 3.sType). 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    2.c$Dict$Applicative :: ∀(f : 3.sType 3.→ 3.sType). 2.t$Dict$Functor f 3.→ (∀(a : 3.sType). a 3.→ f a) 3.→ (∀(a : 3.sType) (b : 3.sType). f (a 3.→ b) 3.→ f a 3.→ f b) 3.→ (∀(a : 3.sType) (b : 3.sType). f a 3.→ f b 3.→ f b) 3.→ (∀(a : 3.sType) (b : 3.sType). f a 3.→ f b 3.→ f a) 3.→ (∀(a : 3.sType) (b : 3.sType) (c : 3.sType). (a 3.→ b 3.→ c) 3.→ f a 3.→ f b 3.→ f c) 3.→ 2.t$Dict$Applicative f;
-    2.c$Dict$Functor :: ∀(f : 3.sType 3.→ 3.sType). (∀(a : 3.sType) (b : 3.sType). (a 3.→ b) 3.→ f a 3.→ f b) 3.→ (∀(a : 3.sType) (b : 3.sType). a 3.→ f b 3.→ f a) 3.→ 2.t$Dict$Functor f;
-    2.c$Dict$Monad :: ∀(m : 3.sType 3.→ 3.sType). 2.t$Dict$Applicative m 3.→ (∀(a : 3.sType) (b : 3.sType). m a 3.→ (a 3.→ m b) 3.→ m b) 3.→ (∀(a : 3.sType) (b : 3.sType). m a 3.→ m b 3.→ m b) 3.→ (∀(a : 3.sType). a 3.→ m a) 3.→ 2.t$Dict$Monad m;
-    2.v$dm$42$$62$ :: ∀(f : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType). 2.t$Dict$Applicative f 3.→ f a 3.→ f b 3.→ f b;
-    2.v$dm$60$$ :: ∀(f : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType). 2.t$Dict$Functor f 3.→ a 3.→ f b 3.→ f a;
-    2.v$dm$60$$42$ :: ∀(f : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType). 2.t$Dict$Applicative f 3.→ f a 3.→ f b 3.→ f a;
-    2.v$dm$62$$62$ :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType). 2.t$Dict$Monad m 3.→ m a 3.→ m b 3.→ m b;
-    2.v$dmliftA2 :: ∀(f : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType) (c : 3.sType). 2.t$Dict$Applicative f 3.→ (a 3.→ b 3.→ c) 3.→ f a 3.→ f b 3.→ f c;
-    2.v$dmreturn :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType). 2.t$Dict$Monad m 3.→ a 3.→ m a;
-    2.v>>= :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType). 2.t$Dict$Monad m 3.→ m a 3.→ (a 3.→ m b) 3.→ m b;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a;
-    2.vfmap :: ∀(f : 3.sType 3.→ 3.sType) (a : 3.sType) (b : 3.sType). 2.t$Dict$Functor f 3.→ (a 3.→ b) 3.→ f a 3.→ f b;
-    2.vreturn :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType). 2.t$Dict$Monad m 3.→ a 3.→ m a
+    constructors [2.c$Dict$Applicative] 2.t$Dict$Applicative :: ∀(f : sType 3.→ sType). sType;
+    constructors [2.c$Dict$Functor] 2.t$Dict$Functor :: ∀(f : sType 3.→ sType). sType;
+    constructors [2.c$Dict$Monad] 2.t$Dict$Monad :: ∀(m : sType 3.→ sType). sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c$Dict$Applicative :: ∀(f : sType 3.→ sType). t$Dict$Functor f 3.→ (∀(a : sType). a 3.→ f a) 3.→ (∀(a : sType) (b : sType). f (a 3.→ b) 3.→ f a 3.→ f b) 3.→ (∀(a : sType) (b : sType). f a 3.→ f b 3.→ f b) 3.→ (∀(a : sType) (b : sType). f a 3.→ f b 3.→ f a) 3.→ (∀(a : sType) (b : sType) (c : sType). (a 3.→ b 3.→ c) 3.→ f a 3.→ f b 3.→ f c) 3.→ t$Dict$Applicative f;
+    2.c$Dict$Functor :: ∀(f : sType 3.→ sType). (∀(a : sType) (b : sType). (a 3.→ b) 3.→ f a 3.→ f b) 3.→ (∀(a : sType) (b : sType). a 3.→ f b 3.→ f a) 3.→ t$Dict$Functor f;
+    2.c$Dict$Monad :: ∀(m : sType 3.→ sType). t$Dict$Applicative m 3.→ (∀(a : sType) (b : sType). m a 3.→ (a 3.→ m b) 3.→ m b) 3.→ (∀(a : sType) (b : sType). m a 3.→ m b 3.→ m b) 3.→ (∀(a : sType). a 3.→ m a) 3.→ t$Dict$Monad m;
+    2.v$dm$42$$62$ :: ∀(f : sType 3.→ sType) (a : sType) (b : sType). t$Dict$Applicative f 3.→ f a 3.→ f b 3.→ f b;
+    2.v$dm$60$$ :: ∀(f : sType 3.→ sType) (a : sType) (b : sType). t$Dict$Functor f 3.→ a 3.→ f b 3.→ f a;
+    2.v$dm$60$$42$ :: ∀(f : sType 3.→ sType) (a : sType) (b : sType). t$Dict$Applicative f 3.→ f a 3.→ f b 3.→ f a;
+    2.v$dm$62$$62$ :: ∀(m : sType 3.→ sType) (a : sType) (b : sType). t$Dict$Monad m 3.→ m a 3.→ m b 3.→ m b;
+    2.v$dmliftA2 :: ∀(f : sType 3.→ sType) (a : sType) (b : sType) (c : sType). t$Dict$Applicative f 3.→ (a 3.→ b 3.→ c) 3.→ f a 3.→ f b 3.→ f c;
+    2.v$dmreturn :: ∀(m : sType 3.→ sType) (a : sType). t$Dict$Monad m 3.→ a 3.→ m a;
+    2.v>>= :: ∀(m : sType 3.→ sType) (a : sType) (b : sType). t$Dict$Monad m 3.→ m a 3.→ (a 3.→ m b) 3.→ m b;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a;
+    2.vfmap :: ∀(f : sType 3.→ sType) (a : sType) (b : sType). t$Dict$Functor f 3.→ (a 3.→ b) 3.→ f a 3.→ f b;
+    2.vreturn :: ∀(m : sType 3.→ sType) (a : sType). t$Dict$Monad m 3.→ a 3.→ m a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tEx :: 3.sType {
-      pub 1.cEx :: 1.tEx
+  pub type 1.tEx :: sType {
+    pub 1.cEx :: tEx
   }
 
-  pub type 1.tEither (e : 3.sType) (a : 3.sType) :: 3.sType {
-      pub 1.cLeft :: ∀(e : 3.sType) (a : 3.sType). e 3.→ 1.tEither e a;
-      pub 1.cRight :: ∀(e : 3.sType) (a : 3.sType). a 3.→ 1.tEither e a
+  pub type 1.tEither (e : sType) (a : sType) :: sType {
+    pub 1.cLeft :: ∀(e : sType) (a : sType). e 3.→ tEither e a;
+    pub 1.cRight :: ∀(e : sType) (a : sType). a 3.→ tEither e a
   }
 
-  pub type 1.t$Dict$Mask (m : 3.sType 3.→ 3.sType) :: 3.sType {
-      pub 1.c$Dict$Mask :: ∀(m : 3.sType 3.→ 3.sType). (∀(a : 3.sType) (c : 3.sType). m a 3.→ (a 3.→ m c) 3.→ m c) 3.→ 1.t$Dict$Mask m
+  pub type 1.t$Dict$Mask (m : sType 3.→ sType) :: sType {
+    pub 1.c$Dict$Mask :: ∀(m : sType 3.→ sType). (∀(a : sType) (c : sType). m a 3.→ (a 3.→ m c) 3.→ m c) 3.→ t$Dict$Mask m
   }
 
-  pub val 1.vbracket :: ∀(m : 3.sType 3.→ 3.sType) (a : 3.sType) (c : 3.sType). 1.t$Dict$Mask m 3.→ m a 3.→ (a 3.→ m c) 3.→ m c
-   = Λ(m : 3.sType 3.→ 3.sType).
-    Λ(a : 3.sType).
-      Λ(c : 3.sType).
-        λ($d0 : 1.t$Dict$Mask m).
-          case $d0 as ($dict : 1.t$Dict$Mask m) return (m a 3.→ (a 3.→ m c) 3.→ m c) of {
-              1.c$Dict$Mask ($method0 : ∀(a{1} : 3.sType) (c{1} : 3.sType). m a{1} 3.→ (a{1} 3.→ m c{1}) 3.→ m c{1}) →
-                  $method0 @a @c
-          }
+  pub val 1.vbracket :: ∀(m : sType 3.→ sType) (a : sType) (c : sType). t$Dict$Mask m 3.→ m a 3.→ (a 3.→ m c) 3.→ m c
+    = Λ(m : sType 3.→ sType) (a : sType) (c : sType). λ($d0 : t$Dict$Mask m).
+      case $d0 as ($dict : t$Dict$Mask m) return (m a 3.→ (a 3.→ m c) 3.→ m c) of {
+        c$Dict$Mask ($method0 : ∀(a{1} : sType) (c{1} : sType). m a{1} 3.→ (a{1} 3.→ m c{1}) 3.→ m c{1}) →
+          $method0 @a @c
+      }
 
-  pub val 1.v$fFunctorEithere :: ∀(e : 3.sType). 2.t$Dict$Functor (1.tEither e)
-   = Λ(e : 3.sType).
-    2.c$Dict$Functor @(1.tEither e) (1.v$fFunctorEithere$cfmap @e) (1.v$fFunctorEithere$c<$ @e)
+  pub val 1.v$fFunctorEithere :: ∀(e : sType). t$Dict$Functor (tEither e)
+    = Λ(e : sType).
+      c$Dict$Functor @(tEither e) (v$fFunctorEithere$cfmap @e) (v$fFunctorEithere$c<$ @e)
 
-  val 1.v$fFunctorEithere$cfmap :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType). (a 3.→ b) 3.→ 1.tEither e a 3.→ 1.tEither e b
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        λ(x : a 3.→ b).
-          λ(y : 1.tEither e a).
-            case y as (_scrut : 1.tEither e a) return (1.tEither e b) of {
-                1.cLeft (e{1} : e) →
-                    1.cLeft @e @b e{1};
-                1.cRight (a{1} : a) →
-                    1.cRight @e @b (x a{1})
-            }
+  val 1.v$fFunctorEithere$cfmap :: ∀(e : sType) (a : sType) (b : sType). (a 3.→ b) 3.→ tEither e a 3.→ tEither e b
+    = Λ(e : sType) (a : sType) (b : sType). λ(x : a 3.→ b) (y : tEither e a).
+      case y as (_scrut : tEither e a) return (tEither e b) of {
+        cLeft (e{1} : e) →
+          cLeft @e @b e{1};
+        cRight (a{1} : a) →
+          cRight @e @b (x a{1})
+      }
 
-  val 1.v$fFunctorEithere$c<$ :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType). a 3.→ 1.tEither e b 3.→ 1.tEither e a
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        2.v$dm$60$$ @(1.tEither e) @a @b (1.v$fFunctorEithere @e)
+  val 1.v$fFunctorEithere$c<$ :: ∀(e : sType) (a : sType) (b : sType). a 3.→ tEither e b 3.→ tEither e a
+    = Λ(e : sType) (a : sType) (b : sType).
+      v$dm$60$$ @(tEither e) @a @b (v$fFunctorEithere @e)
 
-  pub val 1.v$fApplicativeEithere :: ∀(e : 3.sType). 2.t$Dict$Applicative (1.tEither e)
-   = Λ(e : 3.sType).
-    2.c$Dict$Applicative @(1.tEither e) (1.v$fFunctorEithere @e) (1.v$fApplicativeEithere$cpure @e) (1.v$fApplicativeEithere$c<*> @e) (1.v$fApplicativeEithere$c*> @e) (1.v$fApplicativeEithere$c<* @e) (1.v$fApplicativeEithere$cliftA2 @e)
+  pub val 1.v$fApplicativeEithere :: ∀(e : sType). t$Dict$Applicative (tEither e)
+    = Λ(e : sType).
+      c$Dict$Applicative @(tEither e) (v$fFunctorEithere @e) (v$fApplicativeEithere$cpure @e) (v$fApplicativeEithere$c<*> @e) (v$fApplicativeEithere$c*> @e) (v$fApplicativeEithere$c<* @e) (v$fApplicativeEithere$cliftA2 @e)
 
-  val 1.v$fApplicativeEithere$cpure :: ∀(e : 3.sType) (a : 3.sType). a 3.→ 1.tEither e a
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      1.cRight @e @a
+  val 1.v$fApplicativeEithere$cpure :: ∀(e : sType) (a : sType). a 3.→ tEither e a
+    = Λ(e : sType) (a : sType).
+      cRight @e @a
 
-  val 1.v$fApplicativeEithere$c<*> :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType). 1.tEither e (a 3.→ b) 3.→ 1.tEither e a 3.→ 1.tEither e b
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        λ(x : 1.tEither e (a 3.→ b)).
-          λ(y : 1.tEither e a).
-            case x as (_scrut : 1.tEither e (a 3.→ b)) return (1.tEither e b) of {
-                1.cLeft (e{1} : e) →
-                    1.cLeft @e @b e{1};
-                1.cRight (f : a 3.→ b) →
-                    2.vfmap @(1.tEither e) @a @b (1.v$fFunctorEithere @e) f y
-            }
+  val 1.v$fApplicativeEithere$c<*> :: ∀(e : sType) (a : sType) (b : sType). tEither e (a 3.→ b) 3.→ tEither e a 3.→ tEither e b
+    = Λ(e : sType) (a : sType) (b : sType). λ(x : tEither e (a 3.→ b)) (y : tEither e a).
+      case x as (_scrut : tEither e (a 3.→ b)) return (tEither e b) of {
+        cLeft (e{1} : e) →
+          cLeft @e @b e{1};
+        cRight (f : a 3.→ b) →
+          vfmap @(tEither e) @a @b (v$fFunctorEithere @e) f y
+      }
 
-  val 1.v$fApplicativeEithere$c*> :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType). 1.tEither e a 3.→ 1.tEither e b 3.→ 1.tEither e b
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        2.v$dm$42$$62$ @(1.tEither e) @a @b (1.v$fApplicativeEithere @e)
+  val 1.v$fApplicativeEithere$c*> :: ∀(e : sType) (a : sType) (b : sType). tEither e a 3.→ tEither e b 3.→ tEither e b
+    = Λ(e : sType) (a : sType) (b : sType).
+      v$dm$42$$62$ @(tEither e) @a @b (v$fApplicativeEithere @e)
 
-  val 1.v$fApplicativeEithere$c<* :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType). 1.tEither e a 3.→ 1.tEither e b 3.→ 1.tEither e a
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        2.v$dm$60$$42$ @(1.tEither e) @a @b (1.v$fApplicativeEithere @e)
+  val 1.v$fApplicativeEithere$c<* :: ∀(e : sType) (a : sType) (b : sType). tEither e a 3.→ tEither e b 3.→ tEither e a
+    = Λ(e : sType) (a : sType) (b : sType).
+      v$dm$60$$42$ @(tEither e) @a @b (v$fApplicativeEithere @e)
 
-  val 1.v$fApplicativeEithere$cliftA2 :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType) (c : 3.sType). (a 3.→ b 3.→ c) 3.→ 1.tEither e a 3.→ 1.tEither e b 3.→ 1.tEither e c
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        Λ(c : 3.sType).
-          2.v$dmliftA2 @(1.tEither e) @a @b @c (1.v$fApplicativeEithere @e)
+  val 1.v$fApplicativeEithere$cliftA2 :: ∀(e : sType) (a : sType) (b : sType) (c : sType). (a 3.→ b 3.→ c) 3.→ tEither e a 3.→ tEither e b 3.→ tEither e c
+    = Λ(e : sType) (a : sType) (b : sType) (c : sType).
+      v$dmliftA2 @(tEither e) @a @b @c (v$fApplicativeEithere @e)
 
-  pub val 1.v$fMonadEithere :: ∀(e : 3.sType). 2.t$Dict$Monad (1.tEither e)
-   = Λ(e : 3.sType).
-    2.c$Dict$Monad @(1.tEither e) (1.v$fApplicativeEithere @e) (1.v$fMonadEithere$c>>= @e) (1.v$fMonadEithere$c>> @e) (1.v$fMonadEithere$creturn @e)
+  pub val 1.v$fMonadEithere :: ∀(e : sType). t$Dict$Monad (tEither e)
+    = Λ(e : sType).
+      c$Dict$Monad @(tEither e) (v$fApplicativeEithere @e) (v$fMonadEithere$c>>= @e) (v$fMonadEithere$c>> @e) (v$fMonadEithere$creturn @e)
 
-  val 1.v$fMonadEithere$c>>= :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType). 1.tEither e a 3.→ (a 3.→ 1.tEither e b) 3.→ 1.tEither e b
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        λ(x : 1.tEither e a).
-          λ(y : a 3.→ 1.tEither e b).
-            case x as (_scrut : 1.tEither e a) return (1.tEither e b) of {
-                1.cLeft (e{1} : e) →
-                    1.cLeft @e @b e{1};
-                1.cRight (a{1} : a) →
-                    y a{1}
-            }
+  val 1.v$fMonadEithere$c>>= :: ∀(e : sType) (a : sType) (b : sType). tEither e a 3.→ (a 3.→ tEither e b) 3.→ tEither e b
+    = Λ(e : sType) (a : sType) (b : sType). λ(x : tEither e a) (y : a 3.→ tEither e b).
+      case x as (_scrut : tEither e a) return (tEither e b) of {
+        cLeft (e{1} : e) →
+          cLeft @e @b e{1};
+        cRight (a{1} : a) →
+          y a{1}
+      }
 
-  val 1.v$fMonadEithere$c>> :: ∀(e : 3.sType) (a : 3.sType) (b : 3.sType). 1.tEither e a 3.→ 1.tEither e b 3.→ 1.tEither e b
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        2.v$dm$62$$62$ @(1.tEither e) @a @b (1.v$fMonadEithere @e)
+  val 1.v$fMonadEithere$c>> :: ∀(e : sType) (a : sType) (b : sType). tEither e a 3.→ tEither e b 3.→ tEither e b
+    = Λ(e : sType) (a : sType) (b : sType).
+      v$dm$62$$62$ @(tEither e) @a @b (v$fMonadEithere @e)
 
-  val 1.v$fMonadEithere$creturn :: ∀(e : 3.sType) (a : 3.sType). a 3.→ 1.tEither e a
-   = Λ(e : 3.sType).
-    Λ(a : 3.sType).
-      2.v$dmreturn @(1.tEither e) @a (1.v$fMonadEithere @e)
+  val 1.v$fMonadEithere$creturn :: ∀(e : sType) (a : sType). a 3.→ tEither e a
+    = Λ(e : sType) (a : sType).
+      v$dmreturn @(tEither e) @a (v$fMonadEithere @e)
 
-  pub val 1.v$fMaskEithere :: ∀(e : 3.sType). FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (e ~ 1.tEx) (1.t$Dict$Mask (1.tEither e))
-   = Λ(e : 3.sType).
-    λ($d0 : e ~ 1.tEx).
-      1.c$Dict$Mask @(1.tEither e) (1.v$fMaskEithere$cbracket @e $d0)
+  pub val 1.v$fMaskEithere :: ∀(e : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (e ~ tEx) (t$Dict$Mask (tEither e))
+    = Λ(e : sType). λ($d0 : e ~ tEx).
+      c$Dict$Mask @(tEither e) (v$fMaskEithere$cbracket @e $d0)
 
-  val 1.v$fMaskEithere$cbracket :: ∀(e : 3.sType). FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (e ~ 1.tEx) (∀(a : 3.sType) (c : 3.sType). 1.tEither e a 3.→ (a 3.→ 1.tEither e c) 3.→ 1.tEither e c)
-   = Λ(e : 3.sType).
-    λ($d0 : e ~ 1.tEx).
-      Λ(a : 3.sType).
-        Λ(c : 3.sType).
-          λ(x : 1.tEither e a).
-            λ(y : a 3.→ 1.tEither e c).
-              ((2.v>>= @(1.tEither 1.tEx) @a @c (1.v$fMonadEithere @1.tEx)) ▷ sym (fun-co (tycon-co 1.tEither ($d0) (refl a)) (fun-co (refl (a 3.→ 1.tEither 1.tEx c)) (tycon-co 1.tEither ($d0) (refl c))))) x (λ(resource : a).
-                ((2.v>>= @(1.tEither 1.tEx) @c @c (1.v$fMonadEithere @1.tEx)) ▷ sym (fun-co (tycon-co 1.tEither ($d0) (refl c)) (refl ((c 3.→ 1.tEither 1.tEx c) 3.→ 1.tEither 1.tEx c)))) (y resource) (λ(c{1} : c).
-                  2.vreturn @(1.tEither 1.tEx) @c (1.v$fMonadEithere @1.tEx) c{1}))
+  val 1.v$fMaskEithere$cbracket :: ∀(e : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (e ~ tEx) (∀(a : sType) (c : sType). tEither e a 3.→ (a 3.→ tEither e c) 3.→ tEither e c)
+    = Λ(e : sType). λ($d0 : e ~ tEx). Λ(a : sType) (c : sType). λ(x : tEither e a) (y : a 3.→ tEither e c).
+      ((v>>= @(tEither tEx) @a @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($d0) (refl a)) (fun-co (refl (a 3.→ tEither tEx c)) (tycon-co tEither ($d0) (refl c))))) x (λ(resource : a).
+        ((v>>= @(tEither tEx) @c @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($d0) (refl c)) (refl ((c 3.→ tEither tEx c) 3.→ tEither tEx c)))) (y resource) (λ(c{1} : c).
+          vreturn @(tEither tEx) @c (v$fMonadEithere @tEx) c{1}))
 status: pass
 reason: a given equality of the instance context rewrites the monad of a do
   statement, so the sequencing method takes the cast the proof carries

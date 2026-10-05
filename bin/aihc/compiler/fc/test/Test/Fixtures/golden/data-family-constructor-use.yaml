@@ -16,40 +16,40 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tUnit :: 2.sType {
-      pub 1.cUnit :: 1.tUnit
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: tUnit
   }
 
-  pub type 1.tPayload (a : 2.sType) :: 2.sType @N {}
+  pub type 1.tPayload (a : sType) :: sType @N {}
 
-  type 1.t$R$Payload$PayloadUnit :: 2.sType {
-      pub 1.cPayloadUnit :: 1.tUnit 2.→ 1.t$R$Payload$PayloadUnit
+  type 1.t$R$Payload$PayloadUnit :: sType {
+    pub 1.cPayloadUnit :: tUnit 2.→ t$R$Payload$PayloadUnit
   }
 
-  axiom 1.$ax$Payload$PayloadUnit : 1.tPayload 1.tUnit ~R 1.t$R$Payload$PayloadUnit
+  axiom 1.$ax$Payload$PayloadUnit : tPayload tUnit ~R t$R$Payload$PayloadUnit
 
-  pub val 1.vbuild :: 1.tUnit 2.→ 1.tPayload 1.tUnit
-   = λ(x : 1.tUnit).
-    (λ(_field : 1.tUnit).
-      (1.cPayloadUnit _field) ▷ sym (axiom-co 1.$ax$Payload$PayloadUnit)) x
+  pub val 1.vbuild :: tUnit 2.→ tPayload tUnit
+    = λ(x : tUnit).
+      (λ(_field : tUnit).
+        (cPayloadUnit _field) ▷ sym (axiom-co $ax$Payload$PayloadUnit)) x
 
-  pub val 1.vunwrap :: 1.tPayload 1.tUnit 2.→ 1.tUnit
-   = λ(x : 1.tPayload 1.tUnit).
-    case x ▷ axiom-co 1.$ax$Payload$PayloadUnit as (_scrut : 1.t$R$Payload$PayloadUnit) return (1.tUnit) of {
-        1.cPayloadUnit (value : 1.tUnit) →
-            value
-    }
+  pub val 1.vunwrap :: tPayload tUnit 2.→ tUnit
+    = λ(x : tPayload tUnit).
+      case x ▷ axiom-co $ax$Payload$PayloadUnit as (_scrut : t$R$Payload$PayloadUnit) return (tUnit) of {
+        cPayloadUnit (value : tUnit) →
+          value
+      }
 status: pass
 reason: A data-family constructor builds the representation type. The desugarer casts the value with the family axiom, and casts the scrutinee before a match.

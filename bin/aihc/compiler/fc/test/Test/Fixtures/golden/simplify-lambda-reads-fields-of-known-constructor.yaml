@@ -44,72 +44,69 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Tuple
   scope 4 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [4.cI#] 4.tInt :: 4.sType;
-    2.tInt# :: 4.tTYPE 4.cIntRep;
-    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: 4.sType;
-    4.sLiftedRep :: 4.tRuntimeRep;
-    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: 4.sType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
-    4.sType :: 4.sType;
-    constructors [3.c()] 3.tUnit :: 4.sType;
-    3.c() :: 3.tUnit;
-    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.cI# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 4.tInt;
-    4.cIntRep :: 4.tRuntimeRep;
-    4.cLifted :: 4.tLevity
+    constructors [4.cI#] 4.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: sType;
+    4.sLiftedRep :: tRuntimeRep;
+    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: sType;
+    4.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    4.sType :: sType;
+    constructors [3.c()] 3.tUnit :: sType;
+    3.c() :: tUnit;
+    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    4.cIntRep :: tRuntimeRep;
+    4.cLifted :: tLevity
 
   import synonyms
-    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
-    4.sType = 4.tTYPE 4.sLiftedRep
+    4.sLiftedRep = cBoxedRep cLifted;
+    4.sType = tTYPE sLiftedRep
 
-  pub type 1.tBox :: 4.sType {
-      pub 1.cBox :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tBox
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: FUN @cIntRep @sLiftedRep tInt# tBox
   }
 
-  pub type 1.tSome :: 4.sType {
-      pub 1.cSome :: ∀(a : 4.sType). a 4.→ FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tSome
+  pub type 1.tSome :: sType {
+    pub 1.cSome :: ∀(a : sType). a 4.→ FUN @cIntRep @sLiftedRep tInt# tSome
   }
 
-  pub val 1.vuse noinline :: 1.tBox 4.→ FUN @4.cIntRep @4.sLiftedRep 2.tInt# 4.tInt
-   = λ(x : 1.tBox).
-    λ(y : 2.tInt#).
-      case x as (_scrut : 1.tBox) return (4.tInt) of {
-          1.cBox (a : 2.tInt#) →
-              4.cI# (foreign {prim 2.v+# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.cIntRep 2.tInt# 2.tInt#)} a y)
+  pub val 1.vuse noinline :: tBox 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
+    = λ(x : tBox) (y : tInt#).
+      case x as (_scrut : tBox) return (tInt) of {
+        cBox (a : tInt#) →
+          cI# (prim +# a y)
       }
 
-  pub val 1.vmake :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (4.tInt 4.→ 4.tInt)
-   = λ(x : 2.tInt#).
-    let {
-        b : 1.tBox =
-            1.cBox x
-    } in
-        λ(x{1} : 4.tInt).
-          case b as (b{1} : 1.tBox) return (4.tInt) of {
-              1.cBox (x{2} : 2.tInt#) →
-                  case x{1} as (_scrut : 4.tInt) return (4.tInt) of {
-                      4.cI# (y : 2.tInt#) →
-                          1.vuse b (foreign {prim 2.v+# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.cIntRep 2.tInt# 2.tInt#)} x{2} y)
-                  }
-          }
+  pub val 1.vmake :: FUN @cIntRep @sLiftedRep tInt# (tInt 4.→ tInt)
+    = λ(x : tInt#).
+      let b : tBox =
+        cBox x;
+      λ(x{1} : tInt).
+        case b as (b{1} : tBox) return (tInt) of {
+          cBox (x{2} : tInt#) →
+            case x{1} as (_scrut : tInt) return (tInt) of {
+              cI# (y : tInt#) →
+                vuse b (prim +# x{2} y)
+            }
+        }
 
-  pub val 1.vuseSome noinline :: 1.tSome 4.→ FUN @4.cIntRep @4.sLiftedRep 2.tInt# 4.tInt
-   = λ(x : 1.tSome).
-    λ(y : 2.tInt#).
-      case x as (_scrut : 1.tSome) return (4.tInt) of {
-          1.cSome @(a : 4.sType) (_pat : a) (a{1} : 2.tInt#) →
-              4.cI# (foreign {prim 2.v+# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.cIntRep 2.tInt# 2.tInt#)} a{1} y)
+  pub val 1.vuseSome noinline :: tSome 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
+    = λ(x : tSome) (y : tInt#).
+      case x as (_scrut : tSome) return (tInt) of {
+        cSome @(a : sType) (_pat : a) (a{1} : tInt#) →
+          cI# (prim +# a{1} y)
       }
 
-  pub val 1.vmakeSome :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (4.tInt 4.→ 4.tInt)
-   = λ(x : 2.tInt#).
-    let {
-        s : 1.tSome =
-            1.cSome @3.tUnit 3.c() x
-    } in
-        λ(x{1} : 4.tInt).
-          case x{1} as (_scrut : 4.tInt) return (4.tInt) of {
-              4.cI# (y : 2.tInt#) →
-                  1.vuseSome s (foreign {prim 2.v+# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.cIntRep 2.tInt# 2.tInt#)} x y)
-          }
+  pub val 1.vmakeSome :: FUN @cIntRep @sLiftedRep tInt# (tInt 4.→ tInt)
+    = λ(x : tInt#).
+      let s : tSome =
+        cSome @tUnit c() x;
+      λ(x{1} : tInt).
+        case x{1} as (_scrut : tInt) return (tInt) of {
+          cI# (y : tInt#) →
+            vuseSome s (prim +# x y)
+        }

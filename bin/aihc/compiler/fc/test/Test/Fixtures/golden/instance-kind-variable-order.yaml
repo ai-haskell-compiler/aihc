@@ -24,80 +24,72 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tTypeRep (k : 2.sType) (a : k) :: 2.sType {
-      pub 1.cTypeRep :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a
+  pub type 1.tTypeRep (k : sType) (a : k) :: sType {
+    pub 1.cTypeRep :: ∀(k : sType) (a : k). tTypeRep k a
   }
 
-  pub type 1.t$Dict$Typeable (k : 2.sType) (a : k) :: 2.sType {
-      pub 1.c$Dict$Typeable :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a 2.→ 1.t$Dict$Typeable k a
+  pub type 1.t$Dict$Typeable (k : sType) (a : k) :: sType {
+    pub 1.c$Dict$Typeable :: ∀(k : sType) (a : k). tTypeRep k a 2.→ t$Dict$Typeable k a
   }
 
-  pub val 1.vtypeRep :: ∀(k : 2.sType) (a : k). 1.t$Dict$Typeable k a 2.→ 1.tTypeRep k a
-   = Λ(k : 2.sType).
-    Λ(a : k).
-      λ($d0 : 1.t$Dict$Typeable k a).
-        case $d0 as ($dict : 1.t$Dict$Typeable k a) return (1.tTypeRep k a) of {
-            1.c$Dict$Typeable ($method0 : 1.tTypeRep k a) →
-                $method0
-        }
+  pub val 1.vtypeRep :: ∀(k : sType) (a : k). t$Dict$Typeable k a 2.→ tTypeRep k a
+    = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a).
+      case $d0 as ($dict : t$Dict$Typeable k a) return (tTypeRep k a) of {
+        c$Dict$Typeable ($method0 : tTypeRep k a) →
+          $method0
+      }
   scope 1 = "" Test
   scope 2 = "" Type.Reflection.Internal
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.c$Dict$Typeable] 2.t$Dict$Typeable :: ∀(k : 3.sType) (a : k). 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.cTypeRep] 2.tTypeRep :: ∀(k : 3.sType) (a : k). 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [2.c$Dict$Typeable] 2.t$Dict$Typeable :: ∀(k : sType) (a : k). sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.cTypeRep] 2.tTypeRep :: ∀(k : sType) (a : k). sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tUnit :: 3.sType {
-      pub 1.cUnit :: 1.tUnit
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: tUnit
   }
 
-  pub type 1.t$Dict$Binary (a : 3.sType) :: 3.sType {
-      pub 1.c$Dict$Binary :: ∀(a : 3.sType). (a 3.→ 1.tUnit) 3.→ 1.t$Dict$Binary a
+  pub type 1.t$Dict$Binary (a : sType) :: sType {
+    pub 1.c$Dict$Binary :: ∀(a : sType). (a 3.→ tUnit) 3.→ t$Dict$Binary a
   }
 
-  pub val 1.vput :: ∀(a : 3.sType). 1.t$Dict$Binary a 3.→ a 3.→ 1.tUnit
-   = Λ(a : 3.sType).
-    λ($d0 : 1.t$Dict$Binary a).
-      case $d0 as ($dict : 1.t$Dict$Binary a) return (a 3.→ 1.tUnit) of {
-          1.c$Dict$Binary ($method0 : a 3.→ 1.tUnit) →
-              $method0
+  pub val 1.vput :: ∀(a : sType). t$Dict$Binary a 3.→ a 3.→ tUnit
+    = Λ(a : sType). λ($d0 : t$Dict$Binary a).
+      case $d0 as ($dict : t$Dict$Binary a) return (a 3.→ tUnit) of {
+        c$Dict$Binary ($method0 : a 3.→ tUnit) →
+          $method0
       }
 
-  pub val 1.v$fBinaryTypeRepa :: ∀(k : 3.sType) (a : k). 2.t$Dict$Typeable k a 3.→ 1.t$Dict$Binary (2.tTypeRep k a)
-   = Λ(k : 3.sType).
-    Λ(a : k).
-      λ($d0 : 2.t$Dict$Typeable k a).
-        1.c$Dict$Binary @(2.tTypeRep k a) (1.v$fBinaryTypeRepa$cput @k @a $d0)
+  pub val 1.v$fBinaryTypeRepa :: ∀(k : sType) (a : k). t$Dict$Typeable k a 3.→ t$Dict$Binary (tTypeRep k a)
+    = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a).
+      c$Dict$Binary @(tTypeRep k a) (v$fBinaryTypeRepa$cput @k @a $d0)
 
-  val 1.v$fBinaryTypeRepa$cput :: ∀(k : 3.sType) (a : k). 2.t$Dict$Typeable k a 3.→ 2.tTypeRep k a 3.→ 1.tUnit
-   = Λ(k : 3.sType).
-    Λ(a : k).
-      λ($d0 : 2.t$Dict$Typeable k a).
-        λ(x : 2.tTypeRep k a).
-          1.cUnit
+  val 1.v$fBinaryTypeRepa$cput :: ∀(k : sType) (a : k). t$Dict$Typeable k a 3.→ tTypeRep k a 3.→ tUnit
+    = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a) (x : tTypeRep k a).
+      cUnit
 status: pass
 reason: an instance head that gives a parameter an implicit kind variable quantifies the kind variable before the parameter, so the dictionary type is well scoped.

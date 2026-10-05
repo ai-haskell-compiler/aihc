@@ -25,56 +25,56 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : 2.sType). 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity;
-    2.c[] :: ∀(a : 2.sType). 2.t[] a
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tBool :: 2.sType {
-      pub 1.cFalse :: 1.tBool;
-      pub 1.cTrue :: 1.tBool
+  pub type 1.tBool :: sType {
+    pub 1.cFalse :: tBool;
+    pub 1.cTrue :: tBool
   }
 
-  pub type 1.tMaybeBool :: 2.sType {
-      pub 1.cNothing :: 1.tMaybeBool;
-      pub 1.cJust :: 1.tBool 2.→ 1.tMaybeBool
+  pub type 1.tMaybeBool :: sType {
+    pub 1.cNothing :: tMaybeBool;
+    pub 1.cJust :: tBool 2.→ tMaybeBool
   }
 
-  pub val 1.vunused :: 1.tBool 2.→ 1.tBool
-   = λ(x : 1.tBool).
-    1.cTrue
+  pub val 1.vunused :: tBool 2.→ tBool
+    = λ(x : tBool).
+      cTrue
 
-  pub val 1.vsingle :: 2.t[] 1.tBool 2.→ 1.tBool
-   = λ(x : 2.t[] 1.tBool).
-    case x as (_scrut : 2.t[] 1.tBool) return (1.tBool) of {
-        2.c[] →
-            1.cTrue;
+  pub val 1.vsingle :: t[] tBool 2.→ tBool
+    = λ(x : t[] tBool).
+      case x as (_scrut : t[] tBool) return (tBool) of {
+        c[] →
+          cTrue;
         _ →
-            1.cFalse
-    }
+          cFalse
+      }
 
-  pub val 1.vshared :: 1.tMaybeBool 2.→ 1.tBool
-   = λ(x : 1.tMaybeBool).
-    case x as (_scrut : 1.tMaybeBool) return (1.tBool) of {
-        1.cJust (_pat : 1.tBool) →
-            case _pat as (_scrut{1} : 1.tBool) return (1.tBool) of {
-                1.cTrue →
-                    1.cTrue;
-                _ →
-                    1.cFalse
-            };
+  pub val 1.vshared :: tMaybeBool 2.→ tBool
+    = λ(x : tMaybeBool).
+      case x as (_scrut : tMaybeBool) return (tBool) of {
+        cJust (_pat : tBool) →
+          case _pat as (_scrut{1} : tBool) return (tBool) of {
+            cTrue →
+              cTrue;
+            _ →
+              cFalse
+          };
         _ →
-            1.cFalse
-    }
+          cFalse
+      }
 status: pass
 reason: pattern failure continuations are omitted, inlined, or shared according to
   their occurrence count

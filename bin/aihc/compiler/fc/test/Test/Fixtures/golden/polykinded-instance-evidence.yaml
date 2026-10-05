@@ -19,64 +19,60 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tBool :: 2.sType {
-      pub 1.cTrue :: 1.tBool;
-      pub 1.cFalse :: 1.tBool
+  pub type 1.tBool :: sType {
+    pub 1.cTrue :: tBool;
+    pub 1.cFalse :: tBool
   }
 
-  pub type 1.tMaybe (a : 2.sType) :: 2.sType {
-      pub 1.cNothing :: ∀(a : 2.sType). 1.tMaybe a;
-      pub 1.cJust :: ∀(a : 2.sType). a 2.→ 1.tMaybe a
+  pub type 1.tMaybe (a : sType) :: sType {
+    pub 1.cNothing :: ∀(a : sType). tMaybe a;
+    pub 1.cJust :: ∀(a : sType). a 2.→ tMaybe a
   }
 
-  pub type 1.tRep (k : 2.sType) (a : k) :: 2.sType {
-      pub 1.cRep :: ∀(k : 2.sType) (a : k). 1.tRep k a
+  pub type 1.tRep (k : sType) (a : k) :: sType {
+    pub 1.cRep :: ∀(k : sType) (a : k). tRep k a
   }
 
-  pub type 1.tSomeRep :: 2.sType {
-      pub 1.cSomeRep :: ∀(k : 2.sType) (a : k). 1.tRep k a 2.→ 1.tSomeRep
+  pub type 1.tSomeRep :: sType {
+    pub 1.cSomeRep :: ∀(k : sType) (a : k). tRep k a 2.→ tSomeRep
   }
 
-  pub type 1.t$Dict$Inspect (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Inspect :: ∀(a : 2.sType). (a 2.→ 1.tBool) 2.→ 1.t$Dict$Inspect a
+  pub type 1.t$Dict$Inspect (a : sType) :: sType {
+    pub 1.c$Dict$Inspect :: ∀(a : sType). (a 2.→ tBool) 2.→ t$Dict$Inspect a
   }
 
-  pub val 1.vinspect :: ∀(a : 2.sType). 1.t$Dict$Inspect a 2.→ a 2.→ 1.tBool
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Inspect a).
-      case $d0 as ($dict : 1.t$Dict$Inspect a) return (a 2.→ 1.tBool) of {
-          1.c$Dict$Inspect ($method0 : a 2.→ 1.tBool) →
-              $method0
+  pub val 1.vinspect :: ∀(a : sType). t$Dict$Inspect a 2.→ a 2.→ tBool
+    = Λ(a : sType). λ($d0 : t$Dict$Inspect a).
+      case $d0 as ($dict : t$Dict$Inspect a) return (a 2.→ tBool) of {
+        c$Dict$Inspect ($method0 : a 2.→ tBool) →
+          $method0
       }
 
-  pub val 1.v$fInspectRepa :: ∀(k : 2.sType) (a : k). 1.t$Dict$Inspect (1.tRep k a)
-   = Λ(k : 2.sType).
-    Λ(a : k).
-      1.c$Dict$Inspect @(1.tRep k a) (1.v$fInspectRepa$cinspect @k @a)
+  pub val 1.v$fInspectRepa :: ∀(k : sType) (a : k). t$Dict$Inspect (tRep k a)
+    = Λ(k : sType) (a : k).
+      c$Dict$Inspect @(tRep k a) (v$fInspectRepa$cinspect @k @a)
 
-  val 1.v$fInspectRepa$cinspect :: ∀(k : 2.sType) (a : k). 1.tRep k a 2.→ 1.tBool
-   = Λ(k : 2.sType).
-    Λ(a : k).
-      λ(x : 1.tRep k a).
-        1.cTrue
+  val 1.v$fInspectRepa$cinspect :: ∀(k : sType) (a : k). tRep k a 2.→ tBool
+    = Λ(k : sType) (a : k). λ(x : tRep k a).
+      cTrue
 
-  pub val 1.vinspectSome :: 1.tSomeRep 2.→ 1.tBool
-   = λ(x : 1.tSomeRep).
-    case x as (_scrut : 1.tSomeRep) return (1.tBool) of {
-        1.cSomeRep @(k : 2.sType) @(a : k) (rep : 1.tRep k a) →
-            1.vinspect @(1.tRep k a) (1.v$fInspectRepa @k @a) rep
-    }
+  pub val 1.vinspectSome :: tSomeRep 2.→ tBool
+    = λ(x : tSomeRep).
+      case x as (_scrut : tSomeRep) return (tBool) of {
+        cSomeRep @(k : sType) @(a : k) (rep : tRep k a) →
+          vinspect @(tRep k a) (v$fInspectRepa @k @a) rep
+      }
 status: pass
 reason: Instance evidence supplies the kind argument of an existential type.

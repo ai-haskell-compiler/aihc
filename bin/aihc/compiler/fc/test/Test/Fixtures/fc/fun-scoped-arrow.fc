@@ -3,10 +3,10 @@ scope 2 = "prim-a" GHC.Types
 scope 3 = "prim-b" GHC.Types
 
 val 1.vleft :: 1.tA 2.→ 1.tA
- = 1.vleft
+  = vleft
 
 val 1.vright :: 1.tA 3.→ 1.tA
- = 1.vright
+  = vright
 
 val 1.vlocal :: 1.tA 1.→ 1.tA
- = 1.vlocal
+  = vlocal

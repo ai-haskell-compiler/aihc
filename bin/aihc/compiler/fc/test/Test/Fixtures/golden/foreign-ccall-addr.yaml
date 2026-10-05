@@ -23,42 +23,42 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tAddr# :: 3.tTYPE 3.cAddrRep;
-    2.tInt32# :: 3.tTYPE 3.cInt32Rep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    2.tRealWorld :: 3.sType;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep))));
-    3.sType :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.cAddrRep :: 3.tRuntimeRep;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cInt32Rep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    2.tAddr# :: tTYPE cAddrRep;
+    2.tInt32# :: tTYPE cInt32Rep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cAddrRep :: tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cInt32Rep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tInt32 :: 3.sType {
-      pub 1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
+  pub type 1.tInt32 :: sType {
+    pub 1.cI32# :: FUN @cInt32Rep @sLiftedRep tInt32# tInt32
   }
 
-  pub type 1.tCInt :: 3.sType {}
+  pub type 1.tCInt :: sType {}
 
-  axiom 1.$ax$CInt : 1.tCInt ~R 1.tInt32
+  axiom 1.$ax$CInt : tCInt ~R tInt32
 
-  pub type 1.tIO (a : 3.sType) :: 3.sType {}
+  pub type 1.tIO (a : sType) :: sType {}
 
-  axiom 1.$ax$IO (a : 3.sType) : 1.tIO a ~R FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.sLiftedRep (3.c[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sLiftedRep (2.tState# 2.tRealWorld) a)
+  axiom 1.$ax$IO (a : sType) : tIO a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a)
 
-  pub val 1.vmain :: 1.tIO 1.tCInt
-   = foreign {ccall unsafe "puts" [Addr → Int32; real-world] using [axiom 1.$ax$IO, axiom 1.$ax$CInt, constructor 1.cI32#] 1.vputs :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (1.tIO 1.tCInt)} "hello world\x0a"#3.cAddrRep
+  pub val 1.vmain :: tIO tCInt
+    = foreign {ccall unsafe "puts" [Addr → Int32; real-world] using [axiom 1.$ax$IO, axiom 1.$ax$CInt, constructor 1.cI32#] 1.vputs :: FUN @cAddrRep @sLiftedRep tAddr# (tIO tCInt)} "hello world\x0a"#cAddrRep
 status: pass
 reason: The real primitive modules provide Int32Rep and Tuple2# for lint.

@@ -27,61 +27,54 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.t$Dict$NFData (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$NFData :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$NFData a
+  pub type 1.t$Dict$NFData (a : sType) :: sType {
+    pub 1.c$Dict$NFData :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$NFData a
   }
 
-  pub type 1.t$Dict$NFData1 (f : 2.sType 2.→ 2.sType) :: 2.sType {
-      pub 1.c$Dict$NFData1 :: ∀(f : 2.sType 2.→ 2.sType). (∀(a : 2.sType). 1.t$Dict$NFData a 2.→ 1.t$Dict$NFData (f a)) 2.→ 1.t$Dict$NFData1 f
+  pub type 1.t$Dict$NFData1 (f : sType 2.→ sType) :: sType {
+    pub 1.c$Dict$NFData1 :: ∀(f : sType 2.→ sType). (∀(a : sType). t$Dict$NFData a 2.→ t$Dict$NFData (f a)) 2.→ t$Dict$NFData1 f
   }
 
-  pub type 1.tProxy (a : 2.sType) :: 2.sType {
-      pub 1.cProxy :: ∀(a : 2.sType). 1.tProxy a
+  pub type 1.tProxy (a : sType) :: sType {
+    pub 1.cProxy :: ∀(a : sType). tProxy a
   }
 
-  pub val 1.vrnf :: ∀(a : 2.sType). 1.t$Dict$NFData a 2.→ a 2.→ a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$NFData a).
-      case $d0 as ($dict : 1.t$Dict$NFData a) return (a 2.→ a) of {
-          1.c$Dict$NFData ($method0 : a 2.→ a) →
-              $method0
+  pub val 1.vrnf :: ∀(a : sType). t$Dict$NFData a 2.→ a 2.→ a
+    = Λ(a : sType). λ($d0 : t$Dict$NFData a).
+      case $d0 as ($dict : t$Dict$NFData a) return (a 2.→ a) of {
+        c$Dict$NFData ($method0 : a 2.→ a) →
+          $method0
       }
 
-  pub val 1.v$fNFDataProxya :: ∀(a : 2.sType). 1.t$Dict$NFData (1.tProxy a)
-   = Λ(a : 2.sType).
-    1.c$Dict$NFData @(1.tProxy a) (1.v$fNFDataProxya$crnf @a)
+  pub val 1.v$fNFDataProxya :: ∀(a : sType). t$Dict$NFData (tProxy a)
+    = Λ(a : sType).
+      c$Dict$NFData @(tProxy a) (v$fNFDataProxya$crnf @a)
 
-  val 1.v$fNFDataProxya$crnf :: ∀(a : 2.sType). 1.tProxy a 2.→ 1.tProxy a
-   = Λ(a : 2.sType).
-    λ(x : 1.tProxy a).
+  val 1.v$fNFDataProxya$crnf :: ∀(a : sType). tProxy a 2.→ tProxy a
+    = Λ(a : sType). λ(x : tProxy a).
       x
 
-  pub val 1.v$fNFData1Proxy :: 1.t$Dict$NFData1 1.tProxy
-   = 1.c$Dict$NFData1 @1.tProxy (Λ(a : 2.sType).
-    λ($quantified_d0 : 1.t$Dict$NFData a).
-      1.v$fNFDataProxya @a)
+  pub val 1.v$fNFData1Proxy :: t$Dict$NFData1 tProxy
+    = c$Dict$NFData1 @tProxy (Λ(a : sType). λ($quantified_d0 : t$Dict$NFData a).
+      v$fNFDataProxya @a)
 
-  pub val 1.vuse :: ∀(f : 2.sType 2.→ 2.sType) (a : 2.sType). 1.t$Dict$NFData1 f 2.→ 1.t$Dict$NFData a 2.→ f a 2.→ f a
-   = Λ(f : 2.sType 2.→ 2.sType).
-    Λ(a : 2.sType).
-      λ($d0 : 1.t$Dict$NFData1 f).
-        λ($d1 : 1.t$Dict$NFData a).
-          λ(x : f a).
-            1.vrnf @(f a) ((case $d0 as ($super_source0 : 1.t$Dict$NFData1 f) return (∀(a{1} : 2.sType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) of {
-                1.c$Dict$NFData1 ($super_field0 : ∀(a{1} : 2.sType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) →
-                    $super_field0
-            }) @a $d1) x
+  pub val 1.vuse :: ∀(f : sType 2.→ sType) (a : sType). t$Dict$NFData1 f 2.→ t$Dict$NFData a 2.→ f a 2.→ f a
+    = Λ(f : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$NFData1 f) ($d1 : t$Dict$NFData a) (x : f a).
+      vrnf @(f a) ((case $d0 as ($super_source0 : t$Dict$NFData1 f) return (∀(a{1} : sType). t$Dict$NFData a{1} 2.→ t$Dict$NFData (f a{1})) of {
+        c$Dict$NFData1 ($super_field0 : ∀(a{1} : sType). t$Dict$NFData a{1} 2.→ t$Dict$NFData (f a{1})) →
+          $super_field0
+      }) @a $d1) x
 status: pass
 reason: Quantified superclass fields keep polymorphic System FC evidence.

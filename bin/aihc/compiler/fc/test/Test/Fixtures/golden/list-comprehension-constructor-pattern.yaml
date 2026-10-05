@@ -9,44 +9,43 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : 2.sType). 2.sType;
-    2.c: :: ∀(a : 2.sType). a 2.→ 2.t[] a 2.→ 2.t[] a;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity;
-    2.c[] :: ∀(a : 2.sType). 2.t[] a
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.c: :: ∀(a : sType). a 2.→ t[] a 2.→ t[] a;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tMaybe (a : 2.sType) :: 2.sType {
-      pub 1.cNothing :: ∀(a : 2.sType). 1.tMaybe a;
-      pub 1.cJust :: ∀(a : 2.sType). a 2.→ 1.tMaybe a
+  pub type 1.tMaybe (a : sType) :: sType {
+    pub 1.cNothing :: ∀(a : sType). tMaybe a;
+    pub 1.cJust :: ∀(a : sType). a 2.→ tMaybe a
   }
 
-  pub val 1.vselect :: ∀(a : 2.sType). 2.t[] (1.tMaybe a) 2.→ 2.t[] a
-   = Λ(a : 2.sType).
-    λ(x : 2.t[] (1.tMaybe a)).
+  pub val 1.vselect :: ∀(a : sType). t[] (tMaybe a) 2.→ t[] a
+    = Λ(a : sType). λ(x : t[] (tMaybe a)).
       rec {
-          _list_comp : 2.t[] (1.tMaybe a) 2.→ 2.t[] a =
-              λ(_list_comp_list : 2.t[] (1.tMaybe a)).
-                case _list_comp_list as (_list_comp_scrut : 2.t[] (1.tMaybe a)) return (2.t[] a) of {
-                    2.c[] →
-                        2.c[] @a;
-                    2.c: (_pat : 1.tMaybe a) (_list_comp_tail : 2.t[] (1.tMaybe a)) →
-                        case _pat as (_do_scrut : 1.tMaybe a) return (2.t[] a) of {
-                            1.cJust (x{1} : a) →
-                                2.c: @a x{1} (_list_comp _list_comp_tail);
-                            _ →
-                                _list_comp _list_comp_tail
-                        }
+        _list_comp : t[] (tMaybe a) 2.→ t[] a =
+          λ(_list_comp_list : t[] (tMaybe a)).
+            case _list_comp_list as (_list_comp_scrut : t[] (tMaybe a)) return (t[] a) of {
+              c[] →
+                c[] @a;
+              c: (_pat : tMaybe a) (_list_comp_tail : t[] (tMaybe a)) →
+                case _pat as (_do_scrut : tMaybe a) return (t[] a) of {
+                  cJust (x{1} : a) →
+                    c: @a x{1} (_list_comp _list_comp_tail);
+                  _ →
+                    _list_comp _list_comp_tail
                 }
+            }
       } in
-          _list_comp x
+      _list_comp x
 status: pass
 reason: ''

@@ -21,37 +21,37 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cFalse, 2.cTrue] 2.tBool :: 2.sType;
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cFalse :: 2.tBool;
-    2.cLifted :: 2.tLevity;
-    2.cTrue :: 2.tBool
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  type 1.tStrict :: 2.sType {
-      strict [0] 1.cStrict :: 2.tBool 2.→ 1.tStrict
+  type 1.tStrict :: sType {
+    strict [0] 1.cStrict :: tBool 2.→ tStrict
   }
 
-  type 1.tBox :: 2.sType {
-      1.cBox :: 2.tBool 2.→ 1.tBox
+  type 1.tBox :: sType {
+    1.cBox :: tBool 2.→ tBox
   }
 
-  pub val 1.vpick :: 1.tStrict 2.→ 1.tBox
-   = λ(x : 1.tStrict).
-    case x as (_scrut : 1.tStrict) return (1.tBox) of {
-        1.cStrict (b : 2.tBool) →
-            1.cBox (case b as (_scrut{1} : 2.tBool) return (2.tBool) of {
-                2.cTrue →
-                    2.cFalse
-            })
-    }
+  pub val 1.vpick :: tStrict 2.→ tBox
+    = λ(x : tStrict).
+      case x as (_scrut : tStrict) return (tBox) of {
+        cStrict (b : tBool) →
+          cBox (case b as (_scrut{1} : tBool) return (tBool) of {
+            cTrue →
+              cFalse
+          })
+      }
 status: pass
 reason: Bool has two constructors, so a case with one alternative on an evaluated Bool can fail. It stays in the lazy constructor argument.

@@ -24,55 +24,52 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tBox :: 3.sType {
-      pub 1.cBox :: 3.tInt 3.→ 1.tBox
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: tInt 3.→ tBox
   }
 
-  pub type 1.tTwice :: 3.sType {
-      pub 1.cTwice :: 3.tInt 3.→ 3.tInt 3.→ 1.tTwice
+  pub type 1.tTwice :: sType {
+    pub 1.cTwice :: tInt 3.→ tInt 3.→ tTwice
   }
 
-  pub val 1.vbump :: 3.tInt 3.→ 1.tBox
-   = λ(x : 3.tInt).
-    case x as (_scrut : 3.tInt) return (1.tBox) of {
-        3.cI# (x{1} : 2.tInt#) →
-            let {
-                argument : 2.tInt# =
-                    foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 1#3.cIntRep
-            } in
-                1.cBox (3.cI# argument)
-    }
+  pub val 1.vbump :: tInt 3.→ tBox
+    = λ(x : tInt).
+      case x as (_scrut : tInt) return (tBox) of {
+        cI# (x{1} : tInt#) →
+          let argument : tInt# =
+            prim +# x{1} 1#cIntRep;
+          cBox (cI# argument)
+      }
 
-  pub val 1.vshare :: 3.tInt 3.→ 1.tTwice
-   = λ(x : 3.tInt).
-    case x as (_scrut : 3.tInt) return (1.tTwice) of {
-        3.cI# (x{1} : 2.tInt#) →
-            let {
-                argument : 2.tInt# =
-                    foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} 2#3.cIntRep
-            } in
-                let {
-                    y : 3.tInt =
-                        3.cI# argument
-                } in
-                    1.cTwice y y
-    }
+  pub val 1.vshare :: tInt 3.→ tTwice
+    = λ(x : tInt).
+      case x as (_scrut : tInt) return (tTwice) of {
+        cI# (x{1} : tInt#) →
+          let argument : tInt# =
+            prim +# x{1} 2#cIntRep;
+          let y : tInt =
+            cI# argument;
+          cTwice y y
+      }
 status: pass
 reason: A lazy constructor application runs a safe primitive call first, so that lowering stores the value and makes no thunk.

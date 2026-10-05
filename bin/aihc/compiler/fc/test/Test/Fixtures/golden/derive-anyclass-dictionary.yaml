@@ -41,115 +41,100 @@ expected: |
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tUnit :: 2.sType {
-      pub 1.cUnit :: 1.tUnit
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: tUnit
   }
 
-  pub type 1.tBox (a : 2.sType) :: 2.sType {
-      pub 1.cBox :: ∀(a : 2.sType). a 2.→ 1.tBox a
+  pub type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a 2.→ tBox a
   }
 
-  pub type 1.t$Dict$Required (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Required :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$Required a
+  pub type 1.t$Dict$Required (a : sType) :: sType {
+    pub 1.c$Dict$Required :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$Required a
   }
 
-  pub type 1.t$Dict$Any (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Any :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$Any a
+  pub type 1.t$Dict$Any (a : sType) :: sType {
+    pub 1.c$Dict$Any :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$Any a
   }
 
-  pub type 1.tWrapped (a : 2.sType) :: 2.sType {
-      pub 1.cWrapped :: ∀(a : 2.sType). 1.tBox a 2.→ 1.tWrapped a
+  pub type 1.tWrapped (a : sType) :: sType {
+    pub 1.cWrapped :: ∀(a : sType). tBox a 2.→ tWrapped a
   }
 
-  pub type 1.t$Dict$Parent (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Parent :: ∀(a : 2.sType). 1.t$Dict$Parent a
+  pub type 1.t$Dict$Parent (a : sType) :: sType {
+    pub 1.c$Dict$Parent :: ∀(a : sType). t$Dict$Parent a
   }
 
-  pub type 1.t$Dict$Child (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Child :: ∀(a : 2.sType). 1.t$Dict$Parent a 2.→ 1.t$Dict$Child a
+  pub type 1.t$Dict$Child (a : sType) :: sType {
+    pub 1.c$Dict$Child :: ∀(a : sType). t$Dict$Parent a 2.→ t$Dict$Child a
   }
 
-  pub type 1.tBoth :: 2.sType {
-      pub 1.cBoth :: 1.tBoth
+  pub type 1.tBoth :: sType {
+    pub 1.cBoth :: tBoth
   }
 
-  pub val 1.vrequired :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ a 2.→ a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      case $d0 as ($dict : 1.t$Dict$Required a) return (a 2.→ a) of {
-          1.c$Dict$Required ($method0 : a 2.→ a) →
-              $method0
+  pub val 1.vrequired :: ∀(a : sType). t$Dict$Required a 2.→ a 2.→ a
+    = Λ(a : sType). λ($d0 : t$Dict$Required a).
+      case $d0 as ($dict : t$Dict$Required a) return (a 2.→ a) of {
+        c$Dict$Required ($method0 : a 2.→ a) →
+          $method0
       }
 
-  pub val 1.vanyValue :: ∀(a : 2.sType). 1.t$Dict$Any a 2.→ a 2.→ a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Any a).
-      case $d0 as ($dict : 1.t$Dict$Any a) return (a 2.→ a) of {
-          1.c$Dict$Any ($method0 : a 2.→ a) →
-              $method0
+  pub val 1.vanyValue :: ∀(a : sType). t$Dict$Any a 2.→ a 2.→ a
+    = Λ(a : sType). λ($d0 : t$Dict$Any a).
+      case $d0 as ($dict : t$Dict$Any a) return (a 2.→ a) of {
+        c$Dict$Any ($method0 : a 2.→ a) →
+          $method0
       }
 
-  pub val 1.v$dmanyValue :: ∀(a : 2.sType). 1.t$Dict$Any a 2.→ 1.t$Dict$Required a 2.→ a 2.→ a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Any a).
-      λ($d1 : 1.t$Dict$Required a).
-        λ(x : a).
-          1.vrequired @a $d1 x
+  pub val 1.v$dmanyValue :: ∀(a : sType). t$Dict$Any a 2.→ t$Dict$Required a 2.→ a 2.→ a
+    = Λ(a : sType). λ($d0 : t$Dict$Any a) ($d1 : t$Dict$Required a) (x : a).
+      vrequired @a $d1 x
 
-  pub val 1.v$fRequiredBoxa :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.t$Dict$Required (1.tBox a)
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      1.c$Dict$Required @(1.tBox a) (1.v$fRequiredBoxa$crequired @a $d0)
+  pub val 1.v$fRequiredBoxa :: ∀(a : sType). t$Dict$Required a 2.→ t$Dict$Required (tBox a)
+    = Λ(a : sType). λ($d0 : t$Dict$Required a).
+      c$Dict$Required @(tBox a) (v$fRequiredBoxa$crequired @a $d0)
 
-  val 1.v$fRequiredBoxa$crequired :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tBox a 2.→ 1.tBox a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      λ(x : 1.tBox a).
-        x
+  val 1.v$fRequiredBoxa$crequired :: ∀(a : sType). t$Dict$Required a 2.→ tBox a 2.→ tBox a
+    = Λ(a : sType). λ($d0 : t$Dict$Required a) (x : tBox a).
+      x
 
-  pub val 1.v$fRequiredWrappeda :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.t$Dict$Required (1.tWrapped a)
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      1.c$Dict$Required @(1.tWrapped a) (1.v$fRequiredWrappeda$crequired @a $d0)
+  pub val 1.v$fRequiredWrappeda :: ∀(a : sType). t$Dict$Required a 2.→ t$Dict$Required (tWrapped a)
+    = Λ(a : sType). λ($d0 : t$Dict$Required a).
+      c$Dict$Required @(tWrapped a) (v$fRequiredWrappeda$crequired @a $d0)
 
-  val 1.v$fRequiredWrappeda$crequired :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tWrapped a 2.→ 1.tWrapped a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      λ(x : 1.tWrapped a).
-        x
+  val 1.v$fRequiredWrappeda$crequired :: ∀(a : sType). t$Dict$Required a 2.→ tWrapped a 2.→ tWrapped a
+    = Λ(a : sType). λ($d0 : t$Dict$Required a) (x : tWrapped a).
+      x
 
-  pub val 1.v$fAnyWrappeda :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.t$Dict$Any (1.tWrapped a)
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      1.c$Dict$Any @(1.tWrapped a) (1.v$fAnyWrappeda$canyValue @a $d0)
+  pub val 1.v$fAnyWrappeda :: ∀(a : sType). t$Dict$Required a 2.→ t$Dict$Any (tWrapped a)
+    = Λ(a : sType). λ($d0 : t$Dict$Required a).
+      c$Dict$Any @(tWrapped a) (v$fAnyWrappeda$canyValue @a $d0)
 
-  val 1.v$fAnyWrappeda$canyValue :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tWrapped a 2.→ 1.tWrapped a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      1.v$dmanyValue @(1.tWrapped a) (1.v$fAnyWrappeda @a $d0) (1.v$fRequiredWrappeda @a $d0)
+  val 1.v$fAnyWrappeda$canyValue :: ∀(a : sType). t$Dict$Required a 2.→ tWrapped a 2.→ tWrapped a
+    = Λ(a : sType). λ($d0 : t$Dict$Required a).
+      v$dmanyValue @(tWrapped a) (v$fAnyWrappeda @a $d0) (v$fRequiredWrappeda @a $d0)
 
-  pub val 1.v$fChildBoth :: 1.t$Dict$Child 1.tBoth
-   = 1.c$Dict$Child @1.tBoth 1.v$fParentBoth
+  pub val 1.v$fChildBoth :: t$Dict$Child tBoth
+    = c$Dict$Child @tBoth v$fParentBoth
 
-  pub val 1.v$fParentBoth :: 1.t$Dict$Parent 1.tBoth
-   = 1.c$Dict$Parent @1.tBoth
+  pub val 1.v$fParentBoth :: t$Dict$Parent tBoth
+    = c$Dict$Parent @tBoth
 
-  pub val 1.vuseAny :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tWrapped a 2.→ 1.tWrapped a
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Required a).
-      1.vanyValue @(1.tWrapped a) (1.v$fAnyWrappeda @a $d0)
-
+  pub val 1.vuseAny :: ∀(a : sType). t$Dict$Required a 2.→ tWrapped a 2.→ tWrapped a
+    = Λ(a : sType). λ($d0 : t$Dict$Required a).
+      vanyValue @(tWrapped a) (v$fAnyWrappeda @a $d0)
 status: pass
 reason: the derived anyclass instance is an ordinary instance declaration that lowers to a dictionary
