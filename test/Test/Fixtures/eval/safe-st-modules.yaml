@@ -1,0 +1,23 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Monad.ST.Lazy.Safe qualified as Lazy
+    import Control.Monad.ST.Safe qualified as Strict
+
+    data Results = Results Int Int
+
+    strictAction :: Strict.ST s Int
+    strictAction = return 3
+
+    lazyAction :: Lazy.ST s Int
+    lazyAction = Lazy.strictToLazyST (return 4)
+
+    results :: Results
+    results = Results (Strict.runST strictAction) (Lazy.runST lazyAction)
+output: |
+  Results (I# 3) (I# 4)
+expression: results
+status: pass
+reason: the safe ST modules export the strict and lazy ST types that monad-control imports
