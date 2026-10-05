@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data T = MkT {-# UNPACK #-} !Int {-# UNPACK #-} !Int
+
+    second :: T -> Int
+    second t = n
+      where
+        MkT _ n = t
+
+    result :: Int
+    result = second (MkT 1 2) + second (MkT 3 4)
+output: |
+  I# 6
+expression: result
+status: pass
+reason: A lazy pattern binding reads an unpacked field of a constructor. The binder has the type of the field, not its representation.
