@@ -1,0 +1,4 @@
+status: pass
+reason: A foreign pointer argument must find its constructor when a type argument of the code has the name of the constructor binder.
+needs-base: true
+no-code: false
