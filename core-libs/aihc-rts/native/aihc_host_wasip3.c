@@ -1,4 +1,5 @@
 #include "aihc_runtime_internal.h"
+#include "aihc_wasm_internal.h"
 
 #include <stddef.h>
 
@@ -116,6 +117,8 @@ static int aihc_wasip3_try_request(AihcIoRequest *request, int64_t *result) {
     target = 1;
   } else if (request->handle == &aihc_standard_error) {
     target = 2;
+  } else if (request->handle->backend_token >= AIHC_HTTP_TOKEN_BASE) {
+    target = 4;
   } else {
     target = 3;
   }
