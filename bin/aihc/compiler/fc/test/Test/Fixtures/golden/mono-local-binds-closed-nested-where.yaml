@@ -39,75 +39,60 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.c()] 2.tUnit :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tST (s : 3.sType) (a : 3.sType) :: 3.sType {}
+  type 1.tST (s : sType) (a : sType) :: sType {}
 
-  axiom 1.$ax$ST (s : 3.sType) (a : 3.sType) : 1.tST s a ~R a
+  axiom 1.$ax$ST (s : sType) (a : sType) : tST s a ~R a
 
-  type 1.tRef (s : 3.sType) :: 3.sType {
-      1.cRef :: ∀(s : 3.sType). 1.tRef s
+  type 1.tRef (s : sType) :: sType {
+    1.cRef :: ∀(s : sType). tRef s
   }
 
-  type 1.tUnit :: 3.sType {
-      1.cUnit :: 1.tUnit
+  type 1.tUnit :: sType {
+    1.cUnit :: 1.tUnit
   }
 
-  val 1.vunST :: ∀(s : 3.sType) (a : 3.sType). 1.tST s a 3.→ a
-   = Λ(s : 3.sType).
-    Λ(a : 3.sType).
-      λ(x : 1.tST s a).
-        x ▷ axiom-co 1.$ax$ST @s @a
+  val 1.vunST :: ∀(s : sType) (a : sType). tST s a 3.→ a
+    = Λ(s : sType) (a : sType). λ(x : tST s a).
+      x ▷ axiom-co $ax$ST @s @a
 
-  val 1.vrunST :: ∀(a : 3.sType). (∀(s : 3.sType). 1.tST s a) 3.→ a
-   = Λ(a : 3.sType).
-    λ(x : ∀(s : 3.sType). 1.tST s a).
-      1.vunST @2.tUnit @a (x @2.tUnit)
+  val 1.vrunST :: ∀(a : sType). (∀(s : sType). tST s a) 3.→ a
+    = Λ(a : sType). λ(x : ∀(s : sType). tST s a).
+      vunST @2.tUnit @a (x @2.tUnit)
 
-  val 1.vnewRef :: ∀(s : 3.sType). 1.tST s (1.tRef s)
-   = Λ(s : 3.sType).
-    (1.cRef @s) ▷ sym (axiom-co 1.$ax$ST @s @(1.tRef s))
+  val 1.vnewRef :: ∀(s : sType). tST s (tRef s)
+    = Λ(s : sType).
+      (cRef @s) ▷ sym (axiom-co $ax$ST @s @(tRef s))
 
-  val 1.vbind :: ∀(s : 3.sType) (a : 3.sType) (b : 3.sType). 1.tST s a 3.→ (a 3.→ 1.tST s b) 3.→ 1.tST s b
-   = Λ(s : 3.sType).
-    Λ(a : 3.sType).
-      Λ(b : 3.sType).
-        λ(x : 1.tST s a).
-          λ(y : a 3.→ 1.tST s b).
-            y (x ▷ axiom-co 1.$ax$ST @s @a)
+  val 1.vbind :: ∀(s : sType) (a : sType) (b : sType). tST s a 3.→ (a 3.→ tST s b) 3.→ tST s b
+    = Λ(s : sType) (a : sType) (b : sType). λ(x : tST s a) (y : a 3.→ tST s b).
+      y (x ▷ axiom-co $ax$ST @s @a)
 
-  val 1.vwrite :: ∀(s : 3.sType) (a : 3.sType). 1.tRef s 3.→ a 3.→ 1.tST s 1.tUnit
-   = Λ(s : 3.sType).
-    Λ(a : 3.sType).
-      λ(x : 1.tRef s).
-        λ(y : a).
-          1.cUnit ▷ sym (axiom-co 1.$ax$ST @s @1.tUnit)
+  val 1.vwrite :: ∀(s : sType) (a : sType). tRef s 3.→ a 3.→ tST s 1.tUnit
+    = Λ(s : sType) (a : sType). λ(x : tRef s) (y : a).
+      cUnit ▷ sym (axiom-co $ax$ST @s @1.tUnit)
 
-  pub val 1.vrun :: 3.tInt 3.→ 1.tUnit
-   = λ(x : 3.tInt).
-    let {
-        go : ∀(a : 3.sType) (b : 3.sType). 1.tRef a 3.→ b 3.→ 1.tST a 1.tUnit =
-            Λ(a : 3.sType).
-              Λ(b : 3.sType).
-                λ(x{1} : 1.tRef a).
-                  λ(x{2} : b).
-                    1.vwrite @a @b x{1} x{2}
-    } in
-        1.vrunST @1.tUnit (Λ(s : 3.sType).
-          1.vbind @s @(1.tRef s) @1.tUnit (1.vnewRef @s) (λ(r : 1.tRef s).
-            go @s @3.tInt r x))
+  pub val 1.vrun :: tInt 3.→ 1.tUnit
+    = λ(x : tInt).
+      let go : ∀(a : sType) (b : sType). tRef a 3.→ b 3.→ tST a 1.tUnit =
+        Λ(a : sType) (b : sType). λ(x{1} : tRef a) (x{2} : b).
+          vwrite @a @b x{1} x{2};
+      vrunST @1.tUnit (Λ(s : sType).
+        vbind @s @(tRef s) @1.tUnit (vnewRef @s) (λ(r : tRef s).
+          go @s @tInt r x))
 status: pass
 reason: a where-bound helper with a nested where block is closed, so it
   generalizes over the state variable under MonoLocalBinds. The helper then

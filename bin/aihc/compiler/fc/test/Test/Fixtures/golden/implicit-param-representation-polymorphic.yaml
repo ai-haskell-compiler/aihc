@@ -23,35 +23,36 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    raise# = 2.vraise# :: ∀(r{1} : tRuntimeRep) (a{1} : sType) (b : tTYPE r{1}). FUN @sLiftedRep @r{1} a{1} b
+
   import headers
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tMessage :: 3.sType {
-      pub 1.cMessage :: 1.tMessage
+  pub type 1.tMessage :: sType {
+    pub 1.cMessage :: tMessage
   }
 
-  pub type 1.tBool :: 3.sType {
-      pub 1.cTrue :: 1.tBool;
-      pub 1.cFalse :: 1.tBool
+  pub type 1.tBool :: sType {
+    pub 1.cTrue :: tBool;
+    pub 1.cFalse :: tBool
   }
 
-  pub val 1.vfailure :: ∀(r : 3.tRuntimeRep) (a : 3.tTYPE r). FUN @3.sLiftedRep @r 1.tMessage a
-   = Λ(r : 3.tRuntimeRep).
-    Λ(a : 3.tTYPE r).
-      λ($d0 : 1.tMessage).
-        foreign {prim 2.vraise# :: ∀(r{1} : 3.tRuntimeRep) (a{1} : 3.sType) (b : 3.tTYPE r{1}). FUN @3.sLiftedRep @r{1} a{1} b} @r @1.tMessage @a $d0
+  pub val 1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). FUN @sLiftedRep @r tMessage a
+    = Λ(r : tRuntimeRep) (a : tTYPE r). λ($d0 : tMessage).
+      prim raise# @r @tMessage @a $d0
 
-  pub val 1.vuse :: 1.tBool
-   = 1.vfailure @(3.cBoxedRep 3.cLifted) @1.tBool 1.cMessage
+  pub val 1.vuse :: tBool
+    = vfailure @(cBoxedRep cLifted) @tBool cMessage
 status: pass
 reason: the evidence arrow of an implicit parameter returns a representation-polymorphic body

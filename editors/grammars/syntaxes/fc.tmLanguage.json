@@ -25,6 +25,9 @@
       "include": "#top-names"
     },
     {
+      "include": "#primitive-operators"
+    },
+    {
       "include": "#unique-names"
     },
     {
@@ -32,6 +35,12 @@
     },
     {
       "include": "#abi-types"
+    },
+    {
+      "include": "#short-axiom-names"
+    },
+    {
+      "include": "#short-top-names"
     },
     {
       "include": "#local-names"
@@ -99,7 +108,7 @@
       "match": "'(?:\\\\(?:x\\{[0-9A-Fa-f]+\\}|.)|[^'\\\\])'"
     },
     "arrow": {
-      "match": "(\\d+\\.)(→)",
+      "match": "(\\d+\\.)(\u2192)",
       "captures": {
         "1": {
           "name": "entity.name.namespace.aihc-fc"
@@ -176,7 +185,7 @@
     },
     "keywords": {
       "name": "keyword.control.aihc-fc",
-      "match": "(?<![\\w$'#-])(?:value\\-binders|unboxed\\-tuple|interruptible|type\\-binders|constructors|unboxed\\-sum|constructor|real\\-world|inlinable|forall\\-co|noinline|tycon\\-co|axiom\\-co|synonyms|coercion|foreign|headers|address|dynamic|wrapper|inline|import|module|axioms|strict|return|app\\-co|nth\\-co|fun\\-co|unsafe|axiom|where|trans|scope|using|ccall|rule|type|prim|case|refl|safe|pure|pub|val|let|rec|FUN|lit|sym|in|as|of|_)(?![\\w$'#{-])"
+      "match": "(?<![\\w$'#-])(?:value\\-binders|unboxed\\-tuple|interruptible|type\\-binders|constructors|unboxed\\-sum|constructor|real\\-world|inlinable|forall\\-co|noinline|tycon\\-co|axiom\\-co|synonyms|coercion|foreign|headers|address|dynamic|wrapper|inline|import|module|axioms|strict|return|app\\-co|nth\\-co|fun\\-co|unsafe|axiom|where|trans|scope|using|ccall|rule|type|prims|prim|case|refl|safe|pure|pub|val|let|rec|FUN|lit|sym|in|as|of|_)(?![\\w$'#{-])"
     },
     "abi-types": {
       "name": "storage.type.aihc-fc",
@@ -194,11 +203,11 @@
       "patterns": [
         {
           "name": "keyword.operator.binder.aihc-fc",
-          "match": "[λΛ∀]"
+          "match": "[\u03bb\u039b\u2200]"
         },
         {
           "name": "keyword.operator.aihc-fc",
-          "match": "::|->|→|▷|~[NRP~]?|[=:.@#!]"
+          "match": "::|->|\u2192|\u25b7|~[NRP~]?|[=:.@#!]"
         }
       ]
     },
@@ -217,6 +226,42 @@
     "invalid": {
       "name": "invalid.illegal.unrecognized.aihc-fc",
       "match": "\\S"
+    },
+    "short-top-names": {
+      "patterns": [
+        {
+          "match": "(?<![\\w$'.])([ts](?:[^\\s,;(){}\\[\\]]*(?:\\[\\]|\\([#,]*\\))|[^\\s,;(){}\\[\\]]+))(?![\\w$'#]|\\{)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.aihc-fc"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$'.])(c(?:[^\\s,;(){}\\[\\]]*(?:\\[\\]|\\([#,]*\\))|[^\\s,;(){}\\[\\]]+))(?![\\w$'#]|\\{)",
+          "captures": {
+            "1": {
+              "name": "entity.name.constructor.aihc-fc"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$'.])(v(?:[^\\s,;(){}\\[\\]]*(?:\\[\\]|\\([#,]*\\))|[^\\s,;(){}\\[\\]]+))(?![\\w$'#]|\\{)",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.aihc-fc"
+            }
+          }
+        }
+      ]
+    },
+    "short-axiom-names": {
+      "name": "entity.name.function.axiom.aihc-fc",
+      "match": "(?<![\\w$'.])\\$ax\\$[^\\s,;(){}\\[\\]]*"
+    },
+    "primitive-operators": {
+      "name": "entity.name.function.aihc-fc",
+      "match": "(?<![\\w$'#.])[!#$%&*+./<=>?@\\\\^|:~-]+#(?:\\{\\d+\\})?"
     }
   }
 }

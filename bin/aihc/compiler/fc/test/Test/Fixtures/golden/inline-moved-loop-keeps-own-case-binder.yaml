@@ -40,60 +40,58 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tT :: 3.sType {
-      1.cA :: 3.tInt 3.→ 1.tT;
-      1.cB :: 1.tT
+  type 1.tT :: sType {
+    1.cA :: tInt 3.→ tT;
+    1.cB :: tT
   }
 
-  type 1.tList :: 3.sType {
-      1.cNil :: 1.tList;
-      1.cCons :: 3.tInt 3.→ 1.tList 3.→ 1.tList
+  type 1.tList :: sType {
+    1.cNil :: tList;
+    1.cCons :: tInt 3.→ tList 3.→ tList
   }
 
-  pub val 1.vempty :: 1.tList
-   = 1.cNil
+  pub val 1.vempty :: tList
+    = cNil
 
-  val 1.vkeep noinline :: 1.tT 3.→ 1.tList 3.→ 1.tList
-   = λ(x : 1.tT).
-    λ(y : 1.tList).
+  val 1.vkeep noinline :: tT 3.→ tList 3.→ tList
+    = λ(x : tT) (y : tList).
       y
 
-  pub val 1.vwalk :: 1.tT 3.→ 1.tT 3.→ 1.tList
-   = λ(x : 1.tT).
-    λ(y : 1.tT).
-      case x as (_scrut : 1.tT) return (1.tList) of {
-          1.cA (_pat : 3.tInt) →
-              rec {
-                  go : 1.tT 3.→ 1.tList =
-                      λ(x{1} : 1.tT).
-                        case x{1} as (_scrut{1} : 1.tT) return (1.tList) of {
-                            1.cB →
-                                1.cNil;
-                            _ →
-                                case _scrut{1} as (_scrut{2} : 1.tT) return (1.tList) of {
-                                    1.cA (n : 3.tInt) →
-                                        1.cCons n (go 1.cB);
-                                    1.cB →
-                                        1.cNil
-                                }
-                        }
-              } in
-                  1.vkeep x (go y);
-          1.cB →
-              1.cNil
+  pub val 1.vwalk :: tT 3.→ tT 3.→ tList
+    = λ(x : tT) (y : tT).
+      case x as (_scrut : tT) return (tList) of {
+        cA (_pat : tInt) →
+          rec {
+            go : tT 3.→ tList =
+              λ(x{1} : tT).
+                case x{1} as (_scrut{1} : tT) return (tList) of {
+                  cB →
+                    cNil;
+                  _ →
+                    case _scrut{1} as (_scrut{2} : tT) return (tList) of {
+                      cA (n : tInt) →
+                        cCons n (go cB);
+                      cB →
+                        cNil
+                    }
+                }
+          } in
+          vkeep x (go y);
+        cB →
+          cNil
       }
 status: pass
 reason: Before the move, the loop and the case after it each name their case binder _scrut. The loop moves into the A alternative, where _scrut is known to be A. The binders of the loop get fresh names first, so the next round of the inliner does not take that fact for the case binder of the loop.

@@ -18,56 +18,54 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    newByteArray# = 2.vnewByteArray# :: ∀(d : sType). FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# d) (tMutableByteArray# d)));
+    readIntArray# = 2.vreadIntArray# :: ∀(d : sType). FUN @sUnliftedRep @sLiftedRep (tMutableByteArray# d) (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# d) tInt#)))
+
   import headers
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    2.tMutableByteArray# :: ∀(d : 3.sType). 3.tTYPE 3.sUnliftedRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep))));
-    3.sType :: 3.sType;
-    3.sUnliftedRep :: 3.tRuntimeRep;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    unboxed-tuple 3.cTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). FUN @r1 @3.sLiftedRep a1 (FUN @r2 @(3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep)))) a2 (3.tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.cUnlifted :: 3.tLevity;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tMutableByteArray# :: ∀(d : sType). tTYPE sUnliftedRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    3.sUnliftedRep :: tRuntimeRep;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cUnlifted :: tLevity;
+    3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep;
-    3.sUnliftedRep = 3.cBoxedRep 3.cUnlifted
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep;
+    3.sUnliftedRep = cBoxedRep cUnlifted
 
-  pub type 1.tCounter (s : 3.sType) :: 3.tTYPE 3.sUnliftedRep {}
+  pub type 1.tCounter (s : sType) :: tTYPE sUnliftedRep {}
 
-  axiom 1.$ax$Counter (s : 3.sType) : 1.tCounter s ~R 2.tMutableByteArray# s
+  axiom 1.$ax$Counter (s : sType) : tCounter s ~R tMutableByteArray# s
 
-  pub val 1.vnew :: ∀(s : 3.sType). FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.sUnliftedRep (3.c[] 3.tRuntimeRep)))) (2.tState# s) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sUnliftedRep (2.tState# s) (1.tCounter s))
-   = Λ(s : 3.sType).
-    λ(x : 2.tState# s).
-      let {
-          _case : 3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sUnliftedRep (2.tState# s) (2.tMutableByteArray# s) =
-              foreign {prim 2.vnewByteArray# :: ∀(d : 3.sType). FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.sUnliftedRep (3.c[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sUnliftedRep (2.tState# d) (2.tMutableByteArray# d)))} @s 8#3.cIntRep x
-      } in
-          case _case as (_scrut : 3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sUnliftedRep (2.tState# s) (2.tMutableByteArray# s)) return (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sUnliftedRep (2.tState# s) (1.tCounter s)) of {
-              3.cTuple2# (s2 : 2.tState# s) (arr : 2.tMutableByteArray# s) →
-                  3.cTuple2# @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sUnliftedRep @(2.tState# s) @(1.tCounter s) s2 (arr ▷ sym (axiom-co 1.$ax$Counter @s))
-          }
+  pub val 1.vnew :: ∀(s : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# s) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s))
+    = Λ(s : sType). λ(x : tState# s).
+      let _case : tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tMutableByteArray# s) =
+        prim newByteArray# @s 8#cIntRep x;
+      case _case as (_scrut : tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tMutableByteArray# s)) return (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s)) of {
+        cTuple2# (s2 : tState# s) (arr : tMutableByteArray# s) →
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sUnliftedRep @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
+      }
 
-  pub val 1.vget :: ∀(s : 3.sType). FUN @3.sUnliftedRep @3.sLiftedRep (1.tCounter s) (FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.cIntRep (3.c[] 3.tRuntimeRep)))) (2.tState# s) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# s) 2.tInt#))
-   = Λ(s : 3.sType).
-    λ(x : 1.tCounter s).
-      let {
-          arr : 2.tMutableByteArray# s =
-              x ▷ axiom-co 1.$ax$Counter @s
-      } in
-          λ(_foreign_argument : 2.tState# s).
-            foreign {prim 2.vreadIntArray# :: ∀(d : 3.sType). FUN @3.sUnliftedRep @3.sLiftedRep (2.tMutableByteArray# d) (FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.cIntRep (3.c[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.cIntRep (2.tState# d) 2.tInt#)))} @s arr 0#3.cIntRep _foreign_argument
+  pub val 1.vget :: ∀(s : sType). FUN @sUnliftedRep @sLiftedRep (tCounter s) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# s) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# s) tInt#))
+    = Λ(s : sType). λ(x : tCounter s).
+      let arr : tMutableByteArray# s =
+        x ▷ axiom-co $ax$Counter @s;
+      λ(_foreign_argument : tState# s).
+        prim readIntArray# @s arr 0#cIntRep _foreign_argument
 status: pass
 reason: A newtype without a kind signature takes the kind of its field, so an UnliftedNewtypes axiom relates two types of one kind.

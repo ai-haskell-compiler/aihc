@@ -80,248 +80,203 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tNat :: 3.sType {
-      1.cZ :: 1.tNat;
-      1.cS :: 1.tNat 3.→ 1.tNat
+  type 1.tNat :: sType {
+    1.cZ :: tNat;
+    1.cS :: tNat 3.→ tNat
   }
 
-  type 1.tList (a : 3.sType) :: 3.sType {
-      1.cNil :: ∀(a : 3.sType). 1.tList a;
-      1.cCons :: ∀(a : 3.sType). a 3.→ 1.tList a 3.→ 1.tList a
+  type 1.tList (a : sType) :: sType {
+    1.cNil :: ∀(a : sType). tList a;
+    1.cCons :: ∀(a : sType). a 3.→ tList a 3.→ tList a
   }
 
-  val 1.vbuild inline [1] :: ∀(a : 3.sType). (∀(b : 3.sType). (a 3.→ b 3.→ b) 3.→ b 3.→ b) 3.→ 1.tList a
-   = Λ(a : 3.sType).
-    λ(x : ∀(b : 3.sType). (a 3.→ b 3.→ b) 3.→ b 3.→ b).
-      x @(1.tList a) (1.cCons @a) (1.cNil @a)
+  val 1.vbuild inline [1] :: ∀(a : sType). (∀(b : sType). (a 3.→ b 3.→ b) 3.→ b 3.→ b) 3.→ tList a
+    = Λ(a : sType). λ(x : ∀(b : sType). (a 3.→ b 3.→ b) 3.→ b 3.→ b).
+      x @(tList a) (cCons @a) (cNil @a)
 
-  val 1.vfoldr inline [1] :: ∀(a : 3.sType) (b : 3.sType). (a 3.→ b 3.→ b) 3.→ b 3.→ 1.tList a 3.→ b
-   = Λ(a : 3.sType).
-    Λ(b : 3.sType).
-      λ(x : a 3.→ b 3.→ b).
-        λ(y : b).
-          λ(z : 1.tList a).
-            rec {
-                go : 1.tList a 3.→ b =
-                    λ(x{1} : 1.tList a).
-                      case x{1} as (_scrut : 1.tList a) return (b) of {
-                          1.cNil →
-                              y;
-                          1.cCons (y{1} : a) (ys : 1.tList a) →
-                              x y{1} (go ys)
-                      }
-            } in
-                go z
+  val 1.vfoldr inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ b 3.→ tList a 3.→ b
+    = Λ(a : sType) (b : sType). λ(x : a 3.→ b 3.→ b) (y : b) (z : tList a).
+      rec {
+        go : tList a 3.→ b =
+          λ(x{1} : tList a).
+            case x{1} as (_scrut : tList a) return (b) of {
+              cNil →
+                y;
+              cCons (y{1} : a) (ys : tList a) →
+                x y{1} (go ys)
+            }
+      } in
+      go z
 
-  val 1.viterate :: ∀(a : 3.sType). (a 3.→ a) 3.→ a 3.→ 1.tList a
-   = Λ(a : 3.sType).
-    λ(x : a 3.→ a).
-      λ(y : a).
-        1.cCons @a y (rec {
-            go : a 3.→ 1.tList a =
-                λ(x{1} : a).
-                  1.cCons @a x{1} (go (x x{1}))
-        } in
-            go (x y))
+  val 1.viterate :: ∀(a : sType). (a 3.→ a) 3.→ a 3.→ tList a
+    = Λ(a : sType). λ(x : a 3.→ a) (y : a).
+      cCons @a y (rec {
+        go : a 3.→ tList a =
+          λ(x{1} : a).
+            cCons @a x{1} (go (x x{1}))
+      } in
+      go (x y))
 
-  val 1.viterateFB inline [1] :: ∀(a : 3.sType) (b : 3.sType). (a 3.→ b 3.→ b) 3.→ (a 3.→ a) 3.→ a 3.→ b
-   = Λ(a : 3.sType).
-    Λ(b : 3.sType).
-      λ(x : a 3.→ b 3.→ b).
-        λ(y : a 3.→ a).
-          λ(z : a).
-            rec {
-                go : a 3.→ b =
-                    λ(x{1} : a).
-                      x x{1} (go (y x{1}))
-            } in
-                go z
+  val 1.viterateFB inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ (a 3.→ a) 3.→ a 3.→ b
+    = Λ(a : sType) (b : sType). λ(x : a 3.→ b 3.→ b) (y : a 3.→ a) (z : a).
+      rec {
+        go : a 3.→ b =
+          λ(x{1} : a).
+            x x{1} (go (y x{1}))
+      } in
+      go z
 
-  val 1.vtake :: ∀(a : 3.sType). 3.tInt 3.→ 1.tList a 3.→ 1.tList a
-   = Λ(a : 3.sType).
-    λ(x : 3.tInt).
-      λ(y : 1.tList a).
-        case x as (_scrut : 3.tInt) return (1.tList a) of {
-            3.cI# (m : 2.tInt#) →
-                let {
-                    _case : 2.tInt# =
-                        foreign {prim 2.v<# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} m 1#3.cIntRep
-                } in
-                    case _case as (_scrut{1} : 2.tInt#) return (1.tList a) of {
-                        1#3.cIntRep →
-                            1.cNil @a;
-                        _ →
-                            1.vunsafeTake @a m y
-                    }
-        }
-
-  val 1.vunsafeTake :: ∀(a : 3.sType). FUN @3.cIntRep @3.sLiftedRep 2.tInt# (1.tList a 3.→ 1.tList a)
-   = Λ(a : 3.sType).
-    λ(x : 2.tInt#).
-      λ(y : 1.tList a).
-        case y as (_scrut : 1.tList a) return (1.tList a) of {
-            1.cNil →
-                1.cNil @a;
-            1.cCons (y{1} : a) (ys : 1.tList a) →
-                1.cCons @a y{1} (case x as (_scrut{1} : 2.tInt#) return (1.tList a) of {
-                    1#3.cIntRep →
-                        1.cNil @a;
-                    _ →
-                        1.vunsafeTake @a (foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x 1#3.cIntRep) ys
-                })
-        }
-
-  val 1.vtakeFB inline [1] :: ∀(a : 3.sType) (b : 3.sType). (a 3.→ b 3.→ b) 3.→ b 3.→ a 3.→ (3.tInt 3.→ b) 3.→ 3.tInt 3.→ b
-   = Λ(a : 3.sType).
-    Λ(b : 3.sType).
-      λ(x : a 3.→ b 3.→ b).
-        λ(y : b).
-          λ(z : a).
-            λ(x1 : 3.tInt 3.→ b).
-              λ(x2 : 3.tInt).
-                case x2 as (_scrut : 3.tInt) return (b) of {
-                    3.cI# (k : 2.tInt#) →
-                        case k as (_scrut{1} : 2.tInt#) return (b) of {
-                            1#3.cIntRep →
-                                x z y;
-                            _ →
-                                x z (let {
-                                    argument : 2.tInt# =
-                                        foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} k 1#3.cIntRep
-                                } in
-                                    x1 (3.cI# argument))
-                        }
-                }
-
-  val 1.vtakeEnd inline [1] :: ∀(b : 3.sType). b 3.→ 3.tInt 3.→ b
-   = Λ(b : 3.sType).
-    λ(x : b).
-      λ(y : 3.tInt).
-        case y as (_scrut : 3.tInt) return (b) of {
-            3.cI# (_pat : 2.tInt#) →
-                x
-        }
-
-  val 1.vtakeWith inline [1] :: ∀(b : 3.sType). b 3.→ 3.tInt 3.→ (3.tInt 3.→ b) 3.→ b
-   = Λ(b : 3.sType).
-    λ(x : b).
-      λ(y : 3.tInt).
-        λ(z : 3.tInt 3.→ b).
-          case y as (_scrut : 3.tInt) return (b) of {
-              3.cI# (k : 2.tInt#) →
-                  let {
-                      _case : 2.tInt# =
-                          foreign {prim 2.v<# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} k 1#3.cIntRep
-                  } in
-                      case _case as (_scrut{1} : 2.tInt#) return (b) of {
-                          1#3.cIntRep →
-                              x;
-                          _ →
-                              z y
-                      }
+  val 1.vtake :: ∀(a : sType). tInt 3.→ tList a 3.→ tList a
+    = Λ(a : sType). λ(x : tInt) (y : tList a).
+      case x as (_scrut : tInt) return (tList a) of {
+        cI# (m : tInt#) →
+          let _case : tInt# =
+            prim <# m 1#cIntRep;
+          case _case as (_scrut{1} : tInt#) return (tList a) of {
+            1#cIntRep →
+              cNil @a;
+            _ →
+              vunsafeTake @a m y
           }
-
-  pub val 1.vprefix :: 3.tInt 3.→ 1.tNat 3.→ 1.tNat
-   = λ(x : 3.tInt).
-    λ(y : 1.tNat).
-      case x as (_scrut : 3.tInt) return (1.tNat) of {
-          3.cI# (k : 2.tInt#) →
-              let {
-                  _case : 2.tInt# =
-                      foreign {prim 2.v<# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} k 1#3.cIntRep
-              } in
-                  case _case as (_scrut{1} : 2.tInt#) return (1.tNat) of {
-                      1#3.cIntRep →
-                          1.cZ;
-                      _ →
-                          let {
-                              x{1} : 1.tNat 3.→ 1.tNat 3.→ 1.tNat =
-                                  λ(_pat : 1.tNat).
-                                    λ(r : 1.tNat).
-                                      1.cS r
-                          } in
-                              rec {
-                                  $wgo : FUN @(3.cBoxedRep 3.cLifted) @(3.cBoxedRep 3.cLifted) 1.tNat (FUN @3.cIntRep @(3.cBoxedRep 3.cLifted) 2.tInt# 1.tNat) =
-                                      λ(x{2} : 1.tNat).
-                                        λ(eta : 2.tInt#).
-                                          case eta as (_scrut{2} : 2.tInt#) return (1.tNat) of {
-                                              1#3.cIntRep →
-                                                  x{1} x{2} 1.cZ;
-                                              _ →
-                                                  x{1} x{2} (let {
-                                                      argument : 2.tInt# =
-                                                          foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut{2} 1#3.cIntRep
-                                                  } in
-                                                      $wgo (1.cS x{2}) argument)
-                                          }
-                              } in
-                                  $wgo y k
-                  }
       }
 
-  rule "fold/build" Λ(a : 3.sType). Λ(b : 3.sType). λ(k : a 3.→ b 3.→ b). λ(z : b). λ(g : ∀(b{1} : 3.sType). (a 3.→ b{1} 3.→ b{1}) 3.→ b{1} 3.→ b{1}).
-    1.vfoldr @a @b k z (1.vbuild @a (Λ(b{1} : 3.sType).
+  val 1.vunsafeTake :: ∀(a : sType). FUN @cIntRep @sLiftedRep tInt# (tList a 3.→ tList a)
+    = Λ(a : sType). λ(x : tInt#) (y : tList a).
+      case y as (_scrut : tList a) return (tList a) of {
+        cNil →
+          cNil @a;
+        cCons (y{1} : a) (ys : tList a) →
+          cCons @a y{1} (case x as (_scrut{1} : tInt#) return (tList a) of {
+            1#cIntRep →
+              cNil @a;
+            _ →
+              vunsafeTake @a (prim -# x 1#cIntRep) ys
+          })
+      }
+
+  val 1.vtakeFB inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ b 3.→ a 3.→ (tInt 3.→ b) 3.→ tInt 3.→ b
+    = Λ(a : sType) (b : sType). λ(x : a 3.→ b 3.→ b) (y : b) (z : a) (x1 : tInt 3.→ b) (x2 : tInt).
+      case x2 as (_scrut : tInt) return (b) of {
+        cI# (k : tInt#) →
+          case k as (_scrut{1} : tInt#) return (b) of {
+            1#cIntRep →
+              x z y;
+            _ →
+              x z (let argument : tInt# =
+                prim -# k 1#cIntRep;
+              x1 (cI# argument))
+          }
+      }
+
+  val 1.vtakeEnd inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ b
+    = Λ(b : sType). λ(x : b) (y : tInt).
+      case y as (_scrut : tInt) return (b) of {
+        cI# (_pat : tInt#) →
+          x
+      }
+
+  val 1.vtakeWith inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ (tInt 3.→ b) 3.→ b
+    = Λ(b : sType). λ(x : b) (y : tInt) (z : tInt 3.→ b).
+      case y as (_scrut : tInt) return (b) of {
+        cI# (k : tInt#) →
+          let _case : tInt# =
+            prim <# k 1#cIntRep;
+          case _case as (_scrut{1} : tInt#) return (b) of {
+            1#cIntRep →
+              x;
+            _ →
+              z y
+          }
+      }
+
+  pub val 1.vprefix :: tInt 3.→ tNat 3.→ tNat
+    = λ(x : tInt) (y : tNat).
+      case x as (_scrut : tInt) return (tNat) of {
+        cI# (k : tInt#) →
+          let _case : tInt# =
+            prim <# k 1#cIntRep;
+          case _case as (_scrut{1} : tInt#) return (tNat) of {
+            1#cIntRep →
+              cZ;
+            _ →
+              let x{1} : tNat 3.→ tNat 3.→ tNat =
+                λ(_pat : tNat) (r : tNat).
+                  cS r;
+              rec {
+                $wgo : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tNat (FUN @cIntRep @(cBoxedRep cLifted) tInt# tNat) =
+                  λ(x{2} : tNat) (eta : tInt#).
+                    case eta as (_scrut{2} : tInt#) return (tNat) of {
+                      1#cIntRep →
+                        x{1} x{2} cZ;
+                      _ →
+                        x{1} x{2} (let argument : tInt# =
+                          prim -# _scrut{2} 1#cIntRep;
+                        $wgo (cS x{2}) argument)
+                    }
+              } in
+              $wgo y k
+          }
+      }
+
+  rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a 3.→ b 3.→ b). λ(z : b). λ(g : ∀(b{1} : sType). (a 3.→ b{1} 3.→ b{1}) 3.→ b{1} 3.→ b{1}).
+    vfoldr @a @b k z (vbuild @a (Λ(b{1} : sType).
       g @b{1}))
    = g @b k z
    :: b
 
-  rule "iterate" [~1] Λ(a : 3.sType). λ(f : a 3.→ a). λ(x : a).
-    1.viterate @a f x
-   = 1.vbuild @a (Λ(b : 3.sType).
-    λ(c : a 3.→ b 3.→ b).
-      λ(_n : b).
-        1.viterateFB @a @b c f x)
-   :: 1.tList a
+  rule "iterate" [~1] Λ(a : sType). λ(f : a 3.→ a). λ(x : a).
+    viterate @a f x
+   = vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (_n : b).
+    viterateFB @a @b c f x)
+   :: tList a
 
-  rule "iterateFB" [1] Λ(a : 3.sType).
-    1.viterateFB @a @(1.tList a) (1.cCons @a)
-   = 1.viterate @a
-   :: (a 3.→ a) 3.→ a 3.→ 1.tList a
+  rule "iterateFB" [1] Λ(a : sType).
+    viterateFB @a @(tList a) (cCons @a)
+   = viterate @a
+   :: (a 3.→ a) 3.→ a 3.→ tList a
 
-  rule "iterate/build" [1] Λ(a : 3.sType). λ(f : a 3.→ a). λ(x : a).
-    1.vbuild @a (Λ(b : 3.sType).
-      λ(c : a 3.→ b 3.→ b).
-        λ(n : b).
-          1.viterateFB @a @b c f x)
-   = 1.viterate @a f x
-   :: 1.tList a
+  rule "iterate/build" [1] Λ(a : sType). λ(f : a 3.→ a). λ(x : a).
+    vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (n : b).
+      viterateFB @a @b c f x)
+   = viterate @a f x
+   :: tList a
 
-  rule "take" [~1] Λ(a : 3.sType). λ(m : 3.tInt). λ(xs : 1.tList a).
-    1.vtake @a m xs
-   = 1.vbuild @a (Λ(b : 3.sType).
-    λ(c : a 3.→ b 3.→ b).
-      λ(n : b).
-        1.vtakeWith @b n m (1.vfoldr @a @(3.tInt 3.→ b) (1.vtakeFB @a @b c n) (1.vtakeEnd @b n) xs))
-   :: 1.tList a
+  rule "take" [~1] Λ(a : sType). λ(m : tInt). λ(xs : tList a).
+    vtake @a m xs
+   = vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (n : b).
+    vtakeWith @b n m (vfoldr @a @(tInt 3.→ b) (vtakeFB @a @b c n) (vtakeEnd @b n) xs))
+   :: tList a
 
-  rule "takeList" [1] Λ(a : 3.sType). λ(m : 3.tInt). λ(xs : 1.tList a).
-    1.vtakeWith @(1.tList a) (1.cNil @a) m (1.vfoldr @a @(3.tInt 3.→ 1.tList a) (1.vtakeFB @a @(1.tList a) (1.cCons @a) (1.cNil @a)) (1.vtakeEnd @(1.tList a) (1.cNil @a)) xs)
-   = 1.vtake @a m xs
-   :: 1.tList a
+  rule "takeList" [1] Λ(a : sType). λ(m : tInt). λ(xs : tList a).
+    vtakeWith @(tList a) (cNil @a) m (vfoldr @a @(tInt 3.→ tList a) (vtakeFB @a @(tList a) (cCons @a) (cNil @a)) (vtakeEnd @(tList a) (cNil @a)) xs)
+   = vtake @a m xs
+   :: tList a
 
-  rule "take/build" [1] Λ(a : 3.sType). λ(m : 3.tInt). λ(xs : 1.tList a).
-    1.vbuild @a (Λ(b : 3.sType).
-      λ(c : a 3.→ b 3.→ b).
-        λ(n : b).
-          1.vtakeWith @b n m (1.vfoldr @a @(3.tInt 3.→ b) (1.vtakeFB @a @b c n) (1.vtakeEnd @b n) xs))
-   = 1.vtake @a m xs
-   :: 1.tList a
+  rule "take/build" [1] Λ(a : sType). λ(m : tInt). λ(xs : tList a).
+    vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (n : b).
+      vtakeWith @b n m (vfoldr @a @(tInt 3.→ b) (vtakeFB @a @b c n) (vtakeEnd @b n) xs))
+   = vtake @a m xs
+   :: tList a
 status: pass
 reason: The growing inliner makes the local loop of the fused take, after the first worker/wrapper split. Eta expansion gives the loop its two lambdas. The local split then gives the loop an Int# counter, and the recursive call builds no box. The top-level take keeps its boxed parameter, because this split is for local functions only.

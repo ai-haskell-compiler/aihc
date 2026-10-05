@@ -10,23 +10,23 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : 2.sType). 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity;
-    2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
-    2.c[] :: ∀(a : 2.sType). 2.t[] a
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.t:~~: (k1 : 2.sType) (k2 : 2.sType) (a : k1) (b : k2) :: 2.sType {
-      pub 1.cHRefl :: ∀(k : 2.sType) (a : k) (k2 : 2.sType) (b : k2). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (k2 ~ k) (FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (b ~ a) (1.t:~~: k k2 a b))
+  pub type 1.t:~~: (k1 : sType) (k2 : sType) (a : k1) (b : k2) :: sType {
+    pub 1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: k k2 a b))
   }
 status: pass
 reason: Heterogeneous equality permits endpoints with distinct kinds.

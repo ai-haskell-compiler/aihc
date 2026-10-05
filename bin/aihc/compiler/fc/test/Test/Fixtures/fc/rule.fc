@@ -2,68 +2,63 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: 2.sType;
-  2.sLiftedRep :: 2.tRuntimeRep;
-  2.tRuntimeRep :: 2.sType;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-  2.sType :: 2.sType;
-  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.cLifted :: 2.tLevity
+  2.tLevity :: sType;
+  2.sLiftedRep :: tRuntimeRep;
+  2.tRuntimeRep :: sType;
+  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+  2.sType :: sType;
+  2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+  2.cLifted :: tLevity
 
 import synonyms
-  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-  2.sType = 2.tTYPE 2.sLiftedRep
+  2.sLiftedRep = cBoxedRep cLifted;
+  2.sType = tTYPE sLiftedRep
 
-pub type 1.tNat :: 2.sType {
-    pub 1.cZ :: 1.tNat;
-    pub 1.cS :: 1.tNat 2.→ 1.tNat
+pub type 1.tNat :: sType {
+  pub 1.cZ :: tNat;
+  pub 1.cS :: tNat 2.→ tNat
 }
 
-pub type 1.tList (a : 2.sType) :: 2.sType {
-    pub 1.cNil :: ∀(a : 2.sType). 1.tList a;
-    pub 1.cCons :: ∀(a : 2.sType). a 2.→ 1.tList a 2.→ 1.tList a
+pub type 1.tList (a : sType) :: sType {
+  pub 1.cNil :: ∀(a : sType). tList a;
+  pub 1.cCons :: ∀(a : sType). a 2.→ tList a 2.→ tList a
 }
 
-pub type 1.t$Dict$C (a : 2.sType) :: 2.sType {
-    pub 1.c$Dict$C :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$C a
+pub type 1.t$Dict$C (a : sType) :: sType {
+  pub 1.c$Dict$C :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$C a
 }
 
-pub val 1.vop :: ∀(a : 2.sType). 1.t$Dict$C a 2.→ a 2.→ a
- = Λ(a : 2.sType).
-  λ($d0 : 1.t$Dict$C a).
-    case $d0 as ($dict : 1.t$Dict$C a) return (a 2.→ a) of {
-        1.c$Dict$C ($method0 : a 2.→ a) →
-            $method0
+pub val 1.vop :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
+  = Λ(a : sType). λ($d0 : t$Dict$C a).
+    case $d0 as ($dict : t$Dict$C a) return (a 2.→ a) of {
+      c$Dict$C ($method0 : a 2.→ a) →
+        $method0
     }
 
-pub val 1.vmap :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b) 2.→ 1.tList a 2.→ 1.tList b
- = Λ(a : 2.sType).
-  Λ(b : 2.sType).
-    λ(x : a 2.→ b).
-      λ(y : 1.tList a).
-        case y as (_scrut : 1.tList a) return (1.tList b) of {
-            1.cNil →
-                1.cNil @b;
-            1.cCons (y{1} : a) (ys : 1.tList a) →
-                1.cCons @b (x y{1}) (1.vmap @a @b x ys)
-        }
+pub val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
+  = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).
+    case y as (_scrut : tList a) return (tList b) of {
+      cNil →
+        cNil @b;
+      cCons (y{1} : a) (ys : tList a) →
+        cCons @b (x y{1}) (vmap @a @b x ys)
+    }
 
-pub val 1.videntity :: ∀(a : 2.sType). a 2.→ a
- = Λ(a : 2.sType).
-  λ(x : a).
+pub val 1.videntity :: ∀(a : sType). a 2.→ a
+  = Λ(a : sType). λ(x : a).
     x
 
-rule "map/map" [2] Λ(a : 2.sType). λ(f : a 2.→ a). λ(g : a 2.→ a). λ(xs : 1.tList a).
-  1.vmap @a @a f (1.vmap @a @a g xs)
- = 1.vmap @a @a g (1.vmap @a @a f xs)
- :: 1.tList a
+rule "map/map" [2] Λ(a : sType). λ(f : a 2.→ a). λ(g : a 2.→ a). λ(xs : tList a).
+  vmap @a @a f (vmap @a @a g xs)
+ = vmap @a @a g (vmap @a @a f xs)
+ :: tList a
 
-rule "map/id" Λ(a : 2.sType). λ(xs : 1.tList a).
-  1.vmap @a @a (1.videntity @a) xs
+rule "map/id" Λ(a : sType). λ(xs : tList a).
+  vmap @a @a (videntity @a) xs
  = xs
- :: 1.tList a
+ :: tList a
 
-rule "op/op" [~1] Λ(a : 2.sType). λ($rd0 : 1.t$Dict$C a). λ(x : a).
-  1.vop @a $rd0 (1.vop @a $rd0 x)
- = 1.vop @a $rd0 x
+rule "op/op" [~1] Λ(a : sType). λ($rd0 : t$Dict$C a). λ(x : a).
+  vop @a $rd0 (vop @a $rd0 x)
+ = vop @a $rd0 x
  :: a

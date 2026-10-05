@@ -13,34 +13,31 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tStrictPair (a : 2.sType) :: 2.sType {
-      pub strict [0, 1] 1.cStrictPair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tStrictPair a
+  pub type 1.tStrictPair (a : sType) :: sType {
+    pub strict [0, 1] 1.cStrictPair :: ∀(a : sType). a 2.→ a 2.→ tStrictPair a
   }
 
-  pub val 1.vmakePair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tStrictPair a
-   = Λ(a : 2.sType).
-    λ(x : a).
-      λ(y : a).
-        (λ(_strict_field : a).
-          λ(_strict_field{1} : a).
-            case _strict_field as (_strict_forced : a) return (1.tStrictPair a) of {
-                _ →
-                    case _strict_field{1} as (_strict_forced{1} : a) return (1.tStrictPair a) of {
-                        _ →
-                            1.cStrictPair @a _strict_field _strict_field{1}
-                    }
-            }) x y
+  pub val 1.vmakePair :: ∀(a : sType). a 2.→ a 2.→ tStrictPair a
+    = Λ(a : sType). λ(x : a) (y : a).
+      (λ(_strict_field : a) (_strict_field{1} : a).
+        case _strict_field as (_strict_forced : a) return (tStrictPair a) of {
+          _ →
+            case _strict_field{1} as (_strict_forced{1} : a) return (tStrictPair a) of {
+              _ →
+                cStrictPair @a _strict_field _strict_field{1}
+            }
+        }) x y
 status: pass
 reason: A strict constructor application forces each strict field before it builds the value.

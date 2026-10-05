@@ -27,74 +27,76 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub val 1.vadd inline :: 3.tInt 3.→ 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    λ(y : 3.tInt).
-      case x as (wrapped : 3.tInt) return (3.tInt) of {
-          3.cI# (x{1} : 2.tInt#) →
-              case y as (wrapped{1} : 3.tInt) return (3.tInt) of {
-                  3.cI# (y{1} : 2.tInt#) →
-                      case x{1} as (_scrut : 2.tInt#) return (3.tInt) of {
-                          0#3.cIntRep →
-                              case y{1} as (field : 2.tInt#) return (3.tInt) of {
-                                  _ →
-                                      3.cI# field
-                              };
-                          _ →
-                              case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut y{1} as (field : 2.tInt#) return (3.tInt) of {
-                                  _ →
-                                      3.cI# field
-                              }
-                      }
+  pub val 1.vadd inline :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      case x as (wrapped : tInt) return (tInt) of {
+        cI# (x{1} : tInt#) →
+          case y as (wrapped{1} : tInt) return (tInt) of {
+            cI# (y{1} : tInt#) →
+              case x{1} as (_scrut : tInt#) return (tInt) of {
+                0#cIntRep →
+                  case y{1} as (field : tInt#) return (tInt) of {
+                    _ →
+                      cI# field
+                  };
+                _ →
+                  case prim +# _scrut y{1} as (field : tInt#) return (tInt) of {
+                    _ →
+                      cI# field
+                  }
               }
+          }
       }
 
-  pub val 1.vtriple inline :: 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    case x as (wrapped : 3.tInt) return (3.tInt) of {
-        3.cI# (x{1} : 2.tInt#) →
-            case x{1} as (_scrut : 2.tInt#) return (3.tInt) of {
-                0#3.cIntRep →
-                    case x{1} as (_scrut{1} : 2.tInt#) return (3.tInt) of {
-                        0#3.cIntRep →
-                            3.cI# x{1};
-                        _ →
-                            case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut{1} _scrut{1} as (field : 2.tInt#) return (3.tInt) of {
-                                _ →
-                                    3.cI# field
-                            }
-                    };
+  pub val 1.vtriple inline :: tInt 3.→ tInt
+    = λ(x : tInt).
+      case x as (wrapped : tInt) return (tInt) of {
+        cI# (x{1} : tInt#) →
+          case x{1} as (_scrut : tInt#) return (tInt) of {
+            0#cIntRep →
+              case x{1} as (_scrut{1} : tInt#) return (tInt) of {
+                0#cIntRep →
+                  cI# x{1};
                 _ →
-                    case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut _scrut as (field : 2.tInt#) return (3.tInt) of {
+                  case prim +# _scrut{1} _scrut{1} as (field : tInt#) return (tInt) of {
+                    _ →
+                      cI# field
+                  }
+              };
+            _ →
+              case prim +# _scrut _scrut as (field : tInt#) return (tInt) of {
+                _ →
+                  case _scrut as (_scrut{1} : tInt#) return (tInt) of {
+                    0#cIntRep →
+                      cI# field;
+                    _ →
+                      case prim +# _scrut{1} field as (field{1} : tInt#) return (tInt) of {
                         _ →
-                            case _scrut as (_scrut{1} : 2.tInt#) return (3.tInt) of {
-                                0#3.cIntRep →
-                                    3.cI# field;
-                                _ →
-                                    case foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _scrut{1} field as (field{1} : 2.tInt#) return (3.tInt) of {
-                                        _ →
-                                            3.cI# field{1}
-                                    }
-                            }
-                    }
-            }
-    }
+                          cI# field{1}
+                      }
+                  }
+              }
+          }
+      }
 status: pass
 reason: The growing inliner copies the wrapper at each call, where the case of the wrapper on a constructor argument reduces. The worker is small, so it is copied too, and no box of an argument is left.

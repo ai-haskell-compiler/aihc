@@ -20,73 +20,66 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.c$Dict$Eq] 2.t$Dict$Eq :: ∀(a : 3.sType). 3.sType;
-    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    2.c$Dict$Eq :: ∀(a : 3.sType). (a 3.→ a 3.→ 3.tBool) 3.→ (a 3.→ a 3.→ 3.tBool) 3.→ 2.t$Dict$Eq a;
-    2.v$dm$47$$61$ :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ a 3.→ a 3.→ 3.tBool;
-    2.v== :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ a 3.→ a 3.→ 3.tBool;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cFalse :: 3.tBool;
-    3.cLifted :: 3.tLevity;
-    3.cTrue :: 3.tBool
+    constructors [2.c$Dict$Eq] 2.t$Dict$Eq :: ∀(a : sType). sType;
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    2.c$Dict$Eq :: ∀(a : sType). (a 3.→ a 3.→ tBool) 3.→ (a 3.→ a 3.→ tBool) 3.→ t$Dict$Eq a;
+    2.v$dm$47$$61$ :: ∀(a : sType). t$Dict$Eq a 3.→ a 3.→ a 3.→ tBool;
+    2.v== :: ∀(a : sType). t$Dict$Eq a 3.→ a 3.→ a 3.→ tBool;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tTree (a : 3.sType) :: 3.sType {
-      pub 1.cLeaf :: ∀(a : 3.sType). a 3.→ 1.tTree a;
-      pub 1.cBranch :: ∀(a : 3.sType). 1.tTree a 3.→ 1.tTree a 3.→ 1.tTree a
+  pub type 1.tTree (a : sType) :: sType {
+    pub 1.cLeaf :: ∀(a : sType). a 3.→ tTree a;
+    pub 1.cBranch :: ∀(a : sType). tTree a 3.→ tTree a 3.→ tTree a
   }
 
-  pub val 1.v$fEqTreea :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 2.t$Dict$Eq (1.tTree a)
-   = Λ(a : 3.sType).
-    λ($d0 : 2.t$Dict$Eq a).
-      2.c$Dict$Eq @(1.tTree a) (1.v$fEqTreea$c== @a $d0) (1.v$fEqTreea$c/= @a $d0)
+  pub val 1.v$fEqTreea :: ∀(a : sType). t$Dict$Eq a 3.→ t$Dict$Eq (tTree a)
+    = Λ(a : sType). λ($d0 : t$Dict$Eq a).
+      c$Dict$Eq @(tTree a) (v$fEqTreea$c== @a $d0) (v$fEqTreea$c/= @a $d0)
 
-  val 1.v$fEqTreea$c== :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 1.tTree a 3.→ 1.tTree a 3.→ 3.tBool
-   = Λ(a : 3.sType).
-    λ($d0 : 2.t$Dict$Eq a).
-      λ(x : 1.tTree a).
-        λ(y : 1.tTree a).
-          case x as (_scrut : 1.tTree a) return (3.tBool) of {
-              1.cLeaf (a1 : a) →
-                  case y as (_scrut{1} : 1.tTree a) return (3.tBool) of {
-                      1.cLeaf (b1 : a) →
-                          2.v== @a $d0 a1 b1;
-                      _ →
-                          3.cFalse
-                  };
-              1.cBranch (a1 : 1.tTree a) (a2 : 1.tTree a) →
-                  case y as (_scrut{1} : 1.tTree a) return (3.tBool) of {
-                      1.cBranch (b1 : 1.tTree a) (b2 : 1.tTree a) →
-                          case 2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a1 b1 as (_scrut{2} : 3.tBool) return (3.tBool) of {
-                              3.cTrue →
-                                  2.v== @(1.tTree a) (1.v$fEqTreea @a $d0) a2 b2;
-                              3.cFalse →
-                                  3.cFalse
-                          };
-                      _ →
-                          3.cFalse
-                  };
-              _ →
-                  3.cFalse
-          }
+  val 1.v$fEqTreea$c== :: ∀(a : sType). t$Dict$Eq a 3.→ tTree a 3.→ tTree a 3.→ tBool
+    = Λ(a : sType). λ($d0 : t$Dict$Eq a) (x : tTree a) (y : tTree a).
+      case x as (_scrut : tTree a) return (tBool) of {
+        cLeaf (a1 : a) →
+          case y as (_scrut{1} : tTree a) return (tBool) of {
+            cLeaf (b1 : a) →
+              v== @a $d0 a1 b1;
+            _ →
+              cFalse
+          };
+        cBranch (a1 : tTree a) (a2 : tTree a) →
+          case y as (_scrut{1} : tTree a) return (tBool) of {
+            cBranch (b1 : tTree a) (b2 : tTree a) →
+              case v== @(tTree a) (v$fEqTreea @a $d0) a1 b1 as (_scrut{2} : tBool) return (tBool) of {
+                cTrue →
+                  v== @(tTree a) (v$fEqTreea @a $d0) a2 b2;
+                cFalse →
+                  cFalse
+              };
+            _ →
+              cFalse
+          };
+        _ →
+          cFalse
+      }
 
-  val 1.v$fEqTreea$c/= :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 1.tTree a 3.→ 1.tTree a 3.→ 3.tBool
-   = Λ(a : 3.sType).
-    λ($d0 : 2.t$Dict$Eq a).
-      2.v$dm$47$$61$ @(1.tTree a) (1.v$fEqTreea @a $d0)
+  val 1.v$fEqTreea$c/= :: ∀(a : sType). t$Dict$Eq a 3.→ tTree a 3.→ tTree a 3.→ tBool
+    = Λ(a : sType). λ($d0 : t$Dict$Eq a).
+      v$dm$47$$61$ @(tTree a) (v$fEqTreea @a $d0)
 
-  pub val 1.vsameTree :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 1.tTree a 3.→ 1.tTree a 3.→ 3.tBool
-   = Λ(a : 3.sType).
-    λ($d0 : 2.t$Dict$Eq a).
-      2.v== @(1.tTree a) (1.v$fEqTreea @a $d0)
-
+  pub val 1.vsameTree :: ∀(a : sType). t$Dict$Eq a 3.→ tTree a 3.→ tTree a 3.→ tBool
+    = Λ(a : sType). λ($d0 : t$Dict$Eq a).
+      v== @(tTree a) (v$fEqTreea @a $d0)
 status: pass
 reason: the derived Eq instance is an ordinary instance declaration that lowers to a dictionary

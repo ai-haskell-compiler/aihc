@@ -2,18 +2,17 @@ scope 1 = "" Parent
 scope 2 = "aihc-prim" GHC.Types
 
 pub type 1.tFlag :: 2.tType {
-    pub 1.cOff :: 1.tFlag;
-    pub 1.cOn :: 1.tFlag
+  pub 1.cOff :: tFlag;
+  pub 1.cOn :: tFlag
 }
 
 pub type 1.t$Dict$Parent (a : 2.tType) :: 2.tType {
-    pub 1.c$Dict$Parent :: ∀(a : 2.tType). (a 2.→ 1.tFlag) 2.→ 1.t$Dict$Parent a
+  pub 1.c$Dict$Parent :: ∀(a : 2.tType). (a 2.→ tFlag) 2.→ t$Dict$Parent a
 }
 
-pub val 1.vparent :: ∀(a : 2.tType). 1.t$Dict$Parent a 2.→ a 2.→ 1.tFlag
- = Λ(a : 2.tType).
-  λ($d0 : 1.t$Dict$Parent a).
-    case $d0 as ($dict : 1.t$Dict$Parent a) return (a 2.→ 1.tFlag) of {
-        1.c$Dict$Parent ($method0 : a 2.→ 1.tFlag) →
-            $method0
+pub val 1.vparent :: ∀(a : 2.tType). t$Dict$Parent a 2.→ a 2.→ tFlag
+  = Λ(a : 2.tType). λ($d0 : t$Dict$Parent a).
+    case $d0 as ($dict : t$Dict$Parent a) return (a 2.→ tFlag) of {
+      c$Dict$Parent ($method0 : a 2.→ tFlag) →
+        $method0
     }

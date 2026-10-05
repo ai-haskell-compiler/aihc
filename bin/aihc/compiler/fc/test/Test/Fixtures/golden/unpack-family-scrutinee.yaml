@@ -25,60 +25,55 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tRef (s : 2.sType) :: 2.sType {
-      pub 1.cRef :: ∀(s : 2.sType). s 2.→ 1.tRef s
+  pub type 1.tRef (s : sType) :: sType {
+    pub 1.cRef :: ∀(s : sType). s 2.→ tRef s
   }
 
-  pub type 1.tMVector (s : 2.sType) (a : 2.sType) :: 2.sType {
-      pub 1.cMVector :: ∀(s : 2.sType) (a : 2.sType). s 2.→ a 2.→ 1.tMVector s a
+  pub type 1.tMVector (s : sType) (a : sType) :: sType {
+    pub 1.cMVector :: ∀(s : sType) (a : sType). s 2.→ a 2.→ tMVector s a
   }
 
-  pub type 1.tVector (a : 2.sType) :: 2.sType {
-      pub 1.cVector :: ∀(a : 2.sType). a 2.→ 1.tVector a
+  pub type 1.tVector (a : sType) :: sType {
+    pub 1.cVector :: ∀(a : sType). a 2.→ tVector a
   }
 
-  pub type 1.tMutable (v : 2.sType 2.→ 2.sType) :: 2.sType 2.→ 2.sType 2.→ 2.sType @N {}
+  pub type 1.tMutable (v : sType 2.→ sType) :: sType 2.→ sType 2.→ sType @N {}
 
-  axiom 1.$ax$Mutable$Vector : 1.tMutable 1.tVector ~N 1.tMVector
+  axiom 1.$ax$Mutable$Vector : tMutable tVector ~N tMVector
 
-  pub type 1.t$Dict$Vec (v : 2.sType 2.→ 2.sType) (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Vec :: ∀(v : 2.sType 2.→ 2.sType) (a : 2.sType). (∀(s : 2.sType). 1.tMutable v s a 2.→ v a) 2.→ 1.t$Dict$Vec v a
+  pub type 1.t$Dict$Vec (v : sType 2.→ sType) (a : sType) :: sType {
+    pub 1.c$Dict$Vec :: ∀(v : sType 2.→ sType) (a : sType). (∀(s : sType). tMutable v s a 2.→ v a) 2.→ t$Dict$Vec v a
   }
 
-  pub val 1.vfreeze :: ∀(v : 2.sType 2.→ 2.sType) (a : 2.sType) (s : 2.sType). 1.t$Dict$Vec v a 2.→ 1.tMutable v s a 2.→ v a
-   = Λ(v : 2.sType 2.→ 2.sType).
-    Λ(a : 2.sType).
-      Λ(s : 2.sType).
-        λ($d0 : 1.t$Dict$Vec v a).
-          case $d0 as ($dict : 1.t$Dict$Vec v a) return (1.tMutable v s a 2.→ v a) of {
-              1.c$Dict$Vec ($method0 : ∀(s{1} : 2.sType). 1.tMutable v s{1} a 2.→ v a) →
-                  $method0 @s
-          }
+  pub val 1.vfreeze :: ∀(v : sType 2.→ sType) (a : sType) (s : sType). t$Dict$Vec v a 2.→ tMutable v s a 2.→ v a
+    = Λ(v : sType 2.→ sType) (a : sType) (s : sType). λ($d0 : t$Dict$Vec v a).
+      case $d0 as ($dict : t$Dict$Vec v a) return (tMutable v s a 2.→ v a) of {
+        c$Dict$Vec ($method0 : ∀(s{1} : sType). tMutable v s{1} a 2.→ v a) →
+          $method0 @s
+      }
 
-  pub val 1.v$fVecVectora :: ∀(a : 2.sType). 1.t$Dict$Vec 1.tVector a
-   = Λ(a : 2.sType).
-    1.c$Dict$Vec @1.tVector @a (1.v$fVecVectora$cfreeze @a)
+  pub val 1.v$fVecVectora :: ∀(a : sType). t$Dict$Vec tVector a
+    = Λ(a : sType).
+      c$Dict$Vec @tVector @a (v$fVecVectora$cfreeze @a)
 
-  val 1.v$fVecVectora$cfreeze :: ∀(a : 2.sType) (s : 2.sType). 1.tMutable 1.tVector s a 2.→ 1.tVector a
-   = Λ(a : 2.sType).
-    Λ(s : 2.sType).
-      λ(x : 1.tMutable 1.tVector s a).
-        case x as (_scrut : 1.tMutable 1.tVector s a) return (1.tVector a) of {
-            1.cMVector (_unpack_leaf0 : s) (x{1} : a) →
-                1.cVector @a x{1}
-        }
+  val 1.v$fVecVectora$cfreeze :: ∀(a : sType) (s : sType). tMutable tVector s a 2.→ tVector a
+    = Λ(a : sType) (s : sType). λ(x : tMutable tVector s a).
+      case x as (_scrut : tMutable tVector s a) return (tVector a) of {
+        cMVector (_unpack_leaf0 : s) (x{1} : a) →
+          cVector @a x{1}
+      }
 reason: an unpacked field of a constructor pattern gets the constructor arguments
   from the pattern type when the scrutinee is an unreduced family application
 status: pass

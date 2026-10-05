@@ -21,50 +21,44 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tUnit :: 2.sType {
-      pub 1.cUnit :: 1.tUnit
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: tUnit
   }
 
-  pub type 1.tConst (k0 : 2.sType) (a : 2.sType) (b : k0) :: 2.sType {}
+  pub type 1.tConst (k0 : sType) (a : sType) (b : k0) :: sType {}
 
-  axiom 1.$ax$Const (k0 : 2.sType) (a : 2.sType) (b : k0) : 1.tConst k0 a b ~R a
+  axiom 1.$ax$Const (k0 : sType) (a : sType) (b : k0) : tConst k0 a b ~R a
 
-  pub type 1.tPayload (a : 2.sType) :: 2.sType @N {}
+  pub type 1.tPayload (a : sType) :: sType @N {}
 
-  type 1.t$R$Payload$PayloadConst (k0 : 2.sType) (a : 2.sType) (b : k0) :: 2.sType {}
+  type 1.t$R$Payload$PayloadConst (k0 : sType) (a : sType) (b : k0) :: sType {}
 
-  axiom 1.$ax$R$Payload$PayloadConst (k0 : 2.sType) (a : 2.sType) (b : k0) : 1.t$R$Payload$PayloadConst k0 a b ~R a
+  axiom 1.$ax$R$Payload$PayloadConst (k0 : sType) (a : sType) (b : k0) : t$R$Payload$PayloadConst k0 a b ~R a
 
-  axiom 1.$ax$Payload$PayloadConst (k0 : 2.sType) (a : 2.sType) (b : k0) : 1.tPayload (1.tConst k0 a b) ~R 1.t$R$Payload$PayloadConst k0 a b
+  axiom 1.$ax$Payload$PayloadConst (k0 : sType) (a : sType) (b : k0) : tPayload (tConst k0 a b) ~R t$R$Payload$PayloadConst k0 a b
 
-  pub val 1.vbuild :: ∀(k0 : 2.sType) (a : 2.sType) (b : k0). a 2.→ 1.tPayload (1.tConst k0 a b)
-   = Λ(k0 : 2.sType).
-    Λ(a : 2.sType).
-      Λ(b : k0).
-        λ(x : a).
-          x ▷ trans (sym (axiom-co 1.$ax$R$Payload$PayloadConst @k0 @a @b)) (sym (axiom-co 1.$ax$Payload$PayloadConst @k0 @a @b))
+  pub val 1.vbuild :: ∀(k0 : sType) (a : sType) (b : k0). a 2.→ tPayload (tConst k0 a b)
+    = Λ(k0 : sType) (a : sType) (b : k0). λ(x : a).
+      x ▷ trans (sym (axiom-co $ax$R$Payload$PayloadConst @k0 @a @b)) (sym (axiom-co $ax$Payload$PayloadConst @k0 @a @b))
 
-  pub val 1.vunwrap :: ∀(k0 : 2.sType) (a : 2.sType) (b : k0). 1.tPayload (1.tConst k0 a b) 2.→ a
-   = Λ(k0 : 2.sType).
-    Λ(a : 2.sType).
-      Λ(b : k0).
-        λ(x : 1.tPayload (1.tConst k0 a b)).
-          x ▷ trans (axiom-co 1.$ax$Payload$PayloadConst @k0 @a @b) (axiom-co 1.$ax$R$Payload$PayloadConst @k0 @a @b)
+  pub val 1.vunwrap :: ∀(k0 : sType) (a : sType) (b : k0). tPayload (tConst k0 a b) 2.→ a
+    = Λ(k0 : sType) (a : sType) (b : k0). λ(x : tPayload (tConst k0 a b)).
+      x ▷ trans (axiom-co $ax$Payload$PayloadConst @k0 @a @b) (axiom-co $ax$R$Payload$PayloadConst @k0 @a @b)
 
-  pub val 1.vuseAtUnit :: 1.tPayload (1.tConst (2.tTYPE (2.cBoxedRep 2.cLifted)) 1.tUnit 1.tUnit) 2.→ 1.tUnit
-   = λ(x : 1.tPayload (1.tConst (2.tTYPE (2.cBoxedRep 2.cLifted)) 1.tUnit 1.tUnit)).
-    1.vunwrap @(2.tTYPE (2.cBoxedRep 2.cLifted)) @1.tUnit @1.tUnit x
+  pub val 1.vuseAtUnit :: tPayload (tConst (tTYPE (cBoxedRep cLifted)) tUnit tUnit) 2.→ tUnit
+    = λ(x : tPayload (tConst (tTYPE (cBoxedRep cLifted)) tUnit tUnit)).
+      vunwrap @(tTYPE (cBoxedRep cLifted)) @tUnit @tUnit x
 status: pass
 reason: A newtype instance whose head leaves a kind open quantifies that kind. Its representation type, both axioms, and each use of the axioms take the kind as the first argument.

@@ -18,31 +18,31 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tT :: 3.sType {
-      pub 1.cMkT :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tT)
+  pub type 1.tT :: sType {
+    pub 1.cMkT :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tT)
   }
 
-  pub val 1.vsecond :: 1.tT 3.→ 3.tInt
-   = λ(x : 1.tT).
-    case x as (_do_scrut : 1.tT) return (3.tInt) of {
-        1.cMkT (_unpack_leaf0 : 2.tInt#) (_unpack_leaf0{1} : 2.tInt#) →
-            3.cI# _unpack_leaf0{1}
-    }
+  pub val 1.vsecond :: tT 3.→ tInt
+    = λ(x : tT).
+      case x as (_do_scrut : tT) return (tInt) of {
+        cMkT (_unpack_leaf0 : tInt#) (_unpack_leaf0{1} : tInt#) →
+          cI# _unpack_leaf0{1}
+      }
 status: pass
 reason: A lazy pattern binding matches the representation fields of an unpacked constructor and rebuilds the source fields.

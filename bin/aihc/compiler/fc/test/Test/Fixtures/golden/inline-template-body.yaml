@@ -34,47 +34,47 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  type 1.tNat :: 2.sType {
-      1.cZ :: 1.tNat;
-      1.cS :: 1.tNat 2.→ 1.tNat
+  type 1.tNat :: sType {
+    1.cZ :: tNat;
+    1.cS :: tNat 2.→ tNat
   }
 
-  val 1.vslow :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    case x as (_scrut : 1.tNat) return (1.tNat) of {
-        1.cZ →
-            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS 1.cZ)))))))))))))));
-        1.cS (y : 1.tNat) →
-            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS y)))))))))))))))
-    }
+  val 1.vslow :: tNat 2.→ tNat
+    = λ(x : tNat).
+      case x as (_scrut : tNat) return (tNat) of {
+        cZ →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ)))))))))))))));
+        cS (y : tNat) →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y)))))))))))))))
+      }
 
-  val 1.vtemplate inline [0] :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    case x as (_scrut : 1.tNat) return (1.tNat) of {
-        1.cZ →
-            1.cS 1.cZ;
-        1.cS (y : 1.tNat) →
-            1.vslow y
-    }
+  val 1.vtemplate inline [0] :: tNat 2.→ tNat
+    = λ(x : tNat).
+      case x as (_scrut : tNat) return (tNat) of {
+        cZ →
+          cS cZ;
+        cS (y : tNat) →
+          vslow y
+      }
 
-  pub val 1.vuseTemplate :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.vtemplate x
+  pub val 1.vuseTemplate :: tNat 2.→ tNat
+    = λ(x : tNat).
+      vtemplate x
 
-  pub val 1.vuseOther :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS x)))))))))))
+  pub val 1.vuseOther :: tNat 2.→ tNat
+    = λ(x : tNat).
+      cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS x)))))))))))
 status: pass
 reason: A value with one use inside an INLINE value stays a value, because every copy of the INLINE value would repeat the use. A measured copy into the INLINE value is decided like any other.

@@ -25,44 +25,43 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cFalse, 2.cTrue] 2.tBool :: 2.sType;
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  type 1.tBox (a : 2.sType) :: 2.sType {
-      1.cBox :: ∀(a : 2.sType). a 2.→ 1.tBox a
+  type 1.tBox (a : sType) :: sType {
+    1.cBox :: ∀(a : sType). a 2.→ tBox a
   }
 
-  type 1.t$Dict$Pick (f : 2.sType 2.→ 2.sType) :: 2.sType {
-      1.c$Dict$Pick :: ∀(f : 2.sType 2.→ 2.sType). (∀(a : 2.sType). f a 2.→ a) 2.→ 1.t$Dict$Pick f
+  type 1.t$Dict$Pick (f : sType 2.→ sType) :: sType {
+    1.c$Dict$Pick :: ∀(f : sType 2.→ sType). (∀(a : sType). f a 2.→ a) 2.→ t$Dict$Pick f
   }
 
-  pub val 1.v$fPickBox :: 1.t$Dict$Pick 1.tBox
-   = 1.c$Dict$Pick @1.tBox (Λ(a : 2.sType).
-    1.vunbox @a)
+  pub val 1.v$fPickBox :: t$Dict$Pick tBox
+    = c$Dict$Pick @tBox (Λ(a : sType).
+      vunbox @a)
 
-  val 1.vunbox :: ∀(a : 2.sType). 1.tBox a 2.→ a
-   = Λ(a : 2.sType).
-    λ(x : 1.tBox a).
-      case x as (_scrut : 1.tBox a) return (a) of {
-          1.cBox (a{1} : a) →
-              a{1}
+  val 1.vunbox :: ∀(a : sType). tBox a 2.→ a
+    = Λ(a : sType). λ(x : tBox a).
+      case x as (_scrut : tBox a) return (a) of {
+        cBox (a{1} : a) →
+          a{1}
       }
 
-  pub val 1.vrun :: 1.tBox 2.tBool 2.→ 2.tBool
-   = λ(x : 1.tBox 2.tBool).
-    case x as (_scrut : 1.tBox 2.tBool) return (2.tBool) of {
-        1.cBox (a : 2.tBool) →
-            a
-    }
+  pub val 1.vrun :: tBox tBool 2.→ tBool
+    = λ(x : tBox tBool).
+      case x as (_scrut : tBox tBool) return (tBool) of {
+        cBox (a : tBool) →
+          a
+      }
 status: pass
 reason: An instance method that names a function at its own types is an alias of that function, so a call through the known dictionary becomes a direct call.

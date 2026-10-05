@@ -16,43 +16,42 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tMark :: 2.sType {
-      pub 1.cMarked :: 1.tMark
+  pub type 1.tMark :: sType {
+    pub 1.cMarked :: tMark
   }
 
-  pub type 1.t$Dict$Markable (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Markable :: ∀(a : 2.sType). (a 2.→ 1.tMark) 2.→ 1.t$Dict$Markable a
+  pub type 1.t$Dict$Markable (a : sType) :: sType {
+    pub 1.c$Dict$Markable :: ∀(a : sType). (a 2.→ tMark) 2.→ t$Dict$Markable a
   }
 
-  pub type 1.tBox :: 2.sType {
-      pub 1.cBox :: ∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tBox
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: ∀(a : sType). t$Dict$Markable a 2.→ a 2.→ tBox
   }
 
-  pub val 1.vmark :: ∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tMark
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Markable a).
-      case $d0 as ($dict : 1.t$Dict$Markable a) return (a 2.→ 1.tMark) of {
-          1.c$Dict$Markable ($method0 : a 2.→ 1.tMark) →
-              $method0
+  pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a 2.→ a 2.→ tMark
+    = Λ(a : sType). λ($d0 : t$Dict$Markable a).
+      case $d0 as ($dict : t$Dict$Markable a) return (a 2.→ tMark) of {
+        c$Dict$Markable ($method0 : a 2.→ tMark) →
+          $method0
       }
 
-  pub val 1.vinspect :: 1.tBox 2.→ 1.tMark
-   = λ(x : 1.tBox).
-    case x as (_scrut : 1.tBox) return (1.tMark) of {
-        1.cBox @(a : 2.sType) ($pattern_d0 : 1.t$Dict$Markable a) (value : a) →
-            1.vmark @a $pattern_d0 value
-    }
+  pub val 1.vinspect :: tBox 2.→ tMark
+    = λ(x : tBox).
+      case x as (_scrut : tBox) return (tMark) of {
+        cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (value : a) →
+          vmark @a $pattern_d0 value
+      }
 status: pass
 reason: ''

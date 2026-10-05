@@ -45,100 +45,95 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    int32ToInt# = 2.vint32ToInt# :: FUN @cInt32Rep @cIntRep tInt32# tInt#
+
   import headers
-    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    2.tInt32# :: 3.tTYPE 3.cInt32Rep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cFalse :: 3.tBool;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cInt32Rep :: 3.tRuntimeRep;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTrue :: 3.tBool
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    2.tInt32# :: tTYPE cInt32Rep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cInt32Rep :: tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.t$Dict$Eq (a : 3.sType) :: 3.sType {
-      1.c$Dict$Eq :: ∀(a : 3.sType). (a 3.→ a 3.→ 3.tBool) 3.→ 1.t$Dict$Eq a
+  type 1.t$Dict$Eq (a : sType) :: sType {
+    1.c$Dict$Eq :: ∀(a : sType). (a 3.→ a 3.→ tBool) 3.→ t$Dict$Eq a
   }
 
-  type 1.tInt32 :: 3.sType {
-      1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
+  type 1.tInt32 :: sType {
+    1.cI32# :: FUN @cInt32Rep @sLiftedRep tInt32# tInt32
   }
 
-  type 1.tCInt :: 3.sType {}
+  type 1.tCInt :: sType {}
 
-  axiom 1.$ax$CInt : 1.tCInt ~R 1.tInt32
+  axiom 1.$ax$CInt : tCInt ~R tInt32
 
-  type 1.tErrno :: 3.sType {}
+  type 1.tErrno :: sType {}
 
-  axiom 1.$ax$Errno : 1.tErrno ~R 1.tCInt
+  axiom 1.$ax$Errno : tErrno ~R tCInt
 
-  pub val 1.v$fEqInt32 :: 1.t$Dict$Eq 1.tInt32
-   = 1.c$Dict$Eq @1.tInt32 1.v$fEqInt32$c==
+  pub val 1.v$fEqInt32 :: t$Dict$Eq tInt32
+    = c$Dict$Eq @tInt32 v$fEqInt32$c==
 
-  val 1.v$fEqInt32$c== :: 1.tInt32 3.→ 1.tInt32 3.→ 3.tBool
-   = λ(x : 1.tInt32).
-    λ(y : 1.tInt32).
-      case x as (_scrut : 1.tInt32) return (3.tBool) of {
-          1.cI32# (left : 2.tInt32#) →
-              case y as (_scrut{1} : 1.tInt32) return (3.tBool) of {
-                  1.cI32# (right : 2.tInt32#) →
-                      let {
-                          x{1} : 2.tInt# =
-                              foreign {prim 2.vint32ToInt# :: FUN @3.cInt32Rep @3.cIntRep 2.tInt32# 2.tInt#} left
-                      } in
-                          let {
-                              y{1} : 2.tInt# =
-                                  foreign {prim 2.vint32ToInt# :: FUN @3.cInt32Rep @3.cIntRep 2.tInt32# 2.tInt#} right
-                          } in
-                              let {
-                                  _case : 2.tInt# =
-                                      foreign {prim 2.v==# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} y{1}
-                              } in
-                                  case _case as (_scrut{2} : 2.tInt#) return (3.tBool) of {
-                                      0#3.cIntRep →
-                                          3.cFalse;
-                                      _ →
-                                          3.cTrue
-                                  }
+  val 1.v$fEqInt32$c== :: tInt32 3.→ tInt32 3.→ tBool
+    = λ(x : tInt32) (y : tInt32).
+      case x as (_scrut : tInt32) return (tBool) of {
+        cI32# (left : tInt32#) →
+          case y as (_scrut{1} : tInt32) return (tBool) of {
+            cI32# (right : tInt32#) →
+              let x{1} : tInt# =
+                prim int32ToInt# left;
+              let y{1} : tInt# =
+                prim int32ToInt# right;
+              let _case : tInt# =
+                prim ==# x{1} y{1};
+              case _case as (_scrut{2} : tInt#) return (tBool) of {
+                0#cIntRep →
+                  cFalse;
+                _ →
+                  cTrue
               }
+          }
       }
 
-  pub val 1.v$fEqCInt :: 1.t$Dict$Eq 1.tCInt
-   = 1.v$fEqInt32 ▷ tycon-co 1.t$Dict$Eq (sym (axiom-co 1.$ax$CInt))
+  pub val 1.v$fEqCInt :: t$Dict$Eq tCInt
+    = v$fEqInt32 ▷ tycon-co t$Dict$Eq (sym (axiom-co $ax$CInt))
 
-  pub val 1.v$fEqErrno :: 1.t$Dict$Eq 1.tErrno
-   = (1.v$fEqInt32 ▷ tycon-co 1.t$Dict$Eq (sym (axiom-co 1.$ax$CInt))) ▷ tycon-co 1.t$Dict$Eq (sym (axiom-co 1.$ax$Errno))
+  pub val 1.v$fEqErrno :: t$Dict$Eq tErrno
+    = (v$fEqInt32 ▷ tycon-co t$Dict$Eq (sym (axiom-co $ax$CInt))) ▷ tycon-co t$Dict$Eq (sym (axiom-co $ax$Errno))
 
-  pub val 1.vclassify :: 1.tErrno 3.→ 3.tInt
-   = λ(x : 1.tErrno).
-    case (x ▷ axiom-co 1.$ax$Errno) ▷ axiom-co 1.$ax$CInt as (_scrut : 1.tInt32) return (3.tInt) of {
-        1.cI32# (left : 2.tInt32#) →
-            let {
-                x{1} : 2.tInt# =
-                    foreign {prim 2.vint32ToInt# :: FUN @3.cInt32Rep @3.cIntRep 2.tInt32# 2.tInt#} left
-            } in
-                case x{1} as (_scrut{1} : 2.tInt#) return (3.tInt) of {
-                    1#3.cIntRep →
-                        3.cI# 10#3.cIntRep;
-                    2#3.cIntRep →
-                        3.cI# 20#3.cIntRep;
-                    3#3.cIntRep →
-                        3.cI# 30#3.cIntRep;
-                    _ →
-                        3.cI# 0#3.cIntRep
-                }
-    }
+  pub val 1.vclassify :: tErrno 3.→ tInt
+    = λ(x : tErrno).
+      case (x ▷ axiom-co $ax$Errno) ▷ axiom-co $ax$CInt as (_scrut : tInt32) return (tInt) of {
+        cI32# (left : tInt32#) →
+          let x{1} : tInt# =
+            prim int32ToInt# left;
+          case x{1} as (_scrut{1} : tInt#) return (tInt) of {
+            1#cIntRep →
+              cI# 10#cIntRep;
+            2#cIntRep →
+              cI# 20#cIntRep;
+            3#cIntRep →
+              cI# 30#cIntRep;
+            _ →
+              cI# 0#cIntRep
+          }
+      }
 status: pass
 reason: |-
   A guard chain that compares a newtype over a boxed integer with literal constants

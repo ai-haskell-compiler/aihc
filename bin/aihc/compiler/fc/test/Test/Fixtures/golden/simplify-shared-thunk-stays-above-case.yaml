@@ -29,59 +29,55 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tPair :: 3.sType {
-      1.cPair :: 3.tInt 3.→ 3.tInt 3.→ 1.tPair
+  type 1.tPair :: sType {
+    1.cPair :: tInt 3.→ tInt 3.→ tPair
   }
 
-  val 1.vslow noinline :: 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    x
+  val 1.vslow noinline :: tInt 3.→ tInt
+    = λ(x : tInt).
+      x
 
-  pub val 1.vpick :: 3.tInt 3.→ 3.tInt 3.→ 1.tPair
-   = λ(x : 3.tInt).
-    λ(y : 3.tInt).
-      case x as (_scrut : 3.tInt) return (1.tPair) of {
-          3.cI# (a : 2.tInt#) →
-              let {
-                  lazy : 3.tInt =
-                      1.vslow y
-              } in
-                  let {
-                      _case : 2.tInt# =
-                          foreign {prim 2.v<# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} a 0#3.cIntRep
-                  } in
-                      case _case as (_scrut{1} : 2.tInt#) return (1.tPair) of {
-                          1#3.cIntRep →
-                              1.cPair lazy y;
-                          _ →
-                              let {
-                                  _case{1} : 2.tInt# =
-                                      foreign {prim 2.v<# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} a 10#3.cIntRep
-                              } in
-                                  case _case{1} as (_scrut{2} : 2.tInt#) return (1.tPair) of {
-                                      1#3.cIntRep →
-                                          1.cPair y lazy;
-                                      _ →
-                                          1.cPair y y
-                                  }
-                      }
+  pub val 1.vpick :: tInt 3.→ tInt 3.→ tPair
+    = λ(x : tInt) (y : tInt).
+      case x as (_scrut : tInt) return (tPair) of {
+        cI# (a : tInt#) →
+          let lazy : tInt =
+            vslow y;
+          let _case : tInt# =
+            prim <# a 0#cIntRep;
+          case _case as (_scrut{1} : tInt#) return (tPair) of {
+            1#cIntRep →
+              cPair lazy y;
+            _ →
+              let _case{1} : tInt# =
+                prim <# a 10#cIntRep;
+              case _case{1} as (_scrut{2} : tInt#) return (tPair) of {
+                1#cIntRep →
+                  cPair y lazy;
+                _ →
+                  cPair y y
+              }
+          }
       }
 status: pass
 reason: Two alternatives use the thunk. A thunk can be large, so the let does not move into both alternatives. It stays above the case.
