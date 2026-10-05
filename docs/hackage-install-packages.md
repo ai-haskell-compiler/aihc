@@ -15,7 +15,7 @@ whole-program compilation is still found.
 
 Order matters. Packages are installed from top to bottom into one store, and a
 package may only depend on packages above it: the installs share a workspace, so
-a dependency is taken from the pinned source next to it rather than resolved
+a dependency is taken from the pinned workspace source rather than resolved
 against Hackage. Versions are exact for the same reason — a floating version
 would make the run depend on whatever Hackage prefers that day, and a failure
 would no longer point at a change in aihc.
@@ -34,6 +34,7 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | deepseq | 1.5.2.0 |
 | array | 0.5.8.0 |
 | containers | 0.7 |
+| containers | 0.8 |
 | data-default | 0.8.0.2 |
 | bytestring | 0.12.2.0 |
 | binary | 0.8.9.3 |

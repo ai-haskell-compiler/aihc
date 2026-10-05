@@ -33,6 +33,7 @@ hlint-refactor:
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
+  bash scripts/test-install-hackage-packages.sh
   nix build .#aihc-grammars --no-link
   nix build .#vscode-lir --no-link
   nix build .#manual --no-link
