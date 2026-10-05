@@ -182,13 +182,7 @@ extern int32_t __wasm_import_wasi_http_client_send(int32_t, uint8_t *);
 
 __attribute__((__weak__, __export_name__("cabi_realloc")))
 void *cabi_realloc(void *ptr, size_t old_size, size_t align, size_t new_size) {
-  if (new_size == 0) return (void*) align;
-  if (align > _Alignof(max_align_t)) aihc_fail("unsupported canonical ABI alignment");
-  void *ret = aihc_wasi_allocate(new_size);
-  if (old_size != 0) {
-    memcpy(ret, ptr, old_size < new_size ? old_size : new_size);
-  }
-  return ret;
+  return aihc_wasi_reallocate(ptr, old_size, align, new_size);
 }
 
 // Helper Functions

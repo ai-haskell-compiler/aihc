@@ -65,9 +65,10 @@ is, so no unit of the runtime is left to an archive member search.
 The `wasm32-wasip3` host layer takes the WASI 0.3 C bindings under
 `wasm/generated`, which `wit-bindgen` writes from the component world in
 `bin/aihc/compiler/wasm/runtime/wit`. The bindings are committed, so a
-compiler needs no `wit-bindgen` to build a wasm program; the link embeds the
-component type of the same world into the core module with `wasm-tools
-component embed`. `scripts/update-wit-bindings.sh --update` rewrites the
+compiler needs no `wit-bindgen` to build a wasm program; the link gives the
+same world to `wasm-component-ld`, which merges it with the component type of
+the libc and encodes the component. `scripts/update-wit-bindings.sh --update`
+rewrites the
 bindings after a change to the world or to the pinned `wit-bindgen`, and
 the `wit-bindings` Nix check fails when they drift.
 

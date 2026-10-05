@@ -459,6 +459,8 @@ _Static_assert(sizeof(AihcIoHandle) <= 5 * sizeof(AihcSlot),
 void *aihc_rts_root(uint64_t index);
 void aihc_rts_set_root(uint64_t index, void *value);
 void *aihc_wasi_allocate(uint64_t bytes);
+void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
+                           size_t new_size);
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
 void aihc_memory_move(void *destination, const void *source, uint64_t length);
 void aihc_memory_set(void *destination, uint64_t byte, uint64_t length);

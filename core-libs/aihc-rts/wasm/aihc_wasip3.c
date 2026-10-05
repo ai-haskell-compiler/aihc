@@ -103,6 +103,34 @@ void *aihc_wasi_allocate(uint64_t bytes) {
       aihc_host_byte_array(&aihc_machine, aihc_wasi_roots, bytes));
 }
 
+/* The canonical ABI allocator, which the host calls to lower a value into the
+   program. A request of the runtime comes inside an explicit host scope, and
+   its buffer is a byte array that the collector owns. A request of a libc
+   call, such as the list of preopened directories that its first path lookup
+   asks for, comes outside any scope. The libc frees what it lifts, so its
+   buffers come from its own allocator. */
+void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
+                           size_t new_size) {
+  if (new_size == 0) {
+    return (void *)align;
+  }
+  if (align > _Alignof(max_align_t)) {
+    aihc_fail("unsupported canonical ABI alignment");
+  }
+  if (aihc_wasi_roots != NULL) {
+    void *buffer = aihc_wasi_allocate(new_size);
+    if (old_size != 0) {
+      memcpy(buffer, ptr, old_size < new_size ? old_size : new_size);
+    }
+    return buffer;
+  }
+  void *buffer = realloc(ptr, new_size);
+  if (buffer == NULL) {
+    abort();
+  }
+  return buffer;
+}
+
 static void aihc_wasi_initialize_arguments(void) {
   aihc_machine_initialize();
   AihcRootFrame frame;
@@ -1098,7 +1126,18 @@ static int aihc_wasi_handle_event(const command_event_t *event,
    program runs here and, when every green thread waits for IO, the task
    waits for the event of the pending request. A libc call that blocks, as
    the WASI 0.3 libc does, is only allowed to in such a task. */
+/* wasm-ld makes this function when an input has constructors, as the libc
+   has. A crt1 object would call it before main, and the runtime has none. */
+// NOLINTBEGIN(bugprone-reserved-identifier)
+extern void __wasm_call_ctors(void) __attribute__((weak));
+// NOLINTEND(bugprone-reserved-identifier)
+
 bool exports_wasi_cli_run_run(void) {
+  // NOLINTBEGIN(bugprone-reserved-identifier)
+  if (__wasm_call_ctors != NULL) {
+    __wasm_call_ctors();
+  }
+  // NOLINTEND(bugprone-reserved-identifier)
   aihc_wasi_initialize_arguments();
   int32_t finished = aihc_lir_program_start();
   while (!finished) {

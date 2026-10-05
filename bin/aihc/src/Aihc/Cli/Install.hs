@@ -143,6 +143,8 @@ import Aihc.PackagePlan
     PlanRequest (..),
     PlanRoot (..),
     PlannedPackages (..),
+    aihcRtsProvider,
+    coreProviderSourcePath,
     dependencyVersionsFromManifests,
     parseConstraint,
     parseSourcePackageDescriptionAt,
@@ -3551,9 +3553,15 @@ configureLinkOverrides target =
   case target of
     Wasm32Wasip3 -> do
       sysroot <- wasmSysroot
+      runtime <- coreProviderSourcePath aihcRtsProvider
+      -- The libc finds its stack pointer and its thread-local storage through
+      -- functions that a link of the runtime gets from the runtime. A test
+      -- program gets them from the same source, which the compiler builds as
+      -- one more input. The libc keeps thread-local storage in a segment, and
+      -- the linker wants the atomics feature for that.
       pure
-        [ ("LDFLAGS", "-nostartfiles -nodefaultlibs -Wl,--no-entry -Wl,--export=main"),
-          ("LIBS", wasmSysrootLibc sysroot)
+        [ ("LDFLAGS", "-nostartfiles -nodefaultlibs -Wl,--no-entry -Wl,--export=main -Wl,--extra-features=atomics"),
+          ("LIBS", unwords ([runtime </> "wasm" </> "aihc_wasip3_libc.c", wasmSysrootLibc sysroot] <> maybe [] pure (wasmSysrootBuiltins sysroot)))
         ]
     _ -> pure []
 

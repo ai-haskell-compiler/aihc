@@ -17,6 +17,7 @@ in {
         exec ${pkgs.lld}/bin/wasm-ld "$@"
       '')
       pkgs.wasm-tools
+      pkgs.wasm-component-ld
       pkgs.wasmtime
       pkgs.haskellPackages.hsc2hs
       pkgs.wit-bindgen
