@@ -3525,22 +3525,32 @@ configureCommand target level script = do
   inherited <- getEnvironment
   linkOverrides <- configureLinkOverrides target
   let cflags = unwords cflagList
-      overrides = [("CC", compiler), ("CFLAGS", cflags)] <> linkOverrides
-      environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
       crossArguments = ["--host=" <> name | Just target /= hostNativeTarget, Just name <- [autoconfHostName target]]
+      -- Autoconf runs the preprocessor as @$CC -E $CPPFLAGS@ and never
+      -- gives it @CFLAGS@. A check that preprocesses a header, such as one
+      -- for a macro that fcntl.h defines, would then read the headers of
+      -- the host and not those of the target.
+      preprocessorOverrides = [("CPPFLAGS", cflags) | not (null crossArguments)]
+      overrides = [("CC", compiler), ("CFLAGS", cflags)] <> preprocessorOverrides <> linkOverrides
+      environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
   pure ("sh", script : crossArguments, environment)
 
 -- | What a configure script needs to link its test programs. The wasm
 -- linker finds no startup files or runtime library on its own, and aihc
 -- links its own entry, so a test program links against the libc archive of
 -- the sysroot alone and without an entry point.
+--
+-- With no entry point the linker has no root to keep, so it discards
+-- @main@ before it looks for undefined symbols, and a test for a function
+-- that the libc lacks would pass. Exporting @main@ keeps it, so the test
+-- fails as it should.
 configureLinkOverrides :: NativeTarget -> IO [(String, String)]
 configureLinkOverrides target =
   case target of
     Wasm32Wasip3 -> do
       sysroot <- wasmSysroot
       pure
-        [ ("LDFLAGS", "-nostartfiles -nodefaultlibs -Wl,--no-entry"),
+        [ ("LDFLAGS", "-nostartfiles -nodefaultlibs -Wl,--no-entry -Wl,--export=main"),
           ("LIBS", wasmSysrootLibc sysroot)
         ]
     _ -> pure []
@@ -3764,7 +3774,7 @@ configureInputsHash config script = do
         [ TE.encodeUtf8 packageArtifactFormatVersion,
           scriptBytes,
           BS8.pack environmentIdentity,
-          BS8.pack (show (executable, arguments, map (`lookup` environment) ["CC", "CFLAGS", "LDFLAGS", "LIBS"]))
+          BS8.pack (show (executable, arguments, map (`lookup` environment) ["CC", "CFLAGS", "CPPFLAGS", "LDFLAGS", "LIBS"]))
         ]
     )
 
