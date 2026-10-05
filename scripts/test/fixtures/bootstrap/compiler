@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+command="$1"
+shift
+output=""
+store=""
+build_root=""
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	--output)
+		output="$2"
+		shift 2
+		;;
+	--store)
+		store="$2"
+		shift 2
+		;;
+	--build-root)
+		build_root="$2"
+		shift 2
+		;;
+	*) shift ;;
+	esac
+done
+if [[ "$command" == build && ("${BOOTSTRAP_CASE:-}" == first-fail || ("$store" == *stage3-store* && "${BOOTSTRAP_CASE:-}" == fail)) ]]; then
+	echo 'error: fixture compiler failure' >&2
+	exit 1
+fi
+if [ "$command" = build ]; then
+	test ! -e "$build_root/fixture-object"
+	mkdir -p "$build_root"
+	touch "$build_root/fixture-object"
+	mkdir -p "$output"
+	cp "$0" "$output/aihc"
+	chmod +x "$output/aihc"
+	if [[ "$store" == *stage3-store* && "${BOOTSTRAP_CASE:-}" == mismatch ]]; then
+		echo '# Fixture byte difference.' >>"$output/aihc"
+	fi
+fi

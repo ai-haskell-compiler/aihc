@@ -18,6 +18,9 @@ Usage: scripts/self-hosting-progress.sh --report FILE [OPTION]...
                   (default: 0)
   --store DIR     Use DIR as the package store (default: a temporary directory)
   --log-dir DIR   Keep the install log of each package in DIR
+  --bootstrap-dir DIR
+                  Build two compiler generations and compare their bytes.
+                  Keep the executables, reports, and logs in DIR.
   --executable NAME
                   Build the executable NAME of the last package of the list,
                   which is the package that compiles itself (default: aihc)
@@ -27,8 +30,9 @@ Usage: scripts/self-hosting-progress.sh --report FILE [OPTION]...
   --help          Show this message
 
 The aihc executable is taken from $AIHC, and defaults to `aihc` on PATH.
-A package that fails does not make the script fail. The script fails only
-when it cannot prepare the aihc core libraries.
+Without --bootstrap-dir, a package failure does not make the script fail.
+With --bootstrap-dir, a package failure or byte difference makes it fail.
+The script also fails when it cannot prepare the aihc core libraries.
 USAGE
 }
 
@@ -40,6 +44,7 @@ store=""
 log_dir=""
 package_timeout="1800"
 root_executable="aihc"
+bootstrap_dir=""
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -73,6 +78,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--executable)
 		root_executable="${2:?--executable needs a name}"
+		shift 2
+		;;
+	--bootstrap-dir)
+		bootstrap_dir="${2:?--bootstrap-dir needs a directory}"
 		shift 2
 		;;
 	--timeout)
@@ -155,6 +164,18 @@ if [ -z "$store" ]; then
 fi
 mkdir -p "$store"
 
+output_args=()
+if [ -n "$bootstrap_dir" ]; then
+	mkdir -p "$bootstrap_dir"
+	bootstrap_dir="$(cd "$bootstrap_dir" && pwd)"
+	if [ -e "$bootstrap_dir/stage2" ] || [ -e "$bootstrap_dir/stage3" ]; then
+		echo "The bootstrap output directory must contain no compiler stages." >&2
+		exit 1
+	fi
+	cp "$(command -v "$aihc")" "$bootstrap_dir/ghc-aihc"
+	output_args=(--output "$bootstrap_dir/stage2")
+fi
+
 # Put the source of one package in the workspace, and write the messages to
 # the standard output. `aihc install` prefers the siblings of the package it
 # installs over Hackage, so every dependency is the version of the list.
@@ -235,70 +256,115 @@ while IFS=$'\t' read -r name version source _depends; do
 	fi
 done <<<"$packages"
 
-# The level is part of the identity of an installed package, so aihc-base is
-# installed at the level of the packages.
-echo "Preparing the $target toolchain at -O$level in $store"
-"$aihc" install core-libs/aihc-base \
-	--store "$store" --immutable --target "$target" -O "$level"
+run_stage() {
+	# The level is part of the identity of an installed package, so aihc-base is
+	# installed at the level of the packages.
+	echo "Preparing the $target toolchain at -O$level in $store"
+	"$aihc" install core-libs/aihc-base \
+		--store "$store" --immutable --target "$target" -O "$level"
 
-# The last row is the package that compiles itself.
-root_name="$(tail -n 1 <<<"$packages" | cut -f1)"
+	# The last row is the package that compiles itself.
+	root_name="$(tail -n 1 <<<"$packages" | cut -f1)"
 
-passed=" "
-: >"$report"
-while IFS=$'\t' read -r name version source depends; do
-	log="$log_dir/$name.log"
-	blocked_by=""
-	if [ "$depends" != "-" ]; then
-		for dependency in ${depends//,/ }; do
-			case "$passed" in
-			*" $dependency "*) ;;
-			*) blocked_by="$blocked_by${blocked_by:+,}$dependency" ;;
-			esac
-		done
+	passed=" "
+	: >"$report"
+	while IFS=$'\t' read -r name version source depends; do
+		log="$log_dir/$name.log"
+		blocked_by=""
+		if [ "$depends" != "-" ]; then
+			for dependency in ${depends//,/ }; do
+				case "$passed" in
+				*" $dependency "*) ;;
+				*) blocked_by="$blocked_by${blocked_by:+,}$dependency" ;;
+				esac
+			done
+		fi
+
+		case "$fetch_failed" in
+		*" $name "*)
+			printf '%s\t%s\tfail\tcould not fetch the source\n' "$name" "$version" >>"$report"
+			continue
+			;;
+		esac
+
+		if [ -n "$blocked_by" ]; then
+			echo "Skipping $name-$version, which needs $blocked_by"
+			printf '%s\t%s\tblocked\t%s\n' "$name" "$version" "$blocked_by" >>"$report"
+			continue
+		fi
+
+		status=0
+		if [ "$name" = "$root_name" ]; then
+			# The last package is the one to compile itself. Its executable is
+			# the goal, so it is built rather than installed. The plan of the
+			# package list disables the `hackage` flag of aihc, so the build
+			# disables it too.
+			echo "Building the executable $root_executable of $name-$version"
+			run_with_timeout "$aihc" build "$workspace/$name" --executable "$root_executable" \
+				--constraint "aihc -hackage" \
+				"${output_args[@]}" \
+				--store "$store" --build-root "$work_directory/build" --target "$target" -O "$level" \
+				>>"$log" 2>&1 || status=$?
+		else
+			echo "Installing $name-$version"
+			run_with_timeout "$aihc" install "$workspace/$name" \
+				--store "$store" --immutable --target "$target" -O "$level" \
+				>>"$log" 2>&1 || status=$?
+		fi
+		if [ "$status" -eq 0 ]; then
+			echo "  ok"
+			passed="$passed$name "
+			printf '%s\t%s\tpass\t-\n' "$name" "$version" >>"$report"
+		else
+			echo "  failed, last lines of the log:"
+			tail -n 20 "$log" | sed 's/^/  /'
+			printf '%s\t%s\tfail\t%s\n' "$name" "$version" "$(failure_reason "$status" "$log")" >>"$report"
+		fi
+	done <<<"$packages"
+
+	total="$(wc -l <"$report" | tr -d ' ')"
+	pass_count="$(awk -F'\t' '$3 == "pass"' "$report" | wc -l | tr -d ' ')"
+	echo "Installed $pass_count of $total packages of $list_file."
+}
+
+run_stage
+
+if [ -n "$bootstrap_dir" ]; then
+	if [ "$report" -ef "$bootstrap_dir/stage2.tsv" ]; then
+		:
+	else
+		cp "$report" "$bootstrap_dir/stage2.tsv"
+	fi
+	if [ "$log_dir" -ef "$bootstrap_dir/stage2-logs" ]; then
+		:
+	else
+		cp -R "$log_dir" "$bootstrap_dir/stage2-logs"
+	fi
+	if awk -F '\t' '$3 != "pass" { failed = 1 } END { exit failed }' "$report"; then
+		:
+	else
+		echo "The first AIHC build failed." >&2
+		exit 1
 	fi
 
-	case "$fetch_failed" in
-	*" $name "*)
-		printf '%s\t%s\tfail\tcould not fetch the source\n' "$name" "$version" >>"$report"
-		continue
-		;;
-	esac
+	aihc="$bootstrap_dir/stage2/$root_executable"
+	store="$work_directory/stage3-store"
+	log_dir="$bootstrap_dir/stage3-logs"
+	report="$bootstrap_dir/stage3.tsv"
+	output_args=(--output "$bootstrap_dir/stage3")
+	mkdir -p "$store" "$log_dir"
+	# Remove the first generation of module artifacts before the next build.
+	rm -rf "$work_directory/build"
+	run_stage
+	awk -F '\t' '$3 != "pass" { failed = 1 } END { exit failed }' "$report"
 
-	if [ -n "$blocked_by" ]; then
-		echo "Skipping $name-$version, which needs $blocked_by"
-		printf '%s\t%s\tblocked\t%s\n' "$name" "$version" "$blocked_by" >>"$report"
-		continue
-	fi
-
+	sha256sum "$bootstrap_dir/ghc-aihc" \
+		"$bootstrap_dir/stage2/$root_executable" \
+		"$bootstrap_dir/stage3/$root_executable" >"$bootstrap_dir/sha256.txt"
 	status=0
-	if [ "$name" = "$root_name" ]; then
-		# The last package is the one to compile itself. Its executable is
-		# the goal, so it is built rather than installed. The plan of the
-		# package list disables the `hackage` flag of aihc, so the build
-		# disables it too.
-		echo "Building the executable $root_executable of $name-$version"
-		run_with_timeout "$aihc" build "$workspace/$name" --executable "$root_executable" \
-			--constraint "aihc -hackage" \
-			--store "$store" --build-root "$work_directory/build" --target "$target" -O "$level" \
-			>>"$log" 2>&1 || status=$?
-	else
-		echo "Installing $name-$version"
-		run_with_timeout "$aihc" install "$workspace/$name" \
-			--store "$store" --immutable --target "$target" -O "$level" \
-			>>"$log" 2>&1 || status=$?
-	fi
-	if [ "$status" -eq 0 ]; then
-		echo "  ok"
-		passed="$passed$name "
-		printf '%s\t%s\tpass\t-\n' "$name" "$version" >>"$report"
-	else
-		echo "  failed, last lines of the log:"
-		tail -n 20 "$log" | sed 's/^/  /'
-		printf '%s\t%s\tfail\t%s\n' "$name" "$version" "$(failure_reason "$status" "$log")" >>"$report"
-	fi
-done <<<"$packages"
-
-total="$(wc -l <"$report" | tr -d ' ')"
-pass_count="$(awk -F'\t' '$3 == "pass"' "$report" | wc -l | tr -d ' ')"
-echo "Installed $pass_count of $total packages of $list_file."
+	cmp "$bootstrap_dir/stage2/$root_executable" "$bootstrap_dir/stage3/$root_executable" \
+		>"$bootstrap_dir/aihc-comparison.txt" 2>&1 || status=1
+	cmp "$bootstrap_dir/ghc-aihc" "$bootstrap_dir/stage3/$root_executable" \
+		>"$bootstrap_dir/ghc-comparison.txt" 2>&1 || status=1
+	exit "$status"
+fi

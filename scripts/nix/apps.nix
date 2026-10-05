@@ -212,6 +212,7 @@ in {
       pkgs.bash
       pkgs.cacert
       pkgs.coreutils
+      pkgs.diffutils
       pkgs.curl
       pkgs.gnutar
       pkgs.gzip

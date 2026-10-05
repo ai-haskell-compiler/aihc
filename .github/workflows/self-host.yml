@@ -1,0 +1,85 @@
+name: AIHC Self-Host
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Test bootstrap fixtures
+        run: bash scripts/test/bootstrap.sh
+
+      - name: Build AIHC with GHC
+        run: |
+          mkdir -p self-host-results
+          nix run .#aihc -- --help 2>&1 | tee self-host-results/ghc-build.log
+
+      - name: Prepare the dependency list
+        run: |
+          mkdir -p self-host-results
+          git rev-parse HEAD >self-host-results/commit.txt
+          nix run .#self-hosting-packages -- --output self-host-results/packages.md
+
+      - name: Build AIHC with two compiler generations
+        run: |
+          nix run .#self-hosting-progress -- \
+            --list self-host-results/packages.md \
+            --report self-host-results/stage2.tsv \
+            --log-dir self-host-results/stage2-logs \
+            --target linux-amd64 \
+            --bootstrap-dir self-host-results 2>&1 | tee self-host-results/bootstrap.log
+
+      - name: Report the result
+        if: always()
+        run: |
+          {
+            echo '### AIHC self-host check'
+            echo
+            echo 'The check compares stage 3 with stage 2 and with the GHC-built compiler.'
+            for report in self-host-results/*.tsv self-host-results/*comparison.txt self-host-results/sha256.txt; do
+              if [ -f "$report" ]; then
+                echo
+                echo "#### $(basename "$report")"
+                echo '```text'
+                cat "$report"
+                echo '```'
+              fi
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload compiler executables and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: self-host-results
+          path: self-host-results
+          retention-days: 14
+          if-no-files-found: warn
