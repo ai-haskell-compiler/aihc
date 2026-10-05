@@ -58,6 +58,7 @@ module Aihc.Tc.Monad
     Closedness (..),
     emptyTcEnv,
     mkWiredTyCon,
+    registeredWiredTyCon,
     anyTyConOfWiring,
     undeterminedTypeOfKind,
     implicitParamType,
@@ -410,6 +411,15 @@ mkWiredTyCon tyCon kind = do
       let info = TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon (Scheme [] [] [] kind) DataTyCon Nothing Nothing
       lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert (tyConKey tyCon) info (tcsGlobalTyCons state)}
       pure tyCon
+
+-- | A wired type constructor whose kind is already registered. A missing
+-- registration is an internal error, so no stand-in kind hides it.
+registeredWiredTyCon :: TyCon -> TcM TyCon
+registeredWiredTyCon tyCon = do
+  maybeInfo <- lookupTyConByIdentity tyCon
+  case maybeInfo of
+    Just info -> pure (tciTyCon info)
+    Nothing -> abortTc ("The wired type constructor has no registered kind: " <> show (tyConName tyCon))
 
 -- | The type that a type variable gets when nothing determines it, at the
 -- kind of that variable.
