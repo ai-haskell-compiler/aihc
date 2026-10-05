@@ -1,0 +1,26 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Int# Int# Int# Int# Int# Int# Int# Int#
+  value = runRW# (\state -> case newByteArray# 32# state of
+    (# allocated, array #) -> case writeInt8Array# array 1# (intToInt8# (negateInt# 128#)) allocated of
+      first -> case writeInt16Array# array 2# (intToInt16# (negateInt# 32768#)) first of
+        second -> case writeInt32Array# array 2# (intToInt32# (negateInt# 2147483647#)) second of
+          third -> case writeInt64Array# array 2# (intToInt64# (negateInt# 9223372036854775807#)) third of
+            fourth -> case readInt8Array# array 1# fourth of
+              (# fifth, a #) -> case readInt16Array# array 2# fifth of
+                (# sixth, b #) -> case readInt32Array# array 2# sixth of
+                  (# seventh, c #) -> case readInt64Array# array 2# seventh of
+                    (# eighth, d #) -> case unsafeFreezeByteArray# array eighth of
+                      (# _, frozen #) -> Result
+                        (int8ToInt# a) (int16ToInt# b) (int32ToInt# c) (int64ToInt# d)
+                        (int8ToInt# (indexInt8Array# frozen 1#))
+                        (int16ToInt# (indexInt16Array# frozen 2#))
+                        (int32ToInt# (indexInt32Array# frozen 2#))
+                        (int64ToInt# (indexInt64Array# frozen 2#)))
+return: "@0"
+heap: |
+  @0 = CResult -128 -32768 -2147483647 -9223372036854775807 -128 -32768 -2147483647 -9223372036854775807
+status: pass
+reason: Native signed byte-array operations preserve each element width and sign.

@@ -3060,6 +3060,7 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EString value _ -> desugarString annotation value
         _
           | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
+        Syn.EQuasiQuote {} -> desugarQuasiQuote annotation
         Syn.EStringHash value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (addrRep kinds)
@@ -3599,10 +3600,21 @@ patternDataCon pattern' = do
     AltData name -> constructorInfoByName name
     _ -> pure Nothing
 
+-- | The type arguments of a constructor pattern. The checked pattern type is
+-- the constructor result type that the type checker instantiated. Do not use
+-- the scrutinee type. It can be an unreduced family application or a GADT
+-- type that the constructor result type refines.
+constructorPatternSubstitution :: Syn.Pattern -> DataConInfo -> ValueM (Map.Map Unique TcType)
+constructorPatternSubstitution pattern' info = do
+  useType <- requiredPatternType pattern'
+  case matchTypes [dciResTy info] [useType] of
+    Just substitution -> pure substitution
+    Nothing -> failValue ("constructor " <> T.unpack (dciName info) <> " does not match its checked pattern type: " <> show useType)
+
 desugarUnpackedPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> Syn.Pattern -> DataConInfo -> ValueM Alt
 desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info = do
-  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
-      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+  substitution <- constructorPatternSubstitution pattern' info
+  let reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
       fieldTypes = [applySubst substitution (dcfiType field) | field <- dciFields info]
   canFlatten <- allRowsFlatten key fieldTypes reps works
   if canFlatten
@@ -4135,6 +4147,12 @@ isTemplateHaskellQuote expression =
 desugarTemplateHaskellQuote :: TcAnnotation -> ValueM Expr
 desugarTemplateHaskellQuote annotation = raiseErrorValue (tcAnnType annotation) "TH is unsupported"
 
+-- | Quasi-quotes are not supported. A quasi-quote expression compiles to
+-- a call of @raise#@ with a message, so code that only defines
+-- quasi-quotes still compiles.
+desugarQuasiQuote :: TcAnnotation -> ValueM Expr
+desugarQuasiQuote annotation = raiseErrorValue (tcAnnType annotation) "quasi-quoting is unsupported"
+
 -- | @raise# \@rep \@String \@ty message@: a value of any type that throws
 -- when it is forced.
 raiseErrorValue :: TcType -> Text -> ValueM Expr
@@ -4411,9 +4429,8 @@ desugarDoDataPattern resultType binder pattern' success failure = do
 -- against the rebuilt fields, as 'desugarRebuiltPatternGroup' does.
 desugarDoUnpackedPattern :: TcType -> Binder -> Syn.Pattern -> DataConInfo -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoUnpackedPattern resultType binder pattern' info success failure = do
-  scrutineeType <- requiredPatternType pattern'
-  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
-      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+  substitution <- constructorPatternSubstitution pattern' info
+  let reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
       children = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
       typeVariables = patternTypeVariables pattern'

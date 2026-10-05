@@ -1008,7 +1008,9 @@ resolveExpr expr =
     EDo stmts flavor -> do
       (_, stmts') <- resolveDoStmts stmts
       pure (EDo stmts' flavor)
-    EQuasiQuote {} -> EAnn <$> unhandledSyntax ResolutionNamespaceTerm "EQuasiQuote" <*> pure expr
+    -- A quasi-quote expression compiles to a runtime error. The quoter
+    -- and the quoted text stay unresolved because nothing consumes them.
+    EQuasiQuote {} -> pure expr
     EListComp body stmts -> do
       (scope, stmts') <- resolveCompStmts stmts
       body' <- withScope scope (resolveExpr body)
