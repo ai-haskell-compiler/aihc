@@ -719,7 +719,12 @@ instantiateConstructorFields :: LowerEnv -> [Fc.AxiomDecl] -> Fc.Type -> Fc.Type
 instantiateConstructorFields env axioms constructorType targetType = do
   let (binders, monotype) = splitForAlls constructorType
   (fieldTypes, constructorResult) <- either (const Nothing) Just (splitFunctionType monotype)
-  substitution <- matchTypeBinders env (Map.fromList [(Fc.binderName binder, Nothing) | binder <- binders]) constructorResult (applyForeignAxioms env axioms targetType)
+  -- The constructor binders are local to the constructor type. A type
+  -- argument of the enclosing code can have the same name, so remove those
+  -- names from the substitution before the match.
+  let binderNames = map Fc.binderName binders
+      matchEnv = env {lowerTypeSubstitution = foldr Map.delete (lowerTypeSubstitution env) binderNames}
+  substitution <- matchTypeBinders matchEnv (Map.fromList [(name, Nothing) | name <- binderNames]) constructorResult (applySubstitution env (applyForeignAxioms env axioms targetType))
   resolved <- sequenceA substitution
   pure (map (TypeOf.substTypes resolved) fieldTypes)
 
