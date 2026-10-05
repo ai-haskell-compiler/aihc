@@ -100,6 +100,7 @@ module System.IO
   )
 where
 
+import Control.Monad.Fix (mfix)
 import Data.Bits ((.|.))
 import Data.List (break, elem, reverse)
 import Data.Maybe (Maybe (..))
@@ -129,7 +130,7 @@ import GHC.IO.StdHandles (openBinaryFile, openFile, stderr, stdin, stdout, withB
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..), ioError)
 import System.Posix.Internals (c_unlink, o_CREAT, o_EXCL, o_RDWR, withFilePath)
 import System.Posix.Types (CMode (..))
-import Prelude (Bool (..), Char, FilePath, IO, Integer, Read (..), Show (..), String, appendFile, error, getChar, getContents, getLine, interact, otherwise, print, pure, putChar, putStr, putStrLn, readFile, readIO, readLn, writeFile, (+), (++), (<), (==), (>>=))
+import Prelude (Bool (..), Char, FilePath, IO, Integer, Read (..), Show (..), String, appendFile, getChar, getContents, getLine, interact, otherwise, print, pure, putChar, putStr, putStrLn, readFile, readIO, readLn, writeFile, (+), (++), (<), (==), (>>=))
 
 -- | Create a private temporary file with a read-write handle.
 openTempFile :: FilePath -> String -> IO (FilePath, Handle)
@@ -210,7 +211,7 @@ readFile' :: FilePath -> IO String
 readFile' path = withFile path ReadMode hGetContents'
 
 fixIO :: (a -> IO a) -> IO a
-fixIO _ = error "System.IO.fixIO: not available"
+fixIO = mfix
 
 -- The runtime only has UTF-8, so the locale encoding is UTF-8.
 localeEncoding :: TextEncoding

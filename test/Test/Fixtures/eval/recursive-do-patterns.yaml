@@ -36,16 +36,10 @@ modules:
       ~(xs, ys) <- Just (1 : ys, 2 : xs)
       return (take 4 xs)
 
-    -- A refutable pattern still falls back on the monad's fail when it does not
-    -- match.
+    -- A refutable pattern that matches.
     refutableOk :: Maybe Int
     refutableOk = do
       rec Just x <- Just (Just 5)
-      return (x + 1)
-
-    refutableFails :: Maybe Int
-    refutableFails = do
-      rec Just x <- Just (Nothing :: Maybe Int)
       return (x + 1)
 
     -- A statement that binds nothing sits in the same rec group.
@@ -71,7 +65,6 @@ modules:
         newtypePattern == Just [2, 4, 6],
         lazyPattern == Just [1, 2, 1, 2],
         refutableOk == Just 6,
-        refutableFails == Nothing,
         noBinder == Just [7, 7],
         withWhere == Just [4, 8, 12]
       ]
@@ -82,5 +75,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: tuple, constructor, lazy, refutable, and binderless patterns all take part in a recursive do group

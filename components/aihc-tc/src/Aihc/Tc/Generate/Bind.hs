@@ -1265,7 +1265,13 @@ freeVarsDoStmts stmts =
           restVars <- freeVarsDoStmts rest
           binders <- declBinderKeys decls
           pure (Set.difference (declVars <> restVars) binders)
-        DoRecStmt inner -> Set.union <$> freeVarsDoStmts inner <*> freeVarsDoStmts rest
+        -- The variables of a recursive group are in scope in all of its
+        -- statements and in the statements after it.
+        DoRecStmt inner -> do
+          innerVars <- freeVarsDoStmts inner
+          restVars <- freeVarsDoStmts rest
+          binders <- Set.fromList <$> mapM resolvedUnqualifiedTermKey (recStmtBinderNames inner)
+          pure (Set.difference (innerVars <> restVars) binders)
 
 freeVarsArithSeq :: ArithSeq -> TcM (Set.Set Entity)
 freeVarsArithSeq arithSeq =

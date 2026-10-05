@@ -59,5 +59,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: the list MonadFix instance solves each alternative as its own column, including the empty and multiplied cases

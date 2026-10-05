@@ -1,0 +1,51 @@
+evaluators:
+  - fc
+  - grin
+  - grin-points-to
+extensions:
+  - RecursiveDo
+  - NamedFieldPuns
+modules:
+  - |
+    {-# LANGUAGE NamedFieldPuns #-}
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Data.IORef (IORef, newIORef, readIORef)
+    import Prelude
+
+    -- The shape of openDirStream in directory-ospath-streaming: a let
+    -- statement uses a variable that a later statement binds. The let and the
+    -- later statement go into one segment, and the first statements stay
+    -- outside of it.
+    data Stream = Stream
+      { streamHandle :: Int,
+        streamCell :: IORef Int,
+        streamSelf :: Stream
+      }
+
+    openStream :: Int -> IO Stream
+    openStream root = mdo
+      streamHandle <- return (root * 2)
+      streamCell <- newIORef (root + 1)
+      let stream = Stream {streamHandle, streamCell, streamSelf}
+      streamSelf <- return stream
+      pure stream
+
+    main :: IO ()
+    main = do
+      stream <- openStream 20
+      cell <- readIORef (streamCell (streamSelf (streamSelf stream)))
+      let checks =
+            [ streamHandle stream == 40,
+              streamHandle (streamSelf stream) == 40,
+              cell == 21
+            ]
+      print [index | (index, False) <- zip [0 :: Int ..] checks]
+stdout: |
+  []
+output: |
+  ()
+expression: main
+status: pass
+reason: an mdo segment holds a let statement that uses a variable a later statement binds

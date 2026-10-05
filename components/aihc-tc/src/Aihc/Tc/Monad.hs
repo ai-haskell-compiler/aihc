@@ -70,6 +70,7 @@ module Aihc.Tc.Monad
     resolvedUnqualifiedTermKey,
     resolvedLocalTermKey,
     extendTermEnv,
+    withRecBinders,
     rebindTermEnv,
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
@@ -159,7 +160,7 @@ import Aihc.Tc.Evidence
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
 import Control.Applicative ((<|>))
-import Control.Monad (when)
+import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
@@ -207,6 +208,10 @@ data TcEnv = TcEnv
     -- from source text. This lets TC preserve lexical identity without doing
     -- name resolution or conflating duplicate textual names.
     tcEnvTerms :: !(Map Entity TcBinder),
+    -- | The binders of the enclosing recursive @do@ groups. The knot of a
+    -- group binds each of them first. Then the statement of the group binds
+    -- it again, and that binding replaces the knot binding.
+    tcEnvRecBinders :: !(Set.Set Entity),
     -- | Whether local binding groups follow GHC's MonoLocalBinds rule.
     tcEnvMonoLocalBinds :: !Bool,
     -- | Whether the monomorphism restriction is active.
@@ -462,6 +467,7 @@ emptyTcEnv config =
   TcEnv
     { tcEnvConfig = config,
       tcEnvTerms = Map.empty,
+      tcEnvRecBinders = Set.empty,
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
       tcEnvDefaultTypes = Nothing,
@@ -734,8 +740,27 @@ isTermVisible key = asks (Set.member key . tcEnvVisibleTerms)
 extendTermEnv :: Entity -> TcBinder -> TcM a -> TcM a
 extendTermEnv key binder action = do
   terms <- asks tcEnvTerms
-  terms' <- insertNewMap "local term environment" key binder terms
-  local (\env -> env {tcEnvTerms = terms'}) action
+  recBinders <- asks tcEnvRecBinders
+  terms' <-
+    if Set.member key recBinders
+      then pure (Map.insert key binder terms)
+      else insertNewMap "local term environment" key binder terms
+  local (\env -> env {tcEnvTerms = terms', tcEnvRecBinders = Set.delete key recBinders}) action
+
+-- | Bind the variables of a recursive @do@ group to their knot types. A
+-- statement of the group can then bind each variable again.
+withRecBinders :: [(Entity, TcType)] -> TcM a -> TcM a
+withRecBinders binders action = do
+  terms <- asks tcEnvTerms
+  terms' <- foldM (\acc (key, ty) -> insertNewMap "local term environment" key (TcMonoIdBinder ty) acc) terms binders
+  local
+    ( \env ->
+        env
+          { tcEnvTerms = terms',
+            tcEnvRecBinders = Set.union (Set.fromList (map fst binders)) (tcEnvRecBinders env)
+          }
+    )
+    action
 
 rebindTermEnv :: Entity -> TcBinder -> TcM a -> TcM a
 rebindTermEnv key binder =

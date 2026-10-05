@@ -70,6 +70,7 @@ import Aihc.Tc.Annotations
     TcPatternInstantiation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
+import Aihc.Tc.Generate.Pattern (recStmtBinderNames)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -4260,42 +4261,162 @@ tupleConstructorName annotation flavor arity = do
 -- Inferring that type from the final statement instead would look up locals
 -- that later statements bind and that are not in scope yet.
 desugarDo :: TcType -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
-desugarDo resultType statements =
-  case statements of
-    [] -> failValue "do block has no statements"
-    [statement] ->
+desugarDo resultType = desugarDoStatements resultType Nothing
+
+-- | Desugar do statements. When the end is given, the statements are the
+-- body of a recursive group and the end follows the last statement.
+desugarDoStatements :: TcType -> Maybe (ValueM Expr) -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
+desugarDoStatements resultType end statements =
+  case (statements, end) of
+    ([], Just finish) -> finish
+    ([], Nothing) -> failValue "do block has no statements"
+    ([statement], Nothing) ->
       case peelDoStatement statement of
         Syn.DoExpr body -> desugarExpr body
         other -> failValue ("invalid final do statement: " <> take 80 (show other))
-    statement : rest ->
+    (statement : rest, _) ->
       case peelDoStatement statement of
         Syn.DoLetDecls declarations -> do
-          desugarLocalDecls declarations (pure resultType) (desugarDo resultType rest)
+          desugarLocalDecls declarations (pure resultType) continue
         Syn.DoBind pattern' action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
           bind <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
-          continuation <- desugarDoPatternContinuation resultType annotation pattern' rest
+          continuation <- desugarDoPatternContinuation annotation pattern' continue
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
           method <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
-          continuation <- desugarDo resultType rest
-          pure (ExApp (ExApp method action') continuation)
-        other -> failValue ("unsupported do statement: " <> take 80 (show other))
+          ExApp (ExApp method action') <$> continue
+        Syn.DoRecStmt inner -> desugarRecStmt statement inner continue
+        Syn.DoAnn {} -> failValue "do statement keeps an annotation after peeling"
+      where
+        continue = desugarDoStatements resultType end rest
 
-desugarDoPatternContinuation :: TcType -> TcAnnotation -> Syn.Pattern -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
-desugarDoPatternContinuation doType annotation pattern' rest = do
+desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> ValueM Expr -> ValueM Expr
+desugarDoPatternContinuation annotation pattern' rest = do
   ty <- requiredPatternType pattern'
   binder <- freshPatternBinder pattern' ty
   locals <- directPatternBindings pattern' binder ty
   case locals of
-    Just bindings -> ExLam binder <$> withLocals bindings (desugarDo doType rest)
+    Just bindings -> ExLam binder <$> withLocals bindings rest
     Nothing -> do
       resultType <- doBindResultType annotation
-      body <- desugarDoPattern resultType binder ty pattern' (desugarDo doType rest)
+      body <- desugarDoPattern resultType binder ty pattern' rest
       pure (ExLam binder body)
+
+-- | Desugar a @rec@ statement as
+--
+-- > mfix (\knot -> let vs = knot in do { stmts; return vs }) >>= \result -> let vs = result in rest
+--
+-- where @vs@ are the group variables in the order of 'recStmtBinderNames'.
+-- The type checker gives the checked methods and a tuple annotation, see
+-- 'inferRecStmt'. The variables come out of the tuple through lazy
+-- bindings, so the knot is not forced before a variable is used.
+desugarRecStmt :: Syn.DoStmt Syn.Expr -> [Syn.DoStmt Syn.Expr] -> ValueM Expr -> ValueM Expr
+desugarRecStmt statement inner rest = do
+  let (methods, maybeTuple) = recStmtAnnotations statement
+  tupleAnnotation <- maybe (failValue "rec statement has no checked tuple annotation") pure maybeTuple
+  mfix <- recStmtMethod "mfix" methods
+  returnMethod <- recStmtMethod "return" methods
+  bind <- recStmtMethod ">>=" methods
+  innerType <-
+    case tcAnnTermArgTypes tupleAnnotation of
+      [ty] -> pure ty
+      _ -> failValue "rec statement tuple annotation has no block type"
+  let tupleType = tcAnnType tupleAnnotation
+      binderTypes = tcAnnTypeArgs tupleAnnotation
+  keys <- mapM requiredBinderKey (recStmtBinderNames inner)
+  unless (length keys == length binderTypes) $
+    failValue ("rec statement has " <> show (length keys) <> " variables and " <> show (length binderTypes) <> " types")
+  let variables = zip keys binderTypes
+      finish = do
+        locals <- gets vsLocals
+        values <-
+          mapM
+            ( \(key, _) -> case Map.lookup key locals of
+                Just (binder, _) -> pure (ExVar (binderName binder))
+                Nothing -> failValue ("rec statement variable is not in scope: " <> show key)
+            )
+            variables
+        tuple <- recTupleValue tupleType binderTypes values
+        pure (ExApp returnMethod tuple)
+  knot <- freshBinder "_rec_knot" tupleType
+  (knotBinds, knotLocals) <- recTupleSelections knot tupleType variables
+  body <- withLocals knotLocals (desugarDoStatements innerType (Just finish) inner)
+  result <- freshBinder "_rec_result" tupleType
+  (resultBinds, resultLocals) <- recTupleSelections result tupleType variables
+  continuation <- withLocals resultLocals rest
+  let knotFunction = ExLam knot (foldr ExLet body knotBinds)
+      resultFunction = ExLam result (foldr ExLet continuation resultBinds)
+  pure (ExApp (ExApp bind (ExApp mfix knotFunction)) resultFunction)
+
+-- | The checked methods of a @rec@ statement, each with its cast, and the
+-- tuple annotation that is next to the statements. Each resolution closes
+-- one method: the type annotation and the cast before it belong to it.
+recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)], Maybe TcAnnotation)
+recStmtAnnotations = go Nothing Nothing
+  where
+    go cast annotation statement =
+      case statement of
+        Syn.DoAnn ann inner
+          | Just resolution <- Syn.fromAnnotation ann ->
+              let (methods, tuple) = go Nothing Nothing inner
+               in ((cast, annotation, resolution) : methods, tuple)
+          | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation ann -> go (Just proof) annotation inner
+          | Just checked <- Syn.fromAnnotation ann -> go cast (Just checked) inner
+          | otherwise -> go cast annotation inner
+        _ -> ([], annotation)
+
+recStmtMethod :: Text -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)] -> ValueM Expr
+recStmtMethod name methods =
+  case [(cast, annotation, resolution) | (cast, annotation, resolution) <- methods, resolutionIdentifier resolution == IdentifierNamed name] of
+    [(cast, Just annotation, resolution)] -> do
+      method <- desugarResolvedOccurrence annotation resolution
+      case cast of
+        Just proof -> withCoercion proof (pure . ExCast method)
+        Nothing -> pure method
+    _ -> failValue ("rec statement has no checked " <> T.unpack name <> " method")
+
+-- | Bind each group variable lazily to its field of a knot value. A group
+-- with one variable binds the variable to the knot value itself.
+recTupleSelections :: Binder -> TcType -> [(Entity, TcType)] -> ValueM ([Bind], [(Entity, (Binder, TcType))])
+recTupleSelections knot tupleType variables =
+  case variables of
+    [(key, ty)] -> pure ([], [(key, (knot, ty))])
+    _ -> do
+      constructor <- recTupleConstructor tupleType (length variables)
+      tupleType' <- convertCheckedType tupleType
+      fields <- mapM (freshBinder "_rec_field" . snd) variables
+      selections <-
+        mapM
+          ( \((key, ty), field) -> do
+              variable <- freshBinder "_rec_var" ty
+              caseBinder <- freshBinderFromType "_rec_case" tupleType'
+              let selection = ExCase (ExVar (binderName knot)) caseBinder (binderType field) [Alt (AltData constructor) [] fields (ExVar (binderName field))]
+              pure (Bind variable selection, (key, (variable, ty)))
+          )
+          (zip variables fields)
+      pure (map fst selections, map snd selections)
+
+-- | The tuple of the group variables. A group with one variable uses the
+-- variable itself.
+recTupleValue :: TcType -> [TcType] -> [Expr] -> ValueM Expr
+recTupleValue tupleType types values =
+  case values of
+    [value] -> pure value
+    _ -> do
+      constructor <- recTupleConstructor tupleType (length values)
+      converted <- mapM convertCheckedType types
+      pure (foldl ExApp (foldl ExTyApp (ExVar constructor) converted) values)
+
+recTupleConstructor :: TcType -> Int -> ValueM Name
+recTupleConstructor tupleType arity =
+  case tupleType of
+    TcTyCon tyCon _ ->
+      pure (Name (tupleConstructorText Syn.Boxed arity) SortDataConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
+    _ -> failValue ("rec statement tuple has an invalid type: " <> show tupleType)
 
 desugarDoPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> ValueM Expr
 desugarDoPattern resultType binder ty pattern' success =
