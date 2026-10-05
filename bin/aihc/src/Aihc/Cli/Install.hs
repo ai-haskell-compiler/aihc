@@ -3523,11 +3523,27 @@ configureCommand :: NativeTarget -> OptimizationLevel -> FilePath -> IO (FilePat
 configureCommand target level script = do
   (compiler, cflagList) <- targetCCompiler target level
   inherited <- getEnvironment
+  linkOverrides <- configureLinkOverrides target
   let cflags = unwords cflagList
-      overrides = [("CC", compiler), ("CFLAGS", cflags)]
+      overrides = [("CC", compiler), ("CFLAGS", cflags)] <> linkOverrides
       environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
       crossArguments = ["--host=" <> name | Just target /= hostNativeTarget, Just name <- [autoconfHostName target]]
   pure ("sh", script : crossArguments, environment)
+
+-- | What a configure script needs to link its test programs. The wasm
+-- linker finds no startup files or runtime library on its own, and aihc
+-- links its own entry, so a test program links against the libc archive of
+-- the sysroot alone and without an entry point.
+configureLinkOverrides :: NativeTarget -> IO [(String, String)]
+configureLinkOverrides target =
+  case target of
+    Wasm32Wasip3 -> do
+      sysroot <- wasmSysroot
+      pure
+        [ ("LDFLAGS", "-nostartfiles -nodefaultlibs -Wl,--no-entry"),
+          ("LIBS", wasmSysrootLibc sysroot)
+        ]
+    _ -> pure []
 
 -- | The C compiler of a target and the flags handwritten C is compiled
 -- with: the target arguments, the level, and the sysroot includes. A tool
@@ -3662,12 +3678,19 @@ hsc2hsArguments config cInfo file output macrosPath = do
   let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [compileHeaderDirectory config])
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
-    ( [flag | not (targetRunsOnHost target), flag <- ["--cross-compile", "--via-asm"]]
+    ( [flag | not (targetRunsOnHost target), flag <- "--cross-compile" : ["--via-asm" | targetHasAsmConstants target]]
         <> ["--cc=" <> compiler, "--ld=" <> compiler]
         <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath])
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
     )
+
+-- | Whether hsc2hs can read the constants of a target out of its assembly.
+-- Its parser reads the assembly of a native target. The assembly of
+-- WebAssembly has custom sections that are strings in directives the parser
+-- cannot combine, so hsc2hs finds each constant by compiling test programs.
+targetHasAsmConstants :: NativeTarget -> Bool
+targetHasAsmConstants target = target /= Wasm32Wasip3
 
 -- | Whether the code of a target runs on the machine that aihc runs on. The
 -- LLVM target is always that machine.
@@ -3741,7 +3764,7 @@ configureInputsHash config script = do
         [ TE.encodeUtf8 packageArtifactFormatVersion,
           scriptBytes,
           BS8.pack environmentIdentity,
-          BS8.pack (show (executable, arguments, lookup "CC" environment, lookup "CFLAGS" environment))
+          BS8.pack (show (executable, arguments, map (`lookup` environment) ["CC", "CFLAGS", "LDFLAGS", "LIBS"]))
         ]
     )
 
