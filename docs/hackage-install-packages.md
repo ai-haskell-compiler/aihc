@@ -29,27 +29,6 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 
 ## Packages
 
-The list includes the direct and indirect Hackage dependencies of the
-`aihc` executable with its default `+hackage` flag. It also includes the
-Hackage dependencies of the `aihc-tc:fuzz` library that `cabal.project` enables.
-The versions use the pinned Nix package set where possible. Other versions
-match the existing table, the emulated GHC version, or the target dependencies.
-The core library versions match the GHC version that AIHC implements.
-
-AIHC provides `base`, `ghc-prim`, `ghc-internal`, `rts`, `template-haskell`,
-and `system-cxx-std-lib` from `core-libs`. The table does not include these
-packages or the local AIHC packages. The `aihc-dev` executable needs GHC.
-This list does not cover that executable or the full test suite.
-
-The table uses `containers-0.7` because `cborg-0.2.10.0` requires
-`containers <0.8`. The TLS library needs `cborg` through `serialise`.
-The list defines dependency coverage. It does not assert that AIHC can
-install every package yet.
-
-The Hackage release `ghc-bignum-1.3` needs a backend flag. Its library also
-requires `ghc-prim <0.10`, but AIHC provides `ghc-prim-0.13.0`. This package
-needs compatible version bounds before AIHC can use its library.
-
 | Package | Version |
 | ------- | ------- |
 | deepseq | 1.5.2.0 |
