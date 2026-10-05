@@ -32,6 +32,7 @@ import Aihc.Tc
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    FieldRep (..),
     InstanceInfo (..),
     PatSynInfo (..),
     Pred (..),
@@ -213,8 +214,20 @@ walkDataConInfo info = do
   traverse_ internTyVar (dciUnivTyVars info)
   traverse_ internTyVar (dciExTyVars info)
   traverse_ internPred (dciTheta info)
-  traverse_ (internType . dcfiType) (dciFields info)
+  traverse_ walkFieldInfo (dciFields info)
   void (internType (dciResTy info))
+
+walkFieldInfo :: DataConFieldInfo -> Parts ()
+walkFieldInfo field = do
+  void (internType (dcfiType field))
+  walkFieldRep (dcfiRep field)
+
+walkFieldRep :: FieldRep -> Parts ()
+walkFieldRep rep =
+  case rep of
+    RepStored ty _ -> void (internType ty)
+    RepUnpack _ leaves -> traverse_ walkFieldRep leaves
+    RepCast _ arguments inner -> traverse_ internType arguments *> walkFieldRep inner
 
 walkClassInfo :: ClassInfo -> Parts ()
 walkClassInfo info = do

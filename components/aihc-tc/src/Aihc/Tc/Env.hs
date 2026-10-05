@@ -19,6 +19,10 @@ module Aihc.Tc.Env
     patSynKey,
     DataConFieldInfo (..),
     DataConFieldUnpack (..),
+    FieldRep (..),
+    applySubstRep,
+    repHasUnpack,
+    repLeaves,
     DataConSourceForm (..),
     dataConArgTypes,
 
@@ -168,13 +172,61 @@ data DataConFieldUnpack
 
 instance NFData DataConFieldUnpack
 
+-- | The heap layout of one constructor field.
+--
+-- The defining module decides this tree once. An importer reads the tree.
+-- It does not decide the layout again. The System FC constructor takes the
+-- leaves of the tree. 'RepStored' is one argument. 'RepUnpack' is one
+-- product constructor, and its children are the leaves of that constructor.
+-- 'RepCast' erases one newtype and then uses the inner layout.
+--
+-- A 'RepStored' at the top of a field layout has the type of the field.
+-- The leaves of a 'RepUnpack' are 'RepStored' nodes with the leaf types.
+data FieldRep
+  = RepStored !TcType !Bool
+  | RepUnpack !(PackageId, Text, Text) ![FieldRep]
+  | RepCast !TyCon ![TcType] !FieldRep
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData FieldRep
+
+-- | The representation arguments of one field, in order.
+--
+-- Each entry is the argument type and its strictness. A strict argument
+-- arrives in weak-head normal form.
+repLeaves :: FieldRep -> [(TcType, Bool)]
+repLeaves rep =
+  case rep of
+    RepStored ty strict -> [(ty, strict)]
+    RepUnpack _ leaves -> concatMap repLeaves leaves
+    RepCast _ _ inner -> repLeaves inner
+
+-- | Whether the layout contains one unpacked product.
+repHasUnpack :: FieldRep -> Bool
+repHasUnpack rep =
+  case rep of
+    RepStored {} -> False
+    RepUnpack {} -> True
+    RepCast _ _ inner -> repHasUnpack inner
+
+-- | Substitute the type variables of one layout tree.
+applySubstRep :: Map Unique TcType -> FieldRep -> FieldRep
+applySubstRep substitution rep =
+  case rep of
+    RepStored ty strict -> RepStored (applySubst substitution ty) strict
+    RepUnpack key leaves -> RepUnpack key (map (applySubstRep substitution) leaves)
+    RepCast tyCon arguments inner ->
+      RepCast tyCon (map (applySubst substitution) arguments) (applySubstRep substitution inner)
+
 -- | Checked type and source layout of one constructor field.
 data DataConFieldInfo = DataConFieldInfo
   { dcfiLabel :: !(Maybe Text),
     dcfiType :: !TcType,
     dcfiStrict :: !Bool,
     dcfiLazy :: !Bool,
-    dcfiUnpack :: !DataConFieldUnpack
+    dcfiUnpack :: !DataConFieldUnpack,
+    -- | The heap layout of this field. The defining module stores it.
+    dcfiRep :: !FieldRep
   }
   deriving (Eq, Show, Read, Generic)
 

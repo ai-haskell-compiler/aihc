@@ -67,7 +67,7 @@ import Aihc.Tc.Deriving.Functorial (FieldUse (..))
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
 import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..), TyConFlavor (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..), TyConFlavor (..), repHasUnpack)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (zonkKind)
 import Aihc.Tc.Monad
@@ -1290,9 +1290,11 @@ genericMetaSelType gen field =
       | dcfiStrict field = genericPromoted gen genericSourceStrict
       | dcfiLazy field = genericPromoted gen genericSourceLazy
       | otherwise = genericPromoted gen genericNoSourceStrictness
-    -- aihc unpacks nothing, so a field marked for unpacking is only strict.
+    -- DecidedUnpack records a real unpacked product. A pragma that stays
+    -- one pointer is only strict.
     decided
-      | dcfiStrict field || dcfiUnpack field == UnpackField = genericPromoted gen genericDecidedStrict
+      | repHasUnpack (dcfiRep field) = genericPromoted gen genericDecidedUnpack
+      | dcfiStrict field = genericPromoted gen genericDecidedStrict
       | otherwise = genericPromoted gen genericDecidedLazy
 
 -- | One @from@ equation: the constructor's fields, wrapped in the metadata

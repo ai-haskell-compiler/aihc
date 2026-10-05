@@ -1,0 +1,54 @@
+annotated:
+- |-
+  module Main where
+  └─ warning: The UNPACK pragma on Boxed has no effect because the field type is not one product.
+  └─ warning: The UNPACK pragma on NoBang has no effect because the field is not strict.
+  └─ warning: The UNPACK pragma on Lazy has no effect because the field is not strict.
+  └─ warning: The UNPACK pragma on MkB has no effect because the field type is recursive.
+  └─ warning: The UNPACK pragma on Loop has no effect because the field type is recursive.
+  └─ warning: The UNPACK pragma on MkA has no effect because the field type is recursive.
+  import GHC.Types (Int)
+  data Pair = Pair Int Int
+       │      └─ type: GHC.Types.Int → GHC.Types.Int → Pair
+       └─ type: Type
+  data Packed = Packed {-# UNPACK #-} !Pair
+       │        └─ type: Pair → Packed
+       └─ type: Type
+  data Lazy = Lazy {-# UNPACK #-} ~Int
+       │      └─ type: GHC.Types.Int → Lazy
+       └─ type: Type
+  data NoBang = NoBang {-# UNPACK #-} Int
+       │        └─ type: GHC.Types.Int → NoBang
+       └─ type: Type
+  data Choice = First | Second
+       │        │       └─ type: Choice
+       │        └─ type: Choice
+       └─ type: Type
+  data Boxed = Boxed {-# UNPACK #-} !Choice
+       │       └─ type: Choice → Boxed
+       └─ type: Type
+  data Loop = Loop {-# UNPACK #-} !Loop
+       │      └─ type: Loop → Loop
+       └─ type: Type
+  data A = MkA {-# UNPACK #-} !B
+       │   └─ type: B → A
+       └─ type: Type
+  data B = MkB {-# UNPACK #-} !A
+       │   └─ type: A → B
+       └─ type: Type
+extensions: []
+modules:
+- |-
+  module Main where
+  import GHC.Types (Int)
+  data Pair = Pair Int Int
+  data Packed = Packed {-# UNPACK #-} !Pair
+  data Lazy = Lazy {-# UNPACK #-} ~Int
+  data NoBang = NoBang {-# UNPACK #-} Int
+  data Choice = First | Second
+  data Boxed = Boxed {-# UNPACK #-} !Choice
+  data Loop = Loop {-# UNPACK #-} !Loop
+  data A = MkA {-# UNPACK #-} !B
+  data B = MkB {-# UNPACK #-} !A
+reason: an UNPACK pragma warns when the field is not strict, is not one product, or is recursive; a strict product field gets no warning
+status: pass

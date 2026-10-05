@@ -80,7 +80,6 @@ The following features are deferred to separate extensions:
 
 - `RequiredTypeArguments`: The `forall a ->` syntax for visibly-bound type
   arguments
-- `UNPACK`/`NOUNPACK` pragmas: Unpacking hints for strict fields
 
 ## Examples
 
