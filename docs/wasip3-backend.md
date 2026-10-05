@@ -73,8 +73,15 @@ The P3 driver owns the IO loop. The Lir entry unit exports
 and `aihc_lir_program_resume`, which continues a scheduler resumption after an
 IO request completes. Both return when the machine halts or when every green
 thread waits for IO, and both report which of the two happened. The driver
-returns `WAIT` to the host in the second case and resumes the program from its
-callback.
+waits for the event of the pending request in the second case, and resumes the
+program when it arrives.
+
+The `wasi:cli/run@0.3.0` export is lifted synchronously, although the WIT
+function is `async`. The whole program runs inside that one task. A task of
+this kind may block, which a callback task may not, and a libc function that
+waits for the host, such as one of the WASI 0.3 libc, is only allowed to in a
+task that may block. The bindings are generated with
+`--async=-export:wasi:cli/run@0.3.0#run` for this reason.
 
 Runtime info tables are ordinary relocatable data objects with 4-byte words.
 Function addresses in those tables become Wasm table indices when `wasm-ld`
@@ -86,10 +93,10 @@ stored in the shared 8-byte slot type used by the other backends.
 The initial P3 IO backend implements stdout writes with
 `wasi:cli/stdout@0.3.0`. It creates a `stream<u8>`, supplies its readable end to
 `write-via-stream`, and incrementally writes the AIHC IO buffer through the
-writable end. When the stream or result future blocks, the exported async
-`wasi:cli/run@0.3.0` callback returns `WAIT(waitable-set)`. A later callback
-finishes the request, makes its green thread runnable, and resumes the
-program through `aihc_lir_program_resume`.
+writable end. When the stream or result future blocks, the `run` export waits
+on the waitable set of the request. The event finishes the request, makes its
+green thread runnable, and resumes the program through
+`aihc_lir_program_resume`.
 
 The `System.IO` `stdout` handle uses this path, including its `MVar`-serialized
 handle state and native-width `Int` FFI results. The current WIT world does not

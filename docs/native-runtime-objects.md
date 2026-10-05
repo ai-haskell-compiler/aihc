@@ -434,7 +434,7 @@ runner passes `--env AIHC_RTS_STATS=<path>` and `--dir` to wasmtime.
 STM delay variables use `wasi:clocks/monotonic-clock@0.3.0` on this target.
 The runtime submits a timer request for the earliest deadline.
 `awaitIO#` preserves the continuation while `wait-until` waits on the host.
-The WASI callback completes the request and resumes the continuation.
+The event of the WASI request completes it and resumes the continuation.
 The runtime then updates expired delay variables before the transaction starts again.
 Timer variables remain garbage collection roots throughout the wait.
 
