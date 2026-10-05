@@ -156,7 +156,7 @@ demandProgram rewrites program =
     Just primPackage ->
       let types = typeEnvFromProgram primPackage program
           signatures = topLevelSignatures types (programDecls program)
-          env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites}
+          env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites, envAnalysisOnly = False}
           supply = maxLocalUnique program + 1
           (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
           strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
@@ -171,7 +171,9 @@ data Env = Env
     -- | The signatures of the top-level values and of the local functions
     -- in scope.
     envSignatures :: !Signatures,
-    envRewrites :: !DemandRewrites
+    envRewrites :: !DemandRewrites,
+    -- | If True, skip lambda bodies when the traversal computes strictness facts.
+    envAnalysisOnly :: !Bool
   }
 
 extendType :: Env -> Binder -> Env
@@ -194,18 +196,18 @@ topLevelSignatures types decls = List.foldl' addComponent Map.empty (stronglyCon
     addComponent current component =
       case component of
         AcyclicSCC declaration ->
-          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly) (valBody declaration)) current
+          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly False) (valBody declaration)) current
         CyclicSCC members ->
-          fixSignatures (Env types current StrictLetsOnly) [(valName declaration, valBody declaration) | declaration <- members]
+          fixSignatures (Env types current StrictLetsOnly False) [(valName declaration, valBody declaration) | declaration <- members]
 
 -- | The signature of a local function, with the signatures in scope.
 functionSignature :: TypeEnv -> Signatures -> Expr -> Signature
-functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly)
+functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly False)
 
 -- | The signatures in scope under a local recursive group: those of the
 -- members added to those given.
 recursiveSignatures :: TypeEnv -> Signatures -> [(Name, Expr)] -> Signatures
-recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly)
+recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly False)
 
 -- | The signature of a function body: one demand per lambda it exposes.
 lambdaSignature :: Env -> Expr -> Signature
@@ -362,9 +364,10 @@ bindRecursiveSignatures env binds =
   env {envSignatures = fixSignatures env [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]}
 
 -- | The free variables an expression evaluates whenever it is evaluated.
--- This is the walk with its rewrites thrown away.
+-- A lambda is a value. Its body contributes no immediate strictness facts.
+-- Skip that body during signature analysis to avoid repeated traversals of nested functions.
 strictIn :: Env -> Expr -> Set Name
-strictIn env expr = snd (evalState (demandExpr env Nothing expr) (DemandState 0 0 0))
+strictIn env expr = snd (evalState (demandExpr env {envAnalysisOnly = True} Nothing expr) (DemandState 0 0 0))
 
 -- * The walk
 
@@ -394,9 +397,11 @@ demandExpr env ty expr =
       | otherwise -> pure (expr, Set.singleton name)
     ExLit {} -> pure (expr, Set.empty)
     ExCoercion {} -> pure (expr, Set.empty)
-    ExLam binder body -> do
-      (body', _) <- demandExpr (extendType env binder) (resultType env ty) body
-      pure (ExLam binder body', Set.empty)
+    ExLam binder body
+      | envAnalysisOnly env -> pure (expr, Set.empty)
+      | otherwise -> do
+          (body', _) <- demandExpr (extendType env binder) (resultType env ty) body
+          pure (ExLam binder body', Set.empty)
     ExTyLam binder body -> do
       (body', strict) <- demandExpr (extendType env binder) (instantiatedType env ty binder) body
       pure (ExTyLam binder body', strict)
