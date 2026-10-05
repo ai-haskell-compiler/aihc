@@ -67,6 +67,7 @@ import System.Posix.Types.Repr
   ( CBlkCntRep,
     CBlkSizeRep,
     CCcRep,
+    CClockIdRep,
     CDevRep,
     CFsBlkCntRep,
     CFsFilCntRep,
@@ -98,8 +99,10 @@ newtype CBlkSize = CBlkSize CBlkSizeRep
 newtype CCc = CCc CCcRep
   deriving newtype (Eq, Ord, Show, Read, Enum, Bounded, Num, Real, Integral, Bits, FiniteBits, Storable)
 
--- | The POSIX @clockid_t@: the C @int@ that names a system clock.
-newtype CClockId = CClockId CInt
+-- | The POSIX @clockid_t@: what names a system clock. The wrapper of a
+-- @capi@ import spells it as @clockid_t@, because wasi-libc declares that
+-- type as a pointer and a C compiler does not convert an integer to one.
+newtype {-# CTYPE "time.h" "clockid_t" #-} CClockId = CClockId CClockIdRep
   deriving newtype (Eq, Ord, Show, Read, Enum, Bounded, Num, Real, Integral, Bits, FiniteBits, Storable)
 
 -- | The POSIX @dev_t@: the device a file lives on.

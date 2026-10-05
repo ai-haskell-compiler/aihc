@@ -13,6 +13,7 @@ module System.Posix.Types.Repr
   ( CBlkCntRep,
     CBlkSizeRep,
     CCcRep,
+    CClockIdRep,
     CDevRep,
     CFsBlkCntRep,
     CFsFilCntRep,
@@ -44,6 +45,9 @@ type CBlkSizeRep = Int32
 
 -- | @cc_t@: an unsigned byte of terminal control.
 type CCcRep = Word8
+
+-- | @clockid_t@: an unsigned 32-bit pointer to the clock; wasi-libc declares clockid_t as a pointer and an ILP32 pointer is 32 bits wide.
+type CClockIdRep = Word32
 
 -- | @dev_t@: an unsigned 64-bit device number.
 type CDevRep = Word64
