@@ -51,5 +51,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: mdo ties a recursive knot in Maybe, in layout and in brace form, and stays a plain do when nothing recurses

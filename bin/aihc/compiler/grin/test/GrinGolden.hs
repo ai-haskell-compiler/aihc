@@ -245,7 +245,7 @@ fixtureBuiltinScope :: ModuleExports -> Builtins
 fixtureBuiltinScope visibleExports =
   builtins fixturePackage visibleExports builtinFunctionModules
   where
-    builtinFunctionModules = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Prim.MonadFix", "GHC.Types"]
 
 -- | The kind vocabulary of the fixture compiler.
 fixtureWiring :: TcWiring

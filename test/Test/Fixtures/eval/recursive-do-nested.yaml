@@ -61,5 +61,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: mdo and rec nest inside each other, inside plain do blocks, and inside a lambda

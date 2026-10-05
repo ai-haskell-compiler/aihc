@@ -14,8 +14,10 @@ module GHC.ST
 where
 
 import GHC.Base (Applicative (..), Functor (..), Monad (..))
+import GHC.Err (errorWithoutStackTrace)
 import GHC.IO (ST (..))
-import GHC.Prim (RealWorld, State#, noDuplicate#, realWorld#)
+import GHC.Prim (RealWorld, State#, newMutVar#, noDuplicate#, readMutVar#, realWorld#, writeMutVar#)
+import GHC.Prim.MonadFix (MonadFix (..))
 import GHC.Show (Show (..), showString)
 
 -- | The strict state-thread monad.
@@ -63,6 +65,25 @@ instance Monad (ST s) where
 
 returnSTState :: a -> STRep s a
 returnSTState value state = (# state, value #)
+
+-- | A reference holds the result, as in the IO instance. The function gets a
+-- lazy read of the reference.
+instance MonadFix (ST s) where
+  mfix k =
+    ST
+      ( \state ->
+          case newMutVar# (errorWithoutStackTrace "fixST: the result is not available yet") state of
+            (# state1, ref #) ->
+              let ans =
+                    case readMutVar# ref state1 of
+                      (# _, value #) -> value
+               in case k ans of
+                    ST action ->
+                      case action state1 of
+                        (# state2, result #) ->
+                          case writeMutVar# ref result state2 of
+                            state3 -> (# state3, result #)
+      )
 
 -- | A lifted result from an 'ST' computation.
 data STret s a = STret (State# s) a

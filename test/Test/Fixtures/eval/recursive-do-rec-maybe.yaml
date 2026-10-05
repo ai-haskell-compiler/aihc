@@ -63,5 +63,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: a rec block inside do binds a recursive group, keeps its variables in scope below, and accepts let statements

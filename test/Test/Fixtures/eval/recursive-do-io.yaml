@@ -88,5 +88,5 @@ stdout: |
 output: |
   ()
 expression: main
-status: xfail
+status: pass
 reason: the IO MonadFix instance ties a cyclic structure and a knot through an IORef while running each effect once

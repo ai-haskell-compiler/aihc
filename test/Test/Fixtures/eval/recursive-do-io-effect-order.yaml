@@ -40,5 +40,5 @@ stdout: |
 output: |
   ()
 expression: main
-status: xfail
+status: pass
 reason: mdo and rec keep the source order of the effects while a statement reads a value bound below it

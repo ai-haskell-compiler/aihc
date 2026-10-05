@@ -19,10 +19,11 @@ import GHC.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.IO (IO)
 import GHC.IO qualified as Strict (stToIO)
 import GHC.Prim (RealWorld)
+import GHC.Prim.MonadFix (MonadFix)
 import GHC.ST qualified as Strict
 
 newtype ST s a = ST (Strict.ST s a)
-  deriving newtype (Functor, Applicative, Monad)
+  deriving newtype (Functor, Applicative, Monad, MonadFix)
 
 -- | Run a lazy state thread and return its result.
 runST :: (forall s. ST s a) -> a

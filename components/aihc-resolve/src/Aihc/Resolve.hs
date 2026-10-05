@@ -81,6 +81,7 @@ import Aihc.Parser.Syntax
     Decl (..),
     DerivingClause (..),
     DerivingStrategy (..),
+    DoFlavor (..),
     DoStmt (..),
     Expr (..),
     Extension (..),
@@ -131,6 +132,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
+    peelDoStmtAnn,
     peelGuardQualifierAnn,
     peelLiteralAnn,
     peelPatternAnn,
@@ -144,6 +146,7 @@ import Aihc.Resolve.Infix
 import Aihc.Resolve.Monad
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
+import Aihc.Resolve.Traverse (Walkable, collectAnnotations)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
@@ -152,6 +155,7 @@ import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Ratio (denominator, numerator)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -1005,6 +1009,9 @@ resolveExpr expr =
       ETHTypedSplice <$> resolveExpr inner
     EPragma pragma inner ->
       EPragma pragma <$> resolveExpr inner
+    EDo stmts DoMdo -> do
+      stmts' <- resolveMdoStmts stmts
+      pure (EDo stmts' DoMdo)
     EDo stmts flavor -> do
       (_, stmts') <- resolveDoStmts stmts
       pure (EDo stmts' flavor)
@@ -1240,6 +1247,8 @@ builtinSyntaxTerm info name =
         "==",
         ">>=",
         ">>",
+        "return",
+        "mfix",
         "enumFrom",
         "enumFromThen",
         "enumFromTo",
@@ -1394,8 +1403,150 @@ resolveDoStmt isLast stmt =
       pure (unionScope localScope scope, DoLetDecls decls')
     DoRecStmt stmts -> do
       scope <- currentScope
-      (_, stmts') <- resolveDoStmts stmts
-      pure (scope, DoRecStmt stmts')
+      (targets, recScope) <- allocateDoStmtBinders stmts
+      stmts' <- extendScope recScope (mapM (resolveRecGroupStmt targets) stmts)
+      stmt' <- annotateRecStmt (DoRecStmt stmts')
+      pure (unionScope recScope scope, stmt')
+
+-- | Resolve the statements of an @mdo@ block.
+--
+-- Each variable that a statement binds is in scope in all statements of the
+-- block, as in GHC. The statements before the last one then go into
+-- segments. A segment is a minimal group of statements that some statement
+-- uses before the group binds it. Each segment becomes a @rec@ statement, and
+-- the other statements stay as ordinary statements. Thus the type checker
+-- and the desugarer see only @rec@ statements, and an @mdo@ block without a
+-- recursive use does not need a 'MonadFix' instance.
+resolveMdoStmts :: [DoStmt Expr] -> ResolveM [DoStmt Expr]
+resolveMdoStmts stmts =
+  case List.unsnoc stmts of
+    Nothing -> pure []
+    Just (body, final) -> do
+      (targets, recScope) <- allocateDoStmtBinders body
+      recordFields <- scopeRecordFields <$> currentScope
+      extendScope recScope $ do
+        body' <- mapM (resolveRecGroupStmt targets) body
+        (_, final') <- resolveDoStmt True final
+        segmented <- segmentMdoStmts recordFields targets (zip body body')
+        pure (segmented <> [final'])
+
+-- | Put each recursive segment of the resolved statements of an @mdo@ block
+-- into a @rec@ statement. Each pair has the source statement and the
+-- resolved statement.
+segmentMdoStmts :: Map.Map Text [Text] -> Map.Map Text Entity -> [(DoStmt Expr, DoStmt Expr)] -> ResolveM [DoStmt Expr]
+segmentMdoStmts recordFields targets stmts = go indexed
+  where
+    indexed = zip [0 :: Int ..] (map snd stmts)
+    definitions =
+      [ mapMaybe (`Map.lookup` targets) (doStmtBinderKeys recordFields source)
+      | (source, _) <- stmts
+      ]
+    definingIndex =
+      Map.fromList [(entity, index) | (index, entities) <- zip [0 ..] definitions, entity <- entities]
+    -- The last statement that the statement at an index uses before it binds
+    -- the variable. A bind statement can use its own variables, but a let
+    -- statement that uses its own variables is an ordinary recursive let.
+    reach :: Int -> DoStmt Expr -> Maybe Int
+    reach index stmt =
+      let (uses, selfUse) = doStmtUses stmt
+          laterUses =
+            [ definer
+            | entity <- Set.toList uses,
+              Just definer <- [Map.lookup entity definingIndex],
+              definer > index || (selfUse && definer == index)
+            ]
+       in if null laterUses then Nothing else Just (maximum laterUses)
+    reaches = Map.fromList [(index, reach index stmt) | (index, stmt) <- indexed]
+    reachOf index = Map.findWithDefault Nothing index reaches
+    go [] = pure []
+    go remaining@((index, stmt) : rest) =
+      case reachOf index of
+        Nothing -> (stmt :) <$> go rest
+        Just firstEnd -> do
+          let end = extend index firstEnd
+              (segment, after) = splitAt (end - index + 1) remaining
+          recStmt <- annotateRecStmt (DoRecStmt (map snd segment))
+          (recStmt :) <$> go after
+    -- A statement inside the segment can reach further than the segment.
+    extend index end =
+      let end' = maximum (end : mapMaybe reachOf [index .. end])
+       in if end' == end then end else extend index end'
+
+-- | The local variables that a resolved statement uses, and whether the
+-- statement can use its own variables recursively.
+doStmtUses :: DoStmt Expr -> (Set.Set Entity, Bool)
+doStmtUses stmt =
+  case peelDoStmtAnn stmt of
+    DoBind _ body -> (localUses body, True)
+    DoExpr body -> (localUses body, False)
+    _ -> (localUses stmt, False)
+  where
+    localUses :: (Walkable a) => a -> Set.Set Entity
+    localUses =
+      Set.fromList
+        . collectAnnotations
+          ( \ann -> case annotationResolution ann of
+              Just resolved@ResolutionAnnotation {resolutionTarget = EntityLocal {}} -> Just (resolutionTarget resolved)
+              _ -> Nothing
+          )
+
+-- | Resolve one statement of a recursive group. The variables of the whole
+-- group are already in scope, and each binder takes its entity from the
+-- targets. Each statement gets a sequencing method, because the desugarer
+-- puts the tuple of the group variables after the last statement.
+resolveRecGroupStmt :: Map.Map Text Entity -> DoStmt Expr -> ResolveM (DoStmt Expr)
+resolveRecGroupStmt targets stmt =
+  case stmt of
+    DoAnn ann inner ->
+      DoAnn ann <$> withPushedSpan ann (resolveRecGroupStmt targets inner)
+    DoExpr body -> do
+      body' <- resolveExpr body
+      annotateDoMethod False ">>" (DoExpr body')
+    DoBind pat body -> do
+      body' <- resolveExpr body
+      pat' <- resolvePatternDefinition definition pat
+      annotateDoMethod False ">>=" (DoBind pat' body')
+    DoLetDecls decls ->
+      DoLetDecls <$> resolveBoundDecls targets Map.empty decls
+    DoRecStmt stmts -> do
+      stmts' <- mapM (resolveRecGroupStmt targets) stmts
+      annotateRecStmt (DoRecStmt stmts')
+  where
+    definition name = Resolved <$> Map.lookup (renderUnqualifiedName name) targets
+
+-- | Annotate a @rec@ statement with the methods of its desugaring:
+-- @mfix@ ties the knot, @return@ gives the tuple of the group variables, and
+-- @>>=@ binds that tuple for the statements that follow.
+annotateRecStmt :: DoStmt Expr -> ResolveM (DoStmt Expr)
+annotateRecStmt stmt = do
+  sp <- currentSpan
+  mfixAnn <- syntaxTermAnnotation sp "mfix"
+  returnAnn <- syntaxTermAnnotation sp "return"
+  bindAnn <- syntaxTermAnnotation sp ">>="
+  pure (DoAnn mfixAnn (DoAnn returnAnn (DoAnn bindAnn stmt)))
+
+-- | Give one entity to each variable that the statements bind.
+allocateDoStmtBinders :: [DoStmt Expr] -> ResolveM (Map.Map Text Entity, Scope)
+allocateDoStmtBinders stmts = do
+  recordFields <- scopeRecordFields <$> currentScope
+  foldM addBinder (Map.empty, emptyScope) (concatMap (doStmtBinderKeys recordFields) stmts)
+  where
+    addBinder (targets, scope) key
+      | Map.member key targets = pure (targets, scope)
+      | otherwise = do
+          entity <- freshLocal
+          pure (Map.insert key entity targets, insertTerm key entity scope)
+
+-- | The names of the variables that a statement binds, in source order.
+-- The record fields give the variables of a record wildcard pattern.
+doStmtBinderKeys :: Map.Map Text [Text] -> DoStmt Expr -> [Text]
+doStmtBinderKeys recordFields stmt =
+  case stmt of
+    DoAnn _ inner -> doStmtBinderKeys recordFields inner
+    DoBind pat _ -> map (renderUnqualifiedName . snd) (collectPatVarBinders recordFields Nothing pat)
+    DoLetDecls decls -> map (renderUnqualifiedName . snd) (concatMap (declBinderCandidates recordFields) decls)
+    DoExpr _ -> []
+    DoRecStmt stmts -> concatMap (doStmtBinderKeys recordFields) stmts
 
 -- | Annotate a do statement with the method that sequences it.
 --

@@ -1,0 +1,27 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- A refutable pattern in a rec block falls back on the fail method of the
+    -- monad when it does not match.
+    refutableFails :: Maybe Int
+    refutableFails = do
+      rec Just x <- Just (Nothing :: Maybe Int)
+      return (x + 1)
+
+    checks :: [Bool]
+    checks = [refutableFails == Nothing]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: a refutable do pattern does not call the fail method of the monad yet
