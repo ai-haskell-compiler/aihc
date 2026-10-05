@@ -328,7 +328,7 @@
           preopen_args+=(-S "cwd=$initial_cwd")
         fi
       fi
-      if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
+      if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli -S http \
         "''${preopen_args[@]}" \
         --argv0 "$example_name" \
         "$executable" +RTS -M100M -RTS "''${example_args[@]}" "''${path_args[@]}" \

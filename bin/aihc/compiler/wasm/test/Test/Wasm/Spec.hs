@@ -439,7 +439,7 @@ programTestWith tools expected shouldFail stress cSource program = do
         runTool "wasm-ld" ["--no-entry", "--export-memory", "--allow-undefined", programObject, stubObject, entry, "--whole-archive", runtime, "--no-whole-archive", wasmSysrootLibc sysroot, "-o", coreModule]
         runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
         runTool "wasm-tools" ["component", "new", typedModule, "-o", component]
-        (exit, out, err) <- readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", "-S", "cli", component] ""
+        (exit, out, err) <- readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", "-S", "cli", "-S", "http", component] ""
         if shouldFail
           then assertBool ("expected a callback failure: " <> err) (exit /= ExitSuccess)
           else assertEqual ("program stderr: " <> err) ExitSuccess exit

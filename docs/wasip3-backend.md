@@ -98,6 +98,21 @@ exist, but unsupported operations and `openBinaryFile` report an IO error; an
 uncaught `IOException` traps because the component has no synchronous error
 stream.
 
+## HTTP
+
+The world imports `wasi:http/client@0.3.0`, so the host must provide
+wasi:http. Under wasmtime, pass `-S http`.
+
+The driver opens a path that starts with `http://` or `https://` as a
+read-only stream of a response body. The open sends one GET request and
+completes when the response head arrives. A status outside 200 to 299 fails
+the open with the error number 10000 plus the status. A transport error
+fails the open with the nearest errno, such as `ETIMEDOUT` or
+`ECONNREFUSED`. Each read continues the body stream, and the last read also
+resolves the trailers future of the response. At most 16 responses can be
+open at one time. The `Aihc.Http` module of the `aihc-http` package uses this
+path on the `wasi` operating system.
+
 ## Incremental compilation
 
 Incremental compilation is the default. Each dependency SCC is compiled with

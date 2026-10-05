@@ -113,6 +113,12 @@ in rec {
     ".cabal"
   ];
 
+  httpSrc = mkComponentSrc "/tooling/aihc-http" [
+    ".hs"
+    ".hs-boot"
+    ".cabal"
+  ];
+
   packagePlanSrc = mkComponentSrc "/tooling/aihc-package-plan" [
     ".hs"
     ".hs-boot"
