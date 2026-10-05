@@ -14,5 +14,4 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: A weak pointer with a live key must return its value. System.Mem.Weak does not export mkWeakPtr or deRefWeak.
+status: pass

@@ -1,0 +1,23 @@
+modules:
+  - |
+    module Test where
+
+    import Data.IORef (modifyIORef, newIORef, readIORef)
+    import Prelude
+    import System.IO.Unsafe (unsafePerformIO)
+    import System.Mem.Weak (Weak, deRefWeak, finalize, mkWeak)
+
+    result :: Bool
+    result = unsafePerformIO $ do
+      counter <- newIORef (0 :: Int)
+      weak <- mkWeak counter 'x' (Just (modifyIORef counter (+ 1)))
+      finalize (weak :: Weak Char)
+      finalize weak
+      value <- deRefWeak weak
+      count <- readIORef counter
+      return (count == 1 && value == Nothing)
+output: |
+  True
+expression: |
+  result
+status: pass
