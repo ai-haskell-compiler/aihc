@@ -608,6 +608,12 @@ int64_t aihc_io_descriptor_mode(int64_t descriptor);
    The host that has no descriptors to adopt reports one. */
 void *aihc_io_adopt(AihcMachine *machine, int64_t descriptor, int64_t mode);
 int64_t aihc_io_handle_descriptor(void *handle);
+/* The position of a handle that the runtime itself keeps, or -1 for a handle
+   whose position the operating system keeps in its descriptor. */
+int64_t aihc_io_handle_position(void *handle);
+/* Move the position that the runtime keeps. This gives 0, or -1 for a handle
+   that has no such position. */
+int64_t aihc_io_handle_set_position(void *handle, int64_t position);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);

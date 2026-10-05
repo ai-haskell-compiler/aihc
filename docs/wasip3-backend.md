@@ -65,6 +65,11 @@ global stack pointer and the one static thread-local segment of the linked
 module. That segment needs the `atomics` feature of the linker, which the
 link adds.
 
+A file that the runtime opens has no descriptor in the libc. The handle keeps the
+position that the next read or write starts from, and `hSeek` and `hTell` change
+and read it. The runtime does not know the size of the file, so a seek from the
+end and `hFileSize` are unsupported.
+
 WASI has no file modes, and the libc fails `chmod` with `ENOSYS`. The same file
 defines `__wrap_chmod` and `__wrap_fchmod`. The link passes `--wrap` for both
 names, so that a call succeeds and leaves the file as it is. A program that sets a mode for each file it makes, as the `tar` package does,

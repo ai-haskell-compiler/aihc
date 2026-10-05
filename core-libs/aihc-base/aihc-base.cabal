@@ -253,6 +253,7 @@ library
   other-modules:
     Foreign.C.Error.Repr
     Foreign.C.Types.Repr
+    Foreign.Storable.Repr
     GHC.IO.Console
     GHC.IO.FD.Position
     GHC.IO.Handle.Lock.Common
@@ -277,7 +278,6 @@ library
     GHC.Read.Lex
     System.CPUTime.Clock
     System.Environment.ExecutablePath
-    Foreign.Storable.Repr
     System.Info.Arch
     System.Info.OS
     System.Posix.Internals.Repr

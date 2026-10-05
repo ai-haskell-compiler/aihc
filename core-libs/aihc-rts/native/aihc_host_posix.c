@@ -197,6 +197,17 @@ int64_t aihc_io_handle_descriptor(void *opaque_handle) {
   return aihc_posix_descriptor(handle);
 }
 
+int64_t aihc_io_handle_position(void *opaque_handle) {
+  (void)opaque_handle;
+  return -1;
+}
+
+int64_t aihc_io_handle_set_position(void *opaque_handle, int64_t position) {
+  (void)opaque_handle;
+  (void)position;
+  return -1;
+}
+
 static int64_t aihc_posix_open(AihcIoRequest *request) {
   void *opaque_path = request->buffer;
   int64_t requested_length = (int64_t)request->length;

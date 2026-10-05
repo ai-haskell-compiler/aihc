@@ -19,13 +19,14 @@ module GHC.IO.FD
   )
 where
 
-import Data.Bool (Bool (..))
+import Data.Bool (Bool (..), (||))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
-import Foreign.C.Error (Errno (..), eIO, errnoToIOError, throwErrnoIfMinus1Retry, throwErrnoIfMinus1Retry_)
+import Foreign.C.Error (Errno (..), eINVAL, eIO, errnoToIOError, throwErrnoIfMinus1Retry, throwErrnoIfMinus1Retry_)
 import Foreign.C.Types (CInt (..))
 import GHC.Base (Monad (..), String)
 import GHC.Bits (complement, (.&.), (.|.))
+import GHC.Enum (Bounded (..))
 import GHC.IO (FilePath, IO (..))
 import GHC.IO.Buffer (newByteBuffer)
 import GHC.IO.BufferedIO (readBuf, readBufNonBlocking, writeBuf, writeBufNonBlocking)
@@ -39,6 +40,8 @@ import GHC.IO.Runtime
     closeIOHandle,
     decodeError,
     ioHandleDescriptor,
+    ioHandlePosition,
+    ioHandleSetPosition,
     openResultError,
     stderrHandle,
     stdinHandle,
@@ -50,12 +53,13 @@ import GHC.IO.Runtime
 import GHC.IO.Runtime.Open (openUtf8FilePath)
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Int (Int (..))
+import GHC.Integer (Integer)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types (BufferedIO (..), IODevice (..), IODeviceType (..), RawIO (..), SeekMode (..), ioError, ioe_unsupportedOperation)
 import GHC.Num (Num (..))
 import GHC.Prim (Addr#)
 import GHC.Ptr (Ptr (..), plusPtr)
-import GHC.Real (fromIntegral)
+import GHC.Real (fromIntegral, toInteger)
 import GHC.Show (Show (..), showString)
 import GHC.Word (Word8)
 import System.Posix.Types (CDev, CIno)
@@ -178,14 +182,22 @@ instance IODevice FD where
   isSeekable fd = do
     descriptor <- ioHandleDescriptor (fdHandle fd)
     case descriptor < 0 of
-      True -> return False
+      True -> do
+        position <- ioHandlePosition (fdHandle fd)
+        return (position >= 0)
       False -> descriptorSeekable (fromIntegral descriptor)
   seek fd mode offset = do
-    descriptor <- seekableDescriptor fd
-    descriptorSeek "GHC.IO.FD.seek" descriptor mode offset
+    descriptor <- ioHandleDescriptor (fdHandle fd)
+    case descriptor < 0 of
+      True -> seekRuntimePosition fd mode offset
+      False -> descriptorSeek "GHC.IO.FD.seek" (fromIntegral descriptor) mode offset
   tell fd = do
-    descriptor <- seekableDescriptor fd
-    descriptorSeek "GHC.IO.FD.tell" descriptor RelativeSeek 0
+    descriptor <- ioHandleDescriptor (fdHandle fd)
+    case descriptor < 0 of
+      True -> do
+        position <- runtimePosition fd
+        return (toInteger position)
+      False -> descriptorSeek "GHC.IO.FD.tell" (fromIntegral descriptor) RelativeSeek 0
   getSize fd = do
     descriptor <- seekableDescriptor fd
     descriptorSize "GHC.IO.FD.getSize" descriptor
@@ -235,6 +247,31 @@ awaitRequest submission = do
   request <- submission
   awaitIO request
   takeResult request
+
+-- | The position that the runtime keeps for a file it opened itself, which
+-- is where the next read or write starts. A resource with no position, such
+-- as a WASI stream, cannot seek.
+runtimePosition :: FD -> IO Int
+runtimePosition fd = do
+  position <- ioHandlePosition (fdHandle fd)
+  case position < 0 of
+    True -> ioe_unsupportedOperation
+    False -> return position
+
+-- | Move that position. The size of the file is not known to the runtime, so
+-- a seek from the end is unsupported.
+seekRuntimePosition :: FD -> SeekMode -> Integer -> IO Integer
+seekRuntimePosition fd mode offset = do
+  current <- runtimePosition fd
+  target <- case mode of
+    AbsoluteSeek -> return offset
+    RelativeSeek -> return (toInteger current + offset)
+    SeekFromEnd -> ioe_unsupportedOperation
+  case target < 0 || target > toInteger (maxBound :: Int) of
+    True -> ioError (errnoToIOError "GHC.IO.FD.seek" eINVAL Nothing Nothing)
+    False -> do
+      _ <- ioHandleSetPosition (fdHandle fd) (fromIntegral target)
+      return target
 
 -- | The operating system descriptor of an 'FD'. A resource that is not a
 -- descriptor, such as a WASI stream, cannot seek.

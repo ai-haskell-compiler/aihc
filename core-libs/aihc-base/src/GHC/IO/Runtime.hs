@@ -15,6 +15,8 @@ module GHC.IO.Runtime
     openResultError,
     descriptorMode,
     ioHandleDescriptor,
+    ioHandlePosition,
+    ioHandleSetPosition,
     adoptIOHandle,
     closeIOHandle,
     readMemoryByte,
@@ -123,6 +125,27 @@ ioHandleDescriptor :: IOHandle -> IO Int
 ioHandleDescriptor (IOHandle value) =
   IO
     ( \state -> case ioHandleDescriptor# value state of
+        (# next, result #) -> (# next, I# result #)
+    )
+
+-- | The position that the runtime keeps for a handle with no descriptor, or
+-- -1 when the operating system keeps the position.
+foreign import prim ioHandlePosition# :: IOHandle# -> State# RealWorld -> (# State# RealWorld, Int# #)
+
+ioHandlePosition :: IOHandle -> IO Int
+ioHandlePosition (IOHandle value) =
+  IO
+    ( \state -> case ioHandlePosition# value state of
+        (# next, result #) -> (# next, I# result #)
+    )
+
+-- | Move that position. The result is 0, or -1 when the handle has none.
+foreign import prim ioHandleSetPosition# :: IOHandle# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+
+ioHandleSetPosition :: IOHandle -> Int -> IO Int
+ioHandleSetPosition (IOHandle value) (I# position) =
+  IO
+    ( \state -> case ioHandleSetPosition# value position state of
         (# next, result #) -> (# next, I# result #)
     )
 
