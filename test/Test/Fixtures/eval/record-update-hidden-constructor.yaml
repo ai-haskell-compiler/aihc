@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Provider (Options (fieldA, fieldB), defaultOptions) where
+
+    data Options = Options {fieldA :: Int, fieldB :: Bool}
+
+    defaultOptions :: Options
+    defaultOptions = Options 1 True
+  - |
+    module Test where
+
+    import Provider
+
+    data Results = Results Int Bool
+
+    updated :: Options
+    updated = defaultOptions {fieldB = False}
+
+    results :: Results
+    results = Results (fieldA updated) (fieldB updated)
+output: |
+  Results (I# 1) False
+expression: results
+status: pass
+reason: a record update in another module rebuilds a constructor that the export list of its module hides, because a field selector of the constructor is exported

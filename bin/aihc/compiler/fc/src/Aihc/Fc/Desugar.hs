@@ -929,6 +929,14 @@ convertConstructor env info = do
       result
   let constructorType = foldr TyForAll body binders
       (package, moduleName') = dciOrigin info
+      -- A record update in another module rebuilds the constructor and
+      -- names only its fields, so a constructor with an exported field
+      -- selector is public even when the export list hides its name.
+      fieldVisible =
+        or
+          [ exportedVis env ResolutionNamespaceTerm label == Pub
+          | Just label <- map dcfiLabel (dciFields info)
+          ]
       -- Built-in syntax such as @(,)@ or @[]@ has no name that an export
       -- list could mention, and the compiler references it from any
       -- module, so it stays public.
@@ -937,7 +945,9 @@ convertConstructor env info = do
           SyntaxDataCon -> Pub
           UnboxedTupleDataCon -> Pub
           UnboxedSumDataCon {} -> Pub
-          _ -> exportedVis env ResolutionNamespaceTerm (dciName info)
+          _
+            | fieldVisible -> Pub
+            | otherwise -> exportedVis env ResolutionNamespaceTerm (dciName info)
   pure
     ConDecl
       { conVis = constructorVis,
