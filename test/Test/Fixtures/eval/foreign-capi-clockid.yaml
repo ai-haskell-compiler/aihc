@@ -1,0 +1,20 @@
+extensions:
+  - CApiFFI
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+
+    import System.Posix.Types (CClockId)
+
+    foreign import capi "time.h value CLOCK_REALTIME" clockRealtime :: CClockId
+
+    foreign import capi "time.h value CLOCK_MONOTONIC" clockMonotonic :: CClockId
+
+    result :: Bool
+    result = clockRealtime == clockMonotonic
+output: |
+  False
+expression: result
+status: pass
+reason: a capi value import has the type CClockId, whose C type is clockid_t, and the generated C wrapper spells that type, so it compiles where clockid_t is a pointer
