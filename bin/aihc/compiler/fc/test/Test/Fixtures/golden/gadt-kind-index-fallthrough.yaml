@@ -114,25 +114,21 @@ expected: |-
 
   pub val 1.vputTypeRep :: ∀(k : sType) (a : k). tTypeRep k a 3.→ 1.tUnit
     = Λ(k : sType) (a : k). λ(x : tTypeRep k a).
-      let _fail : 1.tUnit =
-        v$mCon' @k @a @sLiftedRep @1.tUnit x (λ(con : 1.tUnit).
-          con) (λ(_pattern_failure : 2.tUnit).
-          v$mApp @k @a @sLiftedRep @1.tUnit x (Λ(k1 : sType) (f : k1 3.→ k) (x{1} : k1). λ($pattern_d0 : a ~ f x{1})
-          (f{1} : tTypeRep (k1 3.→ k) f) (x{2} : tTypeRep k1 x{1}).
-            vputTypeRep @(k1 3.→ k) @f f{1}) (λ(_pattern_failure{1} : 2.tUnit).
-            case x as (_case_nomatch : tTypeRep k a) return (1.tUnit) of {
-
-            }));
       case veqTypeRep @k @(tTYPE (cBoxedRep cLifted)) @a @(tTYPE (cBoxedRep cLifted)) x (vtypeRep @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted))) as (_do_scrut : tMaybe (t:~~: k (tTYPE (cBoxedRep cLifted)) a (tTYPE (cBoxedRep cLifted)))) return (1.tUnit) of {
         cJust (_pat : t:~~: k (tTYPE (cBoxedRep cLifted)) a (tTYPE (cBoxedRep cLifted))) →
           case _pat as (_do_scrut{1} : t:~~: k (tTYPE (cBoxedRep cLifted)) a (tTYPE (cBoxedRep cLifted))) return (1.tUnit) of {
             cHRefl ($pattern_d0 : tTYPE (cBoxedRep cLifted) ~ k) ($pattern_d1 : tTYPE (cBoxedRep cLifted) ~ a) →
-              cUnit;
-            _ →
-              _fail
+              cUnit
           };
         _ →
-          _fail
+          v$mCon' @k @a @sLiftedRep @1.tUnit x (λ(con : 1.tUnit).
+            con) (λ(_pattern_failure : 2.tUnit).
+            v$mApp @k @a @sLiftedRep @1.tUnit x (Λ(k1 : sType) (f : k1 3.→ k) (x{1} : k1). λ($pattern_d0 : a ~ f x{1})
+            (f{1} : tTypeRep (k1 3.→ k) f) (x{2} : tTypeRep k1 x{1}).
+              vputTypeRep @(k1 3.→ k) @f f{1}) (λ(_pattern_failure{1} : 2.tUnit).
+              case x as (_case_nomatch : tTypeRep k a) return (1.tUnit) of {
+
+              }))
       }
 status: pass
 reason: a pattern guard on HRefl at a different kind than the scrutinee falls through to pattern synonym clauses; the constructor carries a separate kind universal and a kind equality, so the match instantiates it.

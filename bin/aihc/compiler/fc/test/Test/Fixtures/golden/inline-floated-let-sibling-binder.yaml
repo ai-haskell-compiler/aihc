@@ -108,9 +108,7 @@ expected: |-
                 vmessage y;
               _ →
                 x
-            };
-          _ →
-            x
+            }
         }) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vmessage noinline :: tInt 3.→ tInt
@@ -140,9 +138,7 @@ expected: |-
                 vmessage eta;
               _ →
                 x{1}
-            };
-          _ →
-            x{1}
+            }
         }) ▷ sym (axiom-co $ax$Eff @tInt))
 
   pub val 1.vother :: tInt 3.→ tEff tInt
@@ -157,9 +153,7 @@ expected: |-
                 vmessage x;
               _ →
                 x
-            };
-          _ →
-            _scrut
+            }
         }) ▷ sym (axiom-co $ax$Eff @tInt)
 status: pass
 reason: The growing pass copies guard into the action, which turns its right-hand side into a lambda under the let named eta, and floats that let out over the body. The action then moves to its one call under the lambda binder named eta. The floated binder gets a fresh name first, so the location still names the floated binding and not the state token.

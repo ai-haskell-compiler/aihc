@@ -64,9 +64,7 @@ expected: |-
               cTrue;
             _ →
               cFalse
-          };
-        _ →
-          cFalse
+          }
       }
 
   val 1.v$fMyEqBool$cneq :: tBool 2.→ tBool 2.→ tBool
@@ -85,9 +83,7 @@ expected: |-
               cFalse;
             _ →
               cTrue
-          };
-        _ →
-          cTrue
+          }
       }
 
   pub val 1.veqBool :: tBool 2.→ tBool 2.→ tBool
