@@ -1294,7 +1294,6 @@ inferTuple sp flavor elems = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
 
-
 -- | An overloaded list applies fromListN to its length and an ordinary list.
 inferOverloadedList :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
 inferOverloadedList sp resolutionAnn resolution inner = do
