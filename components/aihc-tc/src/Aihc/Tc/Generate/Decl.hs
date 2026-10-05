@@ -156,7 +156,7 @@ import Aihc.Tc.Unpack (decideConstructorRepresentations)
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (>=>))
+import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
@@ -4968,7 +4968,14 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
   (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
-  inferredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
+  -- Without a kind signature, the result kind is the kind of the field.
+  -- An UnliftedNewtypes field gives an unlifted result kind.
+  -- 'registerNewtypeConstructor' unifies this meta with the field kind.
+  inferredKind <- case newtypeDeclKind nd of
+    Nothing -> do
+      resultKind <- freshKindMeta
+      pure (foldr (KFun . paramKind) resultKind paramInfos)
+    Just _ -> tyConKindFromParams paramInfos (newtypeDeclKind nd)
   tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
@@ -5000,6 +5007,10 @@ registerNewtypeConstructor origin newtypeDecl = do
       selectorBindings <- registerRecordSelectors origin constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
+      -- The newtype and its field have one representation, so they have one kind.
+      forM_ (concatMap dataConArgTypes constructors) $ \fieldType -> do
+        fieldKind <- tcTypeKind fieldType
+        unifyKindsAt (newtypeConstructorSpan newtypeDecl) resultKind fieldKind
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -5012,6 +5023,13 @@ registerNewtypeConstructor origin newtypeDecl = do
             dtiCType = cTypePragma (newtypeDeclCTypePragma newtypeDecl)
           }
       pure (maybeToList constructor <> selectorBindings)
+
+-- | The source span of a newtype's constructor, if the parser gave one.
+newtypeConstructorSpan :: NewtypeDecl -> Maybe SourceSpan
+newtypeConstructorSpan = dataConSpan <=< newtypeDeclConstructor
+  where
+    dataConSpan (DataConAnn annotation inner) = fromAnnotation @SourceSpan annotation <|> dataConSpan inner
+    dataConSpan _ = Nothing
 
 -- | The C type a @CTYPE@ pragma names.
 --
