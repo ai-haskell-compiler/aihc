@@ -16,9 +16,9 @@ module Aihc.Haddock.Cli
   )
 where
 
-import Aihc.Hackage.Fetch (newHackageSource)
 import Aihc.Hackage.Package (buildArch, buildOS, parsePackageIdentifier, parseVersionString, showVersion, unPackageName)
 import Aihc.Haddock.Compare
+import Aihc.Haddock.Hackage (defaultHackageSource)
 import Aihc.Haddock.Hoogle (renderHoogle)
 import Aihc.Haddock.Model
 import Aihc.Haddock.Reference.Hoogle (parseHoogleFile)
@@ -29,6 +29,7 @@ import Aihc.PackagePlan.Lock (lockFileName)
 import Control.Monad (forM, forM_, unless, when)
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Options.Applicative
@@ -114,8 +115,8 @@ runCommand cmd =
 
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
-  hackageSource <- newHackageSource
-  (root, lockDirectory) <- resolveTarget (buildTarget options)
+  hackageSource <- defaultHackageSource
+  (root, lockDirectory) <- resolveTarget (isJust hackageSource) (buildTarget options)
   storeRoot' <- maybe defaultStoreRoot pure (buildStoreRoot options)
   let store = Store storeRoot'
       say message = when (buildVerbose options) (hPutStrLn stderr message)
@@ -127,7 +128,7 @@ runBuild options = do
           requestExecutables = Nothing,
           requestCheckBuildTools = True,
           requestWorkspaces = [],
-          requestHackage = Just hackageSource,
+          requestHackage = hackageSource,
           requestPlatform = (buildOS, buildArch),
           requestConstraints = [],
           requestLockFile = Just (lockDirectory </> lockFileName),
@@ -160,20 +161,23 @@ runBuild options = do
 -- | A directory is used as-is, with its lock beside its cabal file;
 -- anything else is a Hackage package, with its lock in the working
 -- directory.
-resolveTarget :: String -> IO (PlanRoot, FilePath)
-resolveTarget target = do
+--
+-- A build without the Cabal flag @hackage@ has no Hackage source, so its
+-- target has to be a directory.
+resolveTarget :: Bool -> String -> IO (PlanRoot, FilePath)
+resolveTarget hasHackage target = do
   isDirectory <- doesDirectoryExist target
-  if isDirectory
-    then do
+  case parsePackageTarget target of
+    _ | isDirectory -> do
       (cabalFile, _) <- parseSourcePackageDescriptionAt target
       pure (RootLocal target, takeDirectory cabalFile)
-    else case parsePackageTarget target of
-      Nothing -> ioError (userError (target <> " is not a directory nor a Hackage package NAME[-VERSION]"))
-      Just (name, requestedVersion) -> do
-        version <- forM requestedVersion $ \text ->
-          maybe (ioError (userError ("Invalid version " <> text))) pure (parseVersionString text)
-        directory <- getCurrentDirectory
-        pure (RootHackage name version, directory)
+    Nothing -> ioError (userError (target <> " is not a directory nor a Hackage package NAME[-VERSION]"))
+    Just _ | not hasHackage -> ioError (userError (target <> " is not a directory, and this build of aihc-haddock cannot download packages from Hackage"))
+    Just (name, requestedVersion) -> do
+      version <- forM requestedVersion $ \text ->
+        maybe (ioError (userError ("Invalid version " <> text))) pure (parseVersionString text)
+      directory <- getCurrentDirectory
+      pure (RootHackage name version, directory)
 
 parsePackageTarget :: String -> Maybe (String, Maybe String)
 parsePackageTarget target = do
