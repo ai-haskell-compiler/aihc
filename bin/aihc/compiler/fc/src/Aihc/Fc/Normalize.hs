@@ -1,13 +1,16 @@
 -- | Apply small System FC normalization rules.
 module Aihc.Fc.Normalize
   ( normalizeProgram,
+    normalizeCaseAlternatives,
   )
 where
 
 import Aihc.Fc.Name (Name, nameText)
 import Aihc.Fc.Syntax
-import Aihc.Fc.TypeOf (TypeEnv, extendBinder, reduceType, repOf, typeEnvFromProgram)
+import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, reduceType, repOf, typeEnvFromProgram, typeHead)
 import Aihc.Resolve (PackageId)
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 
 normalizeProgram :: PackageId -> Program -> Program
 normalizeProgram primPackage program =
@@ -46,10 +49,25 @@ normalizeExpr env expr =
         (normalizeExpr env scrutinee)
         binder
         resultType
-        (map (normalizeAlt env) alternatives)
+        (map (normalizeAlt env) (normalizeCaseAlternatives env binder alternatives))
     ExCast body coercion -> ExCast (normalizeExpr env body) coercion
     ExForeignCall call types arguments -> ExForeignCall call types (map (normalizeExpr env) arguments)
     _ -> expr
+
+-- | Remove the default when explicit alternatives cover every known constructor.
+-- Keep the case and all failures inside its constructor alternatives.
+-- If the constructor set is unknown, keep the default.
+normalizeCaseAlternatives :: TypeEnv -> Binder -> [Alt] -> [Alt]
+normalizeCaseAlternatives env binder alternatives
+  | any ((== AltDefault) . altCon) alternatives,
+    Just tyCon <- typeHead (reduceType env (binderType binder)),
+    Just constructors <- Map.lookup tyCon (teDataCons env),
+    not (null constructors),
+    all (`Set.member` covered) constructors =
+      filter ((/= AltDefault) . altCon) alternatives
+  | otherwise = alternatives
+  where
+    covered = Set.fromList [constructor | Alt (AltData constructor) _ _ _ <- alternatives]
 
 -- | Inline a lifted let binding that its body uses at most once, outside any
 -- lambda or recursive binding. Such a binding is a thunk that is forced at

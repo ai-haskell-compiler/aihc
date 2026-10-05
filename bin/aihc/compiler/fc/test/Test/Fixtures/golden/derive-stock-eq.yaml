@@ -69,9 +69,7 @@ expected: |-
               };
             _ →
               cFalse
-          };
-        _ →
-          cFalse
+          }
       }
 
   val 1.v$fEqTreea$c/= :: ∀(a : sType). t$Dict$Eq a 3.→ tTree a 3.→ tTree a 3.→ tBool

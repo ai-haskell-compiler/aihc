@@ -71,9 +71,7 @@ expected: |-
               cTrue;
             _ →
               cFalse
-          };
-        _ →
-          cFalse
+          }
       }
 
   pub val 1.v$fMyEqPaira :: ∀(a : sType). t$Dict$MyEq a 2.→ t$Dict$MyEq (tPair a)

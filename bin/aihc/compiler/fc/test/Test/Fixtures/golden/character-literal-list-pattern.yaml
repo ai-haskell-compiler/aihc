@@ -52,9 +52,7 @@ expected: |-
                   cC# 'y'#cWordRep;
                 _ →
                   _fail
-              };
-            _ →
-              _fail
+              }
           };
         _ →
           _fail

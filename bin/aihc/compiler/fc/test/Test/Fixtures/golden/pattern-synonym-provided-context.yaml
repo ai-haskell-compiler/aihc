@@ -84,9 +84,7 @@ expected: |-
               y @a $pattern_d0 x{1};
             _ →
               z c()
-          };
-        _ →
-          z c()
+          }
       }
 
   pub val 1.vinspect :: tBox 3.→ tMark

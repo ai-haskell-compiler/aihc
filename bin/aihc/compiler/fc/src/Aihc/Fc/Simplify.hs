@@ -63,6 +63,7 @@ where
 import Aihc.Fc.Fold (foldForeignCall)
 import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Normalize (normalizeCaseAlternatives)
 import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
 import Aihc.Fc.Size (exprSize, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
@@ -522,7 +523,7 @@ tailType env expr =
 -- The alternatives are simplified once, where they end up: inside the
 -- inner case when the scrutinee is a case, or in place otherwise.
 simplifyCase :: Simpl -> Expr -> Binder -> Type -> [Alt] -> SimplM Expr
-simplifyCase env scrutinee binder resultType alternatives
+simplifyCase env scrutinee binder resultType originalAlternatives
   -- A case that only evaluates an evaluated value does nothing. The case
   -- binder is the scrutinee.
   | [Alt AltDefault [] [] rhs] <- alternatives,
@@ -543,6 +544,8 @@ simplifyCase env scrutinee binder resultType alternatives
             _ -> do
               alternatives' <- mapM (simplifyAlt env scrutinee binder) alternatives
               pure (mkCase (spEnv env) scrutinee binder resultType alternatives')
+  where
+    alternatives = normalizeCaseAlternatives (spEnv env) binder originalAlternatives
 
 -- | Inline a candidate whose call is the scrutinee of a case, and decide
 -- the site on the case as a whole. The case of the inlined call takes
@@ -556,7 +559,8 @@ simplifyCase env scrutinee binder resultType alternatives
 -- size is not measured: a rejected site must not pay for them, and they
 -- are as large as the rest of the function.
 inlineScrutinee :: Simpl -> Name -> Candidate -> [Arg] -> Binder -> Type -> [Alt] -> SimplM Expr
-inlineScrutinee env name candidate args binder resultType alternatives = do
+inlineScrutinee env name candidate args binder resultType originalAlternatives = do
+  let alternatives = normalizeCaseAlternatives (spEnv env) binder originalAlternatives
   args' <- mapM (either (pure . Left) (fmap Right . simplifyExpr env)) args
   before <- get
   inlined <- inlineCandidate env name candidate args'
@@ -2146,7 +2150,7 @@ rebuildSpine = List.foldl' apply
 -- inner alternatives continue the outer ones. An inner alternative that
 -- the outer case already covers cannot be reached and is dropped.
 mkCase :: TypeEnv -> Expr -> Binder -> Type -> [Alt] -> Expr
-mkCase env scrutinee binder resultType alternatives =
+mkCase env scrutinee binder resultType originalAlternatives =
   case List.partition ((== AltDefault) . altCon) alternatives of
     -- A case that returns its own binder is its scrutinee: both are
     -- undefined when the scrutinee is, and both are its value otherwise. A
@@ -2167,8 +2171,10 @@ mkCase env scrutinee binder resultType alternatives =
                   altCon alternative `Set.notMember` covered
                 ]
               (innerDefaults, innerOthers) = List.partition ((== AltDefault) . altCon) continued
-           in ExCase scrutinee binder resultType (others <> innerOthers <> innerDefaults)
+           in ExCase scrutinee binder resultType (normalizeCaseAlternatives env binder (others <> innerOthers <> innerDefaults))
     _ -> ExCase scrutinee binder resultType alternatives
+  where
+    alternatives = normalizeCaseAlternatives env binder originalAlternatives
 
 -- | Rewrite a case on a comparison of a value with a literal into a case
 -- on the value: @case x ==# 3# of { 1# -> a; _ -> b }@ is
