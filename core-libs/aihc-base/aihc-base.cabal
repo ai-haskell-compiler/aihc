@@ -277,6 +277,7 @@ library
     GHC.Read.Lex
     System.CPUTime.Clock
     System.Environment.ExecutablePath
+    Foreign.Storable.Repr
     System.Info.Arch
     System.Info.OS
     System.Posix.Internals.Repr

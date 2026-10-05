@@ -1,0 +1,35 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Monad (ap, liftM, liftM2)
+
+    -- The usual way to define the instances of a monad: fmap and (<*>) come
+    -- from liftM and ap, so those must bind and return, and not call fmap.
+    newtype Box a = Box a
+
+    instance Functor Box where
+      fmap = liftM
+
+    instance Applicative Box where
+      pure = Box
+      (<*>) = ap
+
+    instance Monad Box where
+      Box value >>= next = next value
+
+    unbox :: Box a -> a
+    unbox (Box value) = value
+
+    results :: (Int, Int, Int)
+    results =
+      ( unbox (fmap (+ 1) (Box 1)),
+        unbox (liftM2 (+) (Box 10) (Box 20)),
+        unbox (Box (* 3) <*> Box 4)
+      )
+output: |
+  ((I# 2),(I# 30),(I# 12))
+expression: results
+status: pass
+reason: liftM and ap bind and return, so an instance that defines fmap and (<*>) with them does not loop
