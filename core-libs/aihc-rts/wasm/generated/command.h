@@ -896,8 +896,7 @@ extern void wasi_http_types_static_response_consume_body(wasi_http_types_own_res
 extern command_subtask_status_t wasi_http_client_send(wasi_http_client_own_request_t request, wasi_http_client_result_own_response_error_code_t *result);
 
 // Exported Functions from `wasi:cli/run@0.3.0`
-command_callback_code_t exports_wasi_cli_run_run();
-command_callback_code_t exports_wasi_cli_run_run_callback(command_event_t *event);
+bool exports_wasi_cli_run_run(void);
 
 // Helper Functions
 
@@ -1119,7 +1118,6 @@ void wasi_http_client_error_code_free(wasi_http_client_error_code_t *ptr);
 void wasi_http_client_result_own_response_error_code_free(wasi_http_client_result_own_response_error_code_t *ptr);
 
 void exports_wasi_cli_run_result_void_void_free(exports_wasi_cli_run_result_void_void_t *ptr);
-void exports_wasi_cli_run_run_return(exports_wasi_cli_run_result_void_void_t ret);
 
 // Sets the string `ret` to reference the input string `s` without copying it
 void command_string_set(command_string_t *ret, const char*s);

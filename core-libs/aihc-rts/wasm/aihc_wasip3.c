@@ -1034,16 +1034,6 @@ _Noreturn void aihc_lir_trap(const uint8_t *message, uint64_t length) {
   __builtin_trap();
 }
 
-static command_callback_code_t aihc_pump(int32_t finished) {
-  if (finished) {
-    exports_wasi_cli_run_result_void_void_t result = {0};
-    result.is_err = aihc_get_exit_status(&aihc_machine) != 0;
-    exports_wasi_cli_run_run_return(result);
-    return COMMAND_CALLBACK_CODE_EXIT;
-  }
-  return COMMAND_CALLBACK_CODE_WAIT(aihc_wasi_io.wait_set);
-}
-
 /* The generated command.c pulls in the object wit-bindgen would write beside
    it, which carries the component type of the world, by calling this symbol.
    The bindings are committed without that object and the link embeds the
@@ -1054,18 +1044,17 @@ void __component_type_object_force_link_command(void);
 // NOLINTNEXTLINE(bugprone-reserved-identifier)
 void __component_type_object_force_link_command(void) {}
 
-command_callback_code_t exports_wasi_cli_run_run(void) {
-  aihc_wasi_initialize_arguments();
-  return aihc_pump(aihc_lir_program_start());
-}
-
-command_callback_code_t
-exports_wasi_cli_run_run_callback(command_event_t *event) {
+/* Run the program on the event that a blocked request waited for. This
+   returns 1 when the request completed and the program ran on, with
+   *finished set when it halted, and 0 when the request still waits. An
+   event that no request expects traps. */
+static int aihc_wasi_handle_event(const command_event_t *event,
+                                  int32_t *finished) {
   if (aihc_wasi_io.pending == AIHC_WASI_PENDING_SUBTASK) {
     if (event->event != COMMAND_EVENT_SUBTASK ||
         event->waitable != aihc_wasi_io.subtask ||
         event->code != COMMAND_SUBTASK_RETURNED) {
-      return COMMAND_CALLBACK_CODE_EXIT;
+      __builtin_trap();
     }
     command_subtask_drop(aihc_wasi_io.subtask);
     aihc_wasi_io.pending = AIHC_WASI_PENDING_NONE;
@@ -1087,11 +1076,11 @@ exports_wasi_cli_run_run_callback(command_event_t *event) {
       expected_waitable = aihc_wasi_io.future;
       break;
     default:
-      return COMMAND_CALLBACK_CODE_EXIT;
+      __builtin_trap();
     }
     if (event->event != expected_event ||
         event->waitable != expected_waitable) {
-      return COMMAND_CALLBACK_CODE_EXIT;
+      __builtin_trap();
     }
     aihc_wasi_io.pending = AIHC_WASI_PENDING_NONE;
     aihc_wasi_io.completed_status = event->code;
@@ -1099,8 +1088,23 @@ exports_wasi_cli_run_run_callback(command_event_t *event) {
   }
   int64_t result = aihc_wasi_progress();
   if (result == INT64_MIN) {
-    return COMMAND_CALLBACK_CODE_WAIT(aihc_wasi_io.wait_set);
+    return 0;
   }
-  return aihc_pump(
-      aihc_lir_program_resume(aihc_complete_io(&aihc_machine, result)));
+  *finished = aihc_lir_program_resume(aihc_complete_io(&aihc_machine, result));
+  return 1;
+}
+
+/* The run export is lifted synchronously, so this task may block. The
+   program runs here and, when every green thread waits for IO, the task
+   waits for the event of the pending request. A libc call that blocks, as
+   the WASI 0.3 libc does, is only allowed to in such a task. */
+bool exports_wasi_cli_run_run(void) {
+  aihc_wasi_initialize_arguments();
+  int32_t finished = aihc_lir_program_start();
+  while (!finished) {
+    command_event_t event;
+    command_waitable_set_wait(aihc_wasi_io.wait_set, &event);
+    aihc_wasi_handle_event(&event, &finished);
+  }
+  return aihc_get_exit_status(&aihc_machine) == 0;
 }

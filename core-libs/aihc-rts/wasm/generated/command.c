@@ -1036,30 +1036,6 @@ void exports_wasi_cli_run_result_void_void_free(exports_wasi_cli_run_result_void
   }
 }
 
-__attribute__((__export_name__("[callback][async-lift]wasi:cli/run@0.3.0#run")))
-uint32_t __wasm_export_exports_wasi_cli_run_run_callback(uint32_t event_raw, uint32_t waitable, uint32_t code) {
-  command_event_t event;
-  event.event = (command_event_code_t) event_raw;
-  event.waitable = waitable;
-  event.code = code;
-  return exports_wasi_cli_run_run_callback(&event);
-}
-
-__attribute__((__import_module__("[export]wasi:cli/run@0.3.0"), __import_name__("[task-return]run")))
-void __wasm_export_exports_wasi_cli_run_run__task_return(int32_t);
-
-void exports_wasi_cli_run_run_return(exports_wasi_cli_run_result_void_void_t ret) {
-  int32_t result;
-  if ((ret).is_err) {
-    result = 1;
-  } else {
-    result = 0;
-  }
-
-  __wasm_export_exports_wasi_cli_run_run__task_return(result);
-}
-
-
 void command_string_set(command_string_t *ret, const char*s) {
   ret->ptr = (uint8_t*) s;
   ret->len = strlen(s);
@@ -2378,10 +2354,17 @@ command_subtask_status_t wasi_http_client_send(wasi_http_client_own_request_t re
   return __wasm_import_wasi_http_client_send((request).__handle, (uint8_t*) result);
 }
 
-__attribute__((__export_name__("[async-lift]wasi:cli/run@0.3.0#run")))
+__attribute__((__export_name__("wasi:cli/run@0.3.0#run")))
 int32_t __wasm_export_exports_wasi_cli_run_run(void) {
-  command_callback_code_t ret = exports_wasi_cli_run_run();
-  return ret;
+  exports_wasi_cli_run_result_void_void_t ret;
+  ret.is_err = !exports_wasi_cli_run_run();
+  int32_t result;
+  if ((ret).is_err) {
+    result = 1;
+  } else {
+    result = 0;
+  }
+  return result;
 }
 
 // Ensure that the *_component_type.o object is linked in

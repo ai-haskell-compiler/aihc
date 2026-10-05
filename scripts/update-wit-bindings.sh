@@ -39,7 +39,12 @@ committed="$repo_root/core-libs/aihc-rts/wasm/generated"
 generated="$(mktemp -d)"
 trap 'rm -rf "$generated"' EXIT
 
-wit-bindgen c --world command --no-object-file --out-dir "$generated" "$world"
+# The program runs inside a synchronous run export, which may block. A
+# libc that blocks in a call, as the WASI 0.3 libc does, is only allowed to
+# in such a task, so the export is lifted without the async option.
+wit-bindgen c --world command --no-object-file \
+	--async=-export:wasi:cli/run@0.3.0#run \
+	--out-dir "$generated" "$world"
 
 # Keep canonical ABI buffers in the explicit host scope until the call ends.
 python3 - "$generated/command.c" <<'PY'
