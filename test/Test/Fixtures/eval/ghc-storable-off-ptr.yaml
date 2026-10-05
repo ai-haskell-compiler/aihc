@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Foreign.Marshal.Alloc (allocaBytes)
+    import GHC.Ptr (castPtr)
+    import GHC.Storable (readInt8OffPtr, readWord32OffPtr, writeInt8OffPtr, writeWord32OffPtr)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    -- The element index scales by the size of the type: the second word
+    -- sits four bytes after the first.
+    roundTrip :: (Int, Int)
+    roundTrip = unsafePerformIO $
+      allocaBytes 16 $ \ptr -> do
+        writeWord32OffPtr ptr 0 7
+        writeWord32OffPtr ptr 1 9
+        writeInt8OffPtr (castPtr ptr) 3 (-2)
+        word <- readWord32OffPtr ptr 1
+        byte <- readInt8OffPtr (castPtr ptr) 3
+        pure (fromIntegral word, fromIntegral byte)
+output: |
+  ((I# 9),(I# -2))
+expression: roundTrip
+status: pass
+reason: GHC.Storable exports the element reads and writes that the tar package imports
