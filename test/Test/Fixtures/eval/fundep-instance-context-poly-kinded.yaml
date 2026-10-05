@@ -1,0 +1,44 @@
+extensions:
+  - DataKinds
+  - FlexibleContexts
+  - FlexibleInstances
+  - FunctionalDependencies
+  - KindSignatures
+  - PolyKinds
+  - ScopedTypeVariables
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DataKinds, FlexibleContexts, FlexibleInstances, FunctionalDependencies, KindSignatures, PolyKinds, ScopedTypeVariables, UndecidableInstances #-}
+    module Test where
+
+    import Data.Kind (Type)
+
+    data Proxy' (a :: k) = Proxy'
+
+    class Verdict (b :: Bool) where
+      verdict :: Proxy' b -> Bool
+
+    instance Verdict 'True where verdict _ = True
+    instance Verdict 'False where verdict _ = False
+
+    newtype Wrap (f :: Type -> Type) a = Wrap (f a)
+    data Leaf a = Leaf a
+
+    -- The determined parameter has a kind variable: the instance of Wrap
+    -- takes it from its context.
+    class Marker (f :: Type -> Type) r | f -> r
+
+    instance Marker f r => Marker (Wrap f) r
+    instance Marker Leaf 'True
+
+    marker :: forall f r. (Marker f r, Verdict r) => Proxy' f -> Bool
+    marker _ = verdict (Proxy' :: Proxy' r)
+
+    result :: Bool
+    result = marker (Proxy' :: Proxy' (Wrap Leaf))
+output: |
+  True
+expression: result
+status: pass
+reason: a functional dependency whose determined parameter is poly-kinded improves through the context of an instance

@@ -29,17 +29,18 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, foldM_, guard, (<=<), (>=>))
+import Control.Monad (foldM, foldM_, guard, when, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, put)
@@ -388,10 +389,20 @@ solveNormalizedDict visited givens ct
         Just substitution -> matchInstanceKinds (iiTyVars instanceInfo) substitution
       case matched of
         Nothing -> tryInstances visited' className args rest
-        Just subst -> do
-          let context = map (applySubstPred subst) (iiContext instanceInfo)
+        Just headSubst -> do
+          -- A variable that the head does not bind takes its type from the
+          -- context, through the functional dependencies of the class that
+          -- constrains it, as @all@ does in @(AllNullary a l, AllNullary b
+          -- r, And l r all) => AllNullary (a :+: b) all@. It is a meta
+          -- variable until the context determines it.
+          unboundMetas <-
+            mapM
+              (\tyVar -> (,) (tvUnique tyVar) <$> freshMetaTvOfKind (applySubst headSubst (tvKind tyVar)))
+              (filter (\tyVar -> not (Map.member (tvUnique tyVar) headSubst)) (iiTyVars instanceInfo))
+          let subst = headSubst <> Map.fromList unboundMetas
+              context = map (applySubstPred subst) (iiContext instanceInfo)
               typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
-          (contextEvidence, failed) <- withErrorTracking (withRecursiveDictionary (ctPred ct) (solveContext visited' context))
+          (contextEvidence, failed) <- withErrorTracking (withRecursiveDictionary (ctPred ct) (improveContext context >> solveContext visited' context))
           case contextEvidence of
             Just evidence | not failed -> do
               let dictionary = EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence
@@ -405,6 +416,21 @@ solveNormalizedDict visited givens ct
               -- A failed candidate must not change another candidate's types or evidence.
               lift (put saved)
               tryInstances visited' className args rest
+
+    -- Let the constraints of an instance context improve each other before
+    -- any of them is solved. One constraint can fix a meta variable that
+    -- another needs to select its instance. This has no effect on a
+    -- context without metas or without functional dependencies.
+    improveContext predicates = do
+      let dictionaries = [predicate | predicate@ClassPred {} <- predicates]
+      cts <- mapM (\predicate -> (\ev -> ct {ctPred = predicate, ctEvVar = ev}) <$> freshEvVar) dictionaries
+      improveRounds (8 :: Int) cts
+      where
+        improveRounds rounds cts
+          | rounds <= 0 || null cts = pure ()
+          | otherwise = do
+              changed <- improveFunDeps givens cts
+              when changed (improveRounds (rounds - 1) cts)
 
     -- Solve equalities first, but retain the dictionary field order.
     solveContext visited' predicates = do
