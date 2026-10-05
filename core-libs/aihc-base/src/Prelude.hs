@@ -830,6 +830,26 @@ instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g) => Show (a, b,
       . shows seventh
       . showChar ')'
 
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h) => Show (a, b, c, d, e, f, g, h) where
+  showsPrec _ (first, second, third, fourth, fifth, sixth, seventh, eighth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ','
+      . shows sixth
+      . showChar ','
+      . shows seventh
+      . showChar ','
+      . shows eighth
+      . showChar ')'
+
 showLitString :: String -> ShowS
 showLitString [] = id
 showLitString ('"' : chars) = showString "\\\"" . showLitString chars

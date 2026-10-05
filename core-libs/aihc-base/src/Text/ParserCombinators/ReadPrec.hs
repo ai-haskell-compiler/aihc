@@ -27,6 +27,8 @@ module Text.ParserCombinators.ReadPrec
   )
 where
 
+import Control.Applicative (Alternative (..))
+import Control.Monad (MonadPlus)
 import GHC.Prim.Read
   ( Prec,
     ReadPrec,
@@ -57,3 +59,11 @@ readPrec_to_P parser = readS_to_P . readPrec_to_S parser
 -- | Build a 'ReadPrec' parser from one that is given the precedence.
 readP_to_Prec :: (Prec -> ReadP a) -> ReadPrec a
 readP_to_Prec make = readS_to_Prec (readP_to_S . make)
+
+-- The instances live here and not beside 'ReadPrec', because the classes
+-- belong to the base library and 'ReadPrec' to the primitive package.
+instance Alternative ReadPrec where
+  empty = pfail
+  (<|>) = (+++)
+
+instance MonadPlus ReadPrec

@@ -1,3 +1,6 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module Data.IORef
   ( IORef,
     newIORef,
@@ -8,11 +11,15 @@ module Data.IORef
     atomicModifyIORef,
     atomicModifyIORef',
     atomicWriteIORef,
+    mkWeakIORef,
   )
 where
 
-import GHC.IO (IO)
-import GHC.IORef (IORef, atomicModifyIORef', atomicModifyIORef2, atomicSwapIORef, newIORef, readIORef, writeIORef)
+import GHC.IO (IO (..))
+import GHC.IORef (IORef (..), atomicModifyIORef', atomicModifyIORef2, atomicSwapIORef, newIORef, readIORef, writeIORef)
+import GHC.Prim (mkWeak#)
+import GHC.STRef (STRef (..))
+import GHC.Weak (Weak (..))
 import Prelude (return, seq, (>>=))
 
 -- | Mutate the contents of an 'IORef' without forcing the new value.
@@ -40,3 +47,16 @@ atomicModifyIORef reference transform =
 atomicWriteIORef :: IORef a -> a -> IO ()
 atomicWriteIORef reference value =
   atomicSwapIORef reference value >>= \_old -> return ()
+
+-- | Make a weak pointer to an 'IORef' with a finalizer.
+--
+-- The key is the mutable variable inside the 'IORef', as in GHC. This
+-- runtime collects no weak pointer, so the finalizer runs only when
+-- something calls 'System.Mem.Weak.finalize' on the result.
+mkWeakIORef :: IORef a -> IO () -> IO (Weak (IORef a))
+mkWeakIORef reference@(IORef (STRef variable)) (IO finalizer) =
+  IO
+    ( \state ->
+        case mkWeak# variable reference finalizer state of
+          (# nextState, weak #) -> (# nextState, Weak weak #)
+    )
