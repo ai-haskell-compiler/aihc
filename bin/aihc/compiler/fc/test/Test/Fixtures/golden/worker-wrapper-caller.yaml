@@ -86,14 +86,9 @@ expected: |-
             _ →
               case prim +# _scrut _scrut as (field : tInt#) return (tInt) of {
                 _ →
-                  case _scrut as (_scrut{1} : tInt#) return (tInt) of {
-                    0#cIntRep →
-                      cI# field;
+                  case prim +# _scrut field as (field{1} : tInt#) return (tInt) of {
                     _ →
-                      case prim +# _scrut{1} field as (field{1} : tInt#) return (tInt) of {
-                        _ →
-                          cI# field{1}
-                      }
+                      cI# field{1}
                   }
               }
           }
