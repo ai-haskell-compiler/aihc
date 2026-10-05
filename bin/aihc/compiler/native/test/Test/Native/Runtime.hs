@@ -62,7 +62,7 @@ runtimeProgramTestWith name programArguments extraEnvironment source check =
       -- The tiny semispace forces a collection in every one of these
       -- programs, so the runtime archive is built for this test rather than
       -- taken from the store. Every test here shares that one archive.
-      build <- cachedRuntimeArchive Llvm ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_NURSERY_BYTES=64"]
+      build <- cachedRuntimeArchive Llvm ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_NURSERY_BYTES=64", "-DAIHC_GEN2_MINIMUM_BYTES=4096", "-DAIHC_MARK_SLICE_FLOOR=256", "-DAIHC_MARK_SLICE_CAP=512"]
       let executable = directory </> "program"
           arguments =
             ["-std=c11", "-Wall", "-Wextra", "-Werror"]

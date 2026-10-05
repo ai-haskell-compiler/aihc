@@ -27,7 +27,7 @@ import Data.Char (isSpace)
 import Data.Either (fromRight)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.String (fromString)
@@ -84,7 +84,7 @@ tests =
 -- the script drives the runtime directly.
 evaluatedStaticScript :: [Command]
 evaluatedStaticScript =
-  [ CMachine 0 0 64,
+  [ CMachine 0 0 64 0,
     CSrt 0 [0] [],
     CCurrentSrt (Just 0),
     CReserve 2,
@@ -135,6 +135,8 @@ prop_collect config getDriver = property $ do
           classify (fromString "more than sixteen survivors") (any ((> 16) . Map.size . rObjects) (Map.elems reports))
           classify (fromString "stale static object") (or [True | CSUpdate {} <- script])
           classify (fromString "large array") (or [True | CArray _ count _ <- script, count >= largeArrayElements])
+          classify (fromString "gen2 cycle") (or [rCycleStart report | report <- Map.elems reports])
+          classify (fromString "cycle across collections") (or [rFinish report && not (rCycleStart report) && rCollected report < 2 | report <- Map.elems reports])
           unless (null problems) $ do
             annotate ("driver output:\n" <> unlines output)
             annotate (unlines problems)
@@ -203,7 +205,19 @@ data Model = Model
     -- the floating objects and everything they reach. A floating object that
     -- was written since the collection before is in the remembered set, and
     -- a collection below its generation scans it.
-    mNepotism :: Set Id
+    mNepotism :: Set Id,
+    -- | While a gen2 cycle is active: the old objects that were dead at its
+    -- snapshot. The cycle frees exactly these when it ends, and every other
+    -- old object may float until the next cycle.
+    mSnapshotDead :: Maybe (Set Id),
+    -- | While a gen2 cycle is active: the static slots the reference tables
+    -- reached at its snapshot. The cycle judges static objects by this set.
+    mSnapshotStatics :: Maybe (Set Int),
+    -- | Whether a stale static object that becomes live is an error. The
+    -- generator keeps them out of every path. The replay model can differ
+    -- from the driver in what it marks, so it takes such a slot as a leaf:
+    -- the driver shows a real problem itself.
+    mStrictStatics :: Bool
   }
   deriving (Show)
 
@@ -236,7 +250,10 @@ emptyModel =
       mCurrentSrt = Nothing,
       mAges = Map.empty,
       mFloating = Map.empty,
-      mNepotism = Set.empty
+      mNepotism = Set.empty,
+      mSnapshotDead = Nothing,
+      mSnapshotStatics = Nothing,
+      mStrictStatics = True
     }
 
 objectWords :: Object -> Int
@@ -259,13 +276,49 @@ resolve model = go (1000 :: Int)
         | Just (Ind target) <- Map.lookup identity (mHeap model) -> go (fuel - 1) target
       _ -> value
 
+-- | The target of an indirection that is still in the heap: a young one in
+-- the live heap, or an old one that floats until a gen2 cycle frees it.
+indirectionTarget :: Model -> Id -> Maybe Value
+indirectionTarget model identity = case Map.lookup identity (mHeap model) of
+  Just (Ind target) -> Just target
+  Just _ -> Nothing
+  Nothing -> case Map.lookup identity (mFloating model) of
+    Just (Ind target) -> Just target
+    _ -> Nothing
+
+-- | Follow every indirection the heap still holds, as the driver does when
+-- it reports a value.
+resolveDeep :: Model -> Value -> Value
+resolveDeep model = go (1000 :: Int)
+  where
+    go 0 _ = error "indirection chain is too long"
+    go fuel value = case value of
+      VHeap identity | Just target <- indirectionTarget model identity -> go (fuel - 1) target
+      _ -> value
+
+-- | Follow the indirections a collection of the generations up to the given
+-- one copies away: a full collection follows every one, and a younger
+-- collection leaves an older indirection in place.
+resolveUpTo :: Int -> Model -> Value -> Value
+resolveUpTo collected model = go (1000 :: Int)
+  where
+    go 0 _ = error "indirection chain is too long"
+    go fuel value = case value of
+      VHeap identity
+        | Just target <- indirectionTarget model identity,
+          collected == 2 || Map.findWithDefault 0 identity (mAges model) <= collected ->
+            go (fuel - 1) target
+      _ -> value
+
 setAt :: Int -> a -> [a] -> [a]
 setAt index value list = [if position == index then value else old | (position, old) <- zip [0 ..] list]
 
 -- * Commands
 
 data Command
-  = CMachine Int Int Int
+  = -- | Globals, root slots, nursery bytes, and the bytes of one mark slice,
+    -- or zero for the default slice.
+    CMachine Int Int Int Int
   | CSrt Int [Int] [Int]
   | CCurrentSrt (Maybe Int)
   | CMvars Int
@@ -288,6 +341,8 @@ data Command
   | CThread ThreadSlot Value
   | CCollect
   | CCollectGeneration Int
+  | -- | Collect the nursery and gen1 and start a gen2 cycle.
+    CCycle
   deriving (Eq, Show)
 
 renderValue :: Value -> String
@@ -302,7 +357,7 @@ renderSrt = maybe "-1" show
 
 renderCommand :: Command -> String
 renderCommand command = unwords $ case command of
-  CMachine globals roots bytes -> ["machine", show globals, show roots, show bytes]
+  CMachine globals roots bytes slice -> ["machine", show globals, show roots, show bytes, show slice]
   CSrt index objects children -> ["srt", show index, show (length objects), show (length children)] <> map (('s' :) . show) objects <> map show children
   CCurrentSrt srt -> ["current_srt", renderSrt srt]
   CMvars count -> ["mvars", show count]
@@ -325,6 +380,7 @@ renderCommand command = unwords $ case command of
   CThread slot value -> ["thread", threadSlotName slot, renderValue value]
   CCollect -> ["collect"]
   CCollectGeneration generation -> ["collect", show generation]
+  CCycle -> ["cycle"]
 
 kindName :: Kind -> String
 kindName KNode = "node"
@@ -344,7 +400,7 @@ renderScript = unlines . map renderCommand
 -- the driver reports them.
 applyCommand :: Command -> Model -> Model
 applyCommand command model = case command of
-  CMachine globals roots _ -> emptyModel {mGlobals = replicate globals VNull, mRoots = replicate roots VNull}
+  CMachine globals roots _ _ -> emptyModel {mGlobals = replicate globals VNull, mRoots = replicate roots VNull}
   CSrt index objects children -> model {mSrts = Map.insert index (objects, children) (mSrts model)}
   CCurrentSrt srt -> model {mCurrentSrt = srt}
   CMvars count -> model {mMvars = replicate count Nothing}
@@ -381,6 +437,7 @@ applyCommand command model = case command of
   CThread SlotValue value -> model {mThreadValue = Just value}
   CCollect -> model
   CCollectGeneration _ -> model
+  CCycle -> model
   where
     insertObject identity object =
       model {mHeap = Map.insert identity object (mHeap model), mNextId = max (mNextId model) (identity + 1)}
@@ -395,7 +452,10 @@ applyCommands commands model = foldl' (flip applyCommand) model commands
 
 data Live = Live
   { liveHeap :: Set Id,
-    liveStatics :: Set Int
+    liveStatics :: Set Int,
+    -- | The indirections a path from the roots passes through. A gen2 cycle
+    -- marks them like objects.
+    liveInds :: Set Id
   }
 
 data Item = IHeap Id | IStatic Int | ISrt Int
@@ -410,7 +470,7 @@ data Item = IHeap Id | IStatic Int | ISrt Int
 -- keeps whatever an evaluated one names. Only a full collection finds the
 -- static objects that no table reaches.
 liveness :: Config -> Int -> Model -> Live
-liveness _config collected model = go initial (Live Set.empty Set.empty) Set.empty
+liveness _config collected model = go initial (Live Set.empty Set.empty Set.empty) Set.empty
   where
     allStatics
       | collected < 2 = [IStatic slot | slot <- [0 .. staticCount - 1], not (isStale slot)]
@@ -425,7 +485,7 @@ liveness _config collected model = go initial (Live Set.empty Set.empty) Set.emp
         <> map VHeap (mBlackholes model)
     staticStart = maybe [] (pure . ISrt) (mCurrentSrt model)
     initial = concatMap fromValue rootValues <> staticStart <> allStatics
-    fromValue value = case resolve model value of
+    fromValue value = case value of
       VHeap identity -> [IHeap identity]
       VStatic slot -> [IStatic slot]
       _ -> []
@@ -433,13 +493,14 @@ liveness _config collected model = go initial (Live Set.empty Set.empty) Set.emp
     go [] live _ = live
     go (item : rest) live seenSrts = case item of
       IHeap identity
-        | Set.member identity (liveHeap live) -> go rest live seenSrts
+        | Set.member identity (liveHeap live) || Set.member identity (liveInds live) -> go rest live seenSrts
+        | Just target <- indirectionTarget model identity -> go (fromValue target <> rest) live {liveInds = Set.insert identity (liveInds live)} seenSrts
         | otherwise ->
-            let object = fromMaybe (error "live object is not in the model") (Map.lookup identity (mHeap model))
+            let object = fromMaybe (error ("live object " <> show identity <> " is not in the model")) (Map.lookup identity (mHeap model))
                 children = case object of
                   Object _ pointers fields _ _ -> concatMap fromValue [field | (True, field) <- zip pointers fields] <> fromSrt (oSrt object)
                   Array elements srt -> concatMap fromValue elements <> fromSrt srt
-                  Ind _ -> error "resolved value names an indirection"
+                  Ind _ -> error "indirection was not followed"
              in go (children <> rest) live {liveHeap = Set.insert identity (liveHeap live)} seenSrts
       IStatic slot
         | Set.member slot (liveStatics live) -> go rest live seenSrts
@@ -453,8 +514,8 @@ liveness _config collected model = go initial (Live Set.empty Set.empty) Set.emp
                       -- must not reach one: the generator keeps them out of
                       -- every table and field.
                       SStale
-                        | collected < 2 -> []
-                        | otherwise -> error "a stale static object became live"
+                        | collected < 2 || not (mStrictStatics model) -> []
+                        | otherwise -> error ("stale static object " <> show slot <> " became live")
                   | slot < staticRootedCount =
                       let node = slot - staticThunkCount
                        in concatMap fromValue (mStaticNodes model !! node) <> fromSrt (mStaticNodeSrts model !! node)
@@ -468,11 +529,15 @@ liveness _config collected model = go initial (Live Set.empty Set.empty) Set.emp
 
 -- | Apply one collection of the generations up to the given one to the
 -- model. A dead object of an older generation floats: it stays in the heap
--- until its generation is collected.
-collectModel :: Config -> Int -> Model -> Model
-collectModel config collected model =
+-- until its generation is collected. When the collection ends a gen2 cycle,
+-- it frees the old objects that were dead at the snapshot of the cycle, and
+-- every other dead old object floats. When the cycle started and ended in
+-- this collection, the snapshot is the state now: the collection keeps the
+-- old objects that are live now under the rules of a full collection.
+collectModel :: Config -> Int -> Bool -> Bool -> Model -> Model
+collectModel config collected finishing snapshotNow model =
   model
-    { mHeap = Map.mapWithKey resolveObject (Map.restrictKeys (mHeap model) (liveHeap live)),
+    { mHeap = Map.mapWithKey resolveObject (Map.restrictKeys (mHeap model) liveNow),
       mFloating = floating,
       mNepotism = nepotism,
       mGlobals = map r (mGlobals model),
@@ -485,11 +550,43 @@ collectModel config collected model =
       mStaticThunks = zipWith updateStatic [0 ..] (mStaticThunks model)
     }
   where
-    live = liveness config collected model
+    live = liveness config (if snapshotNow then 2 else collected) model
+    -- A collection that ends a cycle keeps the static objects the snapshot
+    -- reached, whatever this collection reaches.
+    staticsLive
+      | finishing = fromMaybe (liveStatics live) (mSnapshotStatics model)
+      | otherwise = liveStatics live
     known = Map.union (mHeap model) (mFloating model)
-    floats identity _ = not (Set.member identity (liveHeap live)) && Map.findWithDefault 0 identity (mAges model) > collected
-    floating = Map.filterWithKey floats known
-    nepotism = reach (Map.keys floating) Set.empty
+    -- The collection ends a cycle: the one whose snapshot the model
+    -- recorded, or one that started in this collection. The old objects
+    -- that were dead at the snapshot are freed, and nothing else old is. A
+    -- cycle that starts in this collection follows a gen1 collection that
+    -- promoted every object a static object or an old object keeps into
+    -- gen2, so every object the snapshot does not reach is old and freed.
+    ending = finishing || snapshotNow
+    snapshotDead
+      | finishing = fromMaybe Set.empty (mSnapshotDead model)
+      | snapshotNow = Set.fromList [identity | identity <- Map.keys known, not (Set.member identity (liveHeap live)), not (Set.member identity (liveInds live))]
+      | otherwise = Set.empty
+    -- An old object that was dead at the snapshot is freed when the cycle
+    -- ends, even when a static object this collection still scans names it.
+    liveNow = liveHeap live `Set.difference` snapshotDead
+    floats identity _ =
+      not (Set.member identity liveNow)
+        && (age identity > collected || (ending && age identity == 2))
+        && not (ending && Set.member identity snapshotDead)
+    age identity = Map.findWithDefault 0 identity (mAges model)
+    -- A floating object keeps its fields, and a collection rewrites the
+    -- fields that name an object it copies, as it does for a live object.
+    floating = Map.map resolveFloating (Map.filterWithKey floats known)
+    resolveFloating object = case object of
+      Ind target -> Ind (r target)
+      _ -> resolveObject (0 :: Id) object
+    -- A dead old object in the remembered set keeps its young referents
+    -- through this collection, even when the end of the cycle frees it
+    -- afterwards: the copy comes before the end.
+    remembered identity _ = not (Set.member identity (liveHeap live)) && age identity > collected
+    nepotism = reach (Map.keys (Map.filterWithKey remembered known)) Set.empty
     reach [] seen = seen
     reach (identity : rest) seen
       | Set.member identity seen = reach rest seen
@@ -501,22 +598,43 @@ collectModel config collected model =
       Object _ pointers fields _ _ -> [field | (True, field) <- zip pointers fields]
       Array elements _ -> elements
       Ind target -> [target]
-    r = resolve model
-    weak value = case r value of
-      result@(VHeap identity) | Set.member identity (liveHeap live) -> result
-      result@(VStatic slot) | Set.member slot (liveStatics live) -> result
+    r = resolveUpTo collected model
+    weak value = case resolve model value of
+      result@(VHeap identity) | Set.member identity liveNow -> result
+      result@(VStatic slot) | Set.member slot staticsLive -> result
       _ -> VNull
     resolveObject _ object = case object of
       Object kind pointers fields srt blackholed -> Object kind pointers (zipWith (\p v -> if p then r v else v) pointers fields) srt blackholed
       Array elements srt -> Array (map r elements) srt
       Ind _ -> error "an indirection survived in the model"
     updateStatic slot state
-      | Set.member slot (liveStatics live) = case state of
+      | Set.member slot staticsLive = case state of
           SInd target -> SInd (r target)
           other -> other
+      -- The end of a cycle frees the value of a static object the snapshot
+      -- did not reach when the value was dead at the snapshot. A value that
+      -- was young at the snapshot, or that the snapshot reached another
+      -- way, stays, and the static object keeps its remembered set entry.
+      | ending = case state of
+          SInd target
+            -- The collection shortcuts the indirections it copies before
+            -- the snapshot, so the path starts after them.
+            | chainDead (r target) -> SStale
+            | otherwise -> SInd (r target)
+          other -> other
+      -- A full collection skips the remembered set entries of static
+      -- objects, so a value only an unreachable static object names dies.
       | otherwise = case state of
           SInd _ -> SStale
           other -> other
+    -- The path from the static object to its value passes through the
+    -- indirections of the thunks it was updated with. Any object on it that
+    -- was dead at the snapshot is freed, and the static object is stale.
+    chainDead value = case value of
+      VHeap identity
+        | Set.member identity snapshotDead -> True
+        | Just next <- indirectionTarget model identity -> chainDead next
+      _ -> False
 
 -- * Reports
 
@@ -539,12 +657,16 @@ data Report = Report
     rThread :: [(String, RValue)],
     rBlackholes :: [RValue],
     rStatics :: Map Int RStatic,
-    rViolations :: [String]
+    rViolations :: [String],
+    -- | A gen2 cycle took its snapshot at this collection.
+    rCycleStart :: Bool,
+    -- | A gen2 cycle ended at this collection.
+    rFinish :: Bool
   }
   deriving (Show)
 
 emptyReport :: Report
-emptyReport = Report 0 0 0 Map.empty Map.empty [] [] [] [] [] [] Map.empty []
+emptyReport = Report 0 0 0 Map.empty Map.empty [] [] [] [] [] [] Map.empty [] False False
 
 -- | The reported objects that the model does not count as live: the floating
 -- garbage of an older generation.
@@ -586,6 +708,8 @@ parseReports = go Map.empty
     block _ [] = Left "report without end"
     block report (line : rest) = case words line of
       ["endcollection"] -> Right (report, rest)
+      ["cycle", "start"] -> block report {rCycleStart = True} rest
+      ["finish"] -> block report {rFinish = True} rest
       ["space", live, required] -> do
         values <- traverse readNumber [live, required]
         case values of
@@ -632,37 +756,76 @@ parseReports = go Map.empty
 
 -- | Run the script against the model and check every reported collection.
 replay :: Config -> [Command] -> Map Int Report -> [String]
-replay config script reports = go (zip [0 ..] script) emptyModel <> extra
+replay config script reports = go (zip [0 ..] script) emptyModel {mStrictStatics = False} <> extra
   where
     extra = ["report for command " <> show index <> " which is not in the script" | index <- Map.keys reports, index >= length script]
     go [] _ = []
     go ((index, command) : rest) model = case Map.lookup index reports of
       Nothing
+        | CSSet slot field _ <- command, Just _ <- mSnapshotDead model -> go rest (applyCommand command (shadeStatic slot field model))
         | CCollect <- command -> ("command " <> show index <> ": collect did not report a collection") : go rest model
         | CCollectGeneration _ <- command -> ("command " <> show index <> ": collect did not report a collection") : go rest model
+        | CCycle <- command -> ("command " <> show index <> ": cycle did not report a collection") : go rest model
         | otherwise -> go rest (applyCommand command model)
       Just report
         | collects command ->
-            let expected = collectModel config (rCollected report) model
-                problems = generationProblems command report <> checkReport expected report
+            let -- A full collection gives up an active cycle and marks again
+                -- from the start, so it keeps the live objects alone. A
+                -- younger collection that ends a cycle keeps what the
+                -- snapshot kept.
+                snapshotNow = rFinish report && rCollected report < 2 && not (rCycleStart report) && isNothing (mSnapshotDead model)
+                finishing = rFinish report && rCollected report < 2 && not snapshotNow
+                -- Only the copy of a full collection shortcuts the gen2
+                -- indirections: a cycle marks them, so its end leaves them
+                -- in the heap and the live bytes are a lower bound.
+                exact = rCollected report == 2
+                expected = collectModel config (rCollected report) finishing snapshotNow model
+                problems = generationProblems command report <> checkReport exact (if finishing then mSnapshotStatics model else Nothing) expected report
                 -- The driver says where each survivor lives and which dead
                 -- objects float. The model takes both for the next collection.
                 -- A weak name the driver kept through nepotism keeps its
                 -- referent in the model as well.
-                settledStable = zipWith (\value actual -> case actual of RHeap identity | value == VNull -> VHeap identity; _ -> value) (mStable expected) (rStable report)
-                settled = expected {mAges = rAges report, mStable = settledStable, mFloating = Map.restrictKeys (Map.union (mHeap model) (mFloating model)) (mFloatingAfter report `Set.difference` Map.keysSet (mHeap expected))}
+                settledStable = zipWith (\value actual -> case actual of RHeap identity | value == VNull -> VHeap identity; RStatic slot | value == VNull -> VStatic slot; _ -> value) (mStable expected) (rStable report)
+                settled = expected {mAges = rAges report, mStable = settledStable, mFloating = Map.restrictKeys (Map.unions [mFloating expected, mHeap model, mFloating model]) (mFloatingAfter report `Set.difference` Map.keysSet (mHeap expected))}
+                -- The snapshot of a new cycle: the old objects that are
+                -- dead now. The cycle frees them and nothing else.
+                snapshotLive = liveness config 2 settled
+                (snapshotDead, snapshotStatics)
+                  | rCycleStart report = (Just (deadNow settled snapshotLive), Just (liveStatics snapshotLive))
+                  | rFinish report = (Nothing, Nothing)
+                  | otherwise = (mSnapshotDead model, mSnapshotStatics model)
+                withSnapshot = settled {mSnapshotDead = snapshotDead, mSnapshotStatics = snapshotStatics}
              in map (\p -> "command " <> show index <> ": " <> p) problems
-                  <> go rest (applyCommand command settled)
+                  <> go rest (applyCommand command withSnapshot)
         | otherwise -> ("command " <> show index <> ": collection at a command that cannot collect") : go rest (applyCommand command model)
     collects (CMvars _) = True
     collects (CReserve _) = True
     collects CCollect = True
     collects (CCollectGeneration _) = True
+    collects CCycle = True
     collects _ = False
+    -- The barrier shades the old value of a store into a static node while
+    -- a cycle is active, so a static object the snapshot did not reach and
+    -- everything it reaches is marked.
+    shadeStatic slot field model = case mStaticNodes model !! (slot - staticThunkCount) !! field of
+      VStatic target ->
+        let shaded = liveness config 2 model {mGlobals = [VStatic target], mRoots = [], mMvars = [], mThreadFunction = VNull, mThreadContinuation = VNull, mThreadValue = Nothing, mBlackholes = [], mCurrentSrt = Nothing}
+         in model
+              { mSnapshotDead = fmap (\dead -> dead `Set.difference` Set.union (liveHeap shaded) (liveInds shaded)) (mSnapshotDead model),
+                mSnapshotStatics = fmap (Set.union (liveStatics shaded)) (mSnapshotStatics model)
+              }
+      _ -> model
+    deadNow model snapshotLive =
+      let live = Set.union (liveHeap snapshotLive) (liveInds snapshotLive)
+          known = Map.keys (Map.union (mHeap model) (mFloating model))
+       in Set.fromList [identity | identity <- known, Map.findWithDefault 0 identity (mAges model) == 2, not (Set.member identity live)]
     generationProblems command report = case command of
       CCollectGeneration generation
         | rCollected report /= generation -> ["collected generation " <> show (rCollected report) <> " instead of " <> show generation]
       CCollectGeneration _ -> []
+      CCycle
+        | rCollected report /= 1 -> ["cycle collected generation " <> show (rCollected report) <> " instead of 1"]
+      CCycle -> []
       _
         | rCollected report /= 0 -> ["a reservation collected generation " <> show (rCollected report)]
         | otherwise -> []
@@ -684,14 +847,14 @@ checkValues what expected actual
 -- | Compare one reported collection with the collected model. The ages of
 -- the model are the ones before the collection, so the report can be
 -- checked against them.
-checkReport :: Model -> Report -> [String]
-checkReport expected report =
+checkReport :: Bool -> Maybe (Set Int) -> Model -> Report -> [String]
+checkReport exact shaded expected report =
   map ("violation: " <>) (rViolations report)
     <> spaceProblems
     <> ageProblems
     <> objectProblems
-    <> checkValues "globals" (mGlobals expected) (rGlobals report)
-    <> checkValues "roots" (mRoots expected) (rRoots report)
+    <> checkValues "globals" (map deep (mGlobals expected)) (rGlobals report)
+    <> checkValues "roots" (map deep (mRoots expected)) (rRoots report)
     <> stableProblems
     <> mvarProblems
     <> threadProblems
@@ -708,14 +871,19 @@ checkReport expected report =
       | length (mStable expected) /= length (rStable report) = ["stable names: expected " <> show (mStable expected) <> " but the driver reported " <> show (rStable report)]
       | and (zipWith stableMatches (mStable expected) (rStable report)) = []
       | otherwise = ["stable names: expected " <> show (mStable expected) <> " but the driver reported " <> show (rStable report)]
+    -- The fuzz driver names static objects the reference tables do not
+    -- reach. When a cycle ends, the barrier may have shaded such a static
+    -- object, so a name on it may survive although the snapshot did not
+    -- reach it.
     stableMatches value actual =
-      matchesValue value actual || case actual of
+      matchesValue (resolveDeep expected value) actual || case actual of
         RHeap identity -> value == VNull && Set.member identity (mNepotism expected)
+        RStatic slot -> value == VNull && maybe False (not . Set.member slot) shaded
         _ -> False
     -- A full collection keeps the live objects alone. A smaller one keeps
     -- the floating garbage of the older generations as well.
     spaceProblems
-      | collected == 2 = ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]
+      | exact = ["live bytes: expected " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report /= liveBytes]
       | otherwise = ["live bytes: expected at least " <> show liveBytes <> " but the driver reported " <> show (rLive report) | rLive report < liveBytes]
     -- An object of a collected generation moves up at least one generation
     -- and at most to gen2. An older object stays where it is.
@@ -726,9 +894,11 @@ checkReport expected report =
             then ["object " <> show identity <> " moved from generation " <> show before <> " to " <> show age | age < min 2 (before + 1) || age > 2]
             else ["object " <> show identity <> " of generation " <> show before <> " moved to " <> show age | age /= before]
     expectedObjects = Map.map expectedObject (mHeap expected)
+    -- The driver follows every indirection when it reports a value.
+    deep = resolveDeep expected
     expectedObject object = case object of
-      Object kind pointers fields _ blackholed -> (if blackholed then "blackhole" else kindName kind, pointers, fields)
-      Array elements _ -> ("array", map (const True) elements, elements)
+      Object kind pointers fields _ blackholed -> (if blackholed then "blackhole" else kindName kind, pointers, zipWith (\pointer field -> if pointer then deep field else field) pointers fields)
+      Array elements _ -> ("array", map (const True) elements, map deep elements)
       Ind _ -> ("indirection", [], [])
     objectProblems =
       ["object " <> show identity <> " survived but is not live in the model" | identity <- Map.keys (rObjects report), not (Map.member identity expectedObjects), not (Set.member identity (mNepotism expected))]
@@ -743,20 +913,20 @@ checkReport expected report =
       | otherwise = concat (zipWith3 mvarProblem [0 :: Int ..] (mMvars expected) (rMvars report))
     mvarProblem index expectedMvar actualMvar = case (expectedMvar, actualMvar) of
       (Nothing, Nothing) -> []
-      (Just value, Just actual) -> checkValues ("mvar " <> show index) [value] [actual]
+      (Just value, Just actual) -> checkValues ("mvar " <> show index) [deep value] [actual]
       _ -> ["mvar " <> show index <> ": expected " <> show expectedMvar <> " but the driver reported " <> show actualMvar]
     threadExpected =
       [("function", mThreadFunction expected), ("continuation", mThreadContinuation expected)]
         <> maybe [] (\v -> [("value", v)]) (mThreadValue expected)
     threadProblems
       | map fst threadExpected /= map fst (rThread report) = ["thread slots: expected " <> show threadExpected <> " but the driver reported " <> show (rThread report)]
-      | otherwise = checkValues "thread slots" (map snd threadExpected) (map snd (rThread report))
+      | otherwise = checkValues "thread slots" (map (deep . snd) threadExpected) (map snd (rThread report))
     staticProblems = concatMap thunkProblem (zip [0 ..] (mStaticThunks expected)) <> concatMap nodeProblem (zip [0 ..] (mStaticNodes expected))
     thunkProblem (slot, state) = case (state, Map.lookup slot (rStatics report)) of
       (_, Nothing) -> ["static " <> show slot <> " is missing from the report"]
       (SStale, _) -> []
       (SThunk, Just RThunk) -> []
-      (SInd value, Just (RInd actual)) -> checkValues ("static " <> show slot) [value] [actual]
+      (SInd value, Just (RInd actual)) -> checkValues ("static " <> show slot) [resolveDeep expected value] [actual]
       (_, Just actual) -> ["static " <> show slot <> ": expected " <> show state <> " but the driver reported " <> show actual]
     nodeProblem (node, fields) = case Map.lookup (staticThunkCount + node) (rStatics report) of
       Just (RNode actual) -> checkValues ("static node " <> show node) fields actual
@@ -829,7 +999,9 @@ genScript config = do
       <*> Gen.list (Range.linear 0 3) (Gen.int (Range.constant 0 (srtCount - 1)))
   staticSrts <- forM [0 .. staticRootedCount - 1] $ \slot -> CSSrt slot <$> genSrt srtCount
   current <- CCurrentSrt <$> genSrt srtCount
-  let setup = [CMachine globals roots (8 * spaceWords)] <> srts <> staticSrts <> [current] <> [CMvars mvarCount | mvarCount > 0]
+  -- A small mark slice spreads a gen2 cycle over several collections.
+  slice <- Gen.element [0, 64, 256, 4096]
+  let setup = [CMachine globals roots (8 * spaceWords) slice] <> srts <> staticSrts <> [current] <> [CMvars mvarCount | mvarCount > 0]
   epochCount <- Gen.int (Range.constant 1 (pEpochMax profile))
   epochs <- genEpochs config profile (applyCommands setup emptyModel) epochCount
   pure (setup <> epochs)
@@ -895,7 +1067,7 @@ genEpoch config profile start = do
   -- The generator does not know whether the reservation collects, so its
   -- model assumes that it does. A collection that did not happen keeps more
   -- objects and static slots valid, so the assumption is conservative.
-  let collected = collectModel config 0 start
+  let collected = collectModel config 0 False False start
       live = liveness config 0 collected
       stale = taintedStatics collected
       usableSrts = [index | index <- Map.keys (mSrts collected), Set.null (Set.intersection stale (srtClosure collected index))]
@@ -934,10 +1106,18 @@ genEpoch config profile start = do
   (ops, afterOps) <- genOps config profile pool afterInitial opCount
   collect <- percent (pCollectPercent profile)
   -- A collection the script asks for names the oldest generation to copy,
-  -- or leaves the choice to a reservation that does not fit.
-  generation <- Gen.frequency [(1, pure Nothing), (3, Just <$> Gen.int (Range.constant 0 2))]
-  let collectCommand = maybe CCollect CCollectGeneration generation
-      final = if collect then collectModel config (fromMaybe 0 generation) afterOps else afterOps
+  -- leaves the choice to a reservation that does not fit, or starts a gen2
+  -- cycle after a gen1 collection.
+  collectCommand <- Gen.frequency [(1, pure CCollect), (3, CCollectGeneration <$> Gen.int (Range.constant 0 2)), (2, pure CCycle)]
+  -- A cycle can end in the same collection, which keeps the old objects a
+  -- full collection keeps. The generator assumes that it does: a cycle
+  -- that runs on keeps more objects valid, so the assumption is
+  -- conservative.
+  let (generation, snapshotNow) = case collectCommand of
+        CCollectGeneration g -> (g, False)
+        CCycle -> (1, True)
+        _ -> (0, False)
+      final = if collect then collectModel config generation False snapshotNow afterOps else afterOps
       stableNameWords = 4 * length [() | CStable _ <- ops]
   pure (fill <> [CReserve (blockWords + stableNameWords)] <> newCommands <> initial <> rooting <> ops <> [collectCommand | collect], final)
   where

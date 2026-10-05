@@ -181,15 +181,17 @@ slice, which bounds their memory.
 Gen2 is a snapshot-at-the-beginning mark and sweep collector. Marking runs in
 slices on the mutator thread. No other thread exists.
 
-**Snapshot.** The cycle starts at the end of a minor collection that emptied
-gen1. At that instant the young generations are empty, and every live object
-is in gen2, in `LARGE`, in `PINNED`, in a stack chunk, or static. The
-collector pushes the machine roots and the globals to the mark stack. It scans
-the top chunk of every live stack at once, which is bounded. It defers lower
-chunks: the marker scans them in later slices, and a pop into a deferred chunk
-scans it in the pop runtime call before the mutator can overwrite a frame.
-Static objects are traced through their static reference tables as ordinary
-mark work.
+**Snapshot.** The cycle starts at the end of a collection that copied gen1
+into gen2. At that instant gen1 holds only the survivors of the nursery, and
+every other live object is in gen2, in `LARGE`, in `PINNED`, in a stack chunk,
+or static. The collector pushes the machine roots and the globals to the mark
+stack. It scans the gen1 objects and the young pinned blocks as roots too:
+they are older than the snapshot and the barrier does not shade young
+objects. This work is bounded by the nursery size. It scans the top chunk of
+every live stack at once, which is bounded. It defers lower chunks: the marker
+scans them in later slices, and a pop into a deferred chunk scans it in the
+pop runtime call before the mutator can overwrite a frame. Static objects are
+traced through their static reference tables as ordinary mark work.
 
 **Slices.** A slice runs at the end of each minor collection and when the mark
 buffer is full. It pops the mark stack and the mark buffer, marks each object
@@ -237,6 +239,7 @@ size of a large object. The degradation mode is the one exception.
 | `-A<size>` | Nursery size | Decided by measurement, 1 MiB or 4 MiB |
 | `-B<size>` | Gen1 maximum | 16 MiB |
 | `-F<factor>` | Gen2 growth factor between cycles | 2 |
+| `-k<factor>` | Mark work for each byte promoted into gen2 | 2 |
 | `-M<size>` | Heap limit, as today | Off |
 
 The statistics file has `gc_max_pause_ns`, the longest collection, and
@@ -277,7 +280,8 @@ cycles, and the bytes of each generation after the last collection.
    implemented details are in the gen2 segments section of
    `docs/native-runtime-objects.md`.
 5. **Incremental marking.** Add the deletion barrier, the snapshot, slices,
-   pacing, and the deferred chunk scan.
+   pacing, and the deferred chunk scan. The implemented details are in the
+   gen2 cycles section of `docs/native-runtime-objects.md`.
 6. **Policy.** Set the defaults from the measurements.
 
 Each step leaves the compiler shippable and is its own PR series.

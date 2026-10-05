@@ -66,7 +66,7 @@ expected: |
   cold stack_grow_27:
     %result_29 = call @aihc_stack_grow(@aihc_machine, %sp_7, 2)
     %sp_30 = ptr.add %result_29, 16
-    %sp_limit_31 = ptr.add %result_29, 4064
+    %sp_limit_31 = ptr.add %result_29, 4032
     jump stack_pushed_28(%result_29, %sp_30, %sp_limit_31)
 
   stack_pushed_28(%frame_32: ptr, %sp_33: ptr, %sp_limit_34: ptr):
