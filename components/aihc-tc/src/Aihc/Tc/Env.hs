@@ -433,7 +433,9 @@ classInfoKey = tyConKey . ciTyCon
 
 -- | Information about a class instance.
 data InstanceInfo = InstanceInfo
-  { iiClassName :: !Text,
+  { -- | The class of the instance. Its key identifies the class, because two
+    -- modules can each declare a class with the same source name.
+    iiClass :: !TyCon,
     -- | Dictionary binding generated for this instance.
     iiDictName :: !Text,
     -- | Package and module that define the dictionary binding.
@@ -453,27 +455,14 @@ instance NFData InstanceInfo
 instanceInfoKey :: InstanceInfo -> ((Text, Text), Text)
 instanceInfoKey instanceInfo = (iiDictOrigin instanceInfo, iiDictName instanceInfo)
 
--- | The exact class type constructor of an instance, read from the head of
--- its dictionary type. 'iiClassName' alone cannot tell apart two classes with
--- the same source name from different modules.
-instanceClassTyCon :: InstanceInfo -> Maybe TyCon
-instanceClassTyCon = go . iiDictType
-  where
-    go ty =
-      case ty of
-        TcForAllTy _ body -> go body
-        TcQualTy _ body -> go body
-        TcTyCon tyCon _ -> Just tyCon
-        _ -> Nothing
+-- | The exact class type constructor of an instance.
+instanceClassTyCon :: InstanceInfo -> TyCon
+instanceClassTyCon = iiClass
 
 -- | Whether an instance belongs to the class with the given type constructor.
--- Falls back to the source name when the dictionary type has no constructor
--- head.
 instanceIsForClass :: TyCon -> InstanceInfo -> Bool
 instanceIsForClass classTyCon instanceInfo =
-  case instanceClassTyCon instanceInfo of
-    Just tyCon -> tyConKey tyCon == tyConKey classTyCon
-    Nothing -> iiClassName instanceInfo == tyConName classTyCon
+  tyConKey (iiClass instanceInfo) == tyConKey classTyCon
 
 -- | The class instances in scope.
 --
@@ -499,9 +488,7 @@ addInstanceEnv instanceInfo env =
   InstanceEnv
     { instanceEnvSize = instanceEnvSize env + 1,
       instanceEnvAll = instanceInfo : instanceEnvAll env,
-      instanceEnvByClass = case instanceClassTyCon instanceInfo of
-        Nothing -> instanceEnvByClass env
-        Just classTyCon -> Map.insertWith (<>) (tyConKey classTyCon) [instanceInfo] (instanceEnvByClass env)
+      instanceEnvByClass = Map.insertWith (<>) (tyConKey (iiClass instanceInfo)) [instanceInfo] (instanceEnvByClass env)
     }
 
 -- | Every instance, most recent first.

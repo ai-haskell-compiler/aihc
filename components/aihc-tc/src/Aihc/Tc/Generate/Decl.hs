@@ -129,7 +129,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvSince, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -1105,7 +1105,7 @@ defaultGlobalKindMetas initialKeys = do
           }
     defaultInstanceKinds info =
       InstanceInfo
-        (iiClassName info)
+        (iiClass info)
         (iiDictName info)
         (iiDictOrigin info)
         <$> defaultTypeKinds (iiDictType info)
@@ -4282,7 +4282,7 @@ registerInstanceDecl origin instanceDecl =
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
         InstanceInfo
-          { iiClassName = classNameText,
+          { iiClass = ciTyCon classInfo,
             iiDictName = dictName,
             iiDictOrigin = origin,
             iiDictType = dictTy,
@@ -4355,7 +4355,7 @@ lookupInstanceDictName origin classTyCon headTys = do
   instances <- getInstances
   let matches info =
         iiDictOrigin info == origin
-          && fmap tyConKey (instanceClassTyCon info) == Just (tyConKey classTyCon)
+          && instanceIsForClass classTyCon info
           -- Both directions preserve type structure and permit fresh type variables.
           && isJust (matchTypes (iiHead info) headTys)
           && isJust (matchTypes headTys (iiHead info))

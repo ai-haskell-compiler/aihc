@@ -48,7 +48,7 @@ import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Deriving.Functorial (FieldUse, FunctionFields, fieldUse, fieldUseObligations)
 import Aihc.Tc.Deriving.References (DerivingReferences (..), UnliftedFieldReferences (..), referenceIdentity)
 import Aihc.Tc.Deriving.StockClass (StockMethods (..), StockObligations (..), generatesStockMethods, stockClassMethodsOf, stockClassObligationsOf)
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
@@ -139,8 +139,8 @@ settleContextFreePlans modu = replaceModulePlans (map settle (moduleDerivingPlan
 -- Instance and plan lists keep their original order, because simplification
 -- commits to the first alternative that succeeds.
 data DerivingEnv = DerivingEnv
-  { derivingEnvInstances :: !(Map Text [InstanceInfo]),
-    derivingEnvPlans :: !(Map Text [TcDerivingPlan]),
+  { derivingEnvInstances :: !(Map GlobalName [InstanceInfo]),
+    derivingEnvPlans :: !(Map GlobalName [TcDerivingPlan]),
     derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred]))
   }
 
@@ -151,11 +151,11 @@ derivingEnv kinds unlifted existingInstances plans = do
   where
     base =
       DerivingEnv
-        { derivingEnvInstances = groupByClass iiClassName existingInstances,
-          derivingEnvPlans = groupByClass tcDerivingClassName plans,
+        { derivingEnvInstances = groupByClass (tyConKey . iiClass) existingInstances,
+          derivingEnvPlans = groupByClass (tyConKey . tcDerivingClassTyCon) plans,
           derivingEnvContexts = Map.empty
         }
-    groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
+    groupByClass classKey = Map.fromListWith (flip (<>)) . map (\value -> (classKey value, [value]))
 
     inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds unlifted plan]]
     reusing = [plan | (plan, _) <- inferable, reusesInstance (tcDerivingStrategy plan)]
@@ -338,17 +338,18 @@ simplifyReducedPredicate kinds environment owner predicate
           | isAdmissibleContextPredicate owner predicate -> Right [predicate]
           | otherwise -> Left predicate
   where
-    className = predClassName predicate
+    -- Only a class predicate has instances and deriving plans.
+    classKeys = [tyConKey classTyCon | ClassPred classTyCon _ <- [predicate]]
     matchingExisting =
       [ (instanceInfo, substitution)
-      | instanceInfo <- Map.findWithDefault [] className (derivingEnvInstances environment),
-        predIsForInstance predicate instanceInfo,
+      | classKey <- classKeys,
+        instanceInfo <- Map.findWithDefault [] classKey (derivingEnvInstances environment),
         Just substitution <- [matchTypes (iiHead instanceInfo) (predArguments predicate)]
       ]
     matchingDerived =
       [ (candidate, substitution)
-      | candidate <- Map.findWithDefault [] className (derivingEnvPlans environment),
-        predIsForPlan predicate candidate,
+      | classKey <- classKeys,
+        candidate <- Map.findWithDefault [] classKey (derivingEnvPlans environment),
         Just substitution <- [matchTypes (tcDerivingHeadTypes candidate) (predArguments predicate)]
       ]
     -- The head match binds only type variables. The kinds of the matched
@@ -583,27 +584,6 @@ planKey plan = (tcDerivingClassTyCon plan, tcDerivingHeadTypes plan)
 
 planPredicate :: TcDerivingPlan -> Pred
 planPredicate plan = ClassPred (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
-
-predIsForInstance :: Pred -> InstanceInfo -> Bool
-predIsForInstance predicate instanceInfo =
-  case predicate of
-    ClassPred classTyCon _ -> instanceIsForClass classTyCon instanceInfo
-    _ -> iiClassName instanceInfo == predClassName predicate
-
-predIsForPlan :: Pred -> TcDerivingPlan -> Bool
-predIsForPlan predicate plan =
-  case predicate of
-    ClassPred classTyCon _ -> tyConKey classTyCon == tyConKey (tcDerivingClassTyCon plan)
-    _ -> tcDerivingClassName plan == predClassName predicate
-
-predClassName :: Pred -> Text
-predClassName predicate =
-  case predicate of
-    ClassPred className _ -> tyConName className
-    EqPred {} -> "~"
-    QuantifiedPred {} -> "quantified"
-    IParamPred name _ -> name
-    IrredPred {} -> "irreducible"
 
 predArguments :: Pred -> [TcType]
 predArguments predicate =

@@ -114,7 +114,8 @@ classInfoTyConsInto info =
 
 instanceInfoTyCons :: Collect InstanceInfo
 instanceInfoTyCons info =
-  typeTyConsInto (iiDictType info)
+  Set.insert (iiClass info)
+    . typeTyConsInto (iiDictType info)
     . each tyVarTyCons (iiTyVars info)
     . each predTyCons (iiContext info)
     . each typeTyConsInto (iiHead info)

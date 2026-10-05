@@ -209,11 +209,12 @@ shareAssociatedTypeInfo info = do
 
 shareInstanceInfo :: InstanceInfo -> Share InstanceInfo
 shareInstanceInfo info = do
+  classTyCon <- shareTyCon (iiClass info)
   dictType <- shareType (iiDictType info)
   tyVars <- mapM shareTyVar (iiTyVars info)
   context <- mapM sharePred (iiContext info)
   headTypes <- mapM shareType (iiHead info)
-  pure info {iiDictType = dictType, iiTyVars = tyVars, iiContext = context, iiHead = headTypes}
+  pure info {iiClass = classTyCon, iiDictType = dictType, iiTyVars = tyVars, iiContext = context, iiHead = headTypes}
 
 shareDataFamilyInstanceInfo :: DataFamilyInstanceInfo -> Share DataFamilyInstanceInfo
 shareDataFamilyInstanceInfo info = do
