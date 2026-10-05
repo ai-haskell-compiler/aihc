@@ -22,6 +22,10 @@ while [ "$#" -gt 0 ]; do
 	*) shift ;;
 	esac
 done
+if [[ "$command" == install && "$store" == *stage3-store* && "${BOOTSTRAP_CASE:-}" == core-fail ]]; then
+	echo 'error: fixture core library failure' >&2
+	exit 139
+fi
 if [[ "$command" == build && ("${BOOTSTRAP_CASE:-}" == first-fail || ("$store" == *stage3-store* && "${BOOTSTRAP_CASE:-}" == fail)) ]]; then
 	echo 'error: fixture compiler failure' >&2
 	exit 1
@@ -33,6 +37,9 @@ if [ "$command" = build ]; then
 	mkdir -p "$output"
 	cp "$0" "$output/aihc"
 	chmod +x "$output/aihc"
+	if [[ "$store" != *stage3-store* ]]; then
+		echo '# Fixture compiler output.' >>"$output/aihc"
+	fi
 	if [[ "$store" == *stage3-store* && "${BOOTSTRAP_CASE:-}" == mismatch ]]; then
 		echo '# Fixture byte difference.' >>"$output/aihc"
 	fi

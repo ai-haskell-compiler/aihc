@@ -1,0 +1,25 @@
+extensions:
+  - BangPatterns
+modules:
+  - |
+    module Lib where
+
+    data Iter = Iter {-# UNPACK #-} !Char {-# UNPACK #-} !Int
+
+    make :: Char -> Iter
+    make char = Iter char 1
+  - |
+    module Test where
+
+    import Lib
+
+    readChar :: Iter -> Char
+    readChar iter = let !(Iter char _) = iter in char
+
+    result :: Bool
+    result = readChar (make 'a') == 'a'
+output: |
+  True
+expression: result
+status: pass
+reason: A strict local pattern must reconstruct an unpacked Char field from another module.

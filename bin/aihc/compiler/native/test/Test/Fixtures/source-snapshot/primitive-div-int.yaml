@@ -1,0 +1,21 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Int# Int# Int# Int# Int# Int# Int#
+  value = Result
+    (divInt# 7# 3#)
+    (divInt# (negateInt# 7#) 3#)
+    (divInt# 7# (negateInt# 3#))
+    (divInt# (negateInt# 7#) (negateInt# 3#))
+    (divInt# (negateInt# 6#) 3#)
+    (divInt# 0# (negateInt# 3#))
+    (divInt# 9223372036854775807# 8#)
+return: "@0"
+heap: |
+  @0 = CResult 2 -3 -3 2 -2 0 1152921504606846975
+allocated-bytes:
+  macos-arm64: 64
+  linux-amd64: 64
+status: pass
+reason: Native integer division rounds towards negative infinity for each operand sign.

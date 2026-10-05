@@ -45,6 +45,7 @@ log_dir=""
 package_timeout="1800"
 root_executable="aihc"
 bootstrap_dir=""
+bootstrap_stage=""
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -151,7 +152,18 @@ if [ -z "$packages" ]; then
 fi
 
 work_directory="$(mktemp -d)"
-trap 'rm -rf "$work_directory"' EXIT
+finish_bootstrap() {
+	local result=$?
+	if [ -n "$bootstrap_stage" ]; then
+		local outcome=fail
+		if [ "$result" -eq 0 ]; then
+			outcome=pass
+		fi
+		printf '%s\t%s\t%s\n' "$bootstrap_stage" "$outcome" "$result" >>"$bootstrap_dir/bootstrap.tsv"
+	fi
+	rm -rf "$work_directory"
+}
+trap finish_bootstrap EXIT
 
 workspace="$work_directory/workspace"
 if [ -z "$log_dir" ]; then
@@ -173,6 +185,8 @@ if [ -n "$bootstrap_dir" ]; then
 		exit 1
 	fi
 	cp "$(command -v "$aihc")" "$bootstrap_dir/ghc-aihc"
+	printf 'stage\tstatus\texit_status\n' >"$bootstrap_dir/bootstrap.tsv"
+	bootstrap_stage=stage2
 	output_args=(--output "$bootstrap_dir/stage2")
 fi
 
@@ -261,7 +275,8 @@ run_stage() {
 	# installed at the level of the packages.
 	echo "Preparing the $target toolchain at -O$level in $store"
 	"$aihc" install core-libs/aihc-base \
-		--store "$store" --immutable --target "$target" -O "$level"
+		--store "$store" --immutable --target "$target" -O "$level" \
+		2>&1 | tee "$log_dir/core-libraries.log"
 
 	# The last row is the package that compiles itself.
 	root_name="$(tail -n 1 <<<"$packages" | cut -f1)"
@@ -348,6 +363,8 @@ if [ -n "$bootstrap_dir" ]; then
 	fi
 
 	aihc="$bootstrap_dir/stage2/$root_executable"
+	printf 'stage2\tpass\t0\n' >>"$bootstrap_dir/bootstrap.tsv"
+	bootstrap_stage=stage3
 	store="$work_directory/stage3-store"
 	log_dir="$bootstrap_dir/stage3-logs"
 	report="$bootstrap_dir/stage3.tsv"
@@ -357,6 +374,8 @@ if [ -n "$bootstrap_dir" ]; then
 	rm -rf "$work_directory/build"
 	run_stage
 	awk -F '\t' '$3 != "pass" { failed = 1 } END { exit failed }' "$report"
+	printf 'stage3\tpass\t0\n' >>"$bootstrap_dir/bootstrap.tsv"
+	bootstrap_stage=comparison
 
 	sha256sum "$bootstrap_dir/ghc-aihc" \
 		"$bootstrap_dir/stage2/$root_executable" \
@@ -364,7 +383,5 @@ if [ -n "$bootstrap_dir" ]; then
 	status=0
 	cmp "$bootstrap_dir/stage2/$root_executable" "$bootstrap_dir/stage3/$root_executable" \
 		>"$bootstrap_dir/aihc-comparison.txt" 2>&1 || status=1
-	cmp "$bootstrap_dir/ghc-aihc" "$bootstrap_dir/stage3/$root_executable" \
-		>"$bootstrap_dir/ghc-comparison.txt" 2>&1 || status=1
 	exit "$status"
 fi

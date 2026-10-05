@@ -4403,7 +4403,20 @@ desugarDoDataPattern resultType binder pattern' success failure = do
   withTypeVariables typeVariables $ do
     typeBinders <- convertTypeBinders typeVariables
     fieldTypes <- patternFieldTypes pattern' children
-    fields <- zipWithM freshPatternBinder children fieldTypes
+    maybeConstructor <- patternDataCon pattern'
+    reps <- case maybeConstructor of
+      Just info -> do
+        patternType' <- requiredPatternType pattern'
+        let resultTypeOfPattern = constructorResultType (length children) patternType'
+            substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [resultTypeOfPattern])
+        pure [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+      Nothing -> pure [RepStored fieldType False | fieldType <- fieldTypes]
+    when (length reps /= length children) $
+      failValue "constructor pattern field count does not match its checked representation"
+    prepared <- mapM (\(child, fieldType, rep) -> prepareRebuiltField child fieldType rep) (zip3 children fieldTypes reps)
+    let leaves = concatMap (\(leafBinders, _, _) -> leafBinders) prepared
+        fields = map (\(_, field, _) -> field) prepared
+        rebuilds = mapMaybe (\(_, _, binding) -> binding) prepared
     dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
     constructor <- patternConstructor pattern'
     resultType' <- convertCheckedType resultType
@@ -4412,9 +4425,11 @@ desugarDoDataPattern resultType binder pattern' success failure = do
       withAlternativeScope
         (not (null typeBinders))
         (zipWith Dictionary predicates dictionaries)
-        (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+        $ do
+          inner <- desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure
+          pure (foldr ExLet inner rebuilds)
     let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
-    pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
+    pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> leaves) body : defaultAlternatives))
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success failure =

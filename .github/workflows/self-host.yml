@@ -63,7 +63,7 @@ jobs:
           {
             echo '### AIHC self-host check'
             echo
-            echo 'The check compares stage 3 with stage 2 and with the GHC-built compiler.'
+            echo 'The check compares the compiler outputs from the two AIHC builds: stage 2 and stage 3.'
             for report in self-host-results/*.tsv self-host-results/*comparison.txt self-host-results/sha256.txt; do
               if [ -f "$report" ]; then
                 echo

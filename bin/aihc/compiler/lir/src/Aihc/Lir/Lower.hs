@@ -2154,6 +2154,18 @@ extendForeignResult foreignTy (Typed operand actual) =
 compilePrimitive :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinRep -> Text -> [GrinValue] -> LowerM ValueEnv
 compilePrimitive ctx env vars runtimeRep name arguments =
   case (name, arguments) of
+    ("divInt#", [left, right]) -> do
+      leftOperand <- word left
+      rightOperand <- word right
+      quotient <- emitValue "quotient" I64 (Binary DivS I64 leftOperand rightOperand)
+      remainder <- emitValue "remainder" I64 (Binary RemS I64 leftOperand rightOperand)
+      signs <- emitValue "signs" I64 (Binary Xor I64 leftOperand rightOperand)
+      opposite <- emitValue "opposite" I1 (Compare LtS I64 (typedOperand signs) (OperandLiteral (LitInt 0)))
+      nonzero <- emitValue "nonzero" I1 (Compare Ne I64 (typedOperand remainder) (OperandLiteral (LitInt 0)))
+      adjust <- emitValue "adjust" I1 (Binary And I1 (typedOperand opposite) (typedOperand nonzero))
+      rounded <- emitValue "rounded" I64 (Binary Sub I64 (typedOperand quotient) (OperandLiteral (LitInt 1)))
+      result <- emitValue "result" I64 (Select I64 (typedOperand adjust) (typedOperand rounded) (typedOperand quotient))
+      bind [result]
     (_, [left, right])
       | Just op <- lookup name binaryPrimitives -> do
           leftOperand <- word left
@@ -2421,10 +2433,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           slot <- arrayElement array index
           value <- emitValue "element" I64 (Load I64 (byteAddress slot arrayElementsOffset) (byteAlignment 8))
           bind [value]
-      | Just (ty, indexing) <- lookup name byteArrayLoadPrimitives -> do
+      | Just (ty, indexing, extension) <- lookup name byteArrayLoadPrimitives -> do
           address <- byteArrayElement array index ty indexing
           value <- emitValue "value" ty (Load ty (byteAddress address 0) (byteAlignment 1))
-          result <- if ty == I64 then pure value else emitValue "value" I64 (Convert ZExt ty (typedOperand value) I64)
+          result <- if ty == I64 then pure value else emitValue "value" I64 (Convert extension ty (typedOperand value) I64)
           bind [result]
     (_, [array, index, value])
       | name `elem` arrayStorePrimitives -> do
@@ -2803,33 +2815,39 @@ arrayCasPrimitives = ["casArray#", "casSmallArray#"]
 data ByteArrayIndexing = ElementIndex | ByteOffset
   deriving (Eq, Show)
 
--- | Reads of one element of a byte array. Each entry gives the width of
--- the element, which widens to a word by zero extension. The atomic
--- primitives are plain accesses, because the runtime runs one Haskell
--- thread.
-byteArrayLoadPrimitives :: [(Text, (Type, ByteArrayIndexing))]
+-- | Each byte-array read gives its element width, index form, and extension.
+-- Atomic reads use plain accesses because the runtime runs one Haskell thread.
+byteArrayLoadPrimitives :: [(Text, (Type, ByteArrayIndexing, ConvertOp))]
 byteArrayLoadPrimitives =
-  [ ("indexWordArray#", (I64, ElementIndex)),
-    ("readWordArray#", (I64, ElementIndex)),
-    ("indexIntArray#", (I64, ElementIndex)),
-    ("readIntArray#", (I64, ElementIndex)),
-    ("atomicReadIntArray#", (I64, ElementIndex)),
-    ("indexWord8Array#", (I8, ElementIndex)),
-    ("readWord8Array#", (I8, ElementIndex)),
-    ("indexWord16Array#", (I16, ElementIndex)),
-    ("readWord16Array#", (I16, ElementIndex)),
-    ("indexWord32Array#", (I32, ElementIndex)),
-    ("readWord32Array#", (I32, ElementIndex)),
-    ("indexWord64Array#", (I64, ElementIndex)),
-    ("readWord64Array#", (I64, ElementIndex)),
-    ("indexCharArray#", (I8, ByteOffset)),
-    ("readCharArray#", (I8, ByteOffset)),
-    ("indexWord8ArrayAsWord16#", (I16, ByteOffset)),
-    ("readWord8ArrayAsWord16#", (I16, ByteOffset)),
-    ("indexWord8ArrayAsWord32#", (I32, ByteOffset)),
-    ("readWord8ArrayAsWord32#", (I32, ByteOffset)),
-    ("indexWord8ArrayAsWord64#", (I64, ByteOffset)),
-    ("readWord8ArrayAsWord64#", (I64, ByteOffset))
+  [ ("indexWordArray#", (I64, ElementIndex, ZExt)),
+    ("readWordArray#", (I64, ElementIndex, ZExt)),
+    ("indexIntArray#", (I64, ElementIndex, SExt)),
+    ("readIntArray#", (I64, ElementIndex, SExt)),
+    ("atomicReadIntArray#", (I64, ElementIndex, SExt)),
+    ("indexInt8Array#", (I8, ElementIndex, SExt)),
+    ("readInt8Array#", (I8, ElementIndex, SExt)),
+    ("indexInt16Array#", (I16, ElementIndex, SExt)),
+    ("readInt16Array#", (I16, ElementIndex, SExt)),
+    ("indexInt32Array#", (I32, ElementIndex, SExt)),
+    ("readInt32Array#", (I32, ElementIndex, SExt)),
+    ("indexInt64Array#", (I64, ElementIndex, SExt)),
+    ("readInt64Array#", (I64, ElementIndex, SExt)),
+    ("indexWord8Array#", (I8, ElementIndex, ZExt)),
+    ("readWord8Array#", (I8, ElementIndex, ZExt)),
+    ("indexWord16Array#", (I16, ElementIndex, ZExt)),
+    ("readWord16Array#", (I16, ElementIndex, ZExt)),
+    ("indexWord32Array#", (I32, ElementIndex, ZExt)),
+    ("readWord32Array#", (I32, ElementIndex, ZExt)),
+    ("indexWord64Array#", (I64, ElementIndex, ZExt)),
+    ("readWord64Array#", (I64, ElementIndex, ZExt)),
+    ("indexCharArray#", (I8, ByteOffset, ZExt)),
+    ("readCharArray#", (I8, ByteOffset, ZExt)),
+    ("indexWord8ArrayAsWord16#", (I16, ByteOffset, ZExt)),
+    ("readWord8ArrayAsWord16#", (I16, ByteOffset, ZExt)),
+    ("indexWord8ArrayAsWord32#", (I32, ByteOffset, ZExt)),
+    ("readWord8ArrayAsWord32#", (I32, ByteOffset, ZExt)),
+    ("indexWord8ArrayAsWord64#", (I64, ByteOffset, ZExt)),
+    ("readWord8ArrayAsWord64#", (I64, ByteOffset, ZExt))
   ]
 
 -- | Writes of one element of a byte array, with the widths and indexing of
@@ -2839,6 +2857,10 @@ byteArrayStorePrimitives =
   [ ("writeWordArray#", (I64, ElementIndex)),
     ("writeIntArray#", (I64, ElementIndex)),
     ("atomicWriteIntArray#", (I64, ElementIndex)),
+    ("writeInt8Array#", (I8, ElementIndex)),
+    ("writeInt16Array#", (I16, ElementIndex)),
+    ("writeInt32Array#", (I32, ElementIndex)),
+    ("writeInt64Array#", (I64, ElementIndex)),
     ("writeWord8Array#", (I8, ElementIndex)),
     ("writeWord16Array#", (I16, ElementIndex)),
     ("writeWord32Array#", (I32, ElementIndex)),
