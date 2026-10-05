@@ -14,10 +14,11 @@ module Data.Monoid
     First (..),
     Last (..),
     Alt (..),
+    Ap (..),
   )
 where
 
-import Control.Applicative (Alternative (..))
+import Control.Applicative (Alternative (..), liftA2)
 import Data.Semigroup
   ( Max (..),
     Min (..),
@@ -35,15 +36,20 @@ import Data.Semigroup.Internal
   )
 import GHC.Base (Applicative (..), Functor (..), Maybe (..), Monad (..), (.))
 import GHC.Enum (Bounded (..))
-import GHC.Internal.Classes (Ord (..))
+import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Foldable (Foldable (..))
 import GHC.Internal.Traversable (Traversable (..))
+import GHC.Num (Num (..))
+import GHC.Show (Show (..), showParen, showString, shows)
 
 newtype First a = First {getFirst :: Maybe a}
 
 newtype Last a = Last {getLast :: Maybe a}
 
 newtype Alt f a = Alt {getAlt :: f a}
+
+-- | This wrapper combines values in an applicative context.
+newtype Ap f a = Ap {getAp :: f a}
 
 instance Semigroup (First a) where
   First Nothing <> right = right
@@ -131,3 +137,50 @@ instance (Foldable f) => Foldable (Alt f) where
 
 instance (Traversable f) => Traversable (Alt f) where
   traverse f (Alt values) = fmap Alt (traverse f values)
+
+instance (Applicative f, Semigroup a) => Semigroup (Ap f a) where
+  Ap left <> Ap right = Ap (liftA2 (<>) left right)
+
+instance (Applicative f, Monoid a) => Monoid (Ap f a) where
+  mempty = Ap (pure mempty)
+
+instance (Functor f) => Functor (Ap f) where
+  fmap f (Ap values) = Ap (fmap f values)
+
+instance (Applicative f) => Applicative (Ap f) where
+  pure value = Ap (pure value)
+  Ap functions <*> Ap values = Ap (functions <*> values)
+
+instance (Alternative f) => Alternative (Ap f) where
+  empty = Ap empty
+  Ap left <|> Ap right = Ap (left <|> right)
+
+instance (Monad f) => Monad (Ap f) where
+  Ap value >>= f = Ap (value >>= getAp . f)
+
+instance (Foldable f) => Foldable (Ap f) where
+  foldMap f (Ap values) = foldMap f values
+  foldr f initial (Ap values) = foldr f initial values
+  foldl f initial (Ap values) = foldl f initial values
+
+instance (Traversable f) => Traversable (Ap f) where
+  traverse f (Ap values) = fmap Ap (traverse f values)
+
+instance (Eq (f a)) => Eq (Ap f a) where
+  Ap left == Ap right = left == right
+
+instance (Ord (f a)) => Ord (Ap f a) where
+  compare (Ap left) (Ap right) = compare left right
+
+instance (Show (f a)) => Show (Ap f a) where
+  showsPrec precedence (Ap values) =
+    showParen (precedence >= 11) (showString "Ap {getAp = " . shows values . showString "}")
+
+instance (Applicative f, Num a) => Num (Ap f a) where
+  (+) = liftA2 (+)
+  (-) = liftA2 (-)
+  (*) = liftA2 (*)
+  negate = fmap negate
+  abs = fmap abs
+  signum = fmap signum
+  fromInteger value = pure (fromInteger value)

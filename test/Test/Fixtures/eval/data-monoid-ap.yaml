@@ -1,0 +1,35 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Monoid (Ap (..), Sum (..))
+    import Prelude
+
+    class Combine a where
+      combine :: a -> a -> a
+
+    instance (Num a, Applicative f) => Combine (Ap f a) where
+      combine (Ap left) (Ap right) = Ap (liftA2 (+) left right)
+
+    main :: IO ()
+    main = do
+      print (getAp (Ap (Just [1 :: Int]) <> Ap (Just [2, 3])))
+      print (getAp (Ap (Just [1 :: Int]) <> Ap Nothing))
+      print (getAp (mempty :: Ap Maybe [Int]))
+      print (getAp (combine (Ap (Just (2 :: Int))) (Ap (Just 5))))
+      print (getAp (Ap [1 :: Int, 2] + Ap [10]))
+      print (getAp (fmap negate (Ap (Just (4 :: Int)))))
+      print (fmap getSum (getAp (foldMap (Ap . Just . Sum) [1 :: Int, 2, 3])))
+expression: main
+stdout: |
+  Just [1,2,3]
+  Nothing
+  Just []
+  Just 7
+  [11,12]
+  Just (-4)
+  Just 6
+output: |
+  ()
+status: pass
+reason: Data.Monoid exports Ap, as base does, and the semirings package imports it
