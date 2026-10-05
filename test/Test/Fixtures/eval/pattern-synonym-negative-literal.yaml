@@ -1,0 +1,27 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    module Test where
+
+    newtype T = T Int
+
+    pattern Minus :: T
+    pattern Minus = T (-9)
+
+    isMinus :: T -> Bool
+    isMinus Minus = True
+    isMinus _ = False
+
+    unT :: T -> Int
+    unT (T n) = n
+
+    data Results = Results Bool Bool Bool
+
+    results :: Results
+    results = Results (isMinus Minus) (isMinus (T 9)) (unT Minus == (-9))
+output: |
+  Results True False True
+expression: results
+status: pass
+reason: an implicitly bidirectional pattern synonym can have a negative literal in its pattern, and its builder negates the literal

@@ -3491,6 +3491,7 @@ matcherPattern match =
 patternToExpr :: Pattern -> Maybe Expr
 patternToExpr pat
   | Just expr <- literalPatternToExpr pat = Just expr
+  | Just expr <- negatedLiteralPatternToExpr pat = Just expr
 patternToExpr pat =
   case pat of
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
@@ -3528,6 +3529,37 @@ literalPatternToExpr = go []
           let (literalAnns, bare) = peelLiteralAnns literal
            in Just (foldl (flip EAnn) (literalToExpr bare) (anns <> literalAnns))
         _ -> Nothing
+
+-- | An annotated negated literal pattern as an expression.
+--
+-- A negated literal pattern carries the same annotations as a literal one,
+-- and one more: the @negate@ it applies to the converted literal. An
+-- expression wants that annotation around a negation of the converted
+-- literal, as the resolver writes for @-1@, so the annotation moves from the
+-- pattern to the 'ENegate' and the @==@ goes.
+negatedLiteralPatternToExpr :: Pattern -> Maybe Expr
+negatedLiteralPatternToExpr = go [] Nothing
+  where
+    go anns negation pattern' =
+      case pattern' of
+        PAnn ann inner
+          | isMatchOnlyAnnotation ann -> go anns negation inner
+          | isNegateAnnotation ann -> go anns (Just ann) inner
+          | otherwise -> go (ann : anns) negation inner
+        PNegLit literal ->
+          let (literalAnns, bare) = peelLiteralAnns literal
+              converted = foldl (flip EAnn) (literalToExpr bare) (anns <> literalAnns)
+           in Just (maybe id EAnn negation (ENegate converted))
+        _ -> Nothing
+
+-- | Whether a resolver annotation names the @negate@ of a negated literal.
+isNegateAnnotation :: Annotation -> Bool
+isNegateAnnotation ann =
+  case fromAnnotation @ResolutionAnnotation ann of
+    Just resolution ->
+      resolutionNamespace resolution == ResolutionNamespaceTerm
+        && resolutionIdentifier resolution == IdentifierNamed "negate"
+    Nothing -> False
 
 -- | Whether a resolver annotation serves matching alone. Only a literal
 -- pattern carries the @==@ that compares it to the scrutinee, and a
