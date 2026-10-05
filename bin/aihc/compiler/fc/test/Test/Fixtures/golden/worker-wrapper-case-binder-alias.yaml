@@ -61,27 +61,22 @@ expected: |-
 
   pub val 1.vfill :: (tInt 3.→ tInt) 3.→ tCursor 3.→ t[] tInt 3.→ tInt
     = λ(x : tInt 3.→ tInt) (y : tCursor) (z : t[] tInt).
-      case y as (wrapped : tCursor) return (tInt) of {
+      case y return (tInt) of {
         cCursor (x{1} : tInt#) (x{2} : tInt) →
           rec {
             $wgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @cIntRep (t[] tInt) tInt#)) =
               λ(x{3} : tInt#) (x{4} : tInt) (y{1} : t[] tInt).
-                case y{1} as (_scrut : t[] tInt) return (tInt#) of {
+                case y{1} return (tInt#) of {
                   c[] →
                     x{3};
                   c: (y{2} : tInt) (ys : t[] tInt) →
-                    case x y{2} as (_scrut{1} : tInt) return (tInt#) of {
+                    case x y{2} return (tInt#) of {
                       cI# (_pat : tInt#) →
-                        let x{5} : tInt# =
-                          prim +# x{3} 1#cIntRep;
-                        $wgo x{5} x{4} ys
+                        $wgo (prim +# x{3} 1#cIntRep) x{4} ys
                     }
                 }
           } in
-          case $wgo x{1} x{2} z as (field : tInt#) return (tInt) of {
-            _ →
-              cI# field
-          }
+          cI# ($wgo x{1} x{2} z)
       }
 status: pass
 reason: The bang pattern evaluates the cursor with a case, and a later case takes apart the binder of that case. The binder is the same value, so the worker takes the fields of the cursor.

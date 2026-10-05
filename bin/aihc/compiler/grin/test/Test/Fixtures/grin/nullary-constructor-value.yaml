@@ -27,7 +27,7 @@ expected: |-
   1.$not (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+    case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.False ->
         constant global-ref 1.True
       data 1.True ->
@@ -36,7 +36,7 @@ expected: |-
   1.$box (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+    case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.False ->
         store (C1.Box global-ref 1.True)
       data 1.True ->

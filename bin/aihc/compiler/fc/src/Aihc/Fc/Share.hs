@@ -201,7 +201,7 @@ shareExpr expr =
     ExLet bind body -> ExLet <$> shareBind bind <*> shareExpr body
     ExRec binds body -> ExRec <$> mapM shareBind binds <*> shareExpr body
     ExCase scrutinee binder ty alts ->
-      ExCase <$> shareExpr scrutinee <*> shareBinder binder <*> shareType ty <*> mapM shareAlt alts
+      ExCase <$> shareExpr scrutinee <*> traverse shareBinder binder <*> shareType ty <*> mapM shareAlt alts
     ExCast body coercion -> ExCast <$> shareExpr body <*> shareCoercion coercion
     ExCoercion coercion -> ExCoercion <$> shareCoercion coercion
     ExForeignCall call tys arguments ->

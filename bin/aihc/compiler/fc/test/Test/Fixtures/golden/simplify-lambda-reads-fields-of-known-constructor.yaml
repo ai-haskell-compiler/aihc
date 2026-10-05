@@ -76,7 +76,7 @@ expected: |-
 
   pub val 1.vuse noinline :: tBox 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
     = λ(x : tBox) (y : tInt#).
-      case x as (_scrut : tBox) return (tInt) of {
+      case x return (tInt) of {
         cBox (a : tInt#) →
           cI# (prim +# a y)
       }
@@ -86,9 +86,9 @@ expected: |-
       let b : tBox =
         cBox x;
       λ(x{1} : tInt).
-        case b as (b{1} : tBox) return (tInt) of {
+        case b return (tInt) of {
           cBox (x{2} : tInt#) →
-            case x{1} as (_scrut : tInt) return (tInt) of {
+            case x{1} return (tInt) of {
               cI# (y : tInt#) →
                 vuse b (prim +# x{2} y)
             }
@@ -96,7 +96,7 @@ expected: |-
 
   pub val 1.vuseSome noinline :: tSome 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
     = λ(x : tSome) (y : tInt#).
-      case x as (_scrut : tSome) return (tInt) of {
+      case x return (tInt) of {
         cSome @(a : sType) (_pat : a) (a{1} : tInt#) →
           cI# (prim +# a{1} y)
       }
@@ -106,7 +106,7 @@ expected: |-
       let s : tSome =
         cSome @tUnit c() x;
       λ(x{1} : tInt).
-        case x{1} as (_scrut : tInt) return (tInt) of {
+        case x{1} return (tInt) of {
           cI# (y : tInt#) →
             vuseSome s (prim +# x y)
         }

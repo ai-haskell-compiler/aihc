@@ -79,7 +79,7 @@ expected: |-
 
   val 1.vbig :: tNat 2.→ tNat
     = λ(x : tNat).
-      case x as (_scrut : tNat) return (tNat) of {
+      case x return (tNat) of {
         cZ →
           cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ)))))))))))))))))))))))))))))))))))))));
         cS (y : tNat) →
@@ -88,7 +88,7 @@ expected: |-
 
   val 1.vforce inline :: tNat 2.→ tNat
     = λ(x : tNat).
-      case x as (_scrut : tNat) return (tNat) of {
+      case x return (tNat) of {
         cZ →
           cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ)))))))))))))))))))))))))))))))))))))));
         cS (y : tNat) →

@@ -33,7 +33,7 @@ expected: |-
 
   pub val 1.vnot :: tBool 2.→ tBool
     = λ(x : tBool).
-      case x as (_scrut : tBool) return (tBool) of {
+      case x return (tBool) of {
         cTrue →
           cFalse;
         cFalse →
@@ -42,7 +42,7 @@ expected: |-
 
   pub val 1.visFalse :: tBool 2.→ tBool
     = λ(x : tBool).
-      case vnot x as (_scrut : tBool) return (tBool) of {
+      case vnot x return (tBool) of {
         cTrue →
           cTrue;
         _ →

@@ -18,6 +18,9 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
     constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
     2.tInt# :: tTYPE cIntRep;
@@ -38,8 +41,8 @@ expected: |-
 
   pub val 1.visMinusOne :: FUN @cIntRep @sLiftedRep tInt# tBool
     = λ(x : tInt#).
-      case x as (_scrut : tInt#) return (tBool) of {
-        -1#cIntRep →
+      case prim ==# x -1#cIntRep return (tBool) of {
+        1#cIntRep →
           cTrue;
         _ →
           cFalse

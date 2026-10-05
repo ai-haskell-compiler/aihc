@@ -50,9 +50,9 @@ expected: |-
 
   val 1.vadd :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x as (_scrut : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (a : tInt#) →
-          case y as (_scrut{1} : tInt) return (tInt) of {
+          case y return (tInt) of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -63,9 +63,9 @@ expected: |-
       rec {
         go : tInt 3.→ tInt 3.→ tInt =
           λ(x{1} : tInt) (y : tInt).
-            case x{1} as (_scrut : tInt) return (tInt) of {
+            case x{1} return (tInt) of {
               cI# (i : tInt#) →
-                case i as (_scrut{1} : tInt#) return (tInt) of {
+                case i return (tInt) of {
                   0#cIntRep →
                     y;
                   _ →

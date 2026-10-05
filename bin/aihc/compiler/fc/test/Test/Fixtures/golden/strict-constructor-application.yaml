@@ -32,9 +32,9 @@ expected: |-
   pub val 1.vmakePair :: ∀(a : sType). a 2.→ a 2.→ tStrictPair a
     = Λ(a : sType). λ(x : a) (y : a).
       (λ(_strict_field : a) (_strict_field{1} : a).
-        case _strict_field as (_strict_forced : a) return (tStrictPair a) of {
+        case _strict_field return (tStrictPair a) of {
           _ →
-            case _strict_field{1} as (_strict_forced{1} : a) return (tStrictPair a) of {
+            case _strict_field{1} return (tStrictPair a) of {
               _ →
                 cStrictPair @a _strict_field _strict_field{1}
             }

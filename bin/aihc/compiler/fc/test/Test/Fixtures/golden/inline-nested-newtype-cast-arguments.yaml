@@ -60,7 +60,7 @@ expected: |-
 
   val 1.v$fPickBase$cpick :: tBase 2.→ tBase 2.→ tBool
     = λ(x : tBase) (y : tBase).
-      case x as (_scrut : tBase) return (tBool) of {
+      case x return (tBool) of {
         cBase (b : tBool) →
           b
       }
@@ -73,7 +73,7 @@ expected: |-
 
   pub val 1.vrun :: tOuter 2.→ tOuter 2.→ tBool
     = λ(x : tOuter) (y : tOuter).
-      case (x ▷ axiom-co $ax$Outer) ▷ axiom-co $ax$Inner as (_scrut : tBase) return (tBool) of {
+      case (x ▷ axiom-co $ax$Outer) ▷ axiom-co $ax$Inner return (tBool) of {
         cBase (b : tBool) →
           b
       }

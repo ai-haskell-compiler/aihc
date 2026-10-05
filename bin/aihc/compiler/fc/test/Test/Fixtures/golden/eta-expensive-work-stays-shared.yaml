@@ -51,9 +51,9 @@ expected: |-
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x as (_scrut : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (a : tInt#) →
-          case y as (_scrut{1} : tInt) return (tInt) of {
+          case y return (tInt) of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }

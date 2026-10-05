@@ -7,6 +7,7 @@ module Aihc.Fc.Syntax
     TyLit (..),
     Binder (..),
     Expr (..),
+    exprFreeNames,
     Bind (..),
     Alt (..),
     AltCon (..),
@@ -40,6 +41,8 @@ import Aihc.Fc.Name
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -89,7 +92,7 @@ data Expr
   | ExTyLam Binder Expr
   | ExLet Bind Expr
   | ExRec [Bind] Expr
-  | ExCase Expr Binder Type [Alt]
+  | ExCase Expr (Maybe Binder) Type [Alt]
   | ExCast Expr Coercion
   | -- | Equality evidence has no runtime fields.
     ExCoercion Coercion
@@ -375,3 +378,23 @@ data ForeignSafety
   | ForeignInterruptible
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
+
+-- | The value names that occur free in an expression.
+exprFreeNames :: Expr -> Set Name
+exprFreeNames = go
+  where
+    go expr =
+      case expr of
+        ExVar name -> Set.singleton name
+        ExLit {} -> Set.empty
+        ExCoercion {} -> Set.empty
+        ExApp function argument -> go function <> go argument
+        ExTyApp function _ -> go function
+        ExLam binder body -> Set.delete (binderName binder) (go body)
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) <> Set.delete (binderName (bindBinder bind)) (go body)
+        ExRec binds body -> (foldMap (go . bindRhs) binds <> go body) `Set.difference` Set.fromList (map (binderName . bindBinder) binds)
+        ExCase scrutinee binder _ alternatives -> go scrutinee <> (foldMap alternative alternatives `Set.difference` foldMap (Set.singleton . binderName) binder)
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> foldMap go arguments
+    alternative alt = go (altRhs alt) `Set.difference` Set.fromList (map binderName (altBinders alt))

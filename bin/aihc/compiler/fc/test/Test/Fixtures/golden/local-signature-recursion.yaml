@@ -32,7 +32,7 @@ expected: |-
       rec {
         go : ∀(a{1} : sType). t[] a{1} 2.→ t[] a{1} 2.→ t[] a{1} =
           Λ(a{1} : sType). λ(x{1} : t[] a{1}) (y : t[] a{1}).
-            case y as (_scrut : t[] a{1}) return (t[] a{1}) of {
+            case y return (t[] a{1}) of {
               c[] →
                 x{1};
               c: (value : a{1}) (rest : t[] a{1}) →

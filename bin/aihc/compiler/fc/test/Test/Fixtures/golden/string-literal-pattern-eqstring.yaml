@@ -56,23 +56,23 @@ expected: |-
 
   pub val 1.vreadColour :: t[] tChar 5.→ tColour
     = λ(x : t[] tChar).
-      case veqString x (vunpackCString# "red"#cAddrRep) as (_case_guard : tBool) return (tColour) of {
+      case veqString x (vunpackCString# "red"#cAddrRep) return (tColour) of {
         cTrue →
           cRed;
         cFalse →
-          case veqString x (vunpackCString# "green"#cAddrRep) as (_case_guard{1} : tBool) return (tColour) of {
+          case veqString x (vunpackCString# "green"#cAddrRep) return (tColour) of {
             cTrue →
               cGreen;
             cFalse →
               let _fail : tColour =
                 cUnknown x;
-              case x as (_scrut : t[] tChar) return (tColour) of {
+              case x return (tColour) of {
                 c: (_pat : tChar) (_pat{1} : t[] tChar) →
-                  case _pat as (_scrut{1} : tChar) return (tColour) of {
+                  case _pat return (tColour) of {
                     cC# (_pat{2} : tChar#) →
-                      case _pat{2} as (_scrut{2} : tChar#) return (tColour) of {
+                      case _pat{2} return (tColour) of {
                         'x'#cWordRep →
-                          case _pat{1} as (_scrut{3} : t[] tChar) return (tColour) of {
+                          case _pat{1} return (tColour) of {
                             c[] →
                               cShort;
                             _ →

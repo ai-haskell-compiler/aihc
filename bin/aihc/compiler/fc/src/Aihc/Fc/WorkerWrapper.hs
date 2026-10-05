@@ -189,7 +189,7 @@ splitLocals = go
           pure (ExForeignCall call tys (map fst results), List.foldl' addReports none (map snd results))
         ExCase scrutinee binder ty alternatives -> do
           (scrutinee', a) <- go env scope scrutinee
-          let inner = extendBinder env binder
+          let inner = foldl' extendBinder env binder
           results <- traverse (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> go (List.foldl' extendBinder inner (altTypeBinders alternative <> altBinders alternative)) scope (altRhs alternative)) alternatives
           pure (ExCase scrutinee' binder ty (map fst results), List.foldl' addReports a (map snd results))
         ExLet (Bind binder rhs) body -> do
@@ -439,7 +439,7 @@ splitFunction types self declaredType workerName demands function =
               | otherwise -> do
                   binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh "field") fields
                   caseBinder <- (`Binder` result) <$> fresh "result"
-                  pure (ExCase expr caseBinder returnedType [Alt (AltData con) [] binders (returnedValue resultShape (map (ExVar . binderName) binders))])
+                  pure (ExCase expr (Just caseBinder) returnedType [Alt (AltData con) [] binders (returnedValue resultShape (map (ExVar . binderName) binders))])
     -- The wrapper takes each unboxed parameter apart, calls the worker with
     -- the fields, and builds the result from what the worker returns. The
     -- parameters under a cast stay under it, with the cases inside them.
@@ -457,17 +457,17 @@ splitFunction types self declaredType workerName demands function =
           case (returned, fields) of
             (ReturnField, [(ty, _)]) -> do
               binder <- (`Binder` ty) <$> fresh "field"
-              pure (ExCase call binder result [Alt AltDefault [] [] (construct con arguments [ExVar (binderName binder)])])
+              pure (ExCase call (Just binder) result [Alt AltDefault [] [] (construct con arguments [ExVar (binderName binder)])])
             (ReturnTuple tupleCon tupleType, _) -> do
               binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh "field") fields
               caseBinder <- (`Binder` tupleType) <$> fresh "returned"
-              pure (ExCase call caseBinder result [Alt (AltData tupleCon) [] binders (construct con arguments (map (ExVar . binderName) binders))])
+              pure (ExCase call (Just caseBinder) result [Alt (AltData tupleCon) [] binders (construct con arguments (map (ExVar . binderName) binders))])
             _ -> pure call
       let cases =
             foldr
               ( \((parameter, fields), scrutineeBinder) inner ->
                   case (parameter, scrutineeBinder) of
-                    (Unbox binder con _ _, Just caseBinder) -> ExCase (ExVar (binderName binder)) caseBinder result [Alt (AltData con) [] fields inner]
+                    (Unbox binder con _ _, Just caseBinder) -> ExCase (ExVar (binderName binder)) (Just caseBinder) result [Alt (AltData con) [] fields inner]
                     _ -> inner
               )
               rebuilt

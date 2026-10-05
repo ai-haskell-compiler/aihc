@@ -52,12 +52,12 @@ expected: |-
 
   pub val 1.vprefix :: (tInt 3.→ tInt) 3.→ tInt 3.→ tList tInt
     = λ(x : tInt 3.→ tInt) (y : tInt).
-      case y as (_scrut : tInt) return (tList tInt) of {
+      case y return (tList tInt) of {
         cI# (s0 : tInt#) →
           rec {
             go : tInt 3.→ FUN @cIntRep @sLiftedRep tInt# (tList tInt) =
               λ(x{1} : tInt) (y{1} : tInt#).
-                case y{1} as (_scrut{1} : tInt#) return (tList tInt) of {
+                case y{1} return (tList tInt) of {
                   1#cIntRep →
                     cCons @tInt x{1} (cNil @tInt);
                   _ →

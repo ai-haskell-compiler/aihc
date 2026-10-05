@@ -34,11 +34,11 @@ expected: |-
       rec {
         _list_comp : t[] (tMaybe a) 2.→ t[] a =
           λ(_list_comp_list : t[] (tMaybe a)).
-            case _list_comp_list as (_list_comp_scrut : t[] (tMaybe a)) return (t[] a) of {
+            case _list_comp_list return (t[] a) of {
               c[] →
                 c[] @a;
               c: (_pat : tMaybe a) (_list_comp_tail : t[] (tMaybe a)) →
-                case _pat as (_do_scrut : tMaybe a) return (t[] a) of {
+                case _pat return (t[] a) of {
                   cJust (x{1} : a) →
                     c: @a x{1} (_list_comp _list_comp_tail);
                   _ →

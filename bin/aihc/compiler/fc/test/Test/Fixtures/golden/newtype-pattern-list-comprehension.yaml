@@ -48,7 +48,7 @@ expected: |-
       rec {
         _list_comp : t[] tWrap 3.→ t[] tInt =
           λ(_list_comp_list : t[] tWrap).
-            case _list_comp_list as (_list_comp_scrut : t[] tWrap) return (t[] tInt) of {
+            case _list_comp_list return (t[] tInt) of {
               c[] →
                 c[] @tInt;
               c: (_pat : tWrap) (_list_comp_tail : t[] tWrap) →

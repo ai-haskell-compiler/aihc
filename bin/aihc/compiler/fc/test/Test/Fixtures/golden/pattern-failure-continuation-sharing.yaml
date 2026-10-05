@@ -55,7 +55,7 @@ expected: |-
 
   pub val 1.vsingle :: t[] tBool 2.→ tBool
     = λ(x : t[] tBool).
-      case x as (_scrut : t[] tBool) return (tBool) of {
+      case x return (tBool) of {
         c[] →
           cTrue;
         _ →
@@ -64,9 +64,9 @@ expected: |-
 
   pub val 1.vshared :: tMaybeBool 2.→ tBool
     = λ(x : tMaybeBool).
-      case x as (_scrut : tMaybeBool) return (tBool) of {
+      case x return (tBool) of {
         cJust (_pat : tBool) →
-          case _pat as (_scrut{1} : tBool) return (tBool) of {
+          case _pat return (tBool) of {
             cTrue →
               cTrue;
             _ →

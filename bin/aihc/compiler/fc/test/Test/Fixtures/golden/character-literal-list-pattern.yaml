@@ -43,11 +43,11 @@ expected: |-
     = λ(x : t[] tChar).
       let _fail : tChar =
         cC# 'n'#cWordRep;
-      case x as (_scrut : t[] tChar) return (tChar) of {
+      case x return (tChar) of {
         c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat as (_scrut{1} : tChar) return (tChar) of {
+          case _pat return (tChar) of {
             cC# (_pat{2} : tChar#) →
-              case _pat{2} as (_scrut{2} : tChar#) return (tChar) of {
+              case _pat{2} return (tChar) of {
                 ' '#cWordRep →
                   cC# 'y'#cWordRep;
                 _ →
@@ -62,9 +62,9 @@ expected: |-
     = λ(x : t[] tChar).
       let _fail : tChar =
         cC# 'n'#cWordRep;
-      case x as (_scrut : t[] tChar) return (tChar) of {
+      case x return (tChar) of {
         c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat{1} as (_scrut{1} : t[] tChar) return (tChar) of {
+          case _pat{1} return (tChar) of {
             c[] →
               cC# 'y'#cWordRep;
             _ →

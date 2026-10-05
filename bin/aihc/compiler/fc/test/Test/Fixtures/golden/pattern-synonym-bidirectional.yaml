@@ -43,9 +43,9 @@ expected: |-
   pub val 1.v$mSub :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tExpr 3.→ (tExpr 3.→ FUN @sLiftedRep @rep tExpr r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tExpr) (y : tExpr 3.→ FUN @sLiftedRep @rep tExpr r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      case x as (_scrut : tExpr) return (r) of {
+      case x return (r) of {
         cAdd (a : tExpr) (_pat : tExpr) →
-          case _pat as (_scrut{1} : tExpr) return (r) of {
+          case _pat return (r) of {
             cNeg (b : tExpr) →
               y a b;
             _ →

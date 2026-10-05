@@ -37,7 +37,7 @@ expected: |-
   pub val 1.vselect :: ∀(m : sType 3.→ sType) (a : sType). t$Dict$Monad m 3.→ m (tPair a) 3.→ m a
     = Λ(m : sType 3.→ sType) (a : sType). λ($d0 : t$Dict$Monad m) (x : m (tPair a)).
       v>>= @m @(tPair a) @a $d0 x (λ(_pat : tPair a).
-        case _pat as (_do_scrut : tPair a) return (m a) of {
+        case _pat return (m a) of {
           cPair (first : a) (_pat{1} : a) →
             vreturn @m @a $d0 first
         })

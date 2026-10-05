@@ -347,8 +347,10 @@ encodeExpr expr =
     ExTyLam binder body -> tagged 5 [encodeBinder binder, encodeExpr body]
     ExLet bind body -> tagged 6 [encodeBind bind, encodeExpr body]
     ExRec binds body -> tagged 7 [encodeList encodeBind binds, encodeExpr body]
-    ExCase scrutinee binder resultType alternatives ->
+    ExCase scrutinee (Just binder) resultType alternatives ->
       tagged 8 [encodeExpr scrutinee, encodeBinder binder, encodeType resultType, encodeList encodeAlt alternatives]
+    ExCase scrutinee Nothing resultType alternatives ->
+      tagged 12 [encodeExpr scrutinee, encodeType resultType, encodeList encodeAlt alternatives]
     ExCast body coercion -> tagged 9 [encodeExpr body, encodeCoercion coercion]
     ExCoercion coercion -> tagged 10 [encodeCoercion coercion]
     ExForeignCall call types arguments ->
@@ -751,7 +753,8 @@ getExpr tables = do
     5 -> ExTyLam <$!> getBinder tables <*!> getExpr tables
     6 -> ExLet <$!> getBind tables <*!> getExpr tables
     7 -> ExRec <$!> getList (getBind tables) <*!> getExpr tables
-    8 -> ExCase <$!> getExpr tables <*!> getBinder tables <*!> getType tables <*!> getList (getAlt tables)
+    12 -> ExCase <$!> getExpr tables <*!> pure Nothing <*!> getType tables <*!> getList (getAlt tables)
+    8 -> ExCase <$!> getExpr tables <*!> (Just <$!> getBinder tables) <*!> getType tables <*!> getList (getAlt tables)
     9 -> ExCast <$!> getExpr tables <*!> getCoercion tables
     10 -> ExCoercion <$!> getCoercion tables
     11 -> ExForeignCall <$!> getForeignCall tables <*!> getList (getType tables) <*!> getList (getExpr tables)

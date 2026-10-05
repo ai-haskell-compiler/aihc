@@ -54,7 +54,7 @@ expected: |-
 
   pub val 1.vboth :: tFlag 3.→ tFlag 3.→ tFlag
     = λ(x : tFlag) (y : tFlag).
-      case x as (_scrut : tFlag) return (tFlag) of {
+      case x return (tFlag) of {
         cOff →
           cOff;
         cOn →
@@ -63,11 +63,11 @@ expected: |-
 
   pub val 1.vpick :: ∀(a : sType). tShape a 3.→ a 3.→ tFlag
     = Λ(a : sType). λ(x : tShape a) (y : a).
-      case x as (_scrut : tShape a) return (tFlag) of {
+      case x return (tFlag) of {
         cSingle ($pattern_d0 : a ~ tUnit) (f : tFlag) →
           f;
         cBoth @(a{1} : sType) @(b : sType) ($pattern_d0 : a ~ tTuple2 a{1} b) (left : tShape a{1}) (right : tShape b) →
-          case y ▷ $pattern_d0 as (_scrut{1} : tTuple2 a{1} b) return (tFlag) of {
+          case y ▷ $pattern_d0 return (tFlag) of {
             c(,) (x{1} : a{1}) (y{1} : b) →
               vboth (vpick @a{1} left x{1}) (vpick @b right y{1})
           }

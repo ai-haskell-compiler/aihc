@@ -40,14 +40,14 @@ expected: |-
 
   pub val 1.vwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ (tSt m 2.→ tSt m) 2.→ m
     = Λ(m : sType). λ($d0 : t$Dict$Assoc m).
-      case $d0 as ($dict : t$Dict$Assoc m) return ((tSt m 2.→ tSt m) 2.→ m) of {
+      case $d0 return ((tSt m 2.→ tSt m) 2.→ m) of {
         c$Dict$Assoc ($method0 : (tSt m 2.→ tSt m) 2.→ m) ($method1 : m 2.→ tSt m 2.→ tSt m) →
           $method0
       }
 
   pub val 1.vunwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ m 2.→ tSt m 2.→ tSt m
     = Λ(m : sType). λ($d0 : t$Dict$Assoc m).
-      case $d0 as ($dict : t$Dict$Assoc m) return (m 2.→ tSt m 2.→ tSt m) of {
+      case $d0 return (m 2.→ tSt m 2.→ tSt m) of {
         c$Dict$Assoc ($method0 : (tSt m 2.→ tSt m) 2.→ m) ($method1 : m 2.→ tSt m 2.→ tSt m) →
           $method1
       }

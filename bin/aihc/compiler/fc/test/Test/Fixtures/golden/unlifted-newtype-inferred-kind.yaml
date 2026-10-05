@@ -56,7 +56,7 @@ expected: |-
     = Λ(s : sType). λ(x : tState# s).
       let _case : tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tMutableByteArray# s) =
         prim newByteArray# @s 8#cIntRep x;
-      case _case as (_scrut : tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tMutableByteArray# s)) return (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s)) of {
+      case _case return (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s)) of {
         cTuple2# (s2 : tState# s) (arr : tMutableByteArray# s) →
           cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sUnliftedRep @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
       }

@@ -33,11 +33,11 @@ expected: |-
 
   pub val 1.vmakePair :: ∀(a : sType). a 2.→ a 2.→ tStrictPair a
     = Λ(a : sType). λ(x : a) (y : a).
-      case x as (_strict_forced : a) return (tStrictPair a) of {
+      case x return (tStrictPair a) of {
         _ →
-          case y as (_strict_forced{1} : a) return (tStrictPair a) of {
+          case y return (tStrictPair a) of {
             _ →
-              cStrictPair @a _strict_forced _strict_forced{1}
+              cStrictPair @a x y
           }
       }
 status: pass

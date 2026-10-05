@@ -44,7 +44,7 @@ expected: |-
 
   pub val 1.vrender :: tBool 2.→ t[] tBool 2.→ t[] tBool
     = λ(x : tBool) (eta : t[] tBool).
-      case x as (_scrut : tBool) return (t[] tBool) of {
+      case x return (t[] tBool) of {
         cTrue →
           c: @tBool cTrue (c: @tBool cFalse eta);
         cFalse →

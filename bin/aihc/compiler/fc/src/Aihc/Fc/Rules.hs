@@ -174,7 +174,10 @@ matchExpr matcher scope subst template target =
       guard (length alternatives == length targetAlternatives)
       subst' <- matchExpr matcher scope subst scrutinee targetScrutinee
       subst'' <- matchType matcher scope subst' resultType targetResultType
-      (scope', subst''') <- matchBinder matcher scope subst'' binder targetBinder
+      (scope', subst''') <- case (binder, targetBinder) of
+        (Nothing, Nothing) -> Just (scope, subst'')
+        (Just named, Just targetNamed) -> matchBinder matcher scope subst'' named targetNamed
+        _ -> Nothing
       foldM (matchAlternative matcher scope') subst''' (zip alternatives targetAlternatives)
     (ExForeignCall call types arguments, ExForeignCall targetCall targetTypes targetArguments) -> do
       guard (foreignCallName call == foreignCallName targetCall)

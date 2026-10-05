@@ -83,7 +83,7 @@ expected: |-
       rec {
         go : tList a 2.→ b =
           λ(x{1} : tList a).
-            case x{1} as (_scrut : tList a) return (b) of {
+            case x{1} return (b) of {
               cNil →
                 y;
               cCons (y{1} : a) (ys : tList a) →
@@ -94,14 +94,14 @@ expected: |-
 
   val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
     = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).
-      case y as (_scrut : tList a) return (tList b) of {
+      case y return (tList b) of {
         cNil →
           cNil @b;
         cCons (x{1} : a) (xs : tList a) →
           cCons @b (x x{1}) (rec {
             go : tList a 2.→ tList b =
               λ(x{2} : tList a).
-                case x{2} as (_scrut{1} : tList a) return (tList b) of {
+                case x{2} return (tList b) of {
                   cNil →
                     cNil @b;
                   cCons (y{1} : a) (ys : tList a) →
@@ -117,7 +117,7 @@ expected: |-
 
   val 1.vplus :: tNat 2.→ tNat 2.→ tNat
     = λ(x : tNat) (y : tNat).
-      case x as (_scrut : tNat) return (tNat) of {
+      case x return (tNat) of {
         cZ →
           y;
         cS (m : tNat) →
@@ -129,7 +129,7 @@ expected: |-
       rec {
         go : tList tNat 2.→ tNat =
           λ(x{1} : tList tNat).
-            case x{1} as (_scrut : tList tNat) return (tNat) of {
+            case x{1} return (tNat) of {
               cNil →
                 cZ;
               cCons (y : tNat) (ys : tList tNat) →
@@ -143,7 +143,7 @@ expected: |-
       rec {
         go : tList tNat 2.→ tList tNat =
           λ(x{1} : tList tNat).
-            case x{1} as (_scrut : tList tNat) return (tList tNat) of {
+            case x{1} return (tList tNat) of {
               cNil →
                 cNil @tNat;
               cCons (y : tNat) (ys : tList tNat) →
@@ -157,7 +157,7 @@ expected: |-
       rec {
         go : tList tNat 2.→ tList tNat =
           λ(x{1} : tList tNat).
-            case x{1} as (_scrut : tList tNat) return (tList tNat) of {
+            case x{1} return (tList tNat) of {
               cNil →
                 cNil @tNat;
               cCons (y : tNat) (ys : tList tNat) →

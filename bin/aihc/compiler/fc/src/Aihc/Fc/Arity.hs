@@ -284,7 +284,7 @@ arityType env expr =
       case alternatives of
         [] -> topArityType
         first : rest ->
-          let inner = shadow env (binderName binder)
+          let inner = foldl' (\current named -> shadow current (binderName named)) env binder
               alternativeArity alternative =
                 arityType
                   (List.foldl' shadow (List.foldl' extendType inner (altTypeBinders alternative)) (map binderName (altBinders alternative)))
@@ -340,7 +340,7 @@ isCheap env expr =
     ExCase scrutinee binder _ alternatives ->
       isCheap env scrutinee && all cheapAlternative alternatives
       where
-        inner = shadow env (binderName binder)
+        inner = foldl' (\current named -> shadow current (binderName named)) env binder
         cheapAlternative alternative =
           isCheap
             (List.foldl' shadow (List.foldl' extendType inner (altTypeBinders alternative)) (map binderName (altBinders alternative)))
@@ -538,7 +538,7 @@ expandLocals env expr =
       ExRec binds' <$> expandLocals inner body
     ExCase scrutinee binder resultType alternatives -> do
       scrutinee' <- expandLocals env scrutinee
-      let inner = bindTerm env binder
+      let inner = foldl' bindTerm env binder
       alternatives' <-
         traverse
           ( \alternative -> do
@@ -710,7 +710,7 @@ applyToVar env expr arg =
     ExRec binds body -> ExRec binds (applyToVar env body arg)
     ExCase scrutinee binder resultType alternatives
       | Just (_, _, _, result) <- viewFun (envTypes env) resultType ->
-          ExCase scrutinee binder result (map (applyAlternative (shadow env (binderName binder))) alternatives)
+          ExCase scrutinee binder result (map (applyAlternative (foldl' (\current named -> shadow current (binderName named)) env binder)) alternatives)
     ExLam binder body -> substVar (binderName binder) arg body
     ExCast (ExLet bind body) coercion -> applyToVar env (ExLet bind (mkCast body coercion)) arg
     ExCast (ExRec binds body) coercion -> applyToVar env (ExRec binds (mkCast body coercion)) arg
@@ -759,7 +759,7 @@ substVar from to = go
           ExCase (go scrutinee) binder resultType (map goAlternative alternatives)
           where
             goAlternative alternative
-              | binderName binder == from || any ((== from) . binderName) (altBinders alternative) = alternative
+              | any ((== from) . binderName) binder || any ((== from) . binderName) (altBinders alternative) = alternative
               | otherwise = alternative {altRhs = go (altRhs alternative)}
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
 
@@ -814,7 +814,8 @@ exprNames = go
             <> foldMap (go . bindRhs) binds
             <> go body
         ExCase scrutinee binder _ alternatives ->
-          Set.insert (binderName binder) (go scrutinee)
+          foldMap (Set.singleton . binderName) binder
+            <> go scrutinee
             <> foldMap alternativeNames alternatives
         ExForeignCall _ _ arguments -> foldMap go arguments
     alternativeNames alternative =

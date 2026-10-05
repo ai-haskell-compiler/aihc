@@ -48,7 +48,7 @@ expected: |-
 
   pub val 1.varound inline :: tInt 3.→ tPair
     = λ(x : tInt).
-      case x as (wrapped : tInt) return (tPair) of {
+      case x return (tPair) of {
         cI# (x{1} : tInt#) →
           v$waround x{1}
       }

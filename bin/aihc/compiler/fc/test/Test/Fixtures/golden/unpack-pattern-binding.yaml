@@ -40,7 +40,7 @@ expected: |-
 
   pub val 1.vsecond :: tT 3.→ tInt
     = λ(x : tT).
-      case x as (_do_scrut : tT) return (tInt) of {
+      case x return (tInt) of {
         cMkT (_unpack_leaf0 : tInt#) (_unpack_leaf0{1} : tInt#) →
           cI# _unpack_leaf0{1}
       }

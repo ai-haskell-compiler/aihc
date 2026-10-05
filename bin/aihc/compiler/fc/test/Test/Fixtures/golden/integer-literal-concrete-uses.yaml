@@ -48,9 +48,9 @@ expected: |-
 
   pub val 1.v== :: tInt 3.→ tInt 3.→ tBool
     = λ(x : tInt) (y : tInt).
-      case x as (_scrut : tInt) return (tBool) of {
+      case x return (tBool) of {
         cI# (x{1} : tInt#) →
-          case y as (_scrut{1} : tInt) return (tBool) of {
+          case y return (tBool) of {
             cI# (y{1} : tInt#) →
               cTrue
           }
@@ -100,11 +100,11 @@ expected: |-
   pub val 1.vcaseInt :: tUnit
     = let _case : tInt =
       vfromInteger @tInt v$fNumInt (cIS 1#cIntRep);
-    case v== _case (vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)) as (_case_guard : tBool) return (tUnit) of {
+    case v== _case (vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)) return (tUnit) of {
       cTrue →
         c();
       cFalse →
-        case _case as (_case_nomatch : tInt) return (tUnit) of {
+        case _case return (tUnit) of {
 
         }
     }

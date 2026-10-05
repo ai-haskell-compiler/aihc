@@ -553,14 +553,18 @@ bindRecGroup env binds = do
 lintRecRhs :: TypeEnv -> Bind -> Either LintError ()
 lintRecRhs env bind = checkExpr env "rec binding" (binderType (bindBinder bind)) (bindRhs bind)
 
-lintCase :: TypeEnv -> Expr -> Binder -> Type -> [Alt] -> Either LintError Type
+lintCase :: TypeEnv -> Expr -> Maybe Binder -> Type -> [Alt] -> Either LintError Type
 lintCase env scrutinee binder resultType alts = do
-  checkExpr env "case binder" (binderType binder) scrutinee
-  -- The case evaluates the scrutinee, so the case binder and a scrutinee
-  -- variable hold a value in each alternative.
-  caseEnv <- evaluated (binderName binder : scrutineeVariable scrutinee) <$> bindLocal env binder
+  (scrutineeType, caseEnv) <- case binder of
+    Nothing -> do
+      ty <- lintExpr env scrutinee
+      pure (ty, env)
+    Just named -> do
+      checkExpr env "case binder" (binderType named) scrutinee
+      inner <- evaluated [binderName named] <$> bindLocal env named
+      pure (binderType named, inner)
   _ <- representationOf env resultType
-  mapM_ (lintAlt caseEnv (binderType binder) resultType) alts
+  mapM_ (lintAlt (evaluated (scrutineeVariable scrutinee) caseEnv) scrutineeType resultType) alts
   Right resultType
 
 lintAlt :: TypeEnv -> Type -> Type -> Alt -> Either LintError ()

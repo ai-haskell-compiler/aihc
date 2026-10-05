@@ -49,21 +49,18 @@ expected: |-
 
   pub val 1.vpick :: tChoice 2.→ tBool
     = λ(x : tChoice).
-      case x as (_scrut : tChoice) return (tBool) of {
+      case x return (tBool) of {
         cA →
           cTrue;
+        cB →
+          cTrue;
         _ →
-          case _scrut as (_scrut{1} : tChoice) return (tBool) of {
-            cB →
-              cTrue;
-            _ →
-              cFalse
-          }
+          cFalse
       }
 
   pub val 1.vsibling :: tChoice 2.→ tBool
     = λ(x : tChoice).
-      case x as (_scrut : tChoice) return (tBool) of {
+      case x return (tBool) of {
         cA →
           cFalse;
         _ →

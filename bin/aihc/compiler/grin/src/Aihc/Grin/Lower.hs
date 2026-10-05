@@ -1409,7 +1409,7 @@ lowerRecBindings env bindings continuation = do
     bindOne current (binding, vars) = bindLocal current (Fc.bindBinder binding) vars
     makeBindingNode recursiveEnv binding = lazyNode recursiveEnv (Fc.nameText (Fc.binderName (Fc.bindBinder binding))) (Fc.bindRhs binding)
 
-lowerCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerCase :: LowerEnv -> Fc.Expr -> Maybe Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerCase env scrutinee binder alternatives = do
   representation <- expressionRuntimeRep env scrutinee
   case representation of
@@ -1418,9 +1418,10 @@ lowerCase env scrutinee binder alternatives = do
     _ ->
       bindExpression env "case_value" scrutinee $ \case
         [value] -> do
-          caseBinder <- freshVar (Fc.nameText (Fc.binderName binder)) representation
-          let binderEnv = bindLocal env binder [caseBinder]
-          case onlyConstructorAlternative env binder alternatives of
+          caseBinder <- freshVar (maybe "case_value" (Fc.nameText . Fc.binderName) binder) representation
+          let binderEnv = maybe env (\named -> bindLocal env named [caseBinder]) binder
+          scrutineeType <- expressionType env scrutinee
+          case onlyConstructorAlternative env scrutineeType alternatives of
             -- The type has one constructor, so the value is that
             -- constructor and its fields need no test of the tag.
             Just alternative -> do
@@ -1443,26 +1444,26 @@ lowerCase env scrutinee binder alternatives = do
 -- value of the type matches. A default beside it is never taken. A
 -- constructor with a representation of its own is not on the heap and is
 -- not a candidate.
-onlyConstructorAlternative :: LowerEnv -> Fc.Binder -> [Fc.Alt] -> Maybe Fc.Alt
-onlyConstructorAlternative env binder alternatives =
+onlyConstructorAlternative :: LowerEnv -> Fc.Type -> [Fc.Alt] -> Maybe Fc.Alt
+onlyConstructorAlternative env scrutineeType alternatives =
   case [alternative | alternative <- alternatives, Fc.altCon alternative /= Fc.AltDefault] of
     [alternative]
       | Fc.AltData name <- Fc.altCon alternative,
         constructorRepresentation env name == Fc.HeapConstructor,
         Set.member name (lowerDeclaredConstructors env),
-        Just typeName <- TypeOf.typeHead (reduce env (Fc.binderType binder)),
+        Just typeName <- TypeOf.typeHead (reduce env scrutineeType),
         Map.lookup typeName (TypeOf.teDataCons (lowerTypes env)) == Just [name] ->
           Just alternative
     _ -> Nothing
 
-lowerSumCase :: LowerEnv -> [GrinRep] -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerSumCase :: LowerEnv -> [GrinRep] -> Fc.Expr -> Maybe Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerSumCase env representations scrutinee binder alternatives = do
   let layout = sumLayout representations
-  variables <- freshVars (Fc.nameText (Fc.binderName binder)) (SumRep representations)
+  variables <- freshVars (maybe "case_value" (Fc.nameText . Fc.binderName) binder) (SumRep representations)
   case variables of
     tag : slots -> do
       scrutinee' <- lowerExpr env scrutinee
-      let binderEnv = bindLocal env binder variables
+      let binderEnv = maybe env (\named -> bindLocal env named variables) binder
       caseTag <- freshVar "sum_tag" IntRep
       alternatives' <- mapM (lowerSumAlt binderEnv layout slots) alternatives
       pure (GrinBind variables scrutinee' (GrinCase (GrinVarValue tag) caseTag alternatives'))
@@ -1488,7 +1489,7 @@ lowerSumAlt env layout slots alternative = do
           pure (GrinAlt (GrinLitAlt (GrinLitInt IntRep (toInteger index + 1))) [] converted)
     _ -> throwLower "invalid unboxed sum case alternative"
 
-lowerTupleCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerTupleCase :: LowerEnv -> Fc.Expr -> Maybe Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerTupleCase env scrutinee binder alternatives = do
   alternative <-
     case alternatives of
@@ -1497,7 +1498,7 @@ lowerTupleCase env scrutinee binder alternatives = do
   let typeEnv = foldl extendTypeBinder env (Fc.altTypeBinders alternative)
   fieldVariables <- mapM (freshVarsForBinder typeEnv) (Fc.altBinders alternative)
   let values = concat fieldVariables
-      binderEnv = bindLocal typeEnv binder values
+      binderEnv = maybe typeEnv (\named -> bindLocal typeEnv named values) binder
       alternativeEnv = foldl bindPair binderEnv (zip (Fc.altBinders alternative) fieldVariables)
   loweredRhs <- lowerExpr alternativeEnv (Fc.altRhs alternative)
   loweredScrutinee <- lowerExpr env scrutinee
@@ -1630,7 +1631,7 @@ freeVariables expression =
        in (foldMap (freeVariables . Fc.bindRhs) bindings <> freeVariables body) `Set.difference` names
     Fc.ExCase scrutinee binder _ alternatives ->
       freeVariables scrutinee
-        <> Set.delete (Fc.binderName binder) (foldMap freeAltVariables alternatives)
+        <> (foldMap freeAltVariables alternatives `Set.difference` foldMap (Set.singleton . Fc.binderName) binder)
     Fc.ExCoercion _ -> Set.empty
     Fc.ExCast inner _ -> freeVariables inner
     Fc.ExForeignCall _ _ arguments -> foldMap freeVariables arguments

@@ -46,11 +46,11 @@ expected: |-
     = let _pat_rhs : tInt =
       vfromInteger @tInt v$fNumInt (cIS 10#cIntRep);
     let n# : tInt# =
-      case _pat_rhs as (_do_scrut : tInt) return (tInt#) of {
+      case _pat_rhs return (tInt#) of {
         cI# (n# : tInt#) →
           n#
       };
-    case _pat_rhs as (_do_scrut : tInt) return (tUnit) of {
+    case _pat_rhs return (tUnit) of {
       cI# (n#{1} : tInt#) →
         c()
     }

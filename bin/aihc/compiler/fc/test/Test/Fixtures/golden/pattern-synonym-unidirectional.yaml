@@ -35,7 +35,7 @@ expected: |-
   pub val 1.v$mHead :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tL a 3.→ (FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tL a) (y : FUN @sLiftedRep @rep a r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      case x as (_scrut : tL a) return (r) of {
+      case x return (r) of {
         cC (x{1} : a) (_pat : tL a) →
           y x{1};
         _ →
@@ -46,7 +46,7 @@ expected: |-
     = Λ(a : sType). λ(x : tL a).
       v$mHead @a @sLiftedRep @a x (λ(x{1} : a).
         x{1}) (λ(_pattern_failure : tUnit).
-        case x as (_case_nomatch : tL a) return (a) of {
+        case x return (a) of {
 
         })
 status: pass

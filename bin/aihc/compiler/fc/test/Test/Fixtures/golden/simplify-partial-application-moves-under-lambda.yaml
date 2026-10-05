@@ -47,13 +47,13 @@ expected: |-
 
   pub val 1.vrun :: tInt 3.→ tInt 3.→ tPair
     = λ(x : tInt).
-      case x as (_scrut : tInt) return (tInt 3.→ tPair) of {
+      case x return (tInt 3.→ tPair) of {
         cI# (s : tInt#) →
           λ(z : tInt).
             cPair (λ(y : tInt).
-              case z as (_scrut{1} : tInt) return (tInt) of {
+              case z return (tInt) of {
                 cI# (a : tInt#) →
-                  case y as (_scrut{2} : tInt) return (tInt) of {
+                  case y return (tInt) of {
                     cI# (b : tInt#) →
                       cI# (prim +# a (prim +# b s))
                   }

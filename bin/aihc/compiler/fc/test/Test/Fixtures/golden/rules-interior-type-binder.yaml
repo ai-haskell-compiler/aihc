@@ -66,7 +66,7 @@ expected: |-
 
   pub val 1.vre :: ∀(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). tBox u a 2.→ tBox v a
     = Λ(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). λ(x : tBox u a).
-      case x as (_scrut : tBox u a) return (tBox v a) of {
+      case x return (tBox v a) of {
         cBox (x{1} : a) →
           cBox @v @a x{1};
         cWrap (_pat : u a) →
@@ -75,7 +75,7 @@ expected: |-
 
   pub val 1.vretag :: ∀(p : sType) (a : sType) (q : sType). tTag p a 2.→ tTag q a
     = Λ(p : sType) (a : sType) (q : sType). λ(x : tTag p a).
-      case x as (_scrut : tTag p a) return (tTag q a) of {
+      case x return (tTag q a) of {
         cTag (x{1} : a) →
           cTag @q @a x{1}
       }

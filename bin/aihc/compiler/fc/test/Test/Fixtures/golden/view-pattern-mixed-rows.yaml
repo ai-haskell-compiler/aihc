@@ -59,7 +59,7 @@ expected: |-
 
   pub val 1.visRound :: tShape 2.→ tBool
     = λ(x : tShape).
-      case x as (_scrut : tShape) return (tBool) of {
+      case x return (tBool) of {
         cCircle (_pat : tBool) →
           cTrue;
         _ →
@@ -68,7 +68,7 @@ expected: |-
 
   pub val 1.vflag :: tShape 2.→ tBool
     = λ(x : tShape).
-      case x as (_scrut : tShape) return (tBool) of {
+      case x return (tBool) of {
         cCircle (b : tBool) →
           b;
         cSquare (b : tBool) →
@@ -78,20 +78,20 @@ expected: |-
   pub val 1.vclassify :: tShape 2.→ tLabel
     = λ(x : tShape).
       let _fail : tLabel =
-        case visRound x as (_scrut : tBool) return (tLabel) of {
+        case visRound x return (tLabel) of {
           cTrue →
             cB;
           _ →
-            case vflag x as (_scrut{1} : tBool) return (tLabel) of {
+            case vflag x return (tLabel) of {
               cTrue →
                 cC;
               _ →
                 cD
             }
         };
-      case x as (_scrut : tShape) return (tLabel) of {
+      case x return (tLabel) of {
         cCircle (_pat : tBool) →
-          case _pat as (_scrut{1} : tBool) return (tLabel) of {
+          case _pat return (tLabel) of {
             cTrue →
               cA;
             _ →
@@ -103,7 +103,7 @@ expected: |-
 
   pub val 1.vguarded :: tShape 2.→ tLabel
     = λ(x : tShape).
-      case vflag x as (_do_scrut : tBool) return (tLabel) of {
+      case vflag x return (tLabel) of {
         cTrue →
           cA;
         _ →

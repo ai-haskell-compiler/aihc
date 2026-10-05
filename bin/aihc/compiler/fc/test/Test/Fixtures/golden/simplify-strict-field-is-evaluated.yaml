@@ -33,7 +33,7 @@ expected: |-
 
   pub val 1.vsetSecond :: ∀(a : sType). tPair a 2.→ a 2.→ tPair a
     = Λ(a : sType). λ(x : tPair a) (y : a).
-      case x as (_scrut : tPair a) return (tPair a) of {
+      case x return (tPair a) of {
         cPair (x{1} : a) (_pat : a) →
           cPair @a x{1} y
       }

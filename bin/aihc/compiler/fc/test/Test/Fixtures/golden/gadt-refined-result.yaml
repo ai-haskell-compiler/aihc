@@ -46,14 +46,14 @@ expected: |-
 
   pub val 1.vsame :: ∀(a : sType) (b : sType). t:~: a b 2.→ tFlag
     = Λ(a : sType) (b : sType). λ(x : t:~: a b).
-      case x as (_scrut : t:~: a b) return (tFlag) of {
+      case x return (tFlag) of {
         cRefl ($pattern_d0 : b ~ a) →
           cOn
       }
 
   pub val 1.vcast :: ∀(a : sType) (b : sType). t:~: a b 2.→ a 2.→ b
     = Λ(a : sType) (b : sType). λ(x : t:~: a b) (y : a).
-      case x as (_scrut : t:~: a b) return (b) of {
+      case x return (b) of {
         cRefl ($pattern_d0 : b ~ a) →
           y ▷ sym ($pattern_d0)
       }

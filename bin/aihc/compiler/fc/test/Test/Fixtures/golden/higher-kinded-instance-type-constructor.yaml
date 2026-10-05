@@ -36,7 +36,7 @@ expected: |-
 
   pub val 1.vmapValue :: ∀(f : sType 2.→ sType) (a : sType). t$Dict$Map f 2.→ f a 2.→ f a
     = Λ(f : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$Map f).
-      case $d0 as ($dict : t$Dict$Map f) return (f a 2.→ f a) of {
+      case $d0 return (f a 2.→ f a) of {
         c$Dict$Map ($method0 : ∀(a{1} : sType). f a{1} 2.→ f a{1}) →
           $method0 @a
       }

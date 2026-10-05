@@ -511,7 +511,7 @@ caseExpr :: Parser Expr
 caseExpr =
   ExCase
     <$> (keyword "case" *> expression)
-    <*> (keyword "as" *> openTermBinder SortValue)
+    <*> MP.optional (keyword "as" *> openTermBinder SortValue)
     <*> (keyword "return" *> parens fcType)
     <*> (keyword "of" *> braces (MP.sepBy caseAlt (symbol ";")))
 

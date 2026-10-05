@@ -57,10 +57,11 @@ normalizeExpr env expr =
 -- | Remove the default when explicit alternatives cover every known constructor.
 -- Keep the case and all failures inside its constructor alternatives.
 -- If the constructor set is unknown, keep the default.
-normalizeCaseAlternatives :: TypeEnv -> Binder -> [Alt] -> [Alt]
+normalizeCaseAlternatives :: TypeEnv -> Maybe Binder -> [Alt] -> [Alt]
 normalizeCaseAlternatives env binder alternatives
-  | any ((== AltDefault) . altCon) alternatives,
-    Just tyCon <- typeHead (reduceType env (binderType binder)),
+  | Just named <- binder,
+    any ((== AltDefault) . altCon) alternatives,
+    Just tyCon <- typeHead (reduceType env (binderType named)),
     Just constructors <- Map.lookup tyCon (teDataCons env),
     not (null constructors),
     all (`Set.member` covered) constructors =

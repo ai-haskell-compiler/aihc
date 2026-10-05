@@ -83,7 +83,8 @@ expected: |-
 
   import prims
     -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -121,7 +122,7 @@ expected: |-
       rec {
         go : tList a 3.→ b =
           λ(x{1} : tList a).
-            case x{1} as (_scrut : tList a) return (b) of {
+            case x{1} return (b) of {
               cNil →
                 y;
               cCons (y{1} : a) (ys : tList a) →
@@ -150,11 +151,9 @@ expected: |-
 
   val 1.vtake :: ∀(a : sType). tInt 3.→ tList a 3.→ tList a
     = Λ(a : sType). λ(x : tInt) (y : tList a).
-      case x as (_scrut : tInt) return (tList a) of {
+      case x return (tList a) of {
         cI# (m : tInt#) →
-          let _case : tInt# =
-            prim <# m 1#cIntRep;
-          case _case as (_scrut{1} : tInt#) return (tList a) of {
+          case prim <# m 1#cIntRep return (tList a) of {
             1#cIntRep →
               cNil @a;
             _ →
@@ -164,11 +163,11 @@ expected: |-
 
   val 1.vunsafeTake :: ∀(a : sType). FUN @cIntRep @sLiftedRep tInt# (tList a 3.→ tList a)
     = Λ(a : sType). λ(x : tInt#) (y : tList a).
-      case y as (_scrut : tList a) return (tList a) of {
+      case y return (tList a) of {
         cNil →
           cNil @a;
         cCons (y{1} : a) (ys : tList a) →
-          cCons @a y{1} (case x as (_scrut{1} : tInt#) return (tList a) of {
+          cCons @a y{1} (case prim ==# x 1#cIntRep return (tList a) of {
             1#cIntRep →
               cNil @a;
             _ →
@@ -178,9 +177,9 @@ expected: |-
 
   val 1.vtakeFB inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ b 3.→ a 3.→ (tInt 3.→ b) 3.→ tInt 3.→ b
     = Λ(a : sType) (b : sType). λ(x : a 3.→ b 3.→ b) (y : b) (z : a) (x1 : tInt 3.→ b) (x2 : tInt).
-      case x2 as (_scrut : tInt) return (b) of {
+      case x2 return (b) of {
         cI# (k : tInt#) →
-          case k as (_scrut{1} : tInt#) return (b) of {
+          case prim ==# k 1#cIntRep return (b) of {
             1#cIntRep →
               x z y;
             _ →
@@ -192,18 +191,16 @@ expected: |-
 
   val 1.vtakeEnd inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ b
     = Λ(b : sType). λ(x : b) (y : tInt).
-      case y as (_scrut : tInt) return (b) of {
+      case y return (b) of {
         cI# (_pat : tInt#) →
           x
       }
 
   val 1.vtakeWith inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ (tInt 3.→ b) 3.→ b
     = Λ(b : sType). λ(x : b) (y : tInt) (z : tInt 3.→ b).
-      case y as (_scrut : tInt) return (b) of {
+      case y return (b) of {
         cI# (k : tInt#) →
-          let _case : tInt# =
-            prim <# k 1#cIntRep;
-          case _case as (_scrut{1} : tInt#) return (b) of {
+          case prim <# k 1#cIntRep return (b) of {
             1#cIntRep →
               x;
             _ →
@@ -213,11 +210,9 @@ expected: |-
 
   pub val 1.vprefix :: tInt 3.→ tNat 3.→ tNat
     = λ(x : tInt) (y : tNat).
-      case x as (_scrut : tInt) return (tNat) of {
+      case x return (tNat) of {
         cI# (k : tInt#) →
-          let _case : tInt# =
-            prim <# k 1#cIntRep;
-          case _case as (_scrut{1} : tInt#) return (tNat) of {
+          case prim <# k 1#cIntRep return (tNat) of {
             1#cIntRep →
               cZ;
             _ →
@@ -227,14 +222,14 @@ expected: |-
               rec {
                 go : tNat 3.→ tInt 3.→ tNat =
                   λ(x{2} : tNat) (eta : tInt).
-                    case eta as (_scrut{2} : tInt) return (tNat) of {
+                    case eta return (tNat) of {
                       cI# (k{1} : tInt#) →
-                        case k{1} as (_scrut{3} : tInt#) return (tNat) of {
+                        case k{1} return (tNat) of {
                           1#cIntRep →
                             x{1} x{2} cZ;
                           _ →
                             x{1} x{2} (let argument : tInt# =
-                              prim -# _scrut{3} 1#cIntRep;
+                              prim -# k{1} 1#cIntRep;
                             go (cS x{2}) (cI# argument))
                         }
                     }
@@ -245,29 +240,27 @@ expected: |-
 
   pub val 1.vplain :: tInt 3.→ tList tNat 3.→ tList tNat
     = λ(x : tInt) (y : tList tNat).
-      case x as (_scrut : tInt) return (tList tNat) of {
+      case x return (tList tNat) of {
         cI# (k : tInt#) →
-          let _case : tInt# =
-            prim <# k 1#cIntRep;
-          case _case as (_scrut{1} : tInt#) return (tList tNat) of {
+          case prim <# k 1#cIntRep return (tList tNat) of {
             1#cIntRep →
               cNil @tNat;
             _ →
               rec {
                 go : tList tNat 3.→ tInt 3.→ tList tNat =
                   λ(x{1} : tList tNat) (eta : tInt).
-                    case x{1} as (_scrut{2} : tList tNat) return (tList tNat) of {
+                    case x{1} return (tList tNat) of {
                       cNil →
                         vtakeEnd @(tList tNat) (cNil @tNat) eta;
                       cCons (y{1} : tNat) (ys : tList tNat) →
-                        case eta as (_scrut{3} : tInt) return (tList tNat) of {
+                        case eta return (tList tNat) of {
                           cI# (k{1} : tInt#) →
-                            case k{1} as (_scrut{4} : tInt#) return (tList tNat) of {
+                            case k{1} return (tList tNat) of {
                               1#cIntRep →
                                 cCons @tNat y{1} (cNil @tNat);
                               _ →
                                 cCons @tNat y{1} (let argument : tInt# =
-                                  prim -# _scrut{4} 1#cIntRep;
+                                  prim -# k{1} 1#cIntRep;
                                 go ys (cI# argument))
                             }
                         }

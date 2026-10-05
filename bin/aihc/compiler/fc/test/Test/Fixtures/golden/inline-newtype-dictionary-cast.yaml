@@ -57,14 +57,14 @@ expected: |-
 
   val 1.v$fPickBase$cpick :: tBase 2.→ tBool
     = λ(x : tBase).
-      case x as (_scrut : tBase) return (tBool) of {
+      case x return (tBool) of {
         cBase (b : tBool) →
           b
       }
 
   val 1.v$fPickBase$cother :: tBase 2.→ tBool
     = λ(x : tBase).
-      case x as (_scrut : tBase) return (tBool) of {
+      case x return (tBool) of {
         cBase (b : tBool) →
           b
       }
@@ -74,7 +74,7 @@ expected: |-
 
   pub val 1.vrun :: tWrap 2.→ tBool
     = λ(x : tWrap).
-      case x ▷ axiom-co $ax$Wrap as (_scrut : tBase) return (tBool) of {
+      case x ▷ axiom-co $ax$Wrap return (tBool) of {
         cBase (b : tBool) →
           b
       }
