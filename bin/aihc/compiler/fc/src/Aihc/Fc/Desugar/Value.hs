@@ -4397,6 +4397,50 @@ desugarDoFamilyPattern resultType binder pattern' info success failure = do
 
 desugarDoDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoDataPattern resultType binder pattern' success failure = do
+  maybeInfo <- patternDataCon pattern'
+  case maybeInfo of
+    Just info
+      | not (all (repIsStored . dcfiRep) (dciFields info)) ->
+          desugarDoUnpackedPattern resultType binder pattern' info success failure
+    _ -> desugarDoStoredPattern resultType binder pattern' success failure
+
+-- | A constructor pattern in a @do@ bind or a pattern binding, where a
+-- field is unpacked or cast. The alternative binds the representation
+-- leaves, rebuilds each source field from them, and matches the subpatterns
+-- against the rebuilt fields, as 'desugarRebuiltPatternGroup' does.
+desugarDoUnpackedPattern :: TcType -> Binder -> Syn.Pattern -> DataConInfo -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoUnpackedPattern resultType binder pattern' info success failure = do
+  scrutineeType <- requiredPatternType pattern'
+  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
+      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+      children = patternChildren pattern'
+      predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  when (length children /= length reps) $
+    failValue ("unpacked do pattern field count does not match " <> T.unpack (dciName info))
+  fieldTypes <- patternFieldTypes pattern' children
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    prepared <- mapM (\(child, childType, childRep) -> prepareRebuiltField child childType childRep) (zip3 children fieldTypes reps)
+    let leafBinders = concatMap (\(leaves, _, _) -> leaves) prepared
+        sourceBinders = map (\(_, source, _) -> source) prepared
+        rebuilds = mapMaybe (\(_, _, binding) -> binding) prepared
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    constructor <- patternConstructor pattern'
+    resultType' <- convertCheckedType resultType
+    caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        $ do
+          inner <- desugarDoChildPatterns resultType (zip3 sourceBinders fieldTypes children) success failure
+          pure (foldr ExLet inner rebuilds)
+    let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
+    pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> leafBinders) body : defaultAlternatives))
+
+desugarDoStoredPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoStoredPattern resultType binder pattern' success failure = do
   let children = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
   let typeVariables = patternTypeVariables pattern'
