@@ -58,10 +58,8 @@ expected: |-
 
   val 1.vdouble :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x of {
-        cI# (i : tInt#) →
-          cI# (prim +# i i)
-      }
+      let! cI# (i : tInt#) = x;
+      cI# (prim +# i i)
 
   val 1.vpick :: tBool 3.→ tInt 3.→ tInt 3.→ tInt
     = λ(x : tBool) (y : tInt) (z : tInt).
@@ -81,12 +79,8 @@ expected: |-
       let y : tInt =
         vdouble x;
       λ(_pat : tInt).
-        case y of {
-          cI# (a : tInt#) →
-            case y of {
-              cI# (b : tInt#) →
-                cI# (prim +# a b)
-            }
-        }
+        let! cI# (a : tInt#) = y;
+        let! cI# (b : tInt#) = y;
+        cI# (prim +# a b)
 status: pass
 reason: A function that evaluates an argument on one path only is lazy in it, so the two calls of 'double' in 'select' stay unevaluated arguments. A let whose body is a lambda is lazy in its binder, because the lambda is a value and its body runs only when the lambda is applied, so the let in 'keep' stays.

@@ -116,10 +116,8 @@ expected: |-
     = Λ(k : sType) (a : k). λ(x : tTypeRep k a).
       case veqTypeRep @k @(tTYPE (cBoxedRep cLifted)) @a @(tTYPE (cBoxedRep cLifted)) x (vtypeRep @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted))) of {
         cJust (_pat : t:~~: k (tTYPE (cBoxedRep cLifted)) a (tTYPE (cBoxedRep cLifted))) →
-          case _pat of {
-            cHRefl ($pattern_d0 : tTYPE (cBoxedRep cLifted) ~ k) ($pattern_d1 : tTYPE (cBoxedRep cLifted) ~ a) →
-              cUnit
-          };
+          let! cHRefl ($pattern_d0 : tTYPE (cBoxedRep cLifted) ~ k) ($pattern_d1 : tTYPE (cBoxedRep cLifted) ~ a) = _pat;
+          cUnit;
         _ →
           v$mCon' @k @a @sLiftedRep @1.tUnit x (λ(con : 1.tUnit).
             con) (λ(_pattern_failure : 2.tUnit).

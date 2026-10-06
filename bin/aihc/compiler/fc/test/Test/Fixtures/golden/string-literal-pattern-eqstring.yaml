@@ -68,19 +68,17 @@ expected: |-
                 cUnknown x;
               case x of {
                 c: (_pat : tChar) (_pat{1} : t[] tChar) →
-                  case _pat of {
-                    cC# (_pat{2} : tChar#) →
-                      case _pat{2} of {
-                        'x'#cWordRep →
-                          case _pat{1} of {
-                            c[] →
-                              cShort;
-                            _ →
-                              _fail
-                          };
+                  let! cC# (_pat{2} : tChar#) = _pat;
+                  case _pat{2} of {
+                    'x'#cWordRep →
+                      case _pat{1} of {
+                        c[] →
+                          cShort;
                         _ →
                           _fail
-                      }
+                      };
+                    _ →
+                      _fail
                   };
                 _ →
                   _fail

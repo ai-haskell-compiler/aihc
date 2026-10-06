@@ -34,9 +34,7 @@ expected: |-
 
   pub val 1.vforceBox :: tBox 2.→ tBox
     = λ(x : tBox).
-      case x as (_scrut : tBox) of {
-        _ →
-          _scrut
-      }
+      let! _ as (_scrut : tBox) = x;
+      _scrut
 status: pass
 reason: a strict variable pattern binds its RHS to the evaluated Core case binder

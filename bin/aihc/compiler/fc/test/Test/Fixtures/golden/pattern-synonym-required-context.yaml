@@ -53,10 +53,8 @@ expected: |-
 
   pub val 1.visZero :: ∀(a : sType). t$Dict$Describe a 3.→ a 3.→ tBool
     = Λ(a : sType). λ($d0 : t$Dict$Describe a).
-      case $d0 of {
-        c$Dict$Describe ($method0 : a 3.→ tBool) →
-          $method0
-      }
+      let! c$Dict$Describe ($method0 : a 3.→ tBool) = $d0;
+      $method0
 
   pub val 1.v$fDescribeBool :: t$Dict$Describe tBool
     = c$Dict$Describe @tBool v$fDescribeBool$cisZero

@@ -46,12 +46,8 @@ expected: |-
 
   pub val 1.vpick :: tStrict 2.→ tBox
     = λ(x : tStrict).
-      case x of {
-        cStrict (b : tBool) →
-          cBox (case b of {
-            cTrue →
-              cFalse
-          })
-      }
+      let! cStrict (b : tBool) = x;
+      cBox (let! cTrue = b;
+      cFalse)
 status: pass
 reason: Bool has two constructors, so a case with one alternative on an evaluated Bool can fail. It stays in the lazy constructor argument.

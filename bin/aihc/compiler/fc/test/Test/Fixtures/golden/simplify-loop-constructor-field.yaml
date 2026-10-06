@@ -77,10 +77,8 @@ expected: |-
               0#cIntRep →
                 cI# lit (0#cIntRep) :: tInt#;
               _ →
-                case go (prim -# x{1} lit (1#cIntRep) :: tInt#) of {
-                  cI# (rest : tInt#) →
-                    cI# (prim +# argument rest)
-                }
+                let! cI# (rest : tInt#) = go (prim -# x{1} lit (1#cIntRep) :: tInt#);
+                cI# (prim +# argument rest)
             }
       } in
       go y
@@ -96,13 +94,9 @@ expected: |-
               0#cIntRep →
                 cI# lit (0#cIntRep) :: tInt#;
               _ →
-                case step of {
-                  cI# (delta : tInt#) →
-                    case go (prim -# x{1} lit (1#cIntRep) :: tInt#) of {
-                      cI# (rest : tInt#) →
-                        cI# (prim +# delta rest)
-                    }
-                }
+                let! cI# (delta : tInt#) = step;
+                let! cI# (rest : tInt#) = go (prim -# x{1} lit (1#cIntRep) :: tInt#);
+                cI# (prim +# delta rest)
             }
       } in
       go y

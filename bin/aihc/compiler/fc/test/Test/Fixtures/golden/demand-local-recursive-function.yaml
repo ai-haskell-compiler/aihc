@@ -50,30 +50,22 @@ expected: |-
 
   val 1.vadd :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (a : tInt#) →
-          case y of {
-            cI# (b : tInt#) →
-              cI# (prim +# a b)
-          }
-      }
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
 
   pub val 1.vsumTo :: tInt 3.→ tInt
     = λ(x : tInt).
       rec {
         go : tInt 3.→ tInt 3.→ tInt =
           λ(x{1} : tInt) (y : tInt).
-            case x{1} of {
-              cI# (i : tInt#) →
-                case i of {
-                  0#cIntRep →
-                    y;
-                  _ →
-                    case vadd y x{1} as (argument : tInt) of {
-                      _ →
-                        go (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
-                    }
-                }
+            let! cI# (i : tInt#) = x{1};
+            case i of {
+              0#cIntRep →
+                y;
+              _ →
+                let! _ as (argument : tInt) = vadd y x{1};
+                go (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
             }
       } in
       go x (cI# lit (0#cIntRep) :: tInt#)

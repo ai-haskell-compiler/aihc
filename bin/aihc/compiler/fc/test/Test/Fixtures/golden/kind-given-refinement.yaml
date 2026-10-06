@@ -60,8 +60,6 @@ expected: |-
 
   pub val 1.vrebuild :: ∀(k : sType) (f : k) (x : sType). tIsFun k 2.→ tProxy k f 2.→ tProxy (tTYPE (cBoxedRep cLifted)) x 2.→ tSome
     = Λ(k : sType) (f : k) (x : sType). λ(x{1} : tIsFun k) (y : tProxy k f) (z : tProxy (tTYPE (cBoxedRep cLifted)) x).
-      case x{1} of {
-        cIsFun ($pattern_d0 : k ~ (tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted))) →
-          vapply @(tProxy (tTYPE (cBoxedRep cLifted)) (f x)) @tSome (cSome @(tTYPE (cBoxedRep cLifted)) @(f x)) (vmkApp @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted)) @f @x y z)
-      }
+      let! cIsFun ($pattern_d0 : k ~ (tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted))) = x{1};
+      vapply @(tProxy (tTYPE (cBoxedRep cLifted)) (f x)) @tSome (cSome @(tTYPE (cBoxedRep cLifted)) @(f x)) (vmkApp @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted)) @f @x y z)
 status: pass

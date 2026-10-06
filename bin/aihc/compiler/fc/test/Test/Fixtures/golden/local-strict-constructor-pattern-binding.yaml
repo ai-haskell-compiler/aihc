@@ -46,13 +46,9 @@ expected: |-
     = let _pat_rhs : tInt =
       vfromInteger @tInt v$fNumInt (cIS lit (10#cIntRep) :: tInt#);
     let n# : tInt# =
-      case _pat_rhs of {
-        cI# (n# : tInt#) →
-          n#
-      };
-    case _pat_rhs of {
-      cI# (n#{1} : tInt#) →
-        c()
-    }
+      let! cI# (n# : tInt#) = _pat_rhs;
+      n#;
+    let! cI# (n#{1} : tInt#) = _pat_rhs;
+    c()
 status: pass
 reason: a strict local constructor pattern binding lowers its bound field

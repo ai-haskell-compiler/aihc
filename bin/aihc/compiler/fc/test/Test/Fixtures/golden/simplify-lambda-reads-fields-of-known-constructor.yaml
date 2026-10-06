@@ -76,37 +76,27 @@ expected: |-
 
   pub val 1.vuse noinline :: tBox 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
     = λ(x : tBox) (y : tInt#).
-      case x of {
-        cBox (a : tInt#) →
-          cI# (prim +# a y)
-      }
+      let! cBox (a : tInt#) = x;
+      cI# (prim +# a y)
 
   pub val 1.vmake :: FUN @cIntRep @sLiftedRep tInt# (tInt 4.→ tInt)
     = λ(x : tInt#).
       let b : tBox =
         cBox x;
       λ(x{1} : tInt).
-        case b of {
-          cBox (x{2} : tInt#) →
-            case x{1} of {
-              cI# (y : tInt#) →
-                vuse b (prim +# x{2} y)
-            }
-        }
+        let! cBox (x{2} : tInt#) = b;
+        let! cI# (y : tInt#) = x{1};
+        vuse b (prim +# x{2} y)
 
   pub val 1.vuseSome noinline :: tSome 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
     = λ(x : tSome) (y : tInt#).
-      case x of {
-        cSome @(a : sType) (_pat : a) (a{1} : tInt#) →
-          cI# (prim +# a{1} y)
-      }
+      let! cSome @(a : sType) (_pat : a) (a{1} : tInt#) = x;
+      cI# (prim +# a{1} y)
 
   pub val 1.vmakeSome :: FUN @cIntRep @sLiftedRep tInt# (tInt 4.→ tInt)
     = λ(x : tInt#).
       let s : tSome =
         cSome @tUnit c() x;
       λ(x{1} : tInt).
-        case x{1} of {
-          cI# (y : tInt#) →
-            vuseSome s (prim +# x y)
-        }
+        let! cI# (y : tInt#) = x{1};
+        vuseSome s (prim +# x y)

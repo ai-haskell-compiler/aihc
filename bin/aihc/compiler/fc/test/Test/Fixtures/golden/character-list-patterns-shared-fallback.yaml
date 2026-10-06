@@ -49,104 +49,90 @@ expected: |-
         cUnknown x;
       case x of {
         c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat of {
-            cC# (_pat{2} : tChar#) →
-              case _pat{2} of {
-                'r'#cWordRep →
-                  case _pat{1} of {
-                    c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
-                      case _pat{3} of {
-                        cC# (_pat{5} : tChar#) →
-                          case _pat{5} of {
-                            'e'#cWordRep →
-                              case _pat{4} of {
-                                c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
-                                  case _pat{6} of {
-                                    cC# (_pat{8} : tChar#) →
-                                      case _pat{8} of {
-                                        'd'#cWordRep →
-                                          case _pat{7} of {
-                                            c[] →
-                                              cRed;
-                                            _ →
-                                              _fail
-                                          };
-                                        _ →
-                                          _fail
-                                      }
-                                  };
+          let! cC# (_pat{2} : tChar#) = _pat;
+          case _pat{2} of {
+            'r'#cWordRep →
+              case _pat{1} of {
+                c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
+                  let! cC# (_pat{5} : tChar#) = _pat{3};
+                  case _pat{5} of {
+                    'e'#cWordRep →
+                      case _pat{4} of {
+                        c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
+                          let! cC# (_pat{8} : tChar#) = _pat{6};
+                          case _pat{8} of {
+                            'd'#cWordRep →
+                              case _pat{7} of {
+                                c[] →
+                                  cRed;
                                 _ →
                                   _fail
                               };
                             _ →
                               _fail
-                          }
-                      };
-                    _ →
-                      _fail
-                  };
-                'g'#cWordRep →
-                  case _pat{1} of {
-                    c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
-                      case _pat{3} of {
-                        cC# (_pat{5} : tChar#) →
-                          case _pat{5} of {
-                            'r'#cWordRep →
-                              case _pat{4} of {
-                                c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
-                                  case _pat{6} of {
-                                    cC# (_pat{8} : tChar#) →
-                                      case _pat{8} of {
-                                        'e'#cWordRep →
-                                          case _pat{7} of {
-                                            c: (_pat{9} : tChar) (_pat{10} : t[] tChar) →
-                                              case _pat{9} of {
-                                                cC# (_pat{11} : tChar#) →
-                                                  case _pat{11} of {
-                                                    'e'#cWordRep →
-                                                      case _pat{10} of {
-                                                        c: (_pat{12} : tChar) (_pat{13} : t[] tChar) →
-                                                          case _pat{12} of {
-                                                            cC# (_pat{14} : tChar#) →
-                                                              case _pat{14} of {
-                                                                'n'#cWordRep →
-                                                                  case _pat{13} of {
-                                                                    c[] →
-                                                                      cGreen;
-                                                                    _ →
-                                                                      _fail
-                                                                  };
-                                                                _ →
-                                                                  _fail
-                                                              }
-                                                          };
-                                                        _ →
-                                                          _fail
-                                                      };
-                                                    _ →
-                                                      _fail
-                                                  }
-                                              };
-                                            _ →
-                                              _fail
-                                          };
-                                        _ →
-                                          _fail
-                                      }
-                                  };
-                                _ →
-                                  _fail
-                              };
-                            _ →
-                              _fail
-                          }
+                          };
+                        _ →
+                          _fail
                       };
                     _ →
                       _fail
                   };
                 _ →
                   _fail
-              }
+              };
+            'g'#cWordRep →
+              case _pat{1} of {
+                c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
+                  let! cC# (_pat{5} : tChar#) = _pat{3};
+                  case _pat{5} of {
+                    'r'#cWordRep →
+                      case _pat{4} of {
+                        c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
+                          let! cC# (_pat{8} : tChar#) = _pat{6};
+                          case _pat{8} of {
+                            'e'#cWordRep →
+                              case _pat{7} of {
+                                c: (_pat{9} : tChar) (_pat{10} : t[] tChar) →
+                                  let! cC# (_pat{11} : tChar#) = _pat{9};
+                                  case _pat{11} of {
+                                    'e'#cWordRep →
+                                      case _pat{10} of {
+                                        c: (_pat{12} : tChar) (_pat{13} : t[] tChar) →
+                                          let! cC# (_pat{14} : tChar#) = _pat{12};
+                                          case _pat{14} of {
+                                            'n'#cWordRep →
+                                              case _pat{13} of {
+                                                c[] →
+                                                  cGreen;
+                                                _ →
+                                                  _fail
+                                              };
+                                            _ →
+                                              _fail
+                                          };
+                                        _ →
+                                          _fail
+                                      };
+                                    _ →
+                                      _fail
+                                  };
+                                _ →
+                                  _fail
+                              };
+                            _ →
+                              _fail
+                          };
+                        _ →
+                          _fail
+                      };
+                    _ →
+                      _fail
+                  };
+                _ →
+                  _fail
+              };
+            _ →
+              _fail
           };
         _ →
           _fail

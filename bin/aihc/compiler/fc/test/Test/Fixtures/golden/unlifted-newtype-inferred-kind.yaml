@@ -56,10 +56,8 @@ expected: |-
     = Λ(s : sType). λ(x : tState# s).
       let _case : tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tMutableByteArray# s) =
         prim newByteArray# @s lit (8#cIntRep) :: tInt# x;
-      case _case of {
-        cTuple2# (s2 : tState# s) (arr : tMutableByteArray# s) →
-          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sUnliftedRep @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
-      }
+      let! cTuple2# (s2 : tState# s) (arr : tMutableByteArray# s) = _case;
+      cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sUnliftedRep @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
 
   pub val 1.vget :: ∀(s : sType). FUN @sUnliftedRep @sLiftedRep (tCounter s) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# s) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# s) tInt#))
     = Λ(s : sType). λ(x : tCounter s).

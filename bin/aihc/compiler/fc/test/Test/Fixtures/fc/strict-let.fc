@@ -1,0 +1,34 @@
+scope 1 = "" StrictLet
+scope 2 = "aihc-prim" GHC.Types
+
+pub type 1.tFlag :: 2.tType {
+  pub 1.cOff :: tFlag;
+  pub 1.cOn :: tFlag
+}
+
+pub type 1.tPair :: 2.tType {
+  pub 1.cPair :: tFlag 2.→ tFlag 2.→ tPair
+}
+
+pub val 1.vfirst :: tPair 2.→ tFlag
+  = λ(pair : tPair).
+    let! cPair (left : tFlag) (right : tFlag) = pair;
+    left
+
+pub val 1.vforce :: tFlag 2.→ tFlag
+  = λ(flag : tFlag).
+    let! _ = flag;
+    cOn
+
+pub val 1.vnested :: tPair 2.→ tFlag
+  = λ(pair : tPair).
+    let! _ as (inner : tFlag) =
+      let! cPair (left : tFlag) (right : tFlag) = pair;
+      right;
+    case inner of {
+      cOff →
+        let! cPair (other : tFlag) (rest : tFlag) = pair;
+        other;
+      cOn →
+        cOff
+    }

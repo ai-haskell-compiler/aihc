@@ -47,10 +47,8 @@ expected: |-
 
   pub val 1.vre :: ∀(u : sType 3.→ sType) (a : sType) (v : sType 3.→ sType). tBox u a 3.→ tBox v a
     = Λ(u : sType 3.→ sType) (a : sType) (v : sType 3.→ sType). λ(x : tBox u a).
-      case x of {
-        cBox (x{1} : a) →
-          cBox @v @a x{1}
-      }
+      let! cBox (x{1} : a) = x;
+      cBox @v @a x{1}
 
   pub val 1.vuseRe :: ∀(v : sType 3.→ sType) (a : sType) (w : sType 3.→ sType). tBox v a 3.→ tBox w a
     = Λ(v : sType 3.→ sType) (a : sType) (w : sType 3.→ sType). λ(x : tBox v a).
@@ -62,10 +60,8 @@ expected: |-
 
   val 1.v$patsel$tag :: ∀(a : sType 3.→ sType). tTuple2 (tTag a) tFlag 3.→ tTag a
     = Λ(a : sType 3.→ sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
-      case _pat_rhs of {
-        c(,) (tag : tTag a) (flag : tFlag) →
-          tag
-      }
+      let! c(,) (tag : tTag a) (flag : tFlag) = _pat_rhs;
+      tag
 
   pub val 1.vtag :: ∀(a : sType 3.→ sType). tTag a
     = Λ(a : sType 3.→ sType).
@@ -73,10 +69,8 @@ expected: |-
 
   val 1.v$patsel$flag :: ∀(a : sType 3.→ sType). tTuple2 (tTag a) tFlag 3.→ tFlag
     = Λ(a : sType 3.→ sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
-      case _pat_rhs of {
-        c(,) (tag : tTag a) (flag : tFlag) →
-          flag
-      }
+      let! c(,) (tag : tTag a) (flag : tFlag) = _pat_rhs;
+      flag
 
   pub val 1.vflag :: tFlag
     = v$patsel$flag @(tAny (tTYPE (cBoxedRep cLifted) 3.→ tTYPE (cBoxedRep cLifted))) (v$pat$tag$flag @(tAny (tTYPE (cBoxedRep cLifted) 3.→ tTYPE (cBoxedRep cLifted))))

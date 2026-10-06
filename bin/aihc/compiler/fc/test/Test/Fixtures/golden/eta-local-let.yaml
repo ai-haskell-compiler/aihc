@@ -85,10 +85,8 @@ expected: |-
           x ▷ axiom-co $ax$Eff @tInt;
         let g : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
           y ▷ axiom-co $ax$Eff @tInt;
-        case f eta{2} of {
-          cI# (_pat : tInt#) →
-            g eta{2}
-        }) ▷ sym (axiom-co $ax$Eff @tInt)
+        let! cI# (_pat : tInt#) = f eta{2};
+        g eta{2}) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vchoose :: tBool 4.→ tBool
     = λ(x : tBool).

@@ -54,10 +54,8 @@ expected: |-
 
   pub val 1.vsumSize :: ∀(f : sType 2.→ sType). t$Dict$SumSize f 2.→ tTagged f tUnit
     = Λ(f : sType 2.→ sType). λ($d0 : t$Dict$SumSize f).
-      case $d0 of {
-        c$Dict$SumSize ($method0 : tTagged f tUnit) →
-          $method0
-      }
+      let! c$Dict$SumSize ($method0 : tTagged f tUnit) = $d0;
+      $method0
 
   pub val 1.v$fSumSizeSumab :: ∀(a : sType 2.→ sType) (b : sType 2.→ sType). t$Dict$SumSize a 2.→ t$Dict$SumSize b 2.→ t$Dict$SumSize (tSum a b)
     = Λ(a : sType 2.→ sType) (b : sType 2.→ sType). λ($d0 : t$Dict$SumSize a) ($d1 : t$Dict$SumSize b).

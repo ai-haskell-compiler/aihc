@@ -85,13 +85,9 @@ expected: |-
               c[] →
                 y;
               c: (y{1} : tBool) (ys : t[] tBool) →
-                $sgo ys (case y of {
-                  cI# (a : tInt#) →
-                    case v$fWeightBool$cweight y{1} of {
-                      cI# (b : tInt#) →
-                        cI# (prim +# a b)
-                    }
-                })
+                $sgo ys (let! cI# (a : tInt#) = y;
+                let! cI# (b : tInt#) = v$fWeightBool$cweight y{1};
+                cI# (prim +# a b))
             }
       } in
       $sgo x (cI# lit (0#cIntRep) :: tInt#)

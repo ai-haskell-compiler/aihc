@@ -60,10 +60,8 @@ expected: |-
 
   val 1.v$fPickBase$cpick :: tBase 2.→ tBase 2.→ tBool
     = λ(x : tBase) (y : tBase).
-      case x of {
-        cBase (b : tBool) →
-          b
-      }
+      let! cBase (b : tBool) = x;
+      b
 
   pub val 1.v$fPickInner :: t$Dict$Pick tInner
     = v$fPickBase ▷ tycon-co t$Dict$Pick (sym (axiom-co $ax$Inner))
@@ -73,10 +71,8 @@ expected: |-
 
   pub val 1.vrun :: tOuter 2.→ tOuter 2.→ tBool
     = λ(x : tOuter) (y : tOuter).
-      case (x ▷ axiom-co $ax$Outer) ▷ axiom-co $ax$Inner of {
-        cBase (b : tBool) →
-          b
-      }
+      let! cBase (b : tBool) = (x ▷ axiom-co $ax$Outer) ▷ axiom-co $ax$Inner;
+      b
 status: pass
 reason: |-
   Each newtype between the instance head and its use puts one cast on the head of the method

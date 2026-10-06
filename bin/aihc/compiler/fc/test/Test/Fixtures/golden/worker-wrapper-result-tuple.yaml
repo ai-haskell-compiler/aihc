@@ -58,13 +58,9 @@ expected: |-
 
   pub val 1.varound inline :: tInt 3.→ tPair
     = λ(x : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          case v$waround x{1} of {
-            cTuple2# (field : tInt) (field{1} : tInt) →
-              cPair field field{1}
-          }
-      }
+      let! cI# (x{1} : tInt#) = x;
+      let! cTuple2# (field : tInt) (field{1} : tInt) = v$waround x{1};
+      cPair field field{1}
 
   val 1.v$waround :: FUN @cIntRep @(cTupleRep (c: tRuntimeRep (cBoxedRep cLifted) (c: tRuntimeRep (cBoxedRep cLifted) (c[] tRuntimeRep)))) tInt# (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt)
     = λ(x : tInt#).

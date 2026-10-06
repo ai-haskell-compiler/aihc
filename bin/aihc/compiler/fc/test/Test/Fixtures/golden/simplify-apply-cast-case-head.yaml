@@ -77,19 +77,15 @@ expected: |-
         go : tInt 3.→ tIO tInt =
           λ(x{1} : tInt).
             (λ(s : tState# tRealWorld).
-              case ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s of {
-                cTuple2# (s' : tState# tRealWorld) (_pat : tInt) →
-                  case x{1} of {
-                    cI# (_pat{1} : tInt#) →
-                      case _pat{1} of {
-                        0#cIntRep →
-                          ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s';
-                        _ →
-                          let argument : tInt# =
-                            prim +# _pat{1} lit (-1#cIntRep) :: tInt#;
-                          ((go (cI# argument)) ▷ axiom-co $ax$IO @tInt) s'
-                      }
-                  }
+              let! cTuple2# (s' : tState# tRealWorld) (_pat : tInt) = ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s;
+              let! cI# (_pat{1} : tInt#) = x{1};
+              case _pat{1} of {
+                0#cIntRep →
+                  ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s';
+                _ →
+                  let argument : tInt# =
+                    prim +# _pat{1} lit (-1#cIntRep) :: tInt#;
+                  ((go (cI# argument)) ▷ axiom-co $ax$IO @tInt) s'
               }) ▷ sym (axiom-co $ax$IO @tInt)
       } in
       (λ(s : tState# tRealWorld).

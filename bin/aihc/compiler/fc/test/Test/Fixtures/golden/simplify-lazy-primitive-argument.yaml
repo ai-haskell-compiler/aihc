@@ -54,22 +54,18 @@ expected: |-
 
   pub val 1.vbump :: tInt 3.→ tBox
     = λ(x : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          let argument : tInt# =
-            prim +# x{1} lit (1#cIntRep) :: tInt#;
-          cBox (cI# argument)
-      }
+      let! cI# (x{1} : tInt#) = x;
+      let argument : tInt# =
+        prim +# x{1} lit (1#cIntRep) :: tInt#;
+      cBox (cI# argument)
 
   pub val 1.vshare :: tInt 3.→ tTwice
     = λ(x : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          let argument : tInt# =
-            prim +# x{1} lit (2#cIntRep) :: tInt#;
-          let y : tInt =
-            cI# argument;
-          cTwice y y
-      }
+      let! cI# (x{1} : tInt#) = x;
+      let argument : tInt# =
+        prim +# x{1} lit (2#cIntRep) :: tInt#;
+      let y : tInt =
+        cI# argument;
+      cTwice y y
 status: pass
 reason: A lazy constructor application runs a safe primitive call first, so that lowering stores the value and makes no thunk.

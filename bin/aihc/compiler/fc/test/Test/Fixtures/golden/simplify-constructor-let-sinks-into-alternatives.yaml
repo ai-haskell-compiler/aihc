@@ -51,25 +51,21 @@ expected: |-
 
   pub val 1.vchoose :: tInt 3.→ tInt 3.→ tPair
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (a : tInt#) →
-          case y of {
-            cI# (b : tInt#) →
-              case prim <# a b of {
-                1#cIntRep →
-                  let box : tInt =
-                    cI# a;
-                  cPair box box;
-                _ →
-                  case prim <# b lit (0#cIntRep) :: tInt# of {
-                    1#cIntRep →
-                      let box : tInt =
-                        cI# a;
-                      cPair box (cI# b);
-                    _ →
-                      cPair (cI# b) (cI# b)
-                  }
-              }
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      case prim <# a b of {
+        1#cIntRep →
+          let box : tInt =
+            cI# a;
+          cPair box box;
+        _ →
+          case prim <# b lit (0#cIntRep) :: tInt# of {
+            1#cIntRep →
+              let box : tInt =
+                cI# a;
+              cPair box (cI# b);
+            _ →
+              cPair (cI# b) (cI# b)
           }
       }
 status: pass

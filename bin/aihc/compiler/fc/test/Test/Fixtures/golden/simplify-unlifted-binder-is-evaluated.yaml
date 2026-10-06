@@ -57,16 +57,12 @@ expected: |-
 
   pub val 1.vbox :: (tInt 3.→ tInt) 3.→ FUN @cAddrRep @sLiftedRep tAddr# tInt
     = λ(x : tInt 3.→ tInt) (y : tAddr#).
-      case x (cI# (prim addr2Int# y)) of {
-        cI# (x{1} : tInt#) →
-          let argument : tInt# =
-            prim *# x{1} lit (3#cIntRep) :: tInt#;
-          case x (cI# argument) of {
-            cI# (y{1} : tInt#) →
-              let argument{1} : tInt# =
-                prim +# x{1} y{1};
-              x (cI# argument{1})
-          }
-      }
+      let! cI# (x{1} : tInt#) = x (cI# (prim addr2Int# y));
+      let argument : tInt# =
+        prim *# x{1} lit (3#cIntRep) :: tInt#;
+      let! cI# (y{1} : tInt#) = x (cI# argument);
+      let argument{1} : tInt# =
+        prim +# x{1} y{1};
+      x (cI# argument{1})
 status: pass
 reason: The bang pattern on the unlifted parameter of wrap gives a case with one default alternative. A variable of an unlifted type always holds a value, so that case only names it, the copy of wrap is the constructor, and the case on it in box selects the alternative. No box is built.

@@ -57,10 +57,8 @@ expected: |-
 
   pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a 3.→ a 3.→ tMark
     = Λ(a : sType). λ($d0 : t$Dict$Markable a).
-      case $d0 of {
-        c$Dict$Markable ($method0 : a 3.→ tMark) →
-          $method0
-      }
+      let! c$Dict$Markable ($method0 : a 3.→ tMark) = $d0;
+      $method0
 
   pub val 1.v$fMarkableBool :: t$Dict$Markable tBool
     = c$Dict$Markable @tBool v$fMarkableBool$cmark
@@ -77,14 +75,12 @@ expected: |-
   pub val 1.v$mTagged :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tBox 3.→ (∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tBox) (y : ∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      case x of {
-        cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (_pat : tBool) (x{1} : a) →
-          case _pat of {
-            cTrue →
-              y @a $pattern_d0 x{1};
-            _ →
-              z c()
-          }
+      let! cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (_pat : tBool) (x{1} : a) = x;
+      case _pat of {
+        cTrue →
+          y @a $pattern_d0 x{1};
+        _ →
+          z c()
       }
 
   pub val 1.vinspect :: tBox 3.→ tMark

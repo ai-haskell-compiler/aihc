@@ -56,29 +56,23 @@ expected: |-
 
   val 1.vcount :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x of {
-        cI# (i : tInt#) →
-          case i of {
-            0#cIntRep →
-              cI# lit (1#cIntRep) :: tInt#;
-            _ →
-              vcount (cI# (prim -# i lit (1#cIntRep) :: tInt#))
-          }
+      let! cI# (i : tInt#) = x;
+      case i of {
+        0#cIntRep →
+          cI# lit (1#cIntRep) :: tInt#;
+        _ →
+          vcount (cI# (prim -# i lit (1#cIntRep) :: tInt#))
       }
 
   pub val 1.vcheck :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case vcount x of {
-        cI# (i : tInt#) →
-          let argument : tInt# =
-            prim +# i i;
-          case vcount y of {
-            cI# (i{1} : tInt#) →
-              let argument{1} : tInt# =
-                prim +# i{1} i{1};
-              cI# (prim -# argument argument{1})
-          }
-      }
+      let! cI# (i : tInt#) = vcount x;
+      let argument : tInt# =
+        prim +# i i;
+      let! cI# (i{1} : tInt#) = vcount y;
+      let argument{1} : tInt# =
+        prim +# i{1} i{1};
+      cI# (prim -# argument argument{1})
 status: pass
 reason: >-
   The demand pass evaluates each strict argument in a case.

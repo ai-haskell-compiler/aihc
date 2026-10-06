@@ -59,10 +59,8 @@ expected: |-
 
   pub val 1.vfreeze :: ∀(v : sType 2.→ sType) (a : sType) (s : sType). t$Dict$Vec v a 2.→ tMutable v s a 2.→ v a
     = Λ(v : sType 2.→ sType) (a : sType) (s : sType). λ($d0 : t$Dict$Vec v a).
-      case $d0 of {
-        c$Dict$Vec ($method0 : ∀(s{1} : sType). tMutable v s{1} a 2.→ v a) →
-          $method0 @s
-      }
+      let! c$Dict$Vec ($method0 : ∀(s{1} : sType). tMutable v s{1} a 2.→ v a) = $d0;
+      $method0 @s
 
   pub val 1.v$fVecVectora :: ∀(a : sType). t$Dict$Vec tVector a
     = Λ(a : sType).
@@ -70,10 +68,8 @@ expected: |-
 
   val 1.v$fVecVectora$cfreeze :: ∀(a : sType) (s : sType). tMutable tVector s a 2.→ tVector a
     = Λ(a : sType) (s : sType). λ(x : tMutable tVector s a).
-      case x of {
-        cMVector (_unpack_leaf0 : s) (x{1} : a) →
-          cVector @a x{1}
-      }
+      let! cMVector (_unpack_leaf0 : s) (x{1} : a) = x;
+      cVector @a x{1}
 reason: an unpacked field of a constructor pattern gets the constructor arguments
   from the pattern type when the scrutinee is an unreduced family application
 status: pass

@@ -46,15 +46,11 @@ expected: |-
 
   pub val 1.vloop inline :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          case y of {
-            cI# (y{1} : tInt#) →
-              let field : tInt# =
-                v$wloop x{1} y{1};
-              cI# field
-          }
-      }
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
+      let field : tInt# =
+        v$wloop x{1} y{1};
+      cI# field
 
   val 1.v$wloop :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
     = λ(x : tInt#) (y : tInt#).

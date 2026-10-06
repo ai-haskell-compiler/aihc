@@ -46,10 +46,8 @@ expected: |-
 
   pub val 1.vtypeRep :: ∀(k : sType) (a : k). t$Dict$Typeable k a 2.→ tTypeRep k a
     = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a).
-      case $d0 of {
-        c$Dict$Typeable ($method0 : tTypeRep k a) →
-          $method0
-      }
+      let! c$Dict$Typeable ($method0 : tTypeRep k a) = $d0;
+      $method0
   scope 1 = "" Test
   scope 2 = "" Type.Reflection.Internal
   scope 3 = "aihc-prim" GHC.Types
@@ -79,10 +77,8 @@ expected: |-
 
   pub val 1.vput :: ∀(a : sType). t$Dict$Binary a 3.→ a 3.→ tUnit
     = Λ(a : sType). λ($d0 : t$Dict$Binary a).
-      case $d0 of {
-        c$Dict$Binary ($method0 : a 3.→ tUnit) →
-          $method0
-      }
+      let! c$Dict$Binary ($method0 : a 3.→ tUnit) = $d0;
+      $method0
 
   pub val 1.v$fBinaryTypeRepa :: ∀(k : sType) (a : k). t$Dict$Typeable k a 3.→ t$Dict$Binary (tTypeRep k a)
     = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a).

@@ -42,16 +42,12 @@ expected: |-
 
   pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a 2.→ a 2.→ tMark
     = Λ(a : sType). λ($d0 : t$Dict$Markable a).
-      case $d0 of {
-        c$Dict$Markable ($method0 : a 2.→ tMark) →
-          $method0
-      }
+      let! c$Dict$Markable ($method0 : a 2.→ tMark) = $d0;
+      $method0
 
   pub val 1.vinspect :: tBox 2.→ tMark
     = λ(x : tBox).
-      case x of {
-        cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (value : a) →
-          vmark @a $pattern_d0 value
-      }
+      let! cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (value : a) = x;
+      vmark @a $pattern_d0 value
 status: pass
 reason: ''

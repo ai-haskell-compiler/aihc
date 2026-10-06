@@ -47,28 +47,20 @@ expected: |-
 
   pub val 1.vtoFirst :: tPair 2.→ tInt
     = λ(x : tPair).
-      case x of {
-        cPair (a : tInt) (_pat : tInt) →
-          a
-      }
+      let! cPair (a : tInt) (_pat : tInt) = x;
+      a
 
   pub val 1.vviewed :: tBoxed 2.→ tInt
     = λ(x : tBoxed).
-      case x of {
-        cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) →
-          vtoFirst (cPair _unpack_leaf0 _unpack_leaf1)
-      }
+      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) = x;
+      vtoFirst (cPair _unpack_leaf0 _unpack_leaf1)
 
   pub val 1.valiased :: tBoxed 2.→ tPair
     = λ(x : tBoxed).
-      case x of {
-        cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) →
-          let _pat{1} : tPair =
-            cPair _unpack_leaf0 _unpack_leaf1;
-          case _pat{1} of {
-            cPair (_pat{2} : tInt) (_pat{3} : tInt) →
-              _pat{1}
-          }
-      }
+      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) = x;
+      let _pat{1} : tPair =
+        cPair _unpack_leaf0 _unpack_leaf1;
+      let! cPair (_pat{2} : tInt) (_pat{3} : tInt) = _pat{1};
+      _pat{1}
 status: pass
 reason: A view pattern or an as-pattern on an unpacked field rebuilds the field instead of flattening it.

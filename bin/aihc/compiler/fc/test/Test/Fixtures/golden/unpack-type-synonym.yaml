@@ -46,16 +46,12 @@ expected: |-
 
   pub val 1.vbuild :: tPair tInt 2.→ tBoxed
     = λ(_strict_field : tPair tInt).
-      case _strict_field of {
-        cPair (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) →
-          cBoxed _unpack_leaf0 _unpack_leaf1
-      }
+      let! cPair (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) = _strict_field;
+      cBoxed _unpack_leaf0 _unpack_leaf1
 
   pub val 1.vunwrap :: tBoxed 2.→ tPair tInt
     = λ(x : tBoxed).
-      case x of {
-        cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) →
-          cPair @tInt _unpack_leaf0 _unpack_leaf1
-      }
+      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) = x;
+      cPair @tInt _unpack_leaf0 _unpack_leaf1
 status: pass
 reason: UNPACK looks through a type synonym and rebuilds the product with its type arguments.

@@ -37,9 +37,7 @@ expected: |-
   pub val 1.vselect :: ∀(m : sType 3.→ sType) (a : sType). t$Dict$Monad m 3.→ m (tPair a) 3.→ m a
     = Λ(m : sType 3.→ sType) (a : sType). λ($d0 : t$Dict$Monad m) (x : m (tPair a)).
       v>>= @m @(tPair a) @a $d0 x (λ(_pat : tPair a).
-        case _pat of {
-          cPair (first : a) (_pat{1} : a) →
-            vreturn @m @a $d0 first
-        })
+        let! cPair (first : a) (_pat{1} : a) = _pat;
+        vreturn @m @a $d0 first)
 status: pass
 reason: desugars a constructor pattern in do notation with primitive built-ins

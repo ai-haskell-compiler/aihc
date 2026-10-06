@@ -35,9 +35,7 @@ expected: |-
 
   pub val 1.vcast :: ∀(a : sType) (b : sType). t:~: a b 2.→ a 2.→ b
     = Λ(a : sType) (b : sType). λ(x : t:~: a b) (y : a).
-      case x of {
-        cRefl ($pattern_d0 : b ~ a) →
-          y ▷ sym ($pattern_d0)
-      }
+      let! cRefl ($pattern_d0 : b ~ a) = x;
+      y ▷ sym ($pattern_d0)
 status: pass
 reason: a case alternative whose constructor refines the result binds the equality and casts its body, as a function equation does.

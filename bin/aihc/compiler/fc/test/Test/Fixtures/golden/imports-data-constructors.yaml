@@ -43,10 +43,8 @@ expected: |-
 
   pub val 1.vcount :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x of {
-        cI# (a : tInt#) →
-          cI# a
-      }
+      let! cI# (a : tInt#) = x;
+      cI# a
 
   pub val 1.vflag :: tBool 3.→ tBool
     = λ(x : tBool).

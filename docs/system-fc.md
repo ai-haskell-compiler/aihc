@@ -152,6 +152,10 @@ Use `lit (1#cIntRep) :: tInt#` for a literal expression.
 Each literal expression has its full type and runtime representation.
 Use `@(a : k)` before field binders to bind existential types in constructor alternatives.
 Require at least one alternative in each `case` expression.
+The printer shows a `case` with one alternative as a strict pattern binding.
+Example: `let! 1.cI# (n : 2.tInt#) as (w : 2.tInt) = x; body` is `case x as (w : 2.tInt) of { 1.cI# (n : 2.tInt#) → body }`.
+The body of a `let!` has the same indentation as the `let!`.
+The parser accepts the two forms and makes the same `case` expression.
 Use `absurd e return (T)` for an empty case.
 This expression evaluates `e` and reports a match failure if evaluation returns.
 Its result type is `T`.

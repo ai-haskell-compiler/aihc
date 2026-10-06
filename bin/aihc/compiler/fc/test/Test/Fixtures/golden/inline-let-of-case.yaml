@@ -45,14 +45,12 @@ expected: |-
 
   pub val 1.vpick :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x of {
-        cI# (n : tInt#) →
-          case prim ==# n lit (0#cIntRep) :: tInt# of {
-            1#cIntRep →
-              cI# lit (1#cIntRep) :: tInt#;
-            _ →
-              x
-          }
+      let! cI# (n : tInt#) = x;
+      case prim ==# n lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cI# lit (1#cIntRep) :: tInt#;
+        _ →
+          x
       }
 status: pass
 reason: A strict let of a case moves into the alternatives, where a literal result selects the outer alternative.

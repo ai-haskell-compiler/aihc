@@ -35,10 +35,8 @@ expected: |-
 
   pub val 1.vunbox :: ∀(a : sType). tBox a 2.→ a
     = Λ(a : sType). λ(x : tBox a).
-      case x of {
-        cBox (x{1} : a) →
-          x{1}
-      }
+      let! cBox (x{1} : a) = x;
+      x{1}
 status: pass
 reason: An eta-reduced synonym keeps the arrows after its parameters as the
   binders of a type constructor kind, so its body has the declared kind.

@@ -59,35 +59,31 @@ expected: |-
 
   val 1.vstep inline :: tState 2.→ tBool 2.→ tState
     = λ(x : tState) (y : tBool).
-      case x of {
-        cState (a : tBool) (b : tBool) (c : tBool) →
-          case y of {
+      let! cState (a : tBool) (b : tBool) (c : tBool) = x;
+      case y of {
+        cTrue →
+          cState b c a;
+        cFalse →
+          case a of {
             cTrue →
-              cState b c a;
+              cState c a b;
             cFalse →
-              case a of {
-                cTrue →
-                  cState c a b;
-                cFalse →
-                  cState a c b
-              }
+              cState a c b
           }
       }
 
   pub val 1.vrun :: tState 2.→ tBool 2.→ tState
     = λ(x : tState) (y : tBool).
-      case x of {
-        cState (_pat : tBool) (_pat{1} : tBool) (_pat{2} : tBool) →
-          case y of {
+      let! cState (_pat : tBool) (_pat{1} : tBool) (_pat{2} : tBool) = x;
+      case y of {
+        cTrue →
+          cState _pat{1} _pat{2} _pat;
+        cFalse →
+          case _pat of {
             cTrue →
-              cState _pat{1} _pat{2} _pat;
+              cState _pat{2} _pat _pat{1};
             cFalse →
-              case _pat of {
-                cTrue →
-                  cState _pat{2} _pat _pat{1};
-                cFalse →
-                  cState _pat _pat{2} _pat{1}
-              }
+              cState _pat _pat{2} _pat{1}
           }
       }
 

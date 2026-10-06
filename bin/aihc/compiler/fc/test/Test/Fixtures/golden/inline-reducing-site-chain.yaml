@@ -52,36 +52,34 @@ expected: |-
 
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tState
     = λ(x : tBool) (y : tBool) (z : tBool).
-      case case x of {
+      let! cState (a : tBool) (b : tBool) (c : tBool) =
+        case x of {
+          cTrue →
+            cState y z x;
+          cFalse →
+            cState x z y
+        };
+      let! cState (a{1} : tBool) (b{1} : tBool) (c{1} : tBool) =
+        case y of {
+          cTrue →
+            cState b c a;
+          cFalse →
+            case a of {
+              cTrue →
+                cState c a b;
+              cFalse →
+                cState a c b
+            }
+        };
+      case z of {
         cTrue →
-          cState y z x;
+          cState b{1} c{1} a{1};
         cFalse →
-          cState x z y
-      } of {
-        cState (a : tBool) (b : tBool) (c : tBool) →
-          case case y of {
+          case a{1} of {
             cTrue →
-              cState b c a;
+              cState c{1} a{1} b{1};
             cFalse →
-              case a of {
-                cTrue →
-                  cState c a b;
-                cFalse →
-                  cState a c b
-              }
-          } of {
-            cState (a{1} : tBool) (b{1} : tBool) (c{1} : tBool) →
-              case z of {
-                cTrue →
-                  cState b{1} c{1} a{1};
-                cFalse →
-                  case a{1} of {
-                    cTrue →
-                      cState c{1} a{1} b{1};
-                    cFalse →
-                      cState a{1} c{1} b{1}
-                  }
-              }
+              cState a{1} c{1} b{1}
           }
       }
 status: pass

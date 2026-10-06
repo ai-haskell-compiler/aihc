@@ -34,10 +34,8 @@ expected: |-
 
   val 1.vstep :: ∀(a : sType). t$Dict$Step a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$Step a).
-      case $d0 of {
-        c$Dict$Step ($method0 : a 2.→ a) →
-          $method0
-      }
+      let! c$Dict$Step ($method0 : a 2.→ a) = $d0;
+      $method0
 
   pub val 1.vtwice :: ∀(a : sType). t$Dict$Step a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$Step a) (x : a).
