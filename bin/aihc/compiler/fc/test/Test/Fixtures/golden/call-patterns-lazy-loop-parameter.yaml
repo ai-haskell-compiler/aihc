@@ -59,15 +59,15 @@ expected: |-
             $sgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# (tList tInt)) =
               λ(x{1} : tInt#) (y{1} : tInt#).
                 let x{2} : tInt =
-                  cI# x{1};
-                case y{1} return (tList tInt) of {
-                  1#cIntRep →
-                    cCons @tInt (x x{2}) (cNil @tInt);
-                  _ →
-                    cCons @tInt (x x{2}) ($sgo (prim *# x{1} 3#cIntRep) (prim -# y{1} 1#cIntRep))
-                }
+                    cI# x{1};
+                  case y{1} return (tList tInt) of {
+                    1#cIntRep →
+                      cCons @tInt (x x{2}) (cNil @tInt);
+                    _ →
+                      cCons @tInt (x x{2}) ($sgo (prim *# x{1} 3#cIntRep) (prim -# y{1} 1#cIntRep))
+                  }
           } in
-          $sgo (prim +# s0 1#cIntRep) 10#cIntRep
+            $sgo (prim +# s0 1#cIntRep) 10#cIntRep
       }
 status: pass
 reason: The loop uses its counter only in lazy arguments, so the worker/wrapper split leaves the box. Every call gives the constructor, so the copy takes the field, and the recursive call computes the next field without a thunk. The copy builds the box only for the uses of the parameter.

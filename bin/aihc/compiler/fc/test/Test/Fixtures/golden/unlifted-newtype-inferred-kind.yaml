@@ -55,17 +55,17 @@ expected: |-
   pub val 1.vnew :: ∀(s : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# s) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s))
     = Λ(s : sType). λ(x : tState# s).
       let _case : tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tMutableByteArray# s) =
-        prim newByteArray# @s 8#cIntRep x;
-      case _case return (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s)) of {
-        cTuple2# (s2 : tState# s) (arr : tMutableByteArray# s) →
-          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sUnliftedRep @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
-      }
+          prim newByteArray# @s 8#cIntRep x;
+        case _case return (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s)) of {
+          cTuple2# (s2 : tState# s) (arr : tMutableByteArray# s) →
+            cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sUnliftedRep @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
+        }
 
   pub val 1.vget :: ∀(s : sType). FUN @sUnliftedRep @sLiftedRep (tCounter s) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# s) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# s) tInt#))
     = Λ(s : sType). λ(x : tCounter s).
       let arr : tMutableByteArray# s =
-        x ▷ axiom-co $ax$Counter @s;
-      λ(_foreign_argument : tState# s).
-        prim readIntArray# @s arr 0#cIntRep _foreign_argument
+          x ▷ axiom-co $ax$Counter @s;
+        λ(_foreign_argument : tState# s).
+          prim readIntArray# @s arr 0#cIntRep _foreign_argument
 status: pass
 reason: A newtype without a kind signature takes the kind of its field, so an UnliftedNewtypes axiom relates two types of one kind.

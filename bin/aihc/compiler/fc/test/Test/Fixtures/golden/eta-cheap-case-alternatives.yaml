@@ -46,8 +46,8 @@ expected: |-
       case x return (t[] tBool) of {
         cTrue →
           let prefix : t[] tBool 2.→ t[] tBool =
-            vcons cTrue;
-          prefix eta{1};
+              vcons cTrue;
+            prefix eta{1};
         cFalse →
           vcons x eta{1}
       }

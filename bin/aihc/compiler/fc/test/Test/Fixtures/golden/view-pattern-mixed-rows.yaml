@@ -78,28 +78,28 @@ expected: |-
   pub val 1.vclassify :: tShape 2.→ tLabel
     = λ(x : tShape).
       let _fail : tLabel =
-        case visRound x return (tLabel) of {
-          cTrue →
-            cB;
-          _ →
-            case vflag x return (tLabel) of {
-              cTrue →
-                cC;
-              _ →
-                cD
-            }
-        };
-      case x return (tLabel) of {
-        cCircle (_pat : tBool) →
-          case _pat return (tLabel) of {
+          case visRound x return (tLabel) of {
             cTrue →
-              cA;
+              cB;
             _ →
-              _fail
+              case vflag x return (tLabel) of {
+                cTrue →
+                  cC;
+                _ →
+                  cD
+              }
           };
-        _ →
-          _fail
-      }
+        case x return (tLabel) of {
+          cCircle (_pat : tBool) →
+            case _pat return (tLabel) of {
+              cTrue →
+                cA;
+              _ →
+                _fail
+            };
+          _ →
+            _fail
+        }
 
   pub val 1.vguarded :: tShape 2.→ tLabel
     = λ(x : tShape).

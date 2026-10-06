@@ -58,14 +58,14 @@ expected: |-
               case prim <# a b return (tPair) of {
                 1#cIntRep →
                   let box : tInt =
-                    cI# a;
-                  cPair box box;
+                      cI# a;
+                    cPair box box;
                 _ →
                   case prim <# b 0#cIntRep return (tPair) of {
                     1#cIntRep →
                       let box : tInt =
-                        cI# a;
-                      cPair box (cI# b);
+                          cI# a;
+                        cPair box (cI# b);
                     _ →
                       cPair (cI# b) (cI# b)
                   }

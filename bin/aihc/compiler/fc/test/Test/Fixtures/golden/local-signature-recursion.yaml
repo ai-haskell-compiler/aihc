@@ -39,6 +39,6 @@ expected: |-
                 go @a{1} (c: @a{1} value x{1}) rest
             }
       } in
-      go @a (c[] @a) x
+        go @a (c[] @a) x
 status: pass
 reason: ''

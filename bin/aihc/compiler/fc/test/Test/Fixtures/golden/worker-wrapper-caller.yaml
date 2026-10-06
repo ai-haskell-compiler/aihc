@@ -67,18 +67,18 @@ expected: |-
       case x return (tInt) of {
         cI# (x{1} : tInt#) →
           let y : tInt# =
-            case x{1} return (tInt#) of {
+              case x{1} return (tInt#) of {
+                0#cIntRep →
+                  x{1};
+                _ →
+                  prim +# x{1} x{1}
+              };
+            cI# (case x{1} return (tInt#) of {
               0#cIntRep →
-                x{1};
+                y;
               _ →
-                prim +# x{1} x{1}
-            };
-          cI# (case x{1} return (tInt#) of {
-            0#cIntRep →
-              y;
-            _ →
-              prim +# x{1} y
-          })
+                prim +# x{1} y
+            })
       }
 status: pass
 reason: The growing inliner copies the wrapper at each call, where the case of the wrapper on a constructor argument reduces. The worker is small, so it is copied too, and no box of an argument is left.

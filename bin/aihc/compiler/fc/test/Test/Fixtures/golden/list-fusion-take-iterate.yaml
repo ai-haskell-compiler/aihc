@@ -129,15 +129,15 @@ expected: |-
                 x y{1} (go ys)
             }
       } in
-      go z
+        go z
 
   val 1.viterate :: ∀(a : sType). (a 3.→ a) 3.→ a 3.→ tList a
     = Λ(a : sType). λ(x : a 3.→ a) (y : a).
       cCons @a y (rec {
-          go : a 3.→ tList a =
-            λ(x{1} : a).
-              cCons @a x{1} (go (x x{1}))
-        } in
+        go : a 3.→ tList a =
+          λ(x{1} : a).
+            cCons @a x{1} (go (x x{1}))
+      } in
         go (x y))
 
   val 1.viterateFB inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ (a 3.→ a) 3.→ a 3.→ b
@@ -147,7 +147,7 @@ expected: |-
           λ(x{1} : a).
             x x{1} (go (y x{1}))
       } in
-      go z
+        go z
 
   val 1.vtake :: ∀(a : sType). tInt 3.→ tList a 3.→ tList a
     = Λ(a : sType). λ(x : tInt) (y : tList a).
@@ -217,24 +217,24 @@ expected: |-
               cZ;
             _ →
               let x{1} : tNat 3.→ tNat 3.→ tNat =
-                λ(_pat : tNat) (r : tNat).
-                  cS r;
-              rec {
-                go : tNat 3.→ tInt 3.→ tNat =
-                  λ(x{2} : tNat) (eta : tInt).
-                    case eta return (tNat) of {
-                      cI# (k{1} : tInt#) →
-                        case k{1} return (tNat) of {
-                          1#cIntRep →
-                            x{1} x{2} cZ;
-                          _ →
-                            x{1} x{2} (let argument : tInt# =
-                                prim -# k{1} 1#cIntRep;
-                              go (cS x{2}) (cI# argument))
-                        }
-                    }
-              } in
-              go y x
+                  λ(_pat : tNat) (r : tNat).
+                    cS r;
+                rec {
+                  go : tNat 3.→ tInt 3.→ tNat =
+                    λ(x{2} : tNat) (eta : tInt).
+                      case eta return (tNat) of {
+                        cI# (k{1} : tInt#) →
+                          case k{1} return (tNat) of {
+                            1#cIntRep →
+                              x{1} x{2} cZ;
+                            _ →
+                              x{1} x{2} (let argument : tInt# =
+                                  prim -# k{1} 1#cIntRep;
+                                go (cS x{2}) (cI# argument))
+                          }
+                      }
+                } in
+                  go y x
           }
       }
 
@@ -266,7 +266,7 @@ expected: |-
                         }
                     }
               } in
-              go y x
+                go y x
           }
       }
 

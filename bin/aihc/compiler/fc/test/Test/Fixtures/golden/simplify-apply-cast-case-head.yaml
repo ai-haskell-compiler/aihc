@@ -86,13 +86,13 @@ expected: |-
                           ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s';
                         _ →
                           let argument : tInt# =
-                            prim +# _pat{1} -1#cIntRep;
-                          ((go (cI# argument)) ▷ axiom-co $ax$IO @tInt) s'
+                              prim +# _pat{1} -1#cIntRep;
+                            ((go (cI# argument)) ▷ axiom-co $ax$IO @tInt) s'
                       }
                   }
               }) ▷ sym (axiom-co $ax$IO @tInt)
       } in
-      (λ(s : tState# tRealWorld).
-        ((go x) ▷ axiom-co $ax$IO @tInt) s) ▷ sym (axiom-co $ax$IO @tInt)
+        (λ(s : tState# tRealWorld).
+          ((go x) ▷ axiom-co $ax$IO @tInt) s) ▷ sym (axiom-co $ax$IO @tInt)
 status: pass
 reason: The continuation of 'thenIO' is a case whose alternatives give IO actions. After the inliner copies 'thenIO', the state token is applied to a cast of that case. The simplifier moves the cast and the application into the alternatives, so the recursive call of 'go' gives the state token directly and the lowered loop calls it with all its arguments. Every call of 'go' gives two arguments, so its second lambda is entered once per call, and the continuation moves under it from its let.

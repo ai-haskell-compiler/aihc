@@ -97,19 +97,19 @@ expected: |-
                 }
             }
       } in
-      rec {
-        walk : t[] tSome 3.→ tInt =
-          λ(x{1} : t[] tSome).
-            case x{1} return (tInt) of {
-              c[] →
-                cI# 0#cIntRep;
-              c: (_pat : tSome) (rest : t[] tSome) →
-                case _pat return (tInt) of {
-                  cSome @(a : sType) ($pattern_d0 : t$Dict$Weight a) (v : a) →
-                    go @a $pattern_d0 (cI# 3#cIntRep) v (walk rest)
-                }
-            }
-      } in
-      walk x
+        rec {
+          walk : t[] tSome 3.→ tInt =
+            λ(x{1} : t[] tSome).
+              case x{1} return (tInt) of {
+                c[] →
+                  cI# 0#cIntRep;
+                c: (_pat : tSome) (rest : t[] tSome) →
+                  case _pat return (tInt) of {
+                    cSome @(a : sType) ($pattern_d0 : t$Dict$Weight a) (v : a) →
+                      go @a $pattern_d0 (cI# 3#cIntRep) v (walk rest)
+                  }
+              }
+        } in
+          walk x
 status: pass
 reason: The call of 'go' gives the dictionary that the constructor pattern binds, which is not in scope where 'go' is bound, so the pass makes no copy.

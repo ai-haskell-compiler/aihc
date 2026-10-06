@@ -528,18 +528,17 @@ prettyExprWith scopes expr =
     ExLam {} -> prettyLambda scopes expr
     ExTyLam {} -> prettyLambda scopes expr
     ExLet bind body ->
-      "let " <> prettyBind scopes bind <> ";" <> hardline <> prettyExprWith scopes body
+      "let " <> nest 2 (prettyBind scopes bind <> ";" <> hardline <> prettyLetBody scopes body)
     ExRec binds body ->
       "rec {"
         <> hardline
         <> prettyIndentedItems 2 (map (prettyBind scopes) binds)
         <> hardline
         <> "} in"
-        <> hardline
-        <> prettyExprWith scopes body
+        <> nest 2 (hardline <> prettyExprWith scopes body)
     ExCase scrutinee binder resultType (NE.toList -> alts) ->
       "case "
-        <> prettyExprHung scopes scrutinee
+        <> prettyExprWith scopes scrutinee
         <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
         <> " return "
         <> parens (prettyTypeWith scopes PrecForAll resultType)
@@ -580,14 +579,12 @@ prettyLambda scopes expression =
     finish [document] = [document <> "."]
     finish (document : rest) = document : finish rest
 
--- | An expression that starts in the middle of a line. A case, a lambda and
--- a binding already indent their own contents by 2. A let has no indent of
--- its own, so its continuation lines hang by 2 here.
-prettyExprHung :: ScopeIndex -> Expr -> Doc ann
-prettyExprHung scopes expr =
+-- | The body of a let. Directly nested lets share the indent of the first
+-- one, so a chain of lets does not drift to the right.
+prettyLetBody :: ScopeIndex -> Expr -> Doc ann
+prettyLetBody scopes expr =
   case expr of
-    ExLet {} -> nest 2 (prettyExprWith scopes expr)
-    ExRec {} -> nest 2 (prettyExprWith scopes expr)
+    ExLet bind body -> "let " <> prettyBind scopes bind <> ";" <> hardline <> prettyLetBody scopes body
     _ -> prettyExprWith scopes expr
 
 prettyApp :: ScopeIndex -> Expr -> Doc ann
@@ -602,7 +599,7 @@ prettyExprAtom scopes expr =
   case expr of
     ExVar {} -> prettyExprWith scopes expr
     ExLit {} -> prettyExprWith scopes expr
-    _ -> parens (prettyExprHung scopes expr)
+    _ -> parens (prettyExprWith scopes expr)
 
 prettyBind :: ScopeIndex -> Bind -> Doc ann
 prettyBind scopes bind =

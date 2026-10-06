@@ -47,8 +47,8 @@ expected: |-
   pub val 1.vrun :: (tInt 2.→ tInt) 2.→ tInt 2.→ tInt
     = λ(x : tInt 2.→ tInt) (y : tInt).
       let s : tInt =
-        x y;
-      vplus (x s) (x s)
+          x y;
+        vplus (x s) (x s)
 status: pass
 lint: pass
 reason: The case of a known constructor binds the field of an existential constructor to a let. The type of the let binder is the existential type that the constructor application gives, Int, and not the type variable of the alternative, which no longer has a binder.

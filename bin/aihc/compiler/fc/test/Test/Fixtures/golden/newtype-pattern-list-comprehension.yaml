@@ -55,7 +55,7 @@ expected: |-
                 c: @tInt (_pat ▷ axiom-co $ax$Wrap) (_list_comp _list_comp_tail)
             }
       } in
-      _list_comp x
+        _list_comp x
 status: pass
 reason: A newtype constructor pattern in a list comprehension generator
   unwraps the element with the newtype axiom and no type arguments.

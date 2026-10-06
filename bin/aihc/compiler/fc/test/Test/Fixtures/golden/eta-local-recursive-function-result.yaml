@@ -49,21 +49,21 @@ expected: |-
   pub val 1.vrun :: tNat 3.→ tInt 3.→ tNat
     = λ(x : tNat).
       let step : tNat 3.→ (tInt 3.→ tNat) 3.→ tInt 3.→ tNat =
-        λ(x{1} : tNat) (y : tInt 3.→ tNat) (z : tInt).
-          case z return (tNat) of {
-            cI# (_pat : tInt#) →
-              case x{1} return (tNat) of {
-                cZ →
-                  y z;
-                cS (_pat{1} : tNat) →
-                  x{1}
-              }
-          };
-      rec {
-        go : tNat 3.→ tInt 3.→ tNat =
-          λ(x{1} : tNat) (eta{2} : tInt).
-            step x{1} (go (cS x{1})) eta{2}
-      } in
-      go x
+          λ(x{1} : tNat) (y : tInt 3.→ tNat) (z : tInt).
+            case z return (tNat) of {
+              cI# (_pat : tInt#) →
+                case x{1} return (tNat) of {
+                  cZ →
+                    y z;
+                  cS (_pat{1} : tNat) →
+                    x{1}
+                }
+            };
+        rec {
+          go : tNat 3.→ tInt 3.→ tNat =
+            λ(x{1} : tNat) (eta{2} : tInt).
+              step x{1} (go (cS x{1})) eta{2}
+        } in
+          go x
 status: pass
 reason: The local loop calls a step of three arguments with two. Under the guess that the loop takes two arguments, its own call is a partial application, so the loop expands to two arguments and builds no closure for each step.

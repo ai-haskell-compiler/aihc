@@ -55,7 +55,7 @@ expected: |-
   val 1.v$wbox :: FUN @cIntRep @(cBoxedRep cLifted) tInt# tBox
     = λ(x : tInt#).
       let argument : tInt# =
-        prim +# x 1#cIntRep;
-      cBox (cI# argument)
+          prim +# x 1#cIntRep;
+        cBox (cI# argument)
 status: pass
 reason: The one field of Box is lifted and lazy. A worker that returned it as it is would make the wrapper evaluate it, so the result keeps its constructor. The worker still takes the Int# field of its parameter.

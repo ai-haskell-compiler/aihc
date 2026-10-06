@@ -59,19 +59,19 @@ expected: |-
   pub val 1.vboth :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool).
       let x{1} : tBool 2.→ tBool =
-        vchoose x;
-      let y : tBool 2.→ tBool =
-        vchoose x;
-      λ(x{2} : tBool).
-        x{1} (y x{2})
+          vchoose x;
+        let y : tBool 2.→ tBool =
+          vchoose x;
+        λ(x{2} : tBool).
+          x{1} (y x{2})
 
   pub val 1.vother :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool).
       let x{1} : tBool 2.→ tBool =
-        vchoose x;
-      let y : tBool 2.→ tBool =
-        vchoose cTrue;
-      λ(x{2} : tBool).
-        x{1} (y x{2})
+          vchoose x;
+        let y : tBool 2.→ tBool =
+          vchoose cTrue;
+        λ(x{2} : tBool).
+          x{1} (y x{2})
 status: pass
 reason: The growing policy copies a small INLINE function at a partial call with an interesting argument, also when the values it lands in have no growth left.

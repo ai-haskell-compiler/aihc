@@ -45,9 +45,9 @@ expected: |-
                           c: @(tTuple2 a b) (c(,) @a @b x{1} y{1}) (_list_comp{1} _list_comp_tail{1})
                       }
                 } in
-                _list_comp{1} y
+                  _list_comp{1} y
             }
       } in
-      _list_comp x
+        _list_comp x
 status: pass
 reason: ''

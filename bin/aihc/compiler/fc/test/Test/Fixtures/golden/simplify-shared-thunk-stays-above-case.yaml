@@ -62,18 +62,18 @@ expected: |-
       case x return (tPair) of {
         cI# (a : tInt#) →
           let lazy : tInt =
-            vslow y;
-          case prim <# a 0#cIntRep return (tPair) of {
-            1#cIntRep →
-              cPair lazy y;
-            _ →
-              case prim <# a 10#cIntRep return (tPair) of {
-                1#cIntRep →
-                  cPair y lazy;
-                _ →
-                  cPair y y
-              }
-          }
+              vslow y;
+            case prim <# a 0#cIntRep return (tPair) of {
+              1#cIntRep →
+                cPair lazy y;
+              _ →
+                case prim <# a 10#cIntRep return (tPair) of {
+                  1#cIntRep →
+                    cPair y lazy;
+                  _ →
+                    cPair y y
+                }
+            }
       }
 status: pass
 reason: Two alternatives use the thunk. A thunk can be large, so the let does not move into both alternatives. It stays above the case.

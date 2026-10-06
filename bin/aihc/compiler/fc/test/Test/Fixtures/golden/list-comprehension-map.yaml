@@ -35,6 +35,6 @@ expected: |-
                 c: @b (x x{1}) (_list_comp _list_comp_tail)
             }
       } in
-      _list_comp y
+        _list_comp y
 status: pass
 reason: ''

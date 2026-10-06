@@ -60,15 +60,15 @@ expected: |-
   pub val 1.vboth :: ∀(a : sType). t$Dict$Child a 2.→ a 2.→ a 2.→ tFlag
     = Λ(a : sType). λ($d0 : t$Dict$Child a) (x : a) (y : a).
       let $super : t$Dict$Parent a =
-        case $d0 return (t$Dict$Parent a) of {
-          c$Dict$Child ($super_field0 : t$Dict$Parent a) ($super_field1 : a 2.→ tFlag) →
-            $super_field0
-        };
-      case vparent @a $super x return (tFlag) of {
-        cOff →
-          vparent @a $super y;
-        cOn →
-          vchild @a $d0 x
-      }
+          case $d0 return (t$Dict$Parent a) of {
+            c$Dict$Child ($super_field0 : t$Dict$Parent a) ($super_field1 : a 2.→ tFlag) →
+              $super_field0
+          };
+        case vparent @a $super x return (tFlag) of {
+          cOff →
+            vparent @a $super y;
+          cOn →
+            vchild @a $d0 x
+        }
 status: pass
 reason: One binding selects the parent dictionary once for both uses.

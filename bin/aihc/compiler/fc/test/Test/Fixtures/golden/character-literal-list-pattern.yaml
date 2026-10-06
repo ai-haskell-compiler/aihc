@@ -42,36 +42,36 @@ expected: |-
   pub val 1.vfirstSpace :: t[] tChar 3.→ tChar
     = λ(x : t[] tChar).
       let _fail : tChar =
-        cC# 'n'#cWordRep;
-      case x return (tChar) of {
-        c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat return (tChar) of {
-            cC# (_pat{2} : tChar#) →
-              case _pat{2} return (tChar) of {
-                ' '#cWordRep →
-                  cC# 'y'#cWordRep;
-                _ →
-                  _fail
-              }
-          };
-        _ →
-          _fail
-      }
+          cC# 'n'#cWordRep;
+        case x return (tChar) of {
+          c: (_pat : tChar) (_pat{1} : t[] tChar) →
+            case _pat return (tChar) of {
+              cC# (_pat{2} : tChar#) →
+                case _pat{2} return (tChar) of {
+                  ' '#cWordRep →
+                    cC# 'y'#cWordRep;
+                  _ →
+                    _fail
+                }
+            };
+          _ →
+            _fail
+        }
 
   pub val 1.vemptyTail :: t[] tChar 3.→ tChar
     = λ(x : t[] tChar).
       let _fail : tChar =
-        cC# 'n'#cWordRep;
-      case x return (tChar) of {
-        c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat{1} return (tChar) of {
-            c[] →
-              cC# 'y'#cWordRep;
-            _ →
-              _fail
-          };
-        _ →
-          _fail
-      }
+          cC# 'n'#cWordRep;
+        case x return (tChar) of {
+          c: (_pat : tChar) (_pat{1} : t[] tChar) →
+            case _pat{1} return (tChar) of {
+              c[] →
+                cC# 'y'#cWordRep;
+              _ →
+                _fail
+            };
+          _ →
+            _fail
+        }
 status: pass
 reason: Character literals in constructor patterns retain their checked types.

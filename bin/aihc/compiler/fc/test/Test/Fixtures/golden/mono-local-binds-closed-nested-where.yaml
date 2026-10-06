@@ -88,11 +88,11 @@ expected: |-
   pub val 1.vrun :: tInt 3.→ 1.tUnit
     = λ(x : tInt).
       let go : ∀(a : sType) (b : sType). tRef a 3.→ b 3.→ tST a 1.tUnit =
-        Λ(a : sType) (b : sType). λ(x{1} : tRef a) (x{2} : b).
-          vwrite @a @b x{1} x{2};
-      vrunST @1.tUnit (Λ(s : sType).
-        vbind @s @(tRef s) @1.tUnit (vnewRef @s) (λ(r : tRef s).
-          go @s @tInt r x))
+          Λ(a : sType) (b : sType). λ(x{1} : tRef a) (x{2} : b).
+            vwrite @a @b x{1} x{2};
+        vrunST @1.tUnit (Λ(s : sType).
+          vbind @s @(tRef s) @1.tUnit (vnewRef @s) (λ(r : tRef s).
+            go @s @tInt r x))
 status: pass
 reason: a where-bound helper with a nested where block is closed, so it
   generalizes over the state variable under MonoLocalBinds. The helper then

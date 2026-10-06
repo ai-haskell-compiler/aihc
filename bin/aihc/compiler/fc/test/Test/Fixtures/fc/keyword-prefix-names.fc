@@ -9,10 +9,10 @@ pub type 1.tFlag :: 2.tType {
 pub val 1.vtoggle :: tFlag 2.→ tFlag
   = λ(letter : tFlag).
     let recent : tFlag =
-      letter;
-    case recent as (cases : tFlag) return (tFlag) of {
-      cOff →
-        cOn;
-      cOn →
-        cOff
-    }
+        letter;
+      case recent as (cases : tFlag) return (tFlag) of {
+        cOff →
+          cOn;
+        cOn →
+          cOff
+      }

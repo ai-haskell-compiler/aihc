@@ -54,17 +54,17 @@ expected: |-
   pub val 1.vpick :: tChoice 2.→ tBool 2.→ tPair
     = λ(x : tChoice) (y : tBool).
       let shared : tBool =
-        case x return (tBool) of {
+          case x return (tBool) of {
+            cA →
+              vopaque y;
+            _ →
+              vopaque (vopaque y)
+          };
+        case x return (tPair) of {
           cA →
-            vopaque y;
+            cPair shared shared;
           _ →
-            vopaque (vopaque y)
-        };
-      case x return (tPair) of {
-        cA →
-          cPair shared shared;
-        _ →
-          cPair shared shared
-      }
+            cPair shared shared
+        }
 status: pass
 reason: The simplifier keeps the shared case when a copy can increase cost.

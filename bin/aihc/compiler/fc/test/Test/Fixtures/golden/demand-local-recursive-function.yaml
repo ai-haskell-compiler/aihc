@@ -76,6 +76,6 @@ expected: |-
                 }
             }
       } in
-      go x (cI# 0#cIntRep)
+        go x (cI# 0#cIntRep)
 status: pass
 reason: A local recursive function gets a signature from the same fixpoint as a top-level value. 'go' is strict in its accumulator, so the call 'add acc m' inside 'go' is evaluated before the recursive call.

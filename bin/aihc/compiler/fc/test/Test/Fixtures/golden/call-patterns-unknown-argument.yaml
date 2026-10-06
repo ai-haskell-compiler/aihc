@@ -64,7 +64,7 @@ expected: |-
                     cCons @tInt x{1} (go (x x{1}) (prim -# y{1} 1#cIntRep))
                 }
           } in
-          go (cI# (prim +# s0 1#cIntRep)) 10#cIntRep
+            go (cI# (prim +# s0 1#cIntRep)) 10#cIntRep
       }
 status: pass
 reason: The recursive call gives the result of an unknown function, which is not known to be the constructor. A copy would have to evaluate that result before the call, so the loop stays as it is.

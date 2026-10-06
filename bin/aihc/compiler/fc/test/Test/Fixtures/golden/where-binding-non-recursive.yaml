@@ -58,8 +58,8 @@ expected: |-
   pub val 1.vpair :: tInt 3.→ tPair
     = λ(x : tInt).
       let size : tInt =
-        cI# 3#cIntRep;
-      cPair size (cBox size)
+          cI# 3#cIntRep;
+        cPair size (cBox size)
 
   pub val 1.vones :: tInt 3.→ tStream
     = λ(x : tInt).
@@ -67,6 +67,6 @@ expected: |-
         stream : tStream =
           cCons x stream
       } in
-      stream
+        stream
 status: pass
 reason: A where binding that refers only to earlier bindings is a plain let; a binding that refers to itself stays a recursive group.

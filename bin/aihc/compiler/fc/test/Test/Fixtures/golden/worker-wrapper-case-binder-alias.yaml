@@ -76,7 +76,7 @@ expected: |-
                     }
                 }
           } in
-          cI# ($wgo x{1} x{2} z)
+            cI# ($wgo x{1} x{2} z)
       }
 status: pass
 reason: The bang pattern evaluates the cursor with a case, and a later case takes apart the binder of that case. The binder is the same value, so the worker takes the fields of the cursor.

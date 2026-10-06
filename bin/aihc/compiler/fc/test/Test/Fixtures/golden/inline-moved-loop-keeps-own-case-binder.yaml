@@ -87,7 +87,7 @@ expected: |-
                     }
                 }
           } in
-          vkeep x (go y);
+            vkeep x (go y);
         cB →
           cNil
       }

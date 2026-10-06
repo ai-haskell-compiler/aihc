@@ -43,6 +43,6 @@ expected: |-
                 }
             }
       } in
-      _list_comp z
+        _list_comp z
 status: pass
 reason: ''

@@ -72,8 +72,8 @@ expected: |-
               case y return (tBox) of {
                 cI# (j : tInt#) →
                   let argument : tInt# =
-                    prim +# i j;
-                  cBox (cI# argument)
+                      prim +# i j;
+                    cBox (cI# argument)
               }
           }
       }

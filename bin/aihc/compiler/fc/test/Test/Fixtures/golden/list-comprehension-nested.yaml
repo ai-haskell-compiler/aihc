@@ -50,9 +50,9 @@ expected: |-
                           }
                       }
                 } in
-                _list_comp{1} z
+                  _list_comp{1} z
             }
       } in
-      _list_comp z
+        _list_comp z
 status: pass
 reason: ''

@@ -99,12 +99,12 @@ expected: |-
 
   pub val 1.vcaseInt :: tUnit
     = let _case : tInt =
-      vfromInteger @tInt v$fNumInt (cIS 1#cIntRep);
-    case v== _case (vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)) return (tUnit) of {
-      cTrue →
-        c();
-      cFalse →
-        absurd _case return (tUnit)
-    }
+        vfromInteger @tInt v$fNumInt (cIS 1#cIntRep);
+      case v== _case (vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)) return (tUnit) of {
+        cTrue →
+          c();
+        cFalse →
+          absurd _case return (tUnit)
+      }
 status: pass
 reason: desugars concrete Int and Integer literals with primitive instances

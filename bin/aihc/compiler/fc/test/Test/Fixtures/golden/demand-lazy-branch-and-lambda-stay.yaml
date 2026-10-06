@@ -79,14 +79,14 @@ expected: |-
   pub val 1.vkeep :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt).
       let y : tInt =
-        vdouble x;
-      λ(_pat : tInt).
-        case y return (tInt) of {
-          cI# (a : tInt#) →
-            case y return (tInt) of {
-              cI# (b : tInt#) →
-                cI# (prim +# a b)
-            }
-        }
+          vdouble x;
+        λ(_pat : tInt).
+          case y return (tInt) of {
+            cI# (a : tInt#) →
+              case y return (tInt) of {
+                cI# (b : tInt#) →
+                  cI# (prim +# a b)
+              }
+          }
 status: pass
 reason: A function that evaluates an argument on one path only is lazy in it, so the two calls of 'double' in 'select' stay unevaluated arguments. A let whose body is a lambda is lazy in its binder, because the lambda is a value and its body runs only when the lambda is applied, so the let in 'keep' stays.

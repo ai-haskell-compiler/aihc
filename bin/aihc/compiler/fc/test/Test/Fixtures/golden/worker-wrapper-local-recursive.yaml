@@ -64,6 +64,6 @@ expected: |-
                 $wgo (prim +# x{1} 1#cIntRep) (x y{2}) ys
             }
       } in
-      cI# ($wgo 0#cIntRep (cI# 0#cIntRep) y)
+        cI# ($wgo 0#cIntRep (cI# 0#cIntRep) y)
 status: pass
 reason: The local loop has a free variable, so it stays local. Its worker takes the fields of the cursor, and the recursive call builds no cursor.

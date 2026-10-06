@@ -58,8 +58,8 @@ expected: |-
           case x{1} return (tBox) of {
             cI# (a : tInt#) →
               let argument : tInt# =
-                prim +# a 1#cIntRep;
-              cBox (cI# argument)
+                  prim +# a 1#cIntRep;
+                cBox (cI# argument)
           }
       }
 status: pass

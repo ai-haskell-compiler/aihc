@@ -46,110 +46,110 @@ expected: |-
   pub val 1.vreadColour :: t[] tChar 3.→ tColour
     = λ(x : t[] tChar).
       let _fail : tColour =
-        cUnknown x;
-      case x return (tColour) of {
-        c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat return (tColour) of {
-            cC# (_pat{2} : tChar#) →
-              case _pat{2} return (tColour) of {
-                'r'#cWordRep →
-                  case _pat{1} return (tColour) of {
-                    c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
-                      case _pat{3} return (tColour) of {
-                        cC# (_pat{5} : tChar#) →
-                          case _pat{5} return (tColour) of {
-                            'e'#cWordRep →
-                              case _pat{4} return (tColour) of {
-                                c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
-                                  case _pat{6} return (tColour) of {
-                                    cC# (_pat{8} : tChar#) →
-                                      case _pat{8} return (tColour) of {
-                                        'd'#cWordRep →
-                                          case _pat{7} return (tColour) of {
-                                            c[] →
-                                              cRed;
-                                            _ →
-                                              _fail
-                                          };
-                                        _ →
-                                          _fail
-                                      }
-                                  };
-                                _ →
-                                  _fail
-                              };
-                            _ →
-                              _fail
-                          }
-                      };
-                    _ →
-                      _fail
-                  };
-                'g'#cWordRep →
-                  case _pat{1} return (tColour) of {
-                    c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
-                      case _pat{3} return (tColour) of {
-                        cC# (_pat{5} : tChar#) →
-                          case _pat{5} return (tColour) of {
-                            'r'#cWordRep →
-                              case _pat{4} return (tColour) of {
-                                c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
-                                  case _pat{6} return (tColour) of {
-                                    cC# (_pat{8} : tChar#) →
-                                      case _pat{8} return (tColour) of {
-                                        'e'#cWordRep →
-                                          case _pat{7} return (tColour) of {
-                                            c: (_pat{9} : tChar) (_pat{10} : t[] tChar) →
-                                              case _pat{9} return (tColour) of {
-                                                cC# (_pat{11} : tChar#) →
-                                                  case _pat{11} return (tColour) of {
-                                                    'e'#cWordRep →
-                                                      case _pat{10} return (tColour) of {
-                                                        c: (_pat{12} : tChar) (_pat{13} : t[] tChar) →
-                                                          case _pat{12} return (tColour) of {
-                                                            cC# (_pat{14} : tChar#) →
-                                                              case _pat{14} return (tColour) of {
-                                                                'n'#cWordRep →
-                                                                  case _pat{13} return (tColour) of {
-                                                                    c[] →
-                                                                      cGreen;
-                                                                    _ →
-                                                                      _fail
-                                                                  };
-                                                                _ →
-                                                                  _fail
-                                                              }
-                                                          };
-                                                        _ →
-                                                          _fail
-                                                      };
-                                                    _ →
-                                                      _fail
-                                                  }
-                                              };
-                                            _ →
-                                              _fail
-                                          };
-                                        _ →
-                                          _fail
-                                      }
-                                  };
-                                _ →
-                                  _fail
-                              };
-                            _ →
-                              _fail
-                          }
-                      };
-                    _ →
-                      _fail
-                  };
-                _ →
-                  _fail
-              }
-          };
-        _ →
-          _fail
-      }
+          cUnknown x;
+        case x return (tColour) of {
+          c: (_pat : tChar) (_pat{1} : t[] tChar) →
+            case _pat return (tColour) of {
+              cC# (_pat{2} : tChar#) →
+                case _pat{2} return (tColour) of {
+                  'r'#cWordRep →
+                    case _pat{1} return (tColour) of {
+                      c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
+                        case _pat{3} return (tColour) of {
+                          cC# (_pat{5} : tChar#) →
+                            case _pat{5} return (tColour) of {
+                              'e'#cWordRep →
+                                case _pat{4} return (tColour) of {
+                                  c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
+                                    case _pat{6} return (tColour) of {
+                                      cC# (_pat{8} : tChar#) →
+                                        case _pat{8} return (tColour) of {
+                                          'd'#cWordRep →
+                                            case _pat{7} return (tColour) of {
+                                              c[] →
+                                                cRed;
+                                              _ →
+                                                _fail
+                                            };
+                                          _ →
+                                            _fail
+                                        }
+                                    };
+                                  _ →
+                                    _fail
+                                };
+                              _ →
+                                _fail
+                            }
+                        };
+                      _ →
+                        _fail
+                    };
+                  'g'#cWordRep →
+                    case _pat{1} return (tColour) of {
+                      c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
+                        case _pat{3} return (tColour) of {
+                          cC# (_pat{5} : tChar#) →
+                            case _pat{5} return (tColour) of {
+                              'r'#cWordRep →
+                                case _pat{4} return (tColour) of {
+                                  c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
+                                    case _pat{6} return (tColour) of {
+                                      cC# (_pat{8} : tChar#) →
+                                        case _pat{8} return (tColour) of {
+                                          'e'#cWordRep →
+                                            case _pat{7} return (tColour) of {
+                                              c: (_pat{9} : tChar) (_pat{10} : t[] tChar) →
+                                                case _pat{9} return (tColour) of {
+                                                  cC# (_pat{11} : tChar#) →
+                                                    case _pat{11} return (tColour) of {
+                                                      'e'#cWordRep →
+                                                        case _pat{10} return (tColour) of {
+                                                          c: (_pat{12} : tChar) (_pat{13} : t[] tChar) →
+                                                            case _pat{12} return (tColour) of {
+                                                              cC# (_pat{14} : tChar#) →
+                                                                case _pat{14} return (tColour) of {
+                                                                  'n'#cWordRep →
+                                                                    case _pat{13} return (tColour) of {
+                                                                      c[] →
+                                                                        cGreen;
+                                                                      _ →
+                                                                        _fail
+                                                                    };
+                                                                  _ →
+                                                                    _fail
+                                                                }
+                                                            };
+                                                          _ →
+                                                            _fail
+                                                        };
+                                                      _ →
+                                                        _fail
+                                                    }
+                                                };
+                                              _ →
+                                                _fail
+                                            };
+                                          _ →
+                                            _fail
+                                        }
+                                    };
+                                  _ →
+                                    _fail
+                                };
+                              _ →
+                                _fail
+                            }
+                        };
+                      _ →
+                        _fail
+                    };
+                  _ →
+                    _fail
+                }
+            };
+          _ →
+            _fail
+        }
 status: pass
 reason: The final variable equation after character list equations is compiled once, bound as the shared failure, and each default alternative names it.

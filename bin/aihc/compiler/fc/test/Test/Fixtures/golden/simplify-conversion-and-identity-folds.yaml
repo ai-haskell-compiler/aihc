@@ -121,11 +121,11 @@ expected: |-
   pub val 1.vreadTwice :: FUN @cAddrRep @sLiftedRep tAddr# tInt
     = λ(x : tAddr#).
       let s : tState# tRealWorld =
-        prim realWorld#;
-      case prim readIntOffAddr# @tRealWorld x 0#cIntRep s return (tInt) of {
-        cTuple2# (_pat : tState# tRealWorld) (x{1} : tInt#) →
-          case prim readIntOffAddr# @tRealWorld x 1#cIntRep s return (tInt) of {
-            cTuple2# (_pat{1} : tState# tRealWorld) (y : tInt#) →
-              cI# (prim +# x{1} y)
-          }
-      }
+          prim realWorld#;
+        case prim readIntOffAddr# @tRealWorld x 0#cIntRep s return (tInt) of {
+          cTuple2# (_pat : tState# tRealWorld) (x{1} : tInt#) →
+            case prim readIntOffAddr# @tRealWorld x 1#cIntRep s return (tInt) of {
+              cTuple2# (_pat{1} : tState# tRealWorld) (y : tInt#) →
+                cI# (prim +# x{1} y)
+            }
+        }

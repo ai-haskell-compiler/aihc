@@ -44,15 +44,15 @@ expected: |-
 
   pub val 1.vunit :: tUnit
     = let _pat_rhs : tInt =
-      vfromInteger @tInt v$fNumInt (cIS 10#cIntRep);
-    let n# : tInt# =
-      case _pat_rhs return (tInt#) of {
-        cI# (n# : tInt#) →
-          n#
-      };
-    case _pat_rhs return (tUnit) of {
-      cI# (n#{1} : tInt#) →
-        c()
-    }
+        vfromInteger @tInt v$fNumInt (cIS 10#cIntRep);
+      let n# : tInt# =
+        case _pat_rhs return (tInt#) of {
+          cI# (n# : tInt#) →
+            n#
+        };
+      case _pat_rhs return (tUnit) of {
+        cI# (n#{1} : tInt#) →
+          c()
+      }
 status: pass
 reason: a strict local constructor pattern binding lowers its bound field

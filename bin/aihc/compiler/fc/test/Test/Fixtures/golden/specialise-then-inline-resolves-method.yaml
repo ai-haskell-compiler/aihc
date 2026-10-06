@@ -94,6 +94,6 @@ expected: |-
                 })
             }
       } in
-      $sgo x (cI# 0#cIntRep)
+        $sgo x (cI# 0#cIntRep)
 status: pass
 reason: After the specialisation the dictionary in the body of 'go' is a known constructor, so the shrinking inliner resolves the method selection to the instance method and the loop calls it directly.

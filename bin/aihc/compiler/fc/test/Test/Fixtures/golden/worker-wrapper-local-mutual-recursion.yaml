@@ -74,7 +74,7 @@ expected: |-
                     }
                 }
           } in
-          $wping x{1} 0#cIntRep
+            $wping x{1} 0#cIntRep
       }
 status: pass
 reason: The two local loops call each other and have a free variable, so they stay local. Each one gets a worker that takes the fields of its counter, and a call from one loop to the other builds no box for the counter.

@@ -127,6 +127,6 @@ expected: |-
                 }
             }
       } in
-      go @tBool v$fWeightBool x y
+        go @tBool v$fWeightBool x y
 status: pass
 reason: The recursive call of 'go' gives the dictionary for lists, not its own dictionary parameter, so no copy can replace the parameter and the binding stays as it is.

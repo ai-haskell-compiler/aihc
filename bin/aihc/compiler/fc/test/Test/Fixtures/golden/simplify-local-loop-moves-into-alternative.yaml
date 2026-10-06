@@ -71,7 +71,7 @@ expected: |-
                             cNil
                         }
                   } in
-                  go k
+                    go k
               }
           }
       }

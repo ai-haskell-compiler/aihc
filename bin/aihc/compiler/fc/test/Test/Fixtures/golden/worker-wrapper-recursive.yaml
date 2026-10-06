@@ -51,8 +51,8 @@ expected: |-
           case y return (tInt) of {
             cI# (y{1} : tInt#) →
               let field : tInt# =
-                v$wloop x{1} y{1};
-              cI# field
+                  v$wloop x{1} y{1};
+                cI# field
           }
       }
 

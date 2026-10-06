@@ -104,6 +104,6 @@ expected: |-
                 $sgo ys (vplus (vweight @tBool v$fWeightBool y{1}) (vplus y (vweight @tBool v$fWeightBool y{1})))
             }
       } in
-      $sgo x (cI# 0#cIntRep)
+        $sgo x (cI# 0#cIntRep)
 status: pass
 reason: The two uses of 'weight' give 'go' two dictionary parameters of the same class, and the recursive call gives the first parameter for both slots. The one call from outside gives the same dictionary for both slots, so the copy is right.

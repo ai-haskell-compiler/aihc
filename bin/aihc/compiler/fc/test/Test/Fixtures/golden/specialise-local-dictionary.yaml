@@ -104,6 +104,6 @@ expected: |-
                 $sgo ys (vplus y (vweight @tBool v$fWeightBool y{1}))
             }
       } in
-      $sgo x (cI# 0#cIntRep)
+        $sgo x (cI# 0#cIntRep)
 status: pass
 reason: The local function 'go' is generalized over 'Weight a', and its one call gives the instance for Bool. The pass makes a copy of 'go' with that dictionary in place of the parameter, and the copy has no type or dictionary parameter.

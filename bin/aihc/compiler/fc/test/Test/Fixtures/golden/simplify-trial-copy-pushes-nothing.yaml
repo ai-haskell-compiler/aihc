@@ -113,8 +113,8 @@ expected: |-
               cFileHandle (cI# 0#cIntRep);
             _ →
               let argument : tInt# =
-                prim -# n 1#cIntRep;
-              vpick (cI# argument)
+                  prim -# n 1#cIntRep;
+                vpick (cI# argument)
           }
       }
 
@@ -127,8 +127,8 @@ expected: |-
               cTuple2# @sLiftedRep @sLiftedRep @tInt @tInt z y;
             _ →
               let argument : tInt# =
-                prim -# h 1#cIntRep;
-              vwrite (cI# argument) y z
+                  prim -# h 1#cIntRep;
+                vwrite (cI# argument) y z
           }
       }
 

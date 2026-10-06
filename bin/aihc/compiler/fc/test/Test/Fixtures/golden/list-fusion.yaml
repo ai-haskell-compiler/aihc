@@ -90,7 +90,7 @@ expected: |-
                 x y{1} (go ys)
             }
       } in
-      go z
+        go z
 
   val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
     = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).
@@ -99,15 +99,15 @@ expected: |-
           cNil @b;
         cCons (x{1} : a) (xs : tList a) →
           cCons @b (x x{1}) (rec {
-              go : tList a 2.→ tList b =
-                λ(x{2} : tList a).
-                  case x{2} return (tList b) of {
-                    cNil →
-                      cNil @b;
-                    cCons (y{1} : a) (ys : tList a) →
-                      cCons @b (x y{1}) (go ys)
-                  }
-            } in
+            go : tList a 2.→ tList b =
+              λ(x{2} : tList a).
+                case x{2} return (tList b) of {
+                  cNil →
+                    cNil @b;
+                  cCons (y{1} : a) (ys : tList a) →
+                    cCons @b (x y{1}) (go ys)
+                }
+          } in
             go xs)
       }
 
@@ -136,7 +136,7 @@ expected: |-
                 vplus (cS (cS y)) (go ys)
             }
       } in
-      go x
+        go x
 
   pub val 1.vplain :: tList tNat 2.→ tList tNat
     = λ(x : tList tNat).
@@ -150,7 +150,7 @@ expected: |-
                 cCons @tNat (cS y) (go ys)
             }
       } in
-      go x
+        go x
 
   pub val 1.vtwice :: tList tNat 2.→ tList tNat
     = λ(x : tList tNat).
@@ -164,7 +164,7 @@ expected: |-
                 cCons @tNat (cS (cS y)) (go ys)
             }
       } in
-      go x
+        go x
 
   rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
     vfoldr @a @b k z (vbuild @a (Λ(b{1} : sType).

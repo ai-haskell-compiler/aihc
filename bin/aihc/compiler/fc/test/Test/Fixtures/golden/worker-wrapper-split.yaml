@@ -55,15 +55,15 @@ expected: |-
   val 1.v$wadd :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
     = λ(x : tInt#) (y : tInt#).
       let x{1} : tInt =
-        cI# x;
-      let y{1} : tInt =
-        cI# y;
-      case x{1} return (tInt#) of {
-        cI# (a : tInt#) →
-          case y{1} return (tInt#) of {
-            cI# (b : tInt#) →
-              prim +# a b
-          }
-      }
+          cI# x;
+        let y{1} : tInt =
+          cI# y;
+        case x{1} return (tInt#) of {
+          cI# (a : tInt#) →
+            case y{1} return (tInt#) of {
+              cI# (b : tInt#) →
+                prim +# a b
+            }
+        }
 status: pass
 reason: A function that is strict in parameters of a type with one constructor and that scrutinises them splits into a worker that takes the fields and an INLINE wrapper that takes the constructors apart and calls the worker.

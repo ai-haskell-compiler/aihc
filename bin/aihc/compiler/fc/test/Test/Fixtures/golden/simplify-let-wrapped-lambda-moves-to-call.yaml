@@ -37,8 +37,8 @@ expected: |-
   pub val 1.vrun :: (t[] tChar 3.→ t[] tChar) 3.→ t[] tChar 3.→ t[] tChar
     = λ(x : t[] tChar 3.→ t[] tChar).
       let c : tChar =
-        cC# 'a'#cWordRep;
-      λ(z : t[] tChar).
-        c: @tChar c (x z)
+          cC# 'a'#cWordRep;
+        λ(z : t[] tChar).
+          c: @tChar c (x z)
 status: pass
 reason: The inner let floats out of the right side, so the right side is a lambda whose one use is a saturated call, and the lambda moves to its call.

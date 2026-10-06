@@ -43,10 +43,10 @@ expected: |-
 
   pub val 1.vunit :: tUnit
     = let n# : tInt# =
-      case vfromInteger @tInt v$fNumInt (cIS 10#cIntRep) return (tInt#) of {
-        cI# (n# : tInt#) →
-          n#
-      };
-    c()
+        case vfromInteger @tInt v$fNumInt (cIS 10#cIntRep) return (tInt#) of {
+          cI# (n# : tInt#) →
+            n#
+        };
+      c()
 status: pass
 reason: a local constructor pattern binding lowers its bound field
