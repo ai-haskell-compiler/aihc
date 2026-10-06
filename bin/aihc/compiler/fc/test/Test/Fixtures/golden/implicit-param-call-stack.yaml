@@ -30,61 +30,57 @@ expected: |-
   scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    3.tAddr# :: 5.tTYPE 5.cAddrRep;
-    constructors [5.cC#] 5.tChar :: 5.sType;
-    constructors [5.cI#] 5.tInt :: 5.sType;
-    3.tInt# :: 5.tTYPE 5.cIntRep;
-    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: 5.sType;
-    5.sLiftedRep :: 5.tRuntimeRep;
-    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: 5.sType;
-    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.sType;
-    constructors [4.c(,)] 4.tTuple2 :: ∀(a1 : 5.sType) (a2 : 5.sType). 5.sType;
-    5.sType :: 5.sType;
-    constructors [5.c[], 5.c:] 5.t[] :: ∀(a : 5.sType). 5.sType;
-    4.c(,) :: ∀(a1 : 5.sType) (a2 : 5.sType). a1 5.→ a2 5.→ 4.tTuple2 a1 a2;
-    5.cAddrRep :: 5.tRuntimeRep;
-    5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
-    5.cI# :: FUN @5.cIntRep @5.sLiftedRep 3.tInt# 5.tInt;
-    5.cIntRep :: 5.tRuntimeRep;
-    5.cLifted :: 5.tLevity;
-    5.c[] :: ∀(a : 5.sType). 5.t[] a;
-    2.vunpackCString# :: FUN @5.cAddrRep @5.sLiftedRep 3.tAddr# (5.t[] 5.tChar)
+    3.tAddr# :: tTYPE cAddrRep;
+    constructors [5.cC#] 5.tChar :: sType;
+    constructors [5.cI#] 5.tInt :: sType;
+    3.tInt# :: tTYPE cIntRep;
+    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: sType;
+    5.sLiftedRep :: tRuntimeRep;
+    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: sType;
+    5.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [4.c(,)] 4.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    5.sType :: sType;
+    constructors [5.c[], 5.c:] 5.t[] :: ∀(a : sType). sType;
+    4.c(,) :: ∀(a1 : sType) (a2 : sType). a1 5.→ a2 5.→ tTuple2 a1 a2;
+    5.cAddrRep :: tRuntimeRep;
+    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
+    5.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    5.cIntRep :: tRuntimeRep;
+    5.cLifted :: tLevity;
+    5.c[] :: ∀(a : sType). t[] a;
+    2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
 
   import synonyms
-    5.sLiftedRep = 5.cBoxedRep 5.cLifted;
-    5.sType = 5.tTYPE 5.sLiftedRep
+    5.sLiftedRep = cBoxedRep cLifted;
+    5.sType = tTYPE sLiftedRep
 
-  pub type 1.tBool :: 5.sType {
-      pub 1.cTrue :: 1.tBool;
-      pub 1.cFalse :: 1.tBool
+  pub type 1.tBool :: sType {
+    pub 1.cTrue :: tBool;
+    pub 1.cFalse :: tBool
   }
 
-  pub type 1.tSrcLoc :: 5.sType {
-      pub 1.cSrcLoc :: 5.t[] 5.tChar 5.→ 5.t[] 5.tChar 5.→ 5.t[] 5.tChar 5.→ 5.tInt 5.→ 5.tInt 5.→ 5.tInt 5.→ 5.tInt 5.→ 1.tSrcLoc
+  pub type 1.tSrcLoc :: sType {
+    pub 1.cSrcLoc :: t[] tChar 5.→ t[] tChar 5.→ t[] tChar 5.→ tInt 5.→ tInt 5.→ tInt 5.→ tInt 5.→ tSrcLoc
   }
 
-  pub type 1.tCallStack :: 5.sType {
-      pub 1.cEmptyCallStack :: 1.tCallStack;
-      pub 1.cPushCallStack :: 5.t[] 5.tChar 5.→ 1.tSrcLoc 5.→ 1.tCallStack 5.→ 1.tCallStack
+  pub type 1.tCallStack :: sType {
+    pub 1.cEmptyCallStack :: tCallStack;
+    pub 1.cPushCallStack :: t[] tChar 5.→ tSrcLoc 5.→ tCallStack 5.→ tCallStack
   }
 
-  pub val 1.vemptyCallStack :: 1.tCallStack
-   = 1.cEmptyCallStack
+  pub val 1.vemptyCallStack :: tCallStack
+    = cEmptyCallStack
 
-  pub val 1.vpushCallStack :: 4.tTuple2 (5.t[] 5.tChar) 1.tSrcLoc 5.→ 1.tCallStack 5.→ 1.tCallStack
-   = λ(x : 4.tTuple2 (5.t[] 5.tChar) 1.tSrcLoc).
-    λ(y : 1.tCallStack).
-      case x as (_scrut : 4.tTuple2 (5.t[] 5.tChar) 1.tSrcLoc) return (1.tCallStack) of {
-          4.c(,) (name : 5.t[] 5.tChar) (location : 1.tSrcLoc) →
-              1.cPushCallStack name location y
-      }
+  pub val 1.vpushCallStack :: tTuple2 (t[] tChar) tSrcLoc 5.→ tCallStack 5.→ tCallStack
+    = λ(x : tTuple2 (t[] tChar) tSrcLoc) (y : tCallStack).
+      let! c(,) (name : t[] tChar) (location : tSrcLoc) = x;
+      cPushCallStack name location y
 
-  pub val 1.vfailure :: 1.tCallStack 5.→ 1.tBool 5.→ 1.tBool
-   = λ($d0 : 1.tCallStack).
-    λ(x : 1.tBool).
+  pub val 1.vfailure :: tCallStack 5.→ tBool 5.→ tBool
+    = λ($d0 : tCallStack) (x : tBool).
       x
 
-  pub val 1.vnoStack :: 1.tBool
-   = 1.vfailure (1.vpushCallStack (4.c(,) @(5.t[] 5.tChar) @1.tSrcLoc (2.vunpackCString# "failure"#5.cAddrRep) (1.cSrcLoc (5.c[] @5.tChar) (2.vunpackCString# "Test"#5.cAddrRep) (2.vunpackCString# "module Test where"#5.cAddrRep) (5.cI# 18#5.cIntRep) (5.cI# 11#5.cIntRep) (5.cI# 18#5.cIntRep) (5.cI# 18#5.cIntRep))) 1.vemptyCallStack) 1.cTrue
+  pub val 1.vnoStack :: tBool
+    = vfailure (vpushCallStack (c(,) @(t[] tChar) @tSrcLoc (vunpackCString# lit ("failure"#cAddrRep) :: tAddr#) (cSrcLoc (c[] @tChar) (vunpackCString# lit ("Test"#cAddrRep) :: tAddr#) (vunpackCString# lit ("module Test where"#cAddrRep) :: tAddr#) (cI# lit (18#cIntRep) :: tInt#) (cI# lit (11#cIntRep) :: tInt#) (cI# lit (18#cIntRep) :: tInt#) (cI# lit (18#cIntRep) :: tInt#))) vemptyCallStack) cTrue
 status: pass
 reason: an occurrence of a function with a HasCallStack constraint pushes its call site onto the empty call stack

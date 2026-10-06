@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Demand analysis for System FC, and the two rewrites that use it.
 --
@@ -84,7 +85,7 @@ import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, isConstructo
 import Aihc.Fc.Size (isLiftedType, isStrictBinder)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, exprType, extendBinder, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -93,6 +94,7 @@ import Control.Monad.Trans.State.Strict (State, evalState, modify', runState, st
 import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -156,7 +158,7 @@ demandProgram rewrites program =
     Just primPackage ->
       let types = typeEnvFromProgram primPackage program
           signatures = topLevelSignatures types (programDecls program)
-          env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites}
+          env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites, envAnalysisOnly = False}
           supply = maxLocalUnique program + 1
           (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
           strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
@@ -171,7 +173,9 @@ data Env = Env
     -- | The signatures of the top-level values and of the local functions
     -- in scope.
     envSignatures :: !Signatures,
-    envRewrites :: !DemandRewrites
+    envRewrites :: !DemandRewrites,
+    -- | If True, skip lambda bodies when the traversal computes strictness facts.
+    envAnalysisOnly :: !Bool
   }
 
 extendType :: Env -> Binder -> Env
@@ -194,18 +198,18 @@ topLevelSignatures types decls = List.foldl' addComponent Map.empty (stronglyCon
     addComponent current component =
       case component of
         AcyclicSCC declaration ->
-          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly) (valBody declaration)) current
+          Map.insert (valName declaration) (lambdaSignature (Env types current StrictLetsOnly False) (valBody declaration)) current
         CyclicSCC members ->
-          fixSignatures (Env types current StrictLetsOnly) [(valName declaration, valBody declaration) | declaration <- members]
+          fixSignatures (Env types current StrictLetsOnly False) [(valName declaration, valBody declaration) | declaration <- members]
 
 -- | The signature of a local function, with the signatures in scope.
 functionSignature :: TypeEnv -> Signatures -> Expr -> Signature
-functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly)
+functionSignature types scope = lambdaSignature (Env types scope StrictLetsOnly False)
 
 -- | The signatures in scope under a local recursive group: those of the
 -- members added to those given.
 recursiveSignatures :: TypeEnv -> Signatures -> [(Name, Expr)] -> Signatures
-recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly)
+recursiveSignatures types scope = fixSignatures (Env types scope StrictLetsOnly False)
 
 -- | The signature of a function body: one demand per lambda it exposes.
 lambdaSignature :: Env -> Expr -> Signature
@@ -242,9 +246,9 @@ takenApart name con = go (Set.singleton name)
   where
     go aliases expr =
       case expr of
-        ExCase scrutinee binder _ alternatives ->
+        ExCase scrutinee binder (NE.toList -> alternatives) ->
           let aliased = isVariable aliases scrutinee
-              inner = if aliased then Set.insert (binderName binder) aliases else aliases
+              inner = if aliased then foldl' (\current named -> Set.insert (binderName named) current) aliases binder else aliases
            in (aliased && any ((== AltData con) . altCon) alternatives)
                 || go aliases scrutinee
                 || any (go inner . altRhs) alternatives
@@ -254,6 +258,7 @@ takenApart name con = go (Set.singleton name)
         ExRec binds body -> any (go aliases . bindRhs) binds || go aliases body
         ExApp function argument -> go aliases function || go aliases argument
         ExTyApp function _ -> go aliases function
+        ExAbsurd scrutinee _ -> go aliases scrutinee
         ExCast body _ -> go aliases body
         ExForeignCall _ _ arguments -> any (go aliases) arguments
         _ -> False
@@ -362,9 +367,10 @@ bindRecursiveSignatures env binds =
   env {envSignatures = fixSignatures env [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]}
 
 -- | The free variables an expression evaluates whenever it is evaluated.
--- This is the walk with its rewrites thrown away.
+-- A lambda is a value. Its body contributes no immediate strictness facts.
+-- Skip that body during signature analysis to avoid repeated traversals of nested functions.
 strictIn :: Env -> Expr -> Set Name
-strictIn env expr = snd (evalState (demandExpr env Nothing expr) (DemandState 0 0 0))
+strictIn env expr = snd (evalState (demandExpr env {envAnalysisOnly = True} Nothing expr) (DemandState 0 0 0))
 
 -- * The walk
 
@@ -394,9 +400,11 @@ demandExpr env ty expr =
       | otherwise -> pure (expr, Set.singleton name)
     ExLit {} -> pure (expr, Set.empty)
     ExCoercion {} -> pure (expr, Set.empty)
-    ExLam binder body -> do
-      (body', _) <- demandExpr (extendType env binder) (resultType env ty) body
-      pure (ExLam binder body', Set.empty)
+    ExLam binder body
+      | envAnalysisOnly env -> pure (expr, Set.empty)
+      | otherwise -> do
+          (body', _) <- demandExpr (extendType env binder) (resultType env ty) body
+          pure (ExLam binder body', Set.empty)
     ExTyLam binder body -> do
       (body', strict) <- demandExpr (extendType env binder) (instantiatedType env ty binder) body
       pure (ExTyLam binder body', strict)
@@ -419,18 +427,22 @@ demandExpr env ty expr =
             not (isStrictBinder (envTypes env) binder),
             not (isValueLike env rhs') -> do
               modify' (\st -> st {dsStrictLets = dsStrictLets st + 1})
-              pure (ExCase rhs' binder result [Alt AltDefault [] [] body'], strict)
+              pure (caseFromList rhs' (Just binder) result [Alt AltDefault [] [] body'], strict)
         _ -> pure (ExLet (Bind binder rhs') body', strict)
     ExRec binds body -> do
       let inner = bindRecursiveSignatures (extendTypes env (map bindBinder binds)) binds
       binds' <- traverse (\bind -> (\(rhs, _) -> bind {bindRhs = rhs}) <$> demandExpr inner (Just (binderType (bindBinder bind))) (bindRhs bind)) binds
       (body', bodyStrict) <- demandExpr inner ty body
       pure (ExRec binds' body', bodyStrict `Set.difference` Set.fromList (map (binderName . bindBinder) binds))
-    ExCase scrutinee binder result alternatives -> do
-      (scrutinee', scrutineeStrict) <- demandExpr env (Just (binderType binder)) scrutinee
-      results <- traverse (demandAlt (extendType env binder) result) alternatives
-      let branches = [Set.delete (binderName binder) strict | (_, strict) <- results]
-      pure (ExCase scrutinee' binder result (map fst results), scrutineeStrict <> meets branches)
+    ExAbsurd scrutinee result -> do
+      (scrutinee', strict) <- demandExpr env Nothing scrutinee
+      pure (ExAbsurd scrutinee' result, strict)
+    ExCase scrutinee binder alternatives -> do
+      let result = exprType (envTypes env) expr
+      (scrutinee', scrutineeStrict) <- demandExpr env (binderType <$> binder) scrutinee
+      results <- traverse (demandAlt (foldl' extendType env binder) result) alternatives
+      let branches = [strict `Set.difference` foldMap (Set.singleton . binderName) binder | (_, strict) <- NE.toList results]
+      pure (ExCase scrutinee' binder (fmap fst results), scrutineeStrict <> meets branches)
     ExForeignCall call tys arguments -> do
       results <- traverse (demandExpr env Nothing) arguments
       let argumentTypes = foreignArgumentTypes (envTypes env) (foreignCallType call)
@@ -444,10 +456,10 @@ meets sets =
     [] -> Set.empty
     first : rest -> List.foldl' Set.intersection first rest
 
-demandAlt :: Env -> Type -> Alt -> DemandM (Alt, Set Name)
+demandAlt :: Env -> Maybe Type -> Alt -> DemandM (Alt, Set Name)
 demandAlt env result alternative = do
   let binders = altTypeBinders alternative <> altBinders alternative
-  (rhs, strict) <- demandExpr (extendTypes env binders) (Just result) (altRhs alternative)
+  (rhs, strict) <- demandExpr (extendTypes env binders) result (altRhs alternative)
   pure (alternative {altRhs = rhs}, strict `Set.difference` Set.fromList (map binderName binders))
 
 -- | A call. The arguments the signature of the head calls strict are
@@ -466,7 +478,7 @@ demandApplication env ty (function, arguments) = do
       result = computedResult <|> ty
   (arguments', strictSets, wraps) <- walkArguments env result (zip3 arguments argumentTypes (demandsByArgument arguments demands))
   let application = List.foldl' applyArgument function' arguments'
-      wrapped = foldr (\(binder, scrutinee) body -> ExCase scrutinee binder (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
+      wrapped = foldr (\(binder, scrutinee) body -> caseFromList scrutinee (Just binder) (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
   pure (wrapped, headStrict <> mconcat strictSets)
 
 -- | The demand of each argument, with a type argument taking no demand.
@@ -543,10 +555,13 @@ isValueLike env expr =
 headType :: Env -> Expr -> Maybe Type
 headType env function =
   case function of
-    ExVar name -> Map.lookup name (teBinders (envTypes env)) <|> lookupHeaderType (envTypes env) name
-    ExCast _ coercion -> snd <$> coercionEndpoints (envTypes env) coercion
-    ExCase _ _ result _ -> Just result
+    ExVar {} -> known
+    ExCast {} -> known
+    ExAbsurd {} -> known
+    ExCase {} -> known
     _ -> Nothing
+  where
+    known = exprType (envTypes env) function
 
 -- | The type of each argument of a call and the type of its result, read
 -- off the type of the head. An unknown type stays unknown from there on.

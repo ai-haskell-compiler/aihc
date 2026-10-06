@@ -23,82 +23,70 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.c()] 2.tUnit :: 3.sType;
-    2.c() :: 2.tUnit;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tBool :: 3.sType {
-      pub 1.cTrue :: 1.tBool;
-      pub 1.cFalse :: 1.tBool
+  pub type 1.tBool :: sType {
+    pub 1.cTrue :: tBool;
+    pub 1.cFalse :: tBool
   }
 
-  pub type 1.tMark :: 3.sType {
-      pub 1.cMarked :: 1.tMark;
-      pub 1.cPlain :: 1.tMark
+  pub type 1.tMark :: sType {
+    pub 1.cMarked :: tMark;
+    pub 1.cPlain :: tMark
   }
 
-  pub type 1.t$Dict$Markable (a : 3.sType) :: 3.sType {
-      pub 1.c$Dict$Markable :: ∀(a : 3.sType). (a 3.→ 1.tMark) 3.→ 1.t$Dict$Markable a
+  pub type 1.t$Dict$Markable (a : sType) :: sType {
+    pub 1.c$Dict$Markable :: ∀(a : sType). (a 3.→ tMark) 3.→ t$Dict$Markable a
   }
 
-  pub type 1.tBox :: 3.sType {
-      pub 1.cBox :: ∀(a : 3.sType). 1.t$Dict$Markable a 3.→ 1.tBool 3.→ a 3.→ 1.tBox
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: ∀(a : sType). t$Dict$Markable a 3.→ tBool 3.→ a 3.→ tBox
   }
 
-  pub val 1.vmark :: ∀(a : 3.sType). 1.t$Dict$Markable a 3.→ a 3.→ 1.tMark
-   = Λ(a : 3.sType).
-    λ($d0 : 1.t$Dict$Markable a).
-      case $d0 as ($dict : 1.t$Dict$Markable a) return (a 3.→ 1.tMark) of {
-          1.c$Dict$Markable ($method0 : a 3.→ 1.tMark) →
-              $method0
+  pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a 3.→ a 3.→ tMark
+    = Λ(a : sType). λ($d0 : t$Dict$Markable a).
+      let! c$Dict$Markable ($method0 : a 3.→ tMark) = $d0;
+      $method0
+
+  pub val 1.v$fMarkableBool :: t$Dict$Markable tBool
+    = c$Dict$Markable @tBool v$fMarkableBool$cmark
+
+  val 1.v$fMarkableBool$cmark :: tBool 3.→ tMark
+    = λ(x : tBool).
+      case x of {
+        cTrue →
+          cMarked;
+        cFalse →
+          cPlain
       }
 
-  pub val 1.v$fMarkableBool :: 1.t$Dict$Markable 1.tBool
-   = 1.c$Dict$Markable @1.tBool 1.v$fMarkableBool$cmark
+  pub val 1.v$mTagged :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tBox 3.→ (∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tBox) (y : ∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r)
+    (z : FUN @sLiftedRep @rep tUnit r).
+      let! cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (_pat : tBool) (x{1} : a) = x;
+      case _pat of {
+        cTrue →
+          y @a $pattern_d0 x{1};
+        _ →
+          z c()
+      }
 
-  val 1.v$fMarkableBool$cmark :: 1.tBool 3.→ 1.tMark
-   = λ(x : 1.tBool).
-    case x as (_scrut : 1.tBool) return (1.tMark) of {
-        1.cTrue →
-            1.cMarked;
-        1.cFalse →
-            1.cPlain
-    }
-
-  pub val 1.v$mTagged :: ∀(rep : 3.tRuntimeRep) (r : 3.tTYPE rep). 1.tBox 3.→ (∀(a : 3.sType). 1.t$Dict$Markable a 3.→ FUN @3.sLiftedRep @rep a r) 3.→ FUN @3.sLiftedRep @rep (FUN @3.sLiftedRep @rep 2.tUnit r) r
-   = Λ(rep : 3.tRuntimeRep).
-    Λ(r : 3.tTYPE rep).
-      λ(x : 1.tBox).
-        λ(y : ∀(a : 3.sType). 1.t$Dict$Markable a 3.→ FUN @3.sLiftedRep @rep a r).
-          λ(z : FUN @3.sLiftedRep @rep 2.tUnit r).
-            case x as (_scrut : 1.tBox) return (r) of {
-                1.cBox @(a : 3.sType) ($pattern_d0 : 1.t$Dict$Markable a) (_pat : 1.tBool) (x{1} : a) →
-                    case _pat as (_scrut{1} : 1.tBool) return (r) of {
-                        1.cTrue →
-                            y @a $pattern_d0 x{1};
-                        _ →
-                            z 2.c()
-                    };
-                _ →
-                    z 2.c()
-            }
-
-  pub val 1.vinspect :: 1.tBox 3.→ 1.tMark
-   = λ(x : 1.tBox).
-    1.v$mTagged @3.sLiftedRep @1.tMark x (Λ(a : 3.sType).
-      λ($pattern_d0 : 1.t$Dict$Markable a).
-        λ(x{1} : a).
-          1.vmark @a $pattern_d0 x{1}) (λ(_pattern_failure : 2.tUnit).
-      1.cPlain)
+  pub val 1.vinspect :: tBox 3.→ tMark
+    = λ(x : tBox).
+      v$mTagged @sLiftedRep @tMark x (Λ(a : sType). λ($pattern_d0 : t$Dict$Markable a) (x{1} : a).
+        vmark @a $pattern_d0 x{1}) (λ(_pattern_failure : tUnit).
+        cPlain)
 status: pass
 reason: The matcher of a pattern synonym over an existential constructor takes a continuation that binds the type variable and the dictionary.

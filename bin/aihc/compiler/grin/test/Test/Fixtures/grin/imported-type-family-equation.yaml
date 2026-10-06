@@ -15,7 +15,7 @@ expected: |-
   2.$unbox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+    case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.Box (x%1 :: BoxedRep Lifted) ->
         eval @(BoxedRep Lifted) (x%1 :: BoxedRep Lifted)
 extensions:

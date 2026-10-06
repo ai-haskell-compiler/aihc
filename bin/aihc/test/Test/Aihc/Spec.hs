@@ -301,6 +301,7 @@ posixTypeCNames =
   [ ("CBlkCntRep", "blkcnt_t"),
     ("CBlkSizeRep", "blksize_t"),
     ("CCcRep", "cc_t"),
+    ("CClockIdRep", "clockid_t"),
     ("CDevRep", "dev_t"),
     ("CFsBlkCntRep", "fsblkcnt_t"),
     ("CFsFilCntRep", "fsfilcnt_t"),
@@ -353,6 +354,7 @@ renderPosixWidthAssertions widths =
         "#include <sys/socket.h>",
         "#include <sys/types.h>",
         "#include <termios.h>",
+        "#include <time.h>",
         ""
       ]
         <> concatMap assertions posixTypeCNames

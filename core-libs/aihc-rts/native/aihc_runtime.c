@@ -1207,6 +1207,7 @@ static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
   waiter->header = (AihcSlot)(uintptr_t)&aihc_blackhole_waiter_info;
   waiter->thread = machine->current_thread;
   waiter->continuation = continuation;
+  aihc_stack_note_top(continuation);
   waiter->next = NULL;
   if (entry->tail == NULL) {
     entry->head = waiter;
@@ -1381,6 +1382,7 @@ static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
   thread->resume_kind = AIHC_RESUME_APPLY;
   thread->resume_function = function;
   thread->resume_continuation = continuation;
+  aihc_stack_note_top(continuation);
   thread->resume_count = 0;
 }
 
@@ -1390,6 +1392,7 @@ static void aihc_suspend_raise(AihcThread *thread, AihcValue *exception,
   thread->resume_kind = AIHC_RESUME_RAISE;
   thread->resume_function = exception;
   thread->resume_continuation = continuation;
+  aihc_stack_note_top(continuation);
   thread->resume_count = 0;
 }
 
@@ -1402,6 +1405,7 @@ static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
   thread->resume_kind = AIHC_RESUME_CONTINUE;
   thread->resume_function = continuation;
   thread->resume_continuation = NULL;
+  aihc_stack_note_top(continuation);
   thread->resume_value = value;
   thread->resume_count = count;
 }
@@ -1672,6 +1676,7 @@ static AihcMVarWaiter *aihc_mvar_waiter_new(AihcMachine *machine,
   waiter->next = NULL;
   waiter->thread = machine->current_thread;
   waiter->continuation = continuation;
+  aihc_stack_note_top(continuation);
   waiter->value = value;
   return waiter;
 }
@@ -1878,6 +1883,7 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
   aihc_write_barrier(machine, (AihcValue *)request);
   request->thread = machine->current_thread;
   request->continuation = continuation;
+  aihc_stack_note_top(continuation);
   if (machine->io_requests_tail == NULL) {
     machine->io_requests_head = request;
   } else {
@@ -1993,6 +1999,9 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
         aihc_value_kind(continuation) != AIHC_OBJECT_CLOSURE) {
       aihc_fail("exception chain contains a non-continuation value");
     }
+    /* The walk pops the frame, so the marking of an active gen2 cycle
+       scans it first. */
+    aihc_gc_frame_read(machine, continuation);
     const AihcInfo *info = aihc_value_info_table(continuation);
     const AihcSlot *fields = aihc_value_fields_const(continuation);
     switch (info->frame_kind) {
@@ -2105,9 +2114,13 @@ const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
   AihcValue *prompt = continuation;
   while (!(aihc_value_kind(prompt) == AIHC_OBJECT_CLOSURE &&
            aihc_is_prompt_frame(prompt, tag))) {
+    /* The capture copies the frame and pops it, so the marking of an
+       active gen2 cycle scans it first. */
+    aihc_gc_frame_read(machine, prompt);
     words += aihc_value_words(prompt);
     prompt = aihc_captured_frame_parent(prompt, 1);
   }
+  aihc_gc_frame_read(machine, prompt);
 
   /* Compiled code transfers to the resumption straight after this call, so
      the calling function's static references are dead here. Frames do not

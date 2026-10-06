@@ -27,14 +27,16 @@ fixtureRoot = "compiler/fc/test/Test/Fixtures/fc"
 
 fcFixtureTests :: IO TestTree
 fcFixtureTests = do
-  root <- makeAbsolute fixtureRoot
-  exists <- doesDirectoryExist root
-  if not exists
-    then pure (testGroup "SystemFC fixtures" [])
-    else do
-      names <- listDirectory root
-      let files = [root </> name | name <- names, takeExtension name == ".fc"]
-      pure (testGroup "SystemFC fixtures" (map fixtureTest files))
+  files <- listFcFiles fixtureRoot
+  failures <- listFcFiles "compiler/fc/test/Test/Fixtures/fc-parse-fail"
+  pure (testGroup "SystemFC fixtures" (map fixtureTest files <> map parseFailureFixtureTest failures))
+
+parseFailureFixtureTest :: FilePath -> TestTree
+parseFailureFixtureTest path = testCase path $ do
+  source <- TIO.readFile path
+  case parseProgram source of
+    Left _ -> pure ()
+    Right _ -> assertFailure (path <> ": parser accepted an invalid expression")
 
 fixtureTest :: FilePath -> TestTree
 fixtureTest path = testCase path $ do

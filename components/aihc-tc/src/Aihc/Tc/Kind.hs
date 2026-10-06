@@ -434,11 +434,7 @@ convertDataConstructorList tvEnv arguments = do
 -- | Use the wired sum identity and preserve every alternative representation.
 unboxedSumType :: [TcType] -> TcM TcType
 unboxedSumType types = do
-  kinds <- getKinds
-  argumentKinds <- mapM tcTypeKind types
-  let resultKind = mkTYPEKind kinds (sumRep kinds (map (runtimeRepOrLifted kinds) argumentKinds))
-      fallbackKind = foldr KFun resultKind argumentKinds
-  constructor <- wiredTyCon (\wiring -> tcWiringUnboxedSumTyCon wiring (length types)) fallbackKind
+  constructor <- registeredWiredTyCon . (\wiring -> tcWiringUnboxedSumTyCon wiring (length types)) =<< getWiring
   pure (TcTyCon constructor types)
 
 convertTupleType :: TvKindEnv -> TupleFlavor -> [Type] -> TcM (TcType, TcType)
@@ -483,19 +479,11 @@ convertDataTupleType tvEnv flavor arguments = do
 -- | The tuple data type of one flavor over converted component types.
 dataTupleType :: TupleFlavor -> [TcType] -> TcM (TcType, TcType)
 dataTupleType flavor argumentTypes = do
-  kinds <- getKinds
-  argumentKinds <- mapM tcTypeKind argumentTypes
-  let argumentReps = map (runtimeRepOrLifted kinds) argumentKinds
-      arity = length argumentTypes
-      fallbackResultKind =
-        case flavor of
-          Boxed -> typeKind kinds
-          Unboxed -> mkTYPEKind kinds (tupleRep kinds argumentReps)
-      fallbackKind = foldr KFun fallbackResultKind argumentKinds
+  let arity = length argumentTypes
   wired <- wiredTupleTyCon flavor arity
   -- The wiring gives the full identity of the tuple type constructor.
   -- A bare name lookup can find a different constructor with the same name.
-  tyCon <- mkWiredTyCon wired fallbackKind
+  tyCon <- registeredWiredTyCon wired
   let tupleType = TcTyCon tyCon argumentTypes
   tupleKind <- tcTypeKind tupleType
   pure (tupleType, tupleKind)

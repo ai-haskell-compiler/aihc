@@ -19,64 +19,58 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : 2.sType). 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tNat :: 2.sType {
-      pub 1.cZ :: 1.tNat;
-      pub 1.cS :: 1.tNat 2.→ 1.tNat
+  pub type 1.tNat :: sType {
+    pub 1.cZ :: tNat;
+    pub 1.cS :: tNat 2.→ tNat
   }
 
-  pub type 1.tBag :: 2.sType {
-      pub 1.cBag :: 1.tNat 2.→ 1.tBag
+  pub type 1.tBag :: sType {
+    pub 1.cBag :: tNat 2.→ tBag
   }
 
-  pub type 1.t$Dict$Container (c : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Container :: ∀(c : 2.sType). (c 2.→ 1.tNat) 2.→ 1.t$Dict$Container c
+  pub type 1.t$Dict$Container (c : sType) :: sType {
+    pub 1.c$Dict$Container :: ∀(c : sType). (c 2.→ tNat) 2.→ t$Dict$Container c
   }
 
-  pub type 1.tElem (c : 2.sType) :: 2.sType @N {}
+  pub type 1.tElem (c : sType) :: sType @N {}
 
-  axiom 1.$ax$Elem$Bag : 1.tElem 1.tBag ~N 1.tBag
+  axiom 1.$ax$Elem$Bag : tElem tBag ~N tBag
 
-  axiom 1.$ax$Elem$List (a : 2.sType) : 1.tElem (2.t[] a) ~N 1.tNat
+  axiom 1.$ax$Elem$List (a : sType) : tElem (t[] a) ~N tNat
 
-  pub val 1.vsize :: ∀(c : 2.sType). 1.t$Dict$Container c 2.→ c 2.→ 1.tNat
-   = Λ(c : 2.sType).
-    λ($d0 : 1.t$Dict$Container c).
-      case $d0 as ($dict : 1.t$Dict$Container c) return (c 2.→ 1.tNat) of {
-          1.c$Dict$Container ($method0 : c 2.→ 1.tNat) →
-              $method0
-      }
+  pub val 1.vsize :: ∀(c : sType). t$Dict$Container c 2.→ c 2.→ tNat
+    = Λ(c : sType). λ($d0 : t$Dict$Container c).
+      let! c$Dict$Container ($method0 : c 2.→ tNat) = $d0;
+      $method0
 
-  pub val 1.v$fContainerBag :: 1.t$Dict$Container 1.tBag
-   = 1.c$Dict$Container @1.tBag 1.v$fContainerBag$csize
+  pub val 1.v$fContainerBag :: t$Dict$Container tBag
+    = c$Dict$Container @tBag v$fContainerBag$csize
 
-  val 1.v$fContainerBag$csize :: 1.tBag 2.→ 1.tNat
-   = λ(x : 1.tBag).
-    case x as (_scrut : 1.tBag) return (1.tNat) of {
-        1.cBag (n : 1.tNat) →
-            n
-    }
+  val 1.v$fContainerBag$csize :: tBag 2.→ tNat
+    = λ(x : tBag).
+      let! cBag (n : tNat) = x;
+      n
 
-  pub val 1.v$fContainerList :: ∀(a : 2.sType). 1.t$Dict$Container (2.t[] a)
-   = Λ(a : 2.sType).
-    1.c$Dict$Container @(2.t[] a) (1.v$fContainerList$csize @a)
+  pub val 1.v$fContainerList :: ∀(a : sType). t$Dict$Container (t[] a)
+    = Λ(a : sType).
+      c$Dict$Container @(t[] a) (v$fContainerList$csize @a)
 
-  val 1.v$fContainerList$csize :: ∀(a : 2.sType). 2.t[] a 2.→ 1.tNat
-   = Λ(a : 2.sType).
-    λ(x : 2.t[] a).
-      1.cZ
+  val 1.v$fContainerList$csize :: ∀(a : sType). t[] a 2.→ tNat
+    = Λ(a : sType). λ(x : t[] a).
+      cZ
 status: pass
 reason: An associated type family becomes an empty family type next to the class dictionary,
   and the explicit and defaulted instance equations become axioms.

@@ -15,6 +15,7 @@ module System.Posix.Types.Repr
   ( CBlkCntRep,
     CBlkSizeRep,
     CCcRep,
+    CClockIdRep,
     CDevRep,
     CFsBlkCntRep,
     CFsFilCntRep,
@@ -46,6 +47,9 @@ type CBlkSizeRep = Int32
 
 -- | @cc_t@: an unsigned byte of terminal control.
 type CCcRep = Word8
+
+-- | @clockid_t@: an unsigned 32-bit clock id, the C enum of @time.h@.
+type CClockIdRep = Word32
 
 -- | @dev_t@: a signed 32-bit device number.
 type CDevRep = Int32

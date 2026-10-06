@@ -309,6 +309,7 @@ putForeignTarget table target = case target of
   TcForeignAddress -> cborWord 1
   TcForeignDynamic -> cborWord 2
   TcForeignWrapper pointer -> cborArray 2 <> cborWord 3 <> putForeignMarshal table pointer
+  TcForeignFunctionAddress pointer -> cborArray 2 <> cborWord 4 <> putForeignMarshal table pointer
 
 getForeignTarget :: PartTable -> Get.Get TcForeignTarget
 getForeignTarget table = do
@@ -317,7 +318,10 @@ getForeignTarget table = do
     then do
       expectArray 2
       tag <- getWord
-      if tag == 3 then TcForeignWrapper <$> getForeignMarshal table else fail "unsupported foreign target"
+      case tag of
+        3 -> TcForeignWrapper <$> getForeignMarshal table
+        4 -> TcForeignFunctionAddress <$> getForeignMarshal table
+        _ -> fail "unsupported foreign target"
     else do
       tag <- getWord
       case tag of
@@ -809,7 +813,7 @@ getClassInfo table = do
 putInstanceInfo :: PartIndex -> InstanceInfo -> Builder.Builder
 putInstanceInfo table info =
   cborArray 7
-    <> cborText (iiClassName info)
+    <> putTyCon table (iiClass info)
     <> cborText (iiDictName info)
     <> putTextOrigin (iiDictOrigin info)
     <> putType table (iiDictType info)
@@ -820,14 +824,14 @@ putInstanceInfo table info =
 getInstanceInfo :: PartTable -> Get.Get InstanceInfo
 getInstanceInfo table = do
   expectArray 7
-  iiClassName <- getText
+  iiClass <- getTyCon table
   iiDictName <- getText
   iiDictOrigin <- getTextOrigin
   iiDictType <- getType table
   iiTyVars <- getList (getTyVar table)
   iiContext <- getList (getPred table)
   iiHead <- getList (getType table)
-  pure InstanceInfo {iiClassName, iiDictName, iiDictOrigin, iiDictType, iiTyVars, iiContext, iiHead}
+  pure InstanceInfo {iiClass, iiDictName, iiDictOrigin, iiDictType, iiTyVars, iiContext, iiHead}
 
 putDataFamilyInstanceInfo :: PartIndex -> DataFamilyInstanceInfo -> Builder.Builder
 putDataFamilyInstanceInfo table info =

@@ -27,6 +27,10 @@ module System.Posix.Internals.Syscalls
     c_fcntl_read,
     c_fcntl_write,
     c_fcntl_lock,
+    const_f_getfl,
+    const_f_setfl,
+    const_f_setfd,
+    const_fd_cloexec,
 
     -- * Signal masks
     c_sigaddset,
@@ -146,3 +150,11 @@ foreign import capi unsafe "fcntl.h value O_TRUNC" o_TRUNC :: CInt
 foreign import capi unsafe "fcntl.h value O_NOCTTY" o_NOCTTY :: CInt
 
 foreign import capi unsafe "fcntl.h value O_NONBLOCK" o_NONBLOCK :: CInt
+
+foreign import capi unsafe "fcntl.h value F_GETFL" const_f_getfl :: CInt
+
+foreign import capi unsafe "fcntl.h value F_SETFL" const_f_setfl :: CInt
+
+foreign import capi unsafe "fcntl.h value F_SETFD" const_f_setfd :: CInt
+
+foreign import capi unsafe "fcntl.h value FD_CLOEXEC" const_fd_cloexec :: CInt

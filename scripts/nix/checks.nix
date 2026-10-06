@@ -328,7 +328,7 @@
           preopen_args+=(-S "cwd=$initial_cwd")
         fi
       fi
-      if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
+      if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli -S http \
         "''${preopen_args[@]}" \
         --argv0 "$example_name" \
         "$executable" +RTS -M100M -RTS "''${example_args[@]}" "''${path_args[@]}" \
@@ -519,7 +519,7 @@
     while IFS= read -r -d "" file; do
       if [[ "$file" == *core-libs/aihc-rts/wasm/*.c || "$file" == *aihc_host_wasip3.c ]]; then
         clang-tidy-unwrapped --quiet "$file" -- \
-          --target=wasm32-wasip1 \
+          --target=wasm32-wasip3 \
           --sysroot=${wasmSysroot} \
           -std=c11 -Wall -Wextra -Wpedantic \
           -Icore-libs/aihc-rts/wasm \
@@ -611,6 +611,7 @@
     pkgs.llvmPackages.clang
     pkgs.llvmPackages.clang-unwrapped
     pkgs.wasm-tools
+    pkgs.wasm-component-ld
     wasmLd
   ];
   coreLibraryInstallSetup = ''
@@ -804,6 +805,7 @@
         pkgs.llvmPackages.clang
         pkgs.llvmPackages.clang-unwrapped
         pkgs.wasm-tools
+        pkgs.wasm-component-ld
         wasmLd
         pkgs.haskellPackages.hsc2hs
       ];
@@ -1114,6 +1116,7 @@
     pkgs.llvmPackages.bintools
     pkgs.llvmPackages.clang-unwrapped
     pkgs.wasm-tools
+    pkgs.wasm-component-ld
     pkgs.wasmtime
     wasmLd
   ];

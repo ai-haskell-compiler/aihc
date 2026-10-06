@@ -18,34 +18,34 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tAddr# :: 3.tTYPE 3.cAddrRep;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cAddrRep :: 3.tRuntimeRep;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    2.tAddr# :: tTYPE cAddrRep;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cAddrRep :: tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tBoxInt :: 3.sType {
-      pub 1.cBoxInt :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tBoxInt
+  pub type 1.tBoxInt :: sType {
+    pub 1.cBoxInt :: FUN @cIntRep @sLiftedRep tInt# tBoxInt
   }
 
-  pub type 1.tBoxAddr :: 3.sType {
-      pub 1.cBoxAddr :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 1.tBoxAddr
+  pub type 1.tBoxAddr :: sType {
+    pub 1.cBoxAddr :: FUN @cAddrRep @sLiftedRep tAddr# tBoxAddr
   }
 
-  pub val 1.vintValue :: 1.tBoxInt
-   = 1.cBoxInt 1#3.cIntRep
+  pub val 1.vintValue :: tBoxInt
+    = cBoxInt lit (1#cIntRep) :: tInt#
 
-  pub val 1.vaddrValue :: 1.tBoxAddr
-   = 1.cBoxAddr "test"#3.cAddrRep
+  pub val 1.vaddrValue :: tBoxAddr
+    = cBoxAddr lit ("test"#cAddrRep) :: tAddr#
 status: pass
 reason: keeps checked GHC.Prim identities on primitive Core literals

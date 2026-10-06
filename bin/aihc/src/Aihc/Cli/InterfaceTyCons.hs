@@ -114,7 +114,8 @@ classInfoTyConsInto info =
 
 instanceInfoTyCons :: Collect InstanceInfo
 instanceInfoTyCons info =
-  typeTyConsInto (iiDictType info)
+  Set.insert (iiClass info)
+    . typeTyConsInto (iiDictType info)
     . each tyVarTyCons (iiTyVars info)
     . each predTyCons (iiContext info)
     . each typeTyConsInto (iiHead info)
@@ -182,6 +183,7 @@ foreignImportInfoTyCons info = case info of
   TcForeignCCallImport _ plan ->
     each marshalTyCons (tcForeignArguments plan <> [tcForeignResult plan]) . case tcForeignTarget plan of
       TcForeignWrapper pointer -> marshalTyCons pointer
+      TcForeignFunctionAddress pointer -> marshalTyCons pointer
       _ -> id
   where
     marshalTyCons marshal =

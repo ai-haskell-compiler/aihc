@@ -25,49 +25,44 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tFn :: 3.sType {}
+  type 1.tFn :: sType {}
 
-  axiom 1.$ax$Fn : 1.tFn ~R 3.tInt 3.→ 3.tInt
+  axiom 1.$ax$Fn : tFn ~R tInt 3.→ tInt
 
-  val 1.vplus :: 3.tInt 3.→ 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    λ(y : 3.tInt).
-      case x as (_scrut : 3.tInt) return (3.tInt) of {
-          3.cI# (a : 2.tInt#) →
-              case y as (_scrut{1} : 3.tInt) return (3.tInt) of {
-                  3.cI# (b : 2.tInt#) →
-                      3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} a b)
-              }
-      }
+  val 1.vplus :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
 
-  val 1.vstep :: 3.tInt 3.→ 3.tInt 3.→ 1.tFn
-   = λ(x : 3.tInt).
-    λ(y : 3.tInt).
-      let {
-          total : 3.tInt =
-              1.vplus x y
-      } in
-          (λ(x{1} : 3.tInt).
-            1.vplus total x{1}) ▷ sym (axiom-co 1.$ax$Fn)
+  val 1.vstep :: tInt 3.→ tInt 3.→ tFn
+    = λ(x : tInt) (y : tInt).
+      let total : tInt =
+        vplus x y;
+      (λ(x{1} : tInt).
+        vplus total x{1}) ▷ sym (axiom-co $ax$Fn)
 
-  pub val 1.vaction :: 1.tFn
-   = 1.vstep (3.cI# 1#3.cIntRep) (3.cI# 2#3.cIntRep)
+  pub val 1.vaction :: tFn
+    = vstep (cI# lit (1#cIntRep) :: tInt#) (cI# lit (2#cIntRep) :: tInt#)
 status: pass
 reason: The argument under the newtype is not a state token, so it is not one-shot, and eta expanding past the 'let' would recompute 'plus a b' on every call where the partial application shared it. The value stays a CAF.

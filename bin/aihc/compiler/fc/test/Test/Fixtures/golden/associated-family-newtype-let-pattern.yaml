@@ -1,0 +1,23 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  data Nat = Z | S Nat
+  data Word8 = Word8
+  newtype Offset ty = Offset Nat
+  newtype CountOf ty = CountOf Nat
+  class Subtractive a where
+    type Difference a
+    minus :: a -> a -> Difference a
+  instance Subtractive (Offset ty) where
+    type Difference (Offset ty) = CountOf ty
+    minus (Offset a) _ = CountOf a
+  digits :: Offset Word8 -> Offset Word8 -> Nat
+  digits endOfs startOfs =
+    let (CountOf diff) = minus endOfs startOfs
+     in diff
+reason: a newtype pattern in a let binding unwraps an associated family result with
+  the type arguments of the constructor result, not of the family application
+status: pass

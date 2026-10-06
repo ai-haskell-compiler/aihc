@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 -- | typeOf and unfold tables for implicit FUN representations.
 module Aihc.Fc.TypeOf
   ( TypeEnv (..),
@@ -8,6 +10,10 @@ module Aihc.Fc.TypeOf
     extendTypeEnvWithPrograms,
     typeHead,
     typeOf,
+    exprType,
+    exprTypeWith,
+    caseResultType,
+    typedCaseAlternatives,
     unfoldType,
     representationFromKind,
     repOf,
@@ -41,7 +47,10 @@ import Aihc.Resolve (PackageId)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily, typeLitFamilyModules)
 import Aihc.Tc.Types (Unique (..))
 import Aihc.Tc.Types qualified as Tc
+import Control.Applicative ((<|>))
+import Control.Monad (foldM, guard)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -796,3 +805,77 @@ typeUsesName target ty =
       | binderName binder == target -> typeUsesName target (binderType binder)
       | otherwise -> typeUsesName target (binderType binder) || typeUsesName target body
     TyEq left right -> typeUsesName target left || typeUsesName target right
+
+-- | Get the type of a checked FC expression.
+exprType :: TypeEnv -> Expr -> Maybe Type
+exprType = exprTypeWith Map.empty
+
+-- | Get a checked FC expression type after a type substitution.
+exprTypeWith :: Map Name Type -> TypeEnv -> Expr -> Maybe Type
+exprTypeWith substitution env expression =
+  case expression of
+    ExVar name -> onType <$> (lookupBinderType env name <|> lookupHeaderType env name)
+    ExLit _ ty -> Just (onType ty)
+    ExApp function _ -> do
+      functionType <- go function
+      (_, _, _, result) <- viewFun env functionType
+      pure result
+    ExTyApp function argument -> do
+      functionType <- go function
+      (binder, body) <- viewForAll env functionType
+      pure (substType (binderName binder) (onType argument) body)
+    ExLam binder body -> do
+      let named = onBinder binder
+          inner = extendBinder env named
+      result <- exprTypeWith substitution inner body
+      r1 <- repOf inner (binderType named)
+      r2 <- repOf inner result
+      pure (TyFun r1 r2 (binderType named) result)
+    ExTyLam binder body ->
+      let named = onBinder binder
+          scoped = Map.delete (binderName binder) substitution
+       in TyForAll named <$> exprTypeWith scoped (extendBinder env named) body
+    ExLet binding body -> exprTypeWith substitution (extendBinder env (onBinder (bindBinder binding))) body
+    ExRec bindings body -> exprTypeWith substitution (List.foldl' extendBinder env (map (onBinder . bindBinder) bindings)) body
+    ExCase _ binder alternatives -> caseResultTypeWith substitution env binder alternatives
+    ExAbsurd _ result -> Just (onType result)
+    ExCast _ coercion -> onType . snd <$> coercionEndpoints env coercion
+    ExCoercion coercion -> do
+      (left, right) <- coercionEndpoints env coercion
+      pure (TyEq (onType left) (onType right))
+    ExForeignCall call types arguments -> do
+      instantiated <- foldM instantiate (foreignCallType call) types
+      foldM apply instantiated arguments
+  where
+    onType = substTypes substitution
+    onBinder binder = binder {binderType = onType (binderType binder)}
+    go = exprTypeWith substitution env
+    instantiate ty argument = do
+      (binder, body) <- viewForAll env ty
+      pure (substType (binderName binder) (onType argument) body)
+    apply ty _ = do
+      (_, _, _, result) <- viewFun env ty
+      pure result
+
+-- | Get a case result type from its first alternative.
+-- Alternative type variables must not occur free in the result type.
+caseResultType :: TypeEnv -> Maybe Binder -> NE.NonEmpty Alt -> Maybe Type
+caseResultType = caseResultTypeWith Map.empty
+
+caseResultTypeWith :: Map Name Type -> TypeEnv -> Maybe Binder -> NE.NonEmpty Alt -> Maybe Type
+caseResultTypeWith substitution env binder alternatives = do
+  let first = NE.head alternatives
+      onBinder current named = named {binderType = substTypes current (binderType named)}
+      caseEnv = foldl extendBinder env (onBinder substitution <$> binder)
+      bindType (current, scopedEnv) named =
+        (Map.delete (binderName named) current, extendBinder scopedEnv (onBinder current named))
+      (scoped, typeEnv) = List.foldl' bindType (substitution, caseEnv) (altTypeBinders first)
+      inner = List.foldl' extendBinder typeEnv (map (onBinder scoped) (altBinders first))
+  result <- exprTypeWith scoped inner (altRhs first)
+  guard (not (any (\bound -> typeUsesName (binderName bound) result) (altTypeBinders first)))
+  pure result
+
+-- | Pair the inferred result type with the alternatives for FC transformations.
+typedCaseAlternatives :: TypeEnv -> Maybe Binder -> NE.NonEmpty Alt -> Maybe (Type, [Alt])
+typedCaseAlternatives env binder alternatives =
+  (,NE.toList alternatives) <$> caseResultType env binder alternatives

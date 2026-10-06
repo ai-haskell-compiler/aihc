@@ -1,0 +1,38 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Monoid (All (..), Any (..), Dual (..), Product (..), Sum (..))
+    import Prelude
+
+    class (Ord a) => Ordered a where
+      magnitude :: a -> a
+
+    instance (Ordered a) => Ordered (Dual a) where
+      magnitude (Dual value) = Dual (magnitude value)
+
+    instance Ordered Int where
+      magnitude = abs
+
+    main :: IO ()
+    main = do
+      print (Dual (1 :: Int) == Dual 1, Dual (1 :: Int) /= Dual 2)
+      print (compare (Dual (1 :: Int)) (Dual 2), Dual (3 :: Int) > Dual 2)
+      print (getDual (max (magnitude (Dual (-5 :: Int))) (Dual 4)))
+      print (compare (Sum (2 :: Int)) (Sum 1), Sum (1 :: Int) <= Sum 1)
+      print (compare (Product (2 :: Int)) (Product 3), Product (4 :: Int) < Product 3)
+      print (All True == All True, compare (All False) (All True))
+      print (Any False /= Any True, compare (Any True) (Any False))
+expression: main
+stdout: |
+  (True,True)
+  (LT,True)
+  5
+  (GT,True)
+  (LT,False)
+  (True,LT)
+  (True,GT)
+output: |
+  ()
+status: pass
+reason: Dual, Sum, Product, All, and Any have Eq and Ord instances, as in base, and the semirings package needs Ord (Dual a)

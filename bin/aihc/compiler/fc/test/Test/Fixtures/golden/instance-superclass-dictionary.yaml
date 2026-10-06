@@ -16,59 +16,53 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tFlag :: 2.sType {
-      pub 1.cOff :: 1.tFlag;
-      pub 1.cOn :: 1.tFlag
+  pub type 1.tFlag :: sType {
+    pub 1.cOff :: tFlag;
+    pub 1.cOn :: tFlag
   }
 
-  pub type 1.t$Dict$Parent (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Parent :: ∀(a : 2.sType). (a 2.→ 1.tFlag) 2.→ 1.t$Dict$Parent a
+  pub type 1.t$Dict$Parent (a : sType) :: sType {
+    pub 1.c$Dict$Parent :: ∀(a : sType). (a 2.→ tFlag) 2.→ t$Dict$Parent a
   }
 
-  pub type 1.t$Dict$Child (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Child :: ∀(a : 2.sType). 1.t$Dict$Parent a 2.→ (a 2.→ 1.tFlag) 2.→ 1.t$Dict$Child a
+  pub type 1.t$Dict$Child (a : sType) :: sType {
+    pub 1.c$Dict$Child :: ∀(a : sType). t$Dict$Parent a 2.→ (a 2.→ tFlag) 2.→ t$Dict$Child a
   }
 
-  pub val 1.vparent :: ∀(a : 2.sType). 1.t$Dict$Parent a 2.→ a 2.→ 1.tFlag
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Parent a).
-      case $d0 as ($dict : 1.t$Dict$Parent a) return (a 2.→ 1.tFlag) of {
-          1.c$Dict$Parent ($method0 : a 2.→ 1.tFlag) →
-              $method0
-      }
+  pub val 1.vparent :: ∀(a : sType). t$Dict$Parent a 2.→ a 2.→ tFlag
+    = Λ(a : sType). λ($d0 : t$Dict$Parent a).
+      let! c$Dict$Parent ($method0 : a 2.→ tFlag) = $d0;
+      $method0
 
-  pub val 1.vchild :: ∀(a : 2.sType). 1.t$Dict$Child a 2.→ a 2.→ 1.tFlag
-   = Λ(a : 2.sType).
-    λ($d0 : 1.t$Dict$Child a).
-      case $d0 as ($dict : 1.t$Dict$Child a) return (a 2.→ 1.tFlag) of {
-          1.c$Dict$Child ($method0 : 1.t$Dict$Parent a) ($method1 : a 2.→ 1.tFlag) →
-              $method1
-      }
+  pub val 1.vchild :: ∀(a : sType). t$Dict$Child a 2.→ a 2.→ tFlag
+    = Λ(a : sType). λ($d0 : t$Dict$Child a).
+      let! c$Dict$Child ($method0 : t$Dict$Parent a) ($method1 : a 2.→ tFlag) = $d0;
+      $method1
 
-  pub val 1.v$fParentFlag :: 1.t$Dict$Parent 1.tFlag
-   = 1.c$Dict$Parent @1.tFlag 1.v$fParentFlag$cparent
+  pub val 1.v$fParentFlag :: t$Dict$Parent tFlag
+    = c$Dict$Parent @tFlag v$fParentFlag$cparent
 
-  val 1.v$fParentFlag$cparent :: 1.tFlag 2.→ 1.tFlag
-   = λ(x : 1.tFlag).
-    x
+  val 1.v$fParentFlag$cparent :: tFlag 2.→ tFlag
+    = λ(x : tFlag).
+      x
 
-  pub val 1.v$fChildFlag :: 1.t$Dict$Child 1.tFlag
-   = 1.c$Dict$Child @1.tFlag 1.v$fParentFlag 1.v$fChildFlag$cchild
+  pub val 1.v$fChildFlag :: t$Dict$Child tFlag
+    = c$Dict$Child @tFlag v$fParentFlag v$fChildFlag$cchild
 
-  val 1.v$fChildFlag$cchild :: 1.tFlag 2.→ 1.tFlag
-   = λ(x : 1.tFlag).
-    x
+  val 1.v$fChildFlag$cchild :: tFlag 2.→ tFlag
+    = λ(x : tFlag).
+      x
 status: pass
 reason: ''

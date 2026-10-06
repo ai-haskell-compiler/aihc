@@ -1,13 +1,20 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -- | Apply small System FC normalization rules.
 module Aihc.Fc.Normalize
   ( normalizeProgram,
+    normalizeCaseAlternatives,
   )
 where
 
 import Aihc.Fc.Name (Name, nameText)
 import Aihc.Fc.Syntax
-import Aihc.Fc.TypeOf (TypeEnv, extendBinder, reduceType, repOf, typeEnvFromProgram)
+import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, reduceType, repOf, typeEnvFromProgram, typeHead)
 import Aihc.Resolve (PackageId)
+import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 
 normalizeProgram :: PackageId -> Program -> Program
 normalizeProgram primPackage program =
@@ -41,15 +48,30 @@ normalizeExpr env expr =
       ExRec
         (map (normalizeBind env) binds)
         (normalizeExpr env body)
-    ExCase scrutinee binder resultType alternatives ->
-      ExCase
-        (normalizeExpr env scrutinee)
-        binder
-        resultType
-        (map (normalizeAlt env) alternatives)
+    ExCase scrutinee binder alternatives ->
+      let normalized = normalizeCaseAlternatives env binder (NE.toList alternatives)
+          kept = fromMaybe alternatives (NE.nonEmpty normalized)
+       in ExCase (normalizeExpr env scrutinee) binder (fmap (normalizeAlt env) kept)
+    ExAbsurd scrutinee resultType -> ExAbsurd (normalizeExpr env scrutinee) resultType
     ExCast body coercion -> ExCast (normalizeExpr env body) coercion
     ExForeignCall call types arguments -> ExForeignCall call types (map (normalizeExpr env) arguments)
     _ -> expr
+
+-- | Remove the default when explicit alternatives cover every known constructor.
+-- Keep the case and all failures inside its constructor alternatives.
+-- If the constructor set is unknown, keep the default.
+normalizeCaseAlternatives :: TypeEnv -> Maybe Binder -> [Alt] -> [Alt]
+normalizeCaseAlternatives env binder alternatives
+  | Just named <- binder,
+    any ((== AltDefault) . altCon) alternatives,
+    Just tyCon <- typeHead (reduceType env (binderType named)),
+    Just constructors <- Map.lookup tyCon (teDataCons env),
+    not (null constructors),
+    all (`Set.member` covered) constructors =
+      filter ((/= AltDefault) . altCon) alternatives
+  | otherwise = alternatives
+  where
+    covered = Set.fromList [constructor | Alt (AltData constructor) _ _ _ <- alternatives]
 
 -- | Inline a lifted let binding that its body uses at most once, outside any
 -- lambda or recursive binding. Such a binding is a thunk that is forced at
@@ -102,7 +124,8 @@ occurrences name = go
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
         ExRec binds body -> repeated (foldMap (go . bindRhs) binds) <> go body
-        ExCase scrutinee _ _ alternatives -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExCoercion {} -> mempty
         ExForeignCall _ _ arguments -> foldMap go arguments
@@ -124,8 +147,9 @@ substExpr name replacement = go
         ExTyLam binder body -> ExTyLam binder (go body)
         ExLet bind body -> ExLet (substBind bind) (go body)
         ExRec binds body -> ExRec (map substBind binds) (go body)
-        ExCase scrutinee binder resultType alternatives ->
-          ExCase (go scrutinee) binder resultType (map substAlt alternatives)
+        ExCase scrutinee binder alternatives ->
+          ExCase (go scrutinee) binder (fmap substAlt alternatives)
+        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
         ExCast body coercion -> ExCast (go body) coercion
         ExCoercion {} -> expr
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)

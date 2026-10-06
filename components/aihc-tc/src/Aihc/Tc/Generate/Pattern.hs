@@ -12,6 +12,7 @@ module Aihc.Tc.Generate.Pattern
     checkFunctionPatterns,
     checkedPattern,
     patternBinderNames,
+    recStmtBinderNames,
     withPatternBindings,
     withPatternScope,
   )
@@ -20,6 +21,8 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BuiltinCon (..),
+    Decl (..),
+    DoStmt (..),
     Expr (..),
     FloatType (..),
     Literal (..),
@@ -31,9 +34,11 @@ import Aihc.Parser.Syntax
     TupleFlavor (..),
     Type,
     UnqualifiedName (..),
+    ValueDecl (..),
     fromAnnotation,
     mkAnnotation,
     nameText,
+    peelDeclAnn,
     peelLiteralAnn,
     peelPatternAnn,
   )
@@ -46,13 +51,14 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
 import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, runtimeRepOrLifted, tcTypeKind, unboxedSumType)
+import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, tcTypeKind, unboxedSumType)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, when)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -88,6 +94,26 @@ patternBinderNames pat =
     PRecord _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
     PTypeSig inner _ -> patternBinderNames inner
     PSplice _ -> []
+
+-- | The variables that the statements of a recursive @do@ group bind, in
+-- source order and without repeats. The knot of the group is a tuple of
+-- these variables. The type checker and the desugarer both use this order.
+recStmtBinderNames :: [DoStmt Expr] -> [UnqualifiedName]
+recStmtBinderNames =
+  List.nubBy (\left right -> unqualifiedNameText left == unqualifiedNameText right) . concatMap stmtBinders
+  where
+    stmtBinders stmt =
+      case stmt of
+        DoAnn _ inner -> stmtBinders inner
+        DoBind pat _ -> patternBinderNames pat
+        DoLetDecls decls -> concatMap declBinders decls
+        DoExpr _ -> []
+        DoRecStmt stmts -> concatMap stmtBinders stmts
+    declBinders decl =
+      case peelDeclAnn decl of
+        DeclValue (FunctionBind name _) -> [name]
+        DeclValue (PatternBind _ pat _) -> patternBinderNames pat
+        _ -> []
 
 data PatternCheck = PatternCheck
   { pcBindings :: ![(UnqualifiedName, TcType)],
@@ -458,18 +484,12 @@ withPatternTyVars tyVars action =
 
 checkTuplePattern :: Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
 checkTuplePattern sp flavor items scrutTy = do
-  kinds <- getKinds
   elemTys <- mapM (const freshMetaTv) items
   let arity = length items
   wired <- wiredTupleTyCon flavor arity
-  elementKinds <- mapM tcTypeKind elemTys
-  let fallbackKind =
-        case flavor of
-          Boxed -> foldr KFun (typeKind kinds) elementKinds
-          Unboxed -> foldr KFun (mkTYPEKind kinds (tupleRep kinds (map (runtimeRepOrLifted kinds) elementKinds))) elementKinds
   -- The wiring gives the full identity of the tuple type constructor.
   -- A bare name lookup can find a different constructor with the same name.
-  tupleTyCon <- mkWiredTyCon wired fallbackKind
+  tupleTyCon <- registeredWiredTyCon wired
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)

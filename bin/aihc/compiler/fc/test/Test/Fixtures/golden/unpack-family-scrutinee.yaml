@@ -1,0 +1,75 @@
+---
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  data Ref s = Ref s
+  data MVector s a = MVector {-# UNPACK #-} !(Ref s) a
+  data Vector a = Vector a
+
+  type family Mutable (v :: Type -> Type) :: Type -> Type -> Type
+  type instance Mutable Vector = MVector
+
+  class Vec v a where
+    freeze :: Mutable v s a -> v a
+
+  instance Vec Vector a where
+    freeze (MVector _ x) = Vector x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tRef (s : sType) :: sType {
+    pub 1.cRef :: ∀(s : sType). s 2.→ tRef s
+  }
+
+  pub type 1.tMVector (s : sType) (a : sType) :: sType {
+    pub 1.cMVector :: ∀(s : sType) (a : sType). s 2.→ a 2.→ tMVector s a
+  }
+
+  pub type 1.tVector (a : sType) :: sType {
+    pub 1.cVector :: ∀(a : sType). a 2.→ tVector a
+  }
+
+  pub type 1.tMutable (v : sType 2.→ sType) :: sType 2.→ sType 2.→ sType @N {}
+
+  axiom 1.$ax$Mutable$Vector : tMutable tVector ~N tMVector
+
+  pub type 1.t$Dict$Vec (v : sType 2.→ sType) (a : sType) :: sType {
+    pub 1.c$Dict$Vec :: ∀(v : sType 2.→ sType) (a : sType). (∀(s : sType). tMutable v s a 2.→ v a) 2.→ t$Dict$Vec v a
+  }
+
+  pub val 1.vfreeze :: ∀(v : sType 2.→ sType) (a : sType) (s : sType). t$Dict$Vec v a 2.→ tMutable v s a 2.→ v a
+    = Λ(v : sType 2.→ sType) (a : sType) (s : sType). λ($d0 : t$Dict$Vec v a).
+      let! c$Dict$Vec ($method0 : ∀(s{1} : sType). tMutable v s{1} a 2.→ v a) = $d0;
+      $method0 @s
+
+  pub val 1.v$fVecVectora :: ∀(a : sType). t$Dict$Vec tVector a
+    = Λ(a : sType).
+      c$Dict$Vec @tVector @a (v$fVecVectora$cfreeze @a)
+
+  val 1.v$fVecVectora$cfreeze :: ∀(a : sType) (s : sType). tMutable tVector s a 2.→ tVector a
+    = Λ(a : sType) (s : sType). λ(x : tMutable tVector s a).
+      let! cMVector (_unpack_leaf0 : s) (x{1} : a) = x;
+      cVector @a x{1}
+reason: an unpacked field of a constructor pattern gets the constructor arguments
+  from the pattern type when the scrutinee is an unreduced family application
+status: pass

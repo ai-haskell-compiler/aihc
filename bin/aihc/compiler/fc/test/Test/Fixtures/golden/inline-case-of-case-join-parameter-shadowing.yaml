@@ -33,58 +33,50 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  val 1.vcount :: 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    case x as (_scrut : 3.tInt) return (3.tInt) of {
-        3.cI# (i : 2.tInt#) →
-            case i as (_scrut{1} : 2.tInt#) return (3.tInt) of {
-                0#3.cIntRep →
-                    3.cI# 1#3.cIntRep;
-                _ →
-                    1.vcount (3.cI# (foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} i 1#3.cIntRep))
-            }
-    }
-
-  pub val 1.vcheck :: 3.tInt 3.→ 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    λ(y : 3.tInt).
-      case 1.vcount x as (argument : 3.tInt) return (3.tInt) of {
-          _ →
-              case argument as (_scrut : 3.tInt) return (3.tInt) of {
-                  3.cI# (i : 2.tInt#) →
-                      case 1.vcount y as (argument{1} : 3.tInt) return (3.tInt) of {
-                          _ →
-                              case argument{1} as (_scrut{1} : 3.tInt) return (3.tInt) of {
-                                  3.cI# (i{1} : 2.tInt#) →
-                                      let {
-                                          p : 2.tInt# =
-                                              foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} i i
-                                      } in
-                                          let {
-                                              q : 2.tInt# =
-                                                  foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} i{1} i{1}
-                                          } in
-                                              3.cI# (foreign {prim 2.v-# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} p q)
-                              }
-                      }
-              }
+  val 1.vcount :: tInt 3.→ tInt
+    = λ(x : tInt).
+      let! cI# (i : tInt#) = x;
+      case i of {
+        0#cIntRep →
+          cI# lit (1#cIntRep) :: tInt#;
+        _ →
+          vcount (cI# (prim -# i lit (1#cIntRep) :: tInt#))
       }
+
+  pub val 1.vcheck :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (i : tInt#) = vcount x;
+      let argument : tInt# =
+        prim +# i i;
+      let! cI# (i{1} : tInt#) = vcount y;
+      let argument{1} : tInt# =
+        prim +# i{1} i{1};
+      cI# (prim -# argument argument{1})
 status: pass
-reason: The demand pass evaluates each strict argument in a case, so the argument of 'divide' is a case on the argument of 'twice', and the two case binders are siblings that the tidied program names 'argument' both. The case of a case turns the outer alternative into a join point and simplifies its body inside the inner alternative, where the inner 'argument' is a known constructor. The join point takes fresh parameters, so the outer 'argument' keeps the doubled value instead of the field of the inner one, and the result subtracts the doubled values.
+reason: >-
+  The demand pass evaluates each strict argument in a case.
+  The case-of-case rule gives fresh parameters to each join point.
+  These parameters keep the doubled values separate from the constructor fields.
+  The case merge rule removes a default case when its body tests the case binder.
+  The result subtracts the doubled values and evaluates each count call once.

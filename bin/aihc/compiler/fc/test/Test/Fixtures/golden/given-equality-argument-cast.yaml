@@ -17,51 +17,40 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : 2.sType). 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity;
-    2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
-    2.c[] :: ∀(a : 2.sType). 2.t[] a
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.t$Dict$Assoc (m : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Assoc :: ∀(m : 2.sType). ((1.tSt m 2.→ 1.tSt m) 2.→ m) 2.→ (m 2.→ 1.tSt m 2.→ 1.tSt m) 2.→ 1.t$Dict$Assoc m
+  pub type 1.t$Dict$Assoc (m : sType) :: sType {
+    pub 1.c$Dict$Assoc :: ∀(m : sType). ((tSt m 2.→ tSt m) 2.→ m) 2.→ (m 2.→ tSt m 2.→ tSt m) 2.→ t$Dict$Assoc m
   }
 
-  pub type 1.tSt (m : 2.sType) :: 2.sType @N {}
+  pub type 1.tSt (m : sType) :: sType @N {}
 
-  pub val 1.vwrap :: ∀(m : 2.sType). 1.t$Dict$Assoc m 2.→ (1.tSt m 2.→ 1.tSt m) 2.→ m
-   = Λ(m : 2.sType).
-    λ($d0 : 1.t$Dict$Assoc m).
-      case $d0 as ($dict : 1.t$Dict$Assoc m) return ((1.tSt m 2.→ 1.tSt m) 2.→ m) of {
-          1.c$Dict$Assoc ($method0 : (1.tSt m 2.→ 1.tSt m) 2.→ m) ($method1 : m 2.→ 1.tSt m 2.→ 1.tSt m) →
-              $method0
-      }
+  pub val 1.vwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ (tSt m 2.→ tSt m) 2.→ m
+    = Λ(m : sType). λ($d0 : t$Dict$Assoc m).
+      let! c$Dict$Assoc ($method0 : (tSt m 2.→ tSt m) 2.→ m) ($method1 : m 2.→ tSt m 2.→ tSt m) = $d0;
+      $method0
 
-  pub val 1.vunwrap :: ∀(m : 2.sType). 1.t$Dict$Assoc m 2.→ m 2.→ 1.tSt m 2.→ 1.tSt m
-   = Λ(m : 2.sType).
-    λ($d0 : 1.t$Dict$Assoc m).
-      case $d0 as ($dict : 1.t$Dict$Assoc m) return (m 2.→ 1.tSt m 2.→ 1.tSt m) of {
-          1.c$Dict$Assoc ($method0 : (1.tSt m 2.→ 1.tSt m) 2.→ m) ($method1 : m 2.→ 1.tSt m 2.→ 1.tSt m) →
-              $method1
-      }
+  pub val 1.vunwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ m 2.→ tSt m 2.→ tSt m
+    = Λ(m : sType). λ($d0 : t$Dict$Assoc m).
+      let! c$Dict$Assoc ($method0 : (tSt m 2.→ tSt m) 2.→ m) ($method1 : m 2.→ tSt m 2.→ tSt m) = $d0;
+      $method1
 
-  pub val 1.vconvert :: ∀(m1 : 2.sType) (m2 : 2.sType). 1.t$Dict$Assoc m1 2.→ 1.t$Dict$Assoc m2 2.→ FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (1.tSt m1 ~ 1.tSt m2) (m1 2.→ m2)
-   = Λ(m1 : 2.sType).
-    Λ(m2 : 2.sType).
-      λ($d0 : 1.t$Dict$Assoc m1).
-        λ($d1 : 1.t$Dict$Assoc m2).
-          λ($d2 : 1.tSt m1 ~ 1.tSt m2).
-            λ(x : m1).
-              1.vwrap @m2 $d1 ((1.vunwrap @m1 $d0 x) ▷ fun-co ($d2) ($d2))
+  pub val 1.vconvert :: ∀(m1 : sType) (m2 : sType). t$Dict$Assoc m1 2.→ t$Dict$Assoc m2 2.→ FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tSt m1 ~ tSt m2) (m1 2.→ m2)
+    = Λ(m1 : sType) (m2 : sType). λ($d0 : t$Dict$Assoc m1) ($d1 : t$Dict$Assoc m2) ($d2 : tSt m1 ~ tSt m2) (x : m1).
+      vwrap @m2 $d1 ((vunwrap @m1 $d0 x) ▷ fun-co ($d2) ($d2))
 status: pass
 reason: the argument of an application that only a given equality makes fit takes
   the cast the proof of that equality carries

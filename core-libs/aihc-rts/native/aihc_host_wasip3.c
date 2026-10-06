@@ -1,6 +1,11 @@
 #include "aihc_runtime_internal.h"
+#include "aihc_wasm_internal.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stddef.h>
+#include <unistd.h>
 
 extern int64_t aihc_wasip3_start_read(int32_t target, int32_t descriptor,
                                       uint64_t offset, unsigned char *bytes,
@@ -69,25 +74,119 @@ void *aihc_io_stdout(void) { return &aihc_standard_output; }
 void *aihc_io_stderr(void) { return &aihc_standard_error; }
 
 /* A P3 descriptor is a resource the component owns, not a number the program
-   can be handed, so this host has nothing to adopt. Both entry points report
-   that rather than making up a handle, and GHC.IO.Handle.FD.fdToHandle raises
-   the unsupported-operation error the number stands for. */
+   can be handed. A descriptor that a program holds as a number came from the
+   libc, which keeps a table of them, so these entry points adopt a libc
+   descriptor: a read or a write of it is a libc call. The run task may block,
+   so such a call completes in place. GHC.IO.Handle.FD.fdToHandle takes this
+   path, as openBinaryTempFile and the Handle of a file the program opened
+   with a libc call do. */
+static int aihc_libc_descriptor_is(const AihcIoHandle *handle) {
+  return handle->backend_token >= AIHC_LIBC_FD_TOKEN_BASE;
+}
+
+static int aihc_libc_descriptor(const AihcIoHandle *handle) {
+  return (int)(handle->backend_token - AIHC_LIBC_FD_TOKEN_BASE);
+}
+
 int64_t aihc_io_descriptor_mode(int64_t descriptor) {
-  (void)descriptor;
-  return aihc_io_error(AIHC_IO_ERROR_NOT_SUPPORTED);
+  if (descriptor < 0 || descriptor > INT_MAX) {
+    return aihc_io_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
+  }
+  int flags = fcntl((int)descriptor, F_GETFL);
+  if (flags == -1) {
+    return aihc_io_error(errno);
+  }
+  switch (flags & O_ACCMODE) {
+  case O_RDONLY:
+    return 0;
+  case O_WRONLY:
+    return (flags & O_APPEND) != 0 ? 2 : 1;
+  case O_RDWR:
+    return 3;
+  default:
+    return aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+  }
 }
 
 void *aihc_io_adopt(AihcMachine *machine, int64_t descriptor, int64_t mode) {
   AihcIoHandle *handle = aihc_io_handle_new(machine);
-  (void)descriptor;
-  (void)mode;
-  handle->error = AIHC_IO_ERROR_NOT_SUPPORTED;
+  if (descriptor < 0 || descriptor > INT_MAX) {
+    handle->error = AIHC_IO_ERROR_BAD_DESCRIPTOR;
+    return handle;
+  }
+  uint32_t capabilities;
+  switch (mode) {
+  case 0:
+    capabilities = AIHC_IO_READABLE;
+    break;
+  case 1:
+  case 2:
+    capabilities = AIHC_IO_WRITABLE;
+    break;
+  case 3:
+    capabilities = AIHC_IO_READABLE | AIHC_IO_WRITABLE;
+    break;
+  default:
+    handle->error = AIHC_IO_ERROR_INVALID_ARGUMENT;
+    return handle;
+  }
+  if (fcntl((int)descriptor, F_GETFD) == -1) {
+    handle->error = errno;
+    return handle;
+  }
+  handle->backend_token = AIHC_LIBC_FD_TOKEN_BASE + (uintptr_t)descriptor;
+  handle->capabilities = capabilities;
+  handle->closed = 0;
+  handle->append = mode == 2;
   return handle;
 }
 
 int64_t aihc_io_handle_descriptor(void *opaque_handle) {
-  (void)opaque_handle;
-  return -1;
+  const AihcIoHandle *handle = opaque_handle;
+  return aihc_libc_descriptor_is(handle) ? aihc_libc_descriptor(handle) : -1;
+}
+
+/* A file that the runtime opened itself has no descriptor in the libc, so the
+   handle keeps its position, which the next read or write starts from. The
+   standard streams, a response body and a libc descriptor have none. */
+static int aihc_wasip3_has_position(const AihcIoHandle *handle) {
+  return handle != &aihc_standard_input && handle != &aihc_standard_output &&
+         handle != &aihc_standard_error && !aihc_libc_descriptor_is(handle) &&
+         handle->backend_token < (uintptr_t)AIHC_HTTP_TOKEN_BASE &&
+         !handle->closed;
+}
+
+int64_t aihc_io_handle_position(void *opaque_handle) {
+  const AihcIoHandle *handle = opaque_handle;
+  return aihc_wasip3_has_position(handle) ? (int64_t)handle->position : -1;
+}
+
+int64_t aihc_io_handle_set_position(void *opaque_handle, int64_t position) {
+  AihcIoHandle *handle = opaque_handle;
+  if (position < 0 || !aihc_wasip3_has_position(handle)) {
+    return -1;
+  }
+  handle->position = (uint64_t)position;
+  return 0;
+}
+
+/* Read or write a libc descriptor, which blocks the run task until the host
+   answers. */
+static int64_t aihc_libc_transfer(AihcIoRequest *request) {
+  const AihcIoHandle *handle = request->handle;
+  uint8_t *bytes = request->buffer + request->offset;
+  for (;;) {
+    ssize_t transferred =
+        request->kind == AIHC_IO_READ
+            ? read(aihc_libc_descriptor(handle), bytes, request->length)
+            : write(aihc_libc_descriptor(handle), bytes, request->length);
+    if (transferred >= 0) {
+      return (int64_t)transferred;
+    }
+    if (errno != EINTR) {
+      return aihc_io_error(errno);
+    }
+  }
 }
 
 static int aihc_wasip3_prepare(AihcIoRequest *request) {
@@ -105,6 +204,10 @@ static int aihc_wasip3_try_request(AihcIoRequest *request, int64_t *result) {
                                      (int32_t)request->mode);
     return *result != INT64_MIN;
   }
+  if (aihc_libc_descriptor_is(request->handle)) {
+    *result = aihc_libc_transfer(request);
+    return 1;
+  }
   size_t length = request->length;
   if (length > INT32_MAX) {
     length = INT32_MAX;
@@ -116,6 +219,8 @@ static int aihc_wasip3_try_request(AihcIoRequest *request, int64_t *result) {
     target = 1;
   } else if (request->handle == &aihc_standard_error) {
     target = 2;
+  } else if (request->handle->backend_token >= AIHC_HTTP_TOKEN_BASE) {
+    target = 4;
   } else {
     target = 3;
   }
@@ -165,7 +270,8 @@ static int64_t aihc_wasip3_finish_request(AihcIoRequest *request,
   }
   if (result >= 0 && request->handle != &aihc_standard_input &&
       request->handle != &aihc_standard_output &&
-      request->handle != &aihc_standard_error) {
+      request->handle != &aihc_standard_error &&
+      !aihc_libc_descriptor_is(request->handle)) {
     request->handle->position += (uint64_t)result;
   }
   return result;
@@ -197,6 +303,9 @@ int64_t aihc_io_close(void *opaque_handle) {
     return aihc_io_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
   }
   handle->closed = 1;
+  if (aihc_libc_descriptor_is(handle)) {
+    return close(aihc_libc_descriptor(handle)) == -1 ? aihc_io_error(errno) : 0;
+  }
   if (handle != &aihc_standard_input && handle != &aihc_standard_output &&
       handle != &aihc_standard_error) {
     aihc_wasip3_close((int32_t)handle->backend_token);

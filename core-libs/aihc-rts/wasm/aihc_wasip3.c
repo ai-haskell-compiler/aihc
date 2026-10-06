@@ -18,6 +18,8 @@ typedef enum {
   AIHC_WASI_IO_FILE_APPEND,
   AIHC_WASI_IO_FILE_OPEN,
   AIHC_WASI_IO_TIMER,
+  AIHC_WASI_IO_HTTP_OPEN,
+  AIHC_WASI_IO_HTTP_READ,
 } AihcWasiIoKind;
 
 typedef enum {
@@ -52,7 +54,42 @@ typedef struct {
   int has_directories;
   int subtask_returned;
   int stream_closed;
+  wasi_http_client_result_own_response_error_code_t http_send_result;
+  wasi_http_types_future_result_void_error_code_t http_transmit;
+  int has_http_transmit;
+  wasi_http_types_future_result_option_own_trailers_error_code_writer_t
+      http_trailers_writer;
+  int has_http_trailers_writer;
+  size_t http_slot;
 } AihcWasiIo;
+
+/* An open HTTP response is a handle whose token is at least
+   AIHC_HTTP_TOKEN_BASE, and reads of it continue one body stream. */
+#define AIHC_HTTP_SLOTS 16
+/* An HTTP status s outside 200 to 299 fails the open with the error number
+   AIHC_HTTP_STATUS_ERRNO_BASE + s. */
+#define AIHC_HTTP_STATUS_ERRNO_BASE 10000
+
+typedef struct {
+  int used;
+  int stream_open;
+  int trailers_open;
+  int finished;
+  wasi_http_types_stream_u8_t stream;
+  wasi_http_types_future_result_option_own_trailers_error_code_t trailers;
+  wasi_http_types_result_option_own_trailers_error_code_t trailers_result;
+  int has_transmit_writer;
+  wasi_http_types_future_result_void_error_code_writer_t transmit_writer;
+} AihcHttpBody;
+
+static AihcHttpBody aihc_http_bodies[AIHC_HTTP_SLOTS];
+
+/* The values written to the two futures that tell the host a request has no
+   trailers and a response needs no more transmission. A zeroed result is the
+   ok case, and a zeroed option is none. */
+static const wasi_http_types_result_option_own_trailers_error_code_t
+    aihc_http_no_trailers;
+static const wasi_http_types_result_void_error_code_t aihc_http_transmitted;
 
 static AihcWasiIo aihc_wasi_io;
 static AihcRootFrame *aihc_wasi_roots;
@@ -64,6 +101,34 @@ void *aihc_wasi_allocate(uint64_t bytes) {
   }
   return aihc_byte_array_contents(
       aihc_host_byte_array(&aihc_machine, aihc_wasi_roots, bytes));
+}
+
+/* The canonical ABI allocator, which the host calls to lower a value into the
+   program. A request of the runtime comes inside an explicit host scope, and
+   its buffer is a byte array that the collector owns. A request of a libc
+   call, such as the list of preopened directories that its first path lookup
+   asks for, comes outside any scope. The libc frees what it lifts, so its
+   buffers come from its own allocator. */
+void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
+                           size_t new_size) {
+  if (new_size == 0) {
+    return (void *)align;
+  }
+  if (align > _Alignof(max_align_t)) {
+    aihc_fail("unsupported canonical ABI alignment");
+  }
+  if (aihc_wasi_roots != NULL) {
+    void *buffer = aihc_wasi_allocate(new_size);
+    if (old_size != 0) {
+      memcpy(buffer, ptr, old_size < new_size ? old_size : new_size);
+    }
+    return buffer;
+  }
+  void *buffer = realloc(ptr, new_size);
+  if (buffer == NULL) {
+    abort();
+  }
+  return buffer;
 }
 
 static void aihc_wasi_initialize_arguments(void) {
@@ -196,7 +261,78 @@ static int32_t aihc_filesystem_error(wasi_filesystem_types_error_code_t error) {
   }
 }
 
+static int32_t aihc_http_error(const wasi_http_types_error_code_t *error) {
+  switch (error->tag) {
+  case WASI_HTTP_TYPES_ERROR_CODE_DNS_TIMEOUT:
+  case WASI_HTTP_TYPES_ERROR_CODE_CONNECTION_TIMEOUT:
+  case WASI_HTTP_TYPES_ERROR_CODE_CONNECTION_READ_TIMEOUT:
+  case WASI_HTTP_TYPES_ERROR_CODE_CONNECTION_WRITE_TIMEOUT:
+  case WASI_HTTP_TYPES_ERROR_CODE_HTTP_RESPONSE_TIMEOUT:
+    return ETIMEDOUT;
+  case WASI_HTTP_TYPES_ERROR_CODE_DNS_ERROR:
+  case WASI_HTTP_TYPES_ERROR_CODE_DESTINATION_NOT_FOUND:
+    return EHOSTUNREACH;
+  case WASI_HTTP_TYPES_ERROR_CODE_DESTINATION_UNAVAILABLE:
+  case WASI_HTTP_TYPES_ERROR_CODE_DESTINATION_IP_PROHIBITED:
+  case WASI_HTTP_TYPES_ERROR_CODE_DESTINATION_IP_UNROUTABLE:
+    return ENETUNREACH;
+  case WASI_HTTP_TYPES_ERROR_CODE_CONNECTION_REFUSED:
+    return ECONNREFUSED;
+  case WASI_HTTP_TYPES_ERROR_CODE_CONNECTION_TERMINATED:
+    return ECONNRESET;
+  case WASI_HTTP_TYPES_ERROR_CODE_TLS_PROTOCOL_ERROR:
+  case WASI_HTTP_TYPES_ERROR_CODE_TLS_CERTIFICATE_ERROR:
+  case WASI_HTTP_TYPES_ERROR_CODE_TLS_ALERT_RECEIVED:
+    return EPROTO;
+  default:
+    return EIO;
+  }
+}
+
+/* Complete a write to a future that the host has not read yet. The write
+   either finished or is still pending, and a pending one is cancelled, so
+   the writable end is always in a final state when it is dropped. */
+static void aihc_http_finish_transmit_writer(
+    wasi_http_types_future_result_void_error_code_writer_t writer) {
+  wasi_http_types_future_result_void_error_code_cancel_write(writer);
+  wasi_http_types_future_result_void_error_code_drop_writable(writer);
+}
+
+static void aihc_http_release(size_t slot) {
+  AihcHttpBody *body = &aihc_http_bodies[slot];
+  if (body->stream_open) {
+    command_waitable_join(body->stream, 0);
+    wasi_http_types_stream_u8_drop_readable(body->stream);
+  }
+  if (body->trailers_open) {
+    wasi_http_types_future_result_option_own_trailers_error_code_drop_readable(
+        body->trailers);
+  }
+  if (body->has_transmit_writer) {
+    aihc_http_finish_transmit_writer(body->transmit_writer);
+  }
+  *body = (AihcHttpBody){0};
+}
+
 static int64_t aihc_wasi_finish(int64_t result) {
+  if (aihc_wasi_io.has_http_trailers_writer) {
+    wasi_http_types_future_result_option_own_trailers_error_code_cancel_write(
+        aihc_wasi_io.http_trailers_writer);
+    wasi_http_types_future_result_option_own_trailers_error_code_drop_writable(
+        aihc_wasi_io.http_trailers_writer);
+  }
+  if (aihc_wasi_io.has_http_transmit) {
+    wasi_http_types_future_result_void_error_code_drop_readable(
+        aihc_wasi_io.http_transmit);
+  }
+  if (aihc_wasi_io.kind == AIHC_WASI_IO_HTTP_READ) {
+    AihcHttpBody *body = &aihc_http_bodies[aihc_wasi_io.http_slot];
+    if (body->stream_open) {
+      /* The stream outlives this request, so it leaves the wait set that
+         is dropped below. */
+      command_waitable_join(body->stream, 0);
+    }
+  }
   if (aihc_wasi_io.has_directories) {
     wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
         &aihc_wasi_io.directories);
@@ -219,6 +355,14 @@ static int aihc_wasi_take_completed_status(command_waitable_status_t *status) {
 
 static int64_t aihc_wasi_block(uint32_t waitable, AihcWasiPending pending) {
   aihc_wasi_io.pending = pending;
+  /* The callback matches the event against the waitable of the request. An
+     HTTP body keeps its handles beside the request, so the request learns
+     the one it waits for here. */
+  if (pending == AIHC_WASI_PENDING_FUTURE_READ) {
+    aihc_wasi_io.future = waitable;
+  } else {
+    aihc_wasi_io.stream = waitable;
+  }
   command_waitable_join(waitable, aihc_wasi_io.wait_set);
   return INT64_MIN;
 }
@@ -415,6 +559,121 @@ static int64_t aihc_wasi_progress_open(void) {
   return aihc_wasi_finish(opened);
 }
 
+static int64_t aihc_wasi_progress_http_open(void) {
+  if (!aihc_wasi_io.subtask_returned) {
+    return INT64_MIN;
+  }
+  wasi_http_client_result_own_response_error_code_t *sent =
+      &aihc_wasi_io.http_send_result;
+  if (sent->is_err) {
+    int32_t error = aihc_http_error(&sent->val.err);
+    wasi_http_types_error_code_free(&sent->val.err);
+    return aihc_wasi_finish(aihc_wasi_error(error));
+  }
+  wasi_http_types_own_response_t response = sent->val.ok;
+  wasi_http_types_status_code_t status =
+      wasi_http_types_method_response_get_status_code(
+          (wasi_http_types_borrow_response_t){response.__handle});
+  if (status < 200 || status > 299) {
+    wasi_http_types_response_drop_own(response);
+    return aihc_wasi_finish(
+        aihc_wasi_error(AIHC_HTTP_STATUS_ERRNO_BASE + (int32_t)status));
+  }
+  size_t slot = 0;
+  while (slot < AIHC_HTTP_SLOTS && aihc_http_bodies[slot].used) {
+    ++slot;
+  }
+  if (slot == AIHC_HTTP_SLOTS) {
+    wasi_http_types_response_drop_own(response);
+    return aihc_wasi_finish(aihc_wasi_error(EMFILE));
+  }
+  AihcHttpBody *body = &aihc_http_bodies[slot];
+  wasi_http_types_future_result_void_error_code_writer_t writer;
+  wasi_http_types_future_result_void_error_code_t reader =
+      wasi_http_types_future_result_void_error_code_new(&writer);
+  wasi_http_types_tuple2_stream_u8_future_result_option_own_trailers_error_code_t
+      consumed;
+  wasi_http_types_static_response_consume_body(response, reader, &consumed);
+  command_waitable_status_t written =
+      wasi_http_types_future_result_void_error_code_write(
+          writer, &aihc_http_transmitted);
+  body->used = 1;
+  body->stream = consumed.f0;
+  body->stream_open = 1;
+  body->trailers = consumed.f1;
+  body->trailers_open = 1;
+  if (written == COMMAND_WAITABLE_STATUS_BLOCKED) {
+    body->transmit_writer = writer;
+    body->has_transmit_writer = 1;
+  } else {
+    wasi_http_types_future_result_void_error_code_drop_writable(writer);
+  }
+  return aihc_wasi_finish(AIHC_HTTP_TOKEN_BASE + (int64_t)slot);
+}
+
+static int64_t aihc_wasi_progress_http_read(void) {
+  AihcHttpBody *body = &aihc_http_bodies[aihc_wasi_io.http_slot];
+  if (body->stream_open) {
+    command_waitable_status_t status;
+    if (!aihc_wasi_take_completed_status(&status)) {
+      status = wasi_http_types_stream_u8_read(body->stream, aihc_wasi_io.bytes,
+                                              aihc_wasi_io.length);
+    }
+    if (status == COMMAND_WAITABLE_STATUS_BLOCKED) {
+      return aihc_wasi_block(body->stream, AIHC_WASI_PENDING_STREAM_READ);
+    }
+    if (COMMAND_WAITABLE_STATE(status) == COMMAND_WAITABLE_COMPLETED) {
+      uint32_t transferred = COMMAND_WAITABLE_COUNT(status);
+      if (transferred != 0 || aihc_wasi_io.length == 0) {
+        return aihc_wasi_finish((int64_t)transferred);
+      }
+      /* A body stream that completes no bytes is not at its end yet. */
+      status = wasi_http_types_stream_u8_read(body->stream, aihc_wasi_io.bytes,
+                                              aihc_wasi_io.length);
+      if (status == COMMAND_WAITABLE_STATUS_BLOCKED) {
+        return aihc_wasi_block(body->stream, AIHC_WASI_PENDING_STREAM_READ);
+      }
+      aihc_wasi_io.completed_status = status;
+      aihc_wasi_io.has_completed_status = 1;
+      return aihc_wasi_progress_http_read();
+    }
+    if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_DROPPED) {
+      return aihc_wasi_finish(aihc_wasi_error(EIO));
+    }
+    command_waitable_join(body->stream, 0);
+    wasi_http_types_stream_u8_drop_readable(body->stream);
+    body->stream_open = 0;
+  }
+  if (body->trailers_open) {
+    command_waitable_status_t status;
+    if (!aihc_wasi_take_completed_status(&status)) {
+      status =
+          wasi_http_types_future_result_option_own_trailers_error_code_read(
+              body->trailers, &body->trailers_result);
+    }
+    if (status == COMMAND_WAITABLE_STATUS_BLOCKED) {
+      return aihc_wasi_block(body->trailers, AIHC_WASI_PENDING_FUTURE_READ);
+    }
+    int32_t error = 0;
+    if (COMMAND_WAITABLE_STATE(status) != COMMAND_WAITABLE_COMPLETED) {
+      error = EIO;
+    } else if (body->trailers_result.is_err) {
+      error = aihc_http_error(&body->trailers_result.val.err);
+      wasi_http_types_error_code_free(&body->trailers_result.val.err);
+    } else if (body->trailers_result.val.ok.is_some) {
+      wasi_http_types_fields_drop_own(body->trailers_result.val.ok.val);
+    }
+    wasi_http_types_future_result_option_own_trailers_error_code_drop_readable(
+        body->trailers);
+    body->trailers_open = 0;
+    body->finished = 1;
+    if (error != 0) {
+      return aihc_wasi_finish(aihc_wasi_error(error));
+    }
+  }
+  return aihc_wasi_finish(0);
+}
+
 static int64_t aihc_wasi_progress(void) {
   switch (aihc_wasi_io.kind) {
   case AIHC_WASI_IO_STDIN_READ:
@@ -428,6 +687,10 @@ static int64_t aihc_wasi_progress(void) {
     return aihc_wasi_progress_file_write();
   case AIHC_WASI_IO_FILE_OPEN:
     return aihc_wasi_progress_open();
+  case AIHC_WASI_IO_HTTP_OPEN:
+    return aihc_wasi_progress_http_open();
+  case AIHC_WASI_IO_HTTP_READ:
+    return aihc_wasi_progress_http_read();
   case AIHC_WASI_IO_TIMER:
     return aihc_wasi_io.subtask_returned ? aihc_wasi_finish(1) : INT64_MIN;
   default:
@@ -472,10 +735,16 @@ int64_t aihc_wasip3_start_timer(uint64_t deadline) {
 int64_t aihc_wasip3_start_read(int32_t target, int32_t descriptor,
                                uint64_t offset, unsigned char *bytes,
                                size_t length) {
-  AihcWasiIoKind kind =
-      target == 0 ? AIHC_WASI_IO_STDIN_READ : AIHC_WASI_IO_FILE_READ;
-  if ((target != 0 && target != 3) || !aihc_wasi_start(kind, bytes, length)) {
+  AihcWasiIoKind kind = target == 0   ? AIHC_WASI_IO_STDIN_READ
+                        : target == 4 ? AIHC_WASI_IO_HTTP_READ
+                                      : AIHC_WASI_IO_FILE_READ;
+  if ((target != 0 && target != 3 && target != 4) ||
+      !aihc_wasi_start(kind, bytes, length)) {
     return aihc_wasi_error(EBADF);
+  }
+  if (kind == AIHC_WASI_IO_HTTP_READ) {
+    aihc_wasi_io.http_slot = (size_t)(descriptor - AIHC_HTTP_TOKEN_BASE);
+    return aihc_wasi_progress();
   }
   if (kind == AIHC_WASI_IO_STDIN_READ) {
     wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t input;
@@ -535,6 +804,99 @@ int64_t aihc_wasip3_start_write(int32_t target, int32_t descriptor,
   return aihc_wasi_progress();
 }
 
+static int aihc_http_has_prefix(const unsigned char *text, size_t length,
+                                const char *prefix) {
+  size_t prefix_length = strlen(prefix);
+  return length >= prefix_length && memcmp(text, prefix, prefix_length) == 0;
+}
+
+static int aihc_http_is_url(const unsigned char *path, size_t length) {
+  return aihc_http_has_prefix(path, length, "http://") ||
+         aihc_http_has_prefix(path, length, "https://");
+}
+
+/* Send a GET request for the URL. The open completes when the response
+   head arrives, and the response body is then read like a file. */
+static int64_t aihc_wasip3_start_http_open(const unsigned char *url,
+                                           size_t length, int32_t mode) {
+  if (mode != 0) {
+    return aihc_wasi_finish(aihc_wasi_error(EROFS));
+  }
+  int secure = aihc_http_has_prefix(url, length, "https://");
+  size_t scheme_length = secure ? 8 : 7;
+  size_t authority_end = scheme_length;
+  while (authority_end < length && url[authority_end] != '/' &&
+         url[authority_end] != '?' && url[authority_end] != '#') {
+    ++authority_end;
+  }
+  size_t path_end = authority_end;
+  while (path_end < length && url[path_end] != '#') {
+    ++path_end;
+  }
+  if (authority_end == scheme_length) {
+    return aihc_wasi_finish(aihc_wasi_error(EINVAL));
+  }
+  /* A query without a path starts with the path /. */
+  unsigned char *path_with_query = NULL;
+  size_t path_length = path_end - authority_end;
+  const unsigned char *path_start = url + authority_end;
+  if (path_length == 0 || path_start[0] == '?') {
+    path_with_query = aihc_wasi_allocate(path_length + 1);
+    path_with_query[0] = '/';
+    if (path_length != 0) {
+      memcpy(path_with_query + 1, path_start, path_length);
+    }
+    path_start = path_with_query;
+    path_length += 1;
+  }
+
+  wasi_http_types_own_headers_t headers = wasi_http_types_constructor_fields();
+  wasi_http_types_future_result_option_own_trailers_error_code_writer_t writer;
+  wasi_http_types_future_result_option_own_trailers_error_code_t trailers =
+      wasi_http_types_future_result_option_own_trailers_error_code_new(&writer);
+  wasi_http_types_tuple2_own_request_future_result_void_error_code_t created;
+  wasi_http_types_static_request_new(headers, NULL, trailers, NULL, &created);
+  aihc_wasi_io.http_transmit = created.f1;
+  aihc_wasi_io.has_http_transmit = 1;
+  command_waitable_status_t written =
+      wasi_http_types_future_result_option_own_trailers_error_code_write(
+          writer, &aihc_http_no_trailers);
+  if (written == COMMAND_WAITABLE_STATUS_BLOCKED) {
+    aihc_wasi_io.http_trailers_writer = writer;
+    aihc_wasi_io.has_http_trailers_writer = 1;
+  } else {
+    wasi_http_types_future_result_option_own_trailers_error_code_drop_writable(
+        writer);
+  }
+
+  wasi_http_types_borrow_request_t request =
+      (wasi_http_types_borrow_request_t){created.f0.__handle};
+  wasi_http_types_scheme_t scheme = {.tag = secure
+                                                ? WASI_HTTP_TYPES_SCHEME_HTTPS
+                                                : WASI_HTTP_TYPES_SCHEME_HTTP};
+  command_string_t authority = {(uint8_t *)(url + scheme_length),
+                                authority_end - scheme_length};
+  command_string_t query = {(uint8_t *)path_start, path_length};
+  if (!wasi_http_types_method_request_set_scheme(request, &scheme) ||
+      !wasi_http_types_method_request_set_authority(request, &authority) ||
+      !wasi_http_types_method_request_set_path_with_query(request, &query)) {
+    wasi_http_types_request_drop_own(created.f0);
+    return aihc_wasi_finish(aihc_wasi_error(EINVAL));
+  }
+
+  command_subtask_status_t status =
+      wasi_http_client_send(created.f0, &aihc_wasi_io.http_send_result);
+  aihc_wasi_io.kind = AIHC_WASI_IO_HTTP_OPEN;
+  if (COMMAND_SUBTASK_STATE(status) == COMMAND_SUBTASK_RETURNED) {
+    aihc_wasi_io.subtask_returned = 1;
+  } else {
+    aihc_wasi_io.subtask = COMMAND_SUBTASK_HANDLE(status);
+    aihc_wasi_io.pending = AIHC_WASI_PENDING_SUBTASK;
+    command_waitable_join(aihc_wasi_io.subtask, aihc_wasi_io.wait_set);
+  }
+  return aihc_wasi_progress();
+}
+
 int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
                                int32_t mode) {
   if (!aihc_wasi_start(AIHC_WASI_IO_FILE_OPEN, NULL, 0)) {
@@ -545,6 +907,9 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
   }
   if (memchr(path, 0, length) != NULL) {
     return aihc_wasi_finish(aihc_wasi_error(EINVAL));
+  }
+  if (aihc_http_is_url(path, length)) {
+    return aihc_wasip3_start_http_open(path, length, mode);
   }
   command_string_t cwd = {0};
   if (path[0] != '/' && wasi_cli_environment_get_initial_cwd(&cwd)) {
@@ -681,6 +1046,10 @@ int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
 }
 
 void aihc_wasip3_close(int32_t descriptor) {
+  if (descriptor >= AIHC_HTTP_TOKEN_BASE) {
+    aihc_http_release((size_t)(descriptor - AIHC_HTTP_TOKEN_BASE));
+    return;
+  }
   wasi_filesystem_types_own_descriptor_t own = {descriptor};
   wasi_filesystem_types_descriptor_drop_own(own);
 }
@@ -693,16 +1062,6 @@ _Noreturn void aihc_lir_trap(const uint8_t *message, uint64_t length) {
   __builtin_trap();
 }
 
-static command_callback_code_t aihc_pump(int32_t finished) {
-  if (finished) {
-    exports_wasi_cli_run_result_void_void_t result = {0};
-    result.is_err = aihc_get_exit_status(&aihc_machine) != 0;
-    exports_wasi_cli_run_run_return(result);
-    return COMMAND_CALLBACK_CODE_EXIT;
-  }
-  return COMMAND_CALLBACK_CODE_WAIT(aihc_wasi_io.wait_set);
-}
-
 /* The generated command.c pulls in the object wit-bindgen would write beside
    it, which carries the component type of the world, by calling this symbol.
    The bindings are committed without that object and the link embeds the
@@ -713,18 +1072,17 @@ void __component_type_object_force_link_command(void);
 // NOLINTNEXTLINE(bugprone-reserved-identifier)
 void __component_type_object_force_link_command(void) {}
 
-command_callback_code_t exports_wasi_cli_run_run(void) {
-  aihc_wasi_initialize_arguments();
-  return aihc_pump(aihc_lir_program_start());
-}
-
-command_callback_code_t
-exports_wasi_cli_run_run_callback(command_event_t *event) {
+/* Run the program on the event that a blocked request waited for. This
+   returns 1 when the request completed and the program ran on, with
+   *finished set when it halted, and 0 when the request still waits. An
+   event that no request expects traps. */
+static int aihc_wasi_handle_event(const command_event_t *event,
+                                  int32_t *finished) {
   if (aihc_wasi_io.pending == AIHC_WASI_PENDING_SUBTASK) {
     if (event->event != COMMAND_EVENT_SUBTASK ||
         event->waitable != aihc_wasi_io.subtask ||
         event->code != COMMAND_SUBTASK_RETURNED) {
-      return COMMAND_CALLBACK_CODE_EXIT;
+      __builtin_trap();
     }
     command_subtask_drop(aihc_wasi_io.subtask);
     aihc_wasi_io.pending = AIHC_WASI_PENDING_NONE;
@@ -746,11 +1104,11 @@ exports_wasi_cli_run_run_callback(command_event_t *event) {
       expected_waitable = aihc_wasi_io.future;
       break;
     default:
-      return COMMAND_CALLBACK_CODE_EXIT;
+      __builtin_trap();
     }
     if (event->event != expected_event ||
         event->waitable != expected_waitable) {
-      return COMMAND_CALLBACK_CODE_EXIT;
+      __builtin_trap();
     }
     aihc_wasi_io.pending = AIHC_WASI_PENDING_NONE;
     aihc_wasi_io.completed_status = event->code;
@@ -758,8 +1116,34 @@ exports_wasi_cli_run_run_callback(command_event_t *event) {
   }
   int64_t result = aihc_wasi_progress();
   if (result == INT64_MIN) {
-    return COMMAND_CALLBACK_CODE_WAIT(aihc_wasi_io.wait_set);
+    return 0;
   }
-  return aihc_pump(
-      aihc_lir_program_resume(aihc_complete_io(&aihc_machine, result)));
+  *finished = aihc_lir_program_resume(aihc_complete_io(&aihc_machine, result));
+  return 1;
+}
+
+/* The run export is lifted synchronously, so this task may block. The
+   program runs here and, when every green thread waits for IO, the task
+   waits for the event of the pending request. A libc call that blocks, as
+   the WASI 0.3 libc does, is only allowed to in such a task. */
+/* wasm-ld makes this function when an input has constructors, as the libc
+   has. A crt1 object would call it before main, and the runtime has none. */
+// NOLINTBEGIN(bugprone-reserved-identifier)
+extern void __wasm_call_ctors(void) __attribute__((weak));
+// NOLINTEND(bugprone-reserved-identifier)
+
+bool exports_wasi_cli_run_run(void) {
+  // NOLINTBEGIN(bugprone-reserved-identifier)
+  if (__wasm_call_ctors != NULL) {
+    __wasm_call_ctors();
+  }
+  // NOLINTEND(bugprone-reserved-identifier)
+  aihc_wasi_initialize_arguments();
+  int32_t finished = aihc_lir_program_start();
+  while (!finished) {
+    command_event_t event;
+    command_waitable_set_wait(aihc_wasi_io.wait_set, &event);
+    aihc_wasi_handle_event(&event, &finished);
+  }
+  return aihc_get_exit_status(&aihc_machine) == 0;
 }

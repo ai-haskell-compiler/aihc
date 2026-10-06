@@ -12,33 +12,29 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tToken :: 2.sType {
-      pub 1.cToken :: 1.tToken
+  pub type 1.tToken :: sType {
+    pub 1.cToken :: tToken
   }
 
-  pub type 1.t$Dict$Supply (a : 2.sType) :: 2.sType {
-      pub 1.c$Dict$Supply :: ∀(a : 2.sType). (∀(p : 2.sType 2.→ 2.sType). p a 2.→ 1.tToken) 2.→ 1.t$Dict$Supply a
+  pub type 1.t$Dict$Supply (a : sType) :: sType {
+    pub 1.c$Dict$Supply :: ∀(a : sType). (∀(p : sType 2.→ sType). p a 2.→ tToken) 2.→ t$Dict$Supply a
   }
 
-  pub val 1.vsupply :: ∀(a : 2.sType) (p : 2.sType 2.→ 2.sType). 1.t$Dict$Supply a 2.→ p a 2.→ 1.tToken
-   = Λ(a : 2.sType).
-    Λ(p : 2.sType 2.→ 2.sType).
-      λ($d0 : 1.t$Dict$Supply a).
-        case $d0 as ($dict : 1.t$Dict$Supply a) return (p a 2.→ 1.tToken) of {
-            1.c$Dict$Supply ($method0 : ∀(p{1} : 2.sType 2.→ 2.sType). p{1} a 2.→ 1.tToken) →
-                $method0 @p
-        }
+  pub val 1.vsupply :: ∀(a : sType) (p : sType 2.→ sType). t$Dict$Supply a 2.→ p a 2.→ tToken
+    = Λ(a : sType) (p : sType 2.→ sType). λ($d0 : t$Dict$Supply a).
+      let! c$Dict$Supply ($method0 : ∀(p{1} : sType 2.→ sType). p{1} a 2.→ tToken) = $d0;
+      $method0 @p
 status: pass
 reason: ''

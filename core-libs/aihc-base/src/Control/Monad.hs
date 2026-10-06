@@ -71,31 +71,48 @@ import Prelude
     (=<<),
   )
 
+-- | These combinators bind and return, as GHC defines them: an instance
+-- defines @fmap = liftM@ and @(<*>) = ap@ in terms of them, so they must not
+-- call 'fmap' or '(<*>)' themselves. HLint would turn the last bind of each
+-- into @<$>@, which is a call of 'fmap'.
+
+{- HLINT ignore ap "Use <$>" -}
+{- HLINT ignore liftM "Use <$>" -}
+{- HLINT ignore liftM2 "Use <$>" -}
+{- HLINT ignore liftM3 "Use <$>" -}
+{- HLINT ignore liftM4 "Use <$>" -}
+{- HLINT ignore liftM5 "Use <$>" -}
 ap :: (Monad m) => m (a -> b) -> m a -> m b
 ap function argument = do
   selected <- function
-  selected <$> argument
+  value <- argument
+  return (selected value)
 
 liftM :: (Monad m) => (a -> b) -> m a -> m b
-liftM function action = function <$> action
+liftM function action = do
+  value <- action
+  return (function value)
 
 liftM2 :: (Monad m) => (a -> b -> c) -> m a -> m b -> m c
 liftM2 function left right = do
   leftValue <- left
-  function leftValue <$> right
+  rightValue <- right
+  return (function leftValue rightValue)
 
 liftM3 :: (Monad m) => (a -> b -> c -> d) -> m a -> m b -> m c -> m d
 liftM3 function first second third = do
   firstValue <- first
   secondValue <- second
-  function firstValue secondValue <$> third
+  thirdValue <- third
+  return (function firstValue secondValue thirdValue)
 
 liftM4 :: (Monad m) => (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
 liftM4 function first second third fourth = do
   firstValue <- first
   secondValue <- second
   thirdValue <- third
-  function firstValue secondValue thirdValue <$> fourth
+  fourthValue <- fourth
+  return (function firstValue secondValue thirdValue fourthValue)
 
 liftM5 :: (Monad m) => (a -> b -> c -> d -> e -> f) -> m a -> m b -> m c -> m d -> m e -> m f
 liftM5 function first second third fourth fifth = do
@@ -103,7 +120,8 @@ liftM5 function first second third fourth fifth = do
   secondValue <- second
   thirdValue <- third
   fourthValue <- fourth
-  function firstValue secondValue thirdValue fourthValue <$> fifth
+  fifthValue <- fifth
+  return (function firstValue secondValue thirdValue fourthValue fifthValue)
 
 class (Alternative m, Monad m) => MonadPlus m where
   mzero :: m a

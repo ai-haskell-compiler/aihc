@@ -29,6 +29,7 @@
      update ID V          turn thunk ID into an indirection to V
      blackhole ID         start the evaluation of thunk ID
      unblackhole ID V     finish the evaluation of thunk ID with value V
+     cycle                collect the nursery and gen1 and start a gen2 cycle
      supdate K V          turn static thunk K into an indirection to V
      sset K I V           write value V to field I of static node K
      global I V           write value V to global I
@@ -50,6 +51,8 @@
    The driver prints one block for each collection:
 
      collection C G       command C ran a collection of the generations up to G
+     cycle start          a gen2 cycle took its snapshot at this collection
+     finish               a gen2 cycle ended at this collection
      space LIVE REQUIRED
      age ID G             object ID lives in generation G
      obj ID KIND N V...
@@ -145,6 +148,7 @@ static size_t object_start_capacity;
    which generation a collection copied. */
 static uint64_t reported_gen1_count;
 static uint64_t reported_full_count;
+static uint64_t reported_cycle_active;
 static int srts_linked;
 
 static _Noreturn void fail(const char *message) {
@@ -590,15 +594,22 @@ static unsigned generation_of_address(const void *address) {
 }
 
 static void report_collection(uint64_t required_bytes) {
-  unsigned collected = 0;
-  if (machine->gc_full_count != reported_full_count) {
-    collected = 2;
-  } else if (machine->gc_gen1_count != reported_gen1_count) {
-    collected = 1;
-  }
+  unsigned collected = (unsigned)machine->gc_last_generation;
+  int finished = machine->gc_full_count != reported_full_count;
+  int started = machine->gen2_cycle_active != 0 && reported_cycle_active == 0;
   reported_full_count = machine->gc_full_count;
   reported_gen1_count = machine->gc_gen1_count;
+  reported_cycle_active = machine->gen2_cycle_active;
   printf("collection %zu %u\n", command_index, collected);
+  /* A gen2 cycle that started in this command took its snapshot at the end
+     of the collection. A cycle that ended freed the gen2 objects that were
+     dead at its snapshot. */
+  if (started) {
+    printf("cycle start\n");
+  }
+  if (finished) {
+    printf("finish\n");
+  }
 
   object_start_count = 0;
   walked_bytes = 0;
@@ -772,13 +783,25 @@ static void collect_generation(unsigned generation) {
   report_collection(0);
 }
 
+/* Collect the nursery and gen1, start a gen2 cycle, and report. */
+static void start_cycle(void) {
+  size_t total = 0;
+  AihcSlot *roots = gather_roots(&total);
+  aihc_gc_start_cycle(machine, total, roots, current_srt);
+  scatter_roots(roots, total);
+  report_collection(0);
+}
+
 static void command_machine(char **tokens, size_t count) {
-  if (count != 4) {
-    fail("machine expects three arguments");
+  if (count != 4 && count != 5) {
+    fail("machine expects three or four arguments");
   }
   uint64_t global_count = parse_unsigned(tokens[1]);
   uint64_t slot_count = parse_unsigned(tokens[2]);
   uint64_t space_bytes = parse_unsigned(tokens[3]);
+  /* The bytes one mark slice scans. A small slice spreads a gen2 cycle
+     over many collections. */
+  uint64_t slice_bytes = count == 5 ? parse_unsigned(tokens[4]) : 0;
   if (space_bytes == 0 || space_bytes % sizeof(AihcSlot) != 0) {
     fail("initial space must be a positive number of words");
   }
@@ -825,6 +848,11 @@ static void command_machine(char **tokens, size_t count) {
   /* The script drives every collection above the nursery itself, so the
      policy never chooses one. */
   aihc_heap_reset(machine, space_bytes);
+  if (slice_bytes != 0) {
+    machine->mark_slice_floor = slice_bytes;
+    machine->mark_slice_cap = slice_bytes;
+  }
+  reported_cycle_active = 0;
   machine->gen1_max_bytes = UINT64_MAX;
   machine->gen2_limit_bytes = UINT64_MAX;
   memset(machine->heap_start, 0, space_bytes);
@@ -1192,6 +1220,12 @@ static void run_command(char **tokens, size_t count) {
     blackholes[0] = object;
     ++blackhole_count;
     object->header |= AIHC_HEADER_EVALUATING;
+  } else if (strcmp(name, "cycle") == 0) {
+    if (count != 1) {
+      fail("cycle expects no argument");
+    }
+    link_srts();
+    start_cycle();
   } else if (strcmp(name, "unblackhole") == 0) {
     if (count != 3) {
       fail("unblackhole expects two arguments");
@@ -1237,6 +1271,10 @@ static void run_command(char **tokens, size_t count) {
                   (const uint8_t *)static_nullary, sizeof(static_nullary))) {
       fail("static node fields hold static objects only");
     }
+    /* A static node is old, so the store has the barrier that compiled
+       code puts before a store into an old object. */
+    aihc_write_barrier(machine,
+                       (AihcValue *)&static_nodes[slot - STATIC_THUNKS]);
     static_nodes[slot - STATIC_THUNKS].fields[field] = value;
   } else if (strcmp(name, "ssrt") == 0) {
     if (count != 3) {

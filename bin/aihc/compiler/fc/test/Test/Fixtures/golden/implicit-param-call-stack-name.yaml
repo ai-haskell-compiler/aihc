@@ -27,50 +27,46 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cC#] 3.tChar :: 3.sType;
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : 3.sType) (a2 : 3.sType). 3.sType;
-    3.sType :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    2.c(,) :: ∀(a1 : 3.sType) (a2 : 3.sType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cC#] 3.tChar :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tSrcLoc :: 3.sType {
-      pub 1.cSrcLoc :: 3.t[] 3.tChar 3.→ 3.t[] 3.tChar 3.→ 3.t[] 3.tChar 3.→ 3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ 1.tSrcLoc
+  pub type 1.tSrcLoc :: sType {
+    pub 1.cSrcLoc :: t[] tChar 3.→ t[] tChar 3.→ t[] tChar 3.→ tInt 3.→ tInt 3.→ tInt 3.→ tInt 3.→ tSrcLoc
   }
 
-  pub type 1.tCallStack :: 3.sType {
-      pub 1.cEmptyCallStack :: 1.tCallStack;
-      pub 1.cPushCallStack :: 3.t[] 3.tChar 3.→ 1.tSrcLoc 3.→ 1.tCallStack 3.→ 1.tCallStack
+  pub type 1.tCallStack :: sType {
+    pub 1.cEmptyCallStack :: tCallStack;
+    pub 1.cPushCallStack :: t[] tChar 3.→ tSrcLoc 3.→ tCallStack 3.→ tCallStack
   }
 
-  pub val 1.vemptyCallStack :: 1.tCallStack
-   = 1.cEmptyCallStack
+  pub val 1.vemptyCallStack :: tCallStack
+    = cEmptyCallStack
 
-  pub val 1.vpushCallStack :: 2.tTuple2 (3.t[] 3.tChar) 1.tSrcLoc 3.→ 1.tCallStack 3.→ 1.tCallStack
-   = λ(x : 2.tTuple2 (3.t[] 3.tChar) 1.tSrcLoc).
-    λ(y : 1.tCallStack).
-      case x as (_scrut : 2.tTuple2 (3.t[] 3.tChar) 1.tSrcLoc) return (1.tCallStack) of {
-          2.c(,) (name : 3.t[] 3.tChar) (location : 1.tSrcLoc) →
-              1.cPushCallStack name location y
-      }
+  pub val 1.vpushCallStack :: tTuple2 (t[] tChar) tSrcLoc 3.→ tCallStack 3.→ tCallStack
+    = λ(x : tTuple2 (t[] tChar) tSrcLoc) (y : tCallStack).
+      let! c(,) (name : t[] tChar) (location : tSrcLoc) = x;
+      cPushCallStack name location y
 
-  pub val 1.vrenamed :: 1.tCallStack 3.→ 3.tInt 3.→ 1.tCallStack
-   = λ($d0 : 1.tCallStack).
-    λ(x : 3.tInt).
-      1.vemptyCallStack
+  pub val 1.vrenamed :: tCallStack 3.→ tInt 3.→ tCallStack
+    = λ($d0 : tCallStack) (x : tInt).
+      vemptyCallStack
 
-  pub val 1.vbound :: 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    x
+  pub val 1.vbound :: tInt 3.→ tInt
+    = λ(x : tInt).
+      x
 status: pass
 reason: an implicit parameter of type CallStack with a name other than callStack is a call stack, and a plain implicit parameter is not

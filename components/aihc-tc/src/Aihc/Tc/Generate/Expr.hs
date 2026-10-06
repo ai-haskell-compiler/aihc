@@ -61,7 +61,6 @@ import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (when)
 import Data.Bifunctor qualified as Bifunctor
-import Data.Either (fromRight)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -196,9 +195,10 @@ inferExprAt ambient expr = case expr of
     inferArithSeq (exprSpan expr <|> ambient) arithSeq
   EDo stmts flavor ->
     inferDo (exprSpan expr <|> ambient) flavor stmts
-  -- A Template Haskell quote compiles to a runtime error, so it has any
-  -- type the context wants.
+  -- A Template Haskell quote or a quasi-quote compiles to a runtime
+  -- error, so it has any type the context wants.
   _ | isTemplateHaskellQuote expr -> literalResult expr freshMetaTv
+  EQuasiQuote {} -> literalResult expr freshMetaTv
   other -> do
     emitError (exprSpan expr <|> ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
@@ -525,10 +525,10 @@ checkExpr expected expression = case expression of
     (alternatives', branchConstraints) <- inferCaseAlts (exprSpan expression) scrutineeType expected alternatives
     let pending = pendingAnnotation expected [] [] []
     pure (annotatePendingExprAt (exprSpan expression) pending (ECase scrutinee' alternatives'), expected, constraints <> branchConstraints)
-  EDo statements DoPlain -> do
+  EDo statements flavor | isMonadicDoFlavor flavor -> do
     (statements', ty, constraints) <- inferDoStmtsWith (Just expected) (exprSpan expression) statements
     let pending = pendingAnnotation ty [] [] []
-    pure (annotatePendingExprAt (exprSpan expression) pending (EDo statements' DoPlain), ty, constraints)
+    pure (annotatePendingExprAt (exprSpan expression) pending (EDo statements' flavor), ty, constraints)
   ELetDecls declarations body -> do
     (declarations', body', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected body)
     pure (ELetDecls declarations' body', ty, constraints)
@@ -585,7 +585,7 @@ checksExpectedResult expression = case expression of
   EPragma _ inner -> checksExpectedResult inner
   ECase {} -> True
   ELetDecls {} -> True
-  EDo _ DoPlain -> True
+  EDo _ flavor -> isMonadicDoFlavor flavor
   ELambdaPats {} -> True
   _ -> False
 
@@ -1276,16 +1276,10 @@ inferTuple sp flavor elems = do
       tys = map (\(_, ty, _) -> ty) results
       cts = concatMap (\(_, _, elemCts) -> elemCts) results
       n = length tys
-  kinds <- getKinds
   wired <- wiredTupleTyCon flavor n
-  elementKinds <- mapM tcTypeKind tys
-  let fallbackKind =
-        case flavor of
-          Boxed -> foldr KFun (typeKind kinds) elementKinds
-          Unboxed -> foldr KFun (mkTYPEKind kinds (tupleRep kinds (map (runtimeRepOrLifted kinds) elementKinds))) elementKinds
   -- The wiring gives the full identity of the tuple type constructor.
   -- A bare name lookup can find a different constructor with the same name.
-  tc <- mkWiredTyCon wired fallbackKind
+  tc <- registeredWiredTyCon wired
   -- A tuple section such as @(0,)@ is a function of its missing fields.
   let tupleTy = TcTyCon tc tys
       missingTys = [ty | (Nothing, ty, _) <- results]
@@ -1299,8 +1293,6 @@ inferTuple sp flavor elems = do
     inferElem (Just e) = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
-
-    runtimeRepOrLifted kinds kind = fromRight (liftedRep kinds) (runtimeRepFromKind kind)
 
 -- | An overloaded list applies fromListN to its length and an ordinary list.
 inferOverloadedList :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
@@ -1511,29 +1503,53 @@ resolvedListTyCon :: TcM TyCon
 resolvedListTyCon = listTyConOfWiring
 
 inferDo :: Maybe SourceSpan -> DoFlavor -> [DoStmt Expr] -> TcM (Expr, TcType, [Ct])
-inferDo sp flavor stmts =
-  case flavor of
-    DoPlain -> do
+inferDo sp flavor stmts
+  | isMonadicDoFlavor flavor = do
       (stmts', resultTy, cts) <- inferDoStmts sp stmts
       let pending = pendingAnnotation resultTy [] [] []
       pure (annotatePendingExprAt sp pending (EDo stmts' flavor), resultTy, cts)
-    _ -> do
+  | otherwise = do
       emitError sp (OtherError ("unsupported do flavor in TC MVP: " ++ show flavor))
       resultTy <- freshMetaTv
       pure (EDo stmts flavor, resultTy, [])
 
+-- | Whether a do block uses the built-in monad methods. The resolver puts
+-- each recursive segment of an @mdo@ block into a @rec@ statement, so an
+-- @mdo@ block is the same as a plain do block here.
+isMonadicDoFlavor :: DoFlavor -> Bool
+isMonadicDoFlavor flavor =
+  case flavor of
+    DoPlain -> True
+    DoMdo -> True
+    _ -> False
+
 inferDoStmts :: Maybe SourceSpan -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferDoStmts = inferDoStmtsWith Nothing
 
+-- | What comes after the statements of a do block.
+data DoEnd
+  = -- | The last statement is the result of the block.
+    DoEndLast
+  | -- | The statements are the body of a recursive group. After the last
+    -- statement, this action gives the type of the block and the
+    -- constraints that connect the group variables with the knot.
+    DoEndRec (TcM (TcType, [Ct]))
+
 inferDoStmtsWith :: Maybe TcType -> Maybe SourceSpan -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
-inferDoStmtsWith expected sp stmts =
-  case stmts of
-    [] -> do
+inferDoStmtsWith = inferDoStmtsEnd DoEndLast
+
+inferDoStmtsEnd :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferDoStmtsEnd end expected sp stmts =
+  case (stmts, end) of
+    ([], DoEndRec finish) -> do
+      (resultTy, cts) <- finish
+      pure ([], resultTy, cts)
+    ([], DoEndLast) -> do
       emitError sp (OtherError "empty do block in TC MVP")
       resultTy <- freshMetaTv
       pure ([], resultTy, [])
-    [stmt] -> inferLastDoStmt expected sp stmt
-    stmt : rest -> inferDoStmt expected sp stmt rest
+    ([stmt], DoEndLast) -> inferLastDoStmt expected sp stmt
+    (stmt : rest, _) -> inferDoStmt end expected sp stmt rest
 
 inferLastDoStmt :: Maybe TcType -> Maybe SourceSpan -> DoStmt Expr -> TcM ([DoStmt Expr], TcType, [Ct])
 inferLastDoStmt expected ambient stmt =
@@ -1551,15 +1567,18 @@ inferLastDoStmt expected ambient stmt =
       resultTy <- freshMetaTv
       pure ([stmt], resultTy, [])
 
-inferDoStmt :: Maybe TcType -> Maybe SourceSpan -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
-inferDoStmt expected ambient stmt rest =
+inferDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferDoStmt end expected ambient stmt rest =
   case stmt of
+    DoAnn {}
+      | Just parts <- recStmtParts stmt ->
+          inferRecStmt end expected ambient parts rest
     DoAnn ann inner
       | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
         isDoMethodResolution resolution ->
-          inferResolvedDoStmt expected ambient ann resolution inner rest
+          inferResolvedDoStmt end expected ambient ann resolution inner rest
     DoAnn ann inner -> do
-      (stmts', resultTy, cts) <- inferDoStmt expected (doStmtSpan stmt <|> ambient) inner rest
+      (stmts', resultTy, cts) <- inferDoStmt end expected (doStmtSpan stmt <|> ambient) inner rest
       case stmts' of
         inner' : rest' -> pure (DoAnn ann inner' : rest', resultTy, cts)
         [] -> pure ([], resultTy, cts)
@@ -1570,7 +1589,7 @@ inferDoStmt expected ambient stmt rest =
       (action', actionTy, actionCts) <- inferExprAt ambient action
       patCheck <- checkPattern ambient pat itemTy
       (rest', resultTy, restCts) <-
-        withPatternScope patCheck (inferDoStmtsWith expected ambient rest)
+        withPatternScope patCheck (inferDoStmtsEnd end expected ambient rest)
       actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
@@ -1586,7 +1605,7 @@ inferDoStmt expected ambient stmt rest =
       itemTy <- freshMetaTv
       resultItemTy <- freshMetaTv
       (action', actionTy, actionCts) <- inferExprAt ambient action
-      (rest', resultTy, restCts) <- inferDoStmtsWith expected ambient rest
+      (rest', resultTy, restCts) <- inferDoStmtsEnd end expected ambient rest
       actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
@@ -1598,16 +1617,124 @@ inferDoStmt expected ambient stmt rest =
     DoLetDecls decls -> do
       (decls', rest', resultTy, cts) <-
         inferLocalDecls inferExpr decls $ do
-          (rest', resultTy, restCts) <- inferDoStmtsWith expected ambient rest
+          (rest', resultTy, restCts) <- inferDoStmtsEnd end expected ambient rest
           pure (rest', resultTy, restCts)
       pure (DoLetDecls decls' : rest', resultTy, cts)
     DoRecStmt _ -> do
-      emitError ambient (OtherError "recursive do statements are unsupported in TC MVP")
-      (rest', resultTy, cts) <- inferDoStmtsWith expected ambient rest
+      emitError ambient (OtherError "a rec statement without its resolved methods")
+      (rest', resultTy, cts) <- inferDoStmtsEnd end expected ambient rest
       pure (stmt : rest', resultTy, cts)
 
-inferResolvedDoStmt :: Maybe TcType -> Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
-inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
+-- | The parts of a @rec@ statement that the resolver gives: the @mfix@,
+-- @return@, and @>>=@ methods of its desugaring, and its statements.
+data RecStmtParts = RecStmtParts
+  { recMfix :: !(Annotation, ResolutionAnnotation),
+    recReturn :: !(Annotation, ResolutionAnnotation),
+    recBind :: !(Annotation, ResolutionAnnotation),
+    recStmts :: ![DoStmt Expr]
+  }
+
+recStmtParts :: DoStmt Expr -> Maybe RecStmtParts
+recStmtParts stmt =
+  case stmt of
+    DoAnn mfixAnn (DoAnn returnAnn (DoAnn bindAnn (DoRecStmt stmts))) ->
+      RecStmtParts
+        <$> method "mfix" mfixAnn
+        <*> method "return" returnAnn
+        <*> method ">>=" bindAnn
+        <*> pure stmts
+    _ -> Nothing
+  where
+    method name ann = do
+      resolution <- fromAnnotation @ResolutionAnnotation ann
+      if isSyntaxTermResolution name resolution then Just (ann, resolution) else Nothing
+
+-- | Check a @rec@ statement. Its desugaring is
+--
+-- > vs <- mfix (\ ~vs -> do { stmts; return vs })
+--
+-- where @vs@ is the tuple of the group variables in the order of
+-- 'recStmtBinderNames'. A group with one variable uses the variable and not
+-- a tuple. The variables have monomorphic types in the group and after it.
+--
+-- The statement keeps the checked methods as annotations, from the outside
+-- in: the @mfix@ method, the @return@ method, the @>>=@ method, and last a
+-- tuple annotation. The tuple annotation has the tuple type, the types of
+-- the variables as type arguments, and the type of the statement block as
+-- its only term argument type.
+inferRecStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> RecStmtParts -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferRecStmt end expected ambient parts rest = do
+  keys <- mapM resolvedUnqualifiedTermKey (recStmtBinderNames (recStmts parts))
+  binderTys <- mapM (const freshMetaTv) keys
+  monadTy <- freshMetaTv
+  tupleTy <- recTupleType binderTys
+  let (mfixAnn, mfixResolution) = recMfix parts
+      (returnAnn, returnResolution) = recReturn parts
+      (bindAnn, bindResolution) = recBind parts
+      innerTy = TcAppTy monadTy tupleTy
+      knotTy = TcFunTy tupleTy innerTy
+      mfixTy = TcFunTy knotTy innerTy
+  (mfixPending, mfixEv, mfixCts) <- inferDoMethod ambient "mfix" mfixResolution mfixTy
+  (returnPending, returnEv, returnCts) <- inferDoMethod ambient "return" returnResolution knotTy
+  prepareScrutinee (mfixCts <> returnCts)
+  (stmts', _, innerCts) <-
+    withRecBinders (zip keys binderTys) $
+      inferDoStmtsEnd (DoEndRec (finishRecGroup ambient innerTy (zip keys binderTys))) (Just innerTy) ambient (recStmts parts)
+  restExpected <- freshMetaTv
+  blockTy <- maybe freshMetaTv pure expected
+  let bindTy = TcFunTy innerTy (TcFunTy (TcFunTy tupleTy restExpected) blockTy)
+  (bindPending, bindEv, bindCts) <- inferDoMethod ambient ">>=" bindResolution bindTy
+  prepareScrutinee bindCts
+  (rest', restTy, restCts) <-
+    withLocalKeys [(key, TcMonoIdBinder ty) | (key, ty) <- zip keys binderTys] $
+      inferDoStmtsEnd end (Just restExpected) ambient rest
+  resultEquality <- wantedDoEq ambient restTy restExpected
+  let tuplePending = pendingAnnotation tupleTy binderTys [] [innerTy]
+      methodAnns ty ev pending ann = annotateDoStmtCast ty ev . DoAnn (mkAnnotation pending) . DoAnn ann
+      stmt' =
+        methodAnns mfixTy mfixEv mfixPending mfixAnn $
+          methodAnns knotTy returnEv returnPending returnAnn $
+            methodAnns bindTy bindEv bindPending bindAnn $
+              DoAnn (mkAnnotation tuplePending) (DoRecStmt stmts')
+  pure
+    ( stmt' : rest',
+      blockTy,
+      mfixCts <> returnCts <> innerCts <> bindCts <> restCts <> [resultEquality]
+    )
+  where
+    withLocalKeys binders action = foldr (uncurry extendTermEnv) action binders
+
+-- | The type of the knot of a recursive group: the unit type for no
+-- variable, the type of the variable for one variable, and a tuple type for
+-- more variables.
+recTupleType :: [TcType] -> TcM TcType
+recTupleType tys =
+  case tys of
+    [ty] -> pure ty
+    _ -> do
+      kinds <- getKinds
+      wired <- wiredTupleTyCon Boxed (length tys)
+      tc <- mkWiredTyCon wired (foldr (KFun . const (typeKind kinds)) (typeKind kinds) tys)
+      pure (TcTyCon tc tys)
+
+-- | After the last statement of a recursive group, equate the type of each
+-- group variable that the statements bound with its knot type.
+finishRecGroup :: Maybe SourceSpan -> TcType -> [(Entity, TcType)] -> TcM (TcType, [Ct])
+finishRecGroup sp innerTy binders = do
+  cts <- mapM equate binders
+  pure (innerTy, concat cts)
+  where
+    equate (key, knotTy) = do
+      binder <- lookupTermKey key
+      case binder of
+        Just (TcMonoIdBinder boundTy) -> pure <$> wantedDoEq sp boundTy knotTy
+        Just (TcIdBinder (ForAll [] [] boundTy) _) -> pure <$> wantedDoEq sp boundTy knotTy
+        _ -> do
+          emitError sp (OtherError "a variable of a rec group must have a monomorphic type")
+          pure []
+
+inferResolvedDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferResolvedDoStmt end expected ambient resolutionAnn resolution stmt rest =
   case stmt of
     DoBind pat action -> do
       itemTy <- freshMetaTv
@@ -1620,7 +1747,7 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
       patCheck <- checkPattern ambient pat itemTy
       (rest', restTy, restCts) <-
         withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
-          withPatternScope patCheck (inferDoStmtsWith (Just restExpected) ambient rest)
+          withPatternScope patCheck (inferDoStmtsEnd end (Just restExpected) ambient rest)
       resultEquality <- wantedDoEq ambient restTy restExpected
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
           stmt' = annotateDoStmtCast bindTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action')))
@@ -1633,13 +1760,13 @@ inferResolvedDoStmt expected ambient resolutionAnn resolution stmt rest =
       let thenTy = TcFunTy actionTy (TcFunTy restExpected blockTy)
       (pending, methodEv, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
       prepareScrutinee (actionCts <> methodCts)
-      (rest', restTy, restCts) <- inferDoStmtsWith (Just restExpected) ambient rest
+      (rest', restTy, restCts) <- inferDoStmtsEnd end (Just restExpected) ambient rest
       resultEquality <- wantedDoEq ambient restTy restExpected
       let stmt' = annotateDoStmtCast thenTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action')))
       pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts <> [resultEquality])
     _ -> do
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
-      inferDoStmt expected ambient stmt rest
+      inferDoStmt end expected ambient stmt rest
 
 -- | The constraint that equates the argument of a literal method with the
 -- resolved type of the literal.

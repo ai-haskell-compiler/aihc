@@ -52,14 +52,14 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
-import Data.List (intercalate, intersperse)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.List (intercalate, intersperse, sort)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
-import System.Directory (doesFileExist, findExecutable)
+import System.Directory (doesDirectoryExist, doesFileExist, findExecutable, listDirectory)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -224,20 +224,18 @@ hostNativeTarget
 -- objects are compiled against, which is not the same question as the
 -- interface a finished program speaks.
 --
--- The two differ on WebAssembly, where the triple is one version behind the
--- target name. Preview 3 is not a property of the compilation: the objects
--- are ordinary wasm32 code, and the preview 3 interface comes from the WIT
--- bindings and from the component "wasm-tools" encodes around the linked
--- module. Clang has no preview 3 triple to offer either, and no use for one.
--- What the triple does decide is which libc the runtime agrees with, and the
--- wasi-libc it links was built as @wasm32-wasip1@.
+-- The WebAssembly target compiles for @wasm32-wasip3@, the triple of the
+-- libc that wasi-sdk builds for WASI 0.3. That libc keeps its stack pointer
+-- and its thread-local storage behind functions, calls the host through the
+-- component model, and blocks in a call with the waitable-set builtins, so
+-- the runtime and the libc have to agree on it.
 nativeTargetTriple :: NativeTarget -> String
 nativeTargetTriple target =
   case target of
     AppleArm64 -> "arm64-apple-darwin"
     LinuxAmd64 -> "x86_64-unknown-linux-gnu"
     Llvm -> "llvm"
-    Wasm32Wasip3 -> "wasm32-wasip1"
+    Wasm32Wasip3 -> "wasm32-wasip3"
 
 -- | Render the stable store directory for one compilation target.
 nativeTargetStoreDirectory :: NativeTarget -> FilePath
@@ -447,16 +445,16 @@ cxxStandardLibraryArguments target =
 
 -- | The WASI sysroot that supplies libc to the WebAssembly target. The
 -- runtime allocates, copies memory, and aborts through libc like every other
--- target, so a sysroot is required rather than optional.
---
--- The header and archive directories are recorded separately. Their names
--- follow the triple the sysroot was built for, wasi-libc renamed that from
--- @wasm32-wasi@ to @wasm32-wasip1@, and an installation can carry one name
--- for its headers and the other for its archives. Reading both from the
--- directory itself keeps every installation usable without a version test.
+-- target, and a program can call any other function of it, so a sysroot is
+-- required rather than optional. It has to be one that wasi-sdk 34 or later
+-- builds for @wasm32-wasip3@: the libc of the other targets calls the host
+-- through WASI preview 1, which the component of a program cannot import.
 data WasmSysroot = WasmSysroot
   { wasmSysrootInclude :: !FilePath,
-    wasmSysrootLibc :: !FilePath
+    wasmSysrootLibc :: !FilePath,
+    -- | The compiler runtime archive of the target, which a link adds after
+    -- the libc. A sysroot that does not carry one leaves it out.
+    wasmSysrootBuiltins :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
 
@@ -482,13 +480,30 @@ readWasmSysroot :: FilePath -> IO (Maybe WasmSysroot)
 readWasmSysroot root = do
   includes <- filterM (\directory -> doesFileExist (directory </> "stdlib.h")) [root </> "include" </> name | name <- wasmSysrootTargetNames]
   archives <- filterM doesFileExist [root </> "lib" </> name </> "libc.a" | name <- wasmSysrootTargetNames]
+  builtins <- findWasmBuiltins root
   pure $ case (includes, archives) of
-    (include : _, archive : _) -> Just WasmSysroot {wasmSysrootInclude = include, wasmSysrootLibc = archive}
+    (include : _, archive : _) -> Just WasmSysroot {wasmSysrootInclude = include, wasmSysrootLibc = archive, wasmSysrootBuiltins = builtins}
     _ -> Nothing
 
--- | The target directory names wasi-libc has used, newest first.
+-- | The target directory names of the libc that the target links.
 wasmSysrootTargetNames :: [FilePath]
-wasmSysrootTargetNames = ["wasm32-wasip1", "wasm32-wasi"]
+wasmSysrootTargetNames = ["wasm32-wasip3"]
+
+-- | The compiler runtime archive for the target. @AIHC_WASM_BUILTINS@ names
+-- one. Otherwise the sysroot itself is searched, and then the layout of a
+-- wasi-sdk installation, which keeps the archive in the lib directory of its
+-- compiler beside the sysroot.
+findWasmBuiltins :: FilePath -> IO (Maybe FilePath)
+findWasmBuiltins root = do
+  override <- lookupEnv "AIHC_WASM_BUILTINS"
+  let inSysroot = [root </> "lib" </> directory </> "libclang_rt.builtins.a" | directory <- ["wasm32-wasip3", "wasm32-unknown-wasip3"]]
+      compilerLibrary = root </> ".." </> ".." </> "lib" </> "clang"
+  versions <- do
+    exists <- doesDirectoryExist compilerLibrary
+    if exists then sort <$> listDirectory compilerLibrary else pure []
+  let inCompiler = [compilerLibrary </> version </> "lib" </> "wasm32-unknown-wasip3" </> "libclang_rt.builtins.a" | version <- versions]
+  found <- filterM doesFileExist (maybe [] pure override <> inSysroot <> inCompiler)
+  pure (listToMaybe found)
 
 -- | The installation prefixes searched when the environment names none.
 wasmSysrootCandidates :: [FilePath]
@@ -506,11 +521,12 @@ missingWasmSysrootMessage rejected =
   unlines
     ( introduction
         <> [ "",
-             "Install one and, when it is outside a standard prefix, set",
-             "AIHC_WASM_SYSROOT to the directory holding include/<target> and",
-             "lib/<target>/libc.a:",
+             "Install the sysroot of wasi-sdk 34 or later, which carries the libc of",
+             "the wasm32-wasip3 target, and when it is outside a standard prefix, set",
+             "AIHC_WASM_SYSROOT to the directory holding include/wasm32-wasip3 and",
+             "lib/wasm32-wasip3/libc.a. The link also needs wasm-component-ld and",
+             "the compiler runtime archive libclang_rt.builtins.a of the target:",
              "",
-             "  brew install wasi-libc",
              "  https://github.com/WebAssembly/wasi-sdk/releases",
              "",
              "The searched prefixes are:"
@@ -670,6 +686,8 @@ nativeRuntimePrimitiveCalls =
     call "stdoutIOHandle#" "aihc_io_stdout" [] GrinForeignAddr,
     call "stderrIOHandle#" "aihc_io_stderr" [] GrinForeignAddr,
     call "ioHandleDescriptor#" "aihc_io_handle_descriptor" [GrinForeignAddr] GrinForeignInt64,
+    call "ioHandlePosition#" "aihc_io_handle_position" [GrinForeignAddr] GrinForeignInt64,
+    call "ioHandleSetPosition#" "aihc_io_handle_set_position" [GrinForeignAddr, GrinForeignInt64] GrinForeignInt64,
     call "closeIOHandle#" "aihc_io_close" [GrinForeignAddr] GrinForeignInt64,
     call "ioOpenResultError#" "aihc_io_open_result_error" [GrinForeignAddr] GrinForeignInt64,
     call "takeIOResult#" "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt64,

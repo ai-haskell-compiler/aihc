@@ -9,17 +9,19 @@ module Aihc.Fc.Parser
 where
 
 import Aihc.Fc.Name
-import Aihc.Fc.Pretty (reservedWords)
+import Aihc.Fc.Pretty (globalReferences, reservedWords)
 import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
+import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
+import Control.Monad.Trans.Reader (ReaderT, ask, local, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, isSpace, ord)
 import Data.Either (isLeft, lefts, partitionEithers)
 import Data.Functor (($>))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -31,25 +33,33 @@ import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 import Text.Megaparsec.Char.Lexer qualified as L
 
-type Parser = ReaderT ScopeTable (Parsec Void Text)
+data ParserEnv = ParserEnv
+  { parserScopes :: ScopeTable,
+    parserGlobals :: Map.Map Text Name,
+    parserPrimitives :: Map.Map Name ForeignCall,
+    parserCollect :: Bool
+  }
+
+type Parser = ReaderT ParserEnv (Parsec Void Text)
 
 type FcParseError = ParseErrorBundle Text Void
 
 parseProgram :: Text -> Either FcParseError Program
 parseProgram input = do
   (scopes, body) <- parseScopeHeader input
-  parseWith scopes (space *> program <* MP.eof) "<system-fc>" body
+  initial <- parseWith (ParserEnv scopes Map.empty Map.empty True) (space *> program <* MP.eof) "<system-fc>" body
+  parseWith (ParserEnv scopes (globalReferences initial) Map.empty False) (space *> program <* MP.eof) "<system-fc>" body
 
 renderParseError :: FcParseError -> String
 renderParseError = MP.errorBundlePretty
 
-parseWith :: ScopeTable -> Parser value -> String -> Text -> Either FcParseError value
+parseWith :: ParserEnv -> Parser value -> String -> Text -> Either FcParseError value
 parseWith scopes parser = MP.parse (runReaderT parser scopes)
 
 parseScopeHeader :: Text -> Either FcParseError (ScopeTable, Text)
 parseScopeHeader = MP.parse parser "<system-fc-scope>"
   where
-    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) emptyScopeTable) <*> MP.takeRest
+    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) (ParserEnv emptyScopeTable Map.empty Map.empty True)) <*> MP.takeRest
     toScopeTable = foldr (\(scopeId, package, moduleName) -> insertScope scopeId package moduleName) emptyScopeTable
 
 scopeDeclaration :: Parser (Int, PackageId, Text)
@@ -61,11 +71,33 @@ scopeDeclaration =
 
 program :: Parser Program
 program = do
-  scopes <- ask
-  imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
-  Program scopes imports <$> MP.many declaration
+  scopes <- parserScopes <$> ask
+  primitives <- MP.option [] (MP.try (keyword "import" *> keyword "prims") *> importEntries primitiveEntry)
+  let table = Map.fromList primitives
+  when (Map.size table /= length primitives) (fail "duplicate primitive alias")
+  local (\environment -> environment {parserPrimitives = table}) $ do
+    imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
+    Program scopes imports <$> MP.many declaration
   where
     emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+
+primitiveEntry :: Parser (Name, ForeignCall)
+primitiveEntry = do
+  alias <- localBinderName SortValue
+  _ <- symbol "="
+  dependencies <- MP.option [] parseForeignImportDependencies
+  name <- topName SortValue
+  ty <- symbol "::" *> fcType
+  pure (alias, ForeignCall name Prim dependencies ty)
+
+primitiveCallExpr :: Parser Expr
+primitiveCallExpr = do
+  _ <- keyword "prim"
+  alias <- localBinderName SortValue
+  primitives <- parserPrimitives <$> ask
+  case Map.lookup alias primitives of
+    Nothing -> fail "unknown primitive alias"
+    Just call -> foreignCallArguments call
 
 importGroup :: Parser [Imports -> Imports]
 importGroup = do
@@ -78,7 +110,7 @@ importGroup = do
       keyword "value-binders" *> importEntries (importedBinder SortValue)
     ]
 
-importEntries :: Parser (Imports -> Imports) -> Parser [Imports -> Imports]
+importEntries :: Parser entry -> Parser [entry]
 importEntries entry = entry `MP.sepBy1` symbol ";"
 
 importedHeader :: Parser (Imports -> Imports)
@@ -196,6 +228,10 @@ foreignCallExpr :: Parser Expr
 foreignCallExpr = do
   _ <- keyword "foreign"
   call <- MP.between (symbol "{") (symbol "}") foreignCall
+  foreignCallArguments call
+
+foreignCallArguments :: ForeignCall -> Parser Expr
+foreignCallArguments call = do
   arguments <- MP.many appArgument
   let (types, rest) = span isLeft arguments
   case partitionEithers rest of
@@ -248,7 +284,7 @@ callingConvention =
           }
 
 callTarget :: Parser CCallTarget
-callTarget = MP.option CCallFunction (MP.choice [keyword "address" $> CCallAddress, keyword "dynamic" $> CCallDynamic, keyword "wrapper" $> CCallWrapper])
+callTarget = MP.option CCallFunction (MP.choice [keyword "address" $> CCallAddress, keyword "dynamic" $> CCallDynamic, keyword "wrapper" $> CCallWrapper, keyword "function-address" $> CCallFunctionAddress])
 
 foreignSafety :: Parser ForeignSafety
 foreignSafety =
@@ -413,14 +449,19 @@ typeAtom =
   MP.choice
     [ parens fcType,
       typeLiteral,
-      TyVar <$> MP.try typeLocalName,
-      TyCon <$> topNameWithSort
+      namedType
     ]
+  where
+    namedType = do
+      name <- referenceName SortTypeVariable
+      pure $ case nameOrigin name of
+        OriginTop {} -> TyCon name
+        OriginLocal {} -> TyVar name
 
 -- | A type-level literal: its kind, then its value.
 typeLiteral :: Parser Type
 typeLiteral =
-  TyLit <$> (keyword "lit" *> topNameWithSort) <*> tyLit
+  TyLit <$> (keyword "lit" *> topReference) <*> tyLit
 
 tyLit :: Parser TyLit
 tyLit =
@@ -438,23 +479,39 @@ expression =
   MP.choice
     [ lambdaExpr,
       typeLambdaExpr,
+      strictLetExpr,
       letExpr,
       recExpr,
       caseExpr,
+      absurdExpr,
       castOrApp
     ]
 
 lambdaExpr :: Parser Expr
-lambdaExpr = ExLam <$> (symbol "λ" *> openTermBinder SortValue) <*> (symbol "." *> expression)
+lambdaExpr = flip (foldr ExLam) <$> (symbol "λ" *> MP.some (openTermBinder SortValue)) <*> (symbol "." *> expression)
 
 typeLambdaExpr :: Parser Expr
-typeLambdaExpr = ExTyLam <$> (symbol "Λ" *> openTermBinder SortTypeVariable) <*> (symbol "." *> expression)
+typeLambdaExpr = flip (foldr ExTyLam) <$> (symbol "Λ" *> MP.some (openTermBinder SortTypeVariable)) <*> (symbol "." *> expression)
 
 openTermBinder :: Sort -> Parser Binder
 openTermBinder sort = parens (Binder <$> localBinderName sort <*> (symbol ":" *> fcType))
 
 letExpr :: Parser Expr
-letExpr = ExLet <$> (keyword "let" *> braces openBind) <*> (keyword "in" *> expression)
+letExpr = do
+  _ <- keyword "let"
+  bind <- (braces openBind <* keyword "in") <|> (openBind <* symbol ";")
+  ExLet bind <$> expression
+
+-- | A strict pattern binding is a case with one alternative:
+-- @let! C (x : t) as (s : u) = e; body@.
+strictLetExpr :: Parser Expr
+strictLetExpr = do
+  _ <- MP.try (symbol "let!")
+  makeAlt <- altPattern
+  binder <- MP.optional (keyword "as" *> openTermBinder SortValue)
+  scrutinee <- symbol "=" *> expression <* symbol ";"
+  body <- expression
+  pure (ExCase scrutinee binder (makeAlt body NE.:| []))
 
 recExpr :: Parser Expr
 recExpr = ExRec <$> (keyword "rec" *> braces (MP.sepBy openBind (symbol ";"))) <*> (keyword "in" *> expression)
@@ -468,19 +525,24 @@ caseExpr :: Parser Expr
 caseExpr =
   ExCase
     <$> (keyword "case" *> expression)
-    <*> (keyword "as" *> openTermBinder SortValue)
-    <*> (keyword "return" *> parens fcType)
-    <*> (keyword "of" *> braces (MP.sepBy caseAlt (symbol ";")))
+    <*> MP.optional (keyword "as" *> openTermBinder SortValue)
+    <*> (keyword "of" *> braces ((NE.:|) <$> caseAlt <*> MP.many (symbol ";" *> caseAlt)))
+
+absurdExpr :: Parser Expr
+absurdExpr = ExAbsurd <$> (keyword "absurd" *> expression) <*> (keyword "return" *> parens fcType)
 
 caseAlt :: Parser Alt
-caseAlt =
+caseAlt = altPattern <*> (caseArrow *> expression)
+
+-- | The head of an alternative, which waits for its right-hand side.
+altPattern :: Parser (Expr -> Alt)
+altPattern =
   MP.choice
-    [ Alt AltDefault [] [] <$> (symbol "_" *> caseArrow *> expression),
+    [ Alt AltDefault [] [] <$ symbol "_",
       Alt
-        <$> (MP.try (AltLit <$> literal) <|> (AltData <$> topNameWithSort))
+        <$> (MP.try (AltLit <$> literal) <|> (AltData <$> topReference))
         <*> MP.many (symbol "@" *> openTermBinder SortTypeVariable)
         <*> MP.many (openTermBinder SortValue)
-        <*> (caseArrow *> expression)
     ]
 
 caseArrow :: Parser Text
@@ -493,8 +555,11 @@ castOrApp = do
     _ <- symbol "▷"
     ExCast function <$> coercion
 
+literalExpr :: Parser Expr
+literalExpr = ExLit <$> (keyword "lit" *> parens literal) <*> (symbol "::" *> typeAtom)
+
 appExpr :: Parser Expr
-appExpr = foreignCallExpr <|> (foldl applyArg <$> exprAtom <*> MP.many appArgument)
+appExpr = primitiveCallExpr <|> foreignCallExpr <|> (foldl applyArg <$> exprAtom <*> MP.many appArgument)
   where
     applyArg function argument =
       case argument of
@@ -513,9 +578,8 @@ exprAtom =
   MP.choice
     [ ExCoercion <$> (keyword "coercion" *> parens coercion),
       parens expression,
-      ExLit <$> MP.try literal,
-      ExVar <$> MP.try localName,
-      ExVar <$> topNameWithSort
+      literalExpr,
+      ExVar <$> referenceName SortValue
     ]
 
 coercion :: Parser Coercion
@@ -528,9 +592,9 @@ coercion =
       CoNth <$> (keyword "nth-co" *> int) <*> parens coercion,
       CoFun <$> (keyword "fun-co" *> parens coercion) <*> parens coercion,
       CoForAll <$> (keyword "forall-co" *> openPiBinder) <*> parens coercion,
-      CoTyConApp <$> (keyword "tycon-co" *> topNameWithSort) <*> MP.many (parens coercion),
-      CoAxiom <$> (keyword "axiom-co" *> topNameWithSort) <*> MP.many (symbol "@" *> typeAtom),
-      CoVar <$> localName
+      CoTyConApp <$> (keyword "tycon-co" *> topReference) <*> MP.many (parens coercion),
+      CoAxiom <$> (keyword "axiom-co" *> topReference) <*> MP.many (symbol "@" *> typeAtom),
+      CoVar <$> referenceName SortValue
     ]
 
 literal :: Parser Literal
@@ -542,7 +606,30 @@ literal =
     ]
 
 representationType :: Parser Type
-representationType = TyCon <$> (MP.try localName <|> topNameWithSort)
+representationType = TyCon <$> referenceName SortValue
+
+-- | Explicit local uniques distinguish locals from short global references.
+referenceName :: Sort -> Parser Name
+referenceName sort = MP.try topNameWithSort <|> MP.try unqualifiedTopName <|> MP.try (localNameWithSort sort)
+
+topReference :: Parser Name
+topReference = MP.try topNameWithSort <|> unqualifiedTopName
+
+unqualifiedTopName :: Parser Name
+unqualifiedTopName = lexeme $ do
+  offset <- MP.getOffset
+  start <- MP.getInput
+  (raw, sort) <- printedName SortValue
+  end <- MP.getOffset
+  MP.notFollowedBy (MPC.char '{')
+  environment <- ask
+  let token = T.take (end - offset) start
+  when (token `elem` reservedWords) (fail "reserved word")
+  case Map.lookup token (parserGlobals environment) of
+    Just name -> pure name
+    Nothing
+      | parserCollect environment -> pure (Name raw sort (OriginLocal (Unique 0)))
+      | otherwise -> fail ("unknown or ambiguous global name " <> T.unpack token)
 
 topNameWithSort :: Parser Name
 topNameWithSort = topName SortValue
@@ -555,7 +642,7 @@ topName defaultSort = lexeme (makeName <$> scopeReference <*> printedName defaul
 scopeReference :: Parser (PackageId, Text)
 scopeReference = do
   scopeId <- L.decimal <* MPC.char '.'
-  scopes <- ask
+  scopes <- parserScopes <$> ask
   case lookupScope scopeId scopes of
     Just scope -> pure scope
     Nothing -> fail ("unknown scope " <> show scopeId)
@@ -662,12 +749,6 @@ operatorName = do
 
 reservedOperators :: [Text]
 reservedOperators = ["=", "::", "→", "->", "~", "@", "▷", "|"]
-
-localName :: Parser Name
-localName = localNameWithSort SortValue
-
-typeLocalName :: Parser Name
-typeLocalName = localNameWithSort SortTypeVariable
 
 localBinderName :: Sort -> Parser Name
 localBinderName = localNameWithSort

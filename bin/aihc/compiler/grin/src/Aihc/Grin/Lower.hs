@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Conservative lowering from System FC to GRIN.
 module Aihc.Grin.Lower
@@ -20,10 +21,11 @@ import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, mfilter, unless, when, zipWithM)
+import Control.Monad (mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -719,7 +721,12 @@ instantiateConstructorFields :: LowerEnv -> [Fc.AxiomDecl] -> Fc.Type -> Fc.Type
 instantiateConstructorFields env axioms constructorType targetType = do
   let (binders, monotype) = splitForAlls constructorType
   (fieldTypes, constructorResult) <- either (const Nothing) Just (splitFunctionType monotype)
-  substitution <- matchTypeBinders env (Map.fromList [(Fc.binderName binder, Nothing) | binder <- binders]) constructorResult (applyForeignAxioms env axioms targetType)
+  -- The constructor binders are local to the constructor type. A type
+  -- argument of the enclosing code can have the same name, so remove those
+  -- names from the substitution before the match.
+  let binderNames = map Fc.binderName binders
+      matchEnv = env {lowerTypeSubstitution = foldr Map.delete (lowerTypeSubstitution env) binderNames}
+  substitution <- matchTypeBinders matchEnv (Map.fromList [(name, Nothing) | name <- binderNames]) constructorResult (applySubstitution env (applyForeignAxioms env axioms targetType))
   resolved <- sequenceA substitution
   pure (map (TypeOf.substTypes resolved) fieldTypes)
 
@@ -762,7 +769,7 @@ lowerExpr :: LowerEnv -> Fc.Expr -> LowerM GrinExpr
 lowerExpr env expression =
   case expression of
     Fc.ExVar name -> lowerVariable env name
-    Fc.ExLit literal -> GrinConstant . pure . GrinLitValue <$> lowerLiteral env literal
+    Fc.ExLit literal _ -> GrinConstant . pure . GrinLitValue <$> lowerLiteral env literal
     Fc.ExApp function argument -> lowerApplication env function argument
     Fc.ExTyApp (Fc.ExTyLam binder body) argument -> lowerExpr (substituteTypeBinder env binder argument) body
     Fc.ExTyApp function _ -> lowerExpr env function
@@ -770,7 +777,14 @@ lowerExpr env expression =
     Fc.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
     Fc.ExLet binding body -> lowerLet env binding body
     Fc.ExRec bindings body -> lowerRec env bindings body
-    Fc.ExCase scrutinee binder _ alternatives -> lowerCase env scrutinee binder alternatives
+    Fc.ExCase scrutinee binder (NE.toList -> alternatives) -> lowerCase env scrutinee binder alternatives
+    Fc.ExAbsurd scrutinee _ ->
+      bindExpression env "absurd_value" scrutinee $ \values -> do
+        let value = case values of
+              first : _ -> first
+              [] -> GrinLitValue (GrinLitInt IntRep 0)
+        binder <- freshVar "_absurd" (grinValueRuntimeRep value)
+        pure (GrinCase value binder [])
     Fc.ExCoercion _ -> pure (GrinConstant [])
     Fc.ExCast inner _ -> lowerExpr env inner
     Fc.ExForeignCall call types arguments -> lowerForeignCallExpr env call types arguments
@@ -1335,7 +1349,7 @@ classifyOperand env expression = do
           pure (if isLiftedRuntimeRep representation then Just (LazyOperand expression) else Nothing)
       | isLiftedRuntimeRep representation -> Just . SettledOperand . pure . GrinGlobalValue <$> valueGlobalName env name
       | otherwise -> pure Nothing
-    Fc.ExLit literal
+    Fc.ExLit literal _
       | not (isLiftedRuntimeRep representation) -> Just . SettledOperand . pure . GrinLitValue <$> lowerLiteral env literal
     _
       | isLiftedRuntimeRep representation -> pure (Just (LazyOperand expression))
@@ -1404,7 +1418,7 @@ lowerRecBindings env bindings continuation = do
     bindOne current (binding, vars) = bindLocal current (Fc.bindBinder binding) vars
     makeBindingNode recursiveEnv binding = lazyNode recursiveEnv (Fc.nameText (Fc.binderName (Fc.bindBinder binding))) (Fc.bindRhs binding)
 
-lowerCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerCase :: LowerEnv -> Fc.Expr -> Maybe Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerCase env scrutinee binder alternatives = do
   representation <- expressionRuntimeRep env scrutinee
   case representation of
@@ -1413,9 +1427,10 @@ lowerCase env scrutinee binder alternatives = do
     _ ->
       bindExpression env "case_value" scrutinee $ \case
         [value] -> do
-          caseBinder <- freshVar (Fc.nameText (Fc.binderName binder)) representation
-          let binderEnv = bindLocal env binder [caseBinder]
-          case onlyConstructorAlternative env binder alternatives of
+          caseBinder <- freshVar (maybe "case_value" (Fc.nameText . Fc.binderName) binder) representation
+          let binderEnv = maybe env (\named -> bindLocal env named [caseBinder]) binder
+          scrutineeType <- expressionType env scrutinee
+          case onlyConstructorAlternative env scrutineeType alternatives of
             -- The type has one constructor, so the value is that
             -- constructor and its fields need no test of the tag.
             Just alternative -> do
@@ -1438,26 +1453,26 @@ lowerCase env scrutinee binder alternatives = do
 -- value of the type matches. A default beside it is never taken. A
 -- constructor with a representation of its own is not on the heap and is
 -- not a candidate.
-onlyConstructorAlternative :: LowerEnv -> Fc.Binder -> [Fc.Alt] -> Maybe Fc.Alt
-onlyConstructorAlternative env binder alternatives =
+onlyConstructorAlternative :: LowerEnv -> Fc.Type -> [Fc.Alt] -> Maybe Fc.Alt
+onlyConstructorAlternative env scrutineeType alternatives =
   case [alternative | alternative <- alternatives, Fc.altCon alternative /= Fc.AltDefault] of
     [alternative]
       | Fc.AltData name <- Fc.altCon alternative,
         constructorRepresentation env name == Fc.HeapConstructor,
         Set.member name (lowerDeclaredConstructors env),
-        Just typeName <- TypeOf.typeHead (reduce env (Fc.binderType binder)),
+        Just typeName <- TypeOf.typeHead (reduce env scrutineeType),
         Map.lookup typeName (TypeOf.teDataCons (lowerTypes env)) == Just [name] ->
           Just alternative
     _ -> Nothing
 
-lowerSumCase :: LowerEnv -> [GrinRep] -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerSumCase :: LowerEnv -> [GrinRep] -> Fc.Expr -> Maybe Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerSumCase env representations scrutinee binder alternatives = do
   let layout = sumLayout representations
-  variables <- freshVars (Fc.nameText (Fc.binderName binder)) (SumRep representations)
+  variables <- freshVars (maybe "case_value" (Fc.nameText . Fc.binderName) binder) (SumRep representations)
   case variables of
     tag : slots -> do
       scrutinee' <- lowerExpr env scrutinee
-      let binderEnv = bindLocal env binder variables
+      let binderEnv = maybe env (\named -> bindLocal env named variables) binder
       caseTag <- freshVar "sum_tag" IntRep
       alternatives' <- mapM (lowerSumAlt binderEnv layout slots) alternatives
       pure (GrinBind variables scrutinee' (GrinCase (GrinVarValue tag) caseTag alternatives'))
@@ -1483,7 +1498,7 @@ lowerSumAlt env layout slots alternative = do
           pure (GrinAlt (GrinLitAlt (GrinLitInt IntRep (toInteger index + 1))) [] converted)
     _ -> throwLower "invalid unboxed sum case alternative"
 
-lowerTupleCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerTupleCase :: LowerEnv -> Fc.Expr -> Maybe Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerTupleCase env scrutinee binder alternatives = do
   alternative <-
     case alternatives of
@@ -1492,7 +1507,7 @@ lowerTupleCase env scrutinee binder alternatives = do
   let typeEnv = foldl extendTypeBinder env (Fc.altTypeBinders alternative)
   fieldVariables <- mapM (freshVarsForBinder typeEnv) (Fc.altBinders alternative)
   let values = concat fieldVariables
-      binderEnv = bindLocal typeEnv binder values
+      binderEnv = maybe typeEnv (\named -> bindLocal typeEnv named values) binder
       alternativeEnv = foldl bindPair binderEnv (zip (Fc.altBinders alternative) fieldVariables)
   loweredRhs <- lowerExpr alternativeEnv (Fc.altRhs alternative)
   loweredScrutinee <- lowerExpr env scrutinee
@@ -1623,10 +1638,11 @@ freeVariables expression =
     Fc.ExRec bindings body ->
       let names = Set.fromList (map (Fc.binderName . Fc.bindBinder) bindings)
        in (foldMap (freeVariables . Fc.bindRhs) bindings <> freeVariables body) `Set.difference` names
-    Fc.ExCase scrutinee binder _ alternatives ->
+    Fc.ExCase scrutinee binder (NE.toList -> alternatives) ->
       freeVariables scrutinee
-        <> Set.delete (Fc.binderName binder) (foldMap freeAltVariables alternatives)
+        <> (foldMap freeAltVariables alternatives `Set.difference` foldMap (Set.singleton . Fc.binderName) binder)
     Fc.ExCoercion _ -> Set.empty
+    Fc.ExAbsurd scrutinee _ -> freeVariables scrutinee
     Fc.ExCast inner _ -> freeVariables inner
     Fc.ExForeignCall _ _ arguments -> foldMap freeVariables arguments
 
@@ -1640,7 +1656,7 @@ freeAltVariables alternative =
 expressionRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
 expressionRuntimeRep env expression =
   case expression of
-    Fc.ExLit literal -> literalRep env literal
+    Fc.ExLit literal _ -> literalRep env literal
     _ -> expressionType env expression >>= liftEither . runtimeRep env
 
 -- | What an expression in result position produces: the body of a function,
@@ -1649,55 +1665,14 @@ expressionRuntimeRep env expression =
 expressionResultRep :: LowerEnv -> Fc.Expr -> LowerM GrinResultRep
 expressionResultRep env expression =
   case expression of
-    Fc.ExLit literal -> ResultRep <$> literalRep env literal
+    Fc.ExLit literal _ -> ResultRep <$> literalRep env literal
     _ -> expressionType env expression >>= liftEither . typeResultRep env
 
 expressionType :: LowerEnv -> Fc.Expr -> LowerM Fc.Type
 expressionType env expression =
-  case expression of
-    Fc.ExVar name -> lookupNameType env name
-    Fc.ExLit {} -> throwLower "GRIN cannot infer a source type for this literal"
-    Fc.ExApp function _ -> do
-      functionType <- expressionType env function
-      case reduce env functionType of
-        Fc.TyFun _ _ _ result -> pure result
-        other -> throwLower ("GRIN application has a non-function type: " <> show other <> " for " <> show function)
-    Fc.ExTyApp function argument -> do
-      functionType <- expressionType env function
-      case reduce env functionType of
-        Fc.TyForAll binder body -> pure (TypeOf.substType (Fc.binderName binder) (applySubstitution env argument) body)
-        other -> throwLower ("GRIN type application has a non-forall type: " <> show other)
-    Fc.ExLam binder body -> do
-      bodyType <- expressionType (extendTypeBinder env binder) body
-      argumentRep <- repType env (Fc.binderType binder)
-      resultRep <- repType env bodyType
-      pure (Fc.TyFun argumentRep resultRep (applySubstitution env (Fc.binderType binder)) bodyType)
-    Fc.ExTyLam binder body -> Fc.TyForAll binder <$> expressionType (extendTypeBinder env binder) body
-    Fc.ExLet binding body -> expressionType (extendTermBinder (Fc.bindBinder binding) env) body
-    Fc.ExRec bindings body -> expressionType (foldl (flip (extendTermBinder . Fc.bindBinder)) env bindings) body
-    Fc.ExCase _ _ resultType _ -> pure (applySubstitution env resultType)
-    -- The foreign type is closed, so the environment substitution does not
-    -- apply to it. The type arguments go into it directly.
-    Fc.ExForeignCall call types arguments -> do
-      instantiated <- foldM instantiate (Fc.foreignCallType call) types
-      foldM apply instantiated arguments
-      where
-        instantiate functionType argument =
-          case functionType of
-            Fc.TyForAll binder body -> pure (TypeOf.substType (Fc.binderName binder) (applySubstitution env argument) body)
-            other -> throwLower ("GRIN foreign call type application has a non-forall type: " <> show other)
-        apply functionType _ =
-          case reduce env functionType of
-            Fc.TyFun _ _ _ result -> pure result
-            other -> throwLower ("GRIN foreign call has a non-function type: " <> show other)
-    Fc.ExCoercion proof ->
-      case TypeOf.coercionEndpoints (lowerTypes env) proof of
-        Just (left, right) -> pure (Fc.TyEq (applySubstitution env left) (applySubstitution env right))
-        Nothing -> throwLower "GRIN cannot determine equality evidence endpoints"
-    Fc.ExCast _ coercion ->
-      case TypeOf.coercionEndpoints (lowerTypes env) coercion of
-        Just (_, target) -> pure (applySubstitution env target)
-        Nothing -> throwLower ("GRIN cannot determine coercion endpoints: " <> show coercion)
+  case TypeOf.exprTypeWith (lowerTypeSubstitution env) (lowerTypes env) expression of
+    Just ty -> pure ty
+    Nothing -> throwLower "GRIN cannot determine the checked FC expression type"
 
 -- | The layout of a value of a type. A representation that is still a type
 -- variable has no layout, and a value of such a type is never placed: the
@@ -1721,13 +1696,6 @@ typeRuntimeRep env sourceType =
     (TypeOf.repOf (lowerTypes env) appliedType)
   where
     appliedType = applySubstitution env sourceType
-
-repType :: LowerEnv -> Fc.Type -> LowerM Fc.Type
-repType env sourceType =
-  maybe
-    (throwLower ("GRIN cannot find a runtime representation type for: " <> show sourceType))
-    pure
-    (TypeOf.repOf (lowerTypes env) (applySubstitution env sourceType))
 
 runtimeComponents :: LowerEnv -> Fc.Type -> Either String [GrinRep]
 runtimeComponents env sourceType = runtimeRepComponents <$> runtimeRep env sourceType
@@ -1813,8 +1781,12 @@ lowerForeignCall name specification =
         Fc.CCallWrapper -> GrinForeignWrapper signature
         Fc.CCallFunction -> if unsafe then GrinForeignUnsafeFunction else GrinForeignFunction
         Fc.CCallDynamic -> if unsafe then GrinForeignUnsafeDynamic else GrinForeignDynamic
-        Fc.CCallAddress -> GrinForeignAddress,
-      grinForeignCallSignature = signature
+        Fc.CCallAddress -> GrinForeignAddress
+        Fc.CCallFunctionAddress -> GrinForeignFunctionAddress signature,
+      grinForeignCallSignature = case Fc.ccallTarget specification of
+        -- The call takes no argument and gives the address.
+        Fc.CCallFunctionAddress -> GrinForeignSignature [] GrinForeignAddr GrinForeignPure
+        _ -> signature
     }
   where
     unsafe = Fc.ccallSafety specification == Fc.ForeignUnsafe

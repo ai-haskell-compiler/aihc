@@ -28,11 +28,11 @@ import Aihc.Tc.Constraint (Ct (..))
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions, classDependencyArguments)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, getClassInstances, getKinds, lookupClass)
+import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getClassInstances, getKinds, lookupClass)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred)
-import Control.Monad (foldM, forM, forM_, void, zipWithM_)
+import Control.Monad (foldM, forM, forM_, void, when, zipWithM_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
@@ -205,8 +205,15 @@ improveFromInstances givens siblings depth info dependency constraint = do
 -- The whole head has to match the wanted, because only then does the
 -- solver select the instance. No other instance may match the determining
 -- parameters, because an overlapping instance could be selected instead.
--- A context predicate that mentions a variable that the head does not
--- bind says nothing about the wanted, so it is not used.
+--
+-- A variable of the instance that the head does not bind stands for a type
+-- that only the context determines. Each such variable becomes a fresh meta
+-- variable for the improvement, as it would for the wanteds of the context,
+-- so that one constraint of the context can improve another. The instance
+-- @(AllNullary a l, AllNullary b r, And l r all) => AllNullary (a :+: b)
+-- all@ of @aeson@ is an example: @l@ and @r@ come from the first two
+-- constraints, and @all@ from the third. The constraints improve each
+-- other until a pass changes none of them.
 --
 -- An instance context can be as large as the head or larger under
 -- @UndecidableInstances@, so a depth limit stops a chain of contexts that
@@ -220,13 +227,24 @@ improveThroughContext givens siblings depth instanceInfo arguments
         Just substitution -> do
           let bound tyVar = Map.member (tvUnique tyVar) substitution
               unbound = filter (not . bound) (iiTyVars instanceInfo)
-              context =
-                [ applySubstPred substitution contextPredicate
-                | contextPredicate <- iiContext instanceInfo,
-                  not (any (`predicateMentionsTyVar` contextPredicate) unbound)
-                ]
-          improvable <- concat <$> mapM predicateFunDeps context
-          forM_ improvable (uncurry (improveConstraint givens siblings (depth + 1)))
+          fresh <-
+            forM unbound $ \tyVar -> do
+              meta <- freshMetaTvOfKind (applySubst substitution (tvKind tyVar))
+              pure (tvUnique tyVar, meta)
+          let instantiation = substitution <> Map.fromList fresh
+              context = [applySubstPred instantiation contextPredicate | contextPredicate <- iiContext instanceInfo]
+              improveContext :: Int -> TcM ()
+              improveContext passes = do
+                before <- mapM zonkPred context
+                improvable <- concat <$> mapM predicateFunDeps context
+                forM_ improvable (uncurry (improveConstraint givens (siblings <> context) (depth + 1)))
+                after <- mapM zonkPred context
+                when (before /= after && passes > 1) (improveContext (passes - 1))
+          improveContext contextPassLimit
+
+-- | The most passes over an instance context that one improvement makes.
+contextPassLimit :: Int
+contextPassLimit = 8
 
 -- | The maximum number of instance contexts that one improvement goes
 -- through.

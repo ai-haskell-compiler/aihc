@@ -1,3 +1,5 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -- | The binary format of System FC programs.
 --
 -- The compiler writes a System FC program to a @core@ file in this format,
@@ -42,6 +44,7 @@ import Data.Char (chr, ord)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Ix (inRange)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -56,7 +59,7 @@ formatMagic = "aihc-system-fc"
 
 -- | The version of the format. Change it when the layout changes.
 formatVersion :: Int
-formatVersion = 1
+formatVersion = 3
 
 -- | Write a program to a file in the binary format.
 writeProgramFile :: FilePath -> Program -> IO ()
@@ -340,15 +343,18 @@ encodeExpr :: Expr -> Encode Builder.Builder
 encodeExpr expr =
   case expr of
     ExVar name -> (cborWord 0 <>) <$> encodeName name
-    ExLit literal -> (cborWord 1 <>) <$> encodeLiteral literal
+    ExLit literal ty -> tagged 1 [encodeLiteral literal, encodeType ty]
     ExApp function argument -> tagged 2 [encodeExpr function, encodeExpr argument]
     ExTyApp function argument -> tagged 3 [encodeExpr function, encodeType argument]
     ExLam binder body -> tagged 4 [encodeBinder binder, encodeExpr body]
     ExTyLam binder body -> tagged 5 [encodeBinder binder, encodeExpr body]
     ExLet bind body -> tagged 6 [encodeBind bind, encodeExpr body]
     ExRec binds body -> tagged 7 [encodeList encodeBind binds, encodeExpr body]
-    ExCase scrutinee binder resultType alternatives ->
-      tagged 8 [encodeExpr scrutinee, encodeBinder binder, encodeType resultType, encodeList encodeAlt alternatives]
+    ExAbsurd scrutinee resultType -> tagged 13 [encodeExpr scrutinee, encodeType resultType]
+    ExCase scrutinee (Just binder) (NE.toList -> alternatives) ->
+      tagged 8 [encodeExpr scrutinee, encodeBinder binder, encodeList encodeAlt alternatives]
+    ExCase scrutinee Nothing (NE.toList -> alternatives) ->
+      tagged 12 [encodeExpr scrutinee, encodeList encodeAlt alternatives]
     ExCast body coercion -> tagged 9 [encodeExpr body, encodeCoercion coercion]
     ExCoercion coercion -> tagged 10 [encodeCoercion coercion]
     ExForeignCall call types arguments ->
@@ -461,6 +467,7 @@ callTargetTag target =
     CCallAddress -> 1
     CCallDynamic -> 2
     CCallWrapper -> 3
+    CCallFunctionAddress -> 4
 
 safetyTag :: ForeignSafety -> Word64
 safetyTag safety =
@@ -744,18 +751,27 @@ getExpr tables = do
   tag <- getWord
   case tag of
     0 -> ExVar <$!> getName tables
-    1 -> ExLit <$!> getLiteral tables
+    1 -> ExLit <$!> getLiteral tables <*!> getType tables
     2 -> ExApp <$!> getExpr tables <*!> getExpr tables
     3 -> ExTyApp <$!> getExpr tables <*!> getType tables
     4 -> ExLam <$!> getBinder tables <*!> getExpr tables
     5 -> ExTyLam <$!> getBinder tables <*!> getExpr tables
     6 -> ExLet <$!> getBind tables <*!> getExpr tables
     7 -> ExRec <$!> getList (getBind tables) <*!> getExpr tables
-    8 -> ExCase <$!> getExpr tables <*!> getBinder tables <*!> getType tables <*!> getList (getAlt tables)
+    12 -> ExCase <$!> getExpr tables <*!> pure Nothing <*!> getNonEmpty (getAlt tables)
+    8 -> ExCase <$!> getExpr tables <*!> (Just <$!> getBinder tables) <*!> getNonEmpty (getAlt tables)
     9 -> ExCast <$!> getExpr tables <*!> getCoercion tables
     10 -> ExCoercion <$!> getCoercion tables
     11 -> ExForeignCall <$!> getForeignCall tables <*!> getList (getType tables) <*!> getList (getExpr tables)
+    13 -> ExAbsurd <$!> getExpr tables <*!> getType tables
     _ -> fail "unknown expression"
+
+getNonEmpty :: Decode a -> Decode (NE.NonEmpty a)
+getNonEmpty item = do
+  items <- getList item
+  case NE.nonEmpty items of
+    Nothing -> fail "case requires at least one alternative"
+    Just alternatives -> pure alternatives
 
 getBind :: Decoded -> Decode Bind
 getBind tables = Bind <$!> getBinder tables <*!> getExpr tables
@@ -826,7 +842,7 @@ getConvention tables = do
       CCall
         <$!> ( CCallSpec
                  <$!> getTextIndex tables
-                   <*!> getEnumeration "call target" [CCallFunction, CCallAddress, CCallDynamic, CCallWrapper]
+                   <*!> getEnumeration "call target" [CCallFunction, CCallAddress, CCallDynamic, CCallWrapper, CCallFunctionAddress]
                    <*!> getEnumeration "safety" [ForeignUnsafe, ForeignSafe, ForeignInterruptible]
                    <*!> getList getAbiType
                    <*!> getAbiType

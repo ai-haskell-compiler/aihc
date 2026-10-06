@@ -52,165 +52,146 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  type 1.tNat :: 2.sType {
-      1.cZ :: 1.tNat;
-      1.cS :: 1.tNat 2.→ 1.tNat
+  type 1.tNat :: sType {
+    1.cZ :: tNat;
+    1.cS :: tNat 2.→ tNat
   }
 
-  type 1.tList (a : 2.sType) :: 2.sType {
-      1.cNil :: ∀(a : 2.sType). 1.tList a;
-      1.cCons :: ∀(a : 2.sType). a 2.→ 1.tList a 2.→ 1.tList a
+  type 1.tList (a : sType) :: sType {
+    1.cNil :: ∀(a : sType). tList a;
+    1.cCons :: ∀(a : sType). a 2.→ tList a 2.→ tList a
   }
 
-  val 1.vbuild inline [1] :: ∀(a : 2.sType). (∀(b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b) 2.→ 1.tList a
-   = Λ(a : 2.sType).
-    λ(x : ∀(b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b).
-      x @(1.tList a) (1.cCons @a) (1.cNil @a)
+  val 1.vbuild inline [1] :: ∀(a : sType). (∀(b : sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b) 2.→ tList a
+    = Λ(a : sType). λ(x : ∀(b : sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b).
+      x @(tList a) (cCons @a) (cNil @a)
 
-  val 1.vfoldr inline [1] :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b 2.→ b) 2.→ b 2.→ 1.tList a 2.→ b
-   = Λ(a : 2.sType).
-    Λ(b : 2.sType).
-      λ(x : a 2.→ b 2.→ b).
-        λ(y : b).
-          λ(z : 1.tList a).
-            rec {
-                go : 1.tList a 2.→ b =
-                    λ(x{1} : 1.tList a).
-                      case x{1} as (_scrut : 1.tList a) return (b) of {
-                          1.cNil →
-                              y;
-                          1.cCons (y{1} : a) (ys : 1.tList a) →
-                              x y{1} (go ys)
-                      }
-            } in
-                go z
+  val 1.vfoldr inline [1] :: ∀(a : sType) (b : sType). (a 2.→ b 2.→ b) 2.→ b 2.→ tList a 2.→ b
+    = Λ(a : sType) (b : sType). λ(x : a 2.→ b 2.→ b) (y : b) (z : tList a).
+      rec {
+        go : tList a 2.→ b =
+          λ(x{1} : tList a).
+            case x{1} of {
+              cNil →
+                y;
+              cCons (y{1} : a) (ys : tList a) →
+                x y{1} (go ys)
+            }
+      } in
+      go z
 
-  val 1.vmap :: ∀(a : 2.sType) (b : 2.sType). (a 2.→ b) 2.→ 1.tList a 2.→ 1.tList b
-   = Λ(a : 2.sType).
-    Λ(b : 2.sType).
-      λ(x : a 2.→ b).
-        λ(y : 1.tList a).
-          case y as (_scrut : 1.tList a) return (1.tList b) of {
-              1.cNil →
-                  1.cNil @b;
-              1.cCons (x{1} : a) (xs : 1.tList a) →
-                  1.cCons @b (x x{1}) (rec {
-                      go : 1.tList a 2.→ 1.tList b =
-                          λ(x{2} : 1.tList a).
-                            case x{2} as (_scrut{1} : 1.tList a) return (1.tList b) of {
-                                1.cNil →
-                                    1.cNil @b;
-                                1.cCons (y{1} : a) (ys : 1.tList a) →
-                                    1.cCons @b (x y{1}) (go ys)
-                            }
-                  } in
-                      go xs)
-          }
-
-  val 1.vmapFB inline [1] :: ∀(elt : 2.sType) (lst : 2.sType) (a : 2.sType). (elt 2.→ lst 2.→ lst) 2.→ (a 2.→ elt) 2.→ a 2.→ lst 2.→ lst
-   = Λ(elt : 2.sType).
-    Λ(lst : 2.sType).
-      Λ(a : 2.sType).
-        λ(x : elt 2.→ lst 2.→ lst).
-          λ(y : a 2.→ elt).
-            λ(x{1} : a).
-              λ(ys : lst).
-                x (y x{1}) ys
-
-  val 1.vplus :: 1.tNat 2.→ 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    λ(y : 1.tNat).
-      case x as (_scrut : 1.tNat) return (1.tNat) of {
-          1.cZ →
-              y;
-          1.cS (m : 1.tNat) →
-              1.cS (1.vplus m y)
+  val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
+    = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).
+      case y of {
+        cNil →
+          cNil @b;
+        cCons (x{1} : a) (xs : tList a) →
+          cCons @b (x x{1}) (rec {
+            go : tList a 2.→ tList b =
+              λ(x{2} : tList a).
+                case x{2} of {
+                  cNil →
+                    cNil @b;
+                  cCons (y{1} : a) (ys : tList a) →
+                    cCons @b (x y{1}) (go ys)
+                }
+          } in
+          go xs)
       }
 
-  pub val 1.vtotal :: 1.tList 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tList 1.tNat).
-    rec {
-        go : 1.tList 1.tNat 2.→ 1.tNat =
-            λ(x{1} : 1.tList 1.tNat).
-              case x{1} as (_scrut : 1.tList 1.tNat) return (1.tNat) of {
-                  1.cNil →
-                      1.cZ;
-                  1.cCons (y : 1.tNat) (ys : 1.tList 1.tNat) →
-                      1.vplus (1.cS (1.cS y)) (go ys)
-              }
-    } in
-        go x
+  val 1.vmapFB inline [1] :: ∀(elt : sType) (lst : sType) (a : sType). (elt 2.→ lst 2.→ lst) 2.→ (a 2.→ elt) 2.→ a 2.→ lst 2.→ lst
+    = Λ(elt : sType) (lst : sType) (a : sType). λ(x : elt 2.→ lst 2.→ lst) (y : a 2.→ elt) (x{1} : a) (ys : lst).
+      x (y x{1}) ys
 
-  pub val 1.vplain :: 1.tList 1.tNat 2.→ 1.tList 1.tNat
-   = λ(x : 1.tList 1.tNat).
-    rec {
-        go : 1.tList 1.tNat 2.→ 1.tList 1.tNat =
-            λ(x{1} : 1.tList 1.tNat).
-              case x{1} as (_scrut : 1.tList 1.tNat) return (1.tList 1.tNat) of {
-                  1.cNil →
-                      1.cNil @1.tNat;
-                  1.cCons (y : 1.tNat) (ys : 1.tList 1.tNat) →
-                      1.cCons @1.tNat (1.cS y) (go ys)
-              }
-    } in
-        go x
+  val 1.vplus :: tNat 2.→ tNat 2.→ tNat
+    = λ(x : tNat) (y : tNat).
+      case x of {
+        cZ →
+          y;
+        cS (m : tNat) →
+          cS (vplus m y)
+      }
 
-  pub val 1.vtwice :: 1.tList 1.tNat 2.→ 1.tList 1.tNat
-   = λ(x : 1.tList 1.tNat).
-    rec {
-        go : 1.tList 1.tNat 2.→ 1.tList 1.tNat =
-            λ(x{1} : 1.tList 1.tNat).
-              case x{1} as (_scrut : 1.tList 1.tNat) return (1.tList 1.tNat) of {
-                  1.cNil →
-                      1.cNil @1.tNat;
-                  1.cCons (y : 1.tNat) (ys : 1.tList 1.tNat) →
-                      1.cCons @1.tNat (1.cS (1.cS y)) (go ys)
-              }
-    } in
-        go x
+  pub val 1.vtotal :: tList tNat 2.→ tNat
+    = λ(x : tList tNat).
+      rec {
+        go : tList tNat 2.→ tNat =
+          λ(x{1} : tList tNat).
+            case x{1} of {
+              cNil →
+                cZ;
+              cCons (y : tNat) (ys : tList tNat) →
+                vplus (cS (cS y)) (go ys)
+            }
+      } in
+      go x
 
-  rule "fold/build" Λ(a : 2.sType). Λ(b : 2.sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : 2.sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
-    1.vfoldr @a @b k z (1.vbuild @a (Λ(b{1} : 2.sType).
+  pub val 1.vplain :: tList tNat 2.→ tList tNat
+    = λ(x : tList tNat).
+      rec {
+        go : tList tNat 2.→ tList tNat =
+          λ(x{1} : tList tNat).
+            case x{1} of {
+              cNil →
+                cNil @tNat;
+              cCons (y : tNat) (ys : tList tNat) →
+                cCons @tNat (cS y) (go ys)
+            }
+      } in
+      go x
+
+  pub val 1.vtwice :: tList tNat 2.→ tList tNat
+    = λ(x : tList tNat).
+      rec {
+        go : tList tNat 2.→ tList tNat =
+          λ(x{1} : tList tNat).
+            case x{1} of {
+              cNil →
+                cNil @tNat;
+              cCons (y : tNat) (ys : tList tNat) →
+                cCons @tNat (cS (cS y)) (go ys)
+            }
+      } in
+      go x
+
+  rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
+    vfoldr @a @b k z (vbuild @a (Λ(b{1} : sType).
       g @b{1}))
    = g @b k z
    :: b
 
-  rule "map" [~1] Λ(a : 2.sType). Λ(b : 2.sType). λ(f : a 2.→ b). λ(xs : 1.tList a).
-    1.vmap @a @b f xs
-   = 1.vbuild @b (Λ(b{1} : 2.sType).
-    λ(c : b 2.→ b{1} 2.→ b{1}).
-      λ(n : b{1}).
-        1.vfoldr @a @b{1} (1.vmapFB @b @b{1} @a c f) n xs)
-   :: 1.tList b
+  rule "map" [~1] Λ(a : sType). Λ(b : sType). λ(f : a 2.→ b). λ(xs : tList a).
+    vmap @a @b f xs
+   = vbuild @b (Λ(b{1} : sType). λ(c : b 2.→ b{1} 2.→ b{1}) (n : b{1}).
+    vfoldr @a @b{1} (vmapFB @b @b{1} @a c f) n xs)
+   :: tList b
 
-  rule "mapList" [1] Λ(a : 2.sType). Λ(b : 2.sType). λ(f : a 2.→ b).
-    1.vfoldr @a @(1.tList b) (1.vmapFB @b @(1.tList b) @a (1.cCons @b) f) (1.cNil @b)
-   = 1.vmap @a @b f
-   :: 1.tList a 2.→ 1.tList b
+  rule "mapList" [1] Λ(a : sType). Λ(b : sType). λ(f : a 2.→ b).
+    vfoldr @a @(tList b) (vmapFB @b @(tList b) @a (cCons @b) f) (cNil @b)
+   = vmap @a @b f
+   :: tList a 2.→ tList b
 
-  rule "map/build" [1] Λ(a : 2.sType). Λ(b : 2.sType). λ(f : a 2.→ b). λ(xs : 1.tList a).
-    1.vbuild @b (Λ(b{1} : 2.sType).
-      λ(c : b 2.→ b{1} 2.→ b{1}).
-        λ(n : b{1}).
-          1.vfoldr @a @b{1} (1.vmapFB @b @b{1} @a c f) n xs)
-   = 1.vmap @a @b f xs
-   :: 1.tList b
+  rule "map/build" [1] Λ(a : sType). Λ(b : sType). λ(f : a 2.→ b). λ(xs : tList a).
+    vbuild @b (Λ(b{1} : sType). λ(c : b 2.→ b{1} 2.→ b{1}) (n : b{1}).
+      vfoldr @a @b{1} (vmapFB @b @b{1} @a c f) n xs)
+   = vmap @a @b f xs
+   :: tList b
 
-  rule "mapFB" Λ(a : 2.sType). Λ(b : 2.sType). Λ(c : 2.sType). Λ(d : 2.sType). λ(c{1} : a 2.→ b 2.→ b). λ(f : c 2.→ a). λ(g : d 2.→ c).
-    1.vmapFB @c @b @d (1.vmapFB @a @b @c c{1} f) g
-   = 1.vmapFB @a @b @d c{1} (λ(x : d).
+  rule "mapFB" Λ(a : sType). Λ(b : sType). Λ(c : sType). Λ(d : sType). λ(c{1} : a 2.→ b 2.→ b). λ(f : c 2.→ a). λ(g : d 2.→ c).
+    vmapFB @c @b @d (vmapFB @a @b @c c{1} f) g
+   = vmapFB @a @b @d c{1} (λ(x : d).
     f (g x))
    :: d 2.→ b 2.→ b
 status: pass

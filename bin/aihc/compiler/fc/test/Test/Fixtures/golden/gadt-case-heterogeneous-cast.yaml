@@ -27,63 +27,51 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : 2.sType). 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity;
-    2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
-    2.c[] :: ∀(a : 2.sType). 2.t[] a
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.t:~~: (k1 : 2.sType) (k2 : 2.sType) (a : k1) (b : k2) :: 2.sType {
-      pub 1.cHRefl :: ∀(k : 2.sType) (a : k) (k2 : 2.sType) (b : k2). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (k2 ~ k) (FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (b ~ a) (1.t:~~: k k2 a b))
+  pub type 1.t:~~: (k1 : sType) (k2 : sType) (a : k1) (b : k2) :: sType {
+    pub 1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: k k2 a b))
   }
 
-  pub type 1.tMaybe (a : 2.sType) :: 2.sType {
-      pub 1.cNothing :: ∀(a : 2.sType). 1.tMaybe a;
-      pub 1.cJust :: ∀(a : 2.sType). a 2.→ 1.tMaybe a
+  pub type 1.tMaybe (a : sType) :: sType {
+    pub 1.cNothing :: ∀(a : sType). tMaybe a;
+    pub 1.cJust :: ∀(a : sType). a 2.→ tMaybe a
   }
 
-  pub type 1.tTypeRep (k : 2.sType) (a : k) :: 2.sType {
-      pub 1.cTypeRep :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a
+  pub type 1.tTypeRep (k : sType) (a : k) :: sType {
+    pub 1.cTypeRep :: ∀(k : sType) (a : k). tTypeRep k a
   }
 
-  pub type 1.tSomeTypeRep :: 2.sType {
-      pub 1.cSomeTypeRep :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a 2.→ 1.tSomeTypeRep
+  pub type 1.tSomeTypeRep :: sType {
+    pub 1.cSomeTypeRep :: ∀(k : sType) (a : k). tTypeRep k a 2.→ tSomeTypeRep
   }
 
-  pub val 1.veqTypeRep :: ∀(k1 : 2.sType) (k2 : 2.sType) (a : k1) (b : k2). 1.tTypeRep k1 a 2.→ 1.tTypeRep k2 b 2.→ 1.tMaybe (1.t:~~: k1 k2 a b)
-   = Λ(k1 : 2.sType).
-    Λ(k2 : 2.sType).
-      Λ(a : k1).
-        Λ(b : k2).
-          λ(x : 1.tTypeRep k1 a).
-            λ(y : 1.tTypeRep k2 b).
-              1.cNothing @(1.t:~~: k1 k2 a b)
+  pub val 1.veqTypeRep :: ∀(k1 : sType) (k2 : sType) (a : k1) (b : k2). tTypeRep k1 a 2.→ tTypeRep k2 b 2.→ tMaybe (t:~~: k1 k2 a b)
+    = Λ(k1 : sType) (k2 : sType) (a : k1) (b : k2). λ(x : tTypeRep k1 a) (y : tTypeRep k2 b).
+      cNothing @(t:~~: k1 k2 a b)
 
-  pub val 1.vpick :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a 2.→ 1.tSomeTypeRep 2.→ 1.tMaybe (1.tTypeRep k a)
-   = Λ(k : 2.sType).
-    Λ(a : k).
-      λ(x : 1.tTypeRep k a).
-        λ(y : 1.tSomeTypeRep).
-          case y as (_scrut : 1.tSomeTypeRep) return (1.tMaybe (1.tTypeRep k a)) of {
-              1.cSomeTypeRep @(k{1} : 2.sType) @(a{1} : k{1}) (rep : 1.tTypeRep k{1} a{1}) →
-                  case 1.veqTypeRep @k{1} @k @a{1} @a rep x as (_scrut{1} : 1.tMaybe (1.t:~~: k{1} k a{1} a)) return (1.tMaybe (1.tTypeRep k a)) of {
-                      1.cJust (_pat : 1.t:~~: k{1} k a{1} a) →
-                          case _pat as (_scrut{2} : 1.t:~~: k{1} k a{1} a) return (1.tMaybe (1.tTypeRep k a)) of {
-                              1.cHRefl ($pattern_d0 : k ~ k{1}) ($pattern_d1 : a ~ a{1}) →
-                                  (1.cJust @(1.tTypeRep k a{1}) rep) ▷ sym (tycon-co 1.tMaybe (tycon-co 1.tTypeRep (refl k) ($pattern_d1)))
-                          };
-                      1.cNothing →
-                          1.cNothing @(1.tTypeRep k a)
-                  }
-          }
+  pub val 1.vpick :: ∀(k : sType) (a : k). tTypeRep k a 2.→ tSomeTypeRep 2.→ tMaybe (tTypeRep k a)
+    = Λ(k : sType) (a : k). λ(x : tTypeRep k a) (y : tSomeTypeRep).
+      let! cSomeTypeRep @(k{1} : sType) @(a{1} : k{1}) (rep : tTypeRep k{1} a{1}) = y;
+      case veqTypeRep @k{1} @k @a{1} @a rep x of {
+        cJust (_pat : t:~~: k{1} k a{1} a) →
+          let! cHRefl ($pattern_d0 : k ~ k{1}) ($pattern_d1 : a ~ a{1}) = _pat;
+          (cJust @(tTypeRep k a{1}) rep) ▷ sym (tycon-co tMaybe (tycon-co tTypeRep (refl k) ($pattern_d1)));
+        cNothing →
+          cNothing @(tTypeRep k a)
+      }
 status: pass
 reason: HRefl at two kinds binds a kind equality and an index equality; the alternative casts through both and the lint accepts the kind argument through the given.

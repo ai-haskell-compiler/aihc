@@ -13,30 +13,30 @@ expected: |-
   scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    3.tAddr# :: 4.tTYPE 4.cAddrRep;
-    constructors [4.cC#] 4.tChar :: 4.sType;
-    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: 4.sType;
-    4.sLiftedRep :: 4.tRuntimeRep;
-    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: 4.sType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
-    4.sType :: 4.sType;
-    constructors [4.c[], 4.c:] 4.t[] :: ∀(a : 4.sType). 4.sType;
-    4.cAddrRep :: 4.tRuntimeRep;
-    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.cLifted :: 4.tLevity;
-    3.vraise# :: ∀(r : 4.tRuntimeRep) (a : 4.sType) (b : 4.tTYPE r). FUN @4.sLiftedRep @r a b;
-    2.vunpackCString# :: FUN @4.cAddrRep @4.sLiftedRep 3.tAddr# (4.t[] 4.tChar)
+    3.tAddr# :: tTYPE cAddrRep;
+    constructors [4.cC#] 4.tChar :: sType;
+    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: sType;
+    4.sLiftedRep :: tRuntimeRep;
+    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: sType;
+    4.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    4.sType :: sType;
+    constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
+    4.cAddrRep :: tRuntimeRep;
+    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cLifted :: tLevity;
+    3.vraise# :: ∀(r : tRuntimeRep) (a : sType) (b : tTYPE r). FUN @sLiftedRep @r a b;
+    2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
 
   import synonyms
-    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
-    4.sType = 4.tTYPE 4.sLiftedRep
+    4.sLiftedRep = cBoxedRep cLifted;
+    4.sType = tTYPE sLiftedRep
 
-  pub type 1.tBox :: 4.sType {
-      pub 1.cBox :: 1.tBox
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: tBox
   }
 
-  pub val 1.vquoted :: 1.tBox 4.→ 1.tBox
-   = λ(x : 1.tBox).
-    3.vraise# @4.sLiftedRep @(4.t[] 4.tChar) @1.tBox (2.vunpackCString# "TH is unsupported"#4.cAddrRep)
+  pub val 1.vquoted :: tBox 4.→ tBox
+    = λ(x : tBox).
+      vraise# @sLiftedRep @(t[] tChar) @tBox (vunpackCString# lit ("TH is unsupported"#cAddrRep) :: tAddr#)
 status: pass
 reason: A Template Haskell quote desugars to a raise# call with a message.

@@ -18,29 +18,27 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cI#] 2.tInt :: 2.sType;
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cI#] 2.tInt :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  type 1.tBox :: 2.sType {
-      strict [0] 1.cBox :: 2.tInt 2.→ 1.tBox
+  type 1.tBox :: sType {
+    strict [0] 1.cBox :: tInt 2.→ tBox
   }
 
-  pub val 1.vwrap :: 2.tInt 2.→ 1.tBox
-   = λ(x : 2.tInt).
-    (λ(_strict_field : 2.tInt).
-      case _strict_field as (_strict_forced : 2.tInt) return (1.tBox) of {
-          _ →
-              1.cBox _strict_field
-      }) x
+  pub val 1.vwrap :: tInt 2.→ tBox
+    = λ(x : tInt).
+      (λ(_strict_field : tInt).
+        let! _ = _strict_field;
+        cBox _strict_field) x
 status: pass
 reason: The function evaluates the parameter but does not take it apart, so a worker would only put the box back together. The function does not split.

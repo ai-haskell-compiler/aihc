@@ -1,0 +1,30 @@
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim (eqAddr#, neAddr#)
+    import GHC.Ptr (FunPtr(..), Ptr)
+
+    foreign import ccall "&puts" putsAddress :: FunPtr (Ptr () -> IO ())
+
+    foreign import ccall "&puts" alsoPutsAddress :: FunPtr (Ptr () -> IO ())
+
+    foreign import ccall "&strlen" strlenAddress :: FunPtr (Ptr () -> IO ())
+
+    data Results = Results Int Int
+
+    results :: Results
+    results =
+      case putsAddress of
+        FunPtr puts1 -> case alsoPutsAddress of
+          FunPtr puts2 -> case strlenAddress of
+            FunPtr strlen -> Results (I# (eqAddr# puts1 puts2)) (I# (neAddr# puts1 strlen))
+output: |
+  Results (I# 1) (I# 1)
+expression: results
+status: pass
+reason: the address import of a function pointer yields the address of the function without calling it

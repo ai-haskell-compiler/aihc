@@ -16,7 +16,15 @@ System FC is similar to Haskell, but it has no syntactic sugar and no ambiguity.
 - Each type argument is explicit, for example `f @tInt`.
 - Each class constraint is an explicit dictionary argument.
   A class becomes a data type with the name `$Dict$Class`.
-- A `case` expression has a case binder and a result type.
+- A `case` expression has an optional case binder and at least one alternative.
+  The first alternative gives the result type.
+  All alternatives must have the same result type.
+  An alternative type variable must not occur free in the result type.
+- A literal expression has its full type and runtime representation.
+  For example, `lit (1#cIntRep) :: tInt#`.
+- An empty case becomes `absurd e return (T)`.
+  This expression evaluates `e` and reports a match failure if evaluation returns.
+  Its result type is `T`.
 - A newtype becomes a type and an axiom.
   A cast `e ▷ γ` changes the type of an expression with a coercion `γ`.
 - Types and kinds are one language.

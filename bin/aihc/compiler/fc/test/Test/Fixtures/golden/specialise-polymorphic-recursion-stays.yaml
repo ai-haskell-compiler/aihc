@@ -40,99 +40,85 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
-    constructors [3.cFalse, 3.cTrue] 3.tBool :: 3.sType;
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cFalse :: 3.tBool;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTrue :: 3.tBool;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool;
+    3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.t$Dict$Weight (a : 3.sType) :: 3.sType {
-      1.c$Dict$Weight :: ∀(a : 3.sType). (a 3.→ 3.tInt) 3.→ 1.t$Dict$Weight a
+  type 1.t$Dict$Weight (a : sType) :: sType {
+    1.c$Dict$Weight :: ∀(a : sType). (a 3.→ tInt) 3.→ t$Dict$Weight a
   }
 
-  val 1.vweight :: ∀(a : 3.sType). 1.t$Dict$Weight a 3.→ a 3.→ 3.tInt
-   = Λ(a : 3.sType).
-    λ($d0 : 1.t$Dict$Weight a).
-      case $d0 as ($dict : 1.t$Dict$Weight a) return (a 3.→ 3.tInt) of {
-          1.c$Dict$Weight ($method0 : a 3.→ 3.tInt) →
-              $method0
+  val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
+    = Λ(a : sType). λ($d0 : t$Dict$Weight a).
+      let! c$Dict$Weight ($method0 : a 3.→ tInt) = $d0;
+      $method0
+
+  pub val 1.v$fWeightBool :: t$Dict$Weight tBool
+    = c$Dict$Weight @tBool v$fWeightBool$cweight
+
+  val 1.v$fWeightBool$cweight :: tBool 3.→ tInt
+    = λ(x : tBool).
+      case x of {
+        cTrue →
+          cI# lit (1#cIntRep) :: tInt#;
+        cFalse →
+          cI# lit (0#cIntRep) :: tInt#
       }
 
-  pub val 1.v$fWeightBool :: 1.t$Dict$Weight 3.tBool
-   = 1.c$Dict$Weight @3.tBool 1.v$fWeightBool$cweight
+  pub val 1.v$fWeightList :: ∀(a : sType). t$Dict$Weight a 3.→ t$Dict$Weight (t[] a)
+    = Λ(a : sType). λ($d0 : t$Dict$Weight a).
+      c$Dict$Weight @(t[] a) (v$fWeightList$cweight @a $d0)
 
-  val 1.v$fWeightBool$cweight :: 3.tBool 3.→ 3.tInt
-   = λ(x : 3.tBool).
-    case x as (_scrut : 3.tBool) return (3.tInt) of {
-        3.cTrue →
-            3.cI# 1#3.cIntRep;
-        3.cFalse →
-            3.cI# 0#3.cIntRep
-    }
-
-  pub val 1.v$fWeightList :: ∀(a : 3.sType). 1.t$Dict$Weight a 3.→ 1.t$Dict$Weight (3.t[] a)
-   = Λ(a : 3.sType).
-    λ($d0 : 1.t$Dict$Weight a).
-      1.c$Dict$Weight @(3.t[] a) (1.v$fWeightList$cweight @a $d0)
-
-  val 1.v$fWeightList$cweight :: ∀(a : 3.sType). 1.t$Dict$Weight a 3.→ 3.t[] a 3.→ 3.tInt
-   = Λ(a : 3.sType).
-    λ($d0 : 1.t$Dict$Weight a).
-      λ(x : 3.t[] a).
-        case x as (_scrut : 3.t[] a) return (3.tInt) of {
-            3.c[] →
-                3.cI# 0#3.cIntRep;
-            3.c: (y : a) (_pat : 3.t[] a) →
-                1.vweight @a $d0 y
-        }
-
-  val 1.vplus :: 3.tInt 3.→ 3.tInt 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    λ(y : 3.tInt).
-      case x as (_scrut : 3.tInt) return (3.tInt) of {
-          3.cI# (a : 2.tInt#) →
-              case y as (_scrut{1} : 3.tInt) return (3.tInt) of {
-                  3.cI# (b : 2.tInt#) →
-                      3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} a b)
-              }
+  val 1.v$fWeightList$cweight :: ∀(a : sType). t$Dict$Weight a 3.→ t[] a 3.→ tInt
+    = Λ(a : sType). λ($d0 : t$Dict$Weight a) (x : t[] a).
+      case x of {
+        c[] →
+          cI# lit (0#cIntRep) :: tInt#;
+        c: (y : a) (_pat : t[] a) →
+          vweight @a $d0 y
       }
 
-  pub val 1.vdepth :: 3.tInt 3.→ 3.tBool 3.→ 3.tInt
-   = λ(x : 3.tInt).
-    λ(y : 3.tBool).
+  val 1.vplus :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
+
+  pub val 1.vdepth :: tInt 3.→ tBool 3.→ tInt
+    = λ(x : tInt) (y : tBool).
       rec {
-          go : ∀(a : 3.sType). 1.t$Dict$Weight a 3.→ 3.tInt 3.→ a 3.→ 3.tInt =
-              Λ(a : 3.sType).
-                λ($d0 : 1.t$Dict$Weight a).
-                  λ(x{1} : 3.tInt).
-                    λ(y{1} : a).
-                      case x{1} as (_scrut : 3.tInt) return (3.tInt) of {
-                          3.cI# (_pat : 2.tInt#) →
-                              case _pat as (_scrut{1} : 2.tInt#) return (3.tInt) of {
-                                  0#3.cIntRep →
-                                      1.vweight @a $d0 y{1};
-                                  _ →
-                                      go @(3.t[] a) (1.v$fWeightList @a $d0) (3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} _pat -1#3.cIntRep)) (3.c: @a y{1} (3.c[] @a))
-                              }
-                      }
+        go : ∀(a : sType). t$Dict$Weight a 3.→ tInt 3.→ a 3.→ tInt =
+          Λ(a : sType). λ($d0 : t$Dict$Weight a) (x{1} : tInt) (y{1} : a).
+            let! cI# (_pat : tInt#) = x{1};
+            case _pat of {
+              0#cIntRep →
+                vweight @a $d0 y{1};
+              _ →
+                go @(t[] a) (v$fWeightList @a $d0) (cI# (prim +# _pat lit (-1#cIntRep) :: tInt#)) (c: @a y{1} (c[] @a))
+            }
       } in
-          go @3.tBool 1.v$fWeightBool x y
+      go @tBool v$fWeightBool x y
 status: pass
 reason: The recursive call of 'go' gives the dictionary for lists, not its own dictionary parameter, so no copy can replace the parameter and the binding stays as it is.

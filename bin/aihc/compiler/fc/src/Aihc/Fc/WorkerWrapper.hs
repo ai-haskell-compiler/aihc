@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | The worker/wrapper split of System FC.
 --
@@ -89,6 +90,7 @@ import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
@@ -183,15 +185,16 @@ splitLocals = go
         ExTyApp function ty -> first (`ExTyApp` ty) <$> go env scope function
         ExLam binder body -> first (ExLam binder) <$> go (extendBinder env binder) scope body
         ExTyLam binder body -> first (ExTyLam binder) <$> go (extendBinder env binder) scope body
+        ExAbsurd scrutinee resultType -> first (`ExAbsurd` resultType) <$> go env scope scrutinee
         ExCast body coercion -> first (`ExCast` coercion) <$> go env scope body
         ExForeignCall call tys arguments -> do
           results <- traverse (go env scope) arguments
-          pure (ExForeignCall call tys (map fst results), List.foldl' addReports none (map snd results))
-        ExCase scrutinee binder ty alternatives -> do
+          pure (ExForeignCall call tys (map fst results), List.foldl' addReports none (foldr ((:) . snd) [] results))
+        ExCase scrutinee binder alternatives -> do
           (scrutinee', a) <- go env scope scrutinee
-          let inner = extendBinder env binder
+          let inner = foldl' extendBinder env binder
           results <- traverse (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> go (List.foldl' extendBinder inner (altTypeBinders alternative <> altBinders alternative)) scope (altRhs alternative)) alternatives
-          pure (ExCase scrutinee' binder ty (map fst results), List.foldl' addReports a (map snd results))
+          pure (ExCase scrutinee' binder (fmap fst results), List.foldl' addReports a (foldr ((:) . snd) [] results))
         ExLet (Bind binder rhs) body -> do
           (rhs', a) <- go env scope rhs
           let scope'
@@ -206,7 +209,7 @@ splitLocals = go
           results <- traverse (\bind -> first (\rhs -> bind {bindRhs = rhs}) <$> go env' scope' (bindRhs bind)) binds
           (body', b) <- go env' scope' body
           let binds' = map fst results
-              report = List.foldl' addReports b (map snd results)
+              report = List.foldl' addReports b (foldr ((:) . snd) [] results)
               signatures = recursiveSignatures env' scope [(binderName (bindBinder bind), bindRhs bind) | bind <- binds']
           -- Each member splits on its own. A member that splits puts its
           -- worker in its place, and every occurrence of it, in the group
@@ -428,7 +431,8 @@ splitFunction types self declaredType workerName demands function =
           (ReturnField, []) -> result
         go expr =
           case expr of
-            ExCase scrutinee binder _ alternatives -> ExCase scrutinee binder returnedType <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+            ExAbsurd scrutinee _ -> pure (ExAbsurd scrutinee returnedType)
+            ExCase scrutinee binder (NE.toList -> alternatives) -> caseFromList scrutinee binder returnedType <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
             ExLet bind body -> ExLet bind <$> go body
             ExRec binds body -> ExRec binds <$> go body
             _
@@ -439,7 +443,7 @@ splitFunction types self declaredType workerName demands function =
               | otherwise -> do
                   binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh "field") fields
                   caseBinder <- (`Binder` result) <$> fresh "result"
-                  pure (ExCase expr caseBinder returnedType [Alt (AltData con) [] binders (returnedValue resultShape (map (ExVar . binderName) binders))])
+                  pure (caseFromList expr (Just caseBinder) returnedType [Alt (AltData con) [] binders (returnedValue resultShape (map (ExVar . binderName) binders))])
     -- The wrapper takes each unboxed parameter apart, calls the worker with
     -- the fields, and builds the result from what the worker returns. The
     -- parameters under a cast stay under it, with the cases inside them.
@@ -457,17 +461,17 @@ splitFunction types self declaredType workerName demands function =
           case (returned, fields) of
             (ReturnField, [(ty, _)]) -> do
               binder <- (`Binder` ty) <$> fresh "field"
-              pure (ExCase call binder result [Alt AltDefault [] [] (construct con arguments [ExVar (binderName binder)])])
+              pure (caseFromList call (Just binder) result [Alt AltDefault [] [] (construct con arguments [ExVar (binderName binder)])])
             (ReturnTuple tupleCon tupleType, _) -> do
               binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh "field") fields
               caseBinder <- (`Binder` tupleType) <$> fresh "returned"
-              pure (ExCase call caseBinder result [Alt (AltData tupleCon) [] binders (construct con arguments (map (ExVar . binderName) binders))])
+              pure (caseFromList call (Just caseBinder) result [Alt (AltData tupleCon) [] binders (construct con arguments (map (ExVar . binderName) binders))])
             _ -> pure call
       let cases =
             foldr
               ( \((parameter, fields), scrutineeBinder) inner ->
                   case (parameter, scrutineeBinder) of
-                    (Unbox binder con _ _, Just caseBinder) -> ExCase (ExVar (binderName binder)) caseBinder result [Alt (AltData con) [] fields inner]
+                    (Unbox binder con _ _, Just caseBinder) -> caseFromList (ExVar (binderName binder)) (Just caseBinder) result [Alt (AltData con) [] fields inner]
                     _ -> inner
               )
               rebuilt
@@ -496,7 +500,7 @@ constructedTails self unboxed con body = all acceptable leaves && any constructe
     leaves = tails body
     tails expr =
       case expr of
-        ExCase _ _ _ alternatives -> concatMap (tails . altRhs) alternatives
+        ExCase _ _ (NE.toList -> alternatives) -> concatMap (tails . altRhs) alternatives
         ExLet _ inner -> tails inner
         ExRec _ inner -> tails inner
         _ -> [expr]
@@ -600,7 +604,8 @@ replaceCalls name replacement = go
         ExTyLam binder body -> ExTyLam binder <$> go body
         ExLet bind body -> ExLet <$> goBind bind <*> go body
         ExRec binds body -> ExRec <$> traverse goBind binds <*> go body
-        ExCase scrutinee binder ty alternatives -> ExCase <$> go scrutinee <*> pure binder <*> pure ty <*> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+        ExCase scrutinee binder alternatives -> ExCase <$> go scrutinee <*> pure binder <*> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+        ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go scrutinee
         ExCast body coercion -> (`ExCast` coercion) <$> go body
         ExForeignCall call tys arguments -> ExForeignCall call tys <$> traverse go arguments
     goBind bind = (\rhs -> bind {bindRhs = rhs}) <$> go (bindRhs bind)

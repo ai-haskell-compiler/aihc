@@ -429,6 +429,7 @@ primitiveModulePaths =
     "GHC/Prim/Enum.hs",
     "GHC/Prim/IO.hs",
     "GHC/Prim/Integer.hs",
+    "GHC/Prim/MonadFix.hs",
     "GHC/Prim/Num.hs",
     "GHC/Prim/Real.hs",
     "GHC/Prim/Show.hs",
@@ -441,7 +442,7 @@ fixtureBuiltinScope :: ModuleExports -> Builtins
 fixtureBuiltinScope visibleExports =
   builtins fixturePackage visibleExports builtinFunctionModules
   where
-    builtinFunctionModules = ["GHC.IsList", "GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Enum", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 -- | The kind vocabulary of the fixture compiler.
 fixtureWiring :: TcWiring

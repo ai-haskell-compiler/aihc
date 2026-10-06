@@ -1,0 +1,32 @@
+extensions:
+  - BangPatterns
+modules:
+  - |
+    module Test where
+
+    data Iter = Iter {-# UNPACK #-} !Char {-# UNPACK #-} !Int
+
+    data Pair = Pair {-# UNPACK #-} !Iter Bool
+
+    iter :: Int -> Iter
+    iter n = Iter (toEnum (97 + n)) (n + 1)
+
+    strictLet :: Int -> (Char, Int)
+    strictLet n = let !(Iter c d) = iter n in (c, d)
+
+    lazyLet :: Int -> Char
+    lazyLet n = let Iter c _ = iter n in c
+
+    doBind :: Int -> Maybe Int
+    doBind n = do
+      Iter _ d <- Just (iter n)
+      Pair (Iter _ e) flag <- Just (Pair (iter d) True)
+      if flag then Just (d + e) else Nothing
+
+    result :: ((Char, Int), Char, Maybe Int)
+    result = (strictLet 0, lazyLet 1, doBind 2)
+output: |
+  (('a',(I# 1)),'b',(Just (I# 7)))
+expression: result
+status: pass
+reason: A let pattern binding and a do bind pattern on a constructor with unpacked fields bind the source fields.

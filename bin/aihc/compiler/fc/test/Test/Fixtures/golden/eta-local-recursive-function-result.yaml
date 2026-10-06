@@ -25,50 +25,43 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  type 1.tNat :: 3.sType {
-      1.cZ :: 1.tNat;
-      1.cS :: 1.tNat 3.→ 1.tNat
+  type 1.tNat :: sType {
+    1.cZ :: tNat;
+    1.cS :: tNat 3.→ tNat
   }
 
-  pub val 1.vrun :: 1.tNat 3.→ 3.tInt 3.→ 1.tNat
-   = λ(x : 1.tNat).
-    let {
-        step : 1.tNat 3.→ (3.tInt 3.→ 1.tNat) 3.→ 3.tInt 3.→ 1.tNat =
-            λ(x{1} : 1.tNat).
-              λ(y : 3.tInt 3.→ 1.tNat).
-                λ(z : 3.tInt).
-                  case z as (_scrut : 3.tInt) return (1.tNat) of {
-                      3.cI# (_pat : 2.tInt#) →
-                          case x{1} as (_scrut{1} : 1.tNat) return (1.tNat) of {
-                              1.cZ →
-                                  y z;
-                              1.cS (_pat{1} : 1.tNat) →
-                                  x{1}
-                          }
-                  }
-    } in
-        rec {
-            go : 1.tNat 3.→ 3.tInt 3.→ 1.tNat =
-                λ(x{1} : 1.tNat).
-                  λ(eta{2} : 3.tInt).
-                    step x{1} (go (1.cS x{1})) eta{2}
-        } in
-            go x
+  pub val 1.vrun :: tNat 3.→ tInt 3.→ tNat
+    = λ(x : tNat).
+      let step : tNat 3.→ (tInt 3.→ tNat) 3.→ tInt 3.→ tNat =
+        λ(x{1} : tNat) (y : tInt 3.→ tNat) (z : tInt).
+          let! cI# (_pat : tInt#) = z;
+          case x{1} of {
+            cZ →
+              y z;
+            cS (_pat{1} : tNat) →
+              x{1}
+          };
+      rec {
+        go : tNat 3.→ tInt 3.→ tNat =
+          λ(x{1} : tNat) (eta{2} : tInt).
+            step x{1} (go (cS x{1})) eta{2}
+      } in
+      go x
 status: pass
 reason: The local loop calls a step of three arguments with two. Under the guess that the loop takes two arguments, its own call is a partial application, so the loop expands to two arguments and builds no closure for each step.

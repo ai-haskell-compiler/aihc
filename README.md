@@ -20,6 +20,22 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2173/10061` (`21.60%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
 | Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●● `77/77` (`100.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
+## Getting started
+
+Build the compiler and run the hello-world example:
+
+```console
+% cabal run exe:aihc -- build examples/hello-world/Main.hs
+Plan: 3 packages, 1 executable
+  aihc-rts-1.0.2  aihc-prim-0.13.0  aihc-base-4.21.2.0  Main (executable)
+✔ Main (executable)  2 modules  0.2 s
+executable: examples/hello-world/Main
+% ./examples/hello-world/Main
+Hello, world!
+```
+
+The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instructions.
+
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
@@ -139,16 +155,63 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->
 
-## Useful Commands
+## FAQ
 
-Run the full test suite:
+### Can AIHC compile itself?
 
-```
-just check
-```
+Almost, but not quite yet.
+See [Self hosting](#self-hosting) for the current status.
 
-Run the full test suite in a hermetic build environment (slower than `just check`):
+### Is AIHC compatible with GHC?
 
-```bash
-nix flake check
-```
+Not fully.
+AIHC aims at compiling any Haskell code that GHC accepts, but some programs do not compile yet.
+The progress table above and [Self hosting](#self-hosting) show how far along that work is.
+
+### Which architectures does AIHC support?
+
+`apple-arm64`, `linux-amd64`, and `wasm32`.
+Use `--target` to select one.
+
+### Does AIHC support Template Haskell and quasi-quotes?
+
+Not yet.
+AIHC parses the syntax but does not run splices or quasi-quoters.
+Support is planned.
+
+### Which Hackage packages does AIHC install?
+
+See [Self hosting](#self-hosting) for the packages that install today.
+
+### What kind of garbage collector does AIHC use?
+
+A generational, incremental collector with precise roots.
+Young objects are bump allocated in a nursery and copied on survival.
+Old objects are collected with an incremental mark and sweep, so each pause has a bound that does not depend on the live data.
+The same collector runs on all backends.
+See [the GC design](docs/gc-design.md) for the details.
+
+### How fast is the code that AIHC makes?
+
+Slower than GHC.
+See [Performance](#performance) for the current numbers.
+
+### Is there a binary release?
+
+No.
+Build the compiler from source with `cabal build exe:aihc`.
+
+### Did humans write any of the code?
+
+AI agents wrote the compiler code.
+Humans wrote the prompts and reviewed the results.
+
+### How do I run the test suite?
+
+Run `just check`.
+For a hermetic build environment, run `nix flake check`.
+
+### What is the license?
+
+AIHC is in the public domain.
+See [LICENSE](LICENSE).

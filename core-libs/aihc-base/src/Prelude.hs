@@ -173,6 +173,8 @@ import GHC.IO.Exception (IOError, ioError, userError)
 import GHC.IO.Handle.Text (hGetChar, hGetContents, hGetLine, hPutStr)
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.StdHandles (openFile, stdin, stdout, withFile)
+import GHC.IO.Unsafe (unsafeDupableInterleaveIO)
+import GHC.IORef (newIORef, readIORef, writeIORef)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Char (Char (..))
@@ -183,6 +185,7 @@ import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#), (>#))
+import GHC.Prim.MonadFix (MonadFix (..))
 import GHC.Prim.Read (ReadS, minPrec)
 import GHC.Real
   ( Fractional (..),
@@ -830,6 +833,26 @@ instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g) => Show (a, b,
       . shows seventh
       . showChar ')'
 
+instance (Show a, Show b, Show c, Show d, Show e, Show f, Show g, Show h) => Show (a, b, c, d, e, f, g, h) where
+  showsPrec _ (first, second, third, fourth, fifth, sixth, seventh, eighth) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ','
+      . shows fourth
+      . showChar ','
+      . shows fifth
+      . showChar ','
+      . shows sixth
+      . showChar ','
+      . shows seventh
+      . showChar ','
+      . shows eighth
+      . showChar ')'
+
 showLitString :: String -> ShowS
 showLitString [] = id
 showLitString ('"' : chars) = showString "\\\"" . showLitString chars
@@ -1131,6 +1154,43 @@ instance Monad (Either e) where
       Left e -> Left e
       Right _ -> my
   return = Right
+
+-- The MonadFix instances are the same as in GHC base, except IO. They are
+-- here, beside the Monad instances, and not in Control.Monad.Fix: a module
+-- with a recursive do block does not always import Control.Monad.Fix.
+
+instance MonadFix Maybe where
+  mfix f = let a = f (unJust a) in a
+    where
+      unJust (Just x) = x
+      unJust Nothing = errorWithoutStackTrace "mfix Maybe: Nothing"
+
+instance MonadFix List where
+  mfix f = case fixList (f . head) of
+    [] -> []
+    (x : _) -> x : mfix (tail . f)
+    where
+      fixList g = let x = g x in x
+
+instance MonadFix ((->) r) where
+  mfix f r = let a = f a r in a
+
+instance MonadFix (Either e) where
+  mfix f = let a = f (unRight a) in a
+    where
+      unRight (Right x) = x
+      unRight (Left _) = errorWithoutStackTrace "mfix Either: Left"
+
+-- GHC reads the result through an MVar and throws FixIOException when the
+-- function reads its argument too early. Here, a reference holds the result,
+-- and an early read gives an error.
+instance MonadFix IO where
+  mfix k = do
+    ref <- newIORef (errorWithoutStackTrace "fixIO: the result is not available yet")
+    ans <- unsafeDupableInterleaveIO (readIORef ref)
+    result <- k ans
+    writeIORef ref result
+    return result
 
 fmapList :: (a -> b) -> [a] -> [b]
 fmapList _ [] = []

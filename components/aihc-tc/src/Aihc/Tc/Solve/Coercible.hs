@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiWayIf #-}
+
 -- | Check representation constraints before FC conversion.
 module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens, isRepresentationParameter) where
 
@@ -56,8 +58,12 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
               and
                 <$> sequence
                   [ do
+                      phantom <- phantomParameter left index
                       representational <- representationParameter [] left index
-                      if representational then go edges visited True argument argument' else nominal argument argument'
+                      if
+                        | phantom -> phantomPair argument argument'
+                        | representational -> go edges visited True argument argument'
+                        | otherwise -> nominal argument argument'
                   | (index, (argument, argument')) <- zip [0 ..] (zip args args')
                   ]
     shapes edges visited nested left right = do
@@ -66,9 +72,24 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
       case (leftRepresentation, rightRepresentation) of
         (Just inner, _) -> go edges visited nested inner right
         (_, Just inner) -> go edges visited nested left inner
+        -- A meta variable can become a newtype of a type constructor
+        -- later, so its pair with a type constructor must wait. A
+        -- unification here can bind a wrong type to it.
         _
+          | isMeta left && hasTyConHead right || isMeta right && hasTyConHead left -> pure False
           | nested -> nominal left right
           | otherwise -> pure False
+    isMeta TcMetaTv {} = True
+    isMeta _ = False
+    hasTyConHead ty = case ty of
+      TcMetaTv {} -> False
+      TcTyVar {} -> False
+      _ -> True
+    -- Any type is correct at a phantom position. A meta variable there
+    -- takes the type on the other side, so that it is not ambiguous.
+    phantomPair left right
+      | isMeta left || isMeta right = True <$ unifyTypes left right
+      | otherwise = pure True
     nominal left right = do
       result <- unifyTypes left right
       pure $ case result of
@@ -126,6 +147,27 @@ familyInstanceRepresentation constructor arguments = do
           visible <- isTermVisible (GlobalTerm package moduleName' (dciName con))
           pure (if visible then Just inner else Nothing)
         _ -> pure Nothing
+
+-- | Whether one parameter of a data type is phantom: no field, context,
+-- or constructor result type uses it, and no role annotation makes it
+-- nominal.
+phantomParameter :: TyCon -> Int -> TcM Bool
+phantomParameter constructor index = do
+  info <- lookupDataType constructor
+  pure $ case info of
+    Just dataType
+      | index < length (dtiTyVars dataType),
+        not (or (take 1 (drop index (dtiNominalRoles dataType)))) ->
+          let parameter = dtiTyVars dataType !! index
+              expected = TcTyCon constructor (map TcTyVar (dtiTyVars dataType))
+              unused con = case matchTypes [dciResTy con] [expected] of
+                Just substitution ->
+                  not (any (mentions parameter . applySubst substitution . tvKind) (dciExTyVars con))
+                    && not (any (mentionsPred parameter . applySubstPred substitution) (dciTheta con))
+                    && not (any (mentions parameter . applySubst substitution . dcfiType) (dciFields con))
+                Nothing -> False
+           in all unused (dtiConstructors dataType)
+    _ -> False
 
 isDataFamily :: TyCon -> TcM Bool
 isDataFamily constructor = do
@@ -235,23 +277,29 @@ representationPosition visited variable ty = case ty of
   TcQualTy _ _ -> pure False
 
 mentions :: TyVarId -> TcType -> Bool
-mentions variable = elem (tvUnique variable) . variables
-  where
-    variables ty = nub $ case ty of
-      TcTyVar binder -> [tvUnique binder] <> variables (tvKind binder)
-      TcMetaTv _ -> []
-      TcArrowTy -> []
-      TcTyLit {} -> []
-      TcTyCon _ arguments -> concatMap variables arguments
-      TcKindedTyCon _ kindArguments -> concatMap variables kindArguments
-      TcFunTy argument result -> variables argument <> variables result
-      TcAppTy function argument -> variables function <> variables argument
-      TcForAllTy binder body -> variables (tvKind binder) <> filter (/= tvUnique binder) (variables body)
-      TcQualTy predicates body -> concatMap predicateVariables predicates <> variables body
-    predicateVariables predicate = case predicate of
-      ClassPred _ arguments -> concatMap variables arguments
-      EqPred left right -> variables left <> variables right
-      IParamPred _ payload -> variables payload
-      IrredPred constraint -> variables constraint
-      QuantifiedPred binders antecedents consequent ->
-        concatMap (filter (`notElem` map tvUnique binders) . predicateVariables) (consequent : antecedents)
+mentions variable = elem (tvUnique variable) . typeVariables
+
+mentionsPred :: TyVarId -> Pred -> Bool
+mentionsPred variable = elem (tvUnique variable) . predicateVariables
+
+typeVariables :: TcType -> [Unique]
+typeVariables ty = nub $ case ty of
+  TcTyVar binder -> [tvUnique binder] <> typeVariables (tvKind binder)
+  TcMetaTv _ -> []
+  TcArrowTy -> []
+  TcTyLit {} -> []
+  TcTyCon _ arguments -> concatMap typeVariables arguments
+  TcKindedTyCon _ kindArguments -> concatMap typeVariables kindArguments
+  TcFunTy argument result -> typeVariables argument <> typeVariables result
+  TcAppTy function argument -> typeVariables function <> typeVariables argument
+  TcForAllTy binder body -> typeVariables (tvKind binder) <> filter (/= tvUnique binder) (typeVariables body)
+  TcQualTy predicates body -> concatMap predicateVariables predicates <> typeVariables body
+
+predicateVariables :: Pred -> [Unique]
+predicateVariables predicate = case predicate of
+  ClassPred _ arguments -> concatMap typeVariables arguments
+  EqPred left right -> typeVariables left <> typeVariables right
+  IParamPred _ payload -> typeVariables payload
+  IrredPred constraint -> typeVariables constraint
+  QuantifiedPred binders antecedents consequent ->
+    concatMap (filter (`notElem` map tvUnique binders) . predicateVariables) (consequent : antecedents)

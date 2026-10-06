@@ -300,6 +300,12 @@ runtimeExports target = do
   runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources sources)
   pure (Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export])
 
+-- | The runtime of every snapshot program starts a gen2 cycle at the first
+-- gen1 collection and marks a few hundred bytes in each slice, so the
+-- incremental marking runs across many collections of these programs.
+gcStressDefines :: [String]
+gcStressDefines = ["-DAIHC_GEN2_MINIMUM_BYTES=4096", "-DAIHC_MARK_SLICE_FLOOR=256", "-DAIHC_MARK_SLICE_CAP=512"]
+
 snapshotTest :: NativeBackend -> IO (Map.Map Symbol Signature) -> FilePath -> FilePath -> TestTree
 snapshotTest backend getExports directory name = testCase name $ do
   exports <- getExports
@@ -367,7 +373,7 @@ runObservedUnit backend fixture output metadata =
     runtimeBuild <-
       cachedRuntimeArchive
         (backendTarget backend)
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> ["-DAIHC_NURSERY_BYTES=128" | snapshotFixtureGcStress fixture])
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> gcStressDefines <> ["-DAIHC_NURSERY_BYTES=128" | snapshotFixtureGcStress fixture])
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"

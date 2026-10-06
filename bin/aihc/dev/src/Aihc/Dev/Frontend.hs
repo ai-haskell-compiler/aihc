@@ -208,7 +208,8 @@ runFrontend options = do
             compileVerbose = when (frontendVerbose options) . hPutStrLn stderr,
             compilePrintTimings = const (pure ()),
             compileUseColor = False,
-            compileProgress = quietProgress stderr
+            compileProgress = quietProgress stderr,
+            compileObserver = Nothing
           }
   (_, totals) <-
     foldM

@@ -176,6 +176,7 @@ in {
       pkgs.llvmPackages.clang
       pkgs.llvmPackages.clang-unwrapped
       pkgs.wasm-tools
+      pkgs.wasm-component-ld
       wasmLd
       pkgs.haskellPackages.hsc2hs
     ] ''

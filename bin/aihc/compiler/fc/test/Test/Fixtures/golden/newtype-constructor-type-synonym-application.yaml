@@ -14,31 +14,31 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tField :: 2.sType {
-      pub 1.cField :: 1.tField
+  pub type 1.tField :: sType {
+    pub 1.cField :: tField
   }
 
-  pub type 1.tIOException :: 2.sType {}
+  pub type 1.tIOException :: sType {}
 
-  axiom 1.$ax$IOException : 1.tIOException ~R 1.tField
+  axiom 1.$ax$IOException : tIOException ~R tField
 
-  pub type 1.sIOError :: 2.sType =
-   1.tIOException
+  pub type 1.sIOError :: sType =
+    tIOException
 
-  pub val 1.vmakeError :: 1.tField 2.→ 1.tIOException
-   = λ(x : 1.tField).
-    x ▷ sym (axiom-co 1.$ax$IOException)
+  pub val 1.vmakeError :: tField 2.→ tIOException
+    = λ(x : tField).
+      x ▷ sym (axiom-co $ax$IOException)
 status: pass
 reason: An applied newtype conversion becomes a direct cast.

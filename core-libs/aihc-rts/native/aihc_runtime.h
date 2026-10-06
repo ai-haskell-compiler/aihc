@@ -23,8 +23,21 @@
 #define AIHC_NURSERY_BYTES (UINT64_C(4) << 20)
 #endif
 #define AIHC_GEN1_MAX_BYTES (UINT64_C(16) << 20)
+#ifndef AIHC_GEN2_MINIMUM_BYTES
 #define AIHC_GEN2_MINIMUM_BYTES (UINT64_C(8) << 20)
+#endif
 #define AIHC_GEN2_FACTOR UINT64_C(2)
+/* The pacing of the incremental gen2 marking: each mark slice does the
+   factor times the bytes promoted into gen2 since the last slice, at least
+   the floor and at most the cap. The cap is the default nursery size: a
+   slice marks at most as many bytes as a minor collection can copy. */
+#define AIHC_MARK_FACTOR UINT64_C(2)
+#ifndef AIHC_MARK_SLICE_FLOOR
+#define AIHC_MARK_SLICE_FLOOR (UINT64_C(256) << 10)
+#endif
+#ifndef AIHC_MARK_SLICE_CAP
+#define AIHC_MARK_SLICE_CAP (UINT64_C(4) << 20)
+#endif
 
 enum {
   AIHC_OBJECT_NODE,
@@ -312,6 +325,21 @@ struct AihcMachine {
   uint64_t gc_minor_count;
   uint64_t gc_gen1_count;
   uint64_t gc_full_count;
+  /* The incremental gen2 cycle: the number of the cycle, whether one is
+     active, the bytes it has marked, and the mark work the promotions
+     since the last slice ask for. See docs/gc-design.md. */
+  uint64_t gen2_epoch;
+  uint64_t gen2_cycle_active;
+  uint64_t gen2_marked_bytes;
+  uint64_t mark_debt;
+  uint64_t mark_factor;
+  uint64_t mark_slice_floor;
+  uint64_t mark_slice_cap;
+  /* The bytes of gen2 when the active cycle took its snapshot. The cycle
+     is finished in one pause when gen2 doubles while it runs. */
+  uint64_t gen2_cycle_start_bytes;
+  /* The oldest generation the last collection copied. */
+  uint64_t gc_last_generation;
 };
 
 /* The bounds of the nursery for the write barrier of compiled code: an
@@ -580,6 +608,12 @@ int64_t aihc_io_descriptor_mode(int64_t descriptor);
    The host that has no descriptors to adopt reports one. */
 void *aihc_io_adopt(AihcMachine *machine, int64_t descriptor, int64_t mode);
 int64_t aihc_io_handle_descriptor(void *handle);
+/* The position of a handle that the runtime itself keeps, or -1 for a handle
+   whose position the operating system keeps in its descriptor. */
+int64_t aihc_io_handle_position(void *handle);
+/* Move the position that the runtime keeps. This gives 0, or -1 for a handle
+   that has no such position. */
+int64_t aihc_io_handle_set_position(void *handle, int64_t position);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);

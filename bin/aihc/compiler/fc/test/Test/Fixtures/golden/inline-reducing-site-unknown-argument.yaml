@@ -31,47 +31,42 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cFalse, 2.cTrue] 2.tBool :: 2.sType;
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cFalse :: 2.tBool;
-    2.cLifted :: 2.tLevity;
-    2.cTrue :: 2.tBool
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  type 1.tState :: 2.sType {
-      1.cState :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool 2.→ 1.tState
+  type 1.tState :: sType {
+    1.cState :: tBool 2.→ tBool 2.→ tBool 2.→ tState
   }
 
-  val 1.vstep inline :: 1.tState 2.→ 2.tBool 2.→ 1.tState
-   = λ(x : 1.tState).
-    λ(y : 2.tBool).
-      case x as (_scrut : 1.tState) return (1.tState) of {
-          1.cState (a : 2.tBool) (b : 2.tBool) (c : 2.tBool) →
-              case y as (_scrut{1} : 2.tBool) return (1.tState) of {
-                  2.cTrue →
-                      1.cState b c a;
-                  2.cFalse →
-                      case a as (_scrut{2} : 2.tBool) return (1.tState) of {
-                          2.cTrue →
-                              1.cState c a b;
-                          2.cFalse →
-                              1.cState a c b
-                      }
-              }
+  val 1.vstep inline :: tState 2.→ tBool 2.→ tState
+    = λ(x : tState) (y : tBool).
+      let! cState (a : tBool) (b : tBool) (c : tBool) = x;
+      case y of {
+        cTrue →
+          cState b c a;
+        cFalse →
+          case a of {
+            cTrue →
+              cState c a b;
+            cFalse →
+              cState a c b
+          }
       }
 
-  pub val 1.vrun :: 1.tState 2.→ 2.tBool 2.→ 2.tBool 2.→ 1.tState
-   = λ(x : 1.tState).
-    λ(y : 2.tBool).
-      λ(z : 2.tBool).
-        1.vstep (1.vstep x y) z
+  pub val 1.vrun :: tState 2.→ tBool 2.→ tBool 2.→ tState
+    = λ(x : tState) (y : tBool) (z : tBool).
+      vstep (vstep x y) z
 status: pass
 reason: A call that gives an unknown value to the scrutinised parameter does not reduce. The site is decided like a measured site, so a value with no growth left keeps the calls.

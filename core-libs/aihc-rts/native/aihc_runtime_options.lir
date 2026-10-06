@@ -43,10 +43,12 @@ global @aihc_program_environment_bytes: i64
 global @aihc_rts_option_heap_max_bytes: i64
 global @aihc_rts_option_heap_limit_enabled: i64
 ; The generational collector: -A sets the nursery bytes, -B the gen1
-; maximum, and -F the growth factor of gen2. Zero means the default.
+; maximum, -F the growth factor of gen2, and -k the mark work for each
+; promoted byte. Zero means the default.
 global @aihc_rts_option_nursery_bytes: i64
 global @aihc_rts_option_gen1_max_bytes: i64
 global @aihc_rts_option_gen2_factor: i64
+global @aihc_rts_option_mark_factor: i64
 ; The zero-terminated path of the statistics file, or null when the
 ; environment does not request one.
 global @aihc_rts_option_stats_path: ptr
@@ -99,6 +101,12 @@ entry:
 export func @aihc_rts_gen2_factor() -> i64 cc c {
 entry:
   %value = global.get @aihc_rts_option_gen2_factor
+  return %value
+}
+
+export func @aihc_rts_mark_factor() -> i64 cc c {
+entry:
+  %value = global.get @aihc_rts_option_mark_factor
   return %value
 }
 
@@ -296,11 +304,20 @@ gen1:
 
 factor_option:
   %is_factor = eq i8 %second, 'F'
-  br %is_factor, factor, unknown
+  br %is_factor, factor, mark_option
 
 factor:
   %factor_value = call @aihc_rts_parse_heap_size(%size_text)
   global.set @aihc_rts_option_gen2_factor, %factor_value
+  return
+
+mark_option:
+  %is_mark = eq i8 %second, 'k'
+  br %is_mark, mark, unknown
+
+mark:
+  %mark_value = call @aihc_rts_parse_heap_size(%size_text)
+  global.set @aihc_rts_option_mark_factor, %mark_value
   return
 
 unknown:

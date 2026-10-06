@@ -16,54 +16,46 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tTree :: 2.sType {
-      pub 1.cLeaf :: 1.tTree;
-      pub 1.c:<: :: 1.tTree 2.→ 1.tTree 2.→ 1.tTree;
-      pub 1.c:>: :: 1.tTree 2.→ 1.tTree 2.→ 1.tTree
+  pub type 1.tTree :: sType {
+    pub 1.cLeaf :: tTree;
+    pub 1.c:<: :: tTree 2.→ tTree 2.→ tTree;
+    pub 1.c:>: :: tTree 2.→ tTree 2.→ tTree
   }
 
-  pub val 1.vleft :: 1.tTree
-   = 1.c:<: (1.c:<: 1.cLeaf 1.cLeaf) 1.cLeaf
+  pub val 1.vleft :: tTree
+    = c:<: (c:<: cLeaf cLeaf) cLeaf
 
-  pub val 1.vright :: 1.tTree
-   = 1.c:>: 1.cLeaf (1.c:>: 1.cLeaf 1.cLeaf)
+  pub val 1.vright :: tTree
+    = c:>: cLeaf (c:>: cLeaf cLeaf)
 
-  pub val 1.vmixed :: 1.tTree
-   = 1.c:<: 1.cLeaf (1.c:>: 1.cLeaf (1.c:>: 1.cLeaf 1.cLeaf))
+  pub val 1.vmixed :: tTree
+    = c:<: cLeaf (c:>: cLeaf (c:>: cLeaf cLeaf))
 
-  pub val 1.vparen :: 1.tTree
-   = 1.c:>: (1.c:<: 1.cLeaf 1.cLeaf) 1.cLeaf
+  pub val 1.vparen :: tTree
+    = c:>: (c:<: cLeaf cLeaf) cLeaf
 
-  pub val 1.vpick :: 1.tTree 2.→ 1.tTree
-   = λ(x : 1.tTree).
-    case x as (_scrut : 1.tTree) return (1.tTree) of {
-        1.c:<: (a : 1.tTree) (_pat : 1.tTree) →
-            case _pat as (_scrut{1} : 1.tTree) return (1.tTree) of {
-                1.c:>: (b : 1.tTree) (_pat{1} : 1.tTree) →
-                    case _pat{1} as (_scrut{2} : 1.tTree) return (1.tTree) of {
-                        1.c:>: (c : 1.tTree) (d : 1.tTree) →
-                            d
-                    }
-            }
-    }
+  pub val 1.vpick :: tTree 2.→ tTree
+    = λ(x : tTree).
+      let! c:<: (a : tTree) (_pat : tTree) = x;
+      let! c:>: (b : tTree) (_pat{1} : tTree) = _pat;
+      let! c:>: (c : tTree) (d : tTree) = _pat{1};
+      d
 
-  pub val 1.vsingle :: 1.tTree 2.→ 1.tTree
-   = λ(x : 1.tTree).
-    case x as (_scrut : 1.tTree) return (1.tTree) of {
-        1.c:>: (a : 1.tTree) (b : 1.tTree) →
-            b
-    }
+  pub val 1.vsingle :: tTree 2.→ tTree
+    = λ(x : tTree).
+      let! c:>: (a : tTree) (b : tTree) = x;
+      b
 status: pass
 reason: Preserve left, right, mixed, qualified, and parenthesized infix trees in expressions and patterns.

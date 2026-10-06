@@ -74,5 +74,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: strict and lazy ST tie value recursion knots, including repMin and a knot through an STRef

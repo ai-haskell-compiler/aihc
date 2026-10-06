@@ -6,6 +6,7 @@ module Foreign.Storable
   )
 where
 
+import Foreign.Storable.Repr (PtrRep, ptrFromRep, ptrToRep)
 import GHC.Base (Monad (..))
 import GHC.Err (undefined)
 import GHC.IO (IO (..))
@@ -24,7 +25,6 @@ import GHC.Prim
     intToInt64#,
     intToInt8#,
     ord#,
-    readAddrOffAddr#,
     readWord16OffAddr#,
     readWord32OffAddr#,
     readWord64OffAddr#,
@@ -40,7 +40,6 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
-    writeAddrOffAddr#,
     writeWord16OffAddr#,
     writeWord32OffAddr#,
     writeWord64OffAddr#,
@@ -293,44 +292,30 @@ instance Storable Char where
 
 -- | A pointer is stored as the machine address it holds, so it round-trips
 -- through the address primops rather than through a numeric width.
+-- | A pointer is stored in the width a C structure gives it, which
+-- 'PtrRep' states for the platform.
 instance Storable (Ptr a) where
-  sizeOf _ = 8
-  alignment _ = 8
-  peekElemOff (Ptr address) (I# index) =
-    IO
-      ( \state ->
-          case readAddrOffAddr# address index state of
-            (# readState, value #) -> (# readState, Ptr value #)
-      )
-  pokeElemOff (Ptr address) (I# index) (Ptr value) =
-    IO
-      ( \state ->
-          case writeAddrOffAddr# address index value state of
-            nextState -> (# nextState, () #)
-      )
+  sizeOf _ = sizeOf (undefined :: PtrRep)
+  alignment _ = alignment (undefined :: PtrRep)
+  peekElemOff address index =
+    peekElemOff (castPtr address) index >>= \value -> return (Ptr (ptrFromRep value))
+  pokeElemOff address index (Ptr value) =
+    pokeElemOff (castPtr address) index (ptrToRep value)
 
 -- | A function pointer is stored as its machine address, like 'Ptr'.
 instance Storable (FunPtr a) where
-  sizeOf _ = 8
-  alignment _ = 8
-  peekElemOff (Ptr address) (I# index) =
-    IO
-      ( \state ->
-          case readAddrOffAddr# address index state of
-            (# readState, value #) -> (# readState, FunPtr value #)
-      )
-  pokeElemOff (Ptr address) (I# index) (FunPtr value) =
-    IO
-      ( \state ->
-          case writeAddrOffAddr# address index value state of
-            nextState -> (# nextState, () #)
-      )
+  sizeOf _ = sizeOf (undefined :: Ptr ())
+  alignment _ = alignment (undefined :: Ptr ())
+  peekElemOff address index =
+    peekElemOff (castPtr address) index >>= \(Ptr value) -> return (FunPtr value)
+  pokeElemOff address index (FunPtr value) =
+    pokeElemOff (castPtr address) index (Ptr value)
 
 -- | A stable pointer is stored as the address that 'castStablePtrToPtr'
 -- gives.
 instance Storable (StablePtr a) where
-  sizeOf _ = 8
-  alignment _ = 8
+  sizeOf _ = sizeOf (undefined :: Ptr ())
+  alignment _ = alignment (undefined :: Ptr ())
   peekElemOff address index =
     peekElemOff (castPtr address) index >>= \pointer -> return (castPtrToStablePtr pointer)
   pokeElemOff address index value =

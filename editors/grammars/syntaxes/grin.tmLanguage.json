@@ -167,7 +167,7 @@
     },
     "keywords": {
       "name": "keyword.control.aihc-grin",
-      "match": "(?<![\\w$'-])(?:store\\-rec\\-unchecked|cps\\-primitive\\-call|update\\-blackhole|store\\-unchecked|primitive\\-call|unsafe\\-dynamic|cps\\-eval\\-once|foreign\\-call|constructor|ensure\\-heap|global\\-ref|real\\-world|primitive|store\\-rec|eval\\-once|cps\\-apply|raise\\-cps|forwarded|constant|cps\\-eval|continue|foreign|forward|if\\-whnf|address|dynamic|wrapper|global|update|unsafe|scope|store|apply|throw|catch|fetch|eval|call|halt|exit|else|case|with|data|pure|pub|as|of|_)(?![\\w$'-])"
+      "match": "(?<![\\w$'-])(?:function\\-address|store\\-rec\\-unchecked|cps\\-primitive\\-call|update\\-blackhole|store\\-unchecked|primitive\\-call|unsafe\\-dynamic|cps\\-eval\\-once|foreign\\-call|constructor|ensure\\-heap|global\\-ref|real\\-world|primitive|store\\-rec|eval\\-once|cps\\-apply|raise\\-cps|forwarded|constant|cps\\-eval|continue|foreign|forward|if\\-whnf|address|dynamic|wrapper|global|update|unsafe|scope|store|apply|throw|catch|fetch|eval|call|halt|exit|else|case|with|data|pure|pub|as|of|_)(?![\\w$'-])"
     },
     "primitive-names": {
       "name": "support.function.primitive.aihc-grin",

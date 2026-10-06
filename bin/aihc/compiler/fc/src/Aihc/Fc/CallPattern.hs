@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Call-pattern specialisation of local recursive functions, after GHC's
 -- SpecConstr.
@@ -59,6 +60,7 @@ import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
@@ -140,18 +142,19 @@ walk env expr =
     ExTyApp function ty -> first (`ExTyApp` ty) <$> walk env function
     ExLam binder body -> first (ExLam binder) <$> walk (extendBinder env binder) body
     ExTyLam binder body -> first (ExTyLam binder) <$> walk (extendBinder env binder) body
+    ExAbsurd scrutinee resultType -> first (`ExAbsurd` resultType) <$> walk env scrutinee
     ExCast body coercion -> first (`ExCast` coercion) <$> walk env body
     ExForeignCall call tys arguments -> do
       results <- traverse (walk env) arguments
-      pure (ExForeignCall call tys (map fst results), List.foldl' add none (map snd results))
-    ExCase scrutinee binder ty alternatives -> do
+      pure (ExForeignCall call tys (map fst results), List.foldl' add none (foldr ((:) . snd) [] results))
+    ExCase scrutinee binder alternatives -> do
       (scrutinee', a) <- walk env scrutinee
-      let inner = extendBinder env binder
+      let inner = foldl' extendBinder env binder
       results <-
         traverse
           (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> walk (List.foldl' extendBinder inner (altTypeBinders alternative <> altBinders alternative)) (altRhs alternative))
           alternatives
-      pure (ExCase scrutinee' binder ty (map fst results), List.foldl' add a (map snd results))
+      pure (ExCase scrutinee' binder (fmap fst results), List.foldl' add a (foldr ((:) . snd) [] results))
     ExLet (Bind binder rhs) body -> do
       (rhs', a) <- walk env rhs
       (body', b) <- walk (extendBinder env binder) body
@@ -161,7 +164,7 @@ walk env expr =
       results <- traverse (\bind -> first (\rhs -> bind {bindRhs = rhs}) <$> walk env' (bindRhs bind)) binds
       (body', b) <- walk env' body
       let binds' = map fst results
-          counts = List.foldl' add b (map snd results)
+          counts = List.foldl' add b (foldr ((:) . snd) [] results)
       case binds' of
         [bind] -> do
           specialised <- specialiseLoop env' bind body'
@@ -302,7 +305,8 @@ recursiveCalls loop = go
           | binderName (bindBinder bind) /= loopName loop -> go (bindRhs bind) <> go body
         ExRec binds body
           | all ((/= loopName loop) . binderName . bindBinder) binds -> concatMap (go . bindRhs) binds <> go body
-        ExCase scrutinee _ _ alternatives -> go scrutinee <> concatMap (go . altRhs) alternatives
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> concatMap (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> concatMap go arguments
         _ -> []
@@ -330,15 +334,15 @@ constructorValue env known p = go
           | Just (knownCon, fields) <- Map.lookup var known,
             knownCon == con ->
               Just ([], fields)
-        ExCase scrutinee binder _ [Alt AltDefault [] [] rhs]
+        ExCase scrutinee binder (NE.toList -> [Alt AltDefault [] [] rhs])
           | speculable scrutinee -> do
               (wrappers, fields) <- go rhs
-              pure ((\resultType inner -> ExCase scrutinee binder resultType [Alt AltDefault [] [] inner]) : wrappers, fields)
-        ExCase (ExVar var) binder _ [Alt (AltData altCon) [] binders rhs]
+              pure ((\resultType inner -> caseFromList scrutinee binder resultType [Alt AltDefault [] [] inner]) : wrappers, fields)
+        ExCase (ExVar var) binder (NE.toList -> [Alt (AltData altCon) [] binders rhs])
           | Just (knownCon, fields) <- Map.lookup var known,
             knownCon == altCon,
             length binders == length fields ->
-              go (substExpr (Map.fromList ((binderName binder, ExVar var) : zip (map binderName binders) fields)) rhs)
+              go (substExpr (foldMap (\named -> Map.singleton (binderName named) (ExVar var)) binder <> Map.fromList (zip (map binderName binders) fields)) rhs)
         ExLet (Bind binder value) rhs
           | not (isLiftedBinder env binder),
             speculable value -> do
@@ -401,10 +405,11 @@ rewriteCalls env known loop expr0 = do
           | binderName binder == loopName loop -> pure (expr, 0)
           | otherwise -> firstOf (ExLam binder) <$> go (Map.delete (binderName binder) current) body
         ExTyLam binder body -> firstOf (ExTyLam binder) <$> go current body
+        ExAbsurd scrutinee resultType -> firstOf (`ExAbsurd` resultType) <$> go current scrutinee
         ExCast body coercion -> firstOf (`ExCast` coercion) <$> go current body
         ExForeignCall call tys arguments -> do
           results <- traverse (go current) arguments
-          pure (ExForeignCall call tys (map fst results), sum (map snd results))
+          pure (ExForeignCall call tys (map fst results), sum (foldr ((:) . snd) [] results))
         ExLet (Bind binder value) body
           | binderName binder == loopName loop -> do
               (value', a) <- go current value
@@ -419,17 +424,17 @@ rewriteCalls env known loop expr0 = do
               let current' = List.foldl' (flip Map.delete) current (map (binderName . bindBinder) binds)
               results <- traverse (\bind -> firstOf (\rhs -> bind {bindRhs = rhs}) <$> go current' (bindRhs bind)) binds
               (body', b) <- go current' body
-              pure (ExRec (map fst results) body', b + sum (map snd results))
-        ExCase scrutinee binder ty alternatives -> do
+              pure (ExRec (map fst results) body', b + sum (foldr ((:) . snd) [] results))
+        ExCase scrutinee binder alternatives -> do
           (scrutinee', a) <- go current scrutinee
           results <-
             traverse
               ( \alternative ->
-                  let current' = List.foldl' (flip Map.delete) current (binderName binder : map binderName (altBinders alternative))
+                  let current' = List.foldl' (flip Map.delete) current (map binderName (foldr (:) [] binder <> altBinders alternative))
                    in firstOf (\rhs -> alternative {altRhs = rhs}) <$> go current' (altRhs alternative)
               )
               alternatives
-          pure (ExCase scrutinee' binder ty (map fst results), a + sum (map snd results))
+          pure (ExCase scrutinee' binder (fmap fst results), a + sum (foldr ((:) . snd) [] results))
         _ -> pure (expr, 0)
     firstOf f (x, n) = (f x, n)
 

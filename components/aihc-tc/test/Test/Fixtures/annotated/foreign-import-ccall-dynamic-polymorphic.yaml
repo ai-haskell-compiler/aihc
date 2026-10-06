@@ -1,0 +1,13 @@
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+  import GHC.Prim (Addr#)
+  data Ptr a = Ptr Addr#
+  data FunPtr a = FunPtr Addr#
+  data IO a
+  foreign import ccall "dynamic" call :: FunPtr (Ptr a -> IO ()) -> Ptr a -> IO ()
+reason: a dynamic import that names a type variable in both the function pointer and the function is accepted
+status: pass

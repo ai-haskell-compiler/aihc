@@ -1,3 +1,5 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -- | Select and check the facts that a System FC program imports.
 module Aihc.Fc.Imports
   ( axiomReferences,
@@ -22,6 +24,7 @@ import Aihc.Fc.TypeOf
     unionTypeEnv,
   )
 import Aihc.Resolve (PackageId)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -218,19 +221,19 @@ exprReferences :: Expr -> References
 exprReferences expr =
   case expr of
     ExVar name -> nameReference name
-    ExLit literal -> literalReferences literal
+    ExLit literal ty -> literalReferences literal <> typeReferences ty
     ExApp function argument -> exprReferences function <> exprReferences argument
     ExTyApp function argument -> exprReferences function <> typeReferences argument
     ExLam binder body -> binderReferences binder <> exprReferences body
     ExTyLam binder body -> binderReferences binder <> exprReferences body
     ExLet binding body -> bindReferences binding <> exprReferences body
     ExRec bindings body -> foldMap bindReferences bindings <> exprReferences body
-    ExCase scrutinee binder result alts ->
+    ExCase scrutinee binder (NE.toList -> alts) ->
       exprReferences scrutinee
-        <> binderReferences binder
-        <> typeReferences result
+        <> foldMap binderReferences binder
         <> foldMap altReferences alts
     ExCoercion proof -> coercionReferences proof
+    ExAbsurd scrutinee resultType -> exprReferences scrutinee <> typeReferences resultType
     ExCast body coercion -> exprReferences body <> coercionReferences coercion
     ExForeignCall call types arguments ->
       foreignCallReferences call

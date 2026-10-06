@@ -13,63 +13,45 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.c()] 2.tUnit :: 3.sType;
-    2.c() :: 2.tUnit;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tPair (a : 3.sType) :: 3.sType {
-      pub 1.cPair :: ∀(a : 3.sType). a 3.→ a 3.→ 1.tPair a
+  pub type 1.tPair (a : sType) :: sType {
+    pub 1.cPair :: ∀(a : sType). a 3.→ a 3.→ tPair a
   }
 
-  pub val 1.v$mPoint :: ∀(a : 3.sType) (rep : 3.tRuntimeRep) (r : 3.tTYPE rep). 1.tPair a 3.→ (a 3.→ FUN @3.sLiftedRep @rep a r) 3.→ FUN @3.sLiftedRep @rep (FUN @3.sLiftedRep @rep 2.tUnit r) r
-   = Λ(a : 3.sType).
-    Λ(rep : 3.tRuntimeRep).
-      Λ(r : 3.tTYPE rep).
-        λ(x : 1.tPair a).
-          λ(y : a 3.→ FUN @3.sLiftedRep @rep a r).
-            λ(z : FUN @3.sLiftedRep @rep 2.tUnit r).
-              case x as (_scrut : 1.tPair a) return (r) of {
-                  1.cPair (px : a) (py : a) →
-                      y px py;
-                  _ →
-                      z 2.c()
-              }
+  pub val 1.v$mPoint :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tPair a 3.→ (a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tPair a) (y : a 3.→ FUN @sLiftedRep @rep a r)
+    (z : FUN @sLiftedRep @rep tUnit r).
+      let! cPair (px : a) (py : a) = x;
+      y px py
 
-  pub val 1.v$bPoint :: ∀(a : 3.sType). a 3.→ a 3.→ 1.tPair a
-   = Λ(a : 3.sType).
-    λ(x : a).
-      λ(y : a).
-        1.cPair @a x y
+  pub val 1.v$bPoint :: ∀(a : sType). a 3.→ a 3.→ tPair a
+    = Λ(a : sType). λ(x : a) (y : a).
+      cPair @a x y
 
-  pub val 1.vpx :: ∀(a : 3.sType). 1.tPair a 3.→ a
-   = Λ(a : 3.sType).
-    λ(x : 1.tPair a).
-      case x as (_scrut : 1.tPair a) return (a) of {
-          1.cPair (px : a) (py : a) →
-              px
-      }
+  pub val 1.vpx :: ∀(a : sType). tPair a 3.→ a
+    = Λ(a : sType). λ(x : tPair a).
+      let! cPair (px : a) (py : a) = x;
+      px
 
-  pub val 1.vpy :: ∀(a : 3.sType). 1.tPair a 3.→ a
-   = Λ(a : 3.sType).
-    λ(x : 1.tPair a).
-      case x as (_scrut : 1.tPair a) return (a) of {
-          1.cPair (px : a) (py : a) →
-              py
-      }
+  pub val 1.vpy :: ∀(a : sType). tPair a 3.→ a
+    = Λ(a : sType). λ(x : tPair a).
+      let! cPair (px : a) (py : a) = x;
+      py
 
-  pub val 1.vfirst :: ∀(a : 3.sType). 1.tPair a 3.→ a
-   = Λ(a : 3.sType).
-    λ(x : 1.tPair a).
-      1.vpx @a x
+  pub val 1.vfirst :: ∀(a : sType). tPair a 3.→ a
+    = Λ(a : sType). λ(x : tPair a).
+      vpx @a x
 status: pass
 reason: A record pattern synonym gives a matcher, a builder, and one selector for each field.

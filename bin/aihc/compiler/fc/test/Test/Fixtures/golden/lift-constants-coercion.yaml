@@ -16,41 +16,37 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [2.c()] 2.tUnit :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    2.c() :: 2.tUnit;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tEqual (a : 3.sType) (b : 3.sType) :: 3.sType {
-      pub 1.cRefl :: ∀(a : 3.sType) (b : 3.sType). FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (b ~ a) (1.tEqual a b)
+  pub type 1.tEqual (a : sType) (b : sType) :: sType {
+    pub 1.cRefl :: ∀(a : sType) (b : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (tEqual a b)
   }
 
-  pub type 1.tBox (a : 3.sType) :: 3.sType {
-      pub 1.cBox :: ∀(a : 3.sType). a 3.→ 1.tBox a
+  pub type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a 3.→ tBox a
   }
 
-  pub val 1.vlocal :: ∀(a : 3.sType). 1.tEqual a 2.tUnit 3.→ 2.tUnit 3.→ 1.tBox a
-   = Λ(a : 3.sType).
-    λ(x : 1.tEqual a 2.tUnit).
-      λ(y : 2.tUnit).
-        case x as (_scrut : 1.tEqual a 2.tUnit) return (1.tBox a) of {
-            1.cRefl ($pattern_d0 : 2.tUnit ~ a) →
-                1.vlocal$constant$0 ▷ sym (tycon-co 1.tBox (sym ($pattern_d0)))
-        }
+  pub val 1.vlocal :: ∀(a : sType). tEqual a tUnit 3.→ tUnit 3.→ tBox a
+    = Λ(a : sType). λ(x : tEqual a tUnit) (y : tUnit).
+      let! cRefl ($pattern_d0 : tUnit ~ a) = x;
+      vlocal$constant$0 ▷ sym (tycon-co tBox (sym ($pattern_d0)))
 
-  val 1.vlocal$constant$0 noinline :: 1.tBox 2.tUnit
-   = 1.cBox @2.tUnit 2.c()
+  val 1.vlocal$constant$0 noinline :: tBox tUnit
+    = cBox @tUnit c()
 status: pass
 reason: A local coercion stays inside its case when the closed constructor becomes a constant.

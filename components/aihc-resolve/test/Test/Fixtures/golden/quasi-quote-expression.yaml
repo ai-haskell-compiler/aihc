@@ -1,0 +1,22 @@
+extensions:
+  - QuasiQuotes
+modules:
+  - |
+    module Main where
+    data Box = Box
+    quoted = [box|Box|]
+    pair = (Box, [box|..|])
+annotated:
+  - |
+    module Main where
+    data Box = Box
+         │     └─ v Main
+         └─ t Main
+    quoted = [box|Box|]
+    └─ v Main
+    pair = (Box, [box|..|])
+    │      │└─ v Main
+    │      └─ v Builtin (,)
+    └─ v Main
+status: pass
+reason: A quasi-quote expression is accepted and its quoter and text stay unresolved

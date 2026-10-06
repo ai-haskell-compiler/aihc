@@ -90,5 +90,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: mdo segmentation wraps minimal recursive groups, matches the hand written rec blocks, and needs no MonadFix when nothing recurses

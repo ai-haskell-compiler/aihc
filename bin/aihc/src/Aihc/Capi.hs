@@ -167,9 +167,16 @@ renderCapiStub moduleName wrappers =
             TcForeignVoid -> ""
             _ -> "return "
        in returned <> entity wrapper <> ";"
+    -- A value is cast to the type its @CTYPE@ pragmas spell. A header may
+    -- define the value as an integer expression where the type is a pointer,
+    -- as @time@ does for the clock id of wasi-libc, and C converts an
+    -- integer to a pointer only through a cast.
     entity wrapper =
       case tcForeignCApiKind (capiWrapperCApi wrapper) of
-        TcForeignCApiValue -> capiWrapperEntity wrapper
+        TcForeignCApiValue ->
+          case capiValueCType (capiWrapperResult wrapper) of
+            Just spelled -> "(" <> cTypeName spelled <> ")(" <> capiWrapperEntity wrapper <> ")"
+            Nothing -> capiWrapperEntity wrapper
         TcForeignCApiFunction ->
           capiWrapperEntity wrapper
             <> "("

@@ -1,0 +1,20 @@
+extensions:
+  - CApiFFI
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+
+    import Foreign.Ptr (Ptr, nullPtr)
+
+    newtype {-# CTYPE "void*" #-} Address = Address (Ptr ())
+
+    foreign import capi "stdint.h value INTPTR_MAX" maxAddress :: Address
+
+    result :: Bool
+    result = case maxAddress of Address pointer -> pointer /= nullPtr
+output: |
+  True
+expression: result
+status: pass
+reason: a capi value that a header defines as an integer is returned as the pointer type its CTYPE pragma spells, which needs a cast in the generated C wrapper

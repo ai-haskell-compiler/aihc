@@ -230,6 +230,9 @@ typedef struct AihcPinnedBlock {
 #define AIHC_PINNED_GENERATION_MASK                                            \
   (UINT64_C(15) << AIHC_PINNED_GENERATION_SHIFT)
 #define AIHC_PINNED_MARK (UINT64_C(1) << 63)
+/* The mark of the gen2 cycle: a block of generation two is live at the end
+   of the cycle when it is set. */
+#define AIHC_PINNED_CYCLE_MARK (UINT64_C(1) << 62)
 
 static inline uint64_t aihc_pinned_bytes(const AihcPinnedBlock *block) {
   return block->bytes & AIHC_PINNED_BYTES_MASK;
@@ -356,7 +359,7 @@ void aihc_gc_collect_generation(AihcMachine *machine, unsigned generation,
    Both sizes must agree with aihc_constants.lir and with stackChunkBytes
    and stackChunkHeaderBytes in Aihc.Lir.Lower. */
 #define AIHC_STACK_CHUNK_BYTES ((size_t)4096)
-#define AIHC_STACK_CHUNK_HEADER_BYTES ((size_t)32)
+#define AIHC_STACK_CHUNK_HEADER_BYTES ((size_t)64)
 
 typedef struct AihcStack AihcStack;
 typedef struct AihcStackChunk AihcStackChunk;
@@ -365,12 +368,18 @@ struct AihcStackChunk {
   AihcStack *stack;
   AihcStackChunk *below;
   AihcStackChunk *above;
+  /* The highest frame the marking of cycle scanned_cycle has scanned in
+     this chunk. Every frame of the chunk at or below it is scanned. */
+  uint8_t *scanned_from;
   /* The age of the frames in the chunk, packed with the bookkeeping of the
      running collection: bits 0 to 7 hold the generation, bits 8 to 15 the
      youngest generation a referent of a scanned frame ended in, and the
      rest the number of the collection those bits belong to. See
      docs/gc-design.md. */
   uint64_t state;
+  uint64_t scanned_cycle;
+  /* The number of chunks below this one in its stack. */
+  uint64_t depth;
 };
 
 _Static_assert(sizeof(AihcStackChunk) <= AIHC_STACK_CHUNK_HEADER_BYTES,
@@ -382,6 +391,13 @@ struct AihcStack {
   AihcThread *thread;
   AihcStackChunk *base;
   AihcStack *next;
+  /* The top frame of the stack when its thread suspended last. The frames
+     at or below it are live while the thread is not running. */
+  AihcValue *top;
+  /* The highest frame the marking of the active gen2 cycle has not scanned
+     yet, or null when the cycle scanned every frame below the ones it
+     scanned. The marker takes it in a slice. */
+  AihcValue *pending;
 };
 
 /* Make the stack of a new thread. */
@@ -390,6 +406,18 @@ AihcStack *aihc_stack_new(AihcMachine *machine, AihcThread *thread);
 uint8_t *aihc_stack_base(const AihcStack *stack);
 /* The stack that holds a frame. */
 AihcStack *aihc_stack_of(const void *frame);
+/* Record the top frame of a stack whose thread suspends with the given
+   continuation. The incremental marking reads frames of a suspended thread
+   only at or below this frame. */
+void aihc_stack_note_top(AihcValue *continuation);
+/* The C runtime reads the fields of a live frame it will pop: an exception
+   walk or a continuation capture. The marking of the active gen2 cycle
+   scans the frame and the frames below it in its chunk first. */
+void aihc_gc_frame_read(AihcMachine *machine, AihcValue *frame);
+/* Collect the nursery and gen1 and start an incremental gen2 cycle. The
+   test drivers use this entry. */
+void aihc_gc_start_cycle(AihcMachine *machine, uint64_t root_count,
+                         AihcSlot *roots, const AihcSrt *srt);
 /* Give the chunks of a stack back. No frame of the stack can be live. */
 void aihc_stack_release(AihcMachine *machine, AihcStack *stack);
 /* Push one frame of the given words on the stack of the running thread.
@@ -431,6 +459,8 @@ _Static_assert(sizeof(AihcIoHandle) <= 5 * sizeof(AihcSlot),
 void *aihc_rts_root(uint64_t index);
 void aihc_rts_set_root(uint64_t index, void *value);
 void *aihc_wasi_allocate(uint64_t bytes);
+void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
+                           size_t new_size);
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
 void aihc_memory_move(void *destination, const void *source, uint64_t length);
 void aihc_memory_set(void *destination, uint64_t byte, uint64_t length);
@@ -447,6 +477,7 @@ uint64_t aihc_rts_heap_limit_enabled(void);
 uint64_t aihc_rts_nursery_bytes(void);
 uint64_t aihc_rts_gen1_max_bytes(void);
 uint64_t aihc_rts_gen2_factor(void);
+uint64_t aihc_rts_mark_factor(void);
 /* Apply the parsed collector options to a machine whose nursery is empty. */
 void aihc_gc_apply_options(AihcMachine *machine);
 /* Cap the nursery at the -M limit once the limit applies, so a reservation

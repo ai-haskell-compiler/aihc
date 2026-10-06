@@ -45,82 +45,82 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  type 1.tNat :: 2.sType {
-      1.cZ :: 1.tNat;
-      1.cS :: 1.tNat 2.→ 1.tNat
+  type 1.tNat :: sType {
+    1.cZ :: tNat;
+    1.cS :: tNat 2.→ tNat
   }
 
-  type 1.t$Dict$C (a : 2.sType) :: 2.sType {
-      1.c$Dict$C :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$C a
+  type 1.t$Dict$C (a : sType) :: sType {
+    1.c$Dict$C :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$C a
   }
 
-  pub val 1.v$fCNat :: 1.t$Dict$C 1.tNat
-   = 1.c$Dict$C @1.tNat 1.v$fCNat$cop
+  pub val 1.v$fCNat :: t$Dict$C tNat
+    = c$Dict$C @tNat v$fCNat$cop
 
-  val 1.v$fCNat$cop noinline :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.cS x
+  val 1.v$fCNat$cop noinline :: tNat 2.→ tNat
+    = λ(x : tNat).
+      cS x
 
-  val 1.vkeep noinline :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.cS x
+  val 1.vkeep noinline :: tNat 2.→ tNat
+    = λ(x : tNat).
+      cS x
 
-  val 1.vbig :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    case x as (_scrut : 1.tNat) return (1.tNat) of {
-        1.cZ →
-            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS 1.cZ)))))))))))))))))))))))))))))))))))))));
-        1.cS (y : 1.tNat) →
-            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS y)))))))))))))))))))))))))))))))))))))))
-    }
+  val 1.vbig :: tNat 2.→ tNat
+    = λ(x : tNat).
+      case x of {
+        cZ →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ)))))))))))))))))))))))))))))))))))))));
+        cS (y : tNat) →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y)))))))))))))))))))))))))))))))))))))))
+      }
 
-  val 1.vforce inline :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    case x as (_scrut : 1.tNat) return (1.tNat) of {
-        1.cZ →
-            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS 1.cZ)))))))))))))))))))))))))))))))))))))));
-        1.cS (y : 1.tNat) →
-            1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS y)))))))))))))))))))))))))))))))))))))))
-    }
+  val 1.vforce inline :: tNat 2.→ tNat
+    = λ(x : tNat).
+      case x of {
+        cZ →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ)))))))))))))))))))))))))))))))))))))));
+        cS (y : tNat) →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y)))))))))))))))))))))))))))))))))))))))
+      }
 
-  pub val 1.vuseKeep :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.vkeep x
+  pub val 1.vuseKeep :: tNat 2.→ tNat
+    = λ(x : tNat).
+      vkeep x
 
-  pub val 1.vuseBig :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.vbig (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  pub val 1.vuseBig :: tNat 2.→ tNat
+    = λ(x : tNat).
+      vbig (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 
-  pub val 1.vuseBig2 :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.vbig (1.vbig x)
+  pub val 1.vuseBig2 :: tNat 2.→ tNat
+    = λ(x : tNat).
+      vbig (vbig x)
 
-  pub val 1.vuseForce :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS (1.cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  pub val 1.vuseForce :: tNat 2.→ tNat
+    = λ(x : tNat).
+      cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS x))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 
-  pub val 1.vuseForce2 :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.vforce (1.vforce x)
+  pub val 1.vuseForce2 :: tNat 2.→ tNat
+    = λ(x : tNat).
+      vforce (vforce x)
 
-  pub val 1.vuseLater :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.cS x
+  pub val 1.vuseLater :: tNat 2.→ tNat
+    = λ(x : tNat).
+      cS x
 
-  pub val 1.vuseMethod :: 1.tNat 2.→ 1.tNat
-   = λ(x : 1.tNat).
-    1.v$fCNat$cop x
+  pub val 1.vuseMethod :: tNat 2.→ tNat
+    = λ(x : tNat).
+      v$fCNat$cop x
 status: pass
 reason: In phase 1 the growing policy copies the NOINLINE [1] value and, at a site with room, the large INLINE value, while its unmarked twin is over the callee limit and the plain NOINLINE values still stay calls.

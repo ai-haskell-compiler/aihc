@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Direct value desugaring from checked source syntax to System FC.
 module Aihc.Fc.Desugar.Value
@@ -70,6 +71,7 @@ import Aihc.Tc.Annotations
     TcPatternInstantiation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
+import Aihc.Tc.Generate.Pattern (recStmtBinderNames)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -115,6 +117,7 @@ import Data.ByteString qualified as BS
 import Data.Char (isAsciiUpper, isDigit)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
@@ -531,12 +534,11 @@ patSynMatcherReference info annotation resultType = do
   let types = universalTypes <> [resultRepresentation, convertedResultType]
   pure (foldl ExTyApp (ExVar (Name (patSynHelperName "$m" info) SortValue (OriginTop package moduleName'))) types)
 
--- | The empty case that reports a failed match on one binder.
+-- | The absurd expression that reports a failed match on one binder.
 emptyCaseFailure :: TcType -> Binder -> ValueM Expr
 emptyCaseFailure resultType binder = do
   resultType' <- convertCheckedType resultType
-  failureBinder <- freshBinderFromType "_case_nomatch" (binderType binder)
-  pure (ExCase (ExVar (binderName binder)) failureBinder resultType' [])
+  pure (ExAbsurd (ExVar (binderName binder)) resultType')
 
 -- | Compile a row whose first pattern uses a pattern synonym. The matcher
 -- gets the argument, a continuation over the fields, and the failure. The
@@ -722,7 +724,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
           caseBinder <- freshBinder "$record_scrut" (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
           fieldType' <- convertCheckedType fieldType
           alternatives <- concat <$> mapM (recordSelectorAlternative label scrutineeType fieldType) constructors
-          pure (ExCase (ExCast record familyCoercion) caseBinder fieldType' alternatives)
+          pure (caseFromList (ExCast record familyCoercion) (Just caseBinder) fieldType' alternatives)
     (dataType : _, _) -> do
       typeArguments <-
         case scrutineeType of
@@ -736,7 +738,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
       caseBinder <- freshBinder "$record_scrut" scrutineeType
       fieldType' <- convertCheckedType fieldType
       alternatives <- concat <$> mapM (recordSelectorAlternative label scrutineeType fieldType) constructors
-      pure (ExCase (ExVar (binderName argument)) caseBinder fieldType' alternatives)
+      pure (caseFromList (ExVar (binderName argument)) (Just caseBinder) fieldType' alternatives)
 
 recordSelectorAlternative :: Text -> TcType -> TcType -> DataConInfo -> ValueM [Alt]
 recordSelectorAlternative label scrutineeType fieldType constructor =
@@ -862,6 +864,7 @@ foreignImportPlanDependencies ty plan = do
   typeDependencies <- foreignTypeNewtypeDependencies ty
   let pointerMarshals = case tcForeignTarget plan of
         TcForeignWrapper pointer -> [pointer]
+        TcForeignFunctionAddress pointer -> [pointer]
         _ -> []
   marshalDependencies <- concat <$> mapM foreignMarshalDependencies (pointerMarshals <> tcForeignArguments plan <> [tcForeignResult plan])
   pure (List.nub (typeDependencies <> marshalDependencies))
@@ -938,6 +941,7 @@ convertForeignTarget target =
     TcForeignAddress -> CCallAddress
     TcForeignDynamic -> CCallDynamic
     TcForeignWrapper _ -> CCallWrapper
+    TcForeignFunctionAddress _ -> CCallFunctionAddress
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =
@@ -1068,9 +1072,9 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
             (foldl ExTyApp (ExVar (binderName selected)) extraTypes)
             (map (ExVar . binderName) extraDictionaries)
         selection =
-          ExCase
+          caseFromList
             (ExVar (binderName classDictionary))
-            caseBinder
+            (Just caseBinder)
             resultType'
             [Alt (AltData (classDictConName classTyCon)) [] fields selectedExpr]
     typeBinders <- convertTypeBinders typeVariables
@@ -1250,7 +1254,7 @@ desugarCoercedMethod annotation derived method = withTypeVariables (tcCoercedMet
   selected <- case drop (tcCoercedMethodIndex method) fields of
     field : _ -> pure field
     [] -> failValue "newtype method index is outside the dictionary layout"
-  let projection = ExCase evidence sourceBinder (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
+  let projection = caseFromList evidence (Just sourceBinder) (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
       instantiated = foldl ExTyApp projection extraTypes
       applied = foldl ExApp instantiated (map (ExVar . binderName) dictionaries)
   -- The coercion's evidence bindings may mention the method's own dictionary
@@ -1998,14 +2002,15 @@ countUses name = go 0
           case expression of
             ExVar other -> if other == name then total + 1 else total
             ExCoercion _ -> total
-            ExLit _ -> total
+            ExLit _ _ -> total
             ExApp function argument -> go (go total function) argument
             ExTyApp function _ -> go total function
             ExLam _ inner -> go total inner
             ExTyLam _ inner -> go total inner
             ExLet binding inner -> go (go total (bindRhs binding)) inner
             ExRec bindings inner -> go (foldl' go total (map bindRhs bindings)) inner
-            ExCase scrutinee _ _ alternatives -> foldl' go (go total scrutinee) (map altRhs alternatives)
+            ExCase scrutinee _ (NE.toList -> alternatives) -> foldl' go (go total scrutinee) (map altRhs alternatives)
+            ExAbsurd scrutinee _ -> go total scrutinee
             ExCast inner _ -> go total inner
             ExForeignCall _ _ arguments -> foldl' go total arguments
 
@@ -2018,15 +2023,16 @@ substituteVar name value = go
       case expression of
         ExVar other -> if other == name then value else expression
         ExCoercion _ -> expression
-        ExLit _ -> expression
+        ExLit _ _ -> expression
         ExApp function argument -> ExApp (go function) (go argument)
         ExTyApp function ty -> ExTyApp (go function) ty
         ExLam binder inner -> ExLam binder (go inner)
         ExTyLam binder inner -> ExTyLam binder (go inner)
         ExLet binding inner -> ExLet binding {bindRhs = go (bindRhs binding)} (go inner)
         ExRec bindings inner -> ExRec [binding {bindRhs = go (bindRhs binding)} | binding <- bindings] (go inner)
-        ExCase scrutinee binder ty alternatives ->
-          ExCase (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExCase scrutinee binder alternatives ->
+          ExCase (go scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (altRhs alternative)}) alternatives)
+        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
         ExCast inner coercion -> ExCast (go inner) coercion
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
 
@@ -2125,9 +2131,9 @@ desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals)
           extra <- patternMatchBindings pattern' argument ty
           success <- compile (current <> matchBinderLocals extra) rest
           pure
-            ( ExCase
+            ( caseFromList
                 test
-                testBinder
+                (Just testBinder)
                 resultType'
                 [ Alt (AltData trueName) [] [] success,
                   Alt (AltData falseName) [] [] failure
@@ -2156,8 +2162,7 @@ overloadedPatternFailure resultType arguments = do
   resultType' <- convertCheckedType resultType
   case arguments of
     argument : _ -> do
-      failureBinder <- freshBinderFromType "_case_nomatch" (binderType argument)
-      pure (ExCase (ExVar (binderName argument)) failureBinder resultType' [])
+      pure (ExAbsurd (ExVar (binderName argument)) resultType')
     [] -> failValue "overloaded literal match has no argument"
 
 -- | The binder of the result of a literal test. An overloaded literal
@@ -2362,7 +2367,7 @@ desugarScrutineePatterns resultType fallback scrutinee caseBinder root arguments
           updated <- mapM (extendMatchWork root scrutineeType) defaultWorks
           body <- desugarMatchArguments resultType shared arguments restTypes (map dropMatchWorkPattern updated)
           pure [Alt AltDefault [] [] body]
-    pure (ExCase scrutinee caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
+    pure (caseFromList scrutinee (Just caseBinder) resultType' (constructorAlternatives <> defaultAlternatives))
 
 firstFamilyPattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataFamilyInstanceInfo))
 firstFamilyPattern matches = do
@@ -2914,9 +2919,9 @@ desugarGuardQualifiers resultType resultType' next qualifiers success =
       body <- desugarGuardQualifiers resultType resultType' next rest success
       failure <- guardFailure resultType' next binder
       pure
-        ( ExCase
+        ( caseFromList
             condition'
-            binder
+            (Just binder)
             resultType'
             [ Alt (AltData trueName) [] [] body,
               Alt (AltData falseName) [] [] failure
@@ -2946,8 +2951,7 @@ guardFailure resultType' next binder =
   case next of
     Just failure -> pure failure
     Nothing -> do
-      failureBinder <- freshBinderFromType "_guard_nomatch" (binderType binder)
-      pure (ExCase (ExVar (binderName binder)) failureBinder resultType' [])
+      pure (ExAbsurd (ExVar (binderName binder)) resultType')
 
 desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
@@ -2987,6 +2991,8 @@ desugarExpr expression =
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
   body <-
@@ -3021,7 +3027,7 @@ desugarAnnotatedExpr annotation inner = do
               representation <- convertRuntimeRep (intRep kinds)
               constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
               count <- listLength list
-              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)))
+              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)) intHashType)
               ExApp (ExApp method size) <$> desugarExpr list
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
@@ -3042,28 +3048,29 @@ desugarAnnotatedExpr annotation inner = do
           | numericType /= Syn.TInteger -> do
               kinds <- valueKinds
               representation <- convertRuntimeRep (numericRepresentation kinds numericType)
-              pure (ExLit (LitInt representation value))
+              ExLit (LitInt representation value) <$> convertCheckedType (tcAnnType annotation)
         Syn.EFloat value floatType _
           | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
               kinds <- valueKinds
               representation' <- convertRuntimeRep (representation kinds)
-              pure (ExLit (LitInt representation' bits))
+              ExLit (LitInt representation' bits) <$> convertCheckedType (tcAnnType annotation)
         Syn.EChar value _ -> do
           kinds <- valueKinds
           constructor <- boxedCharConstructor
           representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
+          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value) charHashType))
         Syn.ECharHash value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExLit (LitChar representation value))
+          ExLit (LitChar representation value) <$> convertCheckedType (tcAnnType annotation)
         Syn.EString value _ -> desugarString annotation value
         _
           | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
+        Syn.EQuasiQuote {} -> desugarQuasiQuote annotation
         Syn.EStringHash value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (addrRep kinds)
-          pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
+          ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
         Syn.EList elements -> desugarList annotation elements
         Syn.EListComp expression statements -> desugarListComp annotation expression statements
         Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
@@ -3136,9 +3143,9 @@ desugarIf resultType condition thenExpression elseExpression = do
   thenExpression' <- desugarExpr thenExpression
   elseExpression' <- desugarExpr elseExpression
   pure
-    ( ExCase
+    ( caseFromList
         condition'
-        binder
+        (Just binder)
         resultType'
         [ Alt (AltData trueName) [] [] thenExpression',
           Alt (AltData falseName) [] [] elseExpression'
@@ -3325,7 +3332,7 @@ desugarTagToEnum types =
       pure
         ( ExLam
             tag
-            (ExCase (ExVar (binderName tag)) scrutinee resultType alternatives)
+            (caseFromList (ExVar (binderName tag)) (Just scrutinee) resultType alternatives)
         )
     _ -> failValue ("GHC.Prim.tagToEnum# has " <> show (length types) <> " type arguments")
 
@@ -3396,9 +3403,9 @@ desugarPrimitiveSeq termArgumentTypes =
             first
             ( ExLam
                 second
-                ( ExCase
+                ( caseFromList
                     (ExVar (binderName first))
-                    evaluated
+                    (Just evaluated)
                     resultType
                     [Alt AltDefault [] [] (ExVar (binderName second))]
                 )
@@ -3522,7 +3529,7 @@ forceLifted result source sourceType strict inner
         else do
           evaluated <- freshBinder "_strict_forced" sourceType
           body <- inner
-          pure (ExCase source evaluated result [Alt AltDefault [] [] body])
+          pure (caseFromList source (Just evaluated) result [Alt AltDefault [] [] body])
 
 caseStoredProduct :: Type -> Expr -> TcType -> (PackageId, Text, Text) -> FieldRep -> ([Expr] -> ValueM Expr) -> ValueM Expr
 caseStoredProduct result source sourceType (package, moduleName', constructorName) rep continue = do
@@ -3531,7 +3538,7 @@ caseStoredProduct result source sourceType (package, moduleName', constructorNam
   body <- continue (map (ExVar . binderName) binders)
   scrutinee <- freshBinder "_unpack_scrut" sourceType
   let name = Name constructorName SortDataConstructor (OriginTop package moduleName')
-  pure (ExCase source scrutinee result [Alt (AltData name) [] binders body])
+  pure (caseFromList source (Just scrutinee) result [Alt (AltData name) [] binders body])
 
 representationBinders :: FieldRep -> ValueM [Binder]
 representationBinders rep =
@@ -3599,10 +3606,21 @@ patternDataCon pattern' = do
     AltData name -> constructorInfoByName name
     _ -> pure Nothing
 
+-- | The type arguments of a constructor pattern. The checked pattern type is
+-- the constructor result type that the type checker instantiated. Do not use
+-- the scrutinee type. It can be an unreduced family application or a GADT
+-- type that the constructor result type refines.
+constructorPatternSubstitution :: Syn.Pattern -> DataConInfo -> ValueM (Map.Map Unique TcType)
+constructorPatternSubstitution pattern' info = do
+  useType <- requiredPatternType pattern'
+  case matchTypes [dciResTy info] [useType] of
+    Just substitution -> pure substitution
+    Nothing -> failValue ("constructor " <> T.unpack (dciName info) <> " does not match its checked pattern type: " <> show useType)
+
 desugarUnpackedPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> Syn.Pattern -> DataConInfo -> ValueM Alt
 desugarUnpackedPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key pattern' info = do
-  let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [scrutineeType])
-      reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+  substitution <- constructorPatternSubstitution pattern' info
+  let reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
       fieldTypes = [applySubst substitution (dcfiType field) | field <- dciFields info]
   canFlatten <- allRowsFlatten key fieldTypes reps works
   if canFlatten
@@ -4048,9 +4066,9 @@ desugarListCompGenerator resultElementType cons expression pattern' source remai
       (Just recursiveCall)
   source' <- desugarExpr source
   let loop =
-        ExCase
+        caseFromList
           (ExVar (binderName argument))
-          caseBinder
+          (Just caseBinder)
           resultType
           [ Alt (AltData nilName) [] [] rest,
             Alt (AltData consName) [] [item, items] success
@@ -4066,9 +4084,9 @@ desugarListCompGuard resultElementType guard success failure = do
   trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
   falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
   pure
-    ( ExCase
+    ( caseFromList
         guard'
-        binder
+        (Just binder)
         resultType
         [ Alt (AltData trueName) [] [] success,
           Alt (AltData falseName) [] [] failure
@@ -4135,6 +4153,12 @@ isTemplateHaskellQuote expression =
 desugarTemplateHaskellQuote :: TcAnnotation -> ValueM Expr
 desugarTemplateHaskellQuote annotation = raiseErrorValue (tcAnnType annotation) "TH is unsupported"
 
+-- | Quasi-quotes are not supported. A quasi-quote expression compiles to
+-- a call of @raise#@ with a message, so code that only defines
+-- quasi-quotes still compiles.
+desugarQuasiQuote :: TcAnnotation -> ValueM Expr
+desugarQuasiQuote annotation = raiseErrorValue (tcAnnType annotation) "quasi-quoting is unsupported"
+
 -- | @raise# \@rep \@String \@ty message@: a value of any type that throws
 -- when it is forced.
 raiseErrorValue :: TcType -> Text -> ValueM Expr
@@ -4151,6 +4175,7 @@ raiseErrorValue resultType message = do
 
 desugarString :: TcAnnotation -> Text -> ValueM Expr
 desugarString annotation value = do
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   elementType <-
     case tcAnnType annotation of
       TcTyCon tyCon [ty]
@@ -4174,7 +4199,7 @@ desugarString annotation value = do
       consName <- primitiveName "GHC.Types" ":" SortDataConstructor
       let nil = ExTyApp (ExVar nilName) convertedType
           cons = ExTyApp (ExVar consName) convertedType
-          boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character))
+          boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character) charHashType)
       pure (foldr (ExApp . ExApp cons . boxedChar) nil (T.unpack value))
 
 desugarUnboxedSum :: TcAnnotation -> Int -> Int -> Syn.Expr -> ValueM Expr
@@ -4242,42 +4267,162 @@ tupleConstructorName annotation flavor arity = do
 -- Inferring that type from the final statement instead would look up locals
 -- that later statements bind and that are not in scope yet.
 desugarDo :: TcType -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
-desugarDo resultType statements =
-  case statements of
-    [] -> failValue "do block has no statements"
-    [statement] ->
+desugarDo resultType = desugarDoStatements resultType Nothing
+
+-- | Desugar do statements. When the end is given, the statements are the
+-- body of a recursive group and the end follows the last statement.
+desugarDoStatements :: TcType -> Maybe (ValueM Expr) -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
+desugarDoStatements resultType end statements =
+  case (statements, end) of
+    ([], Just finish) -> finish
+    ([], Nothing) -> failValue "do block has no statements"
+    ([statement], Nothing) ->
       case peelDoStatement statement of
         Syn.DoExpr body -> desugarExpr body
         other -> failValue ("invalid final do statement: " <> take 80 (show other))
-    statement : rest ->
+    (statement : rest, _) ->
       case peelDoStatement statement of
         Syn.DoLetDecls declarations -> do
-          desugarLocalDecls declarations (pure resultType) (desugarDo resultType rest)
+          desugarLocalDecls declarations (pure resultType) continue
         Syn.DoBind pattern' action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
           bind <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
-          continuation <- desugarDoPatternContinuation resultType annotation pattern' rest
+          continuation <- desugarDoPatternContinuation annotation pattern' continue
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
           method <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
-          continuation <- desugarDo resultType rest
-          pure (ExApp (ExApp method action') continuation)
-        other -> failValue ("unsupported do statement: " <> take 80 (show other))
+          ExApp (ExApp method action') <$> continue
+        Syn.DoRecStmt inner -> desugarRecStmt statement inner continue
+        Syn.DoAnn {} -> failValue "do statement keeps an annotation after peeling"
+      where
+        continue = desugarDoStatements resultType end rest
 
-desugarDoPatternContinuation :: TcType -> TcAnnotation -> Syn.Pattern -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
-desugarDoPatternContinuation doType annotation pattern' rest = do
+desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> ValueM Expr -> ValueM Expr
+desugarDoPatternContinuation annotation pattern' rest = do
   ty <- requiredPatternType pattern'
   binder <- freshPatternBinder pattern' ty
   locals <- directPatternBindings pattern' binder ty
   case locals of
-    Just bindings -> ExLam binder <$> withLocals bindings (desugarDo doType rest)
+    Just bindings -> ExLam binder <$> withLocals bindings rest
     Nothing -> do
       resultType <- doBindResultType annotation
-      body <- desugarDoPattern resultType binder ty pattern' (desugarDo doType rest)
+      body <- desugarDoPattern resultType binder ty pattern' rest
       pure (ExLam binder body)
+
+-- | Desugar a @rec@ statement as
+--
+-- > mfix (\knot -> let vs = knot in do { stmts; return vs }) >>= \result -> let vs = result in rest
+--
+-- where @vs@ are the group variables in the order of 'recStmtBinderNames'.
+-- The type checker gives the checked methods and a tuple annotation, see
+-- 'inferRecStmt'. The variables come out of the tuple through lazy
+-- bindings, so the knot is not forced before a variable is used.
+desugarRecStmt :: Syn.DoStmt Syn.Expr -> [Syn.DoStmt Syn.Expr] -> ValueM Expr -> ValueM Expr
+desugarRecStmt statement inner rest = do
+  let (methods, maybeTuple) = recStmtAnnotations statement
+  tupleAnnotation <- maybe (failValue "rec statement has no checked tuple annotation") pure maybeTuple
+  mfix <- recStmtMethod "mfix" methods
+  returnMethod <- recStmtMethod "return" methods
+  bind <- recStmtMethod ">>=" methods
+  innerType <-
+    case tcAnnTermArgTypes tupleAnnotation of
+      [ty] -> pure ty
+      _ -> failValue "rec statement tuple annotation has no block type"
+  let tupleType = tcAnnType tupleAnnotation
+      binderTypes = tcAnnTypeArgs tupleAnnotation
+  keys <- mapM requiredBinderKey (recStmtBinderNames inner)
+  unless (length keys == length binderTypes) $
+    failValue ("rec statement has " <> show (length keys) <> " variables and " <> show (length binderTypes) <> " types")
+  let variables = zip keys binderTypes
+      finish = do
+        locals <- gets vsLocals
+        values <-
+          mapM
+            ( \(key, _) -> case Map.lookup key locals of
+                Just (binder, _) -> pure (ExVar (binderName binder))
+                Nothing -> failValue ("rec statement variable is not in scope: " <> show key)
+            )
+            variables
+        tuple <- recTupleValue tupleType binderTypes values
+        pure (ExApp returnMethod tuple)
+  knot <- freshBinder "_rec_knot" tupleType
+  (knotBinds, knotLocals) <- recTupleSelections knot tupleType variables
+  body <- withLocals knotLocals (desugarDoStatements innerType (Just finish) inner)
+  result <- freshBinder "_rec_result" tupleType
+  (resultBinds, resultLocals) <- recTupleSelections result tupleType variables
+  continuation <- withLocals resultLocals rest
+  let knotFunction = ExLam knot (foldr ExLet body knotBinds)
+      resultFunction = ExLam result (foldr ExLet continuation resultBinds)
+  pure (ExApp (ExApp bind (ExApp mfix knotFunction)) resultFunction)
+
+-- | The checked methods of a @rec@ statement, each with its cast, and the
+-- tuple annotation that is next to the statements. Each resolution closes
+-- one method: the type annotation and the cast before it belong to it.
+recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)], Maybe TcAnnotation)
+recStmtAnnotations = go Nothing Nothing
+  where
+    go cast annotation statement =
+      case statement of
+        Syn.DoAnn ann inner
+          | Just resolution <- Syn.fromAnnotation ann ->
+              let (methods, tuple) = go Nothing Nothing inner
+               in ((cast, annotation, resolution) : methods, tuple)
+          | Just (TcCastAnnotation (Just proof) _) <- Syn.fromAnnotation ann -> go (Just proof) annotation inner
+          | Just checked <- Syn.fromAnnotation ann -> go cast (Just checked) inner
+          | otherwise -> go cast annotation inner
+        _ -> ([], annotation)
+
+recStmtMethod :: Text -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)] -> ValueM Expr
+recStmtMethod name methods =
+  case [(cast, annotation, resolution) | (cast, annotation, resolution) <- methods, resolutionIdentifier resolution == IdentifierNamed name] of
+    [(cast, Just annotation, resolution)] -> do
+      method <- desugarResolvedOccurrence annotation resolution
+      case cast of
+        Just proof -> withCoercion proof (pure . ExCast method)
+        Nothing -> pure method
+    _ -> failValue ("rec statement has no checked " <> T.unpack name <> " method")
+
+-- | Bind each group variable lazily to its field of a knot value. A group
+-- with one variable binds the variable to the knot value itself.
+recTupleSelections :: Binder -> TcType -> [(Entity, TcType)] -> ValueM ([Bind], [(Entity, (Binder, TcType))])
+recTupleSelections knot tupleType variables =
+  case variables of
+    [(key, ty)] -> pure ([], [(key, (knot, ty))])
+    _ -> do
+      constructor <- recTupleConstructor tupleType (length variables)
+      tupleType' <- convertCheckedType tupleType
+      fields <- mapM (freshBinder "_rec_field" . snd) variables
+      selections <-
+        mapM
+          ( \((key, ty), field) -> do
+              variable <- freshBinder "_rec_var" ty
+              caseBinder <- freshBinderFromType "_rec_case" tupleType'
+              let selection = caseFromList (ExVar (binderName knot)) (Just caseBinder) (binderType field) [Alt (AltData constructor) [] fields (ExVar (binderName field))]
+              pure (Bind variable selection, (key, (variable, ty)))
+          )
+          (zip variables fields)
+      pure (map fst selections, map snd selections)
+
+-- | The tuple of the group variables. A group with one variable uses the
+-- variable itself.
+recTupleValue :: TcType -> [TcType] -> [Expr] -> ValueM Expr
+recTupleValue tupleType types values =
+  case values of
+    [value] -> pure value
+    _ -> do
+      constructor <- recTupleConstructor tupleType (length values)
+      converted <- mapM convertCheckedType types
+      pure (foldl ExApp (foldl ExTyApp (ExVar constructor) converted) values)
+
+recTupleConstructor :: TcType -> Int -> ValueM Name
+recTupleConstructor tupleType arity =
+  case tupleType of
+    TcTyCon tyCon _ ->
+      pure (Name (tupleConstructorText Syn.Boxed arity) SortDataConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
+    _ -> failValue ("rec statement tuple has an invalid type: " <> show tupleType)
 
 desugarDoPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> ValueM Expr
 desugarDoPattern resultType binder ty pattern' success =
@@ -4302,19 +4447,18 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
             case failure of
               Just failureExpression -> pure failureExpression
               Nothing -> do
-                failureBinder <- freshBinderFromType "_literal_nomatch" (binderType binder)
-                pure (ExCase (ExVar (binderName binder)) failureBinder resultType' [])
+                pure (ExAbsurd (ExVar (binderName binder)) resultType')
           pure
-            ( ExCase
+            ( caseFromList
                 test
-                testBinder
+                (Just testBinder)
                 resultType'
                 [ Alt (AltData trueName) [] [] success',
                   Alt (AltData falseName) [] [] failure'
                 ]
             )
-    Syn.PAnn annotation inner
-      | Just checked <- Syn.fromAnnotation annotation,
+    Syn.PAnn annotation _
+      | isJust (Syn.fromAnnotation annotation :: Maybe TcAnnotation),
         isJust (patternConstructorSourceName pattern') -> do
           -- A pattern synonym use keeps its own annotation, which has the
           -- type arguments of the use, even when it binds no type variables
@@ -4322,10 +4466,11 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
           maybePatSyn <- patternPatSyn pattern'
           case maybePatSyn of
             Just (info, checkedSynonym) -> desugarPatSynWithFailure resultType binder pattern' info checkedSynonym success failure
-            Nothing
-              | not (null (tcAnnTypeBinders checked)) || not (null (tcAnnEvidenceTerms checked)) ->
-                  desugarDoConstructorPattern resultType binder pattern' success failure
-              | otherwise -> desugarPatternWithFailure resultType binder ty inner success failure
+            -- A constructor keeps its annotation, which has the constructor
+            -- result type. The scrutinee type can be an unreduced family
+            -- application, and its arguments are not the arguments of a
+            -- newtype axiom.
+            Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> do
@@ -4397,25 +4542,32 @@ desugarDoFamilyPattern resultType binder pattern' info success failure = do
 
 desugarDoDataPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoDataPattern resultType binder pattern' success failure = do
-  let children = patternChildren pattern'
+  maybeInfo <- patternDataCon pattern'
+  case maybeInfo of
+    Just info
+      | not (all (repIsStored . dcfiRep) (dciFields info)) ->
+          desugarDoUnpackedPattern resultType binder pattern' info success failure
+    _ -> desugarDoStoredPattern resultType binder pattern' success failure
+
+-- | A constructor pattern in a @do@ bind or a pattern binding, where a
+-- field is unpacked or cast. The alternative binds the representation
+-- leaves, rebuilds each source field from them, and matches the subpatterns
+-- against the rebuilt fields, as 'desugarRebuiltPatternGroup' does.
+desugarDoUnpackedPattern :: TcType -> Binder -> Syn.Pattern -> DataConInfo -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoUnpackedPattern resultType binder pattern' info success failure = do
+  substitution <- constructorPatternSubstitution pattern' info
+  let reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
+      children = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
-  let typeVariables = patternTypeVariables pattern'
+      typeVariables = patternTypeVariables pattern'
+  when (length children /= length reps) $
+    failValue ("unpacked do pattern field count does not match " <> T.unpack (dciName info))
+  fieldTypes <- patternFieldTypes pattern' children
   withTypeVariables typeVariables $ do
     typeBinders <- convertTypeBinders typeVariables
-    fieldTypes <- patternFieldTypes pattern' children
-    maybeConstructor <- patternDataCon pattern'
-    reps <- case maybeConstructor of
-      Just info -> do
-        patternType' <- requiredPatternType pattern'
-        let resultTypeOfPattern = constructorResultType (length children) patternType'
-            substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [resultTypeOfPattern])
-        pure [applySubstRep substitution (dcfiRep field) | field <- dciFields info]
-      Nothing -> pure [RepStored fieldType False | fieldType <- fieldTypes]
-    when (length reps /= length children) $
-      failValue "constructor pattern field count does not match its checked representation"
-    prepared <- mapM (\(child, fieldType, rep) -> prepareRebuiltField child fieldType rep) (zip3 children fieldTypes reps)
-    let leaves = concatMap (\(leafBinders, _, _) -> leafBinders) prepared
-        fields = map (\(_, field, _) -> field) prepared
+    prepared <- mapM (\(child, childType, childRep) -> prepareRebuiltField child childType childRep) (zip3 children fieldTypes reps)
+    let leafBinders = concatMap (\(leaves, _, _) -> leaves) prepared
+        sourceBinders = map (\(_, source, _) -> source) prepared
         rebuilds = mapMaybe (\(_, _, binding) -> binding) prepared
     dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
     constructor <- patternConstructor pattern'
@@ -4426,10 +4578,31 @@ desugarDoDataPattern resultType binder pattern' success failure = do
         (not (null typeBinders))
         (zipWith Dictionary predicates dictionaries)
         $ do
-          inner <- desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure
+          inner <- desugarDoChildPatterns resultType (zip3 sourceBinders fieldTypes children) success failure
           pure (foldr ExLet inner rebuilds)
     let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
-    pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> leaves) body : defaultAlternatives))
+    pure (caseFromList (ExVar (binderName binder)) (Just caseBinder) resultType' (Alt constructor typeBinders (dictionaries <> leafBinders) body : defaultAlternatives))
+
+desugarDoStoredPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoStoredPattern resultType binder pattern' success failure = do
+  let children = patternChildren pattern'
+      predicates = patternGivenPredicates pattern'
+  let typeVariables = patternTypeVariables pattern'
+  withTypeVariables typeVariables $ do
+    typeBinders <- convertTypeBinders typeVariables
+    fieldTypes <- patternFieldTypes pattern' children
+    fields <- zipWithM freshPatternBinder children fieldTypes
+    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    constructor <- patternConstructor pattern'
+    resultType' <- convertCheckedType resultType
+    caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
+    body <-
+      withAlternativeScope
+        (not (null typeBinders))
+        (zipWith Dictionary predicates dictionaries)
+        (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+    let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
+    pure (caseFromList (ExVar (binderName binder)) (Just caseBinder) resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success failure =
@@ -4478,7 +4651,7 @@ forceDefaultPattern resultType binder pattern' body
   | otherwise = do
       resultType' <- convertCheckedType resultType
       caseBinder <- freshBinderFromType "_strict_scrut" (binderType binder)
-      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt AltDefault [] [] body])
+      pure (caseFromList (ExVar (binderName binder)) (Just caseBinder) resultType' [Alt AltDefault [] [] body])
 
 directPatternBindings :: Syn.Pattern -> Binder -> TcType -> ValueM (Maybe [(Entity, (Binder, TcType))])
 directPatternBindings pattern' binder ty =
@@ -4551,9 +4724,8 @@ desugarCase resultType scrutinee alternatives = do
   convertedType <- convertCheckedType scrutineeType
   case alternatives of
     [] -> do
-      binder <- freshBinder "_case" scrutineeType
       resultType' <- convertCheckedType resultType
-      pure (ExCase scrutinee' binder resultType' [])
+      pure (ExAbsurd scrutinee' resultType')
     _ -> do
       let matches = map caseAlternativeMatch alternatives
       case scrutinee' of
@@ -4730,7 +4902,7 @@ expressionFreeNames :: Expr -> Set Name
 expressionFreeNames expression =
   case expression of
     ExVar name -> Set.singleton name
-    ExLit _ -> Set.empty
+    ExLit _ _ -> Set.empty
     ExApp function argument -> expressionFreeNames function <> expressionFreeNames argument
     ExTyApp function _ -> expressionFreeNames function
     ExLam binder inner -> Set.delete (binderName binder) (expressionFreeNames inner)
@@ -4739,10 +4911,11 @@ expressionFreeNames expression =
     ExRec bindings inner ->
       let names = Set.fromList (map (binderName . bindBinder) bindings)
        in (foldMap (expressionFreeNames . bindRhs) bindings <> expressionFreeNames inner) `Set.difference` names
-    ExCase scrutinee binder _ alternatives ->
+    ExCase scrutinee binder (NE.toList -> alternatives) ->
       expressionFreeNames scrutinee
-        <> Set.delete (binderName binder) (foldMap alternativeFreeNames alternatives)
+        <> (foldMap alternativeFreeNames alternatives `Set.difference` foldMap (Set.singleton . binderName) binder)
     ExCoercion _ -> Set.empty
+    ExAbsurd scrutinee _ -> expressionFreeNames scrutinee
     ExCast inner _ -> expressionFreeNames inner
     ExForeignCall _ _ arguments -> foldMap expressionFreeNames arguments
   where
@@ -4874,9 +5047,9 @@ desugarSuperClass evidence =
           fieldType : _ -> convertCheckedType fieldType
           [] -> failValue "superclass field type index is outside the dictionary layout"
       pure
-        ( ExCase
+        ( caseFromList
             sourceExpression
-            sourceBinder
+            (Just sourceBinder)
             resultType
             [Alt (AltData (classDictConName classTyCon)) [] fieldBinders (ExVar (binderName selected))]
         )
@@ -4885,6 +5058,7 @@ desugarSuperClass evidence =
 -- | One entry of the call stack of an occurrence with @HasCallStack@.
 desugarCallStackPush :: (Text, Text) -> Text -> Ev.CallSite -> Ev.EvTerm -> ValueM Expr
 desugarCallStackPush (packageName, moduleName') function site parent = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   parent' <- desugarEvidence parent
   (currentPackage, currentModule) <- gets vsModuleOrigin
   functionText <- desugarStringValue function
@@ -4898,7 +5072,7 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
   listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
   pairConstructor <- primitiveName "GHC.Tuple" "(,)" SortDataConstructor
   let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
-      boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
+      boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)) intHashType)
       stringType = TyApp (TyCon listName) (TyCon charName)
       locationType = TyCon (libraryName "SrcLoc" SortTypeConstructor)
       -- GHC's pushCallStack takes the call site as a pair.
@@ -4934,6 +5108,7 @@ desugarCallStackEmpty (packageName, moduleName') =
 -- @0xC0 0x80@ so that it never terminates the string.
 desugarStringValue :: Text -> ValueM Expr
 desugarStringValue value = do
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   kinds <- valueKinds
   case T.unpack value of
     characters@(_ : _ : _) -> desugarPackedString characters Nothing
@@ -4943,11 +5118,12 @@ desugarStringValue value = do
       representation <- convertRuntimeRep (wordRep kinds)
       desugarFcList
         (TyCon charName)
-        [ExApp (ExVar charConstructor) (ExLit (LitChar representation character)) | character <- characters]
+        [ExApp (ExVar charConstructor) (ExLit (LitChar representation character) charHashType) | character <- characters]
 
 -- | Encode a string literal, with an optional list suffix that stays lazy.
 desugarPackedString :: [Char] -> Maybe Expr -> ValueM Expr
 desugarPackedString characters suffix = do
+  addrHashType <- TyCon <$> primitiveName "GHC.Prim" "Addr#" SortTypeConstructor
   kinds <- valueKinds
   let (encoding, bytes)
         | all latin1Safe characters = ("", BS.pack (map (fromIntegral . fromEnum) characters))
@@ -4955,7 +5131,7 @@ desugarPackedString characters suffix = do
       prefix = if isJust suffix then "unpackAppendCString" else "unpackCString"
   unpackName <- primitiveName "GHC.CString" (prefix <> encoding <> "#") SortValue
   representation <- convertRuntimeRep (addrRep kinds)
-  let unpacked = ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes))
+  let unpacked = ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes) addrHashType)
   pure (maybe unpacked (ExApp unpacked) suffix)
   where
     latin1Safe character = character >= '\1' && character <= '\127'
@@ -4976,7 +5152,7 @@ compactStringValues declarations = do
       wordRepresentation = TyCon (name "WordRep" SortDataConstructor)
       stringPrefix expression =
         case expression of
-          ExApp (ExApp constructor (ExApp (ExVar boxed) (ExLit (LitChar representation character)))) rest
+          ExApp (ExApp constructor (ExApp (ExVar boxed) (ExLit (LitChar representation character) _))) rest
             | constructor == cons,
               boxed == charConstructor,
               representation == wordRepresentation ->
@@ -4995,8 +5171,9 @@ compactStringValues declarations = do
               ExTyLam binder body -> ExTyLam binder <$> compact body
               ExLet binding body -> ExLet <$> compactBind binding <*> compact body
               ExRec bindings body -> ExRec <$> mapM compactBind bindings <*> compact body
-              ExCase scrutinee binder resultType alternatives ->
-                ExCase <$> compact scrutinee <*> pure binder <*> pure resultType <*> mapM compactAlt alternatives
+              ExCase scrutinee binder alternatives ->
+                ExCase <$> compact scrutinee <*> pure binder <*> mapM compactAlt alternatives
+              ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> compact scrutinee
               ExCast body coercion -> (`ExCast` coercion) <$> compact body
               ExForeignCall call types arguments -> ExForeignCall call types <$> mapM compact arguments
               _ -> pure expression
@@ -5023,6 +5200,7 @@ compactStringValues declarations = do
 -- @maxWord@, and then through the primitive conversion.
 desugarTypeLitEvidence :: Maybe (Text, Text) -> TcType -> Tc.TyLit -> ValueM Expr
 desugarTypeLitEvidence origin ty literal = do
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   (className, value) <-
     case literal of
       Tc.TyLitNat natural -> do
@@ -5034,7 +5212,7 @@ desugarTypeLitEvidence origin ty literal = do
         kinds <- valueKinds
         constructor <- boxedCharConstructor
         representation <- convertRuntimeRep (wordRep kinds)
-        pure ("KnownChar", ExApp (ExVar constructor) (ExLit (LitChar representation character)))
+        pure ("KnownChar", ExApp (ExVar constructor) (ExLit (LitChar representation character) charHashType))
   classOrigin <-
     case origin of
       Just (packageName, moduleName') -> pure (PackageId packageName, moduleName')
@@ -5092,10 +5270,11 @@ desugarTypeableTyCon (Ev.TypeableTyCon constructor arity kind) = do
 
 desugarTypeableInt :: Int -> ValueM Expr
 desugarTypeableInt value = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
   kinds <- valueKinds
   representation <- convertRuntimeRep (intRep kinds)
-  pure (ExApp (ExVar constructor) (ExLit (LitInt representation (fromIntegral value))))
+  pure (ExApp (ExVar constructor) (ExLit (LitInt representation (fromIntegral value)) intHashType))
 
 desugarTypeableKind :: Ev.TypeableKind -> ValueM Expr
 desugarTypeableKind kind =
@@ -5227,21 +5406,23 @@ desugarRationalLiteral value = do
 
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
+  wordHashType <- TyCon <$> primitiveName "GHC.Prim" "Word#" SortTypeConstructor
   constructor <- primitiveName "GHC.Prim.Integer" "IS" SortDataConstructor
   kinds <- valueKinds
   intRepresentation <- convertRuntimeRep (intRep kinds)
   wordRepresentation <- convertRuntimeRep (wordRep kinds)
-  let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer))
+  let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer) intHashType)
       coreName text = Name text SortValue (nameOrigin constructor)
       apply name = foldl ExApp (ExVar (coreName name))
-      word integer = ExLit (LitInt wordRepresentation integer)
+      word integer = ExLit (LitInt wordRepresentation integer) wordHashType
       positive integer
         | integer <= maxInt = small integer
         | integer <= maxWord =
-            apply "integerFromTwoWords#" [ExLit (LitInt intRepresentation 1), word 0, word integer]
+            apply "integerFromTwoWords#" [ExLit (LitInt intRepresentation 1) intHashType, word 0, word integer]
         | otherwise =
             let (high, low) = integer `quotRem` wordBase
-                shifted = apply "integerShiftL#" [positive high, ExLit (LitInt intRepresentation 64)]
+                shifted = apply "integerShiftL#" [positive high, ExLit (LitInt intRepresentation 64) intHashType]
              in apply "integerAdd" [shifted, positive low]
       magnitude = positive (abs value)
   pure

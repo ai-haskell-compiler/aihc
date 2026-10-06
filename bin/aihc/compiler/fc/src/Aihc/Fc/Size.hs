@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | The size of System FC code, as the optimizer measures it.
 --
@@ -25,6 +26,7 @@ import Aihc.Fc.TypeOf (TypeEnv, extendBinder, reduceType, repOf, typeEnvFromProg
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Resolve (PackageId (..))
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Maybe (fromMaybe)
 
 -- | The size of a program: the sum of the sizes of its value bodies, plus
@@ -59,8 +61,9 @@ exprSize env expr =
       | isStrictBinder env (bindBinder bind) -> 1 + exprSize env (bindRhs bind) + tailLeaves env (bindRhs bind) * exprSize env body
       | otherwise -> 1 + exprSize env (bindRhs bind) + exprSize env body
     ExRec binds body -> 1 + sum (map (exprSize env . bindRhs) binds) + exprSize env body
-    ExCase scrutinee _ _ alternatives ->
+    ExCase scrutinee _ (NE.toList -> alternatives) ->
       exprSize env scrutinee + tailLeaves env scrutinee * sum [1 + altSize alternative | alternative <- alternatives]
+    ExAbsurd scrutinee _ -> 1 + exprSize env scrutinee
     ExCast body _ -> exprSize env body
     ExForeignCall _ _ arguments -> 1 + sum (map (exprSize env) arguments)
   where
@@ -72,7 +75,7 @@ exprSize env expr =
 tailLeaves :: TypeEnv -> Expr -> Int
 tailLeaves env expr =
   case expr of
-    ExCase _ _ _ alternatives -> max 1 (sum [tailLeaves (List.foldl' extendBinder env (altTypeBinders alternative)) (altRhs alternative) | alternative <- alternatives])
+    ExCase _ _ (NE.toList -> alternatives) -> max 1 (sum [tailLeaves (List.foldl' extendBinder env (altTypeBinders alternative)) (altRhs alternative) | alternative <- alternatives])
     ExLet bind body
       | isStrictBinder env (bindBinder bind) -> tailLeaves env (bindRhs bind) * tailLeaves env body
       | otherwise -> tailLeaves env body

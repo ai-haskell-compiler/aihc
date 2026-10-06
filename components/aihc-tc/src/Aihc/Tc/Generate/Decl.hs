@@ -129,7 +129,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvSince, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -156,7 +156,7 @@ import Aihc.Tc.Unpack (decideConstructorRepresentations)
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (>=>))
+import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
@@ -1105,7 +1105,7 @@ defaultGlobalKindMetas initialKeys = do
           }
     defaultInstanceKinds info =
       InstanceInfo
-        (iiClassName info)
+        (iiClass info)
         (iiDictName info)
         (iiDictOrigin info)
         <$> defaultTypeKinds (iiDictType info)
@@ -1497,7 +1497,8 @@ annotateForeignDeclTc foreignDecl = do
         _ -> do
           entity <- checkForeignEntity sourceSpan capi declaredName (foreignEntity foreignDecl)
           plan <- checkForeignImportType sourceSpan (foreignEntityTarget entity) (foreignEntityName entity) ty
-          checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
+          checked <- checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
+          refineFunctionAddress ty checked
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
@@ -1667,6 +1668,7 @@ checkForeignTarget sourceSpan plan =
   case tcForeignTarget plan of
     TcForeignDynamic -> pure plan
     TcForeignWrapper _ -> pure plan
+    TcForeignFunctionAddress _ -> pure plan
     TcForeignAddress -> do
       unless (null (tcForeignArguments plan)) $
         emitError sourceSpan (OtherError "an address foreign import must not take arguments")
@@ -1684,6 +1686,33 @@ checkForeignTarget sourceSpan plan =
             emitError sourceSpan (OtherError "a value foreign import must produce a value")
           pure plan
       | otherwise -> pure plan
+
+-- | An address import of type @FunPtr f@ takes the signature of @f@, so a
+-- target that declares the function can, as wasm does when it links.  A
+-- pointee that is no foreign function type, such as a type variable, leaves
+-- the import a plain address.
+refineFunctionAddress :: TcType -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
+refineFunctionAddress ty plan =
+  case (tcForeignTarget plan, snd (splitFunctionType ty)) of
+    (TcForeignAddress, TcTyCon (TyCon "FunPtr" 1) [pointee]) -> do
+      let (argumentTypes, resultType) = splitFunctionType pointee
+          (effect, valueResultType) =
+            case resultType of
+              TcTyCon (TyCon "IO" 1) [ioResult] -> (TcForeignRealWorld, ioResult)
+              _ -> (TcForeignPure, resultType)
+      arguments <- mapM resolveForeignValueType argumentTypes
+      result <- resolveForeignValueType valueResultType
+      pure $ case (sequence arguments, result) of
+        (Right argumentMarshals, Right resultMarshal)
+          | all ((/= TcForeignVoid) . tcForeignAbiType) argumentMarshals ->
+              plan
+                { tcForeignArguments = argumentMarshals,
+                  tcForeignResult = resultMarshal,
+                  tcForeignEffect = effect,
+                  tcForeignTarget = TcForeignFunctionAddress (tcForeignResult plan)
+                }
+        _ -> plan
+    _ -> pure plan
 
 checkForeignImportType :: Maybe SourceSpan -> TcForeignTarget -> Text -> TcType -> TcM TcForeignImportAnnotation
 checkForeignImportType sourceSpan target symbol ty = do
@@ -1735,7 +1764,9 @@ checkForeignDynamic sourceSpan ty =
   case ty of
     TcForAllTy _ body -> checkForeignDynamic sourceSpan body
     TcFunTy (TcTyCon (TyCon "FunPtr" 1) [pointed]) function
-      | equivalentTypeSchemes (typeSchemeFromType pointed) (typeSchemeFromType function) -> pure ()
+      -- A type variable of the import is free in both types, and a type
+      -- scheme comparison renames only variables that it binds.
+      | pointed == function || equivalentTypeSchemes (typeSchemeFromType pointed) (typeSchemeFromType function) -> pure ()
     _ -> emitError sourceSpan (OtherError "a dynamic import must have type FunPtr f -> f")
 
 splitFunctionType :: TcType -> ([TcType], TcType)
@@ -3491,6 +3522,7 @@ matcherPattern match =
 patternToExpr :: Pattern -> Maybe Expr
 patternToExpr pat
   | Just expr <- literalPatternToExpr pat = Just expr
+  | Just expr <- negatedLiteralPatternToExpr pat = Just expr
 patternToExpr pat =
   case pat of
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
@@ -3528,6 +3560,37 @@ literalPatternToExpr = go []
           let (literalAnns, bare) = peelLiteralAnns literal
            in Just (foldl (flip EAnn) (literalToExpr bare) (anns <> literalAnns))
         _ -> Nothing
+
+-- | An annotated negated literal pattern as an expression.
+--
+-- A negated literal pattern carries the same annotations as a literal one,
+-- and one more: the @negate@ it applies to the converted literal. An
+-- expression wants that annotation around a negation of the converted
+-- literal, as the resolver writes for @-1@, so the annotation moves from the
+-- pattern to the 'ENegate' and the @==@ goes.
+negatedLiteralPatternToExpr :: Pattern -> Maybe Expr
+negatedLiteralPatternToExpr = go [] Nothing
+  where
+    go anns negation pattern' =
+      case pattern' of
+        PAnn ann inner
+          | isMatchOnlyAnnotation ann -> go anns negation inner
+          | isNegateAnnotation ann -> go anns (Just ann) inner
+          | otherwise -> go (ann : anns) negation inner
+        PNegLit literal ->
+          let (literalAnns, bare) = peelLiteralAnns literal
+              converted = foldl (flip EAnn) (literalToExpr bare) (anns <> literalAnns)
+           in Just (maybe id EAnn negation (ENegate converted))
+        _ -> Nothing
+
+-- | Whether a resolver annotation names the @negate@ of a negated literal.
+isNegateAnnotation :: Annotation -> Bool
+isNegateAnnotation ann =
+  case fromAnnotation @ResolutionAnnotation ann of
+    Just resolution ->
+      resolutionNamespace resolution == ResolutionNamespaceTerm
+        && resolutionIdentifier resolution == IdentifierNamed "negate"
+    Nothing -> False
 
 -- | Whether a resolver annotation serves matching alone. Only a literal
 -- pattern carries the @==@ that compares it to the scrutinee, and a
@@ -4250,7 +4313,7 @@ registerInstanceDecl origin instanceDecl =
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
         InstanceInfo
-          { iiClassName = classNameText,
+          { iiClass = ciTyCon classInfo,
             iiDictName = dictName,
             iiDictOrigin = origin,
             iiDictType = dictTy,
@@ -4323,7 +4386,7 @@ lookupInstanceDictName origin classTyCon headTys = do
   instances <- getInstances
   let matches info =
         iiDictOrigin info == origin
-          && fmap tyConKey (instanceClassTyCon info) == Just (tyConKey classTyCon)
+          && instanceIsForClass classTyCon info
           -- Both directions preserve type structure and permit fresh type variables.
           && isJust (matchTypes (iiHead info) headTys)
           && isJust (matchTypes headTys (iiHead info))
@@ -4936,7 +4999,14 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
   (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
-  inferredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
+  -- Without a kind signature, the result kind is the kind of the field.
+  -- An UnliftedNewtypes field gives an unlifted result kind.
+  -- 'registerNewtypeConstructor' unifies this meta with the field kind.
+  inferredKind <- case newtypeDeclKind nd of
+    Nothing -> do
+      resultKind <- freshKindMeta
+      pure (foldr (KFun . paramKind) resultKind paramInfos)
+    Just _ -> tyConKindFromParams paramInfos (newtypeDeclKind nd)
   tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
@@ -4968,6 +5038,10 @@ registerNewtypeConstructor origin newtypeDecl = do
       selectorBindings <- registerRecordSelectors origin constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
+      -- The newtype and its field have one representation, so they have one kind.
+      forM_ (concatMap dataConArgTypes constructors) $ \fieldType -> do
+        fieldKind <- tcTypeKind fieldType
+        unifyKindsAt (newtypeConstructorSpan newtypeDecl) resultKind fieldKind
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -4980,6 +5054,13 @@ registerNewtypeConstructor origin newtypeDecl = do
             dtiCType = cTypePragma (newtypeDeclCTypePragma newtypeDecl)
           }
       pure (maybeToList constructor <> selectorBindings)
+
+-- | The source span of a newtype's constructor, if the parser gave one.
+newtypeConstructorSpan :: NewtypeDecl -> Maybe SourceSpan
+newtypeConstructorSpan = dataConSpan <=< newtypeDeclConstructor
+  where
+    dataConSpan (DataConAnn annotation inner) = fromAnnotation @SourceSpan annotation <|> dataConSpan inner
+    dataConSpan _ = Nothing
 
 -- | The C type a @CTYPE@ pragma names.
 --

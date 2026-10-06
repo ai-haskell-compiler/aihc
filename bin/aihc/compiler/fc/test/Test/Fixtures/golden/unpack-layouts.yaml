@@ -35,101 +35,83 @@ expected: |-
   scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [4.cI#] 4.tInt :: 4.sType;
-    2.tInt# :: 4.tTYPE 4.cIntRep;
-    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: 4.sType;
-    4.sLiftedRep :: 4.tRuntimeRep;
-    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: 4.sType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
-    constructors [3.c(,,,,,,)] 3.tTuple7 :: ∀(a1 : 4.sType) (a2 : 4.sType) (a3 : 4.sType) (a4 : 4.sType) (a5 : 4.sType) (a6 : 4.sType) (a7 : 4.sType). 4.sType;
-    4.sType :: 4.sType;
-    3.c(,,,,,,) :: ∀(a1 : 4.sType) (a2 : 4.sType) (a3 : 4.sType) (a4 : 4.sType) (a5 : 4.sType) (a6 : 4.sType) (a7 : 4.sType). a1 4.→ a2 4.→ a3 4.→ a4 4.→ a5 4.→ a6 4.→ a7 4.→ 3.tTuple7 a1 a2 a3 a4 a5 a6 a7;
-    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.cI# :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 4.tInt;
-    4.cIntRep :: 4.tRuntimeRep;
-    4.cLifted :: 4.tLevity
+    constructors [4.cI#] 4.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [4.cLifted, 4.cUnlifted] 4.tLevity :: sType;
+    4.sLiftedRep :: tRuntimeRep;
+    constructors [4.cAddrRep, 4.cBoxedRep, 4.cDoubleRep, 4.cFloatRep, 4.cInt16Rep, 4.cInt32Rep, 4.cInt64Rep, 4.cInt8Rep, 4.cIntRep, 4.cSumRep, 4.cTupleRep, 4.cVecRep, 4.cWord16Rep, 4.cWord32Rep, 4.cWord64Rep, 4.cWord8Rep, 4.cWordRep] 4.tRuntimeRep :: sType;
+    4.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.c(,,,,,,)] 3.tTuple7 :: ∀(a1 : sType) (a2 : sType) (a3 : sType) (a4 : sType) (a5 : sType) (a6 : sType) (a7 : sType). sType;
+    4.sType :: sType;
+    3.c(,,,,,,) :: ∀(a1 : sType) (a2 : sType) (a3 : sType) (a4 : sType) (a5 : sType) (a6 : sType) (a7 : sType). a1 4.→ a2 4.→ a3 4.→ a4 4.→ a5 4.→ a6 4.→ a7 4.→ tTuple7 a1 a2 a3 a4 a5 a6 a7;
+    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    4.cIntRep :: tRuntimeRep;
+    4.cLifted :: tLevity
 
   import synonyms
-    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
-    4.sType = 4.tTYPE 4.sLiftedRep
+    4.sLiftedRep = cBoxedRep cLifted;
+    4.sType = tTYPE sLiftedRep
 
-  pub type 1.tPair :: 4.sType {
-      pub 1.cPair :: 4.tInt 4.→ 4.tInt 4.→ 1.tPair
+  pub type 1.tPair :: sType {
+    pub 1.cPair :: tInt 4.→ tInt 4.→ tPair
   }
 
-  pub type 1.tPacked :: 4.sType {
-      pub 1.cPacked :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tPacked)
+  pub type 1.tPacked :: sType {
+    pub 1.cPacked :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tPacked)
   }
 
-  pub type 1.tOuter :: 4.sType {
-      pub 1.cOuter :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# (FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tOuter)
+  pub type 1.tOuter :: sType {
+    pub 1.cOuter :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tOuter)
   }
 
-  pub type 1.tLazyPair :: 4.sType {
-      pub 1.cLazyPair :: 4.tInt 4.→ 4.tInt 4.→ 1.tLazyPair
+  pub type 1.tLazyPair :: sType {
+    pub 1.cLazyPair :: tInt 4.→ tInt 4.→ tLazyPair
   }
 
-  pub type 1.tKept :: 4.sType {
-      pub strict [0] 1.cKept :: 4.tInt 4.→ 1.tKept
+  pub type 1.tKept :: sType {
+    pub strict [0] 1.cKept :: tInt 4.→ tKept
   }
 
-  pub type 1.tFun :: 4.sType {
-      pub strict [0] 1.cFun :: (4.tInt 4.→ 4.tInt) 4.→ 1.tFun
+  pub type 1.tFun :: sType {
+    pub strict [0] 1.cFun :: (tInt 4.→ tInt) 4.→ tFun
   }
 
-  pub type 1.tSum :: 4.sType {
-      pub 1.cA :: 1.tSum;
-      pub 1.cB :: 1.tSum
+  pub type 1.tSum :: sType {
+    pub 1.cA :: tSum;
+    pub 1.cB :: tSum
   }
 
-  pub type 1.tSumBox :: 4.sType {
-      pub strict [0] 1.cSumBox :: 1.tSum 4.→ 1.tSumBox
+  pub type 1.tSumBox :: sType {
+    pub strict [0] 1.cSumBox :: tSum 4.→ tSumBox
   }
 
-  pub type 1.tLazyBox :: 4.sType {
-      pub 1.cLazyBox :: 4.tInt 4.→ 1.tLazyBox
+  pub type 1.tLazyBox :: sType {
+    pub 1.cLazyBox :: tInt 4.→ tLazyBox
   }
 
-  pub type 1.tN :: 4.sType {}
+  pub type 1.tN :: sType {}
 
-  axiom 1.$ax$N : 1.tN ~R 4.tInt
+  axiom 1.$ax$N : tN ~R tInt
 
-  pub type 1.tThrough :: 4.sType {
-      pub 1.cThrough :: FUN @4.cIntRep @4.sLiftedRep 2.tInt# 1.tThrough
+  pub type 1.tThrough :: sType {
+    pub 1.cThrough :: FUN @cIntRep @sLiftedRep tInt# tThrough
   }
 
-  pub val 1.vbuild :: 1.tPacked 4.→ 1.tPair 4.→ 4.tInt 4.→ (4.tInt 4.→ 4.tInt) 4.→ 1.tSum 4.→ 4.tInt 4.→ 1.tN 4.→ 3.tTuple7 1.tOuter 1.tLazyPair 1.tKept 1.tFun 1.tSumBox 1.tLazyBox 1.tThrough
-   = λ(x : 1.tPacked).
-    λ(y : 1.tPair).
-      λ(z : 4.tInt).
-        λ(x1 : 4.tInt 4.→ 4.tInt).
-          λ(x2 : 1.tSum).
-            λ(x3 : 4.tInt).
-              λ(x4 : 1.tN).
-                3.c(,,,,,,) @1.tOuter @1.tLazyPair @1.tKept @1.tFun @1.tSumBox @1.tLazyBox @1.tThrough ((λ(_strict_field : 1.tPacked).
-                  case _strict_field as (_unpack_scrut : 1.tPacked) return (1.tOuter) of {
-                      1.cPacked (_unpack_leaf0 : 2.tInt#) (_unpack_leaf1 : 2.tInt#) →
-                          1.cOuter _unpack_leaf0 _unpack_leaf1
-                  }) x) ((λ(_strict_field : 1.tPair).
-                  case _strict_field as (_unpack_scrut : 1.tPair) return (1.tLazyPair) of {
-                      1.cPair (_unpack_leaf0 : 4.tInt) (_unpack_leaf1 : 4.tInt) →
-                          1.cLazyPair _unpack_leaf0 _unpack_leaf1
-                  }) y) ((λ(_strict_field : 4.tInt).
-                  case _strict_field as (_strict_forced : 4.tInt) return (1.tKept) of {
-                      _ →
-                          1.cKept _strict_field
-                  }) z) ((λ(_strict_field : 4.tInt 4.→ 4.tInt).
-                  case _strict_field as (_strict_forced : 4.tInt 4.→ 4.tInt) return (1.tFun) of {
-                      _ →
-                          1.cFun _strict_field
-                  }) x1) ((λ(_strict_field : 1.tSum).
-                  case _strict_field as (_strict_forced : 1.tSum) return (1.tSumBox) of {
-                      _ →
-                          1.cSumBox _strict_field
-                  }) x2) (1.cLazyBox x3) ((λ(_strict_field : 1.tN).
-                  case _strict_field ▷ axiom-co 1.$ax$N as (_unpack_scrut : 4.tInt) return (1.tThrough) of {
-                      4.cI# (_unpack_leaf0 : 2.tInt#) →
-                          1.cThrough _unpack_leaf0
-                  }) x4)
+  pub val 1.vbuild :: tPacked 4.→ tPair 4.→ tInt 4.→ (tInt 4.→ tInt) 4.→ tSum 4.→ tInt 4.→ tN 4.→ tTuple7 tOuter tLazyPair tKept tFun tSumBox tLazyBox tThrough
+    = λ(x : tPacked) (y : tPair) (z : tInt) (x1 : tInt 4.→ tInt) (x2 : tSum) (x3 : tInt) (x4 : tN).
+      c(,,,,,,) @tOuter @tLazyPair @tKept @tFun @tSumBox @tLazyBox @tThrough ((λ(_strict_field : tPacked).
+        let! cPacked (_unpack_leaf0 : tInt#) (_unpack_leaf1 : tInt#) = _strict_field;
+        cOuter _unpack_leaf0 _unpack_leaf1) x) ((λ(_strict_field : tPair).
+        let! cPair (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) = _strict_field;
+        cLazyPair _unpack_leaf0 _unpack_leaf1) y) ((λ(_strict_field : tInt).
+        let! _ = _strict_field;
+        cKept _strict_field) z) ((λ(_strict_field : tInt 4.→ tInt).
+        let! _ = _strict_field;
+        cFun _strict_field) x1) ((λ(_strict_field : tSum).
+        let! _ = _strict_field;
+        cSumBox _strict_field) x2) (cLazyBox x3) ((λ(_strict_field : tN).
+        let! cI# (_unpack_leaf0 : tInt#) = _strict_field ▷ axiom-co $ax$N;
+        cThrough _unpack_leaf0) x4)
 status: pass
 reason: UNPACK flattens one product, keeps a sum and a function as one strict field, ignores a lazy field, and looks through a newtype.

@@ -1,6 +1,7 @@
 -- | Human-readable GRIN rendering for diagnostics and golden tests.
 module Aihc.Grin.Pretty
   ( prettyProgram,
+    prettyProgramSections,
   )
 where
 
@@ -21,17 +22,21 @@ programScopes :: GrinProgram -> Scopes
 programScopes program = Scopes (Map.fromList (zip (grinProgramScopes program) [1 ..]))
 
 prettyProgram :: GrinProgram -> Doc ann
-prettyProgram program =
-  vsep (punctuate hardline documents)
+prettyProgram = vsep . punctuate hardline . map snd . prettyProgramSections
+
+-- | The documents of a program in sections, in the order of
+-- 'prettyProgram': the scopes, the primitives and the foreign calls have no
+-- name, and a constructor, a global or a function has its scoped name.
+prettyProgramSections :: GrinProgram -> [(Maybe T.Text, Doc ann)]
+prettyProgramSections program =
+  map (Nothing,) (prettyScopes scopes)
+    <> [(Just (grinConstructorName constructor), prettyConstructor scopes constructor) | constructor <- grinConstructors program]
+    <> map ((Nothing,) . prettyPrimitive) (grinPrimitives program)
+    <> map ((Nothing,) . prettyForeign scopes) (grinForeignCalls program)
+    <> [(Just (grinGlobalName global), prettyGlobal scopes global) | global <- grinGlobals program]
+    <> [(Just (unFunctionName (grinFunctionName function)), prettyFunction scopes function) | function <- grinFunctions program]
   where
     scopes = programScopes program
-    documents =
-      prettyScopes scopes
-        <> map (prettyConstructor scopes) (grinConstructors program)
-        <> map prettyPrimitive (grinPrimitives program)
-        <> map (prettyForeign scopes) (grinForeignCalls program)
-        <> map (prettyGlobal scopes) (grinGlobals program)
-        <> map (prettyFunction scopes) (grinFunctions program)
 
 prettyScopes :: Scopes -> [Doc ann]
 prettyScopes (Scopes numbers) =
@@ -344,6 +349,7 @@ prettyForeignTarget target =
     GrinForeignUnsafeFunction -> "unsafe "
     GrinForeignUnsafeDynamic -> "unsafe-dynamic "
     GrinForeignWrapper signature -> "wrapper " <> prettyForeignSignature signature <> " "
+    GrinForeignFunctionAddress signature -> "function-address " <> prettyForeignSignature signature <> " "
 
 prettyForeignSignature :: GrinForeignSignature -> Doc ann
 prettyForeignSignature signature =

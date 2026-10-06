@@ -74,5 +74,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: mdo, rec, and a hand written mfix call agree on the same knot in Maybe and in the list monad

@@ -860,7 +860,7 @@ stackChunkBytes = 4096
 -- | The bytes of the header of a stack chunk. The first frame of a chunk
 -- follows it.
 stackChunkHeaderBytes :: Integer
-stackChunkHeaderBytes = 32
+stackChunkHeaderBytes = 64
 
 -- Context
 
@@ -1359,7 +1359,7 @@ lowerFunction env function = do
       0 -> pure Nothing
       count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) (byteAlignment 8))
   foreignFrame <- if hasForeignCall needsForeignFrame (grinFunctionBody function) then Just . typedOperand <$> emitValue "foreign_frame" Ptr (StackAlloc 40 (byteAlignment 8)) else pure Nothing
-  codeSlot <- if hasForeignCall (`elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic]) (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
+  codeSlot <- if hasForeignCall needsCodeSlot (grinFunctionBody function) then Just . typedOperand <$> emitValue "function_pointer" Ptr (StackAlloc 8 (byteAlignment 8)) else pure Nothing
   let ctx = FunctionCtx {ctxEnv = env, ctxMachine = machine, ctxFunctionName = grinFunctionName function, ctxSrt = srt, ctxRoots = roots, ctxCodeSlot = codeSlot, ctxForeignFrame = foreignFrame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
@@ -1388,9 +1388,19 @@ maximumRoots expression =
     GrinEnsureHeap _ roots -> length roots
     _ -> 0
 
+-- | A function pointer passes through a stack slot between a data pointer
+-- and a code pointer, which are distinct Lir types.
+needsCodeSlot :: GrinForeignTarget -> Bool
+needsCodeSlot target = case target of
+  GrinForeignDynamic -> True
+  GrinForeignUnsafeDynamic -> True
+  GrinForeignFunctionAddress _ -> True
+  _ -> False
+
 needsForeignFrame :: GrinForeignTarget -> Bool
 needsForeignFrame target = case target of
   GrinForeignAddress -> False
+  GrinForeignFunctionAddress _ -> False
   GrinForeignWrapper _ -> False
   _ -> True
 
@@ -1923,6 +1933,19 @@ compileForeignCall ctx env foreignCall arguments =
           requireExternData symbol
           pure [Typed (OperandLiteral (LitSymbol symbol)) Ptr]
       | otherwise -> failWith (LowerUnsupportedExpression "address foreign import with arguments")
+    -- The function is declared with its own signature, because a target
+    -- such as wasm tells a function from data when it links.
+    GrinForeignFunctionAddress pointee
+      | null arguments -> do
+          target <- targetM
+          let symbol = Symbol (grinForeignCallSymbol foreignCall)
+              (parameters, results) = runtimeCallSignatureFor target False pointee
+          requireExtern symbol parameters results
+          slot <- maybe (failWith (LowerUnsupportedExpression "function address has no code slot")) pure (ctxCodeSlot ctx)
+          emit [] (Store Code (OperandLiteral (LitSymbol symbol)) (byteAddress slot 0) (wordAlignment 1))
+          address <- emitValue "function_address" Ptr (Load Ptr (byteAddress slot 0) (wordAlignment 1))
+          pure [Typed (typedOperand address) Ptr]
+      | otherwise -> failWith (LowerUnsupportedExpression "address foreign import with arguments")
     GrinForeignFunction -> compileCCall ctx env False foreignCall arguments
     GrinForeignUnsafeFunction -> compileCCall ctx env False foreignCall arguments
     GrinForeignDynamic -> compileCCall ctx env False foreignCall arguments
@@ -1945,6 +1968,7 @@ compileForeignCall ctx env foreignCall arguments =
 protectedForeignCall :: FunctionCtx -> ValueEnv -> GrinForeignCall -> [GrinValue] -> LowerM ([Typed], ValueEnv)
 protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
   GrinForeignAddress -> (,env) <$> compileForeignCall ctx env call arguments
+  GrinForeignFunctionAddress _ -> (,env) <$> compileForeignCall ctx env call arguments
   GrinForeignWrapper _ -> (,env) <$> compileForeignCall ctx env call arguments
   target -> do
     let roots = [(var, value) | (var, value) <- Map.toAscList env, isPointerRuntimeRep (grinVarRuntimeRep var)]

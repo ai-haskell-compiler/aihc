@@ -1,13 +1,15 @@
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
+import prims
+  put# = 1.vput# :: FUN @2.tUnliftedRep @2.tLiftedRep tBox (tFlag 2.→ tBox)
+
 pub type 1.tBox :: 2.tTYPE 2.tUnliftedRep {}
 
 pub type 1.tFlag :: 2.tType {
-    pub 1.cOff :: 1.tFlag
+  pub 1.cOff :: tFlag
 }
 
-pub val 1.vput :: FUN @2.tUnliftedRep @2.tLiftedRep 1.tBox (1.tFlag 2.→ 1.tBox)
- = λ(box : 1.tBox).
-  λ(flag : 1.tFlag).
-    foreign {prim 1.vput# :: FUN @2.tUnliftedRep @2.tLiftedRep 1.tBox (1.tFlag 2.→ 1.tBox)} box flag
+pub val 1.vput :: FUN @2.tUnliftedRep @2.tLiftedRep tBox (tFlag 2.→ tBox)
+  = λ(box : tBox) (flag : tFlag).
+    prim put# box flag

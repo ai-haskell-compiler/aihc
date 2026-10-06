@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Convert a checked module into System FC types, axioms, and values.
 module Aihc.Fc.Desugar
@@ -87,6 +88,7 @@ import Aihc.Tc.Types
   )
 import Control.Monad (zipWithM)
 import Data.List (nub, sort)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set (Set)
@@ -929,6 +931,14 @@ convertConstructor env info = do
       result
   let constructorType = foldr TyForAll body binders
       (package, moduleName') = dciOrigin info
+      -- A record update in another module rebuilds the constructor and
+      -- names only its fields, so a constructor with an exported field
+      -- selector is public even when the export list hides its name.
+      fieldVisible =
+        or
+          [ exportedVis env ResolutionNamespaceTerm label == Pub
+          | Just label <- map dcfiLabel (dciFields info)
+          ]
       -- Built-in syntax such as @(,)@ or @[]@ has no name that an export
       -- list could mention, and the compiler references it from any
       -- module, so it stays public.
@@ -937,7 +947,9 @@ convertConstructor env info = do
           SyntaxDataCon -> Pub
           UnboxedTupleDataCon -> Pub
           UnboxedSumDataCon {} -> Pub
-          _ -> exportedVis env ResolutionNamespaceTerm (dciName info)
+          _
+            | fieldVisible -> Pub
+            | otherwise -> exportedVis env ResolutionNamespaceTerm (dciName info)
   pure
     ConDecl
       { conVis = constructorVis,
@@ -1115,16 +1127,17 @@ exprOrigins :: Expr -> [(PackageId, Text)]
 exprOrigins expr =
   case expr of
     ExVar name -> nameOriginPair name
-    ExLit literal -> literalOrigins literal
+    ExLit literal ty -> literalOrigins literal <> typeOrigins ty
     ExApp function argument -> exprOrigins function <> exprOrigins argument
     ExTyApp function ty -> exprOrigins function <> typeOrigins ty
     ExLam binder body -> binderOrigins binder <> exprOrigins body
     ExTyLam binder body -> binderOrigins binder <> exprOrigins body
     ExLet bind body -> bindOrigins bind <> exprOrigins body
     ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
-    ExCase scrutinee binder resultType alts ->
-      exprOrigins scrutinee <> binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
+    ExCase scrutinee binder (NE.toList -> alts) ->
+      exprOrigins scrutinee <> foldMap binderOrigins binder <> concatMap altOrigins alts
     ExCoercion proof -> coercionOrigins proof
+    ExAbsurd scrutinee resultType -> exprOrigins scrutinee <> typeOrigins resultType
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
     ExForeignCall call types arguments ->
       nameOriginPair (foreignCallName call)

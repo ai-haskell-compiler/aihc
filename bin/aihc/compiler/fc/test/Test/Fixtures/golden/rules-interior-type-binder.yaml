@@ -30,78 +30,70 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tNat :: 2.sType {
-      pub 1.cZ :: 1.tNat;
-      pub 1.cS :: 1.tNat 2.→ 1.tNat
+  pub type 1.tNat :: sType {
+    pub 1.cZ :: tNat;
+    pub 1.cS :: tNat 2.→ tNat
   }
 
-  pub type 1.tId (a : 2.sType) :: 2.sType {
-      pub 1.cId :: ∀(a : 2.sType). a 2.→ 1.tId a
+  pub type 1.tId (a : sType) :: sType {
+    pub 1.cId :: ∀(a : sType). a 2.→ tId a
   }
 
-  pub type 1.tOther (a : 2.sType) :: 2.sType {
-      pub 1.cOther :: ∀(a : 2.sType). a 2.→ 1.tOther a
+  pub type 1.tOther (a : sType) :: sType {
+    pub 1.cOther :: ∀(a : sType). a 2.→ tOther a
   }
 
-  pub type 1.tBox (v : 2.sType 2.→ 2.sType) (a : 2.sType) :: 2.sType {
-      pub 1.cBox :: ∀(v : 2.sType 2.→ 2.sType) (a : 2.sType). a 2.→ 1.tBox v a;
-      pub 1.cWrap :: ∀(v : 2.sType 2.→ 2.sType) (a : 2.sType). v a 2.→ 1.tBox v a
+  pub type 1.tBox (v : sType 2.→ sType) (a : sType) :: sType {
+    pub 1.cBox :: ∀(v : sType 2.→ sType) (a : sType). a 2.→ tBox v a;
+    pub 1.cWrap :: ∀(v : sType 2.→ sType) (a : sType). v a 2.→ tBox v a
   }
 
-  pub type 1.tTag (p : 2.sType) (a : 2.sType) :: 2.sType {
-      pub 1.cTag :: ∀(p : 2.sType) (a : 2.sType). a 2.→ 1.tTag p a
+  pub type 1.tTag (p : sType) (a : sType) :: sType {
+    pub 1.cTag :: ∀(p : sType) (a : sType). a 2.→ tTag p a
   }
 
-  pub val 1.vre :: ∀(u : 2.sType 2.→ 2.sType) (a : 2.sType) (v : 2.sType 2.→ 2.sType). 1.tBox u a 2.→ 1.tBox v a
-   = Λ(u : 2.sType 2.→ 2.sType).
-    Λ(a : 2.sType).
-      Λ(v : 2.sType 2.→ 2.sType).
-        λ(x : 1.tBox u a).
-          case x as (_scrut : 1.tBox u a) return (1.tBox v a) of {
-              1.cBox (x{1} : a) →
-                  1.cBox @v @a x{1};
-              1.cWrap (_pat : u a) →
-                  1.vre @u @a @v x
-          }
+  pub val 1.vre :: ∀(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). tBox u a 2.→ tBox v a
+    = Λ(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). λ(x : tBox u a).
+      case x of {
+        cBox (x{1} : a) →
+          cBox @v @a x{1};
+        cWrap (_pat : u a) →
+          vre @u @a @v x
+      }
 
-  pub val 1.vretag :: ∀(p : 2.sType) (a : 2.sType) (q : 2.sType). 1.tTag p a 2.→ 1.tTag q a
-   = Λ(p : 2.sType).
-    Λ(a : 2.sType).
-      Λ(q : 2.sType).
-        λ(x : 1.tTag p a).
-          case x as (_scrut : 1.tTag p a) return (1.tTag q a) of {
-              1.cTag (x{1} : a) →
-                  1.cTag @q @a x{1}
-          }
+  pub val 1.vretag :: ∀(p : sType) (a : sType) (q : sType). tTag p a 2.→ tTag q a
+    = Λ(p : sType) (a : sType) (q : sType). λ(x : tTag p a).
+      let! cTag (x{1} : a) = x;
+      cTag @q @a x{1}
 
-  pub val 1.vuseRe :: 1.tBox 1.tId 1.tNat 2.→ 1.tBox 1.tId 1.tNat
-   = λ(x : 1.tBox 1.tId 1.tNat).
-    x
+  pub val 1.vuseRe :: tBox tId tNat 2.→ tBox tId tNat
+    = λ(x : tBox tId tNat).
+      x
 
-  pub val 1.vuseRetag :: 1.tTag 1.tNat 1.tNat 2.→ 1.tTag 1.tNat 1.tNat
-   = λ(x : 1.tTag 1.tNat 1.tNat).
-    x
+  pub val 1.vuseRetag :: tTag tNat tNat 2.→ tTag tNat tNat
+    = λ(x : tTag tNat tNat).
+      x
 
-  rule "re/re" Λ(a : 2.sType 2.→ 2.sType). Λ(b : 2.sType). Λ(c : 2.sType 2.→ 2.sType). λ(s : 1.tBox a b).
-    1.vre @c @b @a (1.vre @a @b @c s)
+  rule "re/re" Λ(a : sType 2.→ sType). Λ(b : sType). Λ(c : sType 2.→ sType). λ(s : tBox a b).
+    vre @c @b @a (vre @a @b @c s)
    = s
-   :: 1.tBox a b
+   :: tBox a b
 
-  rule "retag/retag" Λ(a : 2.sType). Λ(b : 2.sType). Λ(c : 2.sType). λ(t : 1.tTag a b).
-    1.vretag @c @b @a (1.vretag @a @b @c t)
+  rule "retag/retag" Λ(a : sType). Λ(b : sType). Λ(c : sType). λ(t : tTag a b).
+    vretag @c @b @a (vretag @a @b @c t)
    = t
-   :: 1.tTag a b
+   :: tTag a b
 status: pass
 reason: A rule fires at each intermediate type of its left-hand side.

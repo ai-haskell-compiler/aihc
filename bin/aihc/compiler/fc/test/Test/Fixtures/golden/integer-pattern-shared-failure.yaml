@@ -16,62 +16,53 @@ expected: |-
   scope 6 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.c$Dict$Eq] 2.t$Dict$Eq :: ∀(a : 6.sType). 6.sType;
-    constructors [5.c$Dict$Num] 5.t$Dict$Num :: ∀(a : 6.sType). 6.sType;
-    constructors [6.cFalse, 6.cTrue] 6.tBool :: 6.sType;
-    3.tInt# :: 6.tTYPE 6.cIntRep;
-    constructors [4.cIS, 4.cIP, 4.cIN] 4.tInteger :: 6.sType;
-    constructors [6.cLifted, 6.cUnlifted] 6.tLevity :: 6.sType;
-    6.sLiftedRep :: 6.tRuntimeRep;
-    constructors [6.cAddrRep, 6.cBoxedRep, 6.cDoubleRep, 6.cFloatRep, 6.cInt16Rep, 6.cInt32Rep, 6.cInt64Rep, 6.cInt8Rep, 6.cIntRep, 6.cSumRep, 6.cTupleRep, 6.cVecRep, 6.cWord16Rep, 6.cWord32Rep, 6.cWord64Rep, 6.cWord8Rep, 6.cWordRep] 6.tRuntimeRep :: 6.sType;
-    6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.sType;
-    6.sType :: 6.sType;
-    2.v== :: ∀(a : 6.sType). 2.t$Dict$Eq a 6.→ a 6.→ a 6.→ 6.tBool;
-    6.cBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep;
-    6.cFalse :: 6.tBool;
-    4.cIS :: FUN @6.cIntRep @6.sLiftedRep 3.tInt# 4.tInteger;
-    6.cIntRep :: 6.tRuntimeRep;
-    6.cLifted :: 6.tLevity;
-    6.cTrue :: 6.tBool;
-    5.vfromInteger :: ∀(a : 6.sType). 5.t$Dict$Num a 6.→ 4.tInteger 6.→ a
+    constructors [2.c$Dict$Eq] 2.t$Dict$Eq :: ∀(a : sType). sType;
+    constructors [5.c$Dict$Num] 5.t$Dict$Num :: ∀(a : sType). sType;
+    constructors [6.cFalse, 6.cTrue] 6.tBool :: sType;
+    3.tInt# :: tTYPE cIntRep;
+    constructors [4.cIS, 4.cIP, 4.cIN] 4.tInteger :: sType;
+    constructors [6.cLifted, 6.cUnlifted] 6.tLevity :: sType;
+    6.sLiftedRep :: tRuntimeRep;
+    constructors [6.cAddrRep, 6.cBoxedRep, 6.cDoubleRep, 6.cFloatRep, 6.cInt16Rep, 6.cInt32Rep, 6.cInt64Rep, 6.cInt8Rep, 6.cIntRep, 6.cSumRep, 6.cTupleRep, 6.cVecRep, 6.cWord16Rep, 6.cWord32Rep, 6.cWord64Rep, 6.cWord8Rep, 6.cWordRep] 6.tRuntimeRep :: sType;
+    6.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    6.sType :: sType;
+    2.v== :: ∀(a : sType). t$Dict$Eq a 6.→ a 6.→ a 6.→ tBool;
+    6.cBoxedRep :: tLevity 6.→ tRuntimeRep;
+    6.cFalse :: tBool;
+    4.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
+    6.cIntRep :: tRuntimeRep;
+    6.cLifted :: tLevity;
+    6.cTrue :: tBool;
+    5.vfromInteger :: ∀(a : sType). t$Dict$Num a 6.→ tInteger 6.→ a
 
   import synonyms
-    6.sLiftedRep = 6.cBoxedRep 6.cLifted;
-    6.sType = 6.tTYPE 6.sLiftedRep
+    6.sLiftedRep = cBoxedRep cLifted;
+    6.sType = tTYPE sLiftedRep
 
-  pub type 1.tFlag :: 6.sType {
-      pub 1.cOff :: 1.tFlag;
-      pub 1.cOn :: 1.tFlag
+  pub type 1.tFlag :: sType {
+    pub 1.cOff :: tFlag;
+    pub 1.cOn :: tFlag
   }
 
-  pub val 1.vother :: ∀(a : 6.sType). a 6.→ 1.tFlag
-   = Λ(a : 6.sType).
-    λ(x : a).
-      1.cOff
+  pub val 1.vother :: ∀(a : sType). a 6.→ tFlag
+    = Λ(a : sType). λ(x : a).
+      cOff
 
-  pub val 1.vpick :: ∀(a : 6.sType) (b : 6.sType). 2.t$Dict$Eq b 6.→ 5.t$Dict$Num b 6.→ 2.t$Dict$Eq a 6.→ 5.t$Dict$Num a 6.→ a 6.→ b 6.→ 1.tFlag
-   = Λ(a : 6.sType).
-    Λ(b : 6.sType).
-      λ($d0 : 2.t$Dict$Eq b).
-        λ($d1 : 5.t$Dict$Num b).
-          λ($d2 : 2.t$Dict$Eq a).
-            λ($d3 : 5.t$Dict$Num a).
-              λ(x : a).
-                λ(y : b).
-                  let {
-                      _fail : 1.tFlag =
-                          1.vother @a x
-                  } in
-                      case 2.v== @a $d2 x (5.vfromInteger @a $d3 (4.cIS 0#6.cIntRep)) as (_case_guard : 6.tBool) return (1.tFlag) of {
-                          6.cTrue →
-                              case 2.v== @b $d0 y (5.vfromInteger @b $d1 (4.cIS 0#6.cIntRep)) as (_case_guard{1} : 6.tBool) return (1.tFlag) of {
-                                  6.cTrue →
-                                      1.cOn;
-                                  6.cFalse →
-                                      _fail
-                              };
-                          6.cFalse →
-                              _fail
-                      }
+  pub val 1.vpick :: ∀(a : sType) (b : sType). t$Dict$Eq b 6.→ t$Dict$Num b 6.→ t$Dict$Eq a 6.→ t$Dict$Num a 6.→ a 6.→ b 6.→ tFlag
+    = Λ(a : sType) (b : sType). λ($d0 : t$Dict$Eq b) ($d1 : t$Dict$Num b) ($d2 : t$Dict$Eq a) ($d3 : t$Dict$Num a) (x : a)
+    (y : b).
+      let _fail : tFlag =
+        vother @a x;
+      case v== @a $d2 x (vfromInteger @a $d3 (cIS lit (0#cIntRep) :: tInt#)) of {
+        cTrue →
+          case v== @b $d0 y (vfromInteger @b $d1 (cIS lit (0#cIntRep) :: tInt#)) of {
+            cTrue →
+              cOn;
+            cFalse →
+              _fail
+          };
+        cFalse →
+          _fail
+      }
 status: pass
 reason: Every literal test of a row names one failure binding.

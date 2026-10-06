@@ -15,23 +15,24 @@ expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
 
+  import prims
+    unsafeCoerce# = 1.vunsafeCoerce# :: ∀(q : tRuntimeRep) (r : tRuntimeRep) (a{1} : tTYPE q) (b{1} : tTYPE r). FUN @q @r a{1} b{1}
+
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub val 1.vunsafeCoerce :: ∀(a : 2.sType) (b : 2.sType). a 2.→ b
-   = Λ(a : 2.sType).
-    Λ(b : 2.sType).
-      λ(_foreign_argument : a).
-        foreign {prim 1.vunsafeCoerce# :: ∀(q : 2.tRuntimeRep) (r : 2.tRuntimeRep) (a{1} : 2.tTYPE q) (b{1} : 2.tTYPE r). FUN @q @r a{1} b{1}} @(2.cBoxedRep 2.cLifted) @(2.cBoxedRep 2.cLifted) @a @b _foreign_argument
+  pub val 1.vunsafeCoerce :: ∀(a : sType) (b : sType). a 2.→ b
+    = Λ(a : sType) (b : sType). λ(_foreign_argument : a).
+      prim unsafeCoerce# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @a @b _foreign_argument
 status: pass
 reason: A signed polymorphic alias uses its type lambda binders in the right-hand side.

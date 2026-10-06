@@ -15,7 +15,7 @@ import Aihc.Lir.Lower (defaultModuleSettings, lowerEntry, lowerModule, wasip3Tar
 import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
 import Aihc.Parser.Syntax (Extension (MagicHash, UnboxedTuples))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
-import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive, withFixtureRuntimeUnits)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive, runtimeSourceRoot, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Aihc.Wasm (wasip3WorldPath)
 import Aihc.Wasm.Lir (compileLirModule)
@@ -99,9 +99,10 @@ findWasmTools = do
   linker <- findExecutable "wasm-ld"
   wasmtime <- findExecutable "wasmtime"
   wasmTools <- findExecutable "wasm-tools"
+  componentLinker <- findExecutable "wasm-component-ld"
   pure $
     if supported && isJust linker && isJust wasmtime
-      then Just WasmTools {toolsClang = clang, toolsClangArguments = targetArguments, toolsComponents = isJust wasmTools}
+      then Just WasmTools {toolsClang = clang, toolsClangArguments = targetArguments, toolsComponents = isJust wasmTools && isJust componentLinker}
       else Nothing
 
 clangSupportsWasm :: FilePath -> IO Bool
@@ -291,9 +292,15 @@ runFixture tools assembly =
     runTool (toolsClang tools) (backendArguments <> ["-c", assemblyPath, "-o", fixtureObject])
     runTool (toolsClang tools) (toolsClangArguments tools <> ["-O1", "-std=c11", "-nostdlib", "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-c", driverPath, "-o", driverObject])
     -- The libc archive follows the objects so a fixture that calls a C
-    -- function, such as one of libm, resolves it.
+    -- function, such as one of libm, resolves it. The libc finds its stack
+    -- pointer and its thread-local storage through functions that the
+    -- runtime supplies, and keeps the latter in a segment, which the linker
+    -- wants the atomics feature for.
     sysroot <- wasmSysroot
-    runTool "wasm-ld" ["--no-entry", "--export=_start", driverObject, fixtureObject, wasmSysrootLibc sysroot, "-o", moduleFile]
+    runtimeRoot <- runtimeSourceRoot
+    let shimObject = directory </> "libc-shims.o"
+    runTool (toolsClang tools) (backendArguments <> ["-O1", "-std=c11", "-c", runtimeRoot </> "wasm" </> "aihc_wasip3_libc.c", "-o", shimObject])
+    runTool "wasm-ld" ["--no-entry", "--export=_start", "--extra-features=atomics", driverObject, fixtureObject, shimObject, wasmSysrootLibc sysroot, "-o", moduleFile]
     readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", moduleFile] ""
 
 runTool :: FilePath -> [String] -> IO ()
@@ -423,8 +430,6 @@ programTestWith tools expected shouldFail stress cSource program = do
             entry = directory </> "entry.o"
             stubPath = directory </> "putchar.c"
             stubObject = directory </> "putchar.o"
-            coreModule = directory </> "program-core.wasm"
-            typedModule = directory </> "program-typed.wasm"
             component = directory </> "program.wasm"
         createDirectory runtimeDirectory
         runtime <- runtimeBuildArchive <$> buildRuntimeArchive Wasm32Wasip3 [] runtimeDirectory
@@ -436,10 +441,13 @@ programTestWith tools expected shouldFail stress cSource program = do
         runTool (toolsClang available) (backendArguments <> ["-c", assemblyPath, "-o", programObject])
         runTool (toolsClang available) (toolsClangArguments available <> ["-O1", "-std=c11", "-nostdlib", "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-c", stubPath, "-o", stubObject])
         sysroot <- wasmSysroot
-        runTool "wasm-ld" ["--no-entry", "--export-memory", "--allow-undefined", programObject, stubObject, entry, "--whole-archive", runtime, "--no-whole-archive", wasmSysrootLibc sysroot, "-o", coreModule]
-        runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
-        runTool "wasm-tools" ["component", "new", typedModule, "-o", component]
-        (exit, out, err) <- readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", "-S", "cli", component] ""
+        runTool
+          "wasm-component-ld"
+          ( ["-m", "wasm32", "--no-entry", "--export-memory", "--component-type", world, "--append-lld-flag=--extra-features=atomics", programObject, stubObject, entry, "--whole-archive", runtime, "--no-whole-archive", wasmSysrootLibc sysroot]
+              <> maybe [] pure (wasmSysrootBuiltins sysroot)
+              <> ["-o", component]
+          )
+        (exit, out, err) <- readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", "-S", "cli", "-S", "http", component] ""
         if shouldFail
           then assertBool ("expected a callback failure: " <> err) (exit /= ExitSuccess)
           else assertEqual ("program stderr: " <> err) ExitSuccess exit

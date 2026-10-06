@@ -18,6 +18,7 @@
 module Aihc.Cli.Build
   ( build,
     buildWith,
+    buildWithConfig,
     runBuild,
   )
 where
@@ -87,7 +88,13 @@ data ExecutableTarget = ExecutableTarget
 -- of their link bundles with @--no-link@. An existing file is a main
 -- module; everything else is a package.
 buildWith :: ProgressReporter -> BuildOptions -> IO [FilePath]
-buildWith reporter options = do
+buildWith reporter options = buildWithConfig reporter options id
+
+-- | 'buildWith' with a change to the compile config that the options give.
+-- A tool that reads the output of each phase uses it to set
+-- 'compileObserver'.
+buildWithConfig :: ProgressReporter -> BuildOptions -> (ModuleCompileConfig -> ModuleCompileConfig) -> IO [FilePath]
+buildWithConfig reporter options adjust = do
   isFile <- doesFileExist (buildInput options)
   when (isFile && not (null (buildExecutables options))) $
     ioError (userError "--executable selects the executables of a package, and a main module is one executable")
@@ -98,18 +105,19 @@ buildWith reporter options = do
       verbose message = when (buildVerbose options) (report (ProgressLog message))
   levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options) (buildOptimization options)
   let config =
-        levelConfig
-          { compileKeepCore = buildKeepCore options,
-            compileKeepGrin = buildKeepGrin options,
-            compileKeepLir = buildKeepLir options,
-            compileKeepNative = buildKeepNative options,
-            compileLint = buildLint options,
-            compileCheckPrimBounds = buildCheckPrimBounds options,
-            compileProfileAllocations = buildProfileAllocations options,
-            compileVerbose = verbose,
-            compileUseColor = progressColor reporter,
-            compileProgress = reporter
-          }
+        adjust
+          levelConfig
+            { compileKeepCore = buildKeepCore options,
+              compileKeepGrin = buildKeepGrin options,
+              compileKeepLir = buildKeepLir options,
+              compileKeepNative = buildKeepNative options,
+              compileLint = buildLint options,
+              compileCheckPrimBounds = buildCheckPrimBounds options,
+              compileProfileAllocations = buildProfileAllocations options,
+              compileVerbose = verbose,
+              compileUseColor = progressColor reporter,
+              compileProgress = reporter
+            }
   (locations, targets) <-
     (if isFile then mainModuleTarget else packageTargets) options config (storeRoot </> targetDirectory)
   let components = map executableComponent targets

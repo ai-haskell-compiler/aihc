@@ -36,49 +36,43 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    negateInt# = 2.vnegateInt# :: FUN @cIntRep @cIntRep tInt# tInt#
+
   import headers
-    constructors [3.cI#] 3.tInt :: 3.sType;
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tBox :: 3.sType {
-      pub 1.cBox :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tBox
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: FUN @cIntRep @sLiftedRep tInt# tBox
   }
 
-  pub type 1.tWrap :: 3.sType {
-      pub 1.cWrap :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tWrap
+  pub type 1.tWrap :: sType {
+    pub 1.cWrap :: FUN @cIntRep @sLiftedRep tInt# tWrap
   }
 
-  pub val 1.vviaStrictLet :: 1.tBox 3.→ 3.tInt
-   = λ(x : 1.tBox).
-    case x as (_scrut : 1.tBox) return (3.tInt) of {
-        1.cBox (v : 2.tInt#) →
-            let {
-                x{1} : 2.tInt# =
-                    foreign {prim 2.vnegateInt# :: FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#} v
-            } in
-                3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} x{1})
-    }
+  pub val 1.vviaStrictLet :: tBox 3.→ tInt
+    = λ(x : tBox).
+      let! cBox (v : tInt#) = x;
+      let x{1} : tInt# =
+        prim negateInt# v;
+      cI# (prim +# x{1} x{1})
 
-  pub val 1.vviaScrutinee :: 1.tBox 3.→ 3.tInt
-   = λ(x : 1.tBox).
-    case x as (_scrut : 1.tBox) return (3.tInt) of {
-        1.cBox (v : 2.tInt#) →
-            let {
-                x{1} : 2.tInt# =
-                    foreign {prim 2.vnegateInt# :: FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#} v
-            } in
-                3.cI# (foreign {prim 2.v+# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} v)
-    }
+  pub val 1.vviaScrutinee :: tBox 3.→ tInt
+    = λ(x : tBox).
+      let! cBox (v : tInt#) = x;
+      cI# (prim +# (prim negateInt# v) v)

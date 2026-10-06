@@ -1,3 +1,5 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -- | Rewrite rules: which rules a pass may fire, and the matcher that
 -- decides whether one fires at an application.
 --
@@ -27,6 +29,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv, typesEqual)
 import Control.Monad (foldM, guard)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -145,9 +148,10 @@ matchExpr matcher scope subst template target =
     (ExVar name, ExVar targetName) -> do
       guard (renamed scope name == targetName)
       pure subst
-    (ExLit literal, ExLit targetLiteral) -> do
+    (ExLit literal ty, ExLit targetLiteral targetType) -> do
+      subst' <- matchType matcher scope subst ty targetType
       guard (literal == targetLiteral)
-      pure subst
+      pure subst'
     (ExCoercion proof, ExCoercion targetProof) -> do
       guard (proof == targetProof)
       pure subst
@@ -167,15 +171,20 @@ matchExpr matcher scope subst template target =
       subst' <- matchExpr matcher scope subst (bindRhs bind) (bindRhs targetBind)
       (scope', subst'') <- matchBinder matcher scope subst' (bindBinder bind) (bindBinder targetBind)
       matchExpr matcher scope' subst'' body targetBody
+    (ExAbsurd scrutinee resultType, ExAbsurd targetScrutinee targetResultType) -> do
+      subst' <- matchExpr matcher scope subst scrutinee targetScrutinee
+      matchType matcher scope subst' resultType targetResultType
     (ExCast body proof, ExCast targetBody targetProof) -> do
       guard (proof == targetProof)
       matchExpr matcher scope subst body targetBody
-    (ExCase scrutinee binder resultType alternatives, ExCase targetScrutinee targetBinder targetResultType targetAlternatives) -> do
+    (ExCase scrutinee binder (NE.toList -> alternatives), ExCase targetScrutinee targetBinder (NE.toList -> targetAlternatives)) -> do
       guard (length alternatives == length targetAlternatives)
       subst' <- matchExpr matcher scope subst scrutinee targetScrutinee
-      subst'' <- matchType matcher scope subst' resultType targetResultType
-      (scope', subst''') <- matchBinder matcher scope subst'' binder targetBinder
-      foldM (matchAlternative matcher scope') subst''' (zip alternatives targetAlternatives)
+      (scope', subst'') <- case (binder, targetBinder) of
+        (Nothing, Nothing) -> Just (scope, subst')
+        (Just named, Just targetNamed) -> matchBinder matcher scope subst' named targetNamed
+        _ -> Nothing
+      foldM (matchAlternative matcher scope') subst'' (zip alternatives targetAlternatives)
     (ExForeignCall call types arguments, ExForeignCall targetCall targetTypes targetArguments) -> do
       guard (foreignCallName call == foreignCallName targetCall)
       guard (length types == length targetTypes && length arguments == length targetArguments)
@@ -283,7 +292,7 @@ exprNames :: Expr -> Set Name
 exprNames expr =
   case expr of
     ExVar name -> Set.singleton name
-    ExLit {} -> Set.empty
+    ExLit _ ty -> typeNames ty
     ExCoercion {} -> Set.empty
     ExApp function argument -> exprNames function <> exprNames argument
     ExTyApp function ty -> exprNames function <> typeNames ty
@@ -291,8 +300,9 @@ exprNames expr =
     ExTyLam binder body -> typeNames (binderType binder) <> exprNames body
     ExLet bind body -> exprNames (bindRhs bind) <> exprNames body
     ExRec binds body -> foldMap (exprNames . bindRhs) binds <> exprNames body
-    ExCase scrutinee _ resultType alternatives ->
-      exprNames scrutinee <> typeNames resultType <> foldMap (exprNames . altRhs) alternatives
+    ExCase scrutinee _ (NE.toList -> alternatives) ->
+      exprNames scrutinee <> foldMap (exprNames . altRhs) alternatives
+    ExAbsurd scrutinee resultType -> exprNames scrutinee <> typeNames resultType
     ExCast body _ -> exprNames body
     ExForeignCall _ types arguments -> foldMap typeNames types <> foldMap exprNames arguments
 

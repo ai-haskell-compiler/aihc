@@ -68,5 +68,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
+status: pass
 reason: a user defined MonadFix instance is enough for mdo and rec, including a statement that reads a value bound below it

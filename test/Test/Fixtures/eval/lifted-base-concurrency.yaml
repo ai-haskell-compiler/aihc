@@ -1,0 +1,69 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent
+    import Control.Concurrent.Chan
+    import Control.Concurrent.QSemN
+    import Control.Exception
+    import Data.IORef
+    import System.Mem.Weak (deRefWeak)
+    import Prelude
+
+    errorHandler :: ErrorCall -> IO String
+    errorHandler _ = return "error call"
+
+    arithHandler :: ArithException -> IO String
+    arithHandler exception = return (show exception)
+
+    main :: IO ()
+    main = do
+      chan <- newChan
+      writeList2Chan chan [1, 2, 3 :: Int]
+      copy <- dupChan chan
+      writeChan chan 4
+      first <- readChan chan
+      second <- readChan chan
+      copied <- readChan copy
+      print (first, second, copied)
+      contents <- getChanContents chan
+      print (take 2 contents)
+      done <- newEmptyMVar
+      semaphore <- newQSemN 0
+      _ <- forkIO (waitQSemN semaphore 3 >> putMVar done "qsemn")
+      signalQSemN semaphore 1
+      signalQSemN semaphore 2
+      takeMVar done >>= putStrLn
+      _ <- forkOn 0 (putMVar done "forkOn")
+      takeMVar done >>= putStrLn
+      _ <- forkIOWithUnmask (\unmask -> unmask (putMVar done "forkIOWithUnmask"))
+      takeMVar done >>= putStrLn
+      caught <-
+        (evaluate (1 `div` (0 :: Int)) >> return "none")
+          `catches` [Handler errorHandler, Handler arithHandler]
+      putStrLn caught
+      reference <- newIORef 'x'
+      weakReference <- mkWeakIORef reference (return ())
+      alive <- deRefWeak weakReference
+      mapM_ (\value -> readIORef value >>= print) alive
+      thread <- myThreadId
+      weakThread <- mkWeakThreadId thread
+      aliveThread <- deRefWeak weakThread
+      print (fmap (== thread) aliveThread)
+      result <- runInUnboundThread (return (5 :: Int))
+      print result
+stdout: |
+  (1,2,4)
+  [3,4]
+  qsemn
+  forkOn
+  forkIOWithUnmask
+  divide by zero
+  'x'
+  Just True
+  5
+output: |
+  ()
+expression: main
+status: pass
+reason: Chan, QSemN, catches, mkWeakIORef, and the thread functions of Control.Concurrent that lifted-base imports work as in GHC

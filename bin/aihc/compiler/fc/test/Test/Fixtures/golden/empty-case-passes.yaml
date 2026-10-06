@@ -1,0 +1,17 @@
+extensions:
+  - EmptyCase
+modules:
+  - |
+    module Test where
+    data Empty
+    data Result = Result
+    absurd :: Empty -> Result
+    absurd value = case value of {}
+passes:
+  - lift-constants
+  - inline: shrink
+  - eta
+  - demand
+  - simplify: 0
+status: pass
+reason: FC transformations preserve an absurd expression and its result type.

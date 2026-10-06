@@ -15,28 +15,25 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.tPair (a : 2.sType) :: 2.sType {
-      pub 1.c:*: :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tPair a
+  pub type 1.tPair (a : sType) :: sType {
+    pub 1.c:*: :: ∀(a : sType). a 2.→ a 2.→ tPair a
   }
 
-  pub val 1.vfirst :: ∀(a : 2.sType). 1.tPair a 2.→ a
-   = Λ(a : 2.sType).
-    λ(x : 1.tPair a).
-      case x as (_scrut : 1.tPair a) return (a) of {
-          1.c:*: (value : a) (_pat : a) →
-              value
-      }
+  pub val 1.vfirst :: ∀(a : sType). tPair a 2.→ a
+    = Λ(a : sType). λ(x : tPair a).
+      let! c:*: (value : a) (_pat : a) = x;
+      value
 status: pass
 reason: An infix constructor pattern keeps its field binders and types during FC desugaring.

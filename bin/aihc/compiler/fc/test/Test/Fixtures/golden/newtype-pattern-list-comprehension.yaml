@@ -18,44 +18,44 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tInt# :: 3.tTYPE 3.cIntRep;
-    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: 3.sType;
-    3.sLiftedRep :: 3.tRuntimeRep;
-    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: 3.sType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
-    3.sType :: 3.sType;
-    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : 3.sType). 3.sType;
-    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.cIntRep :: 3.tRuntimeRep;
-    3.cLifted :: 3.tLevity;
-    3.c[] :: ∀(a : 3.sType). 3.t[] a
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
-    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
-    3.sType = 3.tTYPE 3.sLiftedRep
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
 
-  pub type 1.tInt :: 3.sType {
-      pub 1.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tInt
+  pub type 1.tInt :: sType {
+    pub 1.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt
   }
 
-  pub type 1.tWrap :: 3.sType {}
+  pub type 1.tWrap :: sType {}
 
-  axiom 1.$ax$Wrap : 1.tWrap ~R 1.tInt
+  axiom 1.$ax$Wrap : tWrap ~R tInt
 
-  pub val 1.vunwrapAll :: 3.t[] 1.tWrap 3.→ 3.t[] 1.tInt
-   = λ(x : 3.t[] 1.tWrap).
-    rec {
-        _list_comp : 3.t[] 1.tWrap 3.→ 3.t[] 1.tInt =
-            λ(_list_comp_list : 3.t[] 1.tWrap).
-              case _list_comp_list as (_list_comp_scrut : 3.t[] 1.tWrap) return (3.t[] 1.tInt) of {
-                  3.c[] →
-                      3.c[] @1.tInt;
-                  3.c: (_pat : 1.tWrap) (_list_comp_tail : 3.t[] 1.tWrap) →
-                      3.c: @1.tInt (_pat ▷ axiom-co 1.$ax$Wrap) (_list_comp _list_comp_tail)
-              }
-    } in
-        _list_comp x
+  pub val 1.vunwrapAll :: t[] tWrap 3.→ t[] tInt
+    = λ(x : t[] tWrap).
+      rec {
+        _list_comp : t[] tWrap 3.→ t[] tInt =
+          λ(_list_comp_list : t[] tWrap).
+            case _list_comp_list of {
+              c[] →
+                c[] @tInt;
+              c: (_pat : tWrap) (_list_comp_tail : t[] tWrap) →
+                c: @tInt (_pat ▷ axiom-co $ax$Wrap) (_list_comp _list_comp_tail)
+            }
+      } in
+      _list_comp x
 status: pass
 reason: A newtype constructor pattern in a list comprehension generator
   unwraps the element with the newtype axiom and no type arguments.

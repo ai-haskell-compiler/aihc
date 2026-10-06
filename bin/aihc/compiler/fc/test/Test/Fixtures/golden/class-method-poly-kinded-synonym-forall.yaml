@@ -26,57 +26,41 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
 
-  pub type 1.s:-> (k0 : 2.sType) (k1 : 2.sType) (p : k0 2.→ k1 2.→ 2.sType) (q : k0 2.→ k1 2.→ 2.sType) :: 2.sType =
-   ∀(a : k0) (b : k1). p a b 2.→ q a b
+  pub type 1.s:-> (k0 : sType) (k1 : sType) (p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) :: sType =
+    ∀(a : k0) (b : k1). p a b 2.→ q a b
 
-  pub type 1.t$Dict$BifunctorFunctor (k0 : 2.sType) (k1 : 2.sType) (k2 : 2.sType) (k3 : 2.sType) (t : (k0 2.→ k1 2.→ 2.sType) 2.→ k2 2.→ k3 2.→ 2.sType) :: 2.sType {
-      pub 1.c$Dict$BifunctorFunctor :: ∀(k0 : 2.sType) (k1 : 2.sType) (k2 : 2.sType) (k3 : 2.sType) (t : (k0 2.→ k1 2.→ 2.sType) 2.→ k2 2.→ k3 2.→ 2.sType). (∀(p : k0 2.→ k1 2.→ 2.sType) (q : k0 2.→ k1 2.→ 2.sType) (a : k2) (b : k3). (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ t p a b 2.→ t q a b) 2.→ 1.t$Dict$BifunctorFunctor k0 k1 k2 k3 t
+  pub type 1.t$Dict$BifunctorFunctor (k0 : sType) (k1 : sType) (k2 : sType) (k3 : sType) (t : (k0 2.→ k1 2.→ sType) 2.→ k2 2.→ k3 2.→ sType) :: sType {
+    pub 1.c$Dict$BifunctorFunctor :: ∀(k0 : sType) (k1 : sType) (k2 : sType) (k3 : sType) (t : (k0 2.→ k1 2.→ sType) 2.→ k2 2.→ k3 2.→ sType). (∀(p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) (a : k2) (b : k3). (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ t p a b 2.→ t q a b) 2.→ t$Dict$BifunctorFunctor k0 k1 k2 k3 t
   }
 
-  pub type 1.tFlip (k0 : 2.sType) (k1 : 2.sType) (p : k0 2.→ k1 2.→ 2.sType) (a : k1) (b : k0) :: 2.sType {}
+  pub type 1.tFlip (k0 : sType) (k1 : sType) (p : k0 2.→ k1 2.→ sType) (a : k1) (b : k0) :: sType {}
 
-  axiom 1.$ax$Flip (k0 : 2.sType) (k1 : 2.sType) (p : k0 2.→ k1 2.→ 2.sType) (a : k1) (b : k0) : 1.tFlip k0 k1 p a b ~R p b a
+  axiom 1.$ax$Flip (k0 : sType) (k1 : sType) (p : k0 2.→ k1 2.→ sType) (a : k1) (b : k0) : tFlip k0 k1 p a b ~R p b a
 
-  pub val 1.vbifmap :: ∀(k0 : 2.sType) (k1 : 2.sType) (k2 : 2.sType) (k3 : 2.sType) (t : (k0 2.→ k1 2.→ 2.sType) 2.→ k2 2.→ k3 2.→ 2.sType) (p : k0 2.→ k1 2.→ 2.sType) (q : k0 2.→ k1 2.→ 2.sType) (a : k2) (b : k3). 1.t$Dict$BifunctorFunctor k0 k1 k2 k3 t 2.→ (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ t p a b 2.→ t q a b
-   = Λ(k0 : 2.sType).
-    Λ(k1 : 2.sType).
-      Λ(k2 : 2.sType).
-        Λ(k3 : 2.sType).
-          Λ(t : (k0 2.→ k1 2.→ 2.sType) 2.→ k2 2.→ k3 2.→ 2.sType).
-            Λ(p : k0 2.→ k1 2.→ 2.sType).
-              Λ(q : k0 2.→ k1 2.→ 2.sType).
-                Λ(a : k2).
-                  Λ(b : k3).
-                    λ($d0 : 1.t$Dict$BifunctorFunctor k0 k1 k2 k3 t).
-                      case $d0 as ($dict : 1.t$Dict$BifunctorFunctor k0 k1 k2 k3 t) return ((∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ t p a b 2.→ t q a b) of {
-                          1.c$Dict$BifunctorFunctor ($method0 : ∀(p{1} : k0 2.→ k1 2.→ 2.sType) (q{1} : k0 2.→ k1 2.→ 2.sType) (a{1} : k2) (b{1} : k3). (∀(a{2} : k0) (b{2} : k1). p{1} a{2} b{2} 2.→ q{1} a{2} b{2}) 2.→ t p{1} a{1} b{1} 2.→ t q{1} a{1} b{1}) →
-                              $method0 @p @q @a @b
-                      }
+  pub val 1.vbifmap :: ∀(k0 : sType) (k1 : sType) (k2 : sType) (k3 : sType) (t : (k0 2.→ k1 2.→ sType) 2.→ k2 2.→ k3 2.→ sType) (p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) (a : k2) (b : k3). t$Dict$BifunctorFunctor k0 k1 k2 k3 t 2.→ (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ t p a b 2.→ t q a b
+    = Λ(k0 : sType) (k1 : sType) (k2 : sType) (k3 : sType) (t : (k0 2.→ k1 2.→ sType) 2.→ k2 2.→ k3 2.→ sType)
+    (p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) (a : k2) (b : k3). λ($d0 : t$Dict$BifunctorFunctor k0 k1 k2 k3 t).
+      let! c$Dict$BifunctorFunctor ($method0 : ∀(p{1} : k0 2.→ k1 2.→ sType) (q{1} : k0 2.→ k1 2.→ sType) (a{1} : k2) (b{1} : k3). (∀(a{2} : k0) (b{2} : k1). p{1} a{2} b{2} 2.→ q{1} a{2} b{2}) 2.→ t p{1} a{1} b{1} 2.→ t q{1} a{1} b{1}) =
+        $d0;
+      $method0 @p @q @a @b
 
-  pub val 1.v$fBifunctorFunctorFlip :: ∀(k0 : 2.sType) (k1 : 2.sType). 1.t$Dict$BifunctorFunctor k0 k1 k1 k0 (1.tFlip k0 k1)
-   = Λ(k0 : 2.sType).
-    Λ(k1 : 2.sType).
-      1.c$Dict$BifunctorFunctor @k0 @k1 @k1 @k0 @(1.tFlip k0 k1) (1.v$fBifunctorFunctorFlip$cbifmap @k0 @k1)
+  pub val 1.v$fBifunctorFunctorFlip :: ∀(k0 : sType) (k1 : sType). t$Dict$BifunctorFunctor k0 k1 k1 k0 (tFlip k0 k1)
+    = Λ(k0 : sType) (k1 : sType).
+      c$Dict$BifunctorFunctor @k0 @k1 @k1 @k0 @(tFlip k0 k1) (v$fBifunctorFunctorFlip$cbifmap @k0 @k1)
 
-  val 1.v$fBifunctorFunctorFlip$cbifmap :: ∀(k0 : 2.sType) (k1 : 2.sType) (p : k0 2.→ k1 2.→ 2.sType) (q : k0 2.→ k1 2.→ 2.sType) (a : k1) (b : k0). (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ 1.tFlip k0 k1 p a b 2.→ 1.tFlip k0 k1 q a b
-   = Λ(k0 : 2.sType).
-    Λ(k1 : 2.sType).
-      Λ(p : k0 2.→ k1 2.→ 2.sType).
-        Λ(q : k0 2.→ k1 2.→ 2.sType).
-          Λ(a : k1).
-            Λ(b : k0).
-              λ(x : ∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}).
-                λ(y : 1.tFlip k0 k1 p a b).
-                  (x @b @a (y ▷ axiom-co 1.$ax$Flip @k0 @k1 @p @a @b)) ▷ sym (axiom-co 1.$ax$Flip @k0 @k1 @q @a @b)
+  val 1.v$fBifunctorFunctorFlip$cbifmap :: ∀(k0 : sType) (k1 : sType) (p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) (a : k1) (b : k0). (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ tFlip k0 k1 p a b 2.→ tFlip k0 k1 q a b
+    = Λ(k0 : sType) (k1 : sType) (p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) (a : k1) (b : k0).
+    λ(x : ∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) (y : tFlip k0 k1 p a b).
+      (x @b @a (y ▷ axiom-co $ax$Flip @k0 @k1 @p @a @b)) ▷ sym (axiom-co $ax$Flip @k0 @k1 @q @a @b)

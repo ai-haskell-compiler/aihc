@@ -8,6 +8,8 @@ module Aihc.Cli.Install
     CompiledExecutable (..),
     ExecutableComponent (..),
     FcModule (..),
+    CompileObservation (..),
+    PhaseOutput (..),
     ModuleCompileConfig (..),
     ModuleOutputPaths (..),
     backendOptionsKey,
@@ -143,6 +145,8 @@ import Aihc.PackagePlan
     PlanRequest (..),
     PlanRoot (..),
     PlannedPackages (..),
+    aihcRtsProvider,
+    coreProviderSourcePath,
     dependencyVersionsFromManifests,
     parseConstraint,
     parseSourcePackageDescriptionAt,
@@ -188,7 +192,9 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( ClassInfo (..),
+    DataConInfo (..),
     DataFamilyInstanceInfo (..),
+    DataTypeInfo (..),
     DerivingReference (..),
     InstanceInfo (..),
     MergeCheck (..),
@@ -484,7 +490,34 @@ data ModuleCompileConfig = ModuleCompileConfig
     compilePrintTimings :: String -> IO (),
     compileUseColor :: !Bool,
     -- | Where the progress of the build goes.
-    compileProgress :: !ProgressReporter
+    compileProgress :: !ProgressReporter,
+    -- | Receives the source file of each module that the build compiles,
+    -- and the output of each phase of the backend. A tool that shows the
+    -- output of each phase, such as @aihc-dev explore@, sets it. The build
+    -- gives the values only and does no other work for it.
+    compileObserver :: !(Maybe (CompileObservation -> IO ()))
+  }
+
+-- | What 'compileObserver' receives.
+data CompileObservation
+  = -- | A module of a package, and its source file.
+    ObservedSource !Package !Text !FilePath
+  | -- | The output of each phase for one module, or for the merged program
+    -- of a whole-program build.
+    ObservedPhases !PhaseOutput
+
+-- | The output of each phase for one module, or for the merged program of a
+-- whole-program build. The System FC is the optimized program that the
+-- backend lowers.
+data PhaseOutput = PhaseOutput
+  { -- | The package of the module. The merged program has no package.
+    phasePackage :: !(Maybe Package),
+    -- | The module name, or @program@ for the merged program.
+    phaseModule :: !Text,
+    phaseFc :: Fc.Program,
+    phaseGrin :: Grin.GrinProgram,
+    phaseCpsGrin :: Grin.GrinProgram,
+    phaseGcGrin :: Grin.GrinProgram
   }
 
 -- | An executable that the install graph compiles beside the packages of
@@ -649,7 +682,8 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileVerbose = const (pure ()),
         compilePrintTimings = const (pure ()),
         compileUseColor = False,
-        compileProgress = quietProgress stdout
+        compileProgress = quietProgress stdout,
+        compileObserver = Nothing
       }
 
 -- | The config of a package the user did not name. The flags that keep the
@@ -2760,8 +2794,19 @@ runBackendUnit context runtime = do
   pending <- atomically (takeTMVar (runtimeBackendInput runtime))
   case pending of
     Just backend | typeUnitSuccess result -> do
-      let config = taskModuleCompileConfig context
+      let unitConfig = taskModuleCompileConfig context
           storePath = taskStorePath context
+          package = taskResolvePackage context
+          -- The backend knows the module name only, so the package of the
+          -- module is added here.
+          observeUnit observe observation =
+            observe $ case observation of
+              ObservedPhases output -> ObservedPhases output {phasePackage = Just package}
+              _ -> observation
+          config = unitConfig {compileObserver = observeUnit <$> compileObserver unitConfig}
+      forM_ (compileObserver unitConfig) $ \observe ->
+        forM_ (sourceUnitSources (runtimeUnit runtime)) $ \source ->
+          observe (ObservedSource package (sourceName source) (sourceModulePath source))
       (phaseTimings, capiOutputs) <-
         compileUnitFcModules
           config
@@ -2857,7 +2902,7 @@ selectInstanceProviders complete providers
     tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
 wiredTypeModules :: [Text]
-wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]
+wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]
 
 -- | Modules whose names generated code refers to, but whose order the
 -- dependency graph must not fix: a derived @Read@ instance calls the reader
@@ -2885,7 +2930,7 @@ builtinFunctionScope :: Package -> ModuleExports -> Builtins
 builtinFunctionScope currentPackage visibleExports =
   builtins currentPackage visibleExports builtinFunctionModules
   where
-    builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do
@@ -3149,7 +3194,19 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
             (_, elapsed) <- measureTime (writeEmptyModule fcModule)
             pure (0, elapsed)
           else do
-            (gcProgram, grinElapsed) <- measureTime (lowerGrinModule fcModule)
+            ((plainProgram, cpsProgram, gcProgram), grinElapsed) <- measureTime (lowerGrinModule fcModule)
+            forM_ (compileObserver config) $ \observe ->
+              observe
+                ( ObservedPhases
+                    PhaseOutput
+                      { phasePackage = Nothing,
+                        phaseModule = fcModuleName fcModule,
+                        phaseFc = fcProgram fcModule,
+                        phaseGrin = plainProgram,
+                        phaseCpsGrin = Grin.cpsGrinProgram cpsProgram,
+                        phaseGcGrin = Grin.gcGrinProgram gcProgram
+                      }
+                )
             (_, nativeElapsed) <- measureTime (writeModule (fcModuleName fcModule) gcProgram)
             pure (grinElapsed, nativeElapsed)
       let nextGrin = grinTotal + grinNs
@@ -3212,7 +3269,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
       when keepGrin $ do
         writeGrinFile (outputGcGrinPath paths) (Grin.gcGrinProgram gcProgram)
         verbose ("Write GC-GRIN: " <> T.unpack name)
-      pure gcProgram
+      pure (plainProgram, cpsProgram, gcProgram)
 
     writeGrinFile path program = do
       createDirectoryIfMissing True (takeDirectory path)
@@ -3523,11 +3580,43 @@ configureCommand :: NativeTarget -> OptimizationLevel -> FilePath -> IO (FilePat
 configureCommand target level script = do
   (compiler, cflagList) <- targetCCompiler target level
   inherited <- getEnvironment
+  linkOverrides <- configureLinkOverrides target
   let cflags = unwords cflagList
-      overrides = [("CC", compiler), ("CFLAGS", cflags)]
-      environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
       crossArguments = ["--host=" <> name | Just target /= hostNativeTarget, Just name <- [autoconfHostName target]]
+      -- Autoconf runs the preprocessor as @$CC -E $CPPFLAGS@ and never
+      -- gives it @CFLAGS@. A check that preprocesses a header, such as one
+      -- for a macro that fcntl.h defines, would then read the headers of
+      -- the host and not those of the target.
+      preprocessorOverrides = [("CPPFLAGS", cflags) | not (null crossArguments)]
+      overrides = [("CC", compiler), ("CFLAGS", cflags)] <> preprocessorOverrides <> linkOverrides
+      environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
   pure ("sh", script : crossArguments, environment)
+
+-- | What a configure script needs to link its test programs. The wasm
+-- linker finds no startup files or runtime library on its own, and aihc
+-- links its own entry, so a test program links against the libc archive of
+-- the sysroot alone and without an entry point.
+--
+-- With no entry point the linker has no root to keep, so it discards
+-- @main@ before it looks for undefined symbols, and a test for a function
+-- that the libc lacks would pass. Exporting @main@ keeps it, so the test
+-- fails as it should.
+configureLinkOverrides :: NativeTarget -> IO [(String, String)]
+configureLinkOverrides target =
+  case target of
+    Wasm32Wasip3 -> do
+      sysroot <- wasmSysroot
+      runtime <- coreProviderSourcePath aihcRtsProvider
+      -- The libc finds its stack pointer and its thread-local storage through
+      -- functions that a link of the runtime gets from the runtime. A test
+      -- program gets them from the same source, which the compiler builds as
+      -- one more input. The libc keeps thread-local storage in a segment, and
+      -- the linker wants the atomics feature for that.
+      pure
+        [ ("LDFLAGS", "-nostartfiles -nodefaultlibs -Wl,--no-entry -Wl,--export=main -Wl,--extra-features=atomics"),
+          ("LIBS", unwords ([runtime </> "wasm" </> "aihc_wasip3_libc.c", wasmSysrootLibc sysroot] <> maybe [] pure (wasmSysrootBuiltins sysroot)))
+        ]
+    _ -> pure []
 
 -- | The C compiler of a target and the flags handwritten C is compiled
 -- with: the target arguments, the level, and the sysroot includes. A tool
@@ -3662,12 +3751,19 @@ hsc2hsArguments config cInfo file output macrosPath = do
   let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [compileHeaderDirectory config])
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
-    ( [flag | not (targetRunsOnHost target), flag <- ["--cross-compile", "--via-asm"]]
+    ( [flag | not (targetRunsOnHost target), flag <- "--cross-compile" : ["--via-asm" | targetHasAsmConstants target]]
         <> ["--cc=" <> compiler, "--ld=" <> compiler]
         <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath])
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
     )
+
+-- | Whether hsc2hs can read the constants of a target out of its assembly.
+-- Its parser reads the assembly of a native target. The assembly of
+-- WebAssembly has custom sections that are strings in directives the parser
+-- cannot combine, so hsc2hs finds each constant by compiling test programs.
+targetHasAsmConstants :: NativeTarget -> Bool
+targetHasAsmConstants target = target /= Wasm32Wasip3
 
 -- | Whether the code of a target runs on the machine that aihc runs on. The
 -- LLVM target is always that machine.
@@ -3741,7 +3837,7 @@ configureInputsHash config script = do
         [ TE.encodeUtf8 packageArtifactFormatVersion,
           scriptBytes,
           BS8.pack environmentIdentity,
-          BS8.pack (show (executable, arguments, lookup "CC" environment, lookup "CFLAGS" environment))
+          BS8.pack (show (executable, arguments, map (`lookup` environment) ["CC", "CFLAGS", "CPPFLAGS", "LDFLAGS", "LIBS"]))
         ]
     )
 
@@ -3758,12 +3854,19 @@ readHookedBuildInfo buildDirectory packageName = do
         Right value -> pure value
         Left errors -> ioError (userError ("Failed to parse " <> path <> ": " <> show errors))
 
+-- | What the C compiler is given for the headers of the wasm sysroot.
+--
+-- The sysroot has @dlfcn.h@, with @RTLD_NEXT@ and @RTLD_DEFAULT@ in it, so
+-- @HAVE_DLFCN_H@ is true here. A package that includes the header only when
+-- that macro is set cannot rely on its own configure script to set it:
+-- @unix@ never checks for the header, and on other platforms another header
+-- includes @dlfcn.h@ for it.
 wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
 wasmSysrootIncludeArguments target =
   case target of
     Wasm32Wasip3 -> do
       sysroot <- wasmSysroot
-      pure ["-isystem" <> wasmSysrootInclude sysroot]
+      pure ["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1"]
     _ -> pure []
 
 cObjectFileName :: FilePath -> FilePath
@@ -3853,7 +3956,7 @@ moduleTypeInterface kinds supportTerms exports package interface = go
         interface
           { tcInterfaceTermMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceTermMap interface),
             tcInterfaceTyConMap = Map.filter visibleTyCon (tcInterfaceTyConMap interface),
-            tcInterfaceDataTypeMap = Map.filterWithKey (\key _ -> visibleTypeIdentity key) (tcInterfaceDataTypeMap interface),
+            tcInterfaceDataTypeMap = visibleDataTypes,
             tcInterfaceClassMap = Map.filter visibleClass (tcInterfaceClassMap interface),
             tcInterfaceInstanceMap = Map.filter visibleInstance (tcInterfaceInstanceMap interface),
             tcInterfaceDataFamilyInstanceMap = Map.filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstanceMap interface),
@@ -3870,9 +3973,23 @@ moduleTypeInterface kinds supportTerms exports package interface = go
         typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems scopeTypes))
         localIdentity identifier = (packageId package, name, identifier)
         localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
+        visibleDataTypes = Map.filterWithKey (\key _ -> visibleTypeIdentity key) (tcInterfaceDataTypeMap interface)
+        -- The constructors of a visible data type are visible to the
+        -- compiler, whether or not the scope names them. A record update
+        -- names its fields and not its constructor, and it rebuilds the
+        -- constructor that a hidden module defines, as @aeson@ does for
+        -- @Options@.
+        constructorIdentities =
+          Set.fromList
+            [ (constructorPackage, constructorModule, dciName constructor)
+            | dataType <- Map.elems visibleDataTypes,
+              constructor <- dtiConstructors dataType,
+              let (constructorPackage, constructorModule) = dciOrigin constructor
+            ]
         visibleTerm key = case key of
           EntityGlobal (GlobalName identifier packageId' moduleName' _) ->
             visibleTermIdentity (packageId', moduleName', identifier)
+              || (packageId', moduleName', identifier) `Set.member` constructorIdentities
               || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
           EntityLocal {} -> False
           EntitySyntax -> False
@@ -4066,4 +4183,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-47"
+packageArtifactFormatVersion = "aihc-artifacts-48"

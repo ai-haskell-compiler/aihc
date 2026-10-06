@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Aihc.Dev.Explore (ExploreOptions (..), runExplore)
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibApiDivergences, runCoreLibProgressReports)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
@@ -8,7 +9,7 @@ import Aihc.Dev.Fuzz qualified as Fuzz
 import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
 import Aihc.Dev.PipelineExamples (PipelineExamplesOptions (..), runPipelineExamples)
 import Aihc.Fc qualified as Fc
-import Aihc.Native (parseNativeTarget)
+import Aihc.Native (NativeTarget, OptimizationLevel (..), hostNativeTarget, parseNativeTarget, parseOptimizationLevel)
 import Control.Monad (unless, when)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
@@ -43,6 +44,7 @@ data Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
   | FcPrint FilePath
+  | Explore FilePath OptimizationLevel (Maybe NativeTarget)
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -117,7 +119,22 @@ commandParser =
               (FcPrint <$> strArgument (metavar "FILE" <> help "A core file of the store or of a build root") <**> helper)
               (progDesc "Print a binary System FC file in the System FC text format")
           )
+        <> command
+          "explore"
+          ( info
+              (exploreParser <**> helper)
+              (progDesc "Build a program at each optimization level and show its Haskell source next to its System FC and GRIN in a terminal explorer")
+          )
     )
+
+exploreParser :: Parser Command
+exploreParser =
+  Explore
+    <$> strArgument (metavar "INPUT" <> help "Main Haskell module or local Cabal package directory")
+    <*> option
+      (eitherReader parseOptimizationLevel)
+      (short 'O' <> metavar "LEVEL" <> value O2 <> help "The first optimization level to show: 0, 1, 2 or s (default: 2)")
+    <*> optional (option (eitherReader parseNativeTarget) (long "target" <> metavar "TARGET" <> help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3 (default: the host)"))
 
 pipelineExamplesParser :: Parser PipelineExamplesOptions
 pipelineExamplesParser =
@@ -247,6 +264,13 @@ runCommand (Frontend options) =
   runFrontend options
 runCommand (PipelineExamples options) =
   runPipelineExamples options
+runCommand (Explore input level target) = do
+  resolved <- case target <|> hostNativeTarget of
+    Just found -> pure found
+    Nothing -> do
+      TIO.hPutStrLn stderr "This host is not a supported target; pass --target"
+      exitFailure
+  runExplore ExploreOptions {exploreInput = input, exploreLevel = level, exploreTarget = resolved}
 runCommand (FcPrint path) = do
   loaded <- Fc.readProgramFile path
   case loaded of
