@@ -50,9 +50,9 @@ expected: |-
     = λ(x : tNat).
       let step : tNat 3.→ (tInt 3.→ tNat) 3.→ tInt 3.→ tNat =
           λ(x{1} : tNat) (y : tInt 3.→ tNat) (z : tInt).
-            case z return (tNat) of {
+            case z of {
               cI# (_pat : tInt#) →
-                case x{1} return (tNat) of {
+                case x{1} of {
                   cZ →
                     y z;
                   cS (_pat{1} : tNat) →

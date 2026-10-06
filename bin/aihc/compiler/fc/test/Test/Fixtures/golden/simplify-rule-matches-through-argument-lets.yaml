@@ -58,7 +58,7 @@ expected: |-
       rec {
         go : tList a 2.→ b =
           λ(x{1} : tList a).
-            case x{1} return (b) of {
+            case x{1} of {
               cNil →
                 y;
               cCons (y{1} : a) (ys : tList a) →

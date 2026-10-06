@@ -47,7 +47,7 @@ expected: |-
 
   val 1.vchoose noinline :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool).
-      case x return (tBool 2.→ tBool) of {
+      case x of {
         cTrue →
           λ(x{1} : tBool).
             x{1};

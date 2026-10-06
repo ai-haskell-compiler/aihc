@@ -21,7 +21,7 @@ import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, mfilter, unless, when, zipWithM)
+import Control.Monad (mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
 import Data.List qualified as List
@@ -769,7 +769,7 @@ lowerExpr :: LowerEnv -> Fc.Expr -> LowerM GrinExpr
 lowerExpr env expression =
   case expression of
     Fc.ExVar name -> lowerVariable env name
-    Fc.ExLit literal -> GrinConstant . pure . GrinLitValue <$> lowerLiteral env literal
+    Fc.ExLit literal _ -> GrinConstant . pure . GrinLitValue <$> lowerLiteral env literal
     Fc.ExApp function argument -> lowerApplication env function argument
     Fc.ExTyApp (Fc.ExTyLam binder body) argument -> lowerExpr (substituteTypeBinder env binder argument) body
     Fc.ExTyApp function _ -> lowerExpr env function
@@ -777,7 +777,7 @@ lowerExpr env expression =
     Fc.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
     Fc.ExLet binding body -> lowerLet env binding body
     Fc.ExRec bindings body -> lowerRec env bindings body
-    Fc.ExCase scrutinee binder _ (NE.toList -> alternatives) -> lowerCase env scrutinee binder alternatives
+    Fc.ExCase scrutinee binder (NE.toList -> alternatives) -> lowerCase env scrutinee binder alternatives
     Fc.ExAbsurd scrutinee _ ->
       bindExpression env "absurd_value" scrutinee $ \values -> do
         let value = case values of
@@ -1349,7 +1349,7 @@ classifyOperand env expression = do
           pure (if isLiftedRuntimeRep representation then Just (LazyOperand expression) else Nothing)
       | isLiftedRuntimeRep representation -> Just . SettledOperand . pure . GrinGlobalValue <$> valueGlobalName env name
       | otherwise -> pure Nothing
-    Fc.ExLit literal
+    Fc.ExLit literal _
       | not (isLiftedRuntimeRep representation) -> Just . SettledOperand . pure . GrinLitValue <$> lowerLiteral env literal
     _
       | isLiftedRuntimeRep representation -> pure (Just (LazyOperand expression))
@@ -1638,7 +1638,7 @@ freeVariables expression =
     Fc.ExRec bindings body ->
       let names = Set.fromList (map (Fc.binderName . Fc.bindBinder) bindings)
        in (foldMap (freeVariables . Fc.bindRhs) bindings <> freeVariables body) `Set.difference` names
-    Fc.ExCase scrutinee binder _ (NE.toList -> alternatives) ->
+    Fc.ExCase scrutinee binder (NE.toList -> alternatives) ->
       freeVariables scrutinee
         <> (foldMap freeAltVariables alternatives `Set.difference` foldMap (Set.singleton . Fc.binderName) binder)
     Fc.ExCoercion _ -> Set.empty
@@ -1656,7 +1656,7 @@ freeAltVariables alternative =
 expressionRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
 expressionRuntimeRep env expression =
   case expression of
-    Fc.ExLit literal -> literalRep env literal
+    Fc.ExLit literal _ -> literalRep env literal
     _ -> expressionType env expression >>= liftEither . runtimeRep env
 
 -- | What an expression in result position produces: the body of a function,
@@ -1665,56 +1665,14 @@ expressionRuntimeRep env expression =
 expressionResultRep :: LowerEnv -> Fc.Expr -> LowerM GrinResultRep
 expressionResultRep env expression =
   case expression of
-    Fc.ExLit literal -> ResultRep <$> literalRep env literal
+    Fc.ExLit literal _ -> ResultRep <$> literalRep env literal
     _ -> expressionType env expression >>= liftEither . typeResultRep env
 
 expressionType :: LowerEnv -> Fc.Expr -> LowerM Fc.Type
 expressionType env expression =
-  case expression of
-    Fc.ExVar name -> lookupNameType env name
-    Fc.ExLit {} -> throwLower "GRIN cannot infer a source type for this literal"
-    Fc.ExApp function _ -> do
-      functionType <- expressionType env function
-      case reduce env functionType of
-        Fc.TyFun _ _ _ result -> pure result
-        other -> throwLower ("GRIN application has a non-function type: " <> show other <> " for " <> show function)
-    Fc.ExTyApp function argument -> do
-      functionType <- expressionType env function
-      case reduce env functionType of
-        Fc.TyForAll binder body -> pure (TypeOf.substType (Fc.binderName binder) (applySubstitution env argument) body)
-        other -> throwLower ("GRIN type application has a non-forall type: " <> show other)
-    Fc.ExLam binder body -> do
-      bodyType <- expressionType (extendTypeBinder env binder) body
-      argumentRep <- repType env (Fc.binderType binder)
-      resultRep <- repType env bodyType
-      pure (Fc.TyFun argumentRep resultRep (applySubstitution env (Fc.binderType binder)) bodyType)
-    Fc.ExTyLam binder body -> Fc.TyForAll binder <$> expressionType (extendTypeBinder env binder) body
-    Fc.ExLet binding body -> expressionType (extendTermBinder (Fc.bindBinder binding) env) body
-    Fc.ExRec bindings body -> expressionType (foldl (flip (extendTermBinder . Fc.bindBinder)) env bindings) body
-    Fc.ExAbsurd _ resultType -> pure (applySubstitution env resultType)
-    Fc.ExCase _ _ resultType _ -> pure (applySubstitution env resultType)
-    -- The foreign type is closed, so the environment substitution does not
-    -- apply to it. The type arguments go into it directly.
-    Fc.ExForeignCall call types arguments -> do
-      instantiated <- foldM instantiate (Fc.foreignCallType call) types
-      foldM apply instantiated arguments
-      where
-        instantiate functionType argument =
-          case functionType of
-            Fc.TyForAll binder body -> pure (TypeOf.substType (Fc.binderName binder) (applySubstitution env argument) body)
-            other -> throwLower ("GRIN foreign call type application has a non-forall type: " <> show other)
-        apply functionType _ =
-          case reduce env functionType of
-            Fc.TyFun _ _ _ result -> pure result
-            other -> throwLower ("GRIN foreign call has a non-function type: " <> show other)
-    Fc.ExCoercion proof ->
-      case TypeOf.coercionEndpoints (lowerTypes env) proof of
-        Just (left, right) -> pure (Fc.TyEq (applySubstitution env left) (applySubstitution env right))
-        Nothing -> throwLower "GRIN cannot determine equality evidence endpoints"
-    Fc.ExCast _ coercion ->
-      case TypeOf.coercionEndpoints (lowerTypes env) coercion of
-        Just (_, target) -> pure (applySubstitution env target)
-        Nothing -> throwLower ("GRIN cannot determine coercion endpoints: " <> show coercion)
+  case TypeOf.exprTypeWith (lowerTypeSubstitution env) (lowerTypes env) expression of
+    Just ty -> pure ty
+    Nothing -> throwLower "GRIN cannot determine the checked FC expression type"
 
 -- | The layout of a value of a type. A representation that is still a type
 -- variable has no layout, and a value of such a type is never placed: the
@@ -1738,13 +1696,6 @@ typeRuntimeRep env sourceType =
     (TypeOf.repOf (lowerTypes env) appliedType)
   where
     appliedType = applySubstitution env sourceType
-
-repType :: LowerEnv -> Fc.Type -> LowerM Fc.Type
-repType env sourceType =
-  maybe
-    (throwLower ("GRIN cannot find a runtime representation type for: " <> show sourceType))
-    pure
-    (TypeOf.repOf (lowerTypes env) (applySubstitution env sourceType))
 
 runtimeComponents :: LowerEnv -> Fc.Type -> Either String [GrinRep]
 runtimeComponents env sourceType = runtimeRepComponents <$> runtimeRep env sourceType

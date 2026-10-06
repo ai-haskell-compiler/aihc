@@ -64,14 +64,14 @@ expected: |-
 
   pub val 1.vtruthy :: ∀(a : sType). t$Dict$Truthy a 2.→ a 2.→ tBool
     = Λ(a : sType). λ($d0 : t$Dict$Truthy a).
-      case $d0 return (a 2.→ tBool) of {
+      case $d0 of {
         c$Dict$Truthy ($method0 : a 2.→ tBool) →
           $method0
       }
 
   pub val 1.vinj :: ∀(c : sType 2.→ sType) (a : sType). t$Dict$KnownCtxt c 2.→ c a 2.→ tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) c 2.→ a 2.→ tBool
     = Λ(c : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$KnownCtxt c) ($d1 : c a).
-      case $d0 return (tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) c 2.→ a 2.→ tBool) of {
+      case $d0 of {
         c$Dict$KnownCtxt ($method0 : ∀(a{1} : sType). c a{1} 2.→ tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) c 2.→ a{1} 2.→ tBool) →
           $method0 @a $d1
       }

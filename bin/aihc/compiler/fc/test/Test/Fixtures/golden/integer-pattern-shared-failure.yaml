@@ -53,9 +53,9 @@ expected: |-
     (y : b).
       let _fail : tFlag =
           vother @a x;
-        case v== @a $d2 x (vfromInteger @a $d3 (cIS 0#cIntRep)) return (tFlag) of {
+        case v== @a $d2 x (vfromInteger @a $d3 (cIS lit (0#cIntRep) :: tInt#)) of {
           cTrue →
-            case v== @b $d0 y (vfromInteger @b $d1 (cIS 0#cIntRep)) return (tFlag) of {
+            case v== @b $d0 y (vfromInteger @b $d1 (cIS lit (0#cIntRep) :: tInt#)) of {
               cTrue →
                 cOn;
               cFalse →

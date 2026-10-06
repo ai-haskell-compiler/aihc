@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- | Lift closed constructor expressions into private constants.
 module Aihc.Fc.ConstantLift (liftConstants) where
@@ -13,7 +12,6 @@ import Aihc.Fc.TypeOf (TypeEnv (..), lookupHeaderType, substType, typeEnvFromPro
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Control.Monad (foldM, guard)
 import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
@@ -81,7 +79,7 @@ walkChildren env owner expression =
     ExTyLam binder body -> ExTyLam binder <$> walk body
     ExLet binding body -> ExLet <$> walkBind binding <*> walk body
     ExRec bindings body -> ExRec <$> mapM walkBind bindings <*> walk body
-    ExCase scrutinee binder ty (NE.toList -> alternatives) -> caseFromList <$> walk scrutinee <*> pure binder <*> pure ty <*> mapM walkAlt alternatives
+    ExCase scrutinee binder alternatives -> ExCase <$> walk scrutinee <*> pure binder <*> mapM walkAlt alternatives
     ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> walk scrutinee
     ExCast body coercion -> (`ExCast` coercion) <$> walk body
     ExForeignCall call types arguments -> ExForeignCall call types <$> mapM walk arguments

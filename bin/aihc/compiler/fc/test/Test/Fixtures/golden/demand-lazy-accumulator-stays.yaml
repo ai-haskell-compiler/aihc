@@ -48,9 +48,9 @@ expected: |-
 
   val 1.vadd :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (a : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -58,13 +58,13 @@ expected: |-
 
   pub val 1.vcount :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (i : tInt#) →
-          case i return (tInt) of {
+          case i of {
             0#cIntRep →
-              cI# 0#cIntRep;
+              cI# lit (0#cIntRep) :: tInt#;
             _ →
-              vcount (cI# (prim -# i 1#cIntRep)) (vadd y x)
+              vcount (cI# (prim -# i lit (1#cIntRep) :: tInt#)) (vadd y x)
           }
       }
 status: pass

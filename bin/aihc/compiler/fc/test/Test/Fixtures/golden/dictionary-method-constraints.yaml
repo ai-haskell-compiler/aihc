@@ -42,14 +42,14 @@ expected: |-
 
   pub val 1.vrender :: ∀(a : sType). t$Dict$Render a 2.→ a 2.→ tResult
     = Λ(a : sType). λ($d0 : t$Dict$Render a).
-      case $d0 return (a 2.→ tResult) of {
+      case $d0 of {
         c$Dict$Render ($method0 : a 2.→ tResult) →
           $method0
       }
 
   pub val 1.vconvert :: ∀(a : sType) (b : sType). t$Dict$Convert a 2.→ t$Dict$Render b 2.→ a 2.→ b 2.→ tResult
     = Λ(a : sType) (b : sType). λ($d0 : t$Dict$Convert a) ($d1 : t$Dict$Render b).
-      case $d0 return (a 2.→ b 2.→ tResult) of {
+      case $d0 of {
         c$Dict$Convert ($method0 : ∀(b{1} : sType). t$Dict$Render b{1} 2.→ a 2.→ b{1} 2.→ tResult) →
           $method0 @b $d1
       }

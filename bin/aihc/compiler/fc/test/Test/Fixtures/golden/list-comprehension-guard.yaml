@@ -31,11 +31,11 @@ expected: |-
       rec {
         _list_comp : t[] a 2.→ t[] b =
           λ(_list_comp_list : t[] a).
-            case _list_comp_list return (t[] b) of {
+            case _list_comp_list of {
               c[] →
                 c[] @b;
               c: (x{1} : a) (_list_comp_tail : t[] a) →
-                case y x{1} return (t[] b) of {
+                case y x{1} of {
                   cTrue →
                     c: @b (x x{1}) (_list_comp _list_comp_tail);
                   cFalse →

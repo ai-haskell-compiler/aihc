@@ -55,13 +55,13 @@ expected: |-
   pub val 1.vpick :: tChoice 2.→ tBool 2.→ tBox
     = λ(x : tChoice) (y : tBool).
       let shared : tBox =
-          case x return (tBox) of {
+          case x of {
             cA →
               cBox y y y y;
             _ →
               cBox (vopaque (vopaque y)) (vopaque (vopaque y)) (vopaque (vopaque y)) (vopaque (vopaque y))
           };
-        case x return (tBox) of {
+        case x of {
           cA →
             shared;
           cB →

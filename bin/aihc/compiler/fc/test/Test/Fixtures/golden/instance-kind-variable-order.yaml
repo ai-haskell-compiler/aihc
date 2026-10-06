@@ -46,7 +46,7 @@ expected: |-
 
   pub val 1.vtypeRep :: ∀(k : sType) (a : k). t$Dict$Typeable k a 2.→ tTypeRep k a
     = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a).
-      case $d0 return (tTypeRep k a) of {
+      case $d0 of {
         c$Dict$Typeable ($method0 : tTypeRep k a) →
           $method0
       }
@@ -79,7 +79,7 @@ expected: |-
 
   pub val 1.vput :: ∀(a : sType). t$Dict$Binary a 3.→ a 3.→ tUnit
     = Λ(a : sType). λ($d0 : t$Dict$Binary a).
-      case $d0 return (a 3.→ tUnit) of {
+      case $d0 of {
         c$Dict$Binary ($method0 : a 3.→ tUnit) →
           $method0
       }

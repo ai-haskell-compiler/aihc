@@ -51,13 +51,13 @@ expected: |-
 
   val 1.vhelper inline :: tBool 2.→ tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool) (z : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
-          case y return (tBool) of {
+          case y of {
             cTrue →
               z;
             cFalse →
-              case z return (tBool) of {
+              case z of {
                 cTrue →
                   y;
                 cFalse →
@@ -65,9 +65,9 @@ expected: |-
               }
           };
         cFalse →
-          case z return (tBool) of {
+          case z of {
             cTrue →
-              case y return (tBool) of {
+              case y of {
                 cTrue →
                   x;
                 cFalse →

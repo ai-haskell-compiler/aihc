@@ -65,11 +65,11 @@ expected: |-
 
   pub val 1.vbox :: tPair 3.→ tBox
     = λ(x : tPair).
-      case x return (tBox) of {
+      case x of {
         cPair (x{1} : tInt) (y : tInt) →
-          case x{1} return (tBox) of {
+          case x{1} of {
             cI# (i : tInt#) →
-              case y return (tBox) of {
+              case y of {
                 cI# (j : tInt#) →
                   let argument : tInt# =
                       prim +# i j;
@@ -80,13 +80,13 @@ expected: |-
 
   pub val 1.vtotal :: tPair 3.→ tInt
     = λ(x : tPair).
-      case x return (tInt) of {
+      case x of {
         cPair (x{1} : tInt) (y : tInt) →
-          case x{1} return (tInt) of {
+          case x{1} of {
             cI# (x{2} : tInt#) →
-              case y return (tInt) of {
+              case y of {
                 cI# (x{3} : tInt#) →
-                  case x{1} return (tInt) of {
+                  case x{1} of {
                     cI# (y{1} : tInt#) →
                       cI# (prim +# x{2} (prim +# x{3} y{1}))
                   }

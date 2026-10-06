@@ -20,7 +20,7 @@ pub type 1.tBranch :: 2.sType 2.→ 2.sType {
 
 val 1.vkeep :: ∀(b : 2.sType). 1.tBranch b 2.→ 1.tBranch b
  = Λ(b : 2.sType). λ(x : 1.tBranch b).
-  case x as (w : 1.tBranch b) return (1.tBranch b) of {
+  case x as (w : 1.tBranch b) of {
       1.cBranch @(c : 2.sType) (f : c 2.→ b) →
           x
   }

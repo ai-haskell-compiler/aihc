@@ -38,7 +38,7 @@ expected: |-
 
   pub val 1.vfirst :: tPair 2.→ tInt
     = λ(x : tPair).
-      case x return (tInt) of {
+      case x of {
         cPair (a : tInt) (_pat : tInt) →
           a
       }

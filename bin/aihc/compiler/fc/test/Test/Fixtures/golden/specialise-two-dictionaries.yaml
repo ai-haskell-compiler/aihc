@@ -68,7 +68,7 @@ expected: |-
 
   val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
     = Λ(a : sType). λ($d0 : t$Dict$Weight a).
-      case $d0 return (a 3.→ tInt) of {
+      case $d0 of {
         c$Dict$Weight ($method0 : a 3.→ tInt) →
           $method0
       }
@@ -78,11 +78,11 @@ expected: |-
 
   val 1.v$fWeightBool$cweight :: tBool 3.→ tInt
     = λ(x : tBool).
-      case x return (tInt) of {
+      case x of {
         cTrue →
-          cI# 1#cIntRep;
+          cI# lit (1#cIntRep) :: tInt#;
         cFalse →
-          cI# 0#cIntRep
+          cI# lit (0#cIntRep) :: tInt#
       }
 
   pub val 1.v$fWeightInt :: t$Dict$Weight tInt
@@ -94,9 +94,9 @@ expected: |-
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (a : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -107,7 +107,7 @@ expected: |-
       rec {
         $sgo : t[] tBool 3.→ tInt 3.→ tInt =
           λ(x{1} : t[] tBool) (y{1} : tInt).
-            case x{1} return (tInt) of {
+            case x{1} of {
               c[] →
                 y{1};
               c: (y{2} : tBool) (ys : t[] tBool) →
@@ -117,13 +117,13 @@ expected: |-
         rec {
           $sgo{1} : t[] tInt 3.→ tInt 3.→ tInt =
             λ(x{1} : t[] tInt) (y{1} : tInt).
-              case x{1} return (tInt) of {
+              case x{1} of {
                 c[] →
                   y{1};
                 c: (y{2} : tInt) (ys : t[] tInt) →
                   $sgo{1} ys (vplus y{1} (vweight @tInt v$fWeightInt y{2}))
               }
         } in
-          vplus ($sgo x (cI# 0#cIntRep)) ($sgo{1} y (cI# 0#cIntRep))
+          vplus ($sgo x (cI# lit (0#cIntRep) :: tInt#)) ($sgo{1} y (cI# lit (0#cIntRep) :: tInt#))
 status: pass
 reason: The two calls of 'go' give two dictionaries, so the pass makes one copy for each and the original binding goes away.

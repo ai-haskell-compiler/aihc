@@ -148,9 +148,10 @@ matchExpr matcher scope subst template target =
     (ExVar name, ExVar targetName) -> do
       guard (renamed scope name == targetName)
       pure subst
-    (ExLit literal, ExLit targetLiteral) -> do
+    (ExLit literal ty, ExLit targetLiteral targetType) -> do
+      subst' <- matchType matcher scope subst ty targetType
       guard (literal == targetLiteral)
-      pure subst
+      pure subst'
     (ExCoercion proof, ExCoercion targetProof) -> do
       guard (proof == targetProof)
       pure subst
@@ -176,15 +177,14 @@ matchExpr matcher scope subst template target =
     (ExCast body proof, ExCast targetBody targetProof) -> do
       guard (proof == targetProof)
       matchExpr matcher scope subst body targetBody
-    (ExCase scrutinee binder resultType (NE.toList -> alternatives), ExCase targetScrutinee targetBinder targetResultType (NE.toList -> targetAlternatives)) -> do
+    (ExCase scrutinee binder (NE.toList -> alternatives), ExCase targetScrutinee targetBinder (NE.toList -> targetAlternatives)) -> do
       guard (length alternatives == length targetAlternatives)
       subst' <- matchExpr matcher scope subst scrutinee targetScrutinee
-      subst'' <- matchType matcher scope subst' resultType targetResultType
-      (scope', subst''') <- case (binder, targetBinder) of
-        (Nothing, Nothing) -> Just (scope, subst'')
-        (Just named, Just targetNamed) -> matchBinder matcher scope subst'' named targetNamed
+      (scope', subst'') <- case (binder, targetBinder) of
+        (Nothing, Nothing) -> Just (scope, subst')
+        (Just named, Just targetNamed) -> matchBinder matcher scope subst' named targetNamed
         _ -> Nothing
-      foldM (matchAlternative matcher scope') subst''' (zip alternatives targetAlternatives)
+      foldM (matchAlternative matcher scope') subst'' (zip alternatives targetAlternatives)
     (ExForeignCall call types arguments, ExForeignCall targetCall targetTypes targetArguments) -> do
       guard (foreignCallName call == foreignCallName targetCall)
       guard (length types == length targetTypes && length arguments == length targetArguments)
@@ -292,7 +292,7 @@ exprNames :: Expr -> Set Name
 exprNames expr =
   case expr of
     ExVar name -> Set.singleton name
-    ExLit {} -> Set.empty
+    ExLit _ ty -> typeNames ty
     ExCoercion {} -> Set.empty
     ExApp function argument -> exprNames function <> exprNames argument
     ExTyApp function ty -> exprNames function <> typeNames ty
@@ -300,8 +300,8 @@ exprNames expr =
     ExTyLam binder body -> typeNames (binderType binder) <> exprNames body
     ExLet bind body -> exprNames (bindRhs bind) <> exprNames body
     ExRec binds body -> foldMap (exprNames . bindRhs) binds <> exprNames body
-    ExCase scrutinee _ resultType (NE.toList -> alternatives) ->
-      exprNames scrutinee <> typeNames resultType <> foldMap (exprNames . altRhs) alternatives
+    ExCase scrutinee _ (NE.toList -> alternatives) ->
+      exprNames scrutinee <> foldMap (exprNames . altRhs) alternatives
     ExAbsurd scrutinee resultType -> exprNames scrutinee <> typeNames resultType
     ExCast body _ -> exprNames body
     ExForeignCall _ types arguments -> foldMap typeNames types <> foldMap exprNames arguments

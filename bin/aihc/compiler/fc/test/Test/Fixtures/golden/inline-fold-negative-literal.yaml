@@ -41,7 +41,7 @@ expected: |-
 
   pub val 1.visMinusOne :: FUN @cIntRep @sLiftedRep tInt# tBool
     = λ(x : tInt#).
-      case prim ==# x -1#cIntRep return (tBool) of {
+      case prim ==# x lit (-1#cIntRep) :: tInt# of {
         1#cIntRep →
           cTrue;
         _ →

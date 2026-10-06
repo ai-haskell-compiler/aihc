@@ -189,12 +189,12 @@ splitLocals = go
         ExCast body coercion -> first (`ExCast` coercion) <$> go env scope body
         ExForeignCall call tys arguments -> do
           results <- traverse (go env scope) arguments
-          pure (ExForeignCall call tys (map fst results), List.foldl' addReports none (map snd results))
-        ExCase scrutinee binder ty (NE.toList -> alternatives) -> do
+          pure (ExForeignCall call tys (map fst results), List.foldl' addReports none (foldr ((:) . snd) [] results))
+        ExCase scrutinee binder alternatives -> do
           (scrutinee', a) <- go env scope scrutinee
           let inner = foldl' extendBinder env binder
           results <- traverse (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> go (List.foldl' extendBinder inner (altTypeBinders alternative <> altBinders alternative)) scope (altRhs alternative)) alternatives
-          pure (caseFromList scrutinee' binder ty (map fst results), List.foldl' addReports a (map snd results))
+          pure (ExCase scrutinee' binder (fmap fst results), List.foldl' addReports a (foldr ((:) . snd) [] results))
         ExLet (Bind binder rhs) body -> do
           (rhs', a) <- go env scope rhs
           let scope'
@@ -209,7 +209,7 @@ splitLocals = go
           results <- traverse (\bind -> first (\rhs -> bind {bindRhs = rhs}) <$> go env' scope' (bindRhs bind)) binds
           (body', b) <- go env' scope' body
           let binds' = map fst results
-              report = List.foldl' addReports b (map snd results)
+              report = List.foldl' addReports b (foldr ((:) . snd) [] results)
               signatures = recursiveSignatures env' scope [(binderName (bindBinder bind), bindRhs bind) | bind <- binds']
           -- Each member splits on its own. A member that splits puts its
           -- worker in its place, and every occurrence of it, in the group
@@ -432,7 +432,7 @@ splitFunction types self declaredType workerName demands function =
         go expr =
           case expr of
             ExAbsurd scrutinee _ -> pure (ExAbsurd scrutinee returnedType)
-            ExCase scrutinee binder _ (NE.toList -> alternatives) -> caseFromList scrutinee binder returnedType <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+            ExCase scrutinee binder (NE.toList -> alternatives) -> caseFromList scrutinee binder returnedType <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
             ExLet bind body -> ExLet bind <$> go body
             ExRec binds body -> ExRec binds <$> go body
             _
@@ -500,7 +500,7 @@ constructedTails self unboxed con body = all acceptable leaves && any constructe
     leaves = tails body
     tails expr =
       case expr of
-        ExCase _ _ _ (NE.toList -> alternatives) -> concatMap (tails . altRhs) alternatives
+        ExCase _ _ (NE.toList -> alternatives) -> concatMap (tails . altRhs) alternatives
         ExLet _ inner -> tails inner
         ExRec _ inner -> tails inner
         _ -> [expr]
@@ -604,7 +604,7 @@ replaceCalls name replacement = go
         ExTyLam binder body -> ExTyLam binder <$> go body
         ExLet bind body -> ExLet <$> goBind bind <*> go body
         ExRec binds body -> ExRec <$> traverse goBind binds <*> go body
-        ExCase scrutinee binder ty (NE.toList -> alternatives) -> caseFromList <$> go scrutinee <*> pure binder <*> pure ty <*> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+        ExCase scrutinee binder alternatives -> ExCase <$> go scrutinee <*> pure binder <*> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
         ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go scrutinee
         ExCast body coercion -> (`ExCast` coercion) <$> go body
         ExForeignCall call tys arguments -> ExForeignCall call tys <$> traverse go arguments

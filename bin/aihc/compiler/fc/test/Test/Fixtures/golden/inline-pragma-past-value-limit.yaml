@@ -43,7 +43,7 @@ expected: |-
 
   pub val 1.vfirst :: tBool 2.→ tBool
     = λ(x : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
           cFalse;
         cFalse →
@@ -52,7 +52,7 @@ expected: |-
 
   pub val 1.vsecond :: tBool 2.→ tBool
     = λ(x : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
           cFalse;
         cFalse →

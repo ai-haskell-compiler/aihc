@@ -43,7 +43,7 @@ expected: |-
 
   pub val 1.vhelper :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
           vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque y))))))))))))))))))))))))))))))))))));
         cFalse →

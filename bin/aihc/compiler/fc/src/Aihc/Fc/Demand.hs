@@ -85,7 +85,7 @@ import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, isConstructo
 import Aihc.Fc.Size (isLiftedType, isStrictBinder)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, exprType, extendBinder, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -246,7 +246,7 @@ takenApart name con = go (Set.singleton name)
   where
     go aliases expr =
       case expr of
-        ExCase scrutinee binder _ (NE.toList -> alternatives) ->
+        ExCase scrutinee binder (NE.toList -> alternatives) ->
           let aliased = isVariable aliases scrutinee
               inner = if aliased then foldl' (\current named -> Set.insert (binderName named) current) aliases binder else aliases
            in (aliased && any ((== AltData con) . altCon) alternatives)
@@ -437,11 +437,12 @@ demandExpr env ty expr =
     ExAbsurd scrutinee result -> do
       (scrutinee', strict) <- demandExpr env Nothing scrutinee
       pure (ExAbsurd scrutinee' result, strict)
-    ExCase scrutinee binder result (NE.toList -> alternatives) -> do
+    ExCase scrutinee binder alternatives -> do
+      let result = exprType (envTypes env) expr
       (scrutinee', scrutineeStrict) <- demandExpr env (binderType <$> binder) scrutinee
       results <- traverse (demandAlt (foldl' extendType env binder) result) alternatives
-      let branches = [strict `Set.difference` foldMap (Set.singleton . binderName) binder | (_, strict) <- results]
-      pure (caseFromList scrutinee' binder result (map fst results), scrutineeStrict <> meets branches)
+      let branches = [strict `Set.difference` foldMap (Set.singleton . binderName) binder | (_, strict) <- NE.toList results]
+      pure (ExCase scrutinee' binder (fmap fst results), scrutineeStrict <> meets branches)
     ExForeignCall call tys arguments -> do
       results <- traverse (demandExpr env Nothing) arguments
       let argumentTypes = foreignArgumentTypes (envTypes env) (foreignCallType call)
@@ -455,10 +456,10 @@ meets sets =
     [] -> Set.empty
     first : rest -> List.foldl' Set.intersection first rest
 
-demandAlt :: Env -> Type -> Alt -> DemandM (Alt, Set Name)
+demandAlt :: Env -> Maybe Type -> Alt -> DemandM (Alt, Set Name)
 demandAlt env result alternative = do
   let binders = altTypeBinders alternative <> altBinders alternative
-  (rhs, strict) <- demandExpr (extendTypes env binders) (Just result) (altRhs alternative)
+  (rhs, strict) <- demandExpr (extendTypes env binders) result (altRhs alternative)
   pure (alternative {altRhs = rhs}, strict `Set.difference` Set.fromList (map binderName binders))
 
 -- | A call. The arguments the signature of the head calls strict are
@@ -554,11 +555,13 @@ isValueLike env expr =
 headType :: Env -> Expr -> Maybe Type
 headType env function =
   case function of
-    ExVar name -> Map.lookup name (teBinders (envTypes env)) <|> lookupHeaderType (envTypes env) name
-    ExCast _ coercion -> snd <$> coercionEndpoints (envTypes env) coercion
-    ExAbsurd _ result -> Just result
-    ExCase _ _ result _ -> Just result
+    ExVar {} -> known
+    ExCast {} -> known
+    ExAbsurd {} -> known
+    ExCase {} -> known
     _ -> Nothing
+  where
+    known = exprType (envTypes env) function
 
 -- | The type of each argument of a call and the type of its result, read
 -- off the type of the head. An unknown type stays unknown from there on.

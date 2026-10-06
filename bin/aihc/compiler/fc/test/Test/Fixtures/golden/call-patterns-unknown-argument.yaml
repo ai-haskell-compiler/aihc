@@ -52,19 +52,19 @@ expected: |-
 
   pub val 1.vprefix :: (tInt 3.→ tInt) 3.→ tInt 3.→ tList tInt
     = λ(x : tInt 3.→ tInt) (y : tInt).
-      case y return (tList tInt) of {
+      case y of {
         cI# (s0 : tInt#) →
           rec {
             go : tInt 3.→ FUN @cIntRep @sLiftedRep tInt# (tList tInt) =
               λ(x{1} : tInt) (y{1} : tInt#).
-                case y{1} return (tList tInt) of {
+                case y{1} of {
                   1#cIntRep →
                     cCons @tInt x{1} (cNil @tInt);
                   _ →
-                    cCons @tInt x{1} (go (x x{1}) (prim -# y{1} 1#cIntRep))
+                    cCons @tInt x{1} (go (x x{1}) (prim -# y{1} lit (1#cIntRep) :: tInt#))
                 }
           } in
-            go (cI# (prim +# s0 1#cIntRep)) 10#cIntRep
+            go (cI# (prim +# s0 lit (1#cIntRep) :: tInt#)) lit (10#cIntRep) :: tInt#
       }
 status: pass
 reason: The recursive call gives the result of an unknown function, which is not known to be the constructor. A copy would have to evaluate that result before the call, so the loop stays as it is.

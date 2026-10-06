@@ -52,7 +52,7 @@ expected: |-
   pub val 1.vbifmap :: ∀(k0 : sType) (k1 : sType) (k2 : sType) (k3 : sType) (t : (k0 2.→ k1 2.→ sType) 2.→ k2 2.→ k3 2.→ sType) (p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) (a : k2) (b : k3). t$Dict$BifunctorFunctor k0 k1 k2 k3 t 2.→ (∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ t p a b 2.→ t q a b
     = Λ(k0 : sType) (k1 : sType) (k2 : sType) (k3 : sType) (t : (k0 2.→ k1 2.→ sType) 2.→ k2 2.→ k3 2.→ sType)
     (p : k0 2.→ k1 2.→ sType) (q : k0 2.→ k1 2.→ sType) (a : k2) (b : k3). λ($d0 : t$Dict$BifunctorFunctor k0 k1 k2 k3 t).
-      case $d0 return ((∀(a{1} : k0) (b{1} : k1). p a{1} b{1} 2.→ q a{1} b{1}) 2.→ t p a b 2.→ t q a b) of {
+      case $d0 of {
         c$Dict$BifunctorFunctor ($method0 : ∀(p{1} : k0 2.→ k1 2.→ sType) (q{1} : k0 2.→ k1 2.→ sType) (a{1} : k2) (b{1} : k3). (∀(a{2} : k0) (b{2} : k1). p{1} a{2} b{2} 2.→ q{1} a{2} b{2}) 2.→ t p{1} a{1} b{1} 2.→ t q{1} a{1} b{1}) →
           $method0 @p @q @a @b
       }

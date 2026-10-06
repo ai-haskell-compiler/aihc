@@ -61,7 +61,7 @@
  },
  {
   "line": 20,
-  "text": "∀",
+  "text": "\u2200",
   "scope": "keyword.operator.binder.aihc-fc"
  },
  {
@@ -76,7 +76,7 @@
  },
  {
   "line": 20,
-  "text": "→",
+  "text": "\u2192",
   "scope": "keyword.operator.arrow.aihc-fc"
  },
  {
@@ -87,12 +87,12 @@
  },
  {
   "line": 21,
-  "text": "Λ",
+  "text": "\u039b",
   "scope": "keyword.operator.binder.aihc-fc"
  },
  {
   "line": 22,
-  "text": "λ",
+  "text": "\u03bb",
   "scope": "keyword.operator.binder.aihc-fc"
  },
  {
@@ -110,11 +110,6 @@
   "line": 24,
   "text": "_scrut",
   "scope": "variable.other.aihc-fc"
- },
- {
-  "line": 24,
-  "text": "return",
-  "scope": "keyword.control.aihc-fc"
  },
  {
   "line": 24,
@@ -218,12 +213,27 @@
  },
  {
   "line": 40,
-  "text": "▷",
+  "text": "\u25b7",
   "scope": "keyword.operator.aihc-fc"
  },
  {
   "line": 40,
   "text": "sym",
   "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 38,
+  "text": "lit",
+  "scope": "keyword.control.aihc-fc"
+ },
+ {
+  "line": 38,
+  "text": "::",
+  "scope": "keyword.operator.aihc-fc"
+ },
+ {
+  "line": 38,
+  "text": "tInt#",
+  "scope": "entity.name.type.aihc-fc"
  }
 ]

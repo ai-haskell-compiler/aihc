@@ -46,14 +46,14 @@ expected: |-
 
   pub val 1.vbuild :: tPair tInt 2.→ tBoxed
     = λ(_strict_field : tPair tInt).
-      case _strict_field return (tBoxed) of {
+      case _strict_field of {
         cPair (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) →
           cBoxed _unpack_leaf0 _unpack_leaf1
       }
 
   pub val 1.vunwrap :: tBoxed 2.→ tPair tInt
     = λ(x : tBoxed).
-      case x return (tPair tInt) of {
+      case x of {
         cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) →
           cPair @tInt _unpack_leaf0 _unpack_leaf1
       }

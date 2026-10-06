@@ -51,16 +51,16 @@ expected: |-
 
   val 1.v$fShowCode$cshowsPrec :: tInt 5.→ tCode 5.→ t[] tChar 5.→ t[] tChar
     = λ(x : tInt) (y : tCode).
-      case y return (t[] tChar 5.→ t[] tChar) of {
+      case y of {
         cExitSuccess →
           λ(s : t[] tChar).
-            vunpackAppendCString# "ExitSuccess"#cAddrRep s;
+            vunpackAppendCString# lit ("ExitSuccess"#cAddrRep) :: tAddr# s;
         cExitFailure →
           λ(s : t[] tChar).
-            vunpackAppendCString# "ExitFailure"#cAddrRep s;
+            vunpackAppendCString# lit ("ExitFailure"#cAddrRep) :: tAddr# s;
         cCλ →
           λ(s : t[] tChar).
-            vunpackAppendCStringUtf8# "C\xce\xbb"#cAddrRep s
+            vunpackAppendCStringUtf8# lit ("C\xce\xbb"#cAddrRep) :: tAddr# s
       }
 
   val 1.v$fShowCode$cshow :: tCode 5.→ t[] tChar

@@ -56,12 +56,12 @@ expected: |-
 
   pub val 1.vnext :: tStrict 3.→ tBox
     = λ(x : tStrict).
-      case x return (tBox) of {
+      case x of {
         cStrict (x{1} : tCount) →
-          case x{1} return (tBox) of {
+          case x{1} of {
             cCount (a : tInt#) →
               let argument : tInt# =
-                  prim +# a 1#cIntRep;
+                  prim +# a lit (1#cIntRep) :: tInt#;
                 cBox (cCount argument)
           }
       }

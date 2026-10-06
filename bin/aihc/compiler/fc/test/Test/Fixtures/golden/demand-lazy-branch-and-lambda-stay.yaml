@@ -58,14 +58,14 @@ expected: |-
 
   val 1.vdouble :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (i : tInt#) →
           cI# (prim +# i i)
       }
 
   val 1.vpick :: tBool 3.→ tInt 3.→ tInt 3.→ tInt
     = λ(x : tBool) (y : tInt) (z : tInt).
-      case x return (tInt) of {
+      case x of {
         cTrue →
           y;
         cFalse →
@@ -81,9 +81,9 @@ expected: |-
       let y : tInt =
           vdouble x;
         λ(_pat : tInt).
-          case y return (tInt) of {
+          case y of {
             cI# (a : tInt#) →
-              case y return (tInt) of {
+              case y of {
                 cI# (b : tInt#) →
                   cI# (prim +# a b)
               }

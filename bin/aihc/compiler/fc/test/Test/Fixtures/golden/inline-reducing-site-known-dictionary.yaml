@@ -53,7 +53,7 @@ expected: |-
 
   val 1.v$fPickBool$cpick :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
           y;
         cFalse →
@@ -62,12 +62,12 @@ expected: |-
 
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool) (z : tBool).
-      v$fPickBool$cpick (case x return (tBool) of {
+      v$fPickBool$cpick (case x of {
         cTrue →
           y;
         cFalse →
           x
-      }) (case y return (tBool) of {
+      }) (case y of {
         cTrue →
           z;
         cFalse →

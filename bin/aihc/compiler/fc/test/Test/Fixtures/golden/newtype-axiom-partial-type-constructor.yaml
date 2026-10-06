@@ -54,7 +54,7 @@ expected: |-
 
   pub val 1.vsumSize :: ∀(f : sType 2.→ sType). t$Dict$SumSize f 2.→ tTagged f tUnit
     = Λ(f : sType 2.→ sType). λ($d0 : t$Dict$SumSize f).
-      case $d0 return (tTagged f tUnit) of {
+      case $d0 of {
         c$Dict$SumSize ($method0 : tTagged f tUnit) →
           $method0
       }

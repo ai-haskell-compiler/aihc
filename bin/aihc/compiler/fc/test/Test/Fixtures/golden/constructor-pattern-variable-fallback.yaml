@@ -29,7 +29,7 @@ expected: |-
 
   pub val 1.vabsolute :: tValue 2.→ tValue
     = λ(x : tValue).
-      case x as (_scrut : tValue) return (tValue) of {
+      case x as (_scrut : tValue) of {
         cNegative →
           cPositive;
         _ →

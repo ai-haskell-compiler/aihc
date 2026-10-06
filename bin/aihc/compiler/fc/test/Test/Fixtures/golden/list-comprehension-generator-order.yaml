@@ -31,14 +31,14 @@ expected: |-
       rec {
         _list_comp : t[] a 3.→ t[] (tTuple2 a b) =
           λ(_list_comp_list : t[] a).
-            case _list_comp_list return (t[] (tTuple2 a b)) of {
+            case _list_comp_list of {
               c[] →
                 c[] @(tTuple2 a b);
               c: (x{1} : a) (_list_comp_tail : t[] a) →
                 rec {
                   _list_comp{1} : t[] b 3.→ t[] (tTuple2 a b) =
                     λ(_list_comp_list{1} : t[] b).
-                      case _list_comp_list{1} return (t[] (tTuple2 a b)) of {
+                      case _list_comp_list{1} of {
                         c[] →
                           _list_comp _list_comp_tail;
                         c: (y{1} : b) (_list_comp_tail{1} : t[] b) →

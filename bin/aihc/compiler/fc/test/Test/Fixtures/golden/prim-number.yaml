@@ -34,6 +34,6 @@ expected: |-
 
   pub val 1.vone :: ∀(a : sType). t$Dict$Num a 5.→ a
     = Λ(a : sType). λ($d0 : t$Dict$Num a).
-      vfromInteger @a $d0 (cIS 1#cIntRep)
+      vfromInteger @a $d0 (cIS lit (1#cIntRep) :: tInt#)
 status: pass
 reason: type-checks and desugars a number with only aihc-prim built-ins

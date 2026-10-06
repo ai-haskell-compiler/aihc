@@ -57,7 +57,7 @@ expected: |-
 
   pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a 3.→ a 3.→ tMark
     = Λ(a : sType). λ($d0 : t$Dict$Markable a).
-      case $d0 return (a 3.→ tMark) of {
+      case $d0 of {
         c$Dict$Markable ($method0 : a 3.→ tMark) →
           $method0
       }
@@ -67,7 +67,7 @@ expected: |-
 
   val 1.v$fMarkableBool$cmark :: tBool 3.→ tMark
     = λ(x : tBool).
-      case x return (tMark) of {
+      case x of {
         cTrue →
           cMarked;
         cFalse →
@@ -77,9 +77,9 @@ expected: |-
   pub val 1.v$mTagged :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tBox 3.→ (∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tBox) (y : ∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      case x return (r) of {
+      case x of {
         cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (_pat : tBool) (x{1} : a) →
-          case _pat return (r) of {
+          case _pat of {
             cTrue →
               y @a $pattern_d0 x{1};
             _ →

@@ -51,9 +51,9 @@ expected: |-
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (a : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -67,6 +67,6 @@ expected: |-
           vplus total x{1}) ▷ sym (axiom-co $ax$Fn)
 
   pub val 1.vaction :: tFn
-    = vstep (cI# 1#cIntRep) (cI# 2#cIntRep)
+    = vstep (cI# lit (1#cIntRep) :: tInt#) (cI# lit (2#cIntRep) :: tInt#)
 status: pass
 reason: The argument under the newtype is not a state token, so it is not one-shot, and eta expanding past the 'let' would recompute 'plus a b' on every call where the partial application shared it. The value stays a CAF.

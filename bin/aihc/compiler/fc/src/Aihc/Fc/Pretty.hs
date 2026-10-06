@@ -69,7 +69,7 @@ primitiveAliases program = Map.fromList (concatMap aliases (Map.elems grouped))
       ExTyLam _ body -> expressionCalls body
       ExLet binding body -> expressionCalls (bindRhs binding) <> expressionCalls body
       ExRec bindings body -> foldMap (expressionCalls . bindRhs) bindings <> expressionCalls body
-      ExCase scrutinee _ _ (NE.toList -> alternatives) -> expressionCalls scrutinee <> foldMap (expressionCalls . altRhs) alternatives
+      ExCase scrutinee _ (NE.toList -> alternatives) -> expressionCalls scrutinee <> foldMap (expressionCalls . altRhs) alternatives
       ExAbsurd scrutinee _ -> expressionCalls scrutinee
       ExCast body _ -> expressionCalls body
       ExForeignCall call _ arguments -> (if foreignCallConvention call == Prim then Set.singleton call else mempty) <> foldMap expressionCalls arguments
@@ -127,13 +127,14 @@ typeLocals ty = case ty of
 
 expressionLocals :: Expr -> Set.Set Text
 expressionLocals expression = case expression of
+  ExLit _ ty -> typeLocals ty
   ExApp function argument -> expressionLocals function <> expressionLocals argument
   ExTyApp function argument -> expressionLocals function <> typeLocals argument
   ExLam binder body -> binderLocals binder <> expressionLocals body
   ExTyLam binder body -> binderLocals binder <> expressionLocals body
   ExLet binding body -> bindingLocals binding <> expressionLocals body
   ExRec bindings body -> foldMap bindingLocals bindings <> expressionLocals body
-  ExCase scrutinee binder result (NE.toList -> alternatives) -> expressionLocals scrutinee <> foldMap binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
+  ExCase scrutinee binder (NE.toList -> alternatives) -> expressionLocals scrutinee <> foldMap binderLocals binder <> foldMap alternativeLocals alternatives
   ExCoercion proof -> coercionLocals proof
   ExAbsurd scrutinee resultType -> expressionLocals scrutinee <> typeLocals resultType
   ExCast body proof -> expressionLocals body <> coercionLocals proof
@@ -520,7 +521,7 @@ prettyExprWith :: ScopeIndex -> Expr -> Doc ann
 prettyExprWith scopes expr =
   case expr of
     ExVar name -> prettyName scopes name
-    ExLit literal -> prettyLiteral scopes literal
+    ExLit literal ty -> "lit" <+> parens (prettyLiteral scopes literal) <+> "::" <+> prettyTypeWith scopes PrecAtom ty
     ExApp function argument ->
       prettyApp scopes function <+> prettyExprAtom scopes argument
     ExTyApp function argument ->
@@ -536,12 +537,10 @@ prettyExprWith scopes expr =
         <> hardline
         <> "} in"
         <> nest 2 (hardline <> prettyExprWith scopes body)
-    ExCase scrutinee binder resultType (NE.toList -> alts) ->
+    ExCase scrutinee binder (NE.toList -> alts) ->
       "case "
         <> prettyExprWith scopes scrutinee
         <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
-        <> " return "
-        <> parens (prettyTypeWith scopes PrecForAll resultType)
         <> " of {"
         <> hardline
         <> prettyIndentedItems 2 (map (prettyAlt scopes) alts)

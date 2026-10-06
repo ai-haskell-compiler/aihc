@@ -57,16 +57,16 @@ expected: |-
 
   val 1.v$fMyEqBool$ceq :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
-          case y return (tBool) of {
+          case y of {
             cTrue →
               cTrue;
             _ →
               cFalse
           };
         cFalse →
-          case y return (tBool) of {
+          case y of {
             cFalse →
               cTrue;
             _ →
@@ -80,13 +80,13 @@ expected: |-
 
   val 1.v$fMyEqPaira$ceq :: ∀(a : sType). t$Dict$MyEq a 2.→ tPair a 2.→ tPair a 2.→ tBool
     = Λ(a : sType). λ($d0 : t$Dict$MyEq a) (x : tPair a) (y : tPair a).
-      case x return (tBool) of {
+      case x of {
         cPair (a{1} : a) (b : a) →
-          case y return (tBool) of {
+          case y of {
             cPair (c : a) (d : a) →
-              case $d0 return (tBool) of {
+              case $d0 of {
                 c$Dict$MyEq ($method0 : a 2.→ a 2.→ tBool) →
-                  case $method0 a{1} c return (tBool) of {
+                  case $method0 a{1} c of {
                     cTrue →
                       $method0 b d;
                     cFalse →

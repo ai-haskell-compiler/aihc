@@ -61,7 +61,7 @@ exprSize env expr =
       | isStrictBinder env (bindBinder bind) -> 1 + exprSize env (bindRhs bind) + tailLeaves env (bindRhs bind) * exprSize env body
       | otherwise -> 1 + exprSize env (bindRhs bind) + exprSize env body
     ExRec binds body -> 1 + sum (map (exprSize env . bindRhs) binds) + exprSize env body
-    ExCase scrutinee _ _ (NE.toList -> alternatives) ->
+    ExCase scrutinee _ (NE.toList -> alternatives) ->
       exprSize env scrutinee + tailLeaves env scrutinee * sum [1 + altSize alternative | alternative <- alternatives]
     ExAbsurd scrutinee _ -> 1 + exprSize env scrutinee
     ExCast body _ -> exprSize env body
@@ -75,7 +75,7 @@ exprSize env expr =
 tailLeaves :: TypeEnv -> Expr -> Int
 tailLeaves env expr =
   case expr of
-    ExCase _ _ _ (NE.toList -> alternatives) -> max 1 (sum [tailLeaves (List.foldl' extendBinder env (altTypeBinders alternative)) (altRhs alternative) | alternative <- alternatives])
+    ExCase _ _ (NE.toList -> alternatives) -> max 1 (sum [tailLeaves (List.foldl' extendBinder env (altTypeBinders alternative)) (altRhs alternative) | alternative <- alternatives])
     ExLet bind body
       | isStrictBinder env (bindBinder bind) -> tailLeaves env (bindRhs bind) * tailLeaves env body
       | otherwise -> tailLeaves env body

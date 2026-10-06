@@ -34,7 +34,7 @@ expected: |-
 
   pub val 1.vforceBox :: tBox 2.→ tBox
     = λ(x : tBox).
-      case x as (_scrut : tBox) return (tBox) of {
+      case x as (_scrut : tBox) of {
         _ →
           _scrut
       }

@@ -2002,14 +2002,14 @@ countUses name = go 0
           case expression of
             ExVar other -> if other == name then total + 1 else total
             ExCoercion _ -> total
-            ExLit _ -> total
+            ExLit _ _ -> total
             ExApp function argument -> go (go total function) argument
             ExTyApp function _ -> go total function
             ExLam _ inner -> go total inner
             ExTyLam _ inner -> go total inner
             ExLet binding inner -> go (go total (bindRhs binding)) inner
             ExRec bindings inner -> go (foldl' go total (map bindRhs bindings)) inner
-            ExCase scrutinee _ _ (NE.toList -> alternatives) -> foldl' go (go total scrutinee) (map altRhs alternatives)
+            ExCase scrutinee _ (NE.toList -> alternatives) -> foldl' go (go total scrutinee) (map altRhs alternatives)
             ExAbsurd scrutinee _ -> go total scrutinee
             ExCast inner _ -> go total inner
             ExForeignCall _ _ arguments -> foldl' go total arguments
@@ -2023,15 +2023,15 @@ substituteVar name value = go
       case expression of
         ExVar other -> if other == name then value else expression
         ExCoercion _ -> expression
-        ExLit _ -> expression
+        ExLit _ _ -> expression
         ExApp function argument -> ExApp (go function) (go argument)
         ExTyApp function ty -> ExTyApp (go function) ty
         ExLam binder inner -> ExLam binder (go inner)
         ExTyLam binder inner -> ExTyLam binder (go inner)
         ExLet binding inner -> ExLet binding {bindRhs = go (bindRhs binding)} (go inner)
         ExRec bindings inner -> ExRec [binding {bindRhs = go (bindRhs binding)} | binding <- bindings] (go inner)
-        ExCase scrutinee binder ty (NE.toList -> alternatives) ->
-          caseFromList (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExCase scrutinee binder alternatives ->
+          ExCase (go scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (altRhs alternative)}) alternatives)
         ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
         ExCast inner coercion -> ExCast (go inner) coercion
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
@@ -2991,6 +2991,8 @@ desugarExpr expression =
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
   body <-
@@ -3025,7 +3027,7 @@ desugarAnnotatedExpr annotation inner = do
               representation <- convertRuntimeRep (intRep kinds)
               constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
               count <- listLength list
-              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)))
+              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)) intHashType)
               ExApp (ExApp method size) <$> desugarExpr list
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
@@ -3046,21 +3048,21 @@ desugarAnnotatedExpr annotation inner = do
           | numericType /= Syn.TInteger -> do
               kinds <- valueKinds
               representation <- convertRuntimeRep (numericRepresentation kinds numericType)
-              pure (ExLit (LitInt representation value))
+              ExLit (LitInt representation value) <$> convertCheckedType (tcAnnType annotation)
         Syn.EFloat value floatType _
           | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
               kinds <- valueKinds
               representation' <- convertRuntimeRep (representation kinds)
-              pure (ExLit (LitInt representation' bits))
+              ExLit (LitInt representation' bits) <$> convertCheckedType (tcAnnType annotation)
         Syn.EChar value _ -> do
           kinds <- valueKinds
           constructor <- boxedCharConstructor
           representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
+          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value) charHashType))
         Syn.ECharHash value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExLit (LitChar representation value))
+          ExLit (LitChar representation value) <$> convertCheckedType (tcAnnType annotation)
         Syn.EString value _ -> desugarString annotation value
         _
           | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
@@ -3068,7 +3070,7 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EStringHash value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (addrRep kinds)
-          pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
+          ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
         Syn.EList elements -> desugarList annotation elements
         Syn.EListComp expression statements -> desugarListComp annotation expression statements
         Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
@@ -4173,6 +4175,7 @@ raiseErrorValue resultType message = do
 
 desugarString :: TcAnnotation -> Text -> ValueM Expr
 desugarString annotation value = do
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   elementType <-
     case tcAnnType annotation of
       TcTyCon tyCon [ty]
@@ -4196,7 +4199,7 @@ desugarString annotation value = do
       consName <- primitiveName "GHC.Types" ":" SortDataConstructor
       let nil = ExTyApp (ExVar nilName) convertedType
           cons = ExTyApp (ExVar consName) convertedType
-          boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character))
+          boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character) charHashType)
       pure (foldr (ExApp . ExApp cons . boxedChar) nil (T.unpack value))
 
 desugarUnboxedSum :: TcAnnotation -> Int -> Int -> Syn.Expr -> ValueM Expr
@@ -4899,7 +4902,7 @@ expressionFreeNames :: Expr -> Set Name
 expressionFreeNames expression =
   case expression of
     ExVar name -> Set.singleton name
-    ExLit _ -> Set.empty
+    ExLit _ _ -> Set.empty
     ExApp function argument -> expressionFreeNames function <> expressionFreeNames argument
     ExTyApp function _ -> expressionFreeNames function
     ExLam binder inner -> Set.delete (binderName binder) (expressionFreeNames inner)
@@ -4908,7 +4911,7 @@ expressionFreeNames expression =
     ExRec bindings inner ->
       let names = Set.fromList (map (binderName . bindBinder) bindings)
        in (foldMap (expressionFreeNames . bindRhs) bindings <> expressionFreeNames inner) `Set.difference` names
-    ExCase scrutinee binder _ (NE.toList -> alternatives) ->
+    ExCase scrutinee binder (NE.toList -> alternatives) ->
       expressionFreeNames scrutinee
         <> (foldMap alternativeFreeNames alternatives `Set.difference` foldMap (Set.singleton . binderName) binder)
     ExCoercion _ -> Set.empty
@@ -5055,6 +5058,7 @@ desugarSuperClass evidence =
 -- | One entry of the call stack of an occurrence with @HasCallStack@.
 desugarCallStackPush :: (Text, Text) -> Text -> Ev.CallSite -> Ev.EvTerm -> ValueM Expr
 desugarCallStackPush (packageName, moduleName') function site parent = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   parent' <- desugarEvidence parent
   (currentPackage, currentModule) <- gets vsModuleOrigin
   functionText <- desugarStringValue function
@@ -5068,7 +5072,7 @@ desugarCallStackPush (packageName, moduleName') function site parent = do
   listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
   pairConstructor <- primitiveName "GHC.Tuple" "(,)" SortDataConstructor
   let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
-      boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
+      boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)) intHashType)
       stringType = TyApp (TyCon listName) (TyCon charName)
       locationType = TyCon (libraryName "SrcLoc" SortTypeConstructor)
       -- GHC's pushCallStack takes the call site as a pair.
@@ -5104,6 +5108,7 @@ desugarCallStackEmpty (packageName, moduleName') =
 -- @0xC0 0x80@ so that it never terminates the string.
 desugarStringValue :: Text -> ValueM Expr
 desugarStringValue value = do
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   kinds <- valueKinds
   case T.unpack value of
     characters@(_ : _ : _) -> desugarPackedString characters Nothing
@@ -5113,11 +5118,12 @@ desugarStringValue value = do
       representation <- convertRuntimeRep (wordRep kinds)
       desugarFcList
         (TyCon charName)
-        [ExApp (ExVar charConstructor) (ExLit (LitChar representation character)) | character <- characters]
+        [ExApp (ExVar charConstructor) (ExLit (LitChar representation character) charHashType) | character <- characters]
 
 -- | Encode a string literal, with an optional list suffix that stays lazy.
 desugarPackedString :: [Char] -> Maybe Expr -> ValueM Expr
 desugarPackedString characters suffix = do
+  addrHashType <- TyCon <$> primitiveName "GHC.Prim" "Addr#" SortTypeConstructor
   kinds <- valueKinds
   let (encoding, bytes)
         | all latin1Safe characters = ("", BS.pack (map (fromIntegral . fromEnum) characters))
@@ -5125,7 +5131,7 @@ desugarPackedString characters suffix = do
       prefix = if isJust suffix then "unpackAppendCString" else "unpackCString"
   unpackName <- primitiveName "GHC.CString" (prefix <> encoding <> "#") SortValue
   representation <- convertRuntimeRep (addrRep kinds)
-  let unpacked = ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes))
+  let unpacked = ExApp (ExVar unpackName) (ExLit (LitAddr representation bytes) addrHashType)
   pure (maybe unpacked (ExApp unpacked) suffix)
   where
     latin1Safe character = character >= '\1' && character <= '\127'
@@ -5146,7 +5152,7 @@ compactStringValues declarations = do
       wordRepresentation = TyCon (name "WordRep" SortDataConstructor)
       stringPrefix expression =
         case expression of
-          ExApp (ExApp constructor (ExApp (ExVar boxed) (ExLit (LitChar representation character)))) rest
+          ExApp (ExApp constructor (ExApp (ExVar boxed) (ExLit (LitChar representation character) _))) rest
             | constructor == cons,
               boxed == charConstructor,
               representation == wordRepresentation ->
@@ -5165,8 +5171,8 @@ compactStringValues declarations = do
               ExTyLam binder body -> ExTyLam binder <$> compact body
               ExLet binding body -> ExLet <$> compactBind binding <*> compact body
               ExRec bindings body -> ExRec <$> mapM compactBind bindings <*> compact body
-              ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
-                caseFromList <$> compact scrutinee <*> pure binder <*> pure resultType <*> mapM compactAlt alternatives
+              ExCase scrutinee binder alternatives ->
+                ExCase <$> compact scrutinee <*> pure binder <*> mapM compactAlt alternatives
               ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> compact scrutinee
               ExCast body coercion -> (`ExCast` coercion) <$> compact body
               ExForeignCall call types arguments -> ExForeignCall call types <$> mapM compact arguments
@@ -5194,6 +5200,7 @@ compactStringValues declarations = do
 -- @maxWord@, and then through the primitive conversion.
 desugarTypeLitEvidence :: Maybe (Text, Text) -> TcType -> Tc.TyLit -> ValueM Expr
 desugarTypeLitEvidence origin ty literal = do
+  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   (className, value) <-
     case literal of
       Tc.TyLitNat natural -> do
@@ -5205,7 +5212,7 @@ desugarTypeLitEvidence origin ty literal = do
         kinds <- valueKinds
         constructor <- boxedCharConstructor
         representation <- convertRuntimeRep (wordRep kinds)
-        pure ("KnownChar", ExApp (ExVar constructor) (ExLit (LitChar representation character)))
+        pure ("KnownChar", ExApp (ExVar constructor) (ExLit (LitChar representation character) charHashType))
   classOrigin <-
     case origin of
       Just (packageName, moduleName') -> pure (PackageId packageName, moduleName')
@@ -5263,10 +5270,11 @@ desugarTypeableTyCon (Ev.TypeableTyCon constructor arity kind) = do
 
 desugarTypeableInt :: Int -> ValueM Expr
 desugarTypeableInt value = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
   kinds <- valueKinds
   representation <- convertRuntimeRep (intRep kinds)
-  pure (ExApp (ExVar constructor) (ExLit (LitInt representation (fromIntegral value))))
+  pure (ExApp (ExVar constructor) (ExLit (LitInt representation (fromIntegral value)) intHashType))
 
 desugarTypeableKind :: Ev.TypeableKind -> ValueM Expr
 desugarTypeableKind kind =
@@ -5398,21 +5406,23 @@ desugarRationalLiteral value = do
 
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
+  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
+  wordHashType <- TyCon <$> primitiveName "GHC.Prim" "Word#" SortTypeConstructor
   constructor <- primitiveName "GHC.Prim.Integer" "IS" SortDataConstructor
   kinds <- valueKinds
   intRepresentation <- convertRuntimeRep (intRep kinds)
   wordRepresentation <- convertRuntimeRep (wordRep kinds)
-  let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer))
+  let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer) intHashType)
       coreName text = Name text SortValue (nameOrigin constructor)
       apply name = foldl ExApp (ExVar (coreName name))
-      word integer = ExLit (LitInt wordRepresentation integer)
+      word integer = ExLit (LitInt wordRepresentation integer) wordHashType
       positive integer
         | integer <= maxInt = small integer
         | integer <= maxWord =
-            apply "integerFromTwoWords#" [ExLit (LitInt intRepresentation 1), word 0, word integer]
+            apply "integerFromTwoWords#" [ExLit (LitInt intRepresentation 1) intHashType, word 0, word integer]
         | otherwise =
             let (high, low) = integer `quotRem` wordBase
-                shifted = apply "integerShiftL#" [positive high, ExLit (LitInt intRepresentation 64)]
+                shifted = apply "integerShiftL#" [positive high, ExLit (LitInt intRepresentation 64) intHashType]
              in apply "integerAdd" [shifted, positive low]
       magnitude = positive (abs value)
   pure

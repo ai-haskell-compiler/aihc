@@ -22,4 +22,4 @@ pub type 1.sIntRepSyn :: 2.tRuntimeRep =
 pub type 1.tInt# :: 2.tTYPE 1.sIntRepSyn {}
 
 val 1.vone :: 1.tInt#
- = 1#1.tIntRep
+ = lit (1#1.tIntRep) :: 1.tInt#

@@ -37,7 +37,7 @@ expected: |-
   pub val 1.vrun :: (t[] tChar 3.→ t[] tChar) 3.→ t[] tChar 3.→ t[] tChar
     = λ(x : t[] tChar 3.→ t[] tChar).
       let c : tChar =
-          cC# 'a'#cWordRep;
+          cC# lit ('a'#cWordRep) :: tChar#;
         λ(z : t[] tChar).
           c: @tChar c (x z)
 status: pass

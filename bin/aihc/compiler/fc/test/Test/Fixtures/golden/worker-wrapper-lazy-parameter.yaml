@@ -41,21 +41,21 @@ expected: |-
 
   pub val 1.vpick inline :: tBool 3.→ tInt 3.→ tInt
     = λ(x : tBool) (y : tInt).
-      case v$wpick x y as (field : tInt#) return (tInt) of {
+      case v$wpick x y as (field : tInt#) of {
         _ →
           cI# field
       }
 
   val 1.v$wpick :: FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @cIntRep tInt tInt#)
     = λ(x : tBool) (y : tInt).
-      case x return (tInt#) of {
+      case x of {
         cTrue →
-          case y return (tInt#) of {
+          case y of {
             cI# (a : tInt#) →
               a
           };
         cFalse →
-          0#cIntRep
+          lit (0#cIntRep) :: tInt#
       }
 status: pass
 reason: One branch does not evaluate the Int parameter, so it is lazy and stays boxed. Bool has two constructors, so it stays boxed too. Every branch returns I#, so the worker returns the Int# field.

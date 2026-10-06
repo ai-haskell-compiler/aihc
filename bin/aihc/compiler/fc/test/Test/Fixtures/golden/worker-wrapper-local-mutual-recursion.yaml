@@ -51,30 +51,34 @@ expected: |-
 
   pub val 1.vrun :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case y return (tInt) of {
+      case y of {
         cI# (x{1} : tInt#) →
           rec {
             $wping : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt) =
               λ(x{2} : tInt#) (y{1} : tInt#).
-                case x{2} return (tInt) of {
-                  0#cIntRep →
+                let y{2} : tInt =
                     cI# y{1};
-                  _ →
-                    $wpong (prim -# x{2} 1#cIntRep) (prim +# y{1} 1#cIntRep)
-                };
+                  case x{2} of {
+                    0#cIntRep →
+                      y{2};
+                    _ →
+                      $wpong (prim -# x{2} lit (1#cIntRep) :: tInt#) (prim +# y{1} lit (1#cIntRep) :: tInt#)
+                  };
             $wpong : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt) =
               λ(x{2} : tInt#) (y{1} : tInt#).
-                case x{2} return (tInt) of {
-                  0#cIntRep →
+                let y{2} : tInt =
                     cI# y{1};
-                  _ →
-                    case x return (tInt) of {
-                      cI# (s : tInt#) →
-                        $wping (prim -# x{2} 1#cIntRep) (prim +# y{1} s)
-                    }
-                }
+                  case x{2} of {
+                    0#cIntRep →
+                      y{2};
+                    _ →
+                      case x of {
+                        cI# (s : tInt#) →
+                          $wping (prim -# x{2} lit (1#cIntRep) :: tInt#) (prim +# y{1} s)
+                      }
+                  }
           } in
-            $wping x{1} 0#cIntRep
+            $wping x{1} lit (0#cIntRep) :: tInt#
       }
 status: pass
 reason: The two local loops call each other and have a free variable, so they stay local. Each one gets a worker that takes the fields of its counter, and a call from one loop to the other builds no box for the counter.

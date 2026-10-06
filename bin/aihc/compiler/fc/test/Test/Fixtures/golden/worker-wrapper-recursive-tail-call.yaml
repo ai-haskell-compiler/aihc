@@ -43,7 +43,7 @@ expected: |-
 
   pub val 1.vcount inline :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (x{1} : tInt#) →
           let field : tInt# =
               v$wcount x{1};
@@ -52,11 +52,11 @@ expected: |-
 
   val 1.v$wcount :: FUN @cIntRep @cIntRep tInt# tInt#
     = λ(x : tInt#).
-      case x return (tInt#) of {
+      case x of {
         0#cIntRep →
           x;
         _ →
-          v$wcount (prim -# x 1#cIntRep)
+          v$wcount (prim -# x lit (1#cIntRep) :: tInt#)
       }
 status: pass
 reason: The worker returns the field of its result. The recursive call in the worker becomes a case on the call that returns its binder, which is the call itself, so the recursive call stays a tail call.

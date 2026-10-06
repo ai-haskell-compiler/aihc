@@ -57,11 +57,11 @@ expected: |-
 
   pub val 1.vbox :: (tInt 3.→ tInt) 3.→ FUN @cAddrRep @sLiftedRep tAddr# tInt
     = λ(x : tInt 3.→ tInt) (y : tAddr#).
-      case x (cI# (prim addr2Int# y)) return (tInt) of {
+      case x (cI# (prim addr2Int# y)) of {
         cI# (x{1} : tInt#) →
           let argument : tInt# =
-              prim *# x{1} 3#cIntRep;
-            case x (cI# argument) return (tInt) of {
+              prim *# x{1} lit (3#cIntRep) :: tInt#;
+            case x (cI# argument) of {
               cI# (y{1} : tInt#) →
                 let argument{1} : tInt# =
                     prim +# x{1} y{1};

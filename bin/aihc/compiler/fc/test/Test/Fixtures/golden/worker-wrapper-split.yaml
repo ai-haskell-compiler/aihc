@@ -41,11 +41,11 @@ expected: |-
 
   pub val 1.vadd inline :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (x{1} : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (y{1} : tInt#) →
-              case v$wadd x{1} y{1} as (field : tInt#) return (tInt) of {
+              case v$wadd x{1} y{1} as (field : tInt#) of {
                 _ →
                   cI# field
               }
@@ -58,9 +58,9 @@ expected: |-
           cI# x;
         let y{1} : tInt =
           cI# y;
-        case x{1} return (tInt#) of {
+        case x{1} of {
           cI# (a : tInt#) →
-            case y{1} return (tInt#) of {
+            case y{1} of {
               cI# (b : tInt#) →
                 prim +# a b
             }

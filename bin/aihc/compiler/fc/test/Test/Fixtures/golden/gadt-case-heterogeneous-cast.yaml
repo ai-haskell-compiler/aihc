@@ -65,11 +65,11 @@ expected: |-
 
   pub val 1.vpick :: ∀(k : sType) (a : k). tTypeRep k a 2.→ tSomeTypeRep 2.→ tMaybe (tTypeRep k a)
     = Λ(k : sType) (a : k). λ(x : tTypeRep k a) (y : tSomeTypeRep).
-      case y return (tMaybe (tTypeRep k a)) of {
+      case y of {
         cSomeTypeRep @(k{1} : sType) @(a{1} : k{1}) (rep : tTypeRep k{1} a{1}) →
-          case veqTypeRep @k{1} @k @a{1} @a rep x return (tMaybe (tTypeRep k a)) of {
+          case veqTypeRep @k{1} @k @a{1} @a rep x of {
             cJust (_pat : t:~~: k{1} k a{1} a) →
-              case _pat return (tMaybe (tTypeRep k a)) of {
+              case _pat of {
                 cHRefl ($pattern_d0 : k ~ k{1}) ($pattern_d1 : a ~ a{1}) →
                   (cJust @(tTypeRep k a{1}) rep) ▷ sym (tycon-co tMaybe (tycon-co tTypeRep (refl k) ($pattern_d1)))
               };

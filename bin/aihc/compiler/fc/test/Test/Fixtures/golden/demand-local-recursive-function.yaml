@@ -50,9 +50,9 @@ expected: |-
 
   val 1.vadd :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (a : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -63,19 +63,19 @@ expected: |-
       rec {
         go : tInt 3.→ tInt 3.→ tInt =
           λ(x{1} : tInt) (y : tInt).
-            case x{1} return (tInt) of {
+            case x{1} of {
               cI# (i : tInt#) →
-                case i return (tInt) of {
+                case i of {
                   0#cIntRep →
                     y;
                   _ →
-                    case vadd y x{1} as (argument : tInt) return (tInt) of {
+                    case vadd y x{1} as (argument : tInt) of {
                       _ →
-                        go (cI# (prim -# i 1#cIntRep)) argument
+                        go (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
                     }
                 }
             }
       } in
-        go x (cI# 0#cIntRep)
+        go x (cI# lit (0#cIntRep) :: tInt#)
 status: pass
 reason: A local recursive function gets a signature from the same fixpoint as a top-level value. 'go' is strict in its accumulator, so the call 'add acc m' inside 'go' is evaluated before the recursive call.
