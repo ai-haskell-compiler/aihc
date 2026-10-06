@@ -164,7 +164,9 @@ See [Self hosting](#self-hosting) for the current status.
 
 ### Is AIHC compatible with GHC?
 
-AIHC aims at compiling any Haskell code that GHC accepts.
+Not fully.
+AIHC aims at compiling any Haskell code that GHC accepts, but some programs do not compile yet.
+The progress table above and [Self hosting](#self-hosting) show how far along that work is.
 
 ### Which architectures does AIHC support?
 
