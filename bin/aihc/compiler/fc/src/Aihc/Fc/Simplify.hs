@@ -2251,12 +2251,11 @@ rebuildSpine = List.foldl' apply
 
 -- * Cases on primitive values
 
--- | Build a case from simplified parts. A default alternative that is a
--- case on the same scrutinee merges into the outer case, when that
--- scrutinee is a variable or a pure primitive call of trivial arguments:
--- evaluating it again gives the value the outer case tested, so the
--- inner alternatives continue the outer ones. An inner alternative that
--- the outer case already covers cannot be reached and is dropped.
+-- | Build a case from simplified parts. Merge a default alternative that
+-- tests the outer case binder or repeats a safe scrutinee.
+-- A variable or a pure primitive call with trivial arguments gives the same value again.
+-- The case binder holds the evaluated value even when the scrutinee is a call.
+-- Remove inner alternatives that the outer case already covers.
 mkCase :: TypeEnv -> Expr -> Maybe Binder -> Type -> [Alt] -> Expr
 mkCase env scrutinee binder resultType originalAlternatives =
   case List.partition ((== AltDefault) . altCon) alternatives of
@@ -2280,8 +2279,8 @@ mkCase env scrutinee binder resultType originalAlternatives =
           ExLet (Bind named scrutinee) rhs
     ([defaultAlt], others)
       | ExCase inner innerBinder _ (NE.toList -> innerAlternatives) <- altRhs defaultAlt,
-        inner == scrutinee,
-        isTrivial scrutinee || isPurePrimitiveCall env scrutinee ->
+        Just inner == (ExVar . binderName <$> binder)
+          || (inner == scrutinee && (isTrivial scrutinee || isPurePrimitiveCall env scrutinee)) ->
           let renamed = substExpr (foldMap (\named -> Map.singleton (binderName named) (maybe scrutinee (ExVar . binderName) binder)) innerBinder)
               covered = Set.fromList (map altCon others)
               continued =

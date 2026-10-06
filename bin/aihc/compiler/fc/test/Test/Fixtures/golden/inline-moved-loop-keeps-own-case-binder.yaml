@@ -77,14 +77,11 @@ expected: |-
           rec {
             go : tT 3.→ tList =
               λ(x{1} : tT).
-                case x{1} as (_scrut : tT) return (tList) of {
+                case x{1} return (tList) of {
                   cB →
                     cNil;
-                  _ →
-                    case _scrut return (tList) of {
-                      cA (n : tInt) →
-                        cCons n (go cB)
-                    }
+                  cA (n : tInt) →
+                    cCons n (go cB)
                 }
           } in
             vkeep x (go y);
