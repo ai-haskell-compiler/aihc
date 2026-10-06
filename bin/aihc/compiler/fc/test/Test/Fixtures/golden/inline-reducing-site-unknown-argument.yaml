@@ -52,13 +52,13 @@ expected: |-
 
   val 1.vstep inline :: tState 2.→ tBool 2.→ tState
     = λ(x : tState) (y : tBool).
-      case x as (_scrut : tState) return (tState) of {
+      case x return (tState) of {
         cState (a : tBool) (b : tBool) (c : tBool) →
-          case y as (_scrut{1} : tBool) return (tState) of {
+          case y return (tState) of {
             cTrue →
               cState b c a;
             cFalse →
-              case a as (_scrut{2} : tBool) return (tState) of {
+              case a return (tState) of {
                 cTrue →
                   cState c a b;
                 cFalse →

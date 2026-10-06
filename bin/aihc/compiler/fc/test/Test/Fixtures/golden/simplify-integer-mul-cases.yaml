@@ -63,18 +63,18 @@ expected: |-
 
   pub val 1.vintegerMul :: tNumber 2.→ tNumber 2.→ tNumber
     = λ(x : tNumber) (y : tNumber).
-      case x as (_scrut : tNumber) return (tNumber) of {
+      case x return (tNumber) of {
         cIS (a : tBool) →
-          case y as (_scrut{1} : tNumber) return (tNumber) of {
+          case y return (tNumber) of {
             cIS (b : tBool) →
               vsmall a b;
             _ →
-              vbyInt _scrut{1} a
+              vbyInt y a
           };
         _ →
-          case y as (_scrut{1} : tNumber) return (tNumber) of {
+          case y return (tNumber) of {
             cIS (b : tBool) →
-              vbyInt _scrut b;
+              vbyInt x b;
             _ →
               cIP cTrue
           }

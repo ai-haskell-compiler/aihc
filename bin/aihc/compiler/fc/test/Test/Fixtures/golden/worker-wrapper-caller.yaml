@@ -49,49 +49,36 @@ expected: |-
 
   pub val 1.vadd inline :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x as (wrapped : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (x{1} : tInt#) →
-          case y as (wrapped{1} : tInt) return (tInt) of {
+          case y return (tInt) of {
             cI# (y{1} : tInt#) →
-              case x{1} as (_scrut : tInt#) return (tInt) of {
+              cI# (case x{1} return (tInt#) of {
                 0#cIntRep →
-                  case y{1} as (field : tInt#) return (tInt) of {
-                    _ →
-                      cI# field
-                  };
+                  y{1};
                 _ →
-                  case prim +# _scrut y{1} as (field : tInt#) return (tInt) of {
-                    _ →
-                      cI# field
-                  }
-              }
+                  prim +# x{1} y{1}
+              })
           }
       }
 
   pub val 1.vtriple inline :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x as (wrapped : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (x{1} : tInt#) →
-          case x{1} as (_scrut : tInt#) return (tInt) of {
+          let y : tInt# =
+            case x{1} return (tInt#) of {
+              0#cIntRep →
+                x{1};
+              _ →
+                prim +# x{1} x{1}
+            };
+          cI# (case x{1} return (tInt#) of {
             0#cIntRep →
-              case x{1} as (_scrut{1} : tInt#) return (tInt) of {
-                0#cIntRep →
-                  cI# x{1};
-                _ →
-                  case prim +# _scrut{1} _scrut{1} as (field : tInt#) return (tInt) of {
-                    _ →
-                      cI# field
-                  }
-              };
+              y;
             _ →
-              case prim +# _scrut _scrut as (field : tInt#) return (tInt) of {
-                _ →
-                  case prim +# _scrut field as (field{1} : tInt#) return (tInt) of {
-                    _ →
-                      cI# field{1}
-                  }
-              }
-          }
+              prim +# x{1} y
+          })
       }
 status: pass
 reason: The growing inliner copies the wrapper at each call, where the case of the wrapper on a constructor argument reduces. The worker is small, so it is copied too, and no box of an argument is left.

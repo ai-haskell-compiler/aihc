@@ -25,7 +25,7 @@ expected: |-
 
   pub val 1.vchoose :: ∀(a : sType). tBool 2.→ a 2.→ a 2.→ a
     = Λ(a : sType). λ(x : tBool) (y : a) (z : a).
-      case x as (_if : tBool) return (a) of {
+      case x return (a) of {
         cTrue →
           y;
         cFalse →

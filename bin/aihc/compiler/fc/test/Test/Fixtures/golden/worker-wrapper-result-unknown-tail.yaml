@@ -39,14 +39,14 @@ expected: |-
 
   pub val 1.vapply inline :: (tInt 3.→ tInt) 3.→ tInt 3.→ tInt
     = λ(x : tInt 3.→ tInt) (y : tInt).
-      case y as (wrapped : tInt) return (tInt) of {
+      case y return (tInt) of {
         cI# (y{1} : tInt#) →
           v$wapply x y{1}
       }
 
   val 1.v$wapply :: FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) (tInt 3.→ tInt) (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt)
     = λ(x : tInt 3.→ tInt) (y : tInt#).
-      case y as (_scrut : tInt#) return (tInt) of {
+      case y return (tInt) of {
         0#cIntRep →
           cI# 1#cIntRep;
         _ →

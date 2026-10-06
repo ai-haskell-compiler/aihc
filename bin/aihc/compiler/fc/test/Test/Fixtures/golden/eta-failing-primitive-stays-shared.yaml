@@ -51,7 +51,7 @@ expected: |-
     = λ(x : tInt#) (y : t[] tBool).
       let _case : tInt# =
         prim ==# x 0#cIntRep;
-      case _case as (_scrut : tInt#) return (t[] tBool) of {
+      case _case return (t[] tBool) of {
         1#cIntRep →
           c: @tBool cTrue y;
         _ →
@@ -60,7 +60,7 @@ expected: |-
 
   pub val 1.vrender :: tInt 3.→ t[] tBool 3.→ t[] tBool
     = λ(x : tInt).
-      case x as (_scrut : tInt) return (t[] tBool 3.→ t[] tBool) of {
+      case x return (t[] tBool 3.→ t[] tBool) of {
         cI# (value : tInt#) →
           vshowInt (prim quotInt# 10#cIntRep value)
       }

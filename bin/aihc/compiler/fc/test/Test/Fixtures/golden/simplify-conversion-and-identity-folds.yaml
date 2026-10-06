@@ -92,28 +92,28 @@ expected: |-
 
   pub val 1.vroundTrip :: tWord 3.→ tWord
     = λ(x : tWord).
-      case x as (_scrut : tWord) return (tWord) of {
+      case x return (tWord) of {
         cW# (w : tWord#) →
           cW# w
       }
 
   pub val 1.vnarrowWidened :: tWord 3.→ tWord
     = λ(x : tWord).
-      case x as (_scrut : tWord) return (tWord) of {
+      case x return (tWord) of {
         cW# (w : tWord#) →
           cW# (prim word32ToWord# (prim wordToWord32# w))
       }
 
   pub val 1.vwidenNarrowed :: tWord 3.→ tWord
     = λ(x : tWord).
-      case x as (_scrut : tWord) return (tWord) of {
+      case x return (tWord) of {
         cW# (w : tWord#) →
           cW# (prim word8ToWord# (prim wordToWord8# w))
       }
 
   pub val 1.voffsets :: tInt 3.→ FUN @cAddrRep @sLiftedRep tAddr# tInt
     = λ(x : tInt) (y : tAddr#).
-      case x as (_scrut : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (n : tInt#) →
           cI# (prim -# n (prim minusAddr# y y))
       }
@@ -122,13 +122,9 @@ expected: |-
     = λ(x : tAddr#).
       let s : tState# tRealWorld =
         prim realWorld#;
-      let _case : tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt# =
-        prim readIntOffAddr# @tRealWorld x 0#cIntRep s;
-      case _case as (_scrut : tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#) return (tInt) of {
+      case prim readIntOffAddr# @tRealWorld x 0#cIntRep s return (tInt) of {
         cTuple2# (_pat : tState# tRealWorld) (x{1} : tInt#) →
-          let _case{1} : tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt# =
-            prim readIntOffAddr# @tRealWorld x 1#cIntRep s;
-          case _case{1} as (_scrut{1} : tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#) return (tInt) of {
+          case prim readIntOffAddr# @tRealWorld x 1#cIntRep s return (tInt) of {
             cTuple2# (_pat{1} : tState# tRealWorld) (y : tInt#) →
               cI# (prim +# x{1} y)
           }

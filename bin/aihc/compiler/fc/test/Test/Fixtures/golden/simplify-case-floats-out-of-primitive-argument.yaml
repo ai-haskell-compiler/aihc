@@ -67,7 +67,7 @@ expected: |-
 
   pub val 1.vviaStrictLet :: tBox 3.→ tInt
     = λ(x : tBox).
-      case x as (_scrut : tBox) return (tInt) of {
+      case x return (tInt) of {
         cBox (v : tInt#) →
           let x{1} : tInt# =
             prim negateInt# v;
@@ -76,9 +76,7 @@ expected: |-
 
   pub val 1.vviaScrutinee :: tBox 3.→ tInt
     = λ(x : tBox).
-      case x as (_scrut : tBox) return (tInt) of {
+      case x return (tInt) of {
         cBox (v : tInt#) →
-          let x{1} : tInt# =
-            prim negateInt# v;
-          cI# (prim +# x{1} v)
+          cI# (prim +# (prim negateInt# v) v)
       }

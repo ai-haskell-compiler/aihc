@@ -72,16 +72,16 @@ expected: |-
 
   pub val 1.vwalk :: tT 3.→ tT 3.→ tList
     = λ(x : tT) (y : tT).
-      case x as (_scrut : tT) return (tList) of {
+      case x return (tList) of {
         cA (_pat : tInt) →
           rec {
             go : tT 3.→ tList =
               λ(x{1} : tT).
-                case x{1} as (_scrut{1} : tT) return (tList) of {
+                case x{1} as (_scrut : tT) return (tList) of {
                   cB →
                     cNil;
                   _ →
-                    case _scrut{1} as (_scrut{2} : tT) return (tList) of {
+                    case _scrut return (tList) of {
                       cA (n : tInt) →
                         cCons n (go cB)
                     }

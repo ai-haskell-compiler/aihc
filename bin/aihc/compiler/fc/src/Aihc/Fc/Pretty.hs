@@ -130,7 +130,7 @@ expressionLocals expression = case expression of
   ExTyLam binder body -> binderLocals binder <> expressionLocals body
   ExLet binding body -> bindingLocals binding <> expressionLocals body
   ExRec bindings body -> foldMap bindingLocals bindings <> expressionLocals body
-  ExCase scrutinee binder result alternatives -> expressionLocals scrutinee <> binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
+  ExCase scrutinee binder result alternatives -> expressionLocals scrutinee <> foldMap binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
   ExCoercion proof -> coercionLocals proof
   ExCast body proof -> expressionLocals body <> coercionLocals proof
   ExForeignCall call types arguments -> typeLocals (foreignCallType call) <> foldMap typeLocals types <> foldMap expressionLocals arguments
@@ -536,8 +536,7 @@ prettyExprWith scopes expr =
     ExCase scrutinee binder resultType alts ->
       "case "
         <> prettyExprWith scopes scrutinee
-        <> " as "
-        <> prettyPiBinder scopes binder
+        <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
         <> " return "
         <> parens (prettyTypeWith scopes PrecForAll resultType)
         <> " of {"
@@ -780,6 +779,7 @@ reservedWords =
     "in",
     "case",
     "as",
+    "return",
     "of",
     "FUN",
     "lit",

@@ -59,7 +59,7 @@ expected: |-
 
   pub val 1.vfreeze :: ∀(v : sType 2.→ sType) (a : sType) (s : sType). t$Dict$Vec v a 2.→ tMutable v s a 2.→ v a
     = Λ(v : sType 2.→ sType) (a : sType) (s : sType). λ($d0 : t$Dict$Vec v a).
-      case $d0 as ($dict : t$Dict$Vec v a) return (tMutable v s a 2.→ v a) of {
+      case $d0 return (tMutable v s a 2.→ v a) of {
         c$Dict$Vec ($method0 : ∀(s{1} : sType). tMutable v s{1} a 2.→ v a) →
           $method0 @s
       }
@@ -70,7 +70,7 @@ expected: |-
 
   val 1.v$fVecVectora$cfreeze :: ∀(a : sType) (s : sType). tMutable tVector s a 2.→ tVector a
     = Λ(a : sType) (s : sType). λ(x : tMutable tVector s a).
-      case x as (_scrut : tMutable tVector s a) return (tVector a) of {
+      case x return (tVector a) of {
         cMVector (_unpack_leaf0 : s) (x{1} : a) →
           cVector @a x{1}
       }

@@ -278,7 +278,11 @@ tidyExpr env expr =
           binds' = zipWith (tidyRecBind bodyEnv) binders binds
        in rebuild2 ExRec binds (collect binds binds') body (tidyExpr bodyEnv body)
     ExCase scrutinee binder resultType alternatives ->
-      let (binder', caseEnv) = tidyBinder env binder
+      let (binder', caseEnv) = case binder of
+            Nothing -> (Same, env)
+            Just named
+              | all (\alternative -> binderName named `Set.notMember` (exprFreeNames (altRhs alternative) `Set.difference` Set.fromList (map binderName (altBinders alternative)))) alternatives -> (Changed Nothing, env)
+              | otherwise -> let (named', inner) = tidyBinder env named in (rebuild1 Just named named', inner)
        in rebuild4
             ExCase
             scrutinee

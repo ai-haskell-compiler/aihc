@@ -146,7 +146,7 @@ walk env expr =
       pure (ExForeignCall call tys (map fst results), List.foldl' add none (map snd results))
     ExCase scrutinee binder ty alternatives -> do
       (scrutinee', a) <- walk env scrutinee
-      let inner = extendBinder env binder
+      let inner = foldl' extendBinder env binder
       results <-
         traverse
           (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> walk (List.foldl' extendBinder inner (altTypeBinders alternative <> altBinders alternative)) (altRhs alternative))
@@ -338,7 +338,7 @@ constructorValue env known p = go
           | Just (knownCon, fields) <- Map.lookup var known,
             knownCon == altCon,
             length binders == length fields ->
-              go (substExpr (Map.fromList ((binderName binder, ExVar var) : zip (map binderName binders) fields)) rhs)
+              go (substExpr (foldMap (\named -> Map.singleton (binderName named) (ExVar var)) binder <> Map.fromList (zip (map binderName binders) fields)) rhs)
         ExLet (Bind binder value) rhs
           | not (isLiftedBinder env binder),
             speculable value -> do
@@ -425,7 +425,7 @@ rewriteCalls env known loop expr0 = do
           results <-
             traverse
               ( \alternative ->
-                  let current' = List.foldl' (flip Map.delete) current (binderName binder : map binderName (altBinders alternative))
+                  let current' = List.foldl' (flip Map.delete) current (map binderName (foldr (:) [] binder <> altBinders alternative))
                    in firstOf (\rhs -> alternative {altRhs = rhs}) <$> go current' (altRhs alternative)
               )
               alternatives

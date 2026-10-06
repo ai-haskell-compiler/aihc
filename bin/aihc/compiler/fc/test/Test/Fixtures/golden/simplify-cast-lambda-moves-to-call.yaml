@@ -47,7 +47,7 @@ expected: |-
   pub val 1.vrun :: tEff tInt 3.→ tEff tInt
     = λ(x : tEff tInt).
       (λ(t : tState# tRealWorld).
-        case (x ▷ axiom-co $ax$Eff @tInt) t as (_scrut : tInt) return (tInt) of {
+        case (x ▷ axiom-co $ax$Eff @tInt) t return (tInt) of {
           cI# (n : tInt#) →
             cI# n
         }) ▷ sym (axiom-co $ax$Eff @tInt)

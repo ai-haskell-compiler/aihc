@@ -10,7 +10,7 @@ expected: |-
   1.$value_closure (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (seq_first :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as seq_evaluated :: BoxedRep Lifted of
+    case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       _ ->
         eval @(BoxedRep Lifted) (seq_second :: BoxedRep Lifted)
 

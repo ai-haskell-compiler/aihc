@@ -23,6 +23,9 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import prims
+    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
   import headers
     constructors [3.cI#] 3.tInt :: sType;
     2.tInt# :: tTYPE cIntRep;
@@ -42,10 +45,10 @@ expected: |-
 
   pub val 1.vpick :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x as (_scrut : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (n : tInt#) →
-          case n as (_scrut{1} : tInt#) return (tInt) of {
-            0#cIntRep →
+          case prim ==# n 0#cIntRep return (tInt) of {
+            1#cIntRep →
               cI# 1#cIntRep;
             _ →
               x

@@ -47,25 +47,25 @@ expected: |-
 
   pub val 1.vtoFirst :: tPair 2.→ tInt
     = λ(x : tPair).
-      case x as (_scrut : tPair) return (tInt) of {
+      case x return (tInt) of {
         cPair (a : tInt) (_pat : tInt) →
           a
       }
 
   pub val 1.vviewed :: tBoxed 2.→ tInt
     = λ(x : tBoxed).
-      case x as (_scrut : tBoxed) return (tInt) of {
+      case x return (tInt) of {
         cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) →
           vtoFirst (cPair _unpack_leaf0 _unpack_leaf1)
       }
 
   pub val 1.valiased :: tBoxed 2.→ tPair
     = λ(x : tBoxed).
-      case x as (_scrut : tBoxed) return (tPair) of {
+      case x return (tPair) of {
         cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) (_pat : tInt) →
           let _pat{1} : tPair =
             cPair _unpack_leaf0 _unpack_leaf1;
-          case _pat{1} as (_scrut{1} : tPair) return (tPair) of {
+          case _pat{1} return (tPair) of {
             cPair (_pat{2} : tInt) (_pat{3} : tInt) →
               _pat{1}
           }

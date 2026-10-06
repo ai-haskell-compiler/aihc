@@ -63,7 +63,7 @@ expected: |-
 
   pub val 1.vop :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$C a).
-      case $d0 as ($dict : t$Dict$C a) return (a 2.→ a) of {
+      case $d0 return (a 2.→ a) of {
         c$Dict$C ($method0 : a 2.→ a) →
           $method0
       }
@@ -76,7 +76,7 @@ expected: |-
 
   pub val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
     = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).
-      case y as (_scrut : tList a) return (tList b) of {
+      case y return (tList b) of {
         cNil →
           cNil @b;
         cCons (y{1} : a) (ys : tList a) →

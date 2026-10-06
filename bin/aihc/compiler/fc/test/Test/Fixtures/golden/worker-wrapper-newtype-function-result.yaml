@@ -56,9 +56,9 @@ expected: |-
   pub val 1.vcount inline :: tInt 3.→ tStep
     = λ(x : tInt).
       (λ(acc : tInt).
-        case x as (wrapped : tInt) return (tInt) of {
+        case x return (tInt) of {
           cI# (x{1} : tInt#) →
-            case acc as (wrapped{1} : tInt) return (tInt) of {
+            case acc return (tInt) of {
               cI# (acc{1} : tInt#) →
                 v$wcount x{1} acc{1}
             }
@@ -66,15 +66,11 @@ expected: |-
 
   val 1.v$wcount :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt)
     = λ(x : tInt#) (acc : tInt#).
-      case x as (_scrut : tInt#) return (tInt) of {
+      case x return (tInt) of {
         0#cIntRep →
           cI# acc;
         _ →
-          let argument : tInt# =
-            prim +# acc _scrut;
-          let argument{1} : tInt# =
-            prim -# _scrut 1#cIntRep;
-          v$wcount argument{1} argument
+          v$wcount (prim -# x 1#cIntRep) (prim +# acc x)
       }
 status: pass
 reason: The result of count is a newtype of a function, so its last lambda stands under a cast, as the state lambda of an IO action does. The demand analysis counts that lambda. The worker takes it too, and the case of the wrapper stands under it, so the wrapper evaluates the counter only when the function runs.

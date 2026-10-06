@@ -47,25 +47,25 @@ expected: |-
     = λ(x : t[] tChar).
       let _fail : tColour =
         cUnknown x;
-      case x as (_scrut : t[] tChar) return (tColour) of {
+      case x return (tColour) of {
         c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat as (_scrut{1} : tChar) return (tColour) of {
+          case _pat return (tColour) of {
             cC# (_pat{2} : tChar#) →
-              case _pat{2} as (_scrut{2} : tChar#) return (tColour) of {
+              case _pat{2} return (tColour) of {
                 'r'#cWordRep →
-                  case _pat{1} as (_scrut{3} : t[] tChar) return (tColour) of {
+                  case _pat{1} return (tColour) of {
                     c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
-                      case _pat{3} as (_scrut{4} : tChar) return (tColour) of {
+                      case _pat{3} return (tColour) of {
                         cC# (_pat{5} : tChar#) →
-                          case _pat{5} as (_scrut{5} : tChar#) return (tColour) of {
+                          case _pat{5} return (tColour) of {
                             'e'#cWordRep →
-                              case _pat{4} as (_scrut{6} : t[] tChar) return (tColour) of {
+                              case _pat{4} return (tColour) of {
                                 c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
-                                  case _pat{6} as (_scrut{7} : tChar) return (tColour) of {
+                                  case _pat{6} return (tColour) of {
                                     cC# (_pat{8} : tChar#) →
-                                      case _pat{8} as (_scrut{8} : tChar#) return (tColour) of {
+                                      case _pat{8} return (tColour) of {
                                         'd'#cWordRep →
-                                          case _pat{7} as (_scrut{9} : t[] tChar) return (tColour) of {
+                                          case _pat{7} return (tColour) of {
                                             c[] →
                                               cRed;
                                             _ →
@@ -86,31 +86,31 @@ expected: |-
                       _fail
                   };
                 'g'#cWordRep →
-                  case _pat{1} as (_scrut{3} : t[] tChar) return (tColour) of {
+                  case _pat{1} return (tColour) of {
                     c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
-                      case _pat{3} as (_scrut{4} : tChar) return (tColour) of {
+                      case _pat{3} return (tColour) of {
                         cC# (_pat{5} : tChar#) →
-                          case _pat{5} as (_scrut{5} : tChar#) return (tColour) of {
+                          case _pat{5} return (tColour) of {
                             'r'#cWordRep →
-                              case _pat{4} as (_scrut{6} : t[] tChar) return (tColour) of {
+                              case _pat{4} return (tColour) of {
                                 c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
-                                  case _pat{6} as (_scrut{7} : tChar) return (tColour) of {
+                                  case _pat{6} return (tColour) of {
                                     cC# (_pat{8} : tChar#) →
-                                      case _pat{8} as (_scrut{8} : tChar#) return (tColour) of {
+                                      case _pat{8} return (tColour) of {
                                         'e'#cWordRep →
-                                          case _pat{7} as (_scrut{9} : t[] tChar) return (tColour) of {
+                                          case _pat{7} return (tColour) of {
                                             c: (_pat{9} : tChar) (_pat{10} : t[] tChar) →
-                                              case _pat{9} as (_scrut{10} : tChar) return (tColour) of {
+                                              case _pat{9} return (tColour) of {
                                                 cC# (_pat{11} : tChar#) →
-                                                  case _pat{11} as (_scrut{11} : tChar#) return (tColour) of {
+                                                  case _pat{11} return (tColour) of {
                                                     'e'#cWordRep →
-                                                      case _pat{10} as (_scrut{12} : t[] tChar) return (tColour) of {
+                                                      case _pat{10} return (tColour) of {
                                                         c: (_pat{12} : tChar) (_pat{13} : t[] tChar) →
-                                                          case _pat{12} as (_scrut{13} : tChar) return (tColour) of {
+                                                          case _pat{12} return (tColour) of {
                                                             cC# (_pat{14} : tChar#) →
-                                                              case _pat{14} as (_scrut{14} : tChar#) return (tColour) of {
+                                                              case _pat{14} return (tColour) of {
                                                                 'n'#cWordRep →
-                                                                  case _pat{13} as (_scrut{15} : t[] tChar) return (tColour) of {
+                                                                  case _pat{13} return (tColour) of {
                                                                     c[] →
                                                                       cGreen;
                                                                     _ →

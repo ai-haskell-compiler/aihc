@@ -85,14 +85,14 @@ expected: |-
           x ▷ axiom-co $ax$Eff @tInt;
         let g : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
           y ▷ axiom-co $ax$Eff @tInt;
-        case f eta{2} as (_scrut : tInt) return (tInt) of {
+        case f eta{2} return (tInt) of {
           cI# (_pat : tInt#) →
             g eta{2}
         }) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vchoose :: tBool 4.→ tBool
     = λ(x : tBool).
-      case x as (_scrut : tBool) return (tBool) of {
+      case x return (tBool) of {
         cTrue →
           cFalse;
         cFalse →
@@ -102,7 +102,7 @@ expected: |-
   pub val 1.vrun :: tBool 4.→ tTuple2 (tInt 4.→ tInt) (tEff tInt)
     = λ(x : tBool).
       let pick : tInt 4.→ tInt =
-        case vchoose x as (_scrut : tBool) return (tInt 4.→ tInt) of {
+        case vchoose x return (tInt 4.→ tInt) of {
           cTrue →
             λ(x{1} : tInt).
               x{1};
@@ -112,7 +112,7 @@ expected: |-
         };
       let next : tEff tInt =
         (λ(eta{3} : tState# tRealWorld).
-          case x as (_scrut : tBool) return (tInt) of {
+          case x return (tInt) of {
             cTrue →
               ((vstep (cI# 1#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{3};
             cFalse →
@@ -120,7 +120,7 @@ expected: |-
           }) ▷ sym (axiom-co $ax$Eff @tInt);
       c(,) @(tInt 4.→ tInt) @(tEff tInt) (λ(y : tInt).
         pick (pick y)) (vandThen next ((λ(eta{4} : tState# tRealWorld).
-        case x as (_scrut : tBool) return (tInt) of {
+        case x return (tInt) of {
           cTrue →
             (next ▷ axiom-co $ax$Eff @tInt) eta{4};
           cFalse →

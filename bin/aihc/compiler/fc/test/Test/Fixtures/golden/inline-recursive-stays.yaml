@@ -41,11 +41,11 @@ expected: |-
 
   val 1.vgo :: t[] tBool 2.→ tBool
     = λ(x : t[] tBool).
-      case x as (_scrut : t[] tBool) return (tBool) of {
+      case x return (tBool) of {
         c[] →
           cTrue;
         c: (b : tBool) (rest : t[] tBool) →
-          case b as (_scrut{1} : tBool) return (tBool) of {
+          case b return (tBool) of {
             cTrue →
               vgo rest;
             cFalse →

@@ -1133,7 +1133,7 @@ exprOrigins expr =
     ExLet bind body -> bindOrigins bind <> exprOrigins body
     ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
     ExCase scrutinee binder resultType alts ->
-      exprOrigins scrutinee <> binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
+      exprOrigins scrutinee <> foldMap binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
     ExCoercion proof -> coercionOrigins proof
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
     ExForeignCall call types arguments ->

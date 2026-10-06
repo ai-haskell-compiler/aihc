@@ -51,7 +51,7 @@ expected: |-
 
   val 1.v$fShowCode$cshowsPrec :: tInt 5.→ tCode 5.→ t[] tChar 5.→ t[] tChar
     = λ(x : tInt) (y : tCode).
-      case y as (_scrut : tCode) return (t[] tChar 5.→ t[] tChar) of {
+      case y return (t[] tChar 5.→ t[] tChar) of {
         cExitSuccess →
           λ(s : t[] tChar).
             vunpackAppendCString# "ExitSuccess"#cAddrRep s;

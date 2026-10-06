@@ -227,7 +227,7 @@ exprReferences expr =
     ExRec bindings body -> foldMap bindReferences bindings <> exprReferences body
     ExCase scrutinee binder result alts ->
       exprReferences scrutinee
-        <> binderReferences binder
+        <> foldMap binderReferences binder
         <> typeReferences result
         <> foldMap altReferences alts
     ExCoercion proof -> coercionReferences proof

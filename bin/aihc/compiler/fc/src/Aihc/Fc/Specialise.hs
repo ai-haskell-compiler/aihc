@@ -123,7 +123,7 @@ specialiseExpr scope expr =
         _ -> pure (ExRec binds' body')
     ExCase scrutinee binder resultType alternatives -> do
       scrutinee' <- specialiseExpr scope scrutinee
-      let withBinder = bind binder scope
+      let withBinder = foldl' (flip bind) scope binder
           onAlt alternative = do
             let altScope = List.foldl' (flip bind) withBinder (altTypeBinders alternative <> altBinders alternative)
             rhs <- specialiseExpr altScope (altRhs alternative)

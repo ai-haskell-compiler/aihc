@@ -38,7 +38,7 @@ expected: |-
 
   pub val 1.vpick :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
-      case x as (_scrut : tBool) return (tBool) of {
+      case x return (tBool) of {
         cTrue →
           x;
         cFalse →

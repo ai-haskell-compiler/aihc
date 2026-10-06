@@ -46,7 +46,7 @@ expected: |-
 
   pub val 1.vnext :: tInt 3.→ tBox
     = λ(x : tInt).
-      cBox (case x as (_scrut : tInt) return (tInt) of {
+      cBox (case x return (tInt) of {
         cI# (a : tInt#) →
           cI# (prim +# a 1#cIntRep)
       })

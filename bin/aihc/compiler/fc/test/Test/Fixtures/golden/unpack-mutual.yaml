@@ -40,7 +40,7 @@ expected: |-
   pub val 1.vmakeA :: tB 2.→ tA
     = λ(x : tB).
       (λ(_strict_field : tB).
-        case _strict_field as (_strict_forced : tB) return (tA) of {
+        case _strict_field return (tA) of {
           _ →
             cMkA _strict_field
         }) x
@@ -48,7 +48,7 @@ expected: |-
   pub val 1.vmakeB :: tA 2.→ tB
     = λ(x : tA).
       (λ(_strict_field : tA).
-        case _strict_field as (_strict_forced : tA) return (tB) of {
+        case _strict_field return (tB) of {
           _ →
             cMkB _strict_field
         }) x

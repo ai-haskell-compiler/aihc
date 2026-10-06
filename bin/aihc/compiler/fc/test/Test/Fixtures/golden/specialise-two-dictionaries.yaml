@@ -68,7 +68,7 @@ expected: |-
 
   val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
     = Λ(a : sType). λ($d0 : t$Dict$Weight a).
-      case $d0 as ($dict : t$Dict$Weight a) return (a 3.→ tInt) of {
+      case $d0 return (a 3.→ tInt) of {
         c$Dict$Weight ($method0 : a 3.→ tInt) →
           $method0
       }
@@ -78,7 +78,7 @@ expected: |-
 
   val 1.v$fWeightBool$cweight :: tBool 3.→ tInt
     = λ(x : tBool).
-      case x as (_scrut : tBool) return (tInt) of {
+      case x return (tInt) of {
         cTrue →
           cI# 1#cIntRep;
         cFalse →
@@ -94,9 +94,9 @@ expected: |-
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x as (_scrut : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (a : tInt#) →
-          case y as (_scrut{1} : tInt) return (tInt) of {
+          case y return (tInt) of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -107,7 +107,7 @@ expected: |-
       rec {
         $sgo : t[] tBool 3.→ tInt 3.→ tInt =
           λ(x{1} : t[] tBool) (y{1} : tInt).
-            case x{1} as (_scrut : t[] tBool) return (tInt) of {
+            case x{1} return (tInt) of {
               c[] →
                 y{1};
               c: (y{2} : tBool) (ys : t[] tBool) →
@@ -117,7 +117,7 @@ expected: |-
       rec {
         $sgo{1} : t[] tInt 3.→ tInt 3.→ tInt =
           λ(x{1} : t[] tInt) (y{1} : tInt).
-            case x{1} as (_scrut : t[] tInt) return (tInt) of {
+            case x{1} return (tInt) of {
               c[] →
                 y{1};
               c: (y{2} : tInt) (ys : t[] tInt) →

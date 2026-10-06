@@ -53,22 +53,18 @@ expected: |-
 
   pub val 1.vfill :: tInt 3.→ tInt 3.→ tList
     = λ(x : tInt) (y : tInt).
-      case x as (_scrut : tInt) return (tList) of {
+      case x return (tList) of {
         cI# (n : tInt#) →
-          case y as (_scrut{1} : tInt) return (tList) of {
+          case y return (tList) of {
             cI# (k : tInt#) →
-              let _case : tInt# =
-                prim <# k 0#cIntRep;
-              case _case as (_scrut{2} : tInt#) return (tList) of {
+              case prim <# k 0#cIntRep return (tList) of {
                 1#cIntRep →
                   cNil;
                 _ →
                   rec {
                     go : FUN @cIntRep @sLiftedRep tInt# tList =
                       λ(x{1} : tInt#).
-                        let _case{1} : tInt# =
-                          prim <# x{1} n;
-                        case _case{1} as (_scrut{3} : tInt#) return (tList) of {
+                        case prim <# x{1} n return (tList) of {
                           1#cIntRep →
                             cCons (cI# x{1}) (go (prim +# x{1} 1#cIntRep));
                           _ →

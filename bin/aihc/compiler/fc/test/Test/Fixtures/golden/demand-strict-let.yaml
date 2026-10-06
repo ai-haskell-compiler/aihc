@@ -47,7 +47,7 @@ expected: |-
 
   val 1.vdouble :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x as (_scrut : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (i : tInt#) →
           cI# (prim +# i i)
       }
@@ -56,9 +56,9 @@ expected: |-
     = λ(x : tInt).
       case vdouble x as (y : tInt) return (tInt) of {
         _ →
-          case y as (_scrut : tInt) return (tInt) of {
+          case y return (tInt) of {
             cI# (a : tInt#) →
-              case y as (_scrut{1} : tInt) return (tInt) of {
+              case y return (tInt) of {
                 cI# (b : tInt#) →
                   cI# (prim +# a b)
               }

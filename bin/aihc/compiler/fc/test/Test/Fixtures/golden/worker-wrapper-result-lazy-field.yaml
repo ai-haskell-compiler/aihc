@@ -47,7 +47,7 @@ expected: |-
 
   pub val 1.vbox inline :: tInt 3.→ tBox
     = λ(x : tInt).
-      case x as (wrapped : tInt) return (tBox) of {
+      case x return (tBox) of {
         cI# (x{1} : tInt#) →
           v$wbox x{1}
       }

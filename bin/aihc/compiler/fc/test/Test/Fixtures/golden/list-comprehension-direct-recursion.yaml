@@ -34,11 +34,11 @@ expected: |-
       rec {
         _list_comp : t[] a 2.→ t[] a =
           λ(_list_comp_list : t[] a).
-            case _list_comp_list as (_list_comp_scrut : t[] a) return (t[] a) of {
+            case _list_comp_list return (t[] a) of {
               c[] →
                 c[] @a;
               c: (x{1} : a) (_list_comp_tail : t[] a) →
-                case x x{1} as (_list_comp_guard : tBool) return (t[] a) of {
+                case x x{1} return (t[] a) of {
                   cTrue →
                     c: @a x{1} (_list_comp _list_comp_tail);
                   cFalse →

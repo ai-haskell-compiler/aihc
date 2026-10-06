@@ -67,16 +67,16 @@ expected: |-
 
   val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
     = Λ(a : sType). λ($d0 : t$Dict$Weight a).
-      case $d0 as ($dict : t$Dict$Weight a) return (a 3.→ tInt) of {
+      case $d0 return (a 3.→ tInt) of {
         c$Dict$Weight ($method0 : a 3.→ tInt) →
           $method0
       }
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x as (_scrut : tInt) return (tInt) of {
+      case x return (tInt) of {
         cI# (a : tInt#) →
-          case y as (_scrut{1} : tInt) return (tInt) of {
+          case y return (tInt) of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -87,9 +87,9 @@ expected: |-
       rec {
         go : ∀(a : sType). t$Dict$Weight a 3.→ tInt 3.→ a 3.→ tInt 3.→ tInt =
           Λ(a : sType). λ($d0 : t$Dict$Weight a) (x{1} : tInt) (y : a) (z : tInt).
-            case x{1} as (_scrut : tInt) return (tInt) of {
+            case x{1} return (tInt) of {
               cI# (_pat : tInt#) →
-                case _pat as (_scrut{1} : tInt#) return (tInt) of {
+                case _pat return (tInt) of {
                   0#cIntRep →
                     z;
                   _ →
@@ -100,11 +100,11 @@ expected: |-
       rec {
         walk : t[] tSome 3.→ tInt =
           λ(x{1} : t[] tSome).
-            case x{1} as (_scrut : t[] tSome) return (tInt) of {
+            case x{1} return (tInt) of {
               c[] →
                 cI# 0#cIntRep;
               c: (_pat : tSome) (rest : t[] tSome) →
-                case _pat as (_scrut{1} : tSome) return (tInt) of {
+                case _pat return (tInt) of {
                   cSome @(a : sType) ($pattern_d0 : t$Dict$Weight a) (v : a) →
                     go @a $pattern_d0 (cI# 3#cIntRep) v (walk rest)
                 }

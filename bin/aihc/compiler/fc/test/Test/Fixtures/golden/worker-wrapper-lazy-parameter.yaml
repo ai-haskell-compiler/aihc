@@ -48,9 +48,9 @@ expected: |-
 
   val 1.v$wpick :: FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @cIntRep tInt tInt#)
     = λ(x : tBool) (y : tInt).
-      case x as (_scrut : tBool) return (tInt#) of {
+      case x return (tInt#) of {
         cTrue →
-          case y as (_scrut{1} : tInt) return (tInt#) of {
+          case y return (tInt#) of {
             cI# (a : tInt#) →
               a
           };

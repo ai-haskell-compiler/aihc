@@ -246,7 +246,7 @@ takenApart name con = go (Set.singleton name)
       case expr of
         ExCase scrutinee binder _ alternatives ->
           let aliased = isVariable aliases scrutinee
-              inner = if aliased then Set.insert (binderName binder) aliases else aliases
+              inner = if aliased then foldl' (\current named -> Set.insert (binderName named) current) aliases binder else aliases
            in (aliased && any ((== AltData con) . altCon) alternatives)
                 || go aliases scrutinee
                 || any (go inner . altRhs) alternatives
@@ -424,7 +424,7 @@ demandExpr env ty expr =
             not (isStrictBinder (envTypes env) binder),
             not (isValueLike env rhs') -> do
               modify' (\st -> st {dsStrictLets = dsStrictLets st + 1})
-              pure (ExCase rhs' binder result [Alt AltDefault [] [] body'], strict)
+              pure (ExCase rhs' (Just binder) result [Alt AltDefault [] [] body'], strict)
         _ -> pure (ExLet (Bind binder rhs') body', strict)
     ExRec binds body -> do
       let inner = bindRecursiveSignatures (extendTypes env (map bindBinder binds)) binds
@@ -432,9 +432,9 @@ demandExpr env ty expr =
       (body', bodyStrict) <- demandExpr inner ty body
       pure (ExRec binds' body', bodyStrict `Set.difference` Set.fromList (map (binderName . bindBinder) binds))
     ExCase scrutinee binder result alternatives -> do
-      (scrutinee', scrutineeStrict) <- demandExpr env (Just (binderType binder)) scrutinee
-      results <- traverse (demandAlt (extendType env binder) result) alternatives
-      let branches = [Set.delete (binderName binder) strict | (_, strict) <- results]
+      (scrutinee', scrutineeStrict) <- demandExpr env (binderType <$> binder) scrutinee
+      results <- traverse (demandAlt (foldl' extendType env binder) result) alternatives
+      let branches = [strict `Set.difference` foldMap (Set.singleton . binderName) binder | (_, strict) <- results]
       pure (ExCase scrutinee' binder result (map fst results), scrutineeStrict <> meets branches)
     ExForeignCall call tys arguments -> do
       results <- traverse (demandExpr env Nothing) arguments
@@ -471,7 +471,7 @@ demandApplication env ty (function, arguments) = do
       result = computedResult <|> ty
   (arguments', strictSets, wraps) <- walkArguments env result (zip3 arguments argumentTypes (demandsByArgument arguments demands))
   let application = List.foldl' applyArgument function' arguments'
-      wrapped = foldr (\(binder, scrutinee) body -> ExCase scrutinee binder (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
+      wrapped = foldr (\(binder, scrutinee) body -> ExCase scrutinee (Just binder) (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
   pure (wrapped, headStrict <> mconcat strictSets)
 
 -- | The demand of each argument, with a type argument taking no demand.

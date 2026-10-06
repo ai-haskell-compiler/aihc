@@ -58,9 +58,9 @@ expected: |-
 
   pub val 1.varound inline :: tInt 3.→ tPair
     = λ(x : tInt).
-      case x as (wrapped : tInt) return (tPair) of {
+      case x return (tPair) of {
         cI# (x{1} : tInt#) →
-          case v$waround x{1} as (returned : tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt) return (tPair) of {
+          case v$waround x{1} return (tPair) of {
             cTuple2# (field : tInt) (field{1} : tInt) →
               cPair field field{1}
           }

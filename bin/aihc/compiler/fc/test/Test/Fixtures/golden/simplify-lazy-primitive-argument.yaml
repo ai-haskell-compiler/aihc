@@ -54,7 +54,7 @@ expected: |-
 
   pub val 1.vbump :: tInt 3.→ tBox
     = λ(x : tInt).
-      case x as (_scrut : tInt) return (tBox) of {
+      case x return (tBox) of {
         cI# (x{1} : tInt#) →
           let argument : tInt# =
             prim +# x{1} 1#cIntRep;
@@ -63,7 +63,7 @@ expected: |-
 
   pub val 1.vshare :: tInt 3.→ tTwice
     = λ(x : tInt).
-      case x as (_scrut : tInt) return (tTwice) of {
+      case x return (tTwice) of {
         cI# (x{1} : tInt#) →
           let argument : tInt# =
             prim +# x{1} 2#cIntRep;

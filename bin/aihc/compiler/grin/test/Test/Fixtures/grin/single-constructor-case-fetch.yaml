@@ -21,7 +21,7 @@ expected: |-
   1.$pick (x :: BoxedRep Lifted) -> IntRep =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+    case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
       data 1.Left (a :: IntRep) ->
         constant (a :: IntRep)
       data 1.Right (b :: IntRep) ->
