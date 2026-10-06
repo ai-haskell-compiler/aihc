@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Fold a primitive applied to literals.
 --
@@ -42,6 +43,7 @@ import Aihc.Fc.TypeOf (TypeEnv, reduceType)
 import Control.Applicative ((<|>))
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, setBit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.Char qualified as Char
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -408,7 +410,8 @@ hasLiteralPrimitiveCall expr =
     ExTyLam _ body -> hasLiteralPrimitiveCall body
     ExLet bind body -> hasLiteralPrimitiveCall (bindRhs bind) || hasLiteralPrimitiveCall body
     ExRec binds body -> any (hasLiteralPrimitiveCall . bindRhs) binds || hasLiteralPrimitiveCall body
-    ExCase scrutinee _ _ alternatives -> hasLiteralPrimitiveCall scrutinee || any (hasLiteralPrimitiveCall . altRhs) alternatives
+    ExCase scrutinee _ _ (NE.toList -> alternatives) -> hasLiteralPrimitiveCall scrutinee || any (hasLiteralPrimitiveCall . altRhs) alternatives
+    ExAbsurd scrutinee _ -> hasLiteralPrimitiveCall scrutinee
     ExCast body _ -> hasLiteralPrimitiveCall body
     ExForeignCall call _ arguments ->
       (foreignCallConvention call == Prim && not (null arguments) && all isLiteral arguments)

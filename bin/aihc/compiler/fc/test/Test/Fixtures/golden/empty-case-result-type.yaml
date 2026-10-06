@@ -34,8 +34,6 @@ expected: |-
 
   pub val 1.vabsurd :: tEmpty 2.→ tResult
     = λ(x : tEmpty).
-      case x return (tResult) of {
-
-      }
+      absurd x return (tResult)
 status: pass
-reason: An empty case keeps its checked result type.
+reason: An absurd expression keeps its checked result type.

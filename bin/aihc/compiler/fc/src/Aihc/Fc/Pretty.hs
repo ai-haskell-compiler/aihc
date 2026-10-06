@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Human-readable System FC text.
 module Aihc.Fc.Pretty
@@ -16,6 +17,7 @@ import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr, isAscii, isPrint, ord)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -67,7 +69,8 @@ primitiveAliases program = Map.fromList (concatMap aliases (Map.elems grouped))
       ExTyLam _ body -> expressionCalls body
       ExLet binding body -> expressionCalls (bindRhs binding) <> expressionCalls body
       ExRec bindings body -> foldMap (expressionCalls . bindRhs) bindings <> expressionCalls body
-      ExCase scrutinee _ _ alternatives -> expressionCalls scrutinee <> foldMap (expressionCalls . altRhs) alternatives
+      ExCase scrutinee _ _ (NE.toList -> alternatives) -> expressionCalls scrutinee <> foldMap (expressionCalls . altRhs) alternatives
+      ExAbsurd scrutinee _ -> expressionCalls scrutinee
       ExCast body _ -> expressionCalls body
       ExForeignCall call _ arguments -> (if foreignCallConvention call == Prim then Set.singleton call else mempty) <> foldMap expressionCalls arguments
       _ -> mempty
@@ -130,8 +133,9 @@ expressionLocals expression = case expression of
   ExTyLam binder body -> binderLocals binder <> expressionLocals body
   ExLet binding body -> bindingLocals binding <> expressionLocals body
   ExRec bindings body -> foldMap bindingLocals bindings <> expressionLocals body
-  ExCase scrutinee binder result alternatives -> expressionLocals scrutinee <> foldMap binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
+  ExCase scrutinee binder result (NE.toList -> alternatives) -> expressionLocals scrutinee <> foldMap binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
   ExCoercion proof -> coercionLocals proof
+  ExAbsurd scrutinee resultType -> expressionLocals scrutinee <> typeLocals resultType
   ExCast body proof -> expressionLocals body <> coercionLocals proof
   ExForeignCall call types arguments -> typeLocals (foreignCallType call) <> foldMap typeLocals types <> foldMap expressionLocals arguments
   _ -> mempty
@@ -533,7 +537,7 @@ prettyExprWith scopes expr =
         <> "} in"
         <> hardline
         <> prettyExprWith scopes body
-    ExCase scrutinee binder resultType alts ->
+    ExCase scrutinee binder resultType (NE.toList -> alts) ->
       "case "
         <> prettyExprWith scopes scrutinee
         <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
@@ -544,6 +548,7 @@ prettyExprWith scopes expr =
         <> prettyIndentedItems 2 (map (prettyAlt scopes) alts)
         <> hardline
         <> "}"
+    ExAbsurd scrutinee resultType -> "absurd " <> prettyExprWith scopes scrutinee <> " return " <> parens (prettyTypeWith scopes PrecForAll resultType)
     ExCoercion proof -> "coercion " <> parens (prettyCoercion scopes proof)
     ExCast body coercion ->
       prettyExprAtom scopes body <+> "▷" <+> prettyCoercion scopes coercion
@@ -778,6 +783,8 @@ reservedWords =
     "rec",
     "in",
     "case",
+    "absurd",
+    "return",
     "as",
     "return",
     "of",

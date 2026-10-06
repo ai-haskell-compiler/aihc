@@ -1,0 +1,28 @@
+extensions:
+  - EmptyCase
+source: |
+  module Test where
+  data Empty
+  data Result = Result
+  force :: Empty -> Empty
+  force value = value
+  absurd :: Empty -> Result
+  absurd value = case force value of {}
+status: pass
+reason: GRIN evaluates the scrutinee before a match failure.
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Result []
+
+  pub global 1.force = (P1.$force/1)
+
+  pub global 1.absurd = (P1.$absurd/1)
+
+  1.$force (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  1.$absurd (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    absurd_value :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) 1.$force (x :: BoxedRep Lifted)
+    case (absurd_value :: BoxedRep Lifted) as _absurd :: BoxedRep Lifted of

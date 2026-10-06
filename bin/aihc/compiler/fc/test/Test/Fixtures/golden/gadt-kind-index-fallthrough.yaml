@@ -126,9 +126,7 @@ expected: |-
             v$mApp @k @a @sLiftedRep @1.tUnit x (Λ(k1 : sType) (f : k1 3.→ k) (x{1} : k1). λ($pattern_d0 : a ~ f x{1})
             (f{1} : tTypeRep (k1 3.→ k) f) (x{2} : tTypeRep k1 x{1}).
               vputTypeRep @(k1 3.→ k) @f f{1}) (λ(_pattern_failure{1} : 2.tUnit).
-              case x return (1.tUnit) of {
-
-              }))
+              absurd x return (1.tUnit)))
       }
 status: pass
 reason: a pattern guard on HRefl at a different kind than the scrutinee falls through to pattern synonym clauses; the constructor carries a separate kind universal and a kind equality, so the match instantiates it.

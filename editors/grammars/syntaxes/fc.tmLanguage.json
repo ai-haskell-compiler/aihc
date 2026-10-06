@@ -185,7 +185,7 @@
     },
     "keywords": {
       "name": "keyword.control.aihc-fc",
-      "match": "(?<![\\w$'#-])(?:function\\-address|value\\-binders|unboxed\\-tuple|interruptible|type\\-binders|constructors|unboxed\\-sum|constructor|real\\-world|inlinable|forall\\-co|noinline|tycon\\-co|axiom\\-co|synonyms|coercion|foreign|headers|address|dynamic|wrapper|inline|import|module|axioms|strict|return|app\\-co|nth\\-co|fun\\-co|unsafe|axiom|where|trans|scope|using|ccall|rule|type|prims|prim|case|refl|safe|pure|pub|val|let|rec|FUN|lit|sym|in|as|of|_)(?![\\w$'#{-])"
+      "match": "(?<![\\w$'#-])(?:function\\-address|value\\-binders|unboxed\\-tuple|interruptible|type\\-binders|constructors|unboxed\\-sum|constructor|real\\-world|inlinable|forall\\-co|noinline|tycon\\-co|axiom\\-co|synonyms|coercion|foreign|headers|address|dynamic|wrapper|inline|import|module|axioms|strict|return|absurd|app\\-co|nth\\-co|fun\\-co|unsafe|axiom|where|trans|scope|using|ccall|rule|type|prims|prim|case|refl|safe|pure|pub|val|let|rec|FUN|lit|sym|in|as|of|_)(?![\\w$'#{-])"
     },
     "abi-types": {
       "name": "storage.type.aihc-fc",

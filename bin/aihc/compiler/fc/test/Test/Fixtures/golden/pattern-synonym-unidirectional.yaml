@@ -46,8 +46,6 @@ expected: |-
     = Λ(a : sType). λ(x : tL a).
       v$mHead @a @sLiftedRep @a x (λ(x{1} : a).
         x{1}) (λ(_pattern_failure : tUnit).
-        case x return (a) of {
-
-        })
+        absurd x return (a))
 status: pass
 reason: A unidirectional pattern synonym gives a matcher only.

@@ -8,6 +8,7 @@ module Aihc.Fc.Syntax
     Binder (..),
     Expr (..),
     exprFreeNames,
+    caseFromList,
     Bind (..),
     Alt (..),
     AltCon (..),
@@ -40,6 +41,7 @@ where
 import Aihc.Fc.Name
 import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -92,7 +94,9 @@ data Expr
   | ExTyLam Binder Expr
   | ExLet Bind Expr
   | ExRec [Bind] Expr
-  | ExCase Expr (Maybe Binder) Type [Alt]
+  | ExCase Expr (Maybe Binder) Type (NonEmpty Alt)
+  | -- | Evaluate the scrutinee. If evaluation returns, report a match failure.
+    ExAbsurd Expr Type
   | ExCast Expr Coercion
   | -- | Equality evidence has no runtime fields.
     ExCoercion Coercion
@@ -102,6 +106,13 @@ data Expr
     ExForeignCall ForeignCall [Type] [Expr]
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
+
+-- | Construct a case. An empty alternative list gives an absurd expression.
+caseFromList :: Expr -> Maybe Binder -> Type -> [Alt] -> Expr
+caseFromList scrutinee binder resultType alternatives =
+  case alternatives of
+    [] -> ExAbsurd scrutinee resultType
+    first : rest -> ExCase scrutinee binder resultType (first :| rest)
 
 -- | The foreign import that a call names, with the facts that lower it.
 data ForeignCall = ForeignCall
@@ -400,6 +411,7 @@ exprFreeNames = go
         ExLet bind body -> go (bindRhs bind) <> Set.delete (binderName (bindBinder bind)) (go body)
         ExRec binds body -> (foldMap (go . bindRhs) binds <> go body) `Set.difference` Set.fromList (map (binderName . bindBinder) binds)
         ExCase scrutinee binder _ alternatives -> go scrutinee <> (foldMap alternative alternatives `Set.difference` foldMap (Set.singleton . binderName) binder)
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> foldMap go arguments
     alternative alt = go (altRhs alt) `Set.difference` Set.fromList (map binderName (altBinders alt))
