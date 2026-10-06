@@ -345,6 +345,17 @@ simplifyExpr env expr =
       rhs <- simplifyExpr (rhsEnv env (binderName binder)) (bindRhs bind)
       let continue env' rhs'
             | isTrivial rhs' = simplifyExpr env' (substExpr (Map.singleton (binderName binder) rhs') body)
+            -- Normalize safe constructor fields before the body, so that
+            -- cases inside local loops can use the known constructor.
+            | isLiftedBinder (spEnv env') binder,
+              hasLazyPrimitive (spEnv env') rhs' = do
+                (binds, value) <- bindLazyPrimitives env' rhs'
+                let fieldsEnv = List.foldl' (\scope field -> bindingEnv scope (bindBinder field) (bindRhs field)) env' binds
+                    keepField field inner
+                      | unused (binderName (bindBinder field)) inner = inner
+                      | otherwise = ExLet field inner
+                result <- continue fieldsEnv value
+                pure (foldr keepField result binds)
             | otherwise = do
                 body' <- simplifyExpr (bindingEnv env' binder rhs') body
                 mkLet env' (Bind binder rhs') body'

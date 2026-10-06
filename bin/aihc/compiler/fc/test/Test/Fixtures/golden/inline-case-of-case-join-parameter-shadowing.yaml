@@ -72,11 +72,15 @@ expected: |-
         _ →
           case argument return (tInt) of {
             cI# (i : tInt#) →
-              case vcount y as (argument{1} : tInt) return (tInt) of {
+              let argument{1} : tInt# =
+                prim +# i i;
+              case vcount y as (argument{2} : tInt) return (tInt) of {
                 _ →
-                  case argument{1} return (tInt) of {
+                  case argument{2} return (tInt) of {
                     cI# (i{1} : tInt#) →
-                      cI# (prim -# (prim +# i i) (prim +# i{1} i{1}))
+                      let argument{3} : tInt# =
+                        prim +# i{1} i{1};
+                      cI# (prim -# argument{1} argument{3})
                   }
               }
           }
