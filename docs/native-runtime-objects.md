@@ -258,9 +258,16 @@ object, because the marker does not rewrite the fields that name it.
 Frames are write-once, and a pop deletes them without a store. The marker
 scans a frame together with the frames below it in its chunk, down to the
 frames an earlier scan covered, and records in the chunk the highest frame
-it was scanned from. When the chain leaves the chunk, the frame below is
-the pending frame of the stack: a slice scans it, or the pop that enters
-its chunk does through `aihc_stack_enter_chunk`. The exception walk and
+it was scanned from. When the chain leaves the chunk, the frame below goes
+on the list of pending frames of the stack, unless an earlier scan covered
+it. A slice scans a pending frame, or the pop that enters its chunk does
+through `aihc_stack_enter_chunk`. The list keeps every pending frame,
+because a scan stops at the first chunk that the cycle scanned, and the
+chunks below that chunk can still wait for a scan. A pop can pass a frame
+without a read, because a forward frame gives its values to its parent.
+Thus `aihc_stack_enter_chunk` removes the pending frames above the frame
+that it enters, and a slice never scans a frame that new frames replaced.
+The exception walk and
 the continuation capture read frames they pop, so they scan them first
 through `aihc_gc_frame_read`. A frame named by a heap object is scanned
 only when it is live: at or below the stack pointer of the running stack,
