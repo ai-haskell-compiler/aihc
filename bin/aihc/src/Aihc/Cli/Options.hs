@@ -12,7 +12,7 @@ module Aihc.Cli.Options
   )
 where
 
-import Aihc.Native (NativeTarget, OptimizationLevel, defaultOptimizationLevel, parseNativeTarget, parseOptimizationLevel, renderOptimizationLevel)
+import Aihc.Native (NativeTarget, OptimizationLevel, defaultOptimizationLevel, hostNativeTarget, parseNativeTarget, parseOptimizationLevel, renderNativeTarget, renderOptimizationLevel)
 import Options.Applicative qualified as OA
 
 data Command
@@ -406,14 +406,22 @@ optimizationOption =
         <> OA.help "Optimization level: 0, 1, 2 or s. Level 0 runs no System FC pass, s runs the shrinking inliner, 1 and 2 also run the growing one. Levels 2 and s compile the whole program at once, and every level is the level Clang receives for C sources and LLVM output"
     )
 
+-- | The target defaults to the host. A host without a native backend has no
+-- default, so the flag is required there and the help text says so.
 nativeTargetOption :: OA.Parser NativeTarget
 nativeTargetOption =
   OA.option
     (OA.eitherReader parseNativeTarget)
     ( OA.long "target"
         <> OA.metavar "TARGET"
-        <> OA.help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
+        <> maybe (OA.help (targetHelp <> ". This host is unsupported, so there is no default target")) defaultTarget hostNativeTarget
     )
+  where
+    targetHelp = "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
+    defaultTarget target =
+      OA.value target
+        <> OA.showDefaultWith renderNativeTarget
+        <> OA.help (targetHelp <> ". The default is the host")
 
 buildRootOption :: String -> OA.Parser (Maybe FilePath)
 buildRootOption description =
