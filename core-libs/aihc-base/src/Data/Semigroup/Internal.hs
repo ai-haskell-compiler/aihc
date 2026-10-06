@@ -161,9 +161,33 @@ newtype Sum a = Sum {getSum :: a}
 
 newtype Product a = Product {getProduct :: a}
 
+instance (Eq a) => Eq (Dual a) where
+  Dual left == Dual right = left == right
+  Dual left /= Dual right = left /= right
+
+instance (Ord a) => Ord (Dual a) where
+  compare (Dual left) (Dual right) = compare left right
+
+instance Eq All where
+  All left == All right = left == right
+  All left /= All right = left /= right
+
+instance Ord All where
+  compare (All left) (All right) = compare left right
+
+instance Eq Any where
+  Any left == Any right = left == right
+  Any left /= Any right = left /= right
+
+instance Ord Any where
+  compare (Any left) (Any right) = compare left right
+
 instance (Eq a) => Eq (Sum a) where
   Sum left == Sum right = left == right
   Sum left /= Sum right = left /= right
+
+instance (Ord a) => Ord (Sum a) where
+  compare (Sum left) (Sum right) = compare left right
 
 instance (Num a) => Num (Sum a) where
   Sum left + Sum right = Sum (left + right)
@@ -177,6 +201,9 @@ instance (Num a) => Num (Sum a) where
 instance (Eq a) => Eq (Product a) where
   Product left == Product right = left == right
   Product left /= Product right = left /= right
+
+instance (Ord a) => Ord (Product a) where
+  compare (Product left) (Product right) = compare left right
 
 instance (Num a) => Num (Product a) where
   Product left + Product right = Product (left + right)

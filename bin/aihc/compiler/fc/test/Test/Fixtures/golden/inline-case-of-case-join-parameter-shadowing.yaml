@@ -68,22 +68,21 @@ expected: |-
 
   pub val 1.vcheck :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case vcount x as (argument : tInt) of {
-        _ →
-          case argument of {
-            cI# (i : tInt#) →
+      case vcount x of {
+        cI# (i : tInt#) →
+          let argument : tInt# =
+            prim +# i i;
+          case vcount y of {
+            cI# (i{1} : tInt#) →
               let argument{1} : tInt# =
-                prim +# i i;
-              case vcount y as (argument{2} : tInt) of {
-                _ →
-                  case argument{2} of {
-                    cI# (i{1} : tInt#) →
-                      let argument{3} : tInt# =
-                        prim +# i{1} i{1};
-                      cI# (prim -# argument{1} argument{3})
-                  }
-              }
+                prim +# i{1} i{1};
+              cI# (prim -# argument argument{1})
           }
       }
 status: pass
-reason: The demand pass evaluates each strict argument in a case, so the argument of 'divide' is a case on the argument of 'twice', and the two case binders are siblings that the tidied program names 'argument' both. The case of a case turns the outer alternative into a join point and simplifies its body inside the inner alternative, where the inner 'argument' is a known constructor. The join point takes fresh parameters, so the outer 'argument' keeps the doubled value instead of the field of the inner one, and the result subtracts the doubled values.
+reason: >-
+  The demand pass evaluates each strict argument in a case.
+  The case-of-case rule gives fresh parameters to each join point.
+  These parameters keep the doubled values separate from the constructor fields.
+  The case merge rule removes a default case when its body tests the case binder.
+  The result subtracts the doubled values and evaluates each count call once.
