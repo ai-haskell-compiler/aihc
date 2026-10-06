@@ -183,6 +183,14 @@ Support is planned.
 
 See [Self hosting](#self-hosting) for the packages that install today.
 
+### What kind of garbage collector does AIHC use?
+
+A generational, incremental collector with precise roots.
+Young objects are bump allocated in a nursery and copied on survival.
+Old objects are collected with an incremental mark and sweep, so each pause has a bound that does not depend on the live data.
+The same collector runs on all backends.
+See [the GC design](docs/gc-design.md) for the details.
+
 ### How fast is the code that AIHC makes?
 
 Slower than GHC.
