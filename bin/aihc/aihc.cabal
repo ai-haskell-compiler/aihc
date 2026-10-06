@@ -312,6 +312,11 @@ executable aihc-dev
     compiler/grin/test
 
   other-modules:
+    Aihc.Dev.Explore
+    Aihc.Dev.Explore.Build
+    Aihc.Dev.Explore.Document
+    Aihc.Dev.Explore.Haskell
+    Aihc.Dev.Explore.TextMate
     Aihc.Dev.ExtractHi
     Aihc.Dev.ExtractHi.Compare
     Aihc.Dev.ExtractHi.GhcSession
@@ -341,22 +346,28 @@ executable aihc-dev
     aihc-testing,
     async,
     base >=4.16 && <5,
+    brick >=2.9 && <2.14,
     bytestring >=0.10.8 && <0.13,
     containers >=0.5 && <0.9,
     deepseq,
     directory >=1.2.3 && <1.5,
+    file-embed >=0.0.15 && <0.1,
     filepath >=1.3.0.1 && <1.6,
     ghc >=9.12 && <9.13,
     hedgehog >=1.4 && <1.6,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process >=1.6 && <1.8,
+    regex-pcre-builtin >=0.95.2 && <0.96,
     stm >=2.5 && <2.6,
     tasty-hedgehog,
+    temporary,
     terminal-size >=0.3.2 && <0.4,
     text >=1.2.3 && <2.2,
     time,
     unix >=2.7 && <2.9,
+    vector,
+    vty >=6.4 && <6.7,
     yaml >=0.11 && <0.12,
 
   default-extensions: OverloadedStrings

@@ -4,6 +4,7 @@
 -- | Human-readable System FC text.
 module Aihc.Fc.Pretty
   ( renderProgram,
+    renderProgramSections,
     reservedWords,
     globalReferences,
   )
@@ -158,11 +159,40 @@ coercionLocals proof = case proof of
   _ -> mempty
 
 renderProgram :: Program -> Text
-renderProgram = renderStrict . layoutPretty (LayoutOptions (AvailablePerLine 120 1)) . prettyProgram
+renderProgram = renderDoc . prettyProgram
+
+renderDoc :: Doc ann -> Text
+renderDoc = renderStrict . layoutPretty (LayoutOptions (AvailablePerLine 120 1))
+
+-- | The text of a program in sections: first the header with the scopes and
+-- the imports, then one section for each declaration. A declaration section
+-- has the name of the declaration, and a rule section has no name. The
+-- sections, with a blank line between each two, are the text of
+-- 'renderProgram'.
+renderProgramSections :: Program -> [(Maybe Name, Text)]
+renderProgramSections program =
+  [(Nothing, renderDoc (vsep (punctuate hardline header))) | not (null header)]
+    <> [(declName decl, renderDoc document) | (decl, document) <- declarations]
+  where
+    (header, declarations) = programDocuments program
+    declName decl = case decl of
+      DeclType declaration -> Just (typeName declaration)
+      DeclSynonym declaration -> Just (synName declaration)
+      DeclAxiom declaration -> Just (axiomName declaration)
+      DeclVal declaration -> Just (valName declaration)
+      DeclRule _ -> Nothing
 
 prettyProgram :: Program -> Doc ann
 prettyProgram program =
-  vsep (punctuate hardline documents)
+  vsep (punctuate hardline (header <> map snd declarations))
+  where
+    (header, declarations) = programDocuments program
+
+-- | The header documents of a program, and the document of each
+-- declaration.
+programDocuments :: Program -> ([Doc ann], [(Decl, Doc ann)])
+programDocuments program =
+  (scopeDocuments <> primitiveDocuments <> importDocuments, [(decl, prettyDecl scopeIndex decl) | decl <- programDecls program])
   where
     scopes = programScopes program
     scopeIndex = scopeIndexFromProgram program
@@ -172,7 +202,6 @@ prettyProgram program =
         entries -> [prettyScopes entries]
     importDocuments = prettyImports scopeIndex (programImports program)
     primitiveDocuments = prettyImportGroup "prims" [prettyPrimitiveAlias alias <+> "=" <+> prettyForeignImportDependencies scopeIndex (foreignCallDependencies call) <> prettyTopName scopeIndex (foreignCallName call) <+> "::" <+> prettyTypeWith scopeIndex PrecForAll (foreignCallType call) | (call, alias) <- Map.toAscList (primitiveNames scopeIndex)]
-    documents = scopeDocuments <> primitiveDocuments <> importDocuments <> map (prettyDecl scopeIndex) (programDecls program)
 
 prettyImports :: ScopeIndex -> Imports -> [Doc ann]
 prettyImports scopes imports =

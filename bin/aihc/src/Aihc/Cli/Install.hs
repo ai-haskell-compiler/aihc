@@ -8,6 +8,8 @@ module Aihc.Cli.Install
     CompiledExecutable (..),
     ExecutableComponent (..),
     FcModule (..),
+    CompileObservation (..),
+    PhaseOutput (..),
     ModuleCompileConfig (..),
     ModuleOutputPaths (..),
     backendOptionsKey,
@@ -488,7 +490,34 @@ data ModuleCompileConfig = ModuleCompileConfig
     compilePrintTimings :: String -> IO (),
     compileUseColor :: !Bool,
     -- | Where the progress of the build goes.
-    compileProgress :: !ProgressReporter
+    compileProgress :: !ProgressReporter,
+    -- | Receives the source file of each module that the build compiles,
+    -- and the output of each phase of the backend. A tool that shows the
+    -- output of each phase, such as @aihc-dev explore@, sets it. The build
+    -- gives the values only and does no other work for it.
+    compileObserver :: !(Maybe (CompileObservation -> IO ()))
+  }
+
+-- | What 'compileObserver' receives.
+data CompileObservation
+  = -- | A module of a package, and its source file.
+    ObservedSource !Package !Text !FilePath
+  | -- | The output of each phase for one module, or for the merged program
+    -- of a whole-program build.
+    ObservedPhases !PhaseOutput
+
+-- | The output of each phase for one module, or for the merged program of a
+-- whole-program build. The System FC is the optimized program that the
+-- backend lowers.
+data PhaseOutput = PhaseOutput
+  { -- | The package of the module. The merged program has no package.
+    phasePackage :: !(Maybe Package),
+    -- | The module name, or @program@ for the merged program.
+    phaseModule :: !Text,
+    phaseFc :: Fc.Program,
+    phaseGrin :: Grin.GrinProgram,
+    phaseCpsGrin :: Grin.GrinProgram,
+    phaseGcGrin :: Grin.GrinProgram
   }
 
 -- | An executable that the install graph compiles beside the packages of
@@ -653,7 +682,8 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileVerbose = const (pure ()),
         compilePrintTimings = const (pure ()),
         compileUseColor = False,
-        compileProgress = quietProgress stdout
+        compileProgress = quietProgress stdout,
+        compileObserver = Nothing
       }
 
 -- | The config of a package the user did not name. The flags that keep the
@@ -2764,8 +2794,19 @@ runBackendUnit context runtime = do
   pending <- atomically (takeTMVar (runtimeBackendInput runtime))
   case pending of
     Just backend | typeUnitSuccess result -> do
-      let config = taskModuleCompileConfig context
+      let unitConfig = taskModuleCompileConfig context
           storePath = taskStorePath context
+          package = taskResolvePackage context
+          -- The backend knows the module name only, so the package of the
+          -- module is added here.
+          observeUnit observe observation =
+            observe $ case observation of
+              ObservedPhases output -> ObservedPhases output {phasePackage = Just package}
+              _ -> observation
+          config = unitConfig {compileObserver = observeUnit <$> compileObserver unitConfig}
+      forM_ (compileObserver unitConfig) $ \observe ->
+        forM_ (sourceUnitSources (runtimeUnit runtime)) $ \source ->
+          observe (ObservedSource package (sourceName source) (sourceModulePath source))
       (phaseTimings, capiOutputs) <-
         compileUnitFcModules
           config
@@ -3153,7 +3194,19 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
             (_, elapsed) <- measureTime (writeEmptyModule fcModule)
             pure (0, elapsed)
           else do
-            (gcProgram, grinElapsed) <- measureTime (lowerGrinModule fcModule)
+            ((plainProgram, cpsProgram, gcProgram), grinElapsed) <- measureTime (lowerGrinModule fcModule)
+            forM_ (compileObserver config) $ \observe ->
+              observe
+                ( ObservedPhases
+                    PhaseOutput
+                      { phasePackage = Nothing,
+                        phaseModule = fcModuleName fcModule,
+                        phaseFc = fcProgram fcModule,
+                        phaseGrin = plainProgram,
+                        phaseCpsGrin = Grin.cpsGrinProgram cpsProgram,
+                        phaseGcGrin = Grin.gcGrinProgram gcProgram
+                      }
+                )
             (_, nativeElapsed) <- measureTime (writeModule (fcModuleName fcModule) gcProgram)
             pure (grinElapsed, nativeElapsed)
       let nextGrin = grinTotal + grinNs
@@ -3216,7 +3269,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
       when keepGrin $ do
         writeGrinFile (outputGcGrinPath paths) (Grin.gcGrinProgram gcProgram)
         verbose ("Write GC-GRIN: " <> T.unpack name)
-      pure gcProgram
+      pure (plainProgram, cpsProgram, gcProgram)
 
     writeGrinFile path program = do
       createDirectoryIfMissing True (takeDirectory path)
