@@ -43,7 +43,7 @@ expected: |-
 
   pub val 1.vrender :: tBool 2.→ t[] tBool 2.→ t[] tBool
     = λ(x : tBool) (eta{1} : t[] tBool).
-      case x return (t[] tBool) of {
+      case x of {
         cTrue →
           let prefix : t[] tBool 2.→ t[] tBool =
             vcons cTrue;

@@ -79,7 +79,7 @@ expected: |-
 
   pub val 1.vbracket :: ∀(m : sType 3.→ sType) (a : sType) (c : sType). t$Dict$Mask m 3.→ m a 3.→ (a 3.→ m c) 3.→ m c
     = Λ(m : sType 3.→ sType) (a : sType) (c : sType). λ($d0 : t$Dict$Mask m).
-      case $d0 return (m a 3.→ (a 3.→ m c) 3.→ m c) of {
+      case $d0 of {
         c$Dict$Mask ($method0 : ∀(a{1} : sType) (c{1} : sType). m a{1} 3.→ (a{1} 3.→ m c{1}) 3.→ m c{1}) →
           $method0 @a @c
       }
@@ -90,7 +90,7 @@ expected: |-
 
   val 1.v$fFunctorEithere$cfmap :: ∀(e : sType) (a : sType) (b : sType). (a 3.→ b) 3.→ tEither e a 3.→ tEither e b
     = Λ(e : sType) (a : sType) (b : sType). λ(x : a 3.→ b) (y : tEither e a).
-      case y return (tEither e b) of {
+      case y of {
         cLeft (e{1} : e) →
           cLeft @e @b e{1};
         cRight (a{1} : a) →
@@ -111,7 +111,7 @@ expected: |-
 
   val 1.v$fApplicativeEithere$c<*> :: ∀(e : sType) (a : sType) (b : sType). tEither e (a 3.→ b) 3.→ tEither e a 3.→ tEither e b
     = Λ(e : sType) (a : sType) (b : sType). λ(x : tEither e (a 3.→ b)) (y : tEither e a).
-      case x return (tEither e b) of {
+      case x of {
         cLeft (e{1} : e) →
           cLeft @e @b e{1};
         cRight (f : a 3.→ b) →
@@ -136,7 +136,7 @@ expected: |-
 
   val 1.v$fMonadEithere$c>>= :: ∀(e : sType) (a : sType) (b : sType). tEither e a 3.→ (a 3.→ tEither e b) 3.→ tEither e b
     = Λ(e : sType) (a : sType) (b : sType). λ(x : tEither e a) (y : a 3.→ tEither e b).
-      case x return (tEither e b) of {
+      case x of {
         cLeft (e{1} : e) →
           cLeft @e @b e{1};
         cRight (a{1} : a) →

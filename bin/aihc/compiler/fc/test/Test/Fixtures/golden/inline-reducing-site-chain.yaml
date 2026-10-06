@@ -52,30 +52,30 @@ expected: |-
 
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tState
     = λ(x : tBool) (y : tBool) (z : tBool).
-      case case x return (tState) of {
+      case case x of {
         cTrue →
           cState y z x;
         cFalse →
           cState x z y
-      } return (tState) of {
+      } of {
         cState (a : tBool) (b : tBool) (c : tBool) →
-          case case y return (tState) of {
+          case case y of {
             cTrue →
               cState b c a;
             cFalse →
-              case a return (tState) of {
+              case a of {
                 cTrue →
                   cState c a b;
                 cFalse →
                   cState a c b
               }
-          } return (tState) of {
+          } of {
             cState (a{1} : tBool) (b{1} : tBool) (c{1} : tBool) →
-              case z return (tState) of {
+              case z of {
                 cTrue →
                   cState b{1} c{1} a{1};
                 cFalse →
-                  case a{1} return (tState) of {
+                  case a{1} of {
                     cTrue →
                       cState c{1} a{1} b{1};
                     cFalse →

@@ -58,7 +58,7 @@ expected: |-
 
   pub val 1.vpushCallStack :: tTuple2 (t[] tChar) tSrcLoc 3.→ tCallStack 3.→ tCallStack
     = λ(x : tTuple2 (t[] tChar) tSrcLoc) (y : tCallStack).
-      case x return (tCallStack) of {
+      case x of {
         c(,) (name : t[] tChar) (location : tSrcLoc) →
           cPushCallStack name location y
       }

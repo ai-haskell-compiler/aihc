@@ -37,6 +37,6 @@ expected: |-
 
   pub val 1.vquoted :: tBox 4.→ tBox
     = λ(x : tBox).
-      vraise# @sLiftedRep @(t[] tChar) @tBox (vunpackCString# "TH is unsupported"#cAddrRep)
+      vraise# @sLiftedRep @(t[] tChar) @tBox (vunpackCString# lit ("TH is unsupported"#cAddrRep) :: tAddr#)
 status: pass
 reason: A Template Haskell quote desugars to a raise# call with a message.

@@ -43,9 +43,9 @@ expected: |-
   }
 
   pub val 1.vintValue :: tBoxInt
-    = cBoxInt 1#cIntRep
+    = cBoxInt lit (1#cIntRep) :: tInt#
 
   pub val 1.vaddrValue :: tBoxAddr
-    = cBoxAddr "test"#cAddrRep
+    = cBoxAddr lit ("test"#cAddrRep) :: tAddr#
 status: pass
 reason: keeps checked GHC.Prim identities on primitive Core literals

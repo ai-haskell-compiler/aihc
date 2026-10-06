@@ -1,5 +1,3 @@
-{-# LANGUAGE ViewPatterns #-}
-
 -- | Make System FC local names easier to read.
 --
 -- Each optimizer pass ends with a tidy, so a whole program goes through
@@ -85,6 +83,9 @@ rebuild4 make a ta b tb c tc d td =
           !c' = result c tc
           !d' = result d td
        in Changed (make a' b' c' d')
+
+tidyNonEmpty :: (a -> Tidied a) -> NE.NonEmpty a -> Tidied (NE.NonEmpty a)
+tidyNonEmpty tidy (first NE.:| rest) = rebuild2 (NE.:|) first (tidy first) rest (tidyList tidy rest)
 
 -- | Tidy each element of a list.
 tidyList :: (a -> Tidied a) -> [a] -> Tidied [a]
@@ -250,7 +251,7 @@ tidyExpr :: TidyEnv -> Expr -> Tidied Expr
 tidyExpr env expr =
   case expr of
     ExVar name -> rebuild1 ExVar name (tidyUse env name)
-    ExLit literal -> rebuild1 ExLit literal (tidyLiteral env literal)
+    ExLit literal ty -> rebuild2 ExLit literal (tidyLiteral env literal) ty (tidyType env ty)
     ExApp function argument ->
       rebuild2 ExApp function (tidyExpr env function) argument (tidyExpr env argument)
     ExTyApp function argument ->
@@ -280,22 +281,20 @@ tidyExpr env expr =
       let (binders, bodyEnv) = tidyEachBinder env (map bindBinder binds)
           binds' = zipWith (tidyRecBind bodyEnv) binders binds
        in rebuild2 ExRec binds (collect binds binds') body (tidyExpr bodyEnv body)
-    ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
+    ExCase scrutinee binder alternatives ->
       let (binder', caseEnv) = case binder of
             Nothing -> (Same, env)
             Just named
               | all (\alternative -> binderName named `Set.notMember` (exprFreeNames (altRhs alternative) `Set.difference` Set.fromList (map binderName (altBinders alternative)))) alternatives -> (Changed Nothing, env)
               | otherwise -> let (named', inner) = tidyBinder env named in (rebuild1 Just named named', inner)
-       in rebuild4
-            caseFromList
+       in rebuild3
+            ExCase
             scrutinee
             (tidyExpr env scrutinee)
             binder
             binder'
-            resultType
-            (tidyType env resultType)
             alternatives
-            (tidyList (tidyAlt caseEnv) alternatives)
+            (tidyNonEmpty (tidyAlt caseEnv) alternatives)
     ExAbsurd scrutinee resultType -> rebuild2 ExAbsurd scrutinee (tidyExpr env scrutinee) resultType (tidyType env resultType)
     ExCoercion proof -> rebuild1 ExCoercion proof (tidyCoercion env proof)
     ExCast body coercion ->

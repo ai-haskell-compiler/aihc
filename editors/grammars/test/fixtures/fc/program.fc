@@ -21,7 +21,7 @@ pub val 1.vappend :: ∀(a : 2.sType). 2.t[] a 2.→ 2.t[] a 2.→ 2.t[] a
  = Λ(a : 2.sType).
   λ(x : 2.t[] a).
     λ(y : 2.t[] a).
-      case x as (_scrut : 2.t[] a) return (2.t[] a) of {
+      case x as (_scrut : 2.t[] a) of {
           2.c[] →
               y;
           2.c: (x{1} : a) (xs : 2.t[] a) →
@@ -35,6 +35,6 @@ axiom 1.$ax$Age : 1.tAge ~R 2.tInt
 val 1.vlocal :: 2.tInt
  = let {
     as{0} : 2.tInt =
-        1#2.cIntRep
+        lit (1#2.cIntRep) :: 2.tInt#
 } in
-    'x'#2.cIntRep ▷ sym (1.$ax$Age)
+    lit ('x'#2.cWordRep) :: 2.tChar# ▷ sym (1.$ax$Age)

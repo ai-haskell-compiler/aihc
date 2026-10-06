@@ -53,7 +53,7 @@ expected: |-
 
   pub val 1.vsize :: ∀(c : sType). t$Dict$Container c 2.→ c 2.→ tNat
     = Λ(c : sType). λ($d0 : t$Dict$Container c).
-      case $d0 return (c 2.→ tNat) of {
+      case $d0 of {
         c$Dict$Container ($method0 : c 2.→ tNat) →
           $method0
       }
@@ -63,7 +63,7 @@ expected: |-
 
   val 1.v$fContainerBag$csize :: tBag 2.→ tNat
     = λ(x : tBag).
-      case x return (tNat) of {
+      case x of {
         cBag (n : tNat) →
           n
       }

@@ -73,7 +73,7 @@ expected: |-
 
   pub val 1.vpushCallStack :: tTuple2 (t[] tChar) tSrcLoc 5.→ tCallStack 5.→ tCallStack
     = λ(x : tTuple2 (t[] tChar) tSrcLoc) (y : tCallStack).
-      case x return (tCallStack) of {
+      case x of {
         c(,) (name : t[] tChar) (location : tSrcLoc) →
           cPushCallStack name location y
       }
@@ -83,6 +83,6 @@ expected: |-
       x
 
   pub val 1.vnoStack :: tBool
-    = vfailure (vpushCallStack (c(,) @(t[] tChar) @tSrcLoc (vunpackCString# "failure"#cAddrRep) (cSrcLoc (c[] @tChar) (vunpackCString# "Test"#cAddrRep) (vunpackCString# "module Test where"#cAddrRep) (cI# 18#cIntRep) (cI# 11#cIntRep) (cI# 18#cIntRep) (cI# 18#cIntRep))) vemptyCallStack) cTrue
+    = vfailure (vpushCallStack (c(,) @(t[] tChar) @tSrcLoc (vunpackCString# lit ("failure"#cAddrRep) :: tAddr#) (cSrcLoc (c[] @tChar) (vunpackCString# lit ("Test"#cAddrRep) :: tAddr#) (vunpackCString# lit ("module Test where"#cAddrRep) :: tAddr#) (cI# lit (18#cIntRep) :: tInt#) (cI# lit (11#cIntRep) :: tInt#) (cI# lit (18#cIntRep) :: tInt#) (cI# lit (18#cIntRep) :: tInt#))) vemptyCallStack) cTrue
 status: pass
 reason: an occurrence of a function with a HasCallStack constraint pushes its call site onto the empty call stack

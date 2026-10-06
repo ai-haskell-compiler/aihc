@@ -48,9 +48,9 @@ expected: |-
 
   val 1.vadd :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (a : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -58,15 +58,15 @@ expected: |-
 
   pub val 1.vloop :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (i : tInt#) →
-          case i return (tInt) of {
+          case i of {
             0#cIntRep →
               y;
             _ →
-              case vadd y x as (argument : tInt) return (tInt) of {
+              case vadd y x as (argument : tInt) of {
                 _ →
-                  vloop (cI# (prim -# i 1#cIntRep)) argument
+                  vloop (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
               }
           }
       }

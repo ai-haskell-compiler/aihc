@@ -86,7 +86,7 @@ expected: |-
 
   pub val 1.vlen :: ∀(v : sType 3.→ sType 3.→ sType) (a : sType) (s : sType). t$Dict$Len v a 3.→ v s a 3.→ tInt
     = Λ(v : sType 3.→ sType 3.→ sType) (a : sType) (s : sType). λ($d0 : t$Dict$Len v a).
-      case $d0 return (v s a 3.→ tInt) of {
+      case $d0 of {
         c$Dict$Len ($method0 : ∀(s{1} : sType). v s{1} a 3.→ tInt) →
           $method0 @s
       }
@@ -97,7 +97,7 @@ expected: |-
 
   val 1.v$fLenVeca$clen :: ∀(a : sType) (s : sType). tVec s a 3.→ tInt
     = Λ(a : sType) (s : sType). λ(x : tVec s a).
-      cI# 0#cIntRep
+      cI# lit (0#cIntRep) :: tInt#
 
   pub val 1.v$fLenMVWrapa :: ∀(a : sType). t$Dict$Len tMV (tWrap a)
     = Λ(a : sType).

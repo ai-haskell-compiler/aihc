@@ -45,14 +45,14 @@ expected: |-
 
   pub val 1.vparent :: ∀(a : sType). t$Dict$Parent a 2.→ a 2.→ tFlag
     = Λ(a : sType). λ($d0 : t$Dict$Parent a).
-      case $d0 return (a 2.→ tFlag) of {
+      case $d0 of {
         c$Dict$Parent ($method0 : a 2.→ tFlag) →
           $method0
       }
 
   pub val 1.vchild :: ∀(a : sType). t$Dict$Child a 2.→ a 2.→ tFlag
     = Λ(a : sType). λ($d0 : t$Dict$Child a).
-      case $d0 return (a 2.→ tFlag) of {
+      case $d0 of {
         c$Dict$Child ($method0 : t$Dict$Parent a) ($method1 : a 2.→ tFlag) →
           $method1
       }
@@ -60,11 +60,11 @@ expected: |-
   pub val 1.vboth :: ∀(a : sType). t$Dict$Child a 2.→ a 2.→ a 2.→ tFlag
     = Λ(a : sType). λ($d0 : t$Dict$Child a) (x : a) (y : a).
       let $super : t$Dict$Parent a =
-        case $d0 return (t$Dict$Parent a) of {
+        case $d0 of {
           c$Dict$Child ($super_field0 : t$Dict$Parent a) ($super_field1 : a 2.→ tFlag) →
             $super_field0
         };
-      case vparent @a $super x return (tFlag) of {
+      case vparent @a $super x of {
         cOff →
           vparent @a $super y;
         cOn →

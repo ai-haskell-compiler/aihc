@@ -58,7 +58,7 @@ expected: |-
   pub val 1.vrwhnf :: ∀(a : sType). a 3.→ tUnit
     = Λ(a : sType). λ(_section : a).
       (λ(seq_first : a) (seq_second : tUnit).
-        case seq_first return (tUnit) of {
+        case seq_first of {
           _ →
             seq_second
         }) _section c()

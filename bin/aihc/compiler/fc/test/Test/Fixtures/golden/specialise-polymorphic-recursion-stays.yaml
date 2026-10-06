@@ -72,7 +72,7 @@ expected: |-
 
   val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
     = Λ(a : sType). λ($d0 : t$Dict$Weight a).
-      case $d0 return (a 3.→ tInt) of {
+      case $d0 of {
         c$Dict$Weight ($method0 : a 3.→ tInt) →
           $method0
       }
@@ -82,11 +82,11 @@ expected: |-
 
   val 1.v$fWeightBool$cweight :: tBool 3.→ tInt
     = λ(x : tBool).
-      case x return (tInt) of {
+      case x of {
         cTrue →
-          cI# 1#cIntRep;
+          cI# lit (1#cIntRep) :: tInt#;
         cFalse →
-          cI# 0#cIntRep
+          cI# lit (0#cIntRep) :: tInt#
       }
 
   pub val 1.v$fWeightList :: ∀(a : sType). t$Dict$Weight a 3.→ t$Dict$Weight (t[] a)
@@ -95,18 +95,18 @@ expected: |-
 
   val 1.v$fWeightList$cweight :: ∀(a : sType). t$Dict$Weight a 3.→ t[] a 3.→ tInt
     = Λ(a : sType). λ($d0 : t$Dict$Weight a) (x : t[] a).
-      case x return (tInt) of {
+      case x of {
         c[] →
-          cI# 0#cIntRep;
+          cI# lit (0#cIntRep) :: tInt#;
         c: (y : a) (_pat : t[] a) →
           vweight @a $d0 y
       }
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (a : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -117,13 +117,13 @@ expected: |-
       rec {
         go : ∀(a : sType). t$Dict$Weight a 3.→ tInt 3.→ a 3.→ tInt =
           Λ(a : sType). λ($d0 : t$Dict$Weight a) (x{1} : tInt) (y{1} : a).
-            case x{1} return (tInt) of {
+            case x{1} of {
               cI# (_pat : tInt#) →
-                case _pat return (tInt) of {
+                case _pat of {
                   0#cIntRep →
                     vweight @a $d0 y{1};
                   _ →
-                    go @(t[] a) (v$fWeightList @a $d0) (cI# (prim +# _pat -1#cIntRep)) (c: @a y{1} (c[] @a))
+                    go @(t[] a) (v$fWeightList @a $d0) (cI# (prim +# _pat lit (-1#cIntRep) :: tInt#)) (c: @a y{1} (c[] @a))
                 }
             }
       } in

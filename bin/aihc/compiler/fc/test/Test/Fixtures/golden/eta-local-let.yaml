@@ -85,14 +85,14 @@ expected: |-
           x ▷ axiom-co $ax$Eff @tInt;
         let g : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
           y ▷ axiom-co $ax$Eff @tInt;
-        case f eta{2} return (tInt) of {
+        case f eta{2} of {
           cI# (_pat : tInt#) →
             g eta{2}
         }) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vchoose :: tBool 4.→ tBool
     = λ(x : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
           cFalse;
         cFalse →
@@ -102,29 +102,29 @@ expected: |-
   pub val 1.vrun :: tBool 4.→ tTuple2 (tInt 4.→ tInt) (tEff tInt)
     = λ(x : tBool).
       let pick : tInt 4.→ tInt =
-        case vchoose x return (tInt 4.→ tInt) of {
+        case vchoose x of {
           cTrue →
             λ(x{1} : tInt).
               x{1};
           cFalse →
             λ(x{1} : tInt).
-              cI# 0#cIntRep
+              cI# lit (0#cIntRep) :: tInt#
         };
       let next : tEff tInt =
         (λ(eta{3} : tState# tRealWorld).
-          case x return (tInt) of {
+          case x of {
             cTrue →
-              ((vstep (cI# 1#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{3};
+              ((vstep (cI# lit (1#cIntRep) :: tInt#)) ▷ axiom-co $ax$Eff @tInt) eta{3};
             cFalse →
-              ((vstep (cI# 2#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{3}
+              ((vstep (cI# lit (2#cIntRep) :: tInt#)) ▷ axiom-co $ax$Eff @tInt) eta{3}
           }) ▷ sym (axiom-co $ax$Eff @tInt);
       c(,) @(tInt 4.→ tInt) @(tEff tInt) (λ(y : tInt).
         pick (pick y)) (vandThen next ((λ(eta{4} : tState# tRealWorld).
-        case x return (tInt) of {
+        case x of {
           cTrue →
             (next ▷ axiom-co $ax$Eff @tInt) eta{4};
           cFalse →
-            ((vstep (cI# 3#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{4}
+            ((vstep (cI# lit (3#cIntRep) :: tInt#)) ▷ axiom-co $ax$Eff @tInt) eta{4}
         }) ▷ sym (axiom-co $ax$Eff @tInt)))
 status: pass
 reason: A local binding and an argument expand as a top-level value does. 'next' is a case on a variable whose alternatives are partial applications of an Eff action, so it takes the state token and becomes a closure, not a thunk. The second argument of 'andThen' is a case of the same kind and expands too. The scrutinee of 'pick' is a call, and its lambda is not one-shot, so an expansion would repeat that call and 'pick' stays as it is.

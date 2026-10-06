@@ -52,13 +52,13 @@ expected: |-
 
   val 1.vstep inline :: tState 2.→ tBool 2.→ tState
     = λ(x : tState) (y : tBool).
-      case x return (tState) of {
+      case x of {
         cState (a : tBool) (b : tBool) (c : tBool) →
-          case y return (tState) of {
+          case y of {
             cTrue →
               cState b c a;
             cFalse →
-              case a return (tState) of {
+              case a of {
                 cTrue →
                   cState c a b;
                 cFalse →

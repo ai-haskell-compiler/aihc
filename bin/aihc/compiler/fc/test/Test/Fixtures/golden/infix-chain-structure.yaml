@@ -48,11 +48,11 @@ expected: |-
 
   pub val 1.vpick :: tTree 2.→ tTree
     = λ(x : tTree).
-      case x return (tTree) of {
+      case x of {
         c:<: (a : tTree) (_pat : tTree) →
-          case _pat return (tTree) of {
+          case _pat of {
             c:>: (b : tTree) (_pat{1} : tTree) →
-              case _pat{1} return (tTree) of {
+              case _pat{1} of {
                 c:>: (c : tTree) (d : tTree) →
                   d
               }
@@ -61,7 +61,7 @@ expected: |-
 
   pub val 1.vsingle :: tTree 2.→ tTree
     = λ(x : tTree).
-      case x return (tTree) of {
+      case x of {
         c:>: (a : tTree) (b : tTree) →
           b
       }

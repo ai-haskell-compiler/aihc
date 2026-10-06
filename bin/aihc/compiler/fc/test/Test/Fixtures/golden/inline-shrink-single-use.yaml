@@ -36,7 +36,7 @@ expected: |-
 
   pub val 1.vuse :: tBool 2.→ tBool
     = λ(x : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
           cFalse;
         cFalse →

@@ -92,11 +92,11 @@ expected: |-
 
   val 1.v$fEqInt32$c== :: tInt32 3.→ tInt32 3.→ tBool
     = λ(x : tInt32) (y : tInt32).
-      case x return (tBool) of {
+      case x of {
         cI32# (left : tInt32#) →
-          case y return (tBool) of {
+          case y of {
             cI32# (right : tInt32#) →
-              case prim ==# (prim int32ToInt# left) (prim int32ToInt# right) return (tBool) of {
+              case prim ==# (prim int32ToInt# left) (prim int32ToInt# right) of {
                 0#cIntRep →
                   cFalse;
                 _ →
@@ -113,17 +113,17 @@ expected: |-
 
   pub val 1.vclassify :: tErrno 3.→ tInt
     = λ(x : tErrno).
-      case (x ▷ axiom-co $ax$Errno) ▷ axiom-co $ax$CInt return (tInt) of {
+      case (x ▷ axiom-co $ax$Errno) ▷ axiom-co $ax$CInt of {
         cI32# (left : tInt32#) →
-          case prim int32ToInt# left return (tInt) of {
+          case prim int32ToInt# left of {
             1#cIntRep →
-              cI# 10#cIntRep;
+              cI# lit (10#cIntRep) :: tInt#;
             2#cIntRep →
-              cI# 20#cIntRep;
+              cI# lit (20#cIntRep) :: tInt#;
             3#cIntRep →
-              cI# 30#cIntRep;
+              cI# lit (30#cIntRep) :: tInt#;
             _ →
-              cI# 0#cIntRep
+              cI# lit (0#cIntRep) :: tInt#
           }
       }
 status: pass

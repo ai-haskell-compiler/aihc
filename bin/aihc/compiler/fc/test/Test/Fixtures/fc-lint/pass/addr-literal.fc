@@ -20,4 +20,4 @@ pub type 2.tRuntimeRep :: 2.sType {
 pub type 1.tAddr# :: 2.tTYPE 2.cAddrRep {}
 
 val 1.vtable :: 1.tAddr#
- = "\x00\x1fA"#2.cAddrRep
+ = lit ("\x00\x1fA"#2.cAddrRep) :: 1.tAddr#

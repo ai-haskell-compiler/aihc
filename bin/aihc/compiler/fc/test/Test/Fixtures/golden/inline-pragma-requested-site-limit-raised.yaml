@@ -52,13 +52,13 @@ expected: |-
 
   pub val 1.vfirst :: tBool 2.→ tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool) (z : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
-          case y return (tBool) of {
+          case y of {
             cTrue →
               z;
             cFalse →
-              case z return (tBool) of {
+              case z of {
                 cTrue →
                   y;
                 cFalse →
@@ -66,9 +66,9 @@ expected: |-
               }
           };
         cFalse →
-          case z return (tBool) of {
+          case z of {
             cTrue →
-              case y return (tBool) of {
+              case y of {
                 cTrue →
                   x;
                 cFalse →
@@ -81,13 +81,13 @@ expected: |-
 
   pub val 1.vsecond :: tBool 2.→ tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool) (z : tBool).
-      case z return (tBool) of {
+      case z of {
         cTrue →
-          case y return (tBool) of {
+          case y of {
             cTrue →
               x;
             cFalse →
-              case x return (tBool) of {
+              case x of {
                 cTrue →
                   y;
                 cFalse →
@@ -95,9 +95,9 @@ expected: |-
               }
           };
         cFalse →
-          case x return (tBool) of {
+          case x of {
             cTrue →
-              case y return (tBool) of {
+              case y of {
                 cTrue →
                   z;
                 cFalse →

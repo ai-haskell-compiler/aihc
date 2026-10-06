@@ -1,5 +1,3 @@
-{-# LANGUAGE ViewPatterns #-}
-
 -- | Share the equal parts of a program.
 --
 -- The desugarer builds every occurrence of a name, and every type it
@@ -16,7 +14,6 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, gets, modify')
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
@@ -196,7 +193,7 @@ shareExpr :: Expr -> Share Expr
 shareExpr expr =
   case expr of
     ExVar name -> ExVar <$> shareName name
-    ExLit literal -> ExLit <$> shareLiteral literal
+    ExLit literal ty -> ExLit <$> shareLiteral literal <*> shareType ty
     ExApp function argument -> ExApp <$> shareExpr function <*> shareExpr argument
     ExTyApp function ty -> ExTyApp <$> shareExpr function <*> shareType ty
     ExLam binder body -> ExLam <$> shareBinder binder <*> shareExpr body
@@ -204,8 +201,8 @@ shareExpr expr =
     ExLet bind body -> ExLet <$> shareBind bind <*> shareExpr body
     ExRec binds body -> ExRec <$> mapM shareBind binds <*> shareExpr body
     ExAbsurd scrutinee resultType -> ExAbsurd <$> shareExpr scrutinee <*> shareType resultType
-    ExCase scrutinee binder ty (NE.toList -> alts) ->
-      caseFromList <$> shareExpr scrutinee <*> traverse shareBinder binder <*> shareType ty <*> mapM shareAlt alts
+    ExCase scrutinee binder alts ->
+      ExCase <$> shareExpr scrutinee <*> traverse shareBinder binder <*> mapM shareAlt alts
     ExCast body coercion -> ExCast <$> shareExpr body <*> shareCoercion coercion
     ExCoercion coercion -> ExCoercion <$> shareCoercion coercion
     ExForeignCall call tys arguments ->

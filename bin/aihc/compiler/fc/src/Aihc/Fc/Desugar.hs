@@ -1127,15 +1127,15 @@ exprOrigins :: Expr -> [(PackageId, Text)]
 exprOrigins expr =
   case expr of
     ExVar name -> nameOriginPair name
-    ExLit literal -> literalOrigins literal
+    ExLit literal ty -> literalOrigins literal <> typeOrigins ty
     ExApp function argument -> exprOrigins function <> exprOrigins argument
     ExTyApp function ty -> exprOrigins function <> typeOrigins ty
     ExLam binder body -> binderOrigins binder <> exprOrigins body
     ExTyLam binder body -> binderOrigins binder <> exprOrigins body
     ExLet bind body -> bindOrigins bind <> exprOrigins body
     ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
-    ExCase scrutinee binder resultType (NE.toList -> alts) ->
-      exprOrigins scrutinee <> foldMap binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
+    ExCase scrutinee binder (NE.toList -> alts) ->
+      exprOrigins scrutinee <> foldMap binderOrigins binder <> concatMap altOrigins alts
     ExCoercion proof -> coercionOrigins proof
     ExAbsurd scrutinee resultType -> exprOrigins scrutinee <> typeOrigins resultType
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion

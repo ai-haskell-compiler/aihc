@@ -53,7 +53,7 @@ expected: |-
 
   val 1.vslow :: tNat 2.→ tNat
     = λ(x : tNat).
-      case x return (tNat) of {
+      case x of {
         cZ →
           cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ)))))))))))))));
         cS (y : tNat) →
@@ -62,7 +62,7 @@ expected: |-
 
   val 1.vtemplate inline [0] :: tNat 2.→ tNat
     = λ(x : tNat).
-      case x return (tNat) of {
+      case x of {
         cZ →
           cS cZ;
         cS (y : tNat) →

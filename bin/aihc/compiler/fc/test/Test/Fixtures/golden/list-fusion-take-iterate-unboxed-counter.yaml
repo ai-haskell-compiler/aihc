@@ -121,7 +121,7 @@ expected: |-
       rec {
         go : tList a 3.→ b =
           λ(x{1} : tList a).
-            case x{1} return (b) of {
+            case x{1} of {
               cNil →
                 y;
               cCons (y{1} : a) (ys : tList a) →
@@ -150,9 +150,9 @@ expected: |-
 
   val 1.vtake :: ∀(a : sType). tInt 3.→ tList a 3.→ tList a
     = Λ(a : sType). λ(x : tInt) (y : tList a).
-      case x return (tList a) of {
+      case x of {
         cI# (m : tInt#) →
-          case prim <# m 1#cIntRep return (tList a) of {
+          case prim <# m lit (1#cIntRep) :: tInt# of {
             1#cIntRep →
               cNil @a;
             _ →
@@ -162,44 +162,44 @@ expected: |-
 
   val 1.vunsafeTake :: ∀(a : sType). FUN @cIntRep @sLiftedRep tInt# (tList a 3.→ tList a)
     = Λ(a : sType). λ(x : tInt#) (y : tList a).
-      case y return (tList a) of {
+      case y of {
         cNil →
           cNil @a;
         cCons (y{1} : a) (ys : tList a) →
-          cCons @a y{1} (case prim ==# x 1#cIntRep return (tList a) of {
+          cCons @a y{1} (case prim ==# x lit (1#cIntRep) :: tInt# of {
             1#cIntRep →
               cNil @a;
             _ →
-              vunsafeTake @a (prim -# x 1#cIntRep) ys
+              vunsafeTake @a (prim -# x lit (1#cIntRep) :: tInt#) ys
           })
       }
 
   val 1.vtakeFB inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ b 3.→ a 3.→ (tInt 3.→ b) 3.→ tInt 3.→ b
     = Λ(a : sType) (b : sType). λ(x : a 3.→ b 3.→ b) (y : b) (z : a) (x1 : tInt 3.→ b) (x2 : tInt).
-      case x2 return (b) of {
+      case x2 of {
         cI# (k : tInt#) →
-          case prim ==# k 1#cIntRep return (b) of {
+          case prim ==# k lit (1#cIntRep) :: tInt# of {
             1#cIntRep →
               x z y;
             _ →
               x z (let argument : tInt# =
-                prim -# k 1#cIntRep;
+                prim -# k lit (1#cIntRep) :: tInt#;
               x1 (cI# argument))
           }
       }
 
   val 1.vtakeEnd inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ b
     = Λ(b : sType). λ(x : b) (y : tInt).
-      case y return (b) of {
+      case y of {
         cI# (_pat : tInt#) →
           x
       }
 
   val 1.vtakeWith inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ (tInt 3.→ b) 3.→ b
     = Λ(b : sType). λ(x : b) (y : tInt) (z : tInt 3.→ b).
-      case y return (b) of {
+      case y of {
         cI# (k : tInt#) →
-          case prim <# k 1#cIntRep return (b) of {
+          case prim <# k lit (1#cIntRep) :: tInt# of {
             1#cIntRep →
               x;
             _ →
@@ -209,9 +209,9 @@ expected: |-
 
   pub val 1.vprefix :: tInt 3.→ tNat 3.→ tNat
     = λ(x : tInt) (y : tNat).
-      case x return (tNat) of {
+      case x of {
         cI# (k : tInt#) →
-          case prim <# k 1#cIntRep return (tNat) of {
+          case prim <# k lit (1#cIntRep) :: tInt# of {
             1#cIntRep →
               cZ;
             _ →
@@ -221,11 +221,11 @@ expected: |-
               rec {
                 $wgo : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tNat (FUN @cIntRep @(cBoxedRep cLifted) tInt# tNat) =
                   λ(x{2} : tNat) (eta : tInt#).
-                    case eta return (tNat) of {
+                    case eta of {
                       1#cIntRep →
                         x{1} x{2} cZ;
                       _ →
-                        x{1} x{2} ($wgo (cS x{2}) (prim -# eta 1#cIntRep))
+                        x{1} x{2} ($wgo (cS x{2}) (prim -# eta lit (1#cIntRep) :: tInt#))
                     }
               } in
               $wgo y k

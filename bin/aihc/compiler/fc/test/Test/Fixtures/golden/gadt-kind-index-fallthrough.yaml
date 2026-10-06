@@ -82,7 +82,7 @@ expected: |-
   pub val 1.v$mCon' :: ∀(k : sType) (a : k) (rep : tRuntimeRep) (r : tTYPE rep). tTypeRep k a 3.→ (FUN @sLiftedRep @rep 1.tUnit r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep 2.tUnit r) r
     = Λ(k : sType) (a : k) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tTypeRep k a) (y : FUN @sLiftedRep @rep 1.tUnit r)
     (z : FUN @sLiftedRep @rep 2.tUnit r).
-      case vsplitApp @k @a x return (r) of {
+      case vsplitApp @k @a x of {
         cIsCon (con : 1.tUnit) →
           y con;
         _ →
@@ -93,7 +93,7 @@ expected: |-
     = Λ(k2 : sType) (t : k2) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tTypeRep k2 t)
     (y : ∀(k1 : sType) (f : k1 3.→ k2) (x{1} : k1). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (t ~ f x{1}) (tTypeRep (k1 3.→ k2) f 3.→ FUN @sLiftedRep @rep (tTypeRep k1 x{1}) r))
     (z : FUN @sLiftedRep @rep 2.tUnit r).
-      case vsplitApp @k2 @t x return (r) of {
+      case vsplitApp @k2 @t x of {
         cIsApp @(k1 : sType) @(f : k1 3.→ k2) @(x{1} : k1) ($pattern_d0 : t ~ f x{1}) (f{1} : tTypeRep (k1 3.→ k2) f) (x{2} : tTypeRep k1 x{1}) →
           y @k1 @f @x{1} (coercion ($pattern_d0)) f{1} x{2};
         _ →
@@ -114,9 +114,9 @@ expected: |-
 
   pub val 1.vputTypeRep :: ∀(k : sType) (a : k). tTypeRep k a 3.→ 1.tUnit
     = Λ(k : sType) (a : k). λ(x : tTypeRep k a).
-      case veqTypeRep @k @(tTYPE (cBoxedRep cLifted)) @a @(tTYPE (cBoxedRep cLifted)) x (vtypeRep @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted))) return (1.tUnit) of {
+      case veqTypeRep @k @(tTYPE (cBoxedRep cLifted)) @a @(tTYPE (cBoxedRep cLifted)) x (vtypeRep @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted))) of {
         cJust (_pat : t:~~: k (tTYPE (cBoxedRep cLifted)) a (tTYPE (cBoxedRep cLifted))) →
-          case _pat return (1.tUnit) of {
+          case _pat of {
             cHRefl ($pattern_d0 : tTYPE (cBoxedRep cLifted) ~ k) ($pattern_d1 : tTYPE (cBoxedRep cLifted) ~ a) →
               cUnit
           };

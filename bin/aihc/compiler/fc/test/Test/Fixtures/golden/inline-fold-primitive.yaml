@@ -36,6 +36,6 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub val 1.vpick :: tInt
-    = cI# 7#cIntRep
+    = cI# lit (7#cIntRep) :: tInt#
 status: pass
 reason: A primitive applied to literals is computed at compile time, and a folded comparison selects its alternative.

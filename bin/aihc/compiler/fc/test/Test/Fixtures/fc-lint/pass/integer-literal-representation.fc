@@ -19,19 +19,19 @@ pub type 1.tIntRep :: 2.tRuntimeRep {}
 pub type 1.tSecret# :: 2.tTYPE 1.tIntRep {}
 
 val 1.vsecret :: 1.tSecret#
- = 1#1.tIntRep
+ = lit (1#1.tIntRep) :: 1.tSecret#
 
 val 1.vmakeSecret :: FUN @1.tIntRep @1.tIntRep 1.tSecret# 1.tSecret#
  = λ(value : 1.tSecret#).
-  1#1.tIntRep
+  lit (1#1.tIntRep) :: 1.tSecret#
 
 val 1.vapplySecret :: 1.tSecret#
- = 1.vmakeSecret 1#1.tIntRep
+ = 1.vmakeSecret (lit (1#1.tIntRep) :: 1.tSecret#)
 
 val 1.vcaseSecret :: 1.tSecret#
- = case 1#1.tIntRep as (value : 1.tSecret#) return (1.tSecret#) of {
+ = case lit (1#1.tIntRep) :: 1.tSecret# as (value : 1.tSecret#) of {
     1#1.tIntRep →
-        1#1.tIntRep;
+        lit (1#1.tIntRep) :: 1.tSecret#;
     _ →
-        1#1.tIntRep
+        lit (1#1.tIntRep) :: 1.tSecret#
 }

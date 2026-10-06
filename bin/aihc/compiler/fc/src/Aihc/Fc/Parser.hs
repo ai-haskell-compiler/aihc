@@ -514,7 +514,6 @@ caseExpr =
   ExCase
     <$> (keyword "case" *> expression)
     <*> MP.optional (keyword "as" *> openTermBinder SortValue)
-    <*> (keyword "return" *> parens fcType)
     <*> (keyword "of" *> braces ((NE.:|) <$> caseAlt <*> MP.many (symbol ";" *> caseAlt)))
 
 absurdExpr :: Parser Expr
@@ -541,6 +540,9 @@ castOrApp = do
     _ <- symbol "▷"
     ExCast function <$> coercion
 
+literalExpr :: Parser Expr
+literalExpr = ExLit <$> (keyword "lit" *> parens literal) <*> (symbol "::" *> typeAtom)
+
 appExpr :: Parser Expr
 appExpr = primitiveCallExpr <|> foreignCallExpr <|> (foldl applyArg <$> exprAtom <*> MP.many appArgument)
   where
@@ -561,7 +563,7 @@ exprAtom =
   MP.choice
     [ ExCoercion <$> (keyword "coercion" *> parens coercion),
       parens expression,
-      ExLit <$> MP.try literal,
+      literalExpr,
       ExVar <$> referenceName SortValue
     ]
 

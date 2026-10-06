@@ -36,7 +36,7 @@ modules:
 
   useAny :: Required a => Wrapped a -> Wrapped a
   useAny = anyValue
-expected: |
+expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
 
@@ -87,14 +87,14 @@ expected: |
 
   pub val 1.vrequired :: ∀(a : sType). t$Dict$Required a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$Required a).
-      case $d0 return (a 2.→ a) of {
+      case $d0 of {
         c$Dict$Required ($method0 : a 2.→ a) →
           $method0
       }
 
   pub val 1.vanyValue :: ∀(a : sType). t$Dict$Any a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$Any a).
-      case $d0 return (a 2.→ a) of {
+      case $d0 of {
         c$Dict$Any ($method0 : a 2.→ a) →
           $method0
       }

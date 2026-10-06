@@ -25,14 +25,14 @@ expected: |-
 
   pub val 1.vpublic :: ∀(a : sType). t$Dict$Methods a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$Methods a).
-      case $d0 return (a 2.→ a) of {
+      case $d0 of {
         c$Dict$Methods ($method0 : t$Dict$Parent a) ($method1 : a 2.→ a) ($method2 : ∀(b : sType). a 2.→ b 2.→ b) →
           $method1
       }
 
   val 1.vprivate :: ∀(a : sType) (b : sType). t$Dict$Methods a 2.→ a 2.→ b 2.→ b
     = Λ(a : sType) (b : sType). λ($d0 : t$Dict$Methods a).
-      case $d0 return (a 2.→ b 2.→ b) of {
+      case $d0 of {
         c$Dict$Methods ($method0 : t$Dict$Parent a) ($method1 : a 2.→ a) ($method2 : ∀(b{1} : sType). a 2.→ b{1} 2.→ b{1}) →
           $method2 @b
       }
@@ -71,14 +71,14 @@ expected: |-
 
   val 2.v$fMethodsNa$cpublic :: ∀(a : sType). t$Dict$Methods a 3.→ tN a 3.→ tN a
     = Λ(a : sType). λ($d0 : t$Dict$Methods a).
-      (case $d0 return (a 3.→ a) of {
+      (case $d0 of {
         c$Dict$Methods ($coerced_field0 : t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b : sType). a 3.→ b 3.→ b) →
           $coerced_field1
       }) ▷ fun-co (sym (axiom-co $ax$N @a)) (sym (axiom-co $ax$N @a))
 
   val 2.v$fMethodsNa$cprivate :: ∀(a : sType). t$Dict$Methods a 3.→ (∀(b : sType). tN a 3.→ b 3.→ b)
     = Λ(a : sType). λ($d0 : t$Dict$Methods a). Λ(b : sType).
-      ((case $d0 return (∀(b{1} : sType). a 3.→ b{1} 3.→ b{1}) of {
+      ((case $d0 of {
         c$Dict$Methods ($coerced_field0 : t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b{1} : sType). a 3.→ b{1} 3.→ b{1}) →
           $coerced_field2
       }) @b) ▷ fun-co (sym (axiom-co $ax$N @a)) (refl (b 3.→ b))

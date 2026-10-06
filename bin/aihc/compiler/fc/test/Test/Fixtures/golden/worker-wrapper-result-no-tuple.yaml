@@ -48,7 +48,7 @@ expected: |-
 
   pub val 1.varound inline :: tInt 3.→ tPair
     = λ(x : tInt).
-      case x return (tPair) of {
+      case x of {
         cI# (x{1} : tInt#) →
           v$waround x{1}
       }
@@ -56,9 +56,9 @@ expected: |-
   val 1.v$waround :: FUN @cIntRep @(cBoxedRep cLifted) tInt# tPair
     = λ(x : tInt#).
       let argument : tInt# =
-        prim -# x 1#cIntRep;
+        prim -# x lit (1#cIntRep) :: tInt#;
       let argument{1} : tInt# =
-        prim +# x 1#cIntRep;
+        prim +# x lit (1#cIntRep) :: tInt#;
       cPair (cI# argument) (cI# argument{1})
 status: pass
 reason: The program does not have the unboxed pair type, so the worker returns the Pair as it is. It still takes the Int# field of its parameter.

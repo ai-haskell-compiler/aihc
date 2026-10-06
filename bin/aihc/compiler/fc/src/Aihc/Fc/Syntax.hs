@@ -87,14 +87,14 @@ data Binder = Binder
 
 data Expr
   = ExVar Name
-  | ExLit Literal
+  | ExLit Literal Type
   | ExApp Expr Expr
   | ExTyApp Expr Type
   | ExLam Binder Expr
   | ExTyLam Binder Expr
   | ExLet Bind Expr
   | ExRec [Bind] Expr
-  | ExCase Expr (Maybe Binder) Type (NonEmpty Alt)
+  | ExCase Expr (Maybe Binder) (NonEmpty Alt)
   | -- | Evaluate the scrutinee. If evaluation returns, report a match failure.
     ExAbsurd Expr Type
   | ExCast Expr Coercion
@@ -112,7 +112,7 @@ caseFromList :: Expr -> Maybe Binder -> Type -> [Alt] -> Expr
 caseFromList scrutinee binder resultType alternatives =
   case alternatives of
     [] -> ExAbsurd scrutinee resultType
-    first : rest -> ExCase scrutinee binder resultType (first :| rest)
+    first : rest -> ExCase scrutinee binder (first :| rest)
 
 -- | The foreign import that a call names, with the facts that lower it.
 data ForeignCall = ForeignCall
@@ -410,7 +410,7 @@ exprFreeNames = go
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> Set.delete (binderName (bindBinder bind)) (go body)
         ExRec binds body -> (foldMap (go . bindRhs) binds <> go body) `Set.difference` Set.fromList (map (binderName . bindBinder) binds)
-        ExCase scrutinee binder _ alternatives -> go scrutinee <> (foldMap alternative alternatives `Set.difference` foldMap (Set.singleton . binderName) binder)
+        ExCase scrutinee binder alternatives -> go scrutinee <> (foldMap alternative alternatives `Set.difference` foldMap (Set.singleton . binderName) binder)
         ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> foldMap go arguments
