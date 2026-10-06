@@ -508,7 +508,8 @@ data CompileObservation
 
 -- | The output of each phase for one module, or for the merged program of a
 -- whole-program build. The System FC is the optimized program that the
--- backend lowers.
+-- backend lowers. The GC-GRIN and the module settings are what the backend
+-- lowers to Lir.
 data PhaseOutput = PhaseOutput
   { -- | The package of the module. The merged program has no package.
     phasePackage :: !(Maybe Package),
@@ -517,7 +518,8 @@ data PhaseOutput = PhaseOutput
     phaseFc :: Fc.Program,
     phaseGrin :: Grin.GrinProgram,
     phaseCpsGrin :: Grin.GrinProgram,
-    phaseGcGrin :: Grin.GrinProgram
+    phaseGcGrin :: Grin.GcGrinProgram,
+    phaseLirSettings :: !Lower.ModuleSettings
   }
 
 -- | An executable that the install graph compiles beside the packages of
@@ -3187,6 +3189,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
     -- native source is that same text for @--keep-native@ as well.
     keepLir = keepsLirText config
     target = compileTarget config
+    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config)
     compileOne (grinTotal, nativeTotal) fcModule = do
       (grinNs, nativeNs) <-
         if null (Fc.programDecls (fcProgram fcModule))
@@ -3204,7 +3207,8 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
                         phaseFc = fcProgram fcModule,
                         phaseGrin = plainProgram,
                         phaseCpsGrin = Grin.cpsGrinProgram cpsProgram,
-                        phaseGcGrin = Grin.gcGrinProgram gcProgram
+                        phaseGcGrin = gcProgram,
+                        phaseLirSettings = lirSettings
                       }
                 )
             (_, nativeElapsed) <- measureTime (writeModule (fcModuleName fcModule) gcProgram)
@@ -3216,7 +3220,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
     writeModule name gcProgram = do
       let paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
-      source <- compileGrinTo (compileLint config) (Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config)) target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputObjectPath paths)
+      source <- compileGrinTo (compileLint config) lirSettings target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputObjectPath paths)
       when keepLir (verbose ("Write Lir: " <> T.unpack name))
       mapM_ (TIO.writeFile (outputNativePath paths)) source
       when (isJust source) (verbose ("Write native source: " <> T.unpack name))
