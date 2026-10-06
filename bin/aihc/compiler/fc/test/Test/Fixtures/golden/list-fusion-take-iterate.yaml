@@ -134,11 +134,11 @@ expected: |-
   val 1.viterate :: ∀(a : sType). (a 3.→ a) 3.→ a 3.→ tList a
     = Λ(a : sType). λ(x : a 3.→ a) (y : a).
       cCons @a y (rec {
-        go : a 3.→ tList a =
-          λ(x{1} : a).
-            cCons @a x{1} (go (x x{1}))
-      } in
-      go (x y))
+          go : a 3.→ tList a =
+            λ(x{1} : a).
+              cCons @a x{1} (go (x x{1}))
+        } in
+        go (x y))
 
   val 1.viterateFB inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ (a 3.→ a) 3.→ a 3.→ b
     = Λ(a : sType) (b : sType). λ(x : a 3.→ b 3.→ b) (y : a 3.→ a) (z : a).
@@ -184,8 +184,8 @@ expected: |-
               x z y;
             _ →
               x z (let argument : tInt# =
-                prim -# k 1#cIntRep;
-              x1 (cI# argument))
+                  prim -# k 1#cIntRep;
+                x1 (cI# argument))
           }
       }
 
@@ -229,8 +229,8 @@ expected: |-
                             x{1} x{2} cZ;
                           _ →
                             x{1} x{2} (let argument : tInt# =
-                              prim -# k{1} 1#cIntRep;
-                            go (cS x{2}) (cI# argument))
+                                prim -# k{1} 1#cIntRep;
+                              go (cS x{2}) (cI# argument))
                         }
                     }
               } in
@@ -260,8 +260,8 @@ expected: |-
                                 cCons @tNat y{1} (cNil @tNat);
                               _ →
                                 cCons @tNat y{1} (let argument : tInt# =
-                                  prim -# k{1} 1#cIntRep;
-                                go ys (cI# argument))
+                                    prim -# k{1} 1#cIntRep;
+                                  go ys (cI# argument))
                             }
                         }
                     }

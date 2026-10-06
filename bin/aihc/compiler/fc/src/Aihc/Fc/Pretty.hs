@@ -527,8 +527,16 @@ prettyExprWith scopes expr =
       prettyApp scopes function <+> ("@" <> prettyTypeWith scopes PrecAtom argument)
     ExLam {} -> prettyLambda scopes expr
     ExTyLam {} -> prettyLambda scopes expr
-    ExLet {} -> prettyLetLike id scopes expr
-    ExRec {} -> prettyLetLike id scopes expr
+    ExLet bind body ->
+      "let " <> prettyBind scopes bind <> ";" <> hardline <> prettyExprWith scopes body
+    ExRec binds body ->
+      "rec {"
+        <> hardline
+        <> prettyIndentedItems 2 (map (prettyBind scopes) binds)
+        <> hardline
+        <> "} in"
+        <> hardline
+        <> prettyExprWith scopes body
     ExCase scrutinee binder resultType (NE.toList -> alts) ->
       "case "
         <> prettyExprHung scopes scrutinee
@@ -573,24 +581,13 @@ prettyLambda scopes expression =
     finish (document : rest) = document : finish rest
 
 -- | An expression that starts in the middle of a line. A case, a lambda and
--- a binding already indent their own contents by 2. A let body has no
--- indent of its own, so it hangs by 2 here.
+-- a binding already indent their own contents by 2. A let has no indent of
+-- its own, so its continuation lines hang by 2 here.
 prettyExprHung :: ScopeIndex -> Expr -> Doc ann
-prettyExprHung = prettyLetLike (nest 2)
-
-prettyLetLike :: (Doc ann -> Doc ann) -> ScopeIndex -> Expr -> Doc ann
-prettyLetLike hang scopes expr =
+prettyExprHung scopes expr =
   case expr of
-    ExLet bind body ->
-      "let " <> prettyBind scopes bind <> ";" <> hardline <> hang (prettyExprWith scopes body)
-    ExRec binds body ->
-      "rec {"
-        <> hardline
-        <> prettyIndentedItems 2 (map (prettyBind scopes) binds)
-        <> hardline
-        <> "} in"
-        <> hardline
-        <> hang (prettyExprWith scopes body)
+    ExLet {} -> nest 2 (prettyExprWith scopes expr)
+    ExRec {} -> nest 2 (prettyExprWith scopes expr)
     _ -> prettyExprWith scopes expr
 
 prettyApp :: ScopeIndex -> Expr -> Doc ann

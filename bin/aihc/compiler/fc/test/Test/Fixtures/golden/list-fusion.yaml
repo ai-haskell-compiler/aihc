@@ -99,16 +99,16 @@ expected: |-
           cNil @b;
         cCons (x{1} : a) (xs : tList a) →
           cCons @b (x x{1}) (rec {
-            go : tList a 2.→ tList b =
-              λ(x{2} : tList a).
-                case x{2} return (tList b) of {
-                  cNil →
-                    cNil @b;
-                  cCons (y{1} : a) (ys : tList a) →
-                    cCons @b (x y{1}) (go ys)
-                }
-          } in
-          go xs)
+              go : tList a 2.→ tList b =
+                λ(x{2} : tList a).
+                  case x{2} return (tList b) of {
+                    cNil →
+                      cNil @b;
+                    cCons (y{1} : a) (ys : tList a) →
+                      cCons @b (x y{1}) (go ys)
+                  }
+            } in
+            go xs)
       }
 
   val 1.vmapFB inline [1] :: ∀(elt : sType) (lst : sType) (a : sType). (elt 2.→ lst 2.→ lst) 2.→ (a 2.→ elt) 2.→ a 2.→ lst 2.→ lst
