@@ -253,6 +253,7 @@ library
   other-modules:
     Foreign.C.Error.Repr
     Foreign.C.Types.Repr
+    Foreign.Storable.Repr
     GHC.IO.Console
     GHC.IO.FD.Position
     GHC.IO.Handle.Lock.Common

@@ -2427,10 +2427,20 @@ runtimeIoPrimitives =
     ("adoptIOHandle#", ("aihc_io_adopt", [GrinForeignInt, GrinForeignInt], GrinForeignAddr)),
     ("closeIOHandle#", ("aihc_io_close", [GrinForeignAddr], GrinForeignInt)),
     ("ioHandleDescriptor#", ("aihc_io_handle_descriptor", [GrinForeignAddr], GrinForeignInt)),
+    ("ioHandlePosition#", ("aihc_io_handle_position", [GrinForeignAddr], GrinForeignInt)),
+    ("ioHandleSetPosition#", ("aihc_io_handle_set_position", [GrinForeignAddr, GrinForeignInt], GrinForeignInt)),
     ("ioOpenResultError#", ("aihc_io_open_result_error", [GrinForeignAddr], GrinForeignInt)),
     ("takeIOResult#", ("aihc_io_take_result", [GrinForeignAddr], GrinForeignInt)),
     ("takeIOOpenResult#", ("aihc_io_take_open_result", [GrinForeignAddr], GrinForeignAddr))
   ]
+
+-- | Whether the foreign call gives the address of a symbol.
+isAddressTarget :: GrinForeignTarget -> Bool
+isAddressTarget target =
+  case target of
+    GrinForeignAddress -> True
+    GrinForeignFunctionAddress _ -> True
+    _ -> False
 
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM [RuntimeValue]
 callForeign foreignCall arguments
@@ -2439,7 +2449,7 @@ callForeign foreignCall arguments
       throwInterpret InterpretForeignCallbackUnsupported
   | grinForeignCallTarget foreignCall `elem` [GrinForeignDynamic, GrinForeignUnsafeDynamic] =
       throwInterpret InterpretForeignCallbackUnsupported
-  | GrinForeignAddress <- grinForeignCallTarget foreignCall =
+  | isAddressTarget (grinForeignCallTarget foreignCall) =
       (: []) . RuntimeAddress . castFunPtrToPtr <$> lookupForeignFunction foreignCall
   | symbol == "aihc_io_stdin",
     [] <- arguments =
@@ -2524,6 +2534,14 @@ callForeign foreignCall arguments
             HostHandle.withHandle_ "aihc_io_handle_descriptor" handle $ \HostHandle.Handle__ {HostHandle.haDevice = device} ->
               pure (maybe (-1) (toInteger . HostFD.fdFD) (cast device))
       pure [RuntimeLit (GrinLitInt IntRep descriptor)]
+  -- The interpreter reads a file through a host handle, whose descriptor
+  -- keeps the position, so no handle keeps one of its own.
+  | symbol == "aihc_io_handle_position",
+    [_] <- arguments =
+      pure [RuntimeLit (GrinLitInt IntRep (-1))]
+  | symbol == "aihc_io_handle_set_position",
+    [_, _] <- arguments =
+      pure [RuntimeLit (GrinLitInt IntRep (-1))]
   | symbol == "aihc_io_close",
     [handleValue] <- arguments = do
       GrinIOHandle _ handle <- expectIOHandle symbol handleValue

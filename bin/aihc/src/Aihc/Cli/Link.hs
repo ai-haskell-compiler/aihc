@@ -357,10 +357,11 @@ linkExecutable Wasm32Wasip3 output LinkLibraries {linkCxxStdLib, linkArguments} 
   -- that resolve a symbol it has already seen. The libc keeps its thread-local
   -- storage in a segment, which needs the atomics feature, although the
   -- program has one thread: the runtime supplies the functions that find the
-  -- stack pointer and the segment.
+  -- stack pointer and the segment. WASI has no file modes, so the runtime
+  -- answers chmod and fchmod itself.
   runTool
     "wasm-component-ld"
-    ( ["-m", "wasm32", "--no-entry", "--export-memory", "--component-type", world, "--append-lld-flag=--extra-features=atomics"]
+    ( ["-m", "wasm32", "--no-entry", "--export-memory", "--component-type", world, "--append-lld-flag=--extra-features=atomics", "--append-lld-flag=--wrap=chmod", "--append-lld-flag=--wrap=fchmod"]
         <> objects
         <> archives
         <> linkArguments

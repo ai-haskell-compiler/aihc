@@ -146,6 +146,30 @@ int64_t aihc_io_handle_descriptor(void *opaque_handle) {
   return aihc_libc_descriptor_is(handle) ? aihc_libc_descriptor(handle) : -1;
 }
 
+/* A file that the runtime opened itself has no descriptor in the libc, so the
+   handle keeps its position, which the next read or write starts from. The
+   standard streams, a response body and a libc descriptor have none. */
+static int aihc_wasip3_has_position(const AihcIoHandle *handle) {
+  return handle != &aihc_standard_input && handle != &aihc_standard_output &&
+         handle != &aihc_standard_error && !aihc_libc_descriptor_is(handle) &&
+         handle->backend_token < (uintptr_t)AIHC_HTTP_TOKEN_BASE &&
+         !handle->closed;
+}
+
+int64_t aihc_io_handle_position(void *opaque_handle) {
+  const AihcIoHandle *handle = opaque_handle;
+  return aihc_wasip3_has_position(handle) ? (int64_t)handle->position : -1;
+}
+
+int64_t aihc_io_handle_set_position(void *opaque_handle, int64_t position) {
+  AihcIoHandle *handle = opaque_handle;
+  if (position < 0 || !aihc_wasip3_has_position(handle)) {
+    return -1;
+  }
+  handle->position = (uint64_t)position;
+  return 0;
+}
+
 /* Read or write a libc descriptor, which blocks the run task until the host
    answers. */
 static int64_t aihc_libc_transfer(AihcIoRequest *request) {

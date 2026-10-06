@@ -344,6 +344,7 @@ prettyForeignTarget target =
     GrinForeignUnsafeFunction -> "unsafe "
     GrinForeignUnsafeDynamic -> "unsafe-dynamic "
     GrinForeignWrapper signature -> "wrapper " <> prettyForeignSignature signature <> " "
+    GrinForeignFunctionAddress signature -> "function-address " <> prettyForeignSignature signature <> " "
 
 prettyForeignSignature :: GrinForeignSignature -> Doc ann
 prettyForeignSignature signature =

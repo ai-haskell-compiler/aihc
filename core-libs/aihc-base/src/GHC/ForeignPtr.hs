@@ -1,3 +1,4 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -155,9 +156,14 @@ mallocPlainForeignPtrAlignedBytes (I# size) (I# align) =
             (# allocatedState, ForeignPtr (mutableByteArrayContents# buffer) (PlainPtr buffer) #)
     )
 
--- | Foreign finalizer functions cannot be called by this runtime.
+foreign import ccall "dynamic" callFinalizer :: FunPtr (Ptr a -> IO ()) -> Ptr a -> IO ()
+
+-- | A foreign finalizer runs with the Haskell finalizers of the pointer, so
+-- it runs when 'finalizeForeignPtr' says so. The runtime does not finalize
+-- a pointer when the garbage collector frees it.
 addForeignPtrFinalizer :: FinalizerPtr a -> ForeignPtr a -> IO ()
-addForeignPtrFinalizer _ _ = error "GHC.ForeignPtr.addForeignPtrFinalizer: foreign finalizers are not available"
+addForeignPtrFinalizer finalizer pointer =
+  addForeignPtrConcFinalizer pointer (callFinalizer finalizer (unsafeForeignPtrToPtr pointer))
 
 addForeignPtrConcFinalizer :: ForeignPtr a -> IO () -> IO ()
 addForeignPtrConcFinalizer (ForeignPtr _ contents) finalizer =

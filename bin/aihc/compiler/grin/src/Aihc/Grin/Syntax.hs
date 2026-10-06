@@ -768,6 +768,10 @@ data GrinForeignTarget
   | GrinForeignUnsafeFunction
   | GrinForeignUnsafeDynamic
   | GrinForeignWrapper !GrinForeignSignature
+  | -- | The address of a C function. The signature is the one of the
+    -- function, so that a target that declares the function can; the call
+    -- itself takes no argument and gives the address.
+    GrinForeignFunctionAddress !GrinForeignSignature
   deriving (Eq, Show, Read)
 
 data GrinForeignSignature = GrinForeignSignature
