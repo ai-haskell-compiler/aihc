@@ -64,7 +64,7 @@ expected: |-
       let total : tInt =
         vplus x y;
       (λ(x{1} : tInt).
-        vplus total x{1}) ▷ sym (axiom-co $ax$Fn)
+          vplus total x{1}) ▷ sym (axiom-co $ax$Fn)
 
   pub val 1.vaction :: tFn
     = vstep (cI# 1#cIntRep) (cI# 2#cIntRep)

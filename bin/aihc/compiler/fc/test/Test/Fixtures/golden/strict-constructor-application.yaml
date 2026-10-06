@@ -32,12 +32,12 @@ expected: |-
   pub val 1.vmakePair :: ∀(a : sType). a 2.→ a 2.→ tStrictPair a
     = Λ(a : sType). λ(x : a) (y : a).
       (λ(_strict_field : a) (_strict_field{1} : a).
-        case _strict_field return (tStrictPair a) of {
-          _ →
-            case _strict_field{1} return (tStrictPair a) of {
-              _ →
-                cStrictPair @a _strict_field _strict_field{1}
-            }
-        }) x y
+          case _strict_field return (tStrictPair a) of {
+            _ →
+              case _strict_field{1} return (tStrictPair a) of {
+                _ →
+                  cStrictPair @a _strict_field _strict_field{1}
+              }
+          }) x y
 status: pass
 reason: A strict constructor application forces each strict field before it builds the value.

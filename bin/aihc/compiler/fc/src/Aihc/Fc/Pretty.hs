@@ -22,7 +22,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word8)
 import Numeric (showHex)
-import Prettyprinter (Doc, LayoutOptions (..), PageWidth (..), fillSep, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
+import Prettyprinter (Doc, LayoutOptions (..), PageWidth (..), fillSep, hardline, hsep, indent, layoutPretty, nest, parens, pretty, punctuate, space, vsep, (<+>))
 import Prettyprinter.Render.Text (renderStrict)
 
 data Prec
@@ -535,7 +535,7 @@ prettyExprWith scopes expr =
         <> prettyExprWith scopes body
     ExCase scrutinee binder resultType alts ->
       "case "
-        <> prettyExprWith scopes scrutinee
+        <> nest 2 (prettyExprWith scopes scrutinee)
         <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
         <> " return "
         <> parens (prettyTypeWith scopes PrecForAll resultType)
@@ -587,7 +587,7 @@ prettyExprAtom scopes expr =
   case expr of
     ExVar {} -> prettyExprWith scopes expr
     ExLit {} -> prettyExprWith scopes expr
-    _ -> parens (prettyExprWith scopes expr)
+    _ -> parens (nest 2 (prettyExprWith scopes expr))
 
 prettyBind :: ScopeIndex -> Bind -> Doc ann
 prettyBind scopes bind =

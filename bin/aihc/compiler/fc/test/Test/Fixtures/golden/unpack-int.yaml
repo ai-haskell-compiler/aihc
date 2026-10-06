@@ -46,10 +46,10 @@ expected: |-
   pub val 1.vbuild :: tInt 3.→ tT
     = λ(x : tInt).
       (λ(_strict_field : tInt).
-        case _strict_field return (tT) of {
-          cI# (_unpack_leaf0 : tInt#) →
-            cMkT _unpack_leaf0
-        }) x
+          case _strict_field return (tT) of {
+            cI# (_unpack_leaf0 : tInt#) →
+              cMkT _unpack_leaf0
+          }) x
 
   pub val 1.vnested :: tT 3.→ tInt
     = λ(x : tT).

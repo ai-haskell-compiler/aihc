@@ -51,10 +51,10 @@ expected: |-
   val 1.vstep :: tInt 3.→ tEff tInt
     = λ(x : tInt).
       (λ(s : tState# tRealWorld).
-        x) ▷ sym (axiom-co $ax$Eff @tInt)
+          x) ▷ sym (axiom-co $ax$Eff @tInt)
 
   pub val 1.vaction :: tEff tInt
     = (λ(eta{1} : tState# tRealWorld).
-      ((vstep (cI# 3#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{1}) ▷ sym (axiom-co $ax$Eff @tInt)
+        ((vstep (cI# 3#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{1}) ▷ sym (axiom-co $ax$Eff @tInt)
 status: pass
 reason: The type of a value says nothing about its arity, but the body does. 'step' takes two arguments, one of them hidden under the newtype's coercion, so 'step n' still takes the state token, and the value is a function rather than a CAF.

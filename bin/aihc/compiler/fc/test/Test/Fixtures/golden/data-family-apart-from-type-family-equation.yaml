@@ -83,7 +83,7 @@ expected: |-
   pub val 1.vnew :: ∀(s : sType). tUnit 2.→ tMutable tVector s tUnit
     = Λ(s : sType). λ(x : tUnit).
       (λ(_field : tUnit).
-        (cMVUnit @s _field) ▷ sym (axiom-co $ax$MVector$MVUnit @s)) x
+          (cMVUnit @s _field) ▷ sym (axiom-co $ax$MVector$MVUnit @s)) x
 
   pub val 1.vitem :: ∀(e : sType). tVector e 2.→ tItem (tVector e) 2.→ e
     = Λ(e : sType). λ(x : tVector e) (y : tItem (tVector e)).

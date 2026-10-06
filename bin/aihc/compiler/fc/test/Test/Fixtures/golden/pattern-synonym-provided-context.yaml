@@ -90,7 +90,7 @@ expected: |-
   pub val 1.vinspect :: tBox 3.→ tMark
     = λ(x : tBox).
       v$mTagged @sLiftedRep @tMark x (Λ(a : sType). λ($pattern_d0 : t$Dict$Markable a) (x{1} : a).
-        vmark @a $pattern_d0 x{1}) (λ(_pattern_failure : tUnit).
-        cPlain)
+          vmark @a $pattern_d0 x{1}) (λ(_pattern_failure : tUnit).
+          cPlain)
 status: pass
 reason: The matcher of a pattern synonym over an existential constructor takes a continuation that binds the type variable and the dictionary.

@@ -158,8 +158,8 @@ expected: |-
   val 1.v$fMaskEithere$cbracket :: ∀(e : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (e ~ tEx) (∀(a : sType) (c : sType). tEither e a 3.→ (a 3.→ tEither e c) 3.→ tEither e c)
     = Λ(e : sType). λ($d0 : e ~ tEx). Λ(a : sType) (c : sType). λ(x : tEither e a) (y : a 3.→ tEither e c).
       ((v>>= @(tEither tEx) @a @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($d0) (refl a)) (fun-co (refl (a 3.→ tEither tEx c)) (tycon-co tEither ($d0) (refl c))))) x (λ(resource : a).
-        ((v>>= @(tEither tEx) @c @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($d0) (refl c)) (refl ((c 3.→ tEither tEx c) 3.→ tEither tEx c)))) (y resource) (λ(c{1} : c).
-          vreturn @(tEither tEx) @c (v$fMonadEithere @tEx) c{1}))
+          ((v>>= @(tEither tEx) @c @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($d0) (refl c)) (refl ((c 3.→ tEither tEx c) 3.→ tEither tEx c)))) (y resource) (λ(c{1} : c).
+              vreturn @(tEither tEx) @c (v$fMonadEithere @tEx) c{1}))
 status: pass
 reason: a given equality of the instance context rewrites the monad of a do
   statement, so the sequencing method takes the cast the proof carries

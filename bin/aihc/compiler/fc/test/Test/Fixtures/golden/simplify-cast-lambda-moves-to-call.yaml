@@ -47,9 +47,9 @@ expected: |-
   pub val 1.vrun :: tEff tInt 3.→ tEff tInt
     = λ(x : tEff tInt).
       (λ(t : tState# tRealWorld).
-        case (x ▷ axiom-co $ax$Eff @tInt) t return (tInt) of {
-          cI# (n : tInt#) →
-            cI# n
-        }) ▷ sym (axiom-co $ax$Eff @tInt)
+          case (x ▷ axiom-co $ax$Eff @tInt) t return (tInt) of {
+            cI# (n : tInt#) →
+              cI# n
+          }) ▷ sym (axiom-co $ax$Eff @tInt)
 status: pass
 reason: The right side is a lambda under a newtype cast. Its one use casts it back and calls it, so the lambda moves to its call and the two casts cancel.

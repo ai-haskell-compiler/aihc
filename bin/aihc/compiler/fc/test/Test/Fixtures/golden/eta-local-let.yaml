@@ -76,19 +76,19 @@ expected: |-
   val 1.vstep :: tInt 4.→ tEff tInt
     = λ(x : tInt).
       (λ(s : tState# tRealWorld).
-        x) ▷ sym (axiom-co $ax$Eff @tInt)
+          x) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vandThen :: tEff tInt 4.→ tEff tInt 4.→ tEff tInt
     = λ(x : tEff tInt) (y : tEff tInt).
       (λ(eta{2} : tState# tRealWorld).
-        let f : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
-          x ▷ axiom-co $ax$Eff @tInt;
-        let g : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
-          y ▷ axiom-co $ax$Eff @tInt;
-        case f eta{2} return (tInt) of {
-          cI# (_pat : tInt#) →
-            g eta{2}
-        }) ▷ sym (axiom-co $ax$Eff @tInt)
+          let f : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
+            x ▷ axiom-co $ax$Eff @tInt;
+          let g : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt =
+            y ▷ axiom-co $ax$Eff @tInt;
+          case f eta{2} return (tInt) of {
+            cI# (_pat : tInt#) →
+              g eta{2}
+          }) ▷ sym (axiom-co $ax$Eff @tInt)
 
   val 1.vchoose :: tBool 4.→ tBool
     = λ(x : tBool).
@@ -112,19 +112,19 @@ expected: |-
         };
       let next : tEff tInt =
         (λ(eta{3} : tState# tRealWorld).
-          case x return (tInt) of {
-            cTrue →
-              ((vstep (cI# 1#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{3};
-            cFalse →
-              ((vstep (cI# 2#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{3}
-          }) ▷ sym (axiom-co $ax$Eff @tInt);
+            case x return (tInt) of {
+              cTrue →
+                ((vstep (cI# 1#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{3};
+              cFalse →
+                ((vstep (cI# 2#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{3}
+            }) ▷ sym (axiom-co $ax$Eff @tInt);
       c(,) @(tInt 4.→ tInt) @(tEff tInt) (λ(y : tInt).
-        pick (pick y)) (vandThen next ((λ(eta{4} : tState# tRealWorld).
-        case x return (tInt) of {
-          cTrue →
-            (next ▷ axiom-co $ax$Eff @tInt) eta{4};
-          cFalse →
-            ((vstep (cI# 3#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{4}
-        }) ▷ sym (axiom-co $ax$Eff @tInt)))
+          pick (pick y)) (vandThen next ((λ(eta{4} : tState# tRealWorld).
+              case x return (tInt) of {
+                cTrue →
+                  (next ▷ axiom-co $ax$Eff @tInt) eta{4};
+                cFalse →
+                  ((vstep (cI# 3#cIntRep)) ▷ axiom-co $ax$Eff @tInt) eta{4}
+              }) ▷ sym (axiom-co $ax$Eff @tInt)))
 status: pass
 reason: A local binding and an argument expand as a top-level value does. 'next' is a case on a variable whose alternatives are partial applications of an Eff action, so it takes the state token and becomes a closure, not a thunk. The second argument of 'andThen' is a case of the same kind and expands too. The scrutinee of 'pick' is a call, and its lambda is not one-shot, so an expansion would repeat that call and 'pick' stays as it is.

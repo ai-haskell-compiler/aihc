@@ -99,16 +99,16 @@ expected: |-
           cNil @b;
         cCons (x{1} : a) (xs : tList a) →
           cCons @b (x x{1}) (rec {
-            go : tList a 2.→ tList b =
-              λ(x{2} : tList a).
-                case x{2} return (tList b) of {
-                  cNil →
-                    cNil @b;
-                  cCons (y{1} : a) (ys : tList a) →
-                    cCons @b (x y{1}) (go ys)
-                }
-          } in
-          go xs)
+              go : tList a 2.→ tList b =
+                λ(x{2} : tList a).
+                  case x{2} return (tList b) of {
+                    cNil →
+                      cNil @b;
+                    cCons (y{1} : a) (ys : tList a) →
+                      cCons @b (x y{1}) (go ys)
+                  }
+            } in
+            go xs)
       }
 
   val 1.vmapFB inline [1] :: ∀(elt : sType) (lst : sType) (a : sType). (elt 2.→ lst 2.→ lst) 2.→ (a 2.→ elt) 2.→ a 2.→ lst 2.→ lst
@@ -168,14 +168,14 @@ expected: |-
 
   rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
     vfoldr @a @b k z (vbuild @a (Λ(b{1} : sType).
-      g @b{1}))
+          g @b{1}))
    = g @b k z
    :: b
 
   rule "map" [~1] Λ(a : sType). Λ(b : sType). λ(f : a 2.→ b). λ(xs : tList a).
     vmap @a @b f xs
    = vbuild @b (Λ(b{1} : sType). λ(c : b 2.→ b{1} 2.→ b{1}) (n : b{1}).
-    vfoldr @a @b{1} (vmapFB @b @b{1} @a c f) n xs)
+      vfoldr @a @b{1} (vmapFB @b @b{1} @a c f) n xs)
    :: tList b
 
   rule "mapList" [1] Λ(a : sType). Λ(b : sType). λ(f : a 2.→ b).
@@ -185,14 +185,14 @@ expected: |-
 
   rule "map/build" [1] Λ(a : sType). Λ(b : sType). λ(f : a 2.→ b). λ(xs : tList a).
     vbuild @b (Λ(b{1} : sType). λ(c : b 2.→ b{1} 2.→ b{1}) (n : b{1}).
-      vfoldr @a @b{1} (vmapFB @b @b{1} @a c f) n xs)
+        vfoldr @a @b{1} (vmapFB @b @b{1} @a c f) n xs)
    = vmap @a @b f xs
    :: tList b
 
   rule "mapFB" Λ(a : sType). Λ(b : sType). Λ(c : sType). Λ(d : sType). λ(c{1} : a 2.→ b 2.→ b). λ(f : c 2.→ a). λ(g : d 2.→ c).
     vmapFB @c @b @d (vmapFB @a @b @c c{1} f) g
    = vmapFB @a @b @d c{1} (λ(x : d).
-    f (g x))
+      f (g x))
    :: d 2.→ b 2.→ b
 status: pass
 reason: The fusion rules of GHC.Base in miniature. A map under a foldr fuses into one loop, a map that nothing consumes turns back into a map, and two maps collapse into one.
