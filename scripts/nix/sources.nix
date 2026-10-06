@@ -214,9 +214,12 @@ in rec {
       "core-libs/aihc-prim/src/GHC/Prim.hs"
       "core-libs/aihc-prim/src/GHC/Tuple.hs"
       "core-libs/aihc-prim/src/GHC/Types.hs"
+      # aihc-dev explore embeds the TextMate grammars.
+      "editors/grammars/syntaxes/"
     ] [
       ".hs"
       ".hs-boot"
+      ".tmLanguage.json"
       ".cabal"
       ".c"
       # The C++ source of the cxx-sources build fixture.

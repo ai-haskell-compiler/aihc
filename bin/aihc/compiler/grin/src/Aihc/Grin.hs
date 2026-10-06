@@ -40,6 +40,7 @@ module Aihc.Grin
     parseExpr,
     renderParseError,
     prettyProgram,
+    prettyProgramSections,
   )
 where
 
@@ -60,5 +61,5 @@ import Aihc.Grin.Lint (GrinLintError (..), lintCpsProgram, lintGcProgram, lintNo
 import Aihc.Grin.Lower (finishGrinProgram, lowerProgram)
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
 import Aihc.Grin.PointsTo (PointsTo, PointsToRewrites (..), PointsToStats (..), analyzePointsTo, analyzePointsToWith, pointsToStats, rewriteWithPointsTo, totalPointsToRewrites, widenLimit)
-import Aihc.Grin.Pretty (prettyProgram)
+import Aihc.Grin.Pretty (prettyProgram, prettyProgramSections)
 import Aihc.Grin.Syntax
