@@ -173,11 +173,11 @@ The progress table above and [Self hosting](#self-hosting) show how far along th
 `apple-arm64`, `linux-amd64`, and `wasm32`.
 Use `--target` to select one.
 
-### Which language extensions does AIHC support?
+### Does AIHC support Template Haskell and quasi-quotes?
 
-Most of the extensions that GHC accepts.
-Template Haskell splices do not run yet.
-See the [user guide](https://ai-haskell-compiler.github.io/aihc/) for the full list.
+Not yet.
+AIHC parses the syntax but does not run splices or quasi-quoters.
+Support is planned.
 
 ### Which Hackage packages does AIHC install?
 
