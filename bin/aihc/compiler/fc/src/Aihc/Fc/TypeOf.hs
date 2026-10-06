@@ -1,5 +1,3 @@
-{-# LANGUAGE TupleSections #-}
-
 -- | typeOf and unfold tables for implicit FUN representations.
 module Aihc.Fc.TypeOf
   ( TypeEnv (..),
@@ -13,7 +11,6 @@ module Aihc.Fc.TypeOf
     exprType,
     exprTypeWith,
     caseResultType,
-    typedCaseAlternatives,
     unfoldType,
     representationFromKind,
     repOf,
@@ -874,8 +871,3 @@ caseResultTypeWith substitution env binder alternatives = do
   result <- exprTypeWith scoped inner (altRhs first)
   guard (not (any (\bound -> typeUsesName (binderName bound) result) (altTypeBinders first)))
   pure result
-
--- | Pair the inferred result type with the alternatives for FC transformations.
-typedCaseAlternatives :: TypeEnv -> Maybe Binder -> NE.NonEmpty Alt -> Maybe (Type, [Alt])
-typedCaseAlternatives env binder alternatives =
-  (,NE.toList alternatives) <$> caseResultType env binder alternatives
