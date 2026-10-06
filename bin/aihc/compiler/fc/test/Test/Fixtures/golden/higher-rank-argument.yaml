@@ -41,6 +41,6 @@ expected: |-
   pub val 1.vrun :: ∀(a : sType). (∀(s : sType). tBox s a) 2.→ tBox tTag a
     = Λ(a : sType). λ(x : ∀(s : sType). tBox s a).
       vinstantiate @a (Λ(s : sType).
-          x @s)
+        x @s)
 status: pass
 reason: ''

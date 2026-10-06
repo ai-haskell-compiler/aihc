@@ -1,3 +1,5 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -- | The binary format of System FC programs.
 --
 -- The compiler writes a System FC program to a @core@ file in this format,
@@ -42,6 +44,7 @@ import Data.Char (chr, ord)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Ix (inRange)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -56,7 +59,7 @@ formatMagic = "aihc-system-fc"
 
 -- | The version of the format. Change it when the layout changes.
 formatVersion :: Int
-formatVersion = 1
+formatVersion = 2
 
 -- | Write a program to a file in the binary format.
 writeProgramFile :: FilePath -> Program -> IO ()
@@ -347,9 +350,10 @@ encodeExpr expr =
     ExTyLam binder body -> tagged 5 [encodeBinder binder, encodeExpr body]
     ExLet bind body -> tagged 6 [encodeBind bind, encodeExpr body]
     ExRec binds body -> tagged 7 [encodeList encodeBind binds, encodeExpr body]
-    ExCase scrutinee (Just binder) resultType alternatives ->
+    ExAbsurd scrutinee resultType -> tagged 13 [encodeExpr scrutinee, encodeType resultType]
+    ExCase scrutinee (Just binder) resultType (NE.toList -> alternatives) ->
       tagged 8 [encodeExpr scrutinee, encodeBinder binder, encodeType resultType, encodeList encodeAlt alternatives]
-    ExCase scrutinee Nothing resultType alternatives ->
+    ExCase scrutinee Nothing resultType (NE.toList -> alternatives) ->
       tagged 12 [encodeExpr scrutinee, encodeType resultType, encodeList encodeAlt alternatives]
     ExCast body coercion -> tagged 9 [encodeExpr body, encodeCoercion coercion]
     ExCoercion coercion -> tagged 10 [encodeCoercion coercion]
@@ -754,12 +758,20 @@ getExpr tables = do
     5 -> ExTyLam <$!> getBinder tables <*!> getExpr tables
     6 -> ExLet <$!> getBind tables <*!> getExpr tables
     7 -> ExRec <$!> getList (getBind tables) <*!> getExpr tables
-    12 -> ExCase <$!> getExpr tables <*!> pure Nothing <*!> getType tables <*!> getList (getAlt tables)
-    8 -> ExCase <$!> getExpr tables <*!> (Just <$!> getBinder tables) <*!> getType tables <*!> getList (getAlt tables)
+    12 -> ExCase <$!> getExpr tables <*!> pure Nothing <*!> getType tables <*!> getNonEmpty (getAlt tables)
+    8 -> ExCase <$!> getExpr tables <*!> (Just <$!> getBinder tables) <*!> getType tables <*!> getNonEmpty (getAlt tables)
     9 -> ExCast <$!> getExpr tables <*!> getCoercion tables
     10 -> ExCoercion <$!> getCoercion tables
     11 -> ExForeignCall <$!> getForeignCall tables <*!> getList (getType tables) <*!> getList (getExpr tables)
+    13 -> ExAbsurd <$!> getExpr tables <*!> getType tables
     _ -> fail "unknown expression"
+
+getNonEmpty :: Decode a -> Decode (NE.NonEmpty a)
+getNonEmpty item = do
+  items <- getList item
+  case NE.nonEmpty items of
+    Nothing -> fail "case requires at least one alternative"
+    Just alternatives -> pure alternatives
 
 getBind :: Decoded -> Decode Bind
 getBind tables = Bind <$!> getBinder tables <*!> getExpr tables

@@ -48,7 +48,7 @@ expected: |-
 
   pub val 1.v$fPickBox :: t$Dict$Pick tBox
     = c$Dict$Pick @tBox (Λ(a : sType).
-        vunbox @a)
+      vunbox @a)
 
   val 1.vunbox :: ∀(a : sType). tBox a 2.→ a
     = Λ(a : sType). λ(x : tBox a).

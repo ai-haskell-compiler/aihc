@@ -38,9 +38,9 @@ expected: |-
   pub val 1.vwrap :: tInt 2.→ tBox
     = λ(x : tInt).
       (λ(_strict_field : tInt).
-          case _strict_field return (tBox) of {
-            _ →
-              cBox _strict_field
-          }) x
+        case _strict_field return (tBox) of {
+          _ →
+            cBox _strict_field
+        }) x
 status: pass
 reason: The function evaluates the parameter but does not take it apart, so a worker would only put the box back together. The function does not split.

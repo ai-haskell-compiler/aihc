@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Human-readable System FC text.
 module Aihc.Fc.Pretty
@@ -16,6 +17,7 @@ import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr, isAscii, isPrint, ord)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -67,7 +69,8 @@ primitiveAliases program = Map.fromList (concatMap aliases (Map.elems grouped))
       ExTyLam _ body -> expressionCalls body
       ExLet binding body -> expressionCalls (bindRhs binding) <> expressionCalls body
       ExRec bindings body -> foldMap (expressionCalls . bindRhs) bindings <> expressionCalls body
-      ExCase scrutinee _ _ alternatives -> expressionCalls scrutinee <> foldMap (expressionCalls . altRhs) alternatives
+      ExCase scrutinee _ _ (NE.toList -> alternatives) -> expressionCalls scrutinee <> foldMap (expressionCalls . altRhs) alternatives
+      ExAbsurd scrutinee _ -> expressionCalls scrutinee
       ExCast body _ -> expressionCalls body
       ExForeignCall call _ arguments -> (if foreignCallConvention call == Prim then Set.singleton call else mempty) <> foldMap expressionCalls arguments
       _ -> mempty
@@ -130,8 +133,9 @@ expressionLocals expression = case expression of
   ExTyLam binder body -> binderLocals binder <> expressionLocals body
   ExLet binding body -> bindingLocals binding <> expressionLocals body
   ExRec bindings body -> foldMap bindingLocals bindings <> expressionLocals body
-  ExCase scrutinee binder result alternatives -> expressionLocals scrutinee <> foldMap binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
+  ExCase scrutinee binder result (NE.toList -> alternatives) -> expressionLocals scrutinee <> foldMap binderLocals binder <> typeLocals result <> foldMap alternativeLocals alternatives
   ExCoercion proof -> coercionLocals proof
+  ExAbsurd scrutinee resultType -> expressionLocals scrutinee <> typeLocals resultType
   ExCast body proof -> expressionLocals body <> coercionLocals proof
   ExForeignCall call types arguments -> typeLocals (foreignCallType call) <> foldMap typeLocals types <> foldMap expressionLocals arguments
   _ -> mempty
@@ -523,19 +527,11 @@ prettyExprWith scopes expr =
       prettyApp scopes function <+> ("@" <> prettyTypeWith scopes PrecAtom argument)
     ExLam {} -> prettyLambda scopes expr
     ExTyLam {} -> prettyLambda scopes expr
-    ExLet bind body ->
-      "let " <> prettyBind scopes bind <> ";" <> hardline <> prettyExprWith scopes body
-    ExRec binds body ->
-      "rec {"
-        <> hardline
-        <> prettyIndentedItems 2 (map (prettyBind scopes) binds)
-        <> hardline
-        <> "} in"
-        <> hardline
-        <> prettyExprWith scopes body
-    ExCase scrutinee binder resultType alts ->
+    ExLet {} -> prettyLetLike id scopes expr
+    ExRec {} -> prettyLetLike id scopes expr
+    ExCase scrutinee binder resultType (NE.toList -> alts) ->
       "case "
-        <> nest 2 (prettyExprWith scopes scrutinee)
+        <> prettyExprHung scopes scrutinee
         <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
         <> " return "
         <> parens (prettyTypeWith scopes PrecForAll resultType)
@@ -544,6 +540,7 @@ prettyExprWith scopes expr =
         <> prettyIndentedItems 2 (map (prettyAlt scopes) alts)
         <> hardline
         <> "}"
+    ExAbsurd scrutinee resultType -> "absurd " <> prettyExprWith scopes scrutinee <> " return " <> parens (prettyTypeWith scopes PrecForAll resultType)
     ExCoercion proof -> "coercion " <> parens (prettyCoercion scopes proof)
     ExCast body coercion ->
       prettyExprAtom scopes body <+> "▷" <+> prettyCoercion scopes coercion
@@ -575,6 +572,27 @@ prettyLambda scopes expression =
     finish [document] = [document <> "."]
     finish (document : rest) = document : finish rest
 
+-- | An expression that starts in the middle of a line. A case, a lambda and
+-- a binding already indent their own contents by 2. A let body has no
+-- indent of its own, so it hangs by 2 here.
+prettyExprHung :: ScopeIndex -> Expr -> Doc ann
+prettyExprHung = prettyLetLike (nest 2)
+
+prettyLetLike :: (Doc ann -> Doc ann) -> ScopeIndex -> Expr -> Doc ann
+prettyLetLike hang scopes expr =
+  case expr of
+    ExLet bind body ->
+      "let " <> prettyBind scopes bind <> ";" <> hardline <> hang (prettyExprWith scopes body)
+    ExRec binds body ->
+      "rec {"
+        <> hardline
+        <> prettyIndentedItems 2 (map (prettyBind scopes) binds)
+        <> hardline
+        <> "} in"
+        <> hardline
+        <> hang (prettyExprWith scopes body)
+    _ -> prettyExprWith scopes expr
+
 prettyApp :: ScopeIndex -> Expr -> Doc ann
 prettyApp scopes expr =
   case expr of
@@ -587,7 +605,7 @@ prettyExprAtom scopes expr =
   case expr of
     ExVar {} -> prettyExprWith scopes expr
     ExLit {} -> prettyExprWith scopes expr
-    _ -> parens (nest 2 (prettyExprWith scopes expr))
+    _ -> parens (prettyExprHung scopes expr)
 
 prettyBind :: ScopeIndex -> Bind -> Doc ann
 prettyBind scopes bind =
@@ -778,6 +796,8 @@ reservedWords =
     "rec",
     "in",
     "case",
+    "absurd",
+    "return",
     "as",
     "return",
     "of",

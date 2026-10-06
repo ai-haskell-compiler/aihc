@@ -43,7 +43,7 @@ expected: |-
   pub val 1.vbuild :: tUnit 2.→ tPayload tUnit
     = λ(x : tUnit).
       (λ(_field : tUnit).
-          (cPayloadUnit _field) ▷ sym (axiom-co $ax$Payload$PayloadUnit)) x
+        (cPayloadUnit _field) ▷ sym (axiom-co $ax$Payload$PayloadUnit)) x
 
   pub val 1.vunwrap :: tPayload tUnit 2.→ tUnit
     = λ(x : tPayload tUnit).

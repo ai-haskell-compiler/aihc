@@ -1,0 +1,21 @@
+extensions:
+  - EmptyCase
+  - MagicHash
+  - UnboxedTuples
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result
+  value :: Result
+  value = case (# 1#, 2## #) of {}
+status: pass
+reason: GRIN evaluates the scrutinee before a match failure.
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Result []
+
+  pub global 1.value = (F1.$value_thunk)
+
+  1.$value_thunk -> BoxedRep Lifted =
+    case (1 :: IntRep) as _absurd :: IntRep of

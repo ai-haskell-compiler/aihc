@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Conservative lowering from System FC to GRIN.
 module Aihc.Grin.Lower
@@ -24,6 +25,7 @@ import Control.Monad (foldM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -775,7 +777,14 @@ lowerExpr env expression =
     Fc.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
     Fc.ExLet binding body -> lowerLet env binding body
     Fc.ExRec bindings body -> lowerRec env bindings body
-    Fc.ExCase scrutinee binder _ alternatives -> lowerCase env scrutinee binder alternatives
+    Fc.ExCase scrutinee binder _ (NE.toList -> alternatives) -> lowerCase env scrutinee binder alternatives
+    Fc.ExAbsurd scrutinee _ ->
+      bindExpression env "absurd_value" scrutinee $ \values -> do
+        let value = case values of
+              first : _ -> first
+              [] -> GrinLitValue (GrinLitInt IntRep 0)
+        binder <- freshVar "_absurd" (grinValueRuntimeRep value)
+        pure (GrinCase value binder [])
     Fc.ExCoercion _ -> pure (GrinConstant [])
     Fc.ExCast inner _ -> lowerExpr env inner
     Fc.ExForeignCall call types arguments -> lowerForeignCallExpr env call types arguments
@@ -1629,10 +1638,11 @@ freeVariables expression =
     Fc.ExRec bindings body ->
       let names = Set.fromList (map (Fc.binderName . Fc.bindBinder) bindings)
        in (foldMap (freeVariables . Fc.bindRhs) bindings <> freeVariables body) `Set.difference` names
-    Fc.ExCase scrutinee binder _ alternatives ->
+    Fc.ExCase scrutinee binder _ (NE.toList -> alternatives) ->
       freeVariables scrutinee
         <> (foldMap freeAltVariables alternatives `Set.difference` foldMap (Set.singleton . Fc.binderName) binder)
     Fc.ExCoercion _ -> Set.empty
+    Fc.ExAbsurd scrutinee _ -> freeVariables scrutinee
     Fc.ExCast inner _ -> freeVariables inner
     Fc.ExForeignCall _ _ arguments -> foldMap freeVariables arguments
 
@@ -1681,6 +1691,7 @@ expressionType env expression =
     Fc.ExTyLam binder body -> Fc.TyForAll binder <$> expressionType (extendTypeBinder env binder) body
     Fc.ExLet binding body -> expressionType (extendTermBinder (Fc.bindBinder binding) env) body
     Fc.ExRec bindings body -> expressionType (foldl (flip (extendTermBinder . Fc.bindBinder)) env bindings) body
+    Fc.ExAbsurd _ resultType -> pure (applySubstitution env resultType)
     Fc.ExCase _ _ resultType _ -> pure (applySubstitution env resultType)
     -- The foreign type is closed, so the environment substitution does not
     -- apply to it. The type arguments go into it directly.

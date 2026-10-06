@@ -43,10 +43,10 @@ expected: |-
   pub val 1.vswitch :: tFlag 2.→ tFlag
     = λ(x : tFlag).
       vconsume (case x return (tFlag) of {
-          cOff →
-            cOn;
-          cOn →
-            cOff
-        })
+        cOff →
+          cOn;
+        cOn →
+          cOff
+      })
 status: pass
 reason: A case in an application argument keeps its checked result type.

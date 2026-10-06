@@ -72,16 +72,16 @@ expected: |-
   val 2.v$fMethodsNa$cpublic :: ∀(a : sType). t$Dict$Methods a 3.→ tN a 3.→ tN a
     = Λ(a : sType). λ($d0 : t$Dict$Methods a).
       (case $d0 return (a 3.→ a) of {
-          c$Dict$Methods ($coerced_field0 : t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b : sType). a 3.→ b 3.→ b) →
-            $coerced_field1
-        }) ▷ fun-co (sym (axiom-co $ax$N @a)) (sym (axiom-co $ax$N @a))
+        c$Dict$Methods ($coerced_field0 : t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b : sType). a 3.→ b 3.→ b) →
+          $coerced_field1
+      }) ▷ fun-co (sym (axiom-co $ax$N @a)) (sym (axiom-co $ax$N @a))
 
   val 2.v$fMethodsNa$cprivate :: ∀(a : sType). t$Dict$Methods a 3.→ (∀(b : sType). tN a 3.→ b 3.→ b)
     = Λ(a : sType). λ($d0 : t$Dict$Methods a). Λ(b : sType).
       ((case $d0 return (∀(b{1} : sType). a 3.→ b{1} 3.→ b{1}) of {
-            c$Dict$Methods ($coerced_field0 : t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b{1} : sType). a 3.→ b{1} 3.→ b{1}) →
-              $coerced_field2
-          }) @b) ▷ fun-co (sym (axiom-co $ax$N @a)) (refl (b 3.→ b))
+        c$Dict$Methods ($coerced_field0 : t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b{1} : sType). a 3.→ b{1} 3.→ b{1}) →
+          $coerced_field2
+      }) @b) ▷ fun-co (sym (axiom-co $ax$N @a)) (refl (b 3.→ b))
 extensions:
 - GeneralizedNewtypeDeriving
 modules:

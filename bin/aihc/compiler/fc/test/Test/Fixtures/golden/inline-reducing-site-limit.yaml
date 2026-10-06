@@ -70,10 +70,10 @@ expected: |-
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tState
     = λ(x : tBool) (y : tBool) (z : tBool).
       vstep (vstep (case x return (tState) of {
-            cTrue →
-              cState y z x;
-            cFalse →
-              cState x z y
-          }) y) z
+        cTrue →
+          cState y z x;
+        cFalse →
+          cState x z y
+      }) y) z
 status: pass
 reason: A reducing site that grows more than the reducing site limit is decided like a measured site, so a value with no growth left keeps the calls.

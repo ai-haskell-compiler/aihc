@@ -63,15 +63,15 @@ expected: |-
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool) (z : tBool).
       v$fPickBool$cpick (case x return (tBool) of {
-          cTrue →
-            y;
-          cFalse →
-            x
-        }) (case y return (tBool) of {
-          cTrue →
-            z;
-          cFalse →
-            y
-        })
+        cTrue →
+          y;
+        cFalse →
+          x
+      }) (case y return (tBool) of {
+        cTrue →
+          z;
+        cFalse →
+          y
+      })
 status: pass
 reason: A call that gives a known dictionary to an overloaded callee within the callee limit reduces, because the callee selects its methods from the dictionary. The site is free of the allowance within the site limit.

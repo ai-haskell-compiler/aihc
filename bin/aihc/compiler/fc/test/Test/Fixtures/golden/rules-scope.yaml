@@ -43,7 +43,7 @@ expected: |-
 
   pub val 1.vcaptured :: tNat
     = vk (λ(w : tNat).
-        w)
+      w)
 
   pub val 1.vconstant :: tNat 2.→ tNat
     = λ(x : tNat).
@@ -51,7 +51,7 @@ expected: |-
 
   rule "k/const" λ(x : tNat).
     vk (λ(y : tNat).
-        x)
+      x)
    = x
    :: tNat
 status: pass

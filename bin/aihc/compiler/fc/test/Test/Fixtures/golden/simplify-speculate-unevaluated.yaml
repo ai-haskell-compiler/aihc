@@ -47,8 +47,8 @@ expected: |-
   pub val 1.vnext :: tInt 3.→ tBox
     = λ(x : tInt).
       cBox (case x return (tInt) of {
-          cI# (a : tInt#) →
-            cI# (prim +# a 1#cIntRep)
-        })
+        cI# (a : tInt#) →
+          cI# (prim +# a 1#cIntRep)
+      })
 status: pass
 reason: The parameter can be a thunk, so the case must evaluate it. It stays in the lazy constructor argument.

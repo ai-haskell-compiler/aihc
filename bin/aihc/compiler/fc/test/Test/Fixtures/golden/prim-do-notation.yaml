@@ -32,6 +32,6 @@ expected: |-
   pub val 1.videntityAction :: ∀(m : sType 3.→ sType) (a : sType). t$Dict$Monad m 3.→ m a 3.→ m a
     = Λ(m : sType 3.→ sType) (a : sType). λ($d0 : t$Dict$Monad m) (x : m a).
       v>>= @m @a @a $d0 x (λ(value : a).
-          vreturn @m @a $d0 value)
+        vreturn @m @a $d0 value)
 status: pass
 reason: type-checks and desugars do notation with only aihc-prim built-ins

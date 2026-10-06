@@ -76,7 +76,7 @@ expected: |-
 
   rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
     vfoldr @a @b k z (vbuild @a (Λ(b{1} : sType).
-          g @b{1}))
+      g @b{1}))
    = g @b k z
    :: b
 status: pass

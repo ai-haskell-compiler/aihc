@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Convert a checked module into System FC types, axioms, and values.
 module Aihc.Fc.Desugar
@@ -87,6 +88,7 @@ import Aihc.Tc.Types
   )
 import Control.Monad (zipWithM)
 import Data.List (nub, sort)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set (Set)
@@ -1132,9 +1134,10 @@ exprOrigins expr =
     ExTyLam binder body -> binderOrigins binder <> exprOrigins body
     ExLet bind body -> bindOrigins bind <> exprOrigins body
     ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
-    ExCase scrutinee binder resultType alts ->
+    ExCase scrutinee binder resultType (NE.toList -> alts) ->
       exprOrigins scrutinee <> foldMap binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
     ExCoercion proof -> coercionOrigins proof
+    ExAbsurd scrutinee resultType -> exprOrigins scrutinee <> typeOrigins resultType
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
     ExForeignCall call types arguments ->
       nameOriginPair (foreignCallName call)

@@ -49,9 +49,9 @@ expected: |-
       case x return (tBox) of {
         cStrict (b : tBool) →
           cBox (case b return (tBool) of {
-              cTrue →
-                cFalse
-            })
+            cTrue →
+              cFalse
+          })
       }
 status: pass
 reason: Bool has two constructors, so a case with one alternative on an evaluated Bool can fail. It stays in the lazy constructor argument.

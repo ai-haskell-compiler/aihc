@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Demand analysis for System FC, and the two rewrites that use it.
 --
@@ -93,6 +94,7 @@ import Control.Monad.Trans.State.Strict (State, evalState, modify', runState, st
 import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -244,7 +246,7 @@ takenApart name con = go (Set.singleton name)
   where
     go aliases expr =
       case expr of
-        ExCase scrutinee binder _ alternatives ->
+        ExCase scrutinee binder _ (NE.toList -> alternatives) ->
           let aliased = isVariable aliases scrutinee
               inner = if aliased then foldl' (\current named -> Set.insert (binderName named) current) aliases binder else aliases
            in (aliased && any ((== AltData con) . altCon) alternatives)
@@ -256,6 +258,7 @@ takenApart name con = go (Set.singleton name)
         ExRec binds body -> any (go aliases . bindRhs) binds || go aliases body
         ExApp function argument -> go aliases function || go aliases argument
         ExTyApp function _ -> go aliases function
+        ExAbsurd scrutinee _ -> go aliases scrutinee
         ExCast body _ -> go aliases body
         ExForeignCall _ _ arguments -> any (go aliases) arguments
         _ -> False
@@ -424,18 +427,21 @@ demandExpr env ty expr =
             not (isStrictBinder (envTypes env) binder),
             not (isValueLike env rhs') -> do
               modify' (\st -> st {dsStrictLets = dsStrictLets st + 1})
-              pure (ExCase rhs' (Just binder) result [Alt AltDefault [] [] body'], strict)
+              pure (caseFromList rhs' (Just binder) result [Alt AltDefault [] [] body'], strict)
         _ -> pure (ExLet (Bind binder rhs') body', strict)
     ExRec binds body -> do
       let inner = bindRecursiveSignatures (extendTypes env (map bindBinder binds)) binds
       binds' <- traverse (\bind -> (\(rhs, _) -> bind {bindRhs = rhs}) <$> demandExpr inner (Just (binderType (bindBinder bind))) (bindRhs bind)) binds
       (body', bodyStrict) <- demandExpr inner ty body
       pure (ExRec binds' body', bodyStrict `Set.difference` Set.fromList (map (binderName . bindBinder) binds))
-    ExCase scrutinee binder result alternatives -> do
+    ExAbsurd scrutinee result -> do
+      (scrutinee', strict) <- demandExpr env Nothing scrutinee
+      pure (ExAbsurd scrutinee' result, strict)
+    ExCase scrutinee binder result (NE.toList -> alternatives) -> do
       (scrutinee', scrutineeStrict) <- demandExpr env (binderType <$> binder) scrutinee
       results <- traverse (demandAlt (foldl' extendType env binder) result) alternatives
       let branches = [strict `Set.difference` foldMap (Set.singleton . binderName) binder | (_, strict) <- results]
-      pure (ExCase scrutinee' binder result (map fst results), scrutineeStrict <> meets branches)
+      pure (caseFromList scrutinee' binder result (map fst results), scrutineeStrict <> meets branches)
     ExForeignCall call tys arguments -> do
       results <- traverse (demandExpr env Nothing) arguments
       let argumentTypes = foreignArgumentTypes (envTypes env) (foreignCallType call)
@@ -471,7 +477,7 @@ demandApplication env ty (function, arguments) = do
       result = computedResult <|> ty
   (arguments', strictSets, wraps) <- walkArguments env result (zip3 arguments argumentTypes (demandsByArgument arguments demands))
   let application = List.foldl' applyArgument function' arguments'
-      wrapped = foldr (\(binder, scrutinee) body -> ExCase scrutinee (Just binder) (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
+      wrapped = foldr (\(binder, scrutinee) body -> caseFromList scrutinee (Just binder) (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
   pure (wrapped, headStrict <> mconcat strictSets)
 
 -- | The demand of each argument, with a type argument taking no demand.
@@ -550,6 +556,7 @@ headType env function =
   case function of
     ExVar name -> Map.lookup name (teBinders (envTypes env)) <|> lookupHeaderType (envTypes env) name
     ExCast _ coercion -> snd <$> coercionEndpoints (envTypes env) coercion
+    ExAbsurd _ result -> Just result
     ExCase _ _ result _ -> Just result
     _ -> Nothing
 

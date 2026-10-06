@@ -146,7 +146,10 @@ Use `::` on declarations.
 Use `:` on `λ`, `Λ`, and `∀` binders.
 Use Core-style `case` with a case binder, a result type, and `_` for default.
 Use `@(a : k)` before field binders to bind existential types in constructor alternatives.
-Permit an empty alternative set when the case has an explicit result type.
+Require at least one alternative in each `case` expression.
+Use `absurd e return (T)` for an empty case.
+This expression evaluates `e` and reports a match failure if evaluation returns.
+Its result type is `T`.
 Use `let` and `rec` for local groups.
 Use `val` for top-level values.
 Use `rule "name" [phase] Λ(a : k). λ(x : t). lhs = rhs :: type` for a rewrite rule; its binders are the pattern variables, dictionaries first among the value binders.

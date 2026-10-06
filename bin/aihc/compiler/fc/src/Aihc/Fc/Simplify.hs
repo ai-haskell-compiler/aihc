@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | The System FC simplifier: the local rewrites of one expression.
 --
@@ -77,6 +78,7 @@ import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, st
 import Data.Bifunctor (first)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
@@ -363,7 +365,7 @@ simplifyExpr env expr =
     ExRec binds body -> do
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv env (binderName (bindBinder bind))) (bindRhs bind)) binds
       simplifyExpr env body >>= sinkGroup binds' ExRec
-    ExCase scrutinee binder resultType alternatives
+    ExCase scrutinee binder resultType (NE.toList -> alternatives)
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args ->
@@ -375,6 +377,7 @@ simplifyExpr env expr =
               chain <- freshenExpr scrutinee'
               floatChain env resultType chain (\env' tailExpr -> simplifyCase env' tailExpr binder resultType alternatives)
             else simplifyCase env scrutinee' binder resultType alternatives
+    ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> simplifyExpr (noOneShot env) scrutinee
     ExCast body coercion -> do
       body' <- simplifyExpr env body
       mkCast body' coercion
@@ -417,7 +420,7 @@ readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
           binder <- freshLocal name
           let renamed = substExpr (Map.fromList (zip fields (map ExVar fresh))) body
               binders = zipWith Binder fresh fieldTypes
-          pure (ExCase (ExVar name) (Just (Binder binder conResult)) resultType [Alt (AltData con) [] binders renamed])
+          pure (caseFromList (ExVar name) (Just (Binder binder conResult)) resultType [Alt (AltData con) [] binders renamed])
       | otherwise = pure body
       where
         used = exprValueNames body
@@ -453,7 +456,7 @@ isChain :: Expr -> Bool
 isChain expr =
   case expr of
     ExLet {} -> True
-    ExCase _ _ _ [_] -> True
+    ExCase _ _ _ (NE.toList -> [_]) -> True
     _ -> False
 
 -- | Move the chain of a simplified scrutinee out of its case:
@@ -486,7 +489,7 @@ floatChain env resultType expr continue =
           ExLet bind <$> floatChain (bindingEnv env binder (bindRhs bind)) resultType inner continue
       where
         binder = bindBinder bind
-    ExCase scrutinee binder _ [alternative] -> do
+    ExCase scrutinee binder _ (NE.toList -> [alternative]) -> do
       rhs <- floatChain (alternativeEnv env scrutinee binder [alternative] alternative) resultType (altRhs alternative) continue
       pure (mkCase (spEnv env) scrutinee binder resultType [alternative {altRhs = rhs}])
     _ -> continue env expr
@@ -498,6 +501,7 @@ floatChain env resultType expr continue =
 tailType :: Simpl -> Expr -> Maybe Type
 tailType env expr =
   case expr of
+    ExAbsurd _ resultType -> Just resultType
     ExCase _ _ resultType _ -> Just resultType
     ExLet _ body -> tailType env body
     ExRec _ body -> tailType env body
@@ -712,7 +716,7 @@ siteReduction env body args =
           | otherwise -> NoReduction
     scrutinised name expr =
       case expr of
-        ExCase scrutinee _ _ alternatives ->
+        ExCase scrutinee _ _ (NE.toList -> alternatives) ->
           isVariable name scrutinee
             || scrutinised name scrutinee
             || any (scrutinised name . altRhs) alternatives
@@ -743,7 +747,7 @@ restoreSite before =
 tailsAreKnown :: Simpl -> Expr -> Bool
 tailsAreKnown env expr =
   case expr of
-    ExCase _ _ _ alternatives -> all (tailsAreKnown env . altRhs) alternatives
+    ExCase _ _ _ (NE.toList -> alternatives) -> all (tailsAreKnown env . altRhs) alternatives
     ExLet _ body -> tailsAreKnown env body
     ExRec _ body -> tailsAreKnown env body
     ExCast body _ -> tailsAreKnown env body
@@ -1023,7 +1027,7 @@ rebuildApp env headExpr' args' = do
         all (either (const True) (unused (binderName (bindBinder bind)))) args' -> do
           inner <- simplifyApp env body args'
           mkLet env bind inner
-    ExCase scrutinee binder resultType alternatives
+    ExCase scrutinee binder resultType (NE.toList -> alternatives)
       | not (null args'),
         all (either (const True) (copiable env)) args',
         Just resultType' <- appliedType (spEnv env) resultType args' -> do
@@ -1031,7 +1035,7 @@ rebuildApp env headExpr' args' = do
           -- no work. The alternative binders are distinct from every name
           -- in scope, so the copies capture nothing.
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp (alternativeEnv env scrutinee binder alternatives alternative) (altRhs alternative) args') alternatives
-          pure (ExCase scrutinee binder resultType' alternatives')
+          pure (caseFromList scrutinee binder resultType' alternatives')
     ExRec binds body
       | not (null args'),
         all (either (const True) (\argument -> all ((`unused` argument) . binderName . bindBinder) binds)) args' -> do
@@ -1060,9 +1064,9 @@ rebuildApp env headExpr' args' = do
 castIntoBranches :: TypeEnv -> Expr -> Coercion -> Maybe (SimplM Expr)
 castIntoBranches env inner coercion =
   case inner of
-    ExCase scrutinee binder _ alternatives -> do
+    ExCase scrutinee binder _ (NE.toList -> alternatives) -> do
       (_, right) <- coercionEndpoints env coercion
-      pure (ExCase scrutinee binder right <$> mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> mkCast (altRhs alternative) coercion) alternatives)
+      pure (caseFromList scrutinee binder right <$> mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> mkCast (altRhs alternative) coercion) alternatives)
     ExLet bind body -> Just (ExLet bind <$> mkCast body coercion)
     ExRec binds body -> Just (ExRec binds <$> mkCast body coercion)
     ExCast deeper outer -> castIntoBranches env deeper (CoTrans outer coercion)
@@ -1107,7 +1111,7 @@ speculateArguments env headExpr args
   where
     speculable argument =
       case argument of
-        ExCase scrutinee binder _ [Alt (AltData con) [] _ _] ->
+        ExCase scrutinee binder _ (NE.toList -> [Alt (AltData con) [] _ _]) ->
           isEvaluated env scrutinee && ((binderType <$> binder <|> tailType env scrutinee) >>= onlyConstructor) == Just con
         _ -> False
     onlyConstructor ty = do
@@ -1119,8 +1123,8 @@ speculateArguments env headExpr args
         speculable value = do
           fresh <- freshenExpr value
           pure $ case fresh of
-            ExCase scrutinee binder _ [alternative] ->
-              ([\inner -> ExCase scrutinee binder resultType [alternative {altRhs = inner}]], Right (altRhs alternative))
+            ExCase scrutinee binder _ (NE.toList -> [alternative]) ->
+              ([\inner -> caseFromList scrutinee binder resultType [alternative {altRhs = inner}]], Right (altRhs alternative))
             _ -> ([], argument)
       | otherwise = pure ([], argument)
 
@@ -1330,7 +1334,8 @@ castedBackUses name coercion = go
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) + go body
         ExRec binds body -> sum (map (go . bindRhs) binds) + go body
-        ExCase scrutinee _ _ alternatives -> go scrutinee + sum (map (go . altRhs) alternatives)
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> go scrutinee + sum (map (go . altRhs) alternatives)
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> sum (map go arguments)
 
@@ -1379,10 +1384,11 @@ saturatedCalls name arity = go
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) + go body
         ExRec binds body -> sum (map (go . bindRhs) binds) + go body
-        ExCase scrutinee _ _ alternatives -> go scrutinee + sum (map (go . altRhs) alternatives)
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> go scrutinee + sum (map (go . altRhs) alternatives)
         ExForeignCall _ _ arguments -> sum (map go arguments)
         ExApp {} -> 0
         ExTyApp {} -> 0
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast {} -> 0
 
 -- | Fold calls exposed by substitution without another function inliner
@@ -1405,6 +1411,7 @@ foldSubstitutedPrimitives env expression = case expression of
     scrutinee' <- go scrutinee
     alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> inner (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative) (altRhs alternative)) alternatives
     pure (ExCase scrutinee' binder result alternatives')
+  ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go scrutinee
   ExCast body proof -> (`ExCast` proof) <$> go body
   ExForeignCall call types arguments -> do
     arguments' <- mapM go arguments
@@ -1551,7 +1558,7 @@ mkLet env bind body
   -- move, because a case on the comparison is a case on the compared
   -- value.
   | Occurrences 1 False <- uses,
-    ExCase (ExVar scrutinee) caseBinder resultType alternatives <- body,
+    ExCase (ExVar scrutinee) caseBinder resultType (NE.toList -> alternatives) <- body,
     scrutinee == name,
     Just rewritten <- literalEqualityCase (spEnv env) rhs caseBinder resultType alternatives =
       pure rewritten
@@ -1564,7 +1571,7 @@ mkLet env bind body
     separateUses expr
       | unused name expr = True
       | Occurrences 1 False <- occurrences name expr = True
-      | ExCase scrutinee _ _ alternatives <- expr =
+      | ExCase scrutinee _ _ (NE.toList -> alternatives) <- expr =
           unused name scrutinee && all (separateUses . altRhs) alternatives
       | otherwise = False
     uses = occurrencesUnder (spCredit env) (spInside env) name body
@@ -1643,14 +1650,14 @@ sinkGroupWith mode rhsNames binds wrap = go
               | all (safeBinder . bindBinder) inners,
                 not (any (uses . bindRhs) inners) ->
                   ExRec inners `first` go rest
-            ExCase scrutinee binder ty alternatives
+            ExCase scrutinee binder ty (NE.toList -> alternatives)
               | movable expr ->
-                  (ExCase scrutinee binder ty [alternative {altRhs = fst (go (altRhs alternative))} | alternative <- alternatives], True)
+                  (caseFromList scrutinee binder ty [alternative {altRhs = fst (go (altRhs alternative))} | alternative <- alternatives], True)
             _ -> (wrap expr, False)
     -- Whether the group can enter a case.
     movable expr =
       case expr of
-        ExCase scrutinee binder _ alternatives ->
+        ExCase scrutinee binder _ (NE.toList -> alternatives) ->
           all safeBinder binder
             && not (uses scrutinee)
             && all (all safeBinder . altBinders) alternatives
@@ -1749,7 +1756,7 @@ expandJoins env joins = go env
           | isTrivial (bindRhs bind) -> go env' (substExpr (Map.singleton (binderName (bindBinder bind)) (bindRhs bind)) body)
           | otherwise -> ExLet bind <$> go (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
         ExRec binds body -> ExRec binds <$> go env' body
-        ExCase scrutinee binder resultType alternatives -> do
+        ExCase scrutinee binder resultType (NE.toList -> alternatives) -> do
           alternatives' <-
             mapM
               (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee binder alternatives alternative) (altRhs alternative))
@@ -1769,7 +1776,7 @@ caseOfCaseRaw env scrutinee binder resultType alternatives
       let joins = Map.fromList [(name, rhs) | (Just (name, rhs), _) <- joined]
           small = map snd joined
       pushed <- pushSmall env binder resultType small scrutinee
-      pure (Just (Pushed pushed (ExCase scrutinee binder resultType small) joins))
+      pure (Just (Pushed pushed (caseFromList scrutinee binder resultType small) joins))
   where
     hasCaseTail expr =
       case expr of
@@ -1810,16 +1817,16 @@ pushSmall env binder resultType small = go env
       case expr of
         ExLet bind body -> ExLet bind <$> go (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
         ExRec binds body -> ExRec binds <$> go env' body
-        ExCase scrutinee innerBinder _ alternatives -> do
+        ExCase scrutinee innerBinder _ (NE.toList -> alternatives) -> do
           alternatives' <-
             mapM
               (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee innerBinder alternatives alternative) (altRhs alternative))
               alternatives
           pure (mkCase (spEnv env') scrutinee innerBinder resultType alternatives')
         _ -> do
-          copy <- freshenExpr (ExCase expr binder resultType small)
+          copy <- freshenExpr (caseFromList expr binder resultType small)
           case copy of
-            ExCase leaf binder' _ small' -> fromMaybe copy <$> caseOfKnown env' leaf binder' small'
+            ExCase leaf binder' _ (NE.toList -> small') -> fromMaybe copy <$> caseOfKnown env' leaf binder' small'
             _ -> pure copy
 
 -- | A local name that no binder in the program uses.
@@ -1850,6 +1857,7 @@ letOfCase env bind body
 syntacticResultType :: Expr -> Maybe Type
 syntacticResultType expr =
   case expr of
+    ExAbsurd _ resultType -> Just resultType
     ExCase _ _ resultType _ -> Just resultType
     ExLet _ body -> syntacticResultType body
     ExRec _ body -> syntacticResultType body
@@ -1875,7 +1883,7 @@ pushIntoCase env scrutinee context resultType fallback = do
 pushIntoCaseRaw :: Simpl -> Expr -> (Expr -> Expr) -> Type -> SimplM (Maybe Expr)
 pushIntoCaseRaw env scrutinee context resultType =
   case core of
-    ExCase inner innerBinder _ innerAlternatives -> do
+    ExCase inner innerBinder _ (NE.toList -> innerAlternatives) -> do
       innerAlternatives' <- mapM (push inner innerBinder innerAlternatives) innerAlternatives
       pure (Just (foldr ExLet (mkCase (spEnv env) inner innerBinder resultType innerAlternatives') floated))
     _ -> pure Nothing
@@ -2260,7 +2268,7 @@ mkCase env scrutinee binder resultType originalAlternatives =
         isStrictBinder env named ->
           ExLet (Bind named scrutinee) rhs
     ([defaultAlt], others)
-      | ExCase inner innerBinder _ innerAlternatives <- altRhs defaultAlt,
+      | ExCase inner innerBinder _ (NE.toList -> innerAlternatives) <- altRhs defaultAlt,
         inner == scrutinee,
         isTrivial scrutinee || isPurePrimitiveCall env scrutinee ->
           let renamed = substExpr (foldMap (\named -> Map.singleton (binderName named) (maybe scrutinee (ExVar . binderName) binder)) innerBinder)
@@ -2271,8 +2279,8 @@ mkCase env scrutinee binder resultType originalAlternatives =
                   altCon alternative `Set.notMember` covered
                 ]
               (innerDefaults, innerOthers) = List.partition ((== AltDefault) . altCon) continued
-           in ExCase scrutinee binder resultType (normalizeCaseAlternatives env binder (others <> innerOthers <> innerDefaults))
-    _ -> ExCase scrutinee binder resultType alternatives
+           in caseFromList scrutinee binder resultType (normalizeCaseAlternatives env binder (others <> innerOthers <> innerDefaults))
+    _ -> caseFromList scrutinee binder resultType alternatives
   where
     alternatives = normalizeCaseAlternatives env binder originalAlternatives
 
@@ -2360,13 +2368,13 @@ floatPrimitiveArgument env call types arguments
   where
     movable expr =
       case expr of
-        ExCase _ _ _ [_] -> True
+        ExCase _ _ _ (NE.toList -> [_]) -> True
         ExLet {} -> True
         _ -> False
     float resultType before after expr =
       case expr of
-        ExCase scrutinee binder _ [alternative] ->
-          ExCase scrutinee binder resultType [alternative {altRhs = float resultType before after (altRhs alternative)}]
+        ExCase scrutinee binder _ (NE.toList -> [alternative]) ->
+          caseFromList scrutinee binder resultType [alternative {altRhs = float resultType before after (altRhs alternative)}]
         ExLet bind body -> ExLet bind (float resultType before after body)
         _ -> ExForeignCall call types (before <> (expr : after))
     -- An argument whose representation is known and is not lifted. A
@@ -2468,7 +2476,7 @@ bindLazyPrimitives env expr
 primitiveConstructor :: Simpl -> Expr -> Expr
 primitiveConstructor env expr =
   case expr of
-    ExCase scrutinee (Just binder) _ [Alt AltDefault [] [] rhs]
+    ExCase scrutinee (Just binder) _ (NE.toList -> [Alt AltDefault [] [] rhs])
       | isStrictBinder (spEnv env) binder,
         isJust (safePrimitiveCall (spEnv env) scrutinee),
         (ExVar con, args) <- collectSpine rhs,
@@ -2581,7 +2589,8 @@ occurrencesUnder credit0 inside0 name = go credit0 inside0
         ExTyLam _ body -> go credit inside body
         ExLet bind body -> go 0 False (bindRhs bind) <> go credit inside body
         ExRec binds body -> repeated (foldMap (go 0 False . bindRhs) binds) <> go credit inside body
-        ExCase scrutinee _ _ alternatives -> go 0 False scrutinee <> foldMap (go credit inside . altRhs) alternatives
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> go 0 False scrutinee <> foldMap (go credit inside . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go 0 False scrutinee
         ExCast body coercion -> go credit inside body <> coercionUses coercion
         ExCoercion coercion -> coercionUses coercion
         ExForeignCall _ _ arguments -> foldMap (go 0 False) arguments
@@ -2660,7 +2669,8 @@ callArityAnalysis = go
               let analysed = [go (Map.findWithDefault 0 (binderName (bindBinder bind)) current) False (bindRhs bind) | bind <- binds]
                   next = Map.mapWithKey (\name assumed -> minimum (assumed : [useArgs use | (inRhs, _) <- analysed, Just use <- [Map.lookup name inRhs]])) current
                in if next == current then (current, analysed) else settle next
-        ExCase scrutinee _ _ alternatives -> List.foldl' both (go 0 False scrutinee) (map (go credit inside . altRhs) alternatives)
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> List.foldl' both (go 0 False scrutinee) (map (go credit inside . altRhs) alternatives)
+        ExAbsurd scrutinee _ -> go 0 False scrutinee
         ExCast body coercion -> go credit inside body `both` (coercionUses coercion, Map.empty)
         ExForeignCall _ _ arguments -> List.foldl' both (Map.empty, Map.empty) (map (go 0 False) arguments)
     both (uses1, credits1) (uses2, credits2) = (Map.unionWith (<>) uses1 uses2, Map.union credits1 credits2)
@@ -2730,7 +2740,8 @@ exprValueNames = go
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
         ExRec binds body -> foldMap (go . bindRhs) binds <> go body
-        ExCase scrutinee _ _ alternatives -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> foldMap go arguments
 
@@ -2751,8 +2762,9 @@ substExpr subst = go
         ExTyLam binder body -> ExTyLam binder (go body)
         ExLet bind body -> ExLet bind {bindRhs = go (bindRhs bind)} (go body)
         ExRec binds body -> ExRec [bind {bindRhs = go (bindRhs bind)} | bind <- binds] (go body)
-        ExCase scrutinee binder resultType alternatives ->
-          ExCase (go scrutinee) binder resultType [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
+          caseFromList (go scrutinee) binder resultType [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
         ExCast body coercion -> ExCast (go body) (substCoercion coercion)
         ExCoercion coercion -> ExCoercion (substCoercion coercion)
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
@@ -2789,8 +2801,9 @@ substTypeExpr subst = go
         ExTyLam binder body -> ExTyLam (onBinder binder) (go body)
         ExLet bind body -> ExLet (onBind bind) (go body)
         ExRec binds body -> ExRec (map onBind binds) (go body)
-        ExCase scrutinee binder resultType alternatives ->
-          ExCase (go scrutinee) (onBinder <$> binder) (onType resultType) (map onAlt alternatives)
+        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) (onType resultType)
+        ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
+          caseFromList (go scrutinee) (onBinder <$> binder) (onType resultType) (map onAlt alternatives)
         ExCast body coercion -> ExCast (go body) (onCoercion coercion)
         ExCoercion coercion -> ExCoercion (onCoercion coercion)
         ExForeignCall call types arguments -> ExForeignCall call (map onType types) (map go arguments)
@@ -2937,7 +2950,7 @@ renameExpr renaming expr =
       (binders, groupRenaming) <- renameBinders renaming (map bindBinder binds)
       rhss <- mapM (renameExpr groupRenaming . bindRhs) binds
       ExRec (zipWith Bind binders rhss) <$> renameExpr groupRenaming body
-    ExCase scrutinee binder resultType alternatives -> do
+    ExCase scrutinee binder resultType (NE.toList -> alternatives) -> do
       scrutinee' <- renameExpr renaming scrutinee
       (binder', caseRenaming) <- case binder of
         Nothing -> pure (Nothing, renaming)
@@ -2945,7 +2958,8 @@ renameExpr renaming expr =
           (named', inner) <- renameBinder renaming named
           pure (Just named', inner)
       resultType' <- renameType renaming resultType
-      ExCase scrutinee' binder' resultType' <$> mapM (renameAlt caseRenaming) alternatives
+      caseFromList scrutinee' binder' resultType' <$> mapM (renameAlt caseRenaming) alternatives
+    ExAbsurd scrutinee resultType -> ExAbsurd <$> renameExpr renaming scrutinee <*> renameType renaming resultType
     ExCast body coercion -> ExCast <$> renameExpr renaming body <*> renameCoercion renaming coercion
     ExCoercion coercion -> ExCoercion <$> renameCoercion renaming coercion
     ExForeignCall call types arguments -> do
@@ -3014,7 +3028,8 @@ exprBinderNames = go
         ExTyLam binder body -> binderNames binder <> go body
         ExLet bind body -> binderNames (bindBinder bind) <> go (bindRhs bind) <> go body
         ExRec binds body -> foldMap (\bind -> binderNames (bindBinder bind) <> go (bindRhs bind)) binds <> go body
-        ExCase scrutinee binder resultType alternatives ->
+        ExAbsurd scrutinee resultType -> go scrutinee <> typeBinderNames resultType
+        ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
           go scrutinee <> foldMap binderNames binder <> typeBinderNames resultType <> foldMap altNames alternatives
         ExCast body _ -> go body
         ExForeignCall call types arguments -> typeBinderNames (foreignCallType call) <> foldMap typeBinderNames types <> foldMap go arguments

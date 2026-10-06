@@ -86,12 +86,12 @@ expected: |-
                 y;
               c: (y{1} : tBool) (ys : t[] tBool) →
                 $sgo ys (case y return (tInt) of {
-                    cI# (a : tInt#) →
-                      case v$fWeightBool$cweight y{1} return (tInt) of {
-                        cI# (b : tInt#) →
-                          cI# (prim +# a b)
-                      }
-                  })
+                  cI# (a : tInt#) →
+                    case v$fWeightBool$cweight y{1} return (tInt) of {
+                      cI# (b : tInt#) →
+                        cI# (prim +# a b)
+                    }
+                })
             }
       } in
       $sgo x (cI# 0#cIntRep)

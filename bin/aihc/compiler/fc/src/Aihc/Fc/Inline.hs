@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Inline the value declarations of one System FC program.
 --
@@ -45,6 +46,7 @@ import Aihc.Fc.Wired (primPackageFromScopes)
 import Control.Monad.Trans.State.Strict (runState)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
@@ -560,11 +562,12 @@ countTopCalls arities = go
     arguments args = List.foldl' (Map.unionWith (+)) Map.empty [go argument | Right argument <- args]
     bare expr =
       case expr of
+        ExAbsurd scrutinee _ -> go scrutinee
         ExLam _ body -> go body
         ExTyLam _ body -> go body
         ExLet bind body -> Map.unionWith (+) (go (bindRhs bind)) (go body)
         ExRec binds body -> List.foldl' (Map.unionWith (+)) (go body) (map (go . bindRhs) binds)
-        ExCase scrutinee _ _ alternatives -> List.foldl' (Map.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> List.foldl' (Map.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
         ExForeignCall _ _ args -> List.foldl' (Map.unionWith (+)) Map.empty (map go args)
         _ -> Map.empty
 
@@ -584,7 +587,8 @@ countTopUses = go
         ExTyLam _ body -> go body
         ExLet bind body -> Map.unionWith (+) (go (bindRhs bind)) (go body)
         ExRec binds body -> List.foldl' (Map.unionWith (+)) (go body) (map (go . bindRhs) binds)
-        ExCase scrutinee _ _ alternatives -> List.foldl' (Map.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> List.foldl' (Map.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> List.foldl' (Map.unionWith (+)) Map.empty (map go arguments)
     isTop name =

@@ -40,17 +40,17 @@ expected: |-
   pub val 1.vmakeA :: tB 2.→ tA
     = λ(x : tB).
       (λ(_strict_field : tB).
-          case _strict_field return (tA) of {
-            _ →
-              cMkA _strict_field
-          }) x
+        case _strict_field return (tA) of {
+          _ →
+            cMkA _strict_field
+        }) x
 
   pub val 1.vmakeB :: tA 2.→ tB
     = λ(x : tA).
       (λ(_strict_field : tA).
-          case _strict_field return (tB) of {
-            _ →
-              cMkB _strict_field
-          }) x
+        case _strict_field return (tB) of {
+          _ →
+            cMkB _strict_field
+        }) x
 status: pass
 reason: Two constructors that unpack each other each keep one strict pointer.

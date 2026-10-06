@@ -51,13 +51,13 @@ expected: |-
         cI# (s : tInt#) →
           λ(z : tInt).
             cPair (λ(y : tInt).
-                case z return (tInt) of {
-                  cI# (a : tInt#) →
-                    case y return (tInt) of {
-                      cI# (b : tInt#) →
-                        cI# (prim +# a (prim +# b s))
-                    }
-                }) z
+              case z return (tInt) of {
+                cI# (a : tInt#) →
+                  case y return (tInt) of {
+                    cI# (b : tInt#) →
+                      cI# (prim +# a (prim +# b s))
+                  }
+              }) z
       }
 status: pass
 reason: The local function has one use, and that use is under a lambda and gives it one of its two arguments. The function moves to the use and takes the argument there, so the body of the lambda builds the closure of the reduced function in place of a partial application.
