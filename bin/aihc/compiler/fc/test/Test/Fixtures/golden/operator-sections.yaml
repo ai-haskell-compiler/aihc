@@ -58,9 +58,7 @@ expected: |-
   pub val 1.vrwhnf :: ∀(a : sType). a 3.→ tUnit
     = Λ(a : sType). λ(_section : a).
       (λ(seq_first : a) (seq_second : tUnit).
-        case seq_first of {
-          _ →
-            seq_second
-        }) _section c()
+        let! _ = seq_first;
+        seq_second) _section c()
 status: pass
 reason: Operator sections produce typed FC lambdas with the correct argument order.

@@ -48,27 +48,19 @@ expected: |-
 
   val 1.vadd :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (a : tInt#) →
-          case y of {
-            cI# (b : tInt#) →
-              cI# (prim +# a b)
-          }
-      }
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
 
   pub val 1.vloop :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (i : tInt#) →
-          case i of {
-            0#cIntRep →
-              y;
-            _ →
-              case vadd y x as (argument : tInt) of {
-                _ →
-                  vloop (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
-              }
-          }
+      let! cI# (i : tInt#) = x;
+      case i of {
+        0#cIntRep →
+          y;
+        _ →
+          let! _ as (argument : tInt) = vadd y x;
+          vloop (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
       }
 status: pass
 reason: The fixpoint over the recursive value finds 'loop' strict in its accumulator, because the base case returns it and the recursive case passes it to a strict call of 'add'. The call 'add acc n' is evaluated before the recursive call, so the loop builds no chain of thunks. The constructor application 'I# (i -# 1#)' is a value and stays in place.

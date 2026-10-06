@@ -48,10 +48,8 @@ expected: |-
 
   pub val 1.varound inline :: tInt 3.→ tPair
     = λ(x : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          v$waround x{1}
-      }
+      let! cI# (x{1} : tInt#) = x;
+      v$waround x{1}
 
   val 1.v$waround :: FUN @cIntRep @(cBoxedRep cLifted) tInt# tPair
     = λ(x : tInt#).

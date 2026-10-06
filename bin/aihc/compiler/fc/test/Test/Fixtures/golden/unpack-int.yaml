@@ -46,23 +46,17 @@ expected: |-
   pub val 1.vbuild :: tInt 3.→ tT
     = λ(x : tInt).
       (λ(_strict_field : tInt).
-        case _strict_field of {
-          cI# (_unpack_leaf0 : tInt#) →
-            cMkT _unpack_leaf0
-        }) x
+        let! cI# (_unpack_leaf0 : tInt#) = _strict_field;
+        cMkT _unpack_leaf0) x
 
   pub val 1.vnested :: tT 3.→ tInt
     = λ(x : tT).
-      case x of {
-        cMkT (n : tInt#) →
-          cI# n
-      }
+      let! cMkT (n : tInt#) = x;
+      cI# n
 
   pub val 1.vrebuilt :: tT 3.→ tInt
     = λ(x : tT).
-      case x of {
-        cMkT (_unpack_leaf0 : tInt#) →
-          cI# _unpack_leaf0
-      }
+      let! cMkT (_unpack_leaf0 : tInt#) = x;
+      cI# _unpack_leaf0
 status: pass
 reason: UNPACK on a strict Int stores one unboxed field. A nested pattern binds that field. A variable pattern rebuilds the Int.

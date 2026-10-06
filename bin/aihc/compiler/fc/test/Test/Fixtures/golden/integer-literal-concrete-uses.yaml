@@ -48,13 +48,9 @@ expected: |-
 
   pub val 1.v== :: tInt 3.→ tInt 3.→ tBool
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          case y of {
-            cI# (y{1} : tInt#) →
-              cTrue
-          }
-      }
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
+      cTrue
   scope 1 = "" Main
   scope 2 = "" Types
   scope 3 = "aihc-prim" GHC.Prim

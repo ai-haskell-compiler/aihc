@@ -53,20 +53,16 @@ expected: |-
 
   pub val 1.vsize :: ∀(c : sType). t$Dict$Container c 2.→ c 2.→ tNat
     = Λ(c : sType). λ($d0 : t$Dict$Container c).
-      case $d0 of {
-        c$Dict$Container ($method0 : c 2.→ tNat) →
-          $method0
-      }
+      let! c$Dict$Container ($method0 : c 2.→ tNat) = $d0;
+      $method0
 
   pub val 1.v$fContainerBag :: t$Dict$Container tBag
     = c$Dict$Container @tBag v$fContainerBag$csize
 
   val 1.v$fContainerBag$csize :: tBag 2.→ tNat
     = λ(x : tBag).
-      case x of {
-        cBag (n : tNat) →
-          n
-      }
+      let! cBag (n : tNat) = x;
+      n
 
   pub val 1.v$fContainerList :: ∀(a : sType). t$Dict$Container (t[] a)
     = Λ(a : sType).

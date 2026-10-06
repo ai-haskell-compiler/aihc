@@ -80,20 +80,14 @@ expected: |-
 
   val 1.v$fMyEqPaira$ceq :: ∀(a : sType). t$Dict$MyEq a 2.→ tPair a 2.→ tPair a 2.→ tBool
     = Λ(a : sType). λ($d0 : t$Dict$MyEq a) (x : tPair a) (y : tPair a).
-      case x of {
-        cPair (a{1} : a) (b : a) →
-          case y of {
-            cPair (c : a) (d : a) →
-              case $d0 of {
-                c$Dict$MyEq ($method0 : a 2.→ a 2.→ tBool) →
-                  case $method0 a{1} c of {
-                    cTrue →
-                      $method0 b d;
-                    cFalse →
-                      cFalse
-                  }
-              }
-          }
+      let! cPair (a{1} : a) (b : a) = x;
+      let! cPair (c : a) (d : a) = y;
+      let! c$Dict$MyEq ($method0 : a 2.→ a 2.→ tBool) = $d0;
+      case $method0 a{1} c of {
+        cTrue →
+          $method0 b d;
+        cFalse →
+          cFalse
       }
 
   pub val 1.veqPair :: tPair tBool 2.→ tPair tBool 2.→ tBool

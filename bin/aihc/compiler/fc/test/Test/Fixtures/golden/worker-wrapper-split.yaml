@@ -41,16 +41,10 @@ expected: |-
 
   pub val 1.vadd inline :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          case y of {
-            cI# (y{1} : tInt#) →
-              case v$wadd x{1} y{1} as (field : tInt#) of {
-                _ →
-                  cI# field
-              }
-          }
-      }
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
+      let! _ as (field : tInt#) = v$wadd x{1} y{1};
+      cI# field
 
   val 1.v$wadd :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
     = λ(x : tInt#) (y : tInt#).
@@ -58,12 +52,8 @@ expected: |-
         cI# x;
       let y{1} : tInt =
         cI# y;
-      case x{1} of {
-        cI# (a : tInt#) →
-          case y{1} of {
-            cI# (b : tInt#) →
-              prim +# a b
-          }
-      }
+      let! cI# (a : tInt#) = x{1};
+      let! cI# (b : tInt#) = y{1};
+      prim +# a b
 status: pass
 reason: A function that is strict in parameters of a type with one constructor and that scrutinises them splits into a worker that takes the fields and an INLINE wrapper that takes the constructors apart and calls the worker.

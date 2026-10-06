@@ -60,9 +60,7 @@ expected: |-
 
   pub val 1.vrender :: tInt 3.→ t[] tBool 3.→ t[] tBool
     = λ(x : tInt).
-      case x of {
-        cI# (value : tInt#) →
-          vshowInt (prim quotInt# lit (10#cIntRep) :: tInt# value)
-      }
+      let! cI# (value : tInt#) = x;
+      vshowInt (prim quotInt# lit (10#cIntRep) :: tInt# value)
 status: pass
 reason: The argument of the partial application 'showInt' is a call of 'quotInt#', which can fail on a zero divisor. That call is not cheap, so 'render' keeps one argument and a partial application shares the quotient.

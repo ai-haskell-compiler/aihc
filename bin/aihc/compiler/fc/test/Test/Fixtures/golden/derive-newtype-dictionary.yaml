@@ -25,10 +25,8 @@ expected: |-
 
   pub val 1.vmethod :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$C a).
-      case $d0 of {
-        c$Dict$C ($method0 : a 2.→ a) →
-          $method0
-      }
+      let! c$Dict$C ($method0 : a 2.→ a) = $d0;
+      $method0
 
   pub val 1.v$fCNa :: ∀(a : sType). t$Dict$C a 2.→ t$Dict$C (tN a)
     = Λ(a : sType). λ($d0 : t$Dict$C a).

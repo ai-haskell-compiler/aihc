@@ -57,38 +57,28 @@ expected: |-
 
   pub val 1.vseq0Lifted :: tUnit 2.→ tBool 2.→ tBool
     = λ(seq_first : tUnit) (seq_second : tBool).
-      case seq_first of {
-        _ →
-          seq_second
-      }
+      let! _ = seq_first;
+      seq_second
 
   pub val 1.vseq1Lifted :: tBool 2.→ tBool
     = (λ(seq_first : tUnit) (seq_second : tBool).
-      case seq_first of {
-        _ →
-          seq_second
-      }) cUnit
+      let! _ = seq_first;
+      seq_second) cUnit
 
   pub val 1.vseq1Unboxed :: FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) tTuple0# tTuple0#
     = (λ(seq_first : tUnit) (seq_second : tTuple0#).
-      case seq_first of {
-        _ →
-          seq_second
-      }) cUnit
+      let! _ = seq_first;
+      seq_second) cUnit
 
   pub val 1.vseq2Lifted :: tBool
     = (λ(seq_first : tUnit) (seq_second : tBool).
-      case seq_first of {
-        _ →
-          seq_second
-      }) cUnit cTrue
+      let! _ = seq_first;
+      seq_second) cUnit cTrue
 
   pub val 1.vseq2Unboxed :: FUN @sLiftedRep @(cTupleRep (c[] tRuntimeRep)) tUnit tTuple0#
     = λ(x : tUnit).
       (λ(seq_first : tUnit) (seq_second : tTuple0#).
-        case seq_first of {
-          _ →
-            seq_second
-        }) x cTuple0#
+        let! _ = seq_first;
+        seq_second) x cTuple0#
 status: pass
 reason: seq applications support zero, one, and two arguments with lifted and unboxed results.

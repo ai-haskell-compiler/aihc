@@ -75,10 +75,8 @@ expected: |-
 
   pub val 1.vretag :: ∀(p : sType) (a : sType) (q : sType). tTag p a 2.→ tTag q a
     = Λ(p : sType) (a : sType) (q : sType). λ(x : tTag p a).
-      case x of {
-        cTag (x{1} : a) →
-          cTag @q @a x{1}
-      }
+      let! cTag (x{1} : a) = x;
+      cTag @q @a x{1}
 
   pub val 1.vuseRe :: tBox tId tNat 2.→ tBox tId tNat
     = λ(x : tBox tId tNat).

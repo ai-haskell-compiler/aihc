@@ -43,12 +43,10 @@ expected: |-
 
   pub val 1.vcount inline :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          let field : tInt# =
-            v$wcount x{1};
-          cI# field
-      }
+      let! cI# (x{1} : tInt#) = x;
+      let field : tInt# =
+        v$wcount x{1};
+      cI# field
 
   val 1.v$wcount :: FUN @cIntRep @cIntRep tInt# tInt#
     = λ(x : tInt#).

@@ -53,27 +53,23 @@ expected: |-
 
   pub val 1.vfill :: tInt 3.→ tInt 3.→ tList
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (n : tInt#) →
-          case y of {
-            cI# (k : tInt#) →
-              case prim <# k lit (0#cIntRep) :: tInt# of {
-                1#cIntRep →
-                  cNil;
-                _ →
-                  rec {
-                    go : FUN @cIntRep @sLiftedRep tInt# tList =
-                      λ(x{1} : tInt#).
-                        case prim <# x{1} n of {
-                          1#cIntRep →
-                            cCons (cI# x{1}) (go (prim +# x{1} lit (1#cIntRep) :: tInt#));
-                          _ →
-                            cNil
-                        }
-                  } in
-                  go k
-              }
-          }
+      let! cI# (n : tInt#) = x;
+      let! cI# (k : tInt#) = y;
+      case prim <# k lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cNil;
+        _ →
+          rec {
+            go : FUN @cIntRep @sLiftedRep tInt# tList =
+              λ(x{1} : tInt#).
+                case prim <# x{1} n of {
+                  1#cIntRep →
+                    cCons (cI# x{1}) (go (prim +# x{1} lit (1#cIntRep) :: tInt#));
+                  _ →
+                    cNil
+                }
+          } in
+          go k
       }
 status: pass
 reason: The loop is used in one alternative only. The recursive group moves into that alternative, so the path that does not loop allocates no closure for it.

@@ -52,9 +52,7 @@ expected: |-
 
   pub val 1.vunwrap :: tWrap tUnit 2.→ tUnit
     = λ(x : tWrap tUnit).
-      case x ▷ axiom-co $ax$Payload$PayloadUnit of {
-        cPayloadUnit (value : tUnit) →
-          value
-      }
+      let! cPayloadUnit (value : tUnit) = x ▷ axiom-co $ax$Payload$PayloadUnit;
+      value
 status: pass
 reason: A data-family pattern gets the instance arguments from its own checked type. The scrutinee type is a type family application that reduces to the instance type.

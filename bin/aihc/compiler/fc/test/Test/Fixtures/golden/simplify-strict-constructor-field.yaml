@@ -33,12 +33,8 @@ expected: |-
 
   pub val 1.vmakePair :: ∀(a : sType). a 2.→ a 2.→ tStrictPair a
     = Λ(a : sType). λ(x : a) (y : a).
-      case x of {
-        _ →
-          case y of {
-            _ →
-              cStrictPair @a x y
-          }
-      }
+      let! _ = x;
+      let! _ = y;
+      cStrictPair @a x y
 status: pass
 reason: A strict field uses its evaluated case binder.

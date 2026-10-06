@@ -479,6 +479,7 @@ expression =
   MP.choice
     [ lambdaExpr,
       typeLambdaExpr,
+      strictLetExpr,
       letExpr,
       recExpr,
       caseExpr,
@@ -501,6 +502,17 @@ letExpr = do
   bind <- (braces openBind <* keyword "in") <|> (openBind <* symbol ";")
   ExLet bind <$> expression
 
+-- | A strict pattern binding is a case with one alternative:
+-- @let! C (x : t) as (s : u) = e; body@.
+strictLetExpr :: Parser Expr
+strictLetExpr = do
+  _ <- MP.try (symbol "let!")
+  makeAlt <- altPattern
+  binder <- MP.optional (keyword "as" *> openTermBinder SortValue)
+  scrutinee <- symbol "=" *> expression <* symbol ";"
+  body <- expression
+  pure (ExCase scrutinee binder (makeAlt body NE.:| []))
+
 recExpr :: Parser Expr
 recExpr = ExRec <$> (keyword "rec" *> braces (MP.sepBy openBind (symbol ";"))) <*> (keyword "in" *> expression)
 
@@ -520,14 +532,17 @@ absurdExpr :: Parser Expr
 absurdExpr = ExAbsurd <$> (keyword "absurd" *> expression) <*> (keyword "return" *> parens fcType)
 
 caseAlt :: Parser Alt
-caseAlt =
+caseAlt = altPattern <*> (caseArrow *> expression)
+
+-- | The head of an alternative, which waits for its right-hand side.
+altPattern :: Parser (Expr -> Alt)
+altPattern =
   MP.choice
-    [ Alt AltDefault [] [] <$> (symbol "_" *> caseArrow *> expression),
+    [ Alt AltDefault [] [] <$ symbol "_",
       Alt
         <$> (MP.try (AltLit <$> literal) <|> (AltData <$> topReference))
         <*> MP.many (symbol "@" *> openTermBinder SortTypeVariable)
         <*> MP.many (openTermBinder SortValue)
-        <*> (caseArrow *> expression)
     ]
 
 caseArrow :: Parser Text

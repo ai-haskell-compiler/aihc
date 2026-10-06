@@ -57,27 +57,21 @@ expected: |-
 
   val 1.v$fPickBase$cpick :: tBase 2.→ tBool
     = λ(x : tBase).
-      case x of {
-        cBase (b : tBool) →
-          b
-      }
+      let! cBase (b : tBool) = x;
+      b
 
   val 1.v$fPickBase$cother :: tBase 2.→ tBool
     = λ(x : tBase).
-      case x of {
-        cBase (b : tBool) →
-          b
-      }
+      let! cBase (b : tBool) = x;
+      b
 
   pub val 1.v$fPickWrap :: t$Dict$Pick tWrap
     = v$fPickBase ▷ tycon-co t$Dict$Pick (sym (axiom-co $ax$Wrap))
 
   pub val 1.vrun :: tWrap 2.→ tBool
     = λ(x : tWrap).
-      case x ▷ axiom-co $ax$Wrap of {
-        cBase (b : tBool) →
-          b
-      }
+      let! cBase (b : tBool) = x ▷ axiom-co $ax$Wrap;
+      b
 status: pass
 reason: |-
   A derived newtype instance is a cast of the underlying dictionary, so a method call

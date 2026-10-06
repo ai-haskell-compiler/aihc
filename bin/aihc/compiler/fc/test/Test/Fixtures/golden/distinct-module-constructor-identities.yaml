@@ -95,16 +95,12 @@ expected: |-
 
   pub val 3.vfirst :: 1.tValue 4.→ 1.tItem
     = λ(x : 1.tValue).
-      case x of {
-        1.cShared (value : 1.tItem) →
-          value
-      }
+      let! 1.cShared (value : 1.tItem) = x;
+      value
 
   pub val 3.vsecond :: 2.tValue 4.→ 2.tItem
     = λ(x : 2.tValue).
-      case x of {
-        2.cShared (value : 2.tItem) →
-          value
-      }
+      let! 2.cShared (value : 2.tItem) = x;
+      value
 status: pass
 reason: retains the full identity of each constructor pattern

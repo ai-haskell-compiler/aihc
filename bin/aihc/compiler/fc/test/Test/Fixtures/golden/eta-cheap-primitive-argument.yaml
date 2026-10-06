@@ -63,9 +63,7 @@ expected: |-
 
   pub val 1.vrender :: tInt 3.→ t[] tBool 3.→ t[] tBool
     = λ(x : tInt) (eta{1} : t[] tBool).
-      case x of {
-        cI# (value : tInt#) →
-          vshowWord (prim minusWord# lit (0#cWordRep) :: tWord# (prim int2Word# value)) eta{1}
-      }
+      let! cI# (value : tInt#) = x;
+      vshowWord (prim minusWord# lit (0#cWordRep) :: tWord# (prim int2Word# value)) eta{1}
 status: pass
 reason: The argument of the partial application 'showWord' is a call of 'minusWord#' on a call of 'int2Word#'. These primitives cannot fail, have no side effect, and do not allocate, so the partial application is cheap and 'render' takes both arguments.

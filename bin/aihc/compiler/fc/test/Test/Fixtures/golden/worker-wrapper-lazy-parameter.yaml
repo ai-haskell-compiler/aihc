@@ -41,19 +41,15 @@ expected: |-
 
   pub val 1.vpick inline :: tBool 3.→ tInt 3.→ tInt
     = λ(x : tBool) (y : tInt).
-      case v$wpick x y as (field : tInt#) of {
-        _ →
-          cI# field
-      }
+      let! _ as (field : tInt#) = v$wpick x y;
+      cI# field
 
   val 1.v$wpick :: FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @cIntRep tInt tInt#)
     = λ(x : tBool) (y : tInt).
       case x of {
         cTrue →
-          case y of {
-            cI# (a : tInt#) →
-              a
-          };
+          let! cI# (a : tInt#) = y;
+          a;
         cFalse →
           lit (0#cIntRep) :: tInt#
       }

@@ -24,7 +24,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word8)
 import Numeric (showHex)
-import Prettyprinter (Doc, LayoutOptions (..), PageWidth (..), fillSep, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
+import Prettyprinter (Doc, LayoutOptions (..), PageWidth (..), fillSep, group, hardline, hsep, indent, layoutPretty, line, nest, parens, pretty, punctuate, space, vsep, (<+>))
 import Prettyprinter.Render.Text (renderStrict)
 
 data Prec
@@ -213,8 +213,8 @@ prettyDataCons scopes =
 
 prettyImportGroup :: Doc ann -> [Doc ann] -> [Doc ann]
 prettyImportGroup _ [] = []
-prettyImportGroup group entries =
-  ["import" <+> group <> hardline <> indent 2 (vsep (punctuate ";" entries))]
+prettyImportGroup header entries =
+  ["import" <+> header <> hardline <> indent 2 (vsep (punctuate ";" entries))]
 
 prettyScopes :: [(Int, PackageId, Text)] -> Doc ann
 prettyScopes = vsep . map prettyScopeEntry
@@ -538,6 +538,17 @@ prettyExprWith scopes expr =
         <> "} in"
         <> hardline
         <> prettyExprWith scopes body
+    -- A case with one alternative prints as a strict pattern binding,
+    -- so that its body keeps the indentation of the case.
+    ExCase scrutinee binder (alternative NE.:| []) ->
+      "let! "
+        <> prettyAltHead scopes alternative
+        <> foldMap (\named -> " as " <> prettyPiBinder scopes named) binder
+        <> " ="
+        <> group (nest 2 (line <> prettyExprWith scopes scrutinee))
+        <> ";"
+        <> hardline
+        <> prettyExprWith scopes (altRhs alternative)
     ExCase scrutinee binder (NE.toList -> alts) ->
       "case "
         <> prettyExprWith scopes scrutinee

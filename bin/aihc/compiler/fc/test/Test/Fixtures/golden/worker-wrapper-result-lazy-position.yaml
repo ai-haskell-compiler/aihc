@@ -65,33 +65,19 @@ expected: |-
 
   pub val 1.vbox :: tPair 3.→ tBox
     = λ(x : tPair).
-      case x of {
-        cPair (x{1} : tInt) (y : tInt) →
-          case x{1} of {
-            cI# (i : tInt#) →
-              case y of {
-                cI# (j : tInt#) →
-                  let argument : tInt# =
-                    prim +# i j;
-                  cBox (cI# argument)
-              }
-          }
-      }
+      let! cPair (x{1} : tInt) (y : tInt) = x;
+      let! cI# (i : tInt#) = x{1};
+      let! cI# (j : tInt#) = y;
+      let argument : tInt# =
+        prim +# i j;
+      cBox (cI# argument)
 
   pub val 1.vtotal :: tPair 3.→ tInt
     = λ(x : tPair).
-      case x of {
-        cPair (x{1} : tInt) (y : tInt) →
-          case x{1} of {
-            cI# (x{2} : tInt#) →
-              case y of {
-                cI# (x{3} : tInt#) →
-                  case x{1} of {
-                    cI# (y{1} : tInt#) →
-                      cI# (prim +# x{2} (prim +# x{3} y{1}))
-                  }
-              }
-          }
-      }
+      let! cPair (x{1} : tInt) (y : tInt) = x;
+      let! cI# (x{2} : tInt#) = x{1};
+      let! cI# (x{3} : tInt#) = y;
+      let! cI# (y{1} : tInt#) = x{1};
+      cI# (prim +# x{2} (prim +# x{3} y{1}))
 status: pass
 reason: A copy of the wrapper of a function with a constructed result gives a case on a safe primitive call. In the lazy argument of Box, that case must become a strict let of the primitive, which the constructor takes as a value, and not a thunk.

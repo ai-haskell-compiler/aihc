@@ -45,14 +45,12 @@ expected: |-
         cC# lit ('n'#cWordRep) :: tChar#;
       case x of {
         c: (_pat : tChar) (_pat{1} : t[] tChar) →
-          case _pat of {
-            cC# (_pat{2} : tChar#) →
-              case _pat{2} of {
-                ' '#cWordRep →
-                  cC# lit ('y'#cWordRep) :: tChar#;
-                _ →
-                  _fail
-              }
+          let! cC# (_pat{2} : tChar#) = _pat;
+          case _pat{2} of {
+            ' '#cWordRep →
+              cC# lit ('y'#cWordRep) :: tChar#;
+            _ →
+              _fail
           };
         _ →
           _fail

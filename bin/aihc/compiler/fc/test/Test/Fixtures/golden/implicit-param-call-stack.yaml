@@ -73,10 +73,8 @@ expected: |-
 
   pub val 1.vpushCallStack :: tTuple2 (t[] tChar) tSrcLoc 5.→ tCallStack 5.→ tCallStack
     = λ(x : tTuple2 (t[] tChar) tSrcLoc) (y : tCallStack).
-      case x of {
-        c(,) (name : t[] tChar) (location : tSrcLoc) →
-          cPushCallStack name location y
-      }
+      let! c(,) (name : t[] tChar) (location : tSrcLoc) = x;
+      cPushCallStack name location y
 
   pub val 1.vfailure :: tCallStack 5.→ tBool 5.→ tBool
     = λ($d0 : tCallStack) (x : tBool).

@@ -47,9 +47,7 @@ expected: |-
 
   pub val 1.vunwrap :: tPayload tUnit 2.→ tUnit
     = λ(x : tPayload tUnit).
-      case x ▷ axiom-co $ax$Payload$PayloadUnit of {
-        cPayloadUnit (value : tUnit) →
-          value
-      }
+      let! cPayloadUnit (value : tUnit) = x ▷ axiom-co $ax$Payload$PayloadUnit;
+      value
 status: pass
 reason: A data-family constructor builds the representation type. The desugarer casts the value with the family axiom, and casts the scrutinee before a match.

@@ -67,10 +67,8 @@ expected: |-
         cSingle ($pattern_d0 : a ~ tUnit) (f : tFlag) →
           f;
         cBoth @(a{1} : sType) @(b : sType) ($pattern_d0 : a ~ tTuple2 a{1} b) (left : tShape a{1}) (right : tShape b) →
-          case y ▷ $pattern_d0 of {
-            c(,) (x{1} : a{1}) (y{1} : b) →
-              vboth (vpick @a{1} left x{1}) (vpick @b right y{1})
-          }
+          let! c(,) (x{1} : a{1}) (y{1} : b) = y ▷ $pattern_d0;
+          vboth (vpick @a{1} left x{1}) (vpick @b right y{1})
       }
 
   pub val 1.vresult :: tFlag

@@ -41,9 +41,7 @@ expected: |-
 
   pub val 1.vsecond :: FUN @(cTupleRep (c: tRuntimeRep cIntRep (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) @cIntRep (tTuple2# cIntRep cIntRep tInt# tInt#) tInt#
     = λ(x : tTuple2# cIntRep cIntRep tInt# tInt#).
-      case x of {
-        cTuple2# (_pat : tInt#) (value : tInt#) →
-          value
-      }
+      let! cTuple2# (_pat : tInt#) (value : tInt#) = x;
+      value
 status: pass
 reason: An unboxed tuple wildcard keeps its checked field type.

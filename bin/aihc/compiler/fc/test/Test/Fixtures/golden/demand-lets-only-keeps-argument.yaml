@@ -48,24 +48,18 @@ expected: |-
 
   val 1.vadd :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (a : tInt#) →
-          case y of {
-            cI# (b : tInt#) →
-              cI# (prim +# a b)
-          }
-      }
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
 
   pub val 1.vloop :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (i : tInt#) →
-          case i of {
-            0#cIntRep →
-              y;
-            _ →
-              vloop (cI# (prim -# i lit (1#cIntRep) :: tInt#)) (vadd y x)
-          }
+      let! cI# (i : tInt#) = x;
+      case i of {
+        0#cIntRep →
+          y;
+        _ →
+          vloop (cI# (prim -# i lit (1#cIntRep) :: tInt#)) (vadd y x)
       }
 status: pass
 reason: The plans run the demand pass with the strict lets alone. The signature of 'loop' still calls its accumulator strict, but the call 'add acc n' stays a lazy argument, because the strict-argument rewrite is off.

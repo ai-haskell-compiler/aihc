@@ -30,10 +30,8 @@ pub type 1.t$Dict$C (a : sType) :: sType {
 
 pub val 1.vop :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
   = Λ(a : sType). λ($d0 : t$Dict$C a).
-    case $d0 as ($dict : t$Dict$C a) of {
-      c$Dict$C ($method0 : a 2.→ a) →
-        $method0
-    }
+    let! c$Dict$C ($method0 : a 2.→ a) as ($dict : t$Dict$C a) = $d0;
+    $method0
 
 pub val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
   = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).

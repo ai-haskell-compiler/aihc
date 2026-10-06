@@ -33,9 +33,7 @@ expected: |-
 
   pub val 1.vswap :: tPair 2.→ tPair
     = λ(x : tPair).
-      case x of {
-        cPair (left : tBool) (right : tBool) →
-          cPair right left
-      }
+      let! cPair (left : tBool) (right : tBool) = x;
+      cPair right left
 status: pass
 reason: A lambda whose argument is a constructor pattern matches the constructor and binds its fields in the body.

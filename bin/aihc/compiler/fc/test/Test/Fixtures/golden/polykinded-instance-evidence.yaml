@@ -55,10 +55,8 @@ expected: |-
 
   pub val 1.vinspect :: ∀(a : sType). t$Dict$Inspect a 2.→ a 2.→ tBool
     = Λ(a : sType). λ($d0 : t$Dict$Inspect a).
-      case $d0 of {
-        c$Dict$Inspect ($method0 : a 2.→ tBool) →
-          $method0
-      }
+      let! c$Dict$Inspect ($method0 : a 2.→ tBool) = $d0;
+      $method0
 
   pub val 1.v$fInspectRepa :: ∀(k : sType) (a : k). t$Dict$Inspect (tRep k a)
     = Λ(k : sType) (a : k).
@@ -70,9 +68,7 @@ expected: |-
 
   pub val 1.vinspectSome :: tSomeRep 2.→ tBool
     = λ(x : tSomeRep).
-      case x of {
-        cSomeRep @(k : sType) @(a : k) (rep : tRep k a) →
-          vinspect @(tRep k a) (v$fInspectRepa @k @a) rep
-      }
+      let! cSomeRep @(k : sType) @(a : k) (rep : tRep k a) = x;
+      vinspect @(tRep k a) (v$fInspectRepa @k @a) rep
 status: pass
 reason: Instance evidence supplies the kind argument of an existential type.

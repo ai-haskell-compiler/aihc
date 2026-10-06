@@ -47,10 +47,8 @@ expected: |-
 
   pub val 1.vbox inline :: tInt 3.→ tBox
     = λ(x : tInt).
-      case x of {
-        cI# (x{1} : tInt#) →
-          v$wbox x{1}
-      }
+      let! cI# (x{1} : tInt#) = x;
+      v$wbox x{1}
 
   val 1.v$wbox :: FUN @cIntRep @(cBoxedRep cLifted) tInt# tBox
     = λ(x : tInt#).

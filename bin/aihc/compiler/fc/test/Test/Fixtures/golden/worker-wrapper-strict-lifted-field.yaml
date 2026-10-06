@@ -38,9 +38,7 @@ expected: |-
 
   pub val 1.vfirst :: tPair 2.→ tInt
     = λ(x : tPair).
-      case x of {
-        cPair (a : tInt) (_pat : tInt) →
-          a
-      }
+      let! cPair (a : tInt) (_pat : tInt) = x;
+      a
 status: pass
 reason: A constructor with a lifted strict field is not taken apart. The worker would have to build the box again from fields that it does not know to be evaluated.

@@ -33,9 +33,7 @@ expected: |-
 
   pub val 1.vsetSecond :: ∀(a : sType). tPair a 2.→ a 2.→ tPair a
     = Λ(a : sType). λ(x : tPair a) (y : a).
-      case x of {
-        cPair (x{1} : a) (_pat : a) →
-          cPair @a x{1} y
-      }
+      let! cPair (x{1} : a) (_pat : a) = x;
+      cPair @a x{1} y
 status: pass
 reason: A strict field binder is evaluated, so a construction that stores it does not force it again.

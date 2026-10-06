@@ -52,16 +52,12 @@ expected: |-
 
   val 1.vunbox :: ∀(a : sType). tBox a 2.→ a
     = Λ(a : sType). λ(x : tBox a).
-      case x of {
-        cBox (a{1} : a) →
-          a{1}
-      }
+      let! cBox (a{1} : a) = x;
+      a{1}
 
   pub val 1.vrun :: tBox tBool 2.→ tBool
     = λ(x : tBox tBool).
-      case x of {
-        cBox (a : tBool) →
-          a
-      }
+      let! cBox (a : tBool) = x;
+      a
 status: pass
 reason: An instance method that names a function at its own types is an alias of that function, so a call through the known dictionary becomes a direct call.

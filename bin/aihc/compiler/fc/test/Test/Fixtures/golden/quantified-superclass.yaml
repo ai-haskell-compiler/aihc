@@ -53,10 +53,8 @@ expected: |-
 
   pub val 1.vrnf :: ∀(a : sType). t$Dict$NFData a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$NFData a).
-      case $d0 of {
-        c$Dict$NFData ($method0 : a 2.→ a) →
-          $method0
-      }
+      let! c$Dict$NFData ($method0 : a 2.→ a) = $d0;
+      $method0
 
   pub val 1.v$fNFDataProxya :: ∀(a : sType). t$Dict$NFData (tProxy a)
     = Λ(a : sType).
@@ -72,9 +70,8 @@ expected: |-
 
   pub val 1.vuse :: ∀(f : sType 2.→ sType) (a : sType). t$Dict$NFData1 f 2.→ t$Dict$NFData a 2.→ f a 2.→ f a
     = Λ(f : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$NFData1 f) ($d1 : t$Dict$NFData a) (x : f a).
-      vrnf @(f a) ((case $d0 of {
-        c$Dict$NFData1 ($super_field0 : ∀(a{1} : sType). t$Dict$NFData a{1} 2.→ t$Dict$NFData (f a{1})) →
-          $super_field0
-      }) @a $d1) x
+      vrnf @(f a) ((let! c$Dict$NFData1 ($super_field0 : ∀(a{1} : sType). t$Dict$NFData a{1} 2.→ t$Dict$NFData (f a{1})) =
+        $d0;
+      $super_field0) @a $d1) x
 status: pass
 reason: Quantified superclass fields keep polymorphic System FC evidence.

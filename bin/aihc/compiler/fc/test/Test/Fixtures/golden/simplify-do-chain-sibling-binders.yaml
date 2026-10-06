@@ -131,418 +131,278 @@ expected: |-
   val 1.vandThen :: tAction 3.→ tAction 3.→ tAction
     = λ(x : tAction) (y : tAction).
       (λ(eta : tInt).
-        case (x ▷ axiom-co $ax$Action) eta of {
-          cTuple2# (s' : tInt) (_pat : tInt) →
-            (y ▷ axiom-co $ax$Action) s'
-        }) ▷ sym (axiom-co $ax$Action)
+        let! cTuple2# (s' : tInt) (_pat : tInt) = (x ▷ axiom-co $ax$Action) eta;
+        (y ▷ axiom-co $ax$Action) s') ▷ sym (axiom-co $ax$Action)
 
   pub val 1.vrun :: tInt 3.→ tInt
     = λ(eta : tInt).
-      case ((vandThen (vandThen (vandThen (vandThen (vandThen ((λ(eta{1} : tInt).
-        let x : tInt =
-          cI# lit (14#cIntRep) :: tInt#;
-        let x{1} : tInt =
-          cI# lit (15#cIntRep) :: tInt#;
-        case ((vandThen ((λ(eta{2} : tInt).
-          let x{2} : tInt =
-            cI# lit (12#cIntRep) :: tInt#;
-          let x{3} : tInt =
-            cI# lit (11#cIntRep) :: tInt#;
-          case ((vandThen ((λ(eta{3} : tInt).
-            let x{4} : tInt =
-              cI# lit (9#cIntRep) :: tInt#;
-            let x{5} : tInt =
-              cI# lit (8#cIntRep) :: tInt#;
-            case ((vandThen ((λ(eta{4} : tInt).
-              let x{6} : tInt =
-                cI# lit (6#cIntRep) :: tInt#;
-              let x{7} : tInt =
-                cI# lit (5#cIntRep) :: tInt#;
-              case ((vandThen ((λ(eta{5} : tInt).
-                let x{8} : tInt =
-                  cI# lit (1#cIntRep) :: tInt#;
-                let x{9} : tInt =
-                  cI# lit (2#cIntRep) :: tInt#;
-                let x{10} : tInt =
-                  cI# lit (3#cIntRep) :: tInt#;
-                case v$wpick lit (1#cIntRep) :: tInt# of {
-                  cFileHandle (h : tInt) →
-                    case h of {
-                      cI# (x{11} : tInt#) →
-                        case v$wwrite x{11} x{8} eta{5} of {
-                          cTuple2# (s' : tInt) (_pat : tInt) →
-                            case v$wpick lit (2#cIntRep) :: tInt# of {
-                              cFileHandle (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{12} : tInt#) →
-                                    case v$wwrite x{12} x{9} s' of {
-                                      cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
-                                        case v$wpick lit (3#cIntRep) :: tInt# of {
-                                          cFileHandle (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            };
-                                          cDuplexHandle (_pat{2} : tInt) (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            }
-                                        }
-                                    }
-                                };
-                              cDuplexHandle (_pat{1} : tInt) (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{12} : tInt#) →
-                                    case v$wwrite x{12} x{9} s' of {
-                                      cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
-                                        case v$wpick lit (3#cIntRep) :: tInt# of {
-                                          cFileHandle (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            };
-                                          cDuplexHandle (_pat{3} : tInt) (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    };
-                  cDuplexHandle (_pat : tInt) (h : tInt) →
-                    case h of {
-                      cI# (x{11} : tInt#) →
-                        case v$wwrite x{11} x{8} eta{5} of {
-                          cTuple2# (s' : tInt) (_pat{1} : tInt) →
-                            case v$wpick lit (2#cIntRep) :: tInt# of {
-                              cFileHandle (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{12} : tInt#) →
-                                    case v$wwrite x{12} x{9} s' of {
-                                      cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
-                                        case v$wpick lit (3#cIntRep) :: tInt# of {
-                                          cFileHandle (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            };
-                                          cDuplexHandle (_pat{3} : tInt) (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            }
-                                        }
-                                    }
-                                };
-                              cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{12} : tInt#) →
-                                    case v$wwrite x{12} x{9} s' of {
-                                      cTuple2# (s'{1} : tInt) (_pat{3} : tInt) →
-                                        case v$wpick lit (3#cIntRep) :: tInt# of {
-                                          cFileHandle (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            };
-                                          cDuplexHandle (_pat{4} : tInt) (h{2} : tInt) →
-                                            case h{2} of {
-                                              cI# (x{13} : tInt#) →
-                                                v$wwrite x{13} x{10} s'{1}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{5} : tInt).
-                let x{8} : tInt =
-                  cI# lit (4#cIntRep) :: tInt#;
-                case v$wpick lit (4#cIntRep) :: tInt# of {
-                  cFileHandle (h : tInt) →
-                    case h of {
-                      cI# (x{9} : tInt#) →
-                        v$wwrite x{9} x{8} eta{5}
-                    };
-                  cDuplexHandle (_pat : tInt) (h : tInt) →
-                    case h of {
-                      cI# (x{9} : tInt#) →
-                        v$wwrite x{9} x{8} eta{5}
-                    }
-                }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{4} of {
-                cTuple2# (s' : tInt) (_pat : tInt) →
-                  case v$wpick lit (5#cIntRep) :: tInt# of {
-                    cFileHandle (h : tInt) →
-                      case h of {
-                        cI# (x{8} : tInt#) →
-                          case v$wwrite x{8} x{7} s' of {
-                            cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
-                              case v$wpick lit (6#cIntRep) :: tInt# of {
+      let! cTuple2# (s' : tInt) (_pat : tInt) =
+        ((vandThen (vandThen (vandThen (vandThen (vandThen ((λ(eta{1} : tInt).
+          let x : tInt =
+            cI# lit (14#cIntRep) :: tInt#;
+          let x{1} : tInt =
+            cI# lit (15#cIntRep) :: tInt#;
+          let! cTuple2# (s' : tInt) (_pat : tInt) =
+            ((vandThen ((λ(eta{2} : tInt).
+              let x{2} : tInt =
+                cI# lit (12#cIntRep) :: tInt#;
+              let x{3} : tInt =
+                cI# lit (11#cIntRep) :: tInt#;
+              let! cTuple2# (s' : tInt) (_pat : tInt) =
+                ((vandThen ((λ(eta{3} : tInt).
+                  let x{4} : tInt =
+                    cI# lit (9#cIntRep) :: tInt#;
+                  let x{5} : tInt =
+                    cI# lit (8#cIntRep) :: tInt#;
+                  let! cTuple2# (s' : tInt) (_pat : tInt) =
+                    ((vandThen ((λ(eta{4} : tInt).
+                      let x{6} : tInt =
+                        cI# lit (6#cIntRep) :: tInt#;
+                      let x{7} : tInt =
+                        cI# lit (5#cIntRep) :: tInt#;
+                      let! cTuple2# (s' : tInt) (_pat : tInt) =
+                        ((vandThen ((λ(eta{5} : tInt).
+                          let x{8} : tInt =
+                            cI# lit (1#cIntRep) :: tInt#;
+                          let x{9} : tInt =
+                            cI# lit (2#cIntRep) :: tInt#;
+                          let x{10} : tInt =
+                            cI# lit (3#cIntRep) :: tInt#;
+                          case v$wpick lit (1#cIntRep) :: tInt# of {
+                            cFileHandle (h : tInt) →
+                              let! cI# (x{11} : tInt#) = h;
+                              let! cTuple2# (s' : tInt) (_pat : tInt) = v$wwrite x{11} x{8} eta{5};
+                              case v$wpick lit (2#cIntRep) :: tInt# of {
                                 cFileHandle (h{1} : tInt) →
-                                  case h{1} of {
-                                    cI# (x{9} : tInt#) →
-                                      v$wwrite x{9} x{6} s'{1}
+                                  let! cI# (x{12} : tInt#) = h{1};
+                                  let! cTuple2# (s'{1} : tInt) (_pat{1} : tInt) = v$wwrite x{12} x{9} s';
+                                  case v$wpick lit (3#cIntRep) :: tInt# of {
+                                    cFileHandle (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1};
+                                    cDuplexHandle (_pat{2} : tInt) (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1}
+                                  };
+                                cDuplexHandle (_pat{1} : tInt) (h{1} : tInt) →
+                                  let! cI# (x{12} : tInt#) = h{1};
+                                  let! cTuple2# (s'{1} : tInt) (_pat{2} : tInt) = v$wwrite x{12} x{9} s';
+                                  case v$wpick lit (3#cIntRep) :: tInt# of {
+                                    cFileHandle (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1};
+                                    cDuplexHandle (_pat{3} : tInt) (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1}
+                                  }
+                              };
+                            cDuplexHandle (_pat : tInt) (h : tInt) →
+                              let! cI# (x{11} : tInt#) = h;
+                              let! cTuple2# (s' : tInt) (_pat{1} : tInt) = v$wwrite x{11} x{8} eta{5};
+                              case v$wpick lit (2#cIntRep) :: tInt# of {
+                                cFileHandle (h{1} : tInt) →
+                                  let! cI# (x{12} : tInt#) = h{1};
+                                  let! cTuple2# (s'{1} : tInt) (_pat{2} : tInt) = v$wwrite x{12} x{9} s';
+                                  case v$wpick lit (3#cIntRep) :: tInt# of {
+                                    cFileHandle (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1};
+                                    cDuplexHandle (_pat{3} : tInt) (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1}
                                   };
                                 cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
-                                  case h{1} of {
-                                    cI# (x{9} : tInt#) →
-                                      v$wwrite x{9} x{6} s'{1}
+                                  let! cI# (x{12} : tInt#) = h{1};
+                                  let! cTuple2# (s'{1} : tInt) (_pat{3} : tInt) = v$wwrite x{12} x{9} s';
+                                  case v$wpick lit (3#cIntRep) :: tInt# of {
+                                    cFileHandle (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1};
+                                    cDuplexHandle (_pat{4} : tInt) (h{2} : tInt) →
+                                      let! cI# (x{13} : tInt#) = h{2};
+                                      v$wwrite x{13} x{10} s'{1}
                                   }
                               }
+                          }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{5} : tInt).
+                          let x{8} : tInt =
+                            cI# lit (4#cIntRep) :: tInt#;
+                          case v$wpick lit (4#cIntRep) :: tInt# of {
+                            cFileHandle (h : tInt) →
+                              let! cI# (x{9} : tInt#) = h;
+                              v$wwrite x{9} x{8} eta{5};
+                            cDuplexHandle (_pat : tInt) (h : tInt) →
+                              let! cI# (x{9} : tInt#) = h;
+                              v$wwrite x{9} x{8} eta{5}
+                          }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{4};
+                      case v$wpick lit (5#cIntRep) :: tInt# of {
+                        cFileHandle (h : tInt) →
+                          let! cI# (x{8} : tInt#) = h;
+                          let! cTuple2# (s'{1} : tInt) (_pat{1} : tInt) = v$wwrite x{8} x{7} s';
+                          case v$wpick lit (6#cIntRep) :: tInt# of {
+                            cFileHandle (h{1} : tInt) →
+                              let! cI# (x{9} : tInt#) = h{1};
+                              v$wwrite x{9} x{6} s'{1};
+                            cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
+                              let! cI# (x{9} : tInt#) = h{1};
+                              v$wwrite x{9} x{6} s'{1}
+                          };
+                        cDuplexHandle (_pat{1} : tInt) (h : tInt) →
+                          let! cI# (x{8} : tInt#) = h;
+                          let! cTuple2# (s'{1} : tInt) (_pat{2} : tInt) = v$wwrite x{8} x{7} s';
+                          case v$wpick lit (6#cIntRep) :: tInt# of {
+                            cFileHandle (h{1} : tInt) →
+                              let! cI# (x{9} : tInt#) = h{1};
+                              v$wwrite x{9} x{6} s'{1};
+                            cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
+                              let! cI# (x{9} : tInt#) = h{1};
+                              v$wwrite x{9} x{6} s'{1}
                           }
+                      }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{4} : tInt).
+                      let x{6} : tInt =
+                        cI# lit (7#cIntRep) :: tInt#;
+                      case v$wpick lit (7#cIntRep) :: tInt# of {
+                        cFileHandle (h : tInt) →
+                          let! cI# (x{7} : tInt#) = h;
+                          v$wwrite x{7} x{6} eta{4};
+                        cDuplexHandle (_pat : tInt) (h : tInt) →
+                          let! cI# (x{7} : tInt#) = h;
+                          v$wwrite x{7} x{6} eta{4}
+                      }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{3};
+                  case v$wpick lit (8#cIntRep) :: tInt# of {
+                    cFileHandle (h : tInt) →
+                      let! cI# (x{6} : tInt#) = h;
+                      let! cTuple2# (s'{1} : tInt) (_pat{1} : tInt) = v$wwrite x{6} x{5} s';
+                      case v$wpick lit (9#cIntRep) :: tInt# of {
+                        cFileHandle (h{1} : tInt) →
+                          let! cI# (x{7} : tInt#) = h{1};
+                          v$wwrite x{7} x{4} s'{1};
+                        cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
+                          let! cI# (x{7} : tInt#) = h{1};
+                          v$wwrite x{7} x{4} s'{1}
                       };
                     cDuplexHandle (_pat{1} : tInt) (h : tInt) →
-                      case h of {
-                        cI# (x{8} : tInt#) →
-                          case v$wwrite x{8} x{7} s' of {
-                            cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
-                              case v$wpick lit (6#cIntRep) :: tInt# of {
-                                cFileHandle (h{1} : tInt) →
-                                  case h{1} of {
-                                    cI# (x{9} : tInt#) →
-                                      v$wwrite x{9} x{6} s'{1}
-                                  };
-                                cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
-                                  case h{1} of {
-                                    cI# (x{9} : tInt#) →
-                                      v$wwrite x{9} x{6} s'{1}
-                                  }
-                              }
-                          }
+                      let! cI# (x{6} : tInt#) = h;
+                      let! cTuple2# (s'{1} : tInt) (_pat{2} : tInt) = v$wwrite x{6} x{5} s';
+                      case v$wpick lit (9#cIntRep) :: tInt# of {
+                        cFileHandle (h{1} : tInt) →
+                          let! cI# (x{7} : tInt#) = h{1};
+                          v$wwrite x{7} x{4} s'{1};
+                        cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
+                          let! cI# (x{7} : tInt#) = h{1};
+                          v$wwrite x{7} x{4} s'{1}
                       }
-                  }
-              }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{4} : tInt).
-              let x{6} : tInt =
-                cI# lit (7#cIntRep) :: tInt#;
-              case v$wpick lit (7#cIntRep) :: tInt# of {
-                cFileHandle (h : tInt) →
-                  case h of {
-                    cI# (x{7} : tInt#) →
-                      v$wwrite x{7} x{6} eta{4}
-                  };
-                cDuplexHandle (_pat : tInt) (h : tInt) →
-                  case h of {
-                    cI# (x{7} : tInt#) →
-                      v$wwrite x{7} x{6} eta{4}
-                  }
-              }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{3} of {
-              cTuple2# (s' : tInt) (_pat : tInt) →
-                case v$wpick lit (8#cIntRep) :: tInt# of {
-                  cFileHandle (h : tInt) →
-                    case h of {
-                      cI# (x{6} : tInt#) →
-                        case v$wwrite x{6} x{5} s' of {
-                          cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
-                            case v$wpick lit (9#cIntRep) :: tInt# of {
-                              cFileHandle (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{7} : tInt#) →
-                                    v$wwrite x{7} x{4} s'{1}
-                                };
-                              cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{7} : tInt#) →
-                                    v$wwrite x{7} x{4} s'{1}
-                                }
-                            }
-                        }
-                    };
-                  cDuplexHandle (_pat{1} : tInt) (h : tInt) →
-                    case h of {
-                      cI# (x{6} : tInt#) →
-                        case v$wwrite x{6} x{5} s' of {
-                          cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
-                            case v$wpick lit (9#cIntRep) :: tInt# of {
-                              cFileHandle (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{7} : tInt#) →
-                                    v$wwrite x{7} x{4} s'{1}
-                                };
-                              cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
-                                case h{1} of {
-                                  cI# (x{7} : tInt#) →
-                                    v$wwrite x{7} x{4} s'{1}
-                                }
-                            }
-                        }
-                    }
-                }
-            }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{3} : tInt).
-            let x{4} : tInt =
-              cI# lit (10#cIntRep) :: tInt#;
-            case v$wpick lit (10#cIntRep) :: tInt# of {
-              cFileHandle (h : tInt) →
-                case h of {
-                  cI# (x{5} : tInt#) →
-                    v$wwrite x{5} x{4} eta{3}
-                };
-              cDuplexHandle (_pat : tInt) (h : tInt) →
-                case h of {
-                  cI# (x{5} : tInt#) →
-                    v$wwrite x{5} x{4} eta{3}
-                }
-            }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{2} of {
-            cTuple2# (s' : tInt) (_pat : tInt) →
+                  }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{3} : tInt).
+                  let x{4} : tInt =
+                    cI# lit (10#cIntRep) :: tInt#;
+                  case v$wpick lit (10#cIntRep) :: tInt# of {
+                    cFileHandle (h : tInt) →
+                      let! cI# (x{5} : tInt#) = h;
+                      v$wwrite x{5} x{4} eta{3};
+                    cDuplexHandle (_pat : tInt) (h : tInt) →
+                      let! cI# (x{5} : tInt#) = h;
+                      v$wwrite x{5} x{4} eta{3}
+                  }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{2};
               case v$wpick lit (11#cIntRep) :: tInt# of {
                 cFileHandle (h : tInt) →
-                  case h of {
-                    cI# (x{4} : tInt#) →
-                      case v$wwrite x{4} x{3} s' of {
-                        cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
-                          case v$wpick lit (12#cIntRep) :: tInt# of {
-                            cFileHandle (h{1} : tInt) →
-                              case h{1} of {
-                                cI# (x{5} : tInt#) →
-                                  v$wwrite x{5} x{2} s'{1}
-                              };
-                            cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
-                              case h{1} of {
-                                cI# (x{5} : tInt#) →
-                                  v$wwrite x{5} x{2} s'{1}
-                              }
-                          }
-                      }
+                  let! cI# (x{4} : tInt#) = h;
+                  let! cTuple2# (s'{1} : tInt) (_pat{1} : tInt) = v$wwrite x{4} x{3} s';
+                  case v$wpick lit (12#cIntRep) :: tInt# of {
+                    cFileHandle (h{1} : tInt) →
+                      let! cI# (x{5} : tInt#) = h{1};
+                      v$wwrite x{5} x{2} s'{1};
+                    cDuplexHandle (_pat{2} : tInt) (h{1} : tInt) →
+                      let! cI# (x{5} : tInt#) = h{1};
+                      v$wwrite x{5} x{2} s'{1}
                   };
                 cDuplexHandle (_pat{1} : tInt) (h : tInt) →
-                  case h of {
-                    cI# (x{4} : tInt#) →
-                      case v$wwrite x{4} x{3} s' of {
-                        cTuple2# (s'{1} : tInt) (_pat{2} : tInt) →
-                          case v$wpick lit (12#cIntRep) :: tInt# of {
-                            cFileHandle (h{1} : tInt) →
-                              case h{1} of {
-                                cI# (x{5} : tInt#) →
-                                  v$wwrite x{5} x{2} s'{1}
-                              };
-                            cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
-                              case h{1} of {
-                                cI# (x{5} : tInt#) →
-                                  v$wwrite x{5} x{2} s'{1}
-                              }
-                          }
-                      }
+                  let! cI# (x{4} : tInt#) = h;
+                  let! cTuple2# (s'{1} : tInt) (_pat{2} : tInt) = v$wwrite x{4} x{3} s';
+                  case v$wpick lit (12#cIntRep) :: tInt# of {
+                    cFileHandle (h{1} : tInt) →
+                      let! cI# (x{5} : tInt#) = h{1};
+                      v$wwrite x{5} x{2} s'{1};
+                    cDuplexHandle (_pat{3} : tInt) (h{1} : tInt) →
+                      let! cI# (x{5} : tInt#) = h{1};
+                      v$wwrite x{5} x{2} s'{1}
                   }
-              }
-          }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{2} : tInt).
-          let x{2} : tInt =
-            cI# lit (13#cIntRep) :: tInt#;
-          case v$wpick lit (13#cIntRep) :: tInt# of {
-            cFileHandle (h : tInt) →
-              case h of {
-                cI# (x{3} : tInt#) →
+              }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{2} : tInt).
+              let x{2} : tInt =
+                cI# lit (13#cIntRep) :: tInt#;
+              case v$wpick lit (13#cIntRep) :: tInt# of {
+                cFileHandle (h : tInt) →
+                  let! cI# (x{3} : tInt#) = h;
+                  v$wwrite x{3} x{2} eta{2};
+                cDuplexHandle (_pat : tInt) (h : tInt) →
+                  let! cI# (x{3} : tInt#) = h;
                   v$wwrite x{3} x{2} eta{2}
-              };
-            cDuplexHandle (_pat : tInt) (h : tInt) →
-              case h of {
-                cI# (x{3} : tInt#) →
-                  v$wwrite x{3} x{2} eta{2}
-              }
-          }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{1} of {
-          cTuple2# (s' : tInt) (_pat : tInt) →
-            case case v$wpick lit (14#cIntRep) :: tInt# of {
+              }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta{1};
+          let! cTuple2# (s'{1} : tInt) (_pat{1} : tInt) =
+            case v$wpick lit (14#cIntRep) :: tInt# of {
               cFileHandle (h : tInt) →
-                case h of {
-                  cI# (x{2} : tInt#) →
-                    v$wwrite x{2} x s'
-                };
+                let! cI# (x{2} : tInt#) = h;
+                v$wwrite x{2} x s';
               cDuplexHandle (_pat{1} : tInt) (h : tInt) →
-                case h of {
-                  cI# (x{2} : tInt#) →
-                    v$wwrite x{2} x s'
-                }
-            } of {
-              cTuple2# (s'{1} : tInt) (_pat{1} : tInt) →
-                case v$wpick lit (15#cIntRep) :: tInt# of {
-                  cFileHandle (h : tInt) →
-                    case h of {
-                      cI# (x{2} : tInt#) →
-                        v$wwrite x{2} x{1} s'{1}
-                    };
-                  cDuplexHandle (_pat{2} : tInt) (h : tInt) →
-                    case h of {
-                      cI# (x{2} : tInt#) →
-                        v$wwrite x{2} x{1} s'{1}
-                    }
-                }
-            }
-        }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{1} : tInt).
-        let x : tInt =
-          cI# lit (16#cIntRep) :: tInt#;
-        case v$wpick lit (16#cIntRep) :: tInt# of {
-          cFileHandle (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
+                let! cI# (x{2} : tInt#) = h;
+                v$wwrite x{2} x s'
             };
-          cDuplexHandle (_pat : tInt) (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            }
-        }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
-        let x : tInt =
-          cI# lit (17#cIntRep) :: tInt#;
-        case v$wpick lit (17#cIntRep) :: tInt# of {
-          cFileHandle (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            };
-          cDuplexHandle (_pat : tInt) (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            }
-        }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
-        let x : tInt =
-          cI# lit (18#cIntRep) :: tInt#;
-        case v$wpick lit (18#cIntRep) :: tInt# of {
-          cFileHandle (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            };
-          cDuplexHandle (_pat : tInt) (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            }
-        }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
-        let x : tInt =
-          cI# lit (19#cIntRep) :: tInt#;
-        case v$wpick lit (19#cIntRep) :: tInt# of {
-          cFileHandle (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            };
-          cDuplexHandle (_pat : tInt) (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            }
-        }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
-        let x : tInt =
-          cI# lit (20#cIntRep) :: tInt#;
-        case v$wpick lit (20#cIntRep) :: tInt# of {
-          cFileHandle (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            };
-          cDuplexHandle (_pat : tInt) (h : tInt) →
-            case h of {
-              cI# (x{1} : tInt#) →
-                v$wwrite x{1} x eta{1}
-            }
-        }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta of {
-        cTuple2# (s' : tInt) (_pat : tInt) →
-          s'
-      }
+          case v$wpick lit (15#cIntRep) :: tInt# of {
+            cFileHandle (h : tInt) →
+              let! cI# (x{2} : tInt#) = h;
+              v$wwrite x{2} x{1} s'{1};
+            cDuplexHandle (_pat{2} : tInt) (h : tInt) →
+              let! cI# (x{2} : tInt#) = h;
+              v$wwrite x{2} x{1} s'{1}
+          }) ▷ sym (axiom-co $ax$Action)) ((λ(eta{1} : tInt).
+          let x : tInt =
+            cI# lit (16#cIntRep) :: tInt#;
+          case v$wpick lit (16#cIntRep) :: tInt# of {
+            cFileHandle (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1};
+            cDuplexHandle (_pat : tInt) (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1}
+          }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
+          let x : tInt =
+            cI# lit (17#cIntRep) :: tInt#;
+          case v$wpick lit (17#cIntRep) :: tInt# of {
+            cFileHandle (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1};
+            cDuplexHandle (_pat : tInt) (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1}
+          }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
+          let x : tInt =
+            cI# lit (18#cIntRep) :: tInt#;
+          case v$wpick lit (18#cIntRep) :: tInt# of {
+            cFileHandle (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1};
+            cDuplexHandle (_pat : tInt) (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1}
+          }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
+          let x : tInt =
+            cI# lit (19#cIntRep) :: tInt#;
+          case v$wpick lit (19#cIntRep) :: tInt# of {
+            cFileHandle (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1};
+            cDuplexHandle (_pat : tInt) (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1}
+          }) ▷ sym (axiom-co $ax$Action))) ((λ(eta{1} : tInt).
+          let x : tInt =
+            cI# lit (20#cIntRep) :: tInt#;
+          case v$wpick lit (20#cIntRep) :: tInt# of {
+            cFileHandle (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1};
+            cDuplexHandle (_pat : tInt) (h : tInt) →
+              let! cI# (x{1} : tInt#) = h;
+              v$wwrite x{1} x eta{1}
+          }) ▷ sym (axiom-co $ax$Action))) ▷ axiom-co $ax$Action) eta;
+      s'
 status: pass
 reason: The inliner binds each argument of an inlined andThen to a let, and the tidied program gives the lets of sibling copies the same name. The move of such a let counts only the copies of its own walk, so the count of a sibling does not make it look copied twice, and the let moves to its use.

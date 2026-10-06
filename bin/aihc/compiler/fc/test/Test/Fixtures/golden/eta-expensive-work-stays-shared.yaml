@@ -51,13 +51,9 @@ expected: |-
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (a : tInt#) →
-          case y of {
-            cI# (b : tInt#) →
-              cI# (prim +# a b)
-          }
-      }
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
 
   val 1.vstep :: tInt 3.→ tInt 3.→ tFn
     = λ(x : tInt) (y : tInt).

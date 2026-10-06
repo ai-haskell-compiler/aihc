@@ -56,13 +56,9 @@ expected: |-
   pub val 1.vcount inline :: tInt 3.→ tStep
     = λ(x : tInt).
       (λ(acc : tInt).
-        case x of {
-          cI# (x{1} : tInt#) →
-            case acc of {
-              cI# (acc{1} : tInt#) →
-                v$wcount x{1} acc{1}
-            }
-        }) ▷ sym (axiom-co $ax$Step)
+        let! cI# (x{1} : tInt#) = x;
+        let! cI# (acc{1} : tInt#) = acc;
+        v$wcount x{1} acc{1}) ▷ sym (axiom-co $ax$Step)
 
   val 1.v$wcount :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt)
     = λ(x : tInt#) (acc : tInt#).

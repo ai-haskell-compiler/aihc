@@ -36,10 +36,8 @@ expected: |-
 
   pub val 1.vmapValue :: ∀(f : sType 2.→ sType) (a : sType). t$Dict$Map f 2.→ f a 2.→ f a
     = Λ(f : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$Map f).
-      case $d0 of {
-        c$Dict$Map ($method0 : ∀(a{1} : sType). f a{1} 2.→ f a{1}) →
-          $method0 @a
-      }
+      let! c$Dict$Map ($method0 : ∀(a{1} : sType). f a{1} 2.→ f a{1}) = $d0;
+      $method0 @a
 
   pub val 1.v$fMapBox :: t$Dict$Map tBox
     = c$Dict$Map @tBox v$fMapBox$cmapValue

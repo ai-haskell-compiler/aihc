@@ -59,20 +59,18 @@ expected: |-
 
   pub val 1.vpick :: tInt 3.→ tInt 3.→ tPair
     = λ(x : tInt) (y : tInt).
-      case x of {
-        cI# (a : tInt#) →
-          let lazy : tInt =
-            vslow y;
-          case prim <# a lit (0#cIntRep) :: tInt# of {
+      let! cI# (a : tInt#) = x;
+      let lazy : tInt =
+        vslow y;
+      case prim <# a lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cPair lazy y;
+        _ →
+          case prim <# a lit (10#cIntRep) :: tInt# of {
             1#cIntRep →
-              cPair lazy y;
+              cPair y lazy;
             _ →
-              case prim <# a lit (10#cIntRep) :: tInt# of {
-                1#cIntRep →
-                  cPair y lazy;
-                _ →
-                  cPair y y
-              }
+              cPair y y
           }
       }
 status: pass
