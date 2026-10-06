@@ -38,7 +38,7 @@ expected: |-
 
   pub val 1.vreads :: ∀(a : sType). t$Dict$Read a 2.→ tResult 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$Read a).
-      case $d0 return (tResult 2.→ a) of {
+      case $d0 of {
         c$Dict$Read ($method0 : tResult 2.→ a) →
           $method0
       }

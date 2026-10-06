@@ -73,6 +73,7 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf
   ( TypeEnv (..),
     coercionEndpoints,
+    exprType,
     extendBinder,
     matchRepresentationalAxiom,
     reduceType,
@@ -283,14 +284,14 @@ arityType env expr =
       floatIn
         (List.foldl' addCost IsCheap (map (exprCost env . bindRhs) binds))
         (arityType (List.foldl' shadow env (map (binderName . bindBinder) binds)) body)
-    ExCase scrutinee binder _ (NE.toList -> alternatives) ->
+    ExCase scrutinee binder (NE.toList -> alternatives) ->
       case alternatives of
         [] -> topArityType
         first : rest ->
           let inner = foldl' (\current named -> shadow current (binderName named)) env binder
               alternativeArity alternative =
                 arityType
-                  (List.foldl' shadow (List.foldl' extendType inner (altTypeBinders alternative)) (map binderName (altBinders alternative)))
+                  (List.foldl' shadow (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative)) (map binderName (altBinders alternative)))
                   (altRhs alternative)
               alternativesArity = List.foldl' andArityType (alternativeArity first) (map alternativeArity rest)
            in -- A scrutinee that is not cheap has to be evaluated where it
@@ -340,13 +341,13 @@ isCheap env expr =
     ExLet bind body ->
       isCheap env (bindRhs bind)
         && isCheap (extendSig env (binderName (bindBinder bind)) (arityType env (bindRhs bind))) body
-    ExCase scrutinee binder _ (NE.toList -> alternatives) ->
+    ExCase scrutinee binder (NE.toList -> alternatives) ->
       isCheap env scrutinee && all cheapAlternative alternatives
       where
         inner = foldl' (\current named -> shadow current (binderName named)) env binder
         cheapAlternative alternative =
           isCheap
-            (List.foldl' shadow (List.foldl' extendType inner (altTypeBinders alternative)) (map binderName (altBinders alternative)))
+            (List.foldl' shadow (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative)) (map binderName (altBinders alternative)))
             (altRhs alternative)
     _ -> False
   where
@@ -444,7 +445,7 @@ valueReferences = go
         ExCast body _ -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
         ExRec binds body -> foldMap (go . bindRhs) binds <> go body
-        ExCase scrutinee _ _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
         ExForeignCall _ _ arguments -> foldMap go arguments
 
 type ExpandM = State (Int, EtaReport)
@@ -541,7 +542,7 @@ expandLocals env expr =
       rhss <- traverse (expandLocal inner) binds
       let binds' = [bind {bindRhs = rhs} | (bind, rhs) <- zip binds rhss]
       ExRec binds' <$> expandLocals inner body
-    ExCase scrutinee binder resultType (NE.toList -> alternatives) -> do
+    ExCase scrutinee binder alternatives -> do
       scrutinee' <- expandLocals env scrutinee
       let inner = foldl' bindTerm env binder
       alternatives' <-
@@ -549,12 +550,12 @@ expandLocals env expr =
           ( \alternative -> do
               rhs <-
                 expandLocals
-                  (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative))
+                  (List.foldl' bindTerm (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative)) (altBinders alternative))
                   (altRhs alternative)
               pure alternative {altRhs = rhs}
           )
           alternatives
-      pure (caseFromList scrutinee' binder resultType alternatives')
+      pure (ExCase scrutinee' binder alternatives')
     ExForeignCall call types arguments -> ExForeignCall call types <$> traverse (expandLocals env) arguments
 
 -- | The arity type of each member of a local recursive group, as GHC's
@@ -646,12 +647,14 @@ expandArgument env argument = do
 syntacticType :: Env -> Expr -> Maybe Type
 syntacticType env expr =
   case expr of
-    ExAbsurd _ resultType -> Just resultType
-    ExCase _ _ resultType _ -> Just resultType
-    ExLet _ body -> syntacticType env body
-    ExRec _ body -> syntacticType env body
-    ExCast _ coercion -> snd <$> coercionEndpoints (envTypes env) coercion
+    ExAbsurd {} -> known
+    ExCase {} -> known
+    ExLet binding body -> syntacticType env {envTypes = extendBinder (envTypes env) (bindBinder binding)} body
+    ExRec bindings body -> syntacticType env {envTypes = List.foldl' extendBinder (envTypes env) (map bindBinder bindings)} body
+    ExCast {} -> known
     _ -> Nothing
+  where
+    known = exprType (envTypes env) expr
 
 -- | The arity type of a local binding, cut down to what its type can
 -- expose.
@@ -681,11 +684,11 @@ expand env unfolded ty extra expr
         -- expansion walks under it.
         ExLam binder body
           | Just (_, _, _, result) <- viewFun (envTypes env) ty ->
-              fmap (ExLam binder) <$> expand env unfolded result extra body
+              fmap (ExLam binder) <$> expand (bindTerm env binder) unfolded result extra body
         _
           | Just (_, _, argument, result) <- viewFun (envTypes env) ty -> do
               binder <- freshBinder argument
-              fmap (ExLam binder) <$> expand env unfolded result (extra - 1) (applyToVar env expr (binderName binder))
+              fmap (ExLam binder) <$> expand (bindTerm env binder) unfolded result (extra - 1) (applyToVar env expr (binderName binder))
           | Just (coercion@(CoAxiom axiom _), right) <- unfoldNewtype env unfolded ty ->
               fmap (`mkCast` CoSym coercion) <$> expand env (Set.insert axiom unfolded) right extra (mkCast expr coercion)
           | otherwise -> pure Nothing
@@ -712,15 +715,16 @@ expand env unfolded ty extra expr
 applyToVar :: Env -> Expr -> Name -> Expr
 applyToVar env expr arg =
   case expr of
-    ExLet bind body -> ExLet bind (applyToVar env body arg)
-    ExRec binds body -> ExRec binds (applyToVar env body arg)
-    ExCase scrutinee binder resultType (NE.toList -> alternatives)
-      | Just (_, _, _, result) <- viewFun (envTypes env) resultType ->
-          caseFromList scrutinee binder result (map (applyAlternative (foldl' (\current named -> shadow current (binderName named)) env binder)) alternatives)
+    ExLet bind body -> ExLet bind (applyToVar (bindTerm env (bindBinder bind)) body arg)
+    ExRec binds body -> ExRec binds (applyToVar (List.foldl' bindTerm env (map bindBinder binds)) body arg)
+    ExCase scrutinee binder (NE.toList -> alternatives)
+      | Just resultType <- exprType (envTypes env) expr,
+        Just (_, _, _, result) <- viewFun (envTypes env) resultType ->
+          caseFromList scrutinee binder result (map (applyAlternative (foldl' bindTerm env binder)) alternatives)
     ExLam binder body -> substVar (binderName binder) arg body
     ExCast (ExLet bind body) coercion -> applyToVar env (ExLet bind (mkCast body coercion)) arg
     ExCast (ExRec binds body) coercion -> applyToVar env (ExRec binds (mkCast body coercion)) arg
-    ExCast (ExCase scrutinee binder _ (NE.toList -> alternatives)) coercion
+    ExCast (ExCase scrutinee binder (NE.toList -> alternatives)) coercion
       | Just (_, resultType) <- coercionEndpoints (envTypes env) coercion ->
           applyToVar
             env
@@ -732,7 +736,7 @@ applyToVar env expr arg =
       alternative
         { altRhs =
             applyToVar
-              (List.foldl' extendType inner (altTypeBinders alternative))
+              (List.foldl' bindTerm (List.foldl' extendType inner (altTypeBinders alternative)) (altBinders alternative))
               (altRhs alternative)
               arg
         }
@@ -762,8 +766,8 @@ substVar from to = go
         ExRec binds body
           | any ((== from) . binderName . bindBinder) binds -> expr
           | otherwise -> ExRec [bind {bindRhs = go (bindRhs bind)} | bind <- binds] (go body)
-        ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
-          caseFromList (go scrutinee) binder resultType (map goAlternative alternatives)
+        ExCase scrutinee binder alternatives ->
+          ExCase (go scrutinee) binder (fmap goAlternative alternatives)
           where
             goAlternative alternative
               | any ((== from) . binderName) binder || any ((== from) . binderName) (altBinders alternative) = alternative
@@ -821,7 +825,7 @@ exprNames = go
           Set.fromList (map (binderName . bindBinder) binds)
             <> foldMap (go . bindRhs) binds
             <> go body
-        ExCase scrutinee binder _ (NE.toList -> alternatives) ->
+        ExCase scrutinee binder (NE.toList -> alternatives) ->
           foldMap (Set.singleton . binderName) binder
             <> go scrutinee
             <> foldMap alternativeNames alternatives

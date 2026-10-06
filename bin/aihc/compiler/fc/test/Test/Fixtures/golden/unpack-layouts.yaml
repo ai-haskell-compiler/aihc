@@ -101,27 +101,27 @@ expected: |-
   pub val 1.vbuild :: tPacked 4.→ tPair 4.→ tInt 4.→ (tInt 4.→ tInt) 4.→ tSum 4.→ tInt 4.→ tN 4.→ tTuple7 tOuter tLazyPair tKept tFun tSumBox tLazyBox tThrough
     = λ(x : tPacked) (y : tPair) (z : tInt) (x1 : tInt 4.→ tInt) (x2 : tSum) (x3 : tInt) (x4 : tN).
       c(,,,,,,) @tOuter @tLazyPair @tKept @tFun @tSumBox @tLazyBox @tThrough ((λ(_strict_field : tPacked).
-        case _strict_field return (tOuter) of {
+        case _strict_field of {
           cPacked (_unpack_leaf0 : tInt#) (_unpack_leaf1 : tInt#) →
             cOuter _unpack_leaf0 _unpack_leaf1
         }) x) ((λ(_strict_field : tPair).
-        case _strict_field return (tLazyPair) of {
+        case _strict_field of {
           cPair (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) →
             cLazyPair _unpack_leaf0 _unpack_leaf1
         }) y) ((λ(_strict_field : tInt).
-        case _strict_field return (tKept) of {
+        case _strict_field of {
           _ →
             cKept _strict_field
         }) z) ((λ(_strict_field : tInt 4.→ tInt).
-        case _strict_field return (tFun) of {
+        case _strict_field of {
           _ →
             cFun _strict_field
         }) x1) ((λ(_strict_field : tSum).
-        case _strict_field return (tSumBox) of {
+        case _strict_field of {
           _ →
             cSumBox _strict_field
         }) x2) (cLazyBox x3) ((λ(_strict_field : tN).
-        case _strict_field ▷ axiom-co $ax$N return (tThrough) of {
+        case _strict_field ▷ axiom-co $ax$N of {
           cI# (_unpack_leaf0 : tInt#) →
             cThrough _unpack_leaf0
         }) x4)

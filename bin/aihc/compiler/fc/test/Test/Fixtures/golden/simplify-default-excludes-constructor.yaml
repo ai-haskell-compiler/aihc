@@ -49,7 +49,7 @@ expected: |-
 
   pub val 1.vpick :: tChoice 2.→ tBool
     = λ(x : tChoice).
-      case x return (tBool) of {
+      case x of {
         cA →
           cTrue;
         cB →
@@ -60,7 +60,7 @@ expected: |-
 
   pub val 1.vsibling :: tChoice 2.→ tBool
     = λ(x : tChoice).
-      case x return (tBool) of {
+      case x of {
         cA →
           cFalse;
         _ →

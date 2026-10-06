@@ -59,7 +59,7 @@ formatMagic = "aihc-system-fc"
 
 -- | The version of the format. Change it when the layout changes.
 formatVersion :: Int
-formatVersion = 2
+formatVersion = 3
 
 -- | Write a program to a file in the binary format.
 writeProgramFile :: FilePath -> Program -> IO ()
@@ -343,7 +343,7 @@ encodeExpr :: Expr -> Encode Builder.Builder
 encodeExpr expr =
   case expr of
     ExVar name -> (cborWord 0 <>) <$> encodeName name
-    ExLit literal -> (cborWord 1 <>) <$> encodeLiteral literal
+    ExLit literal ty -> tagged 1 [encodeLiteral literal, encodeType ty]
     ExApp function argument -> tagged 2 [encodeExpr function, encodeExpr argument]
     ExTyApp function argument -> tagged 3 [encodeExpr function, encodeType argument]
     ExLam binder body -> tagged 4 [encodeBinder binder, encodeExpr body]
@@ -351,10 +351,10 @@ encodeExpr expr =
     ExLet bind body -> tagged 6 [encodeBind bind, encodeExpr body]
     ExRec binds body -> tagged 7 [encodeList encodeBind binds, encodeExpr body]
     ExAbsurd scrutinee resultType -> tagged 13 [encodeExpr scrutinee, encodeType resultType]
-    ExCase scrutinee (Just binder) resultType (NE.toList -> alternatives) ->
-      tagged 8 [encodeExpr scrutinee, encodeBinder binder, encodeType resultType, encodeList encodeAlt alternatives]
-    ExCase scrutinee Nothing resultType (NE.toList -> alternatives) ->
-      tagged 12 [encodeExpr scrutinee, encodeType resultType, encodeList encodeAlt alternatives]
+    ExCase scrutinee (Just binder) (NE.toList -> alternatives) ->
+      tagged 8 [encodeExpr scrutinee, encodeBinder binder, encodeList encodeAlt alternatives]
+    ExCase scrutinee Nothing (NE.toList -> alternatives) ->
+      tagged 12 [encodeExpr scrutinee, encodeList encodeAlt alternatives]
     ExCast body coercion -> tagged 9 [encodeExpr body, encodeCoercion coercion]
     ExCoercion coercion -> tagged 10 [encodeCoercion coercion]
     ExForeignCall call types arguments ->
@@ -751,15 +751,15 @@ getExpr tables = do
   tag <- getWord
   case tag of
     0 -> ExVar <$!> getName tables
-    1 -> ExLit <$!> getLiteral tables
+    1 -> ExLit <$!> getLiteral tables <*!> getType tables
     2 -> ExApp <$!> getExpr tables <*!> getExpr tables
     3 -> ExTyApp <$!> getExpr tables <*!> getType tables
     4 -> ExLam <$!> getBinder tables <*!> getExpr tables
     5 -> ExTyLam <$!> getBinder tables <*!> getExpr tables
     6 -> ExLet <$!> getBind tables <*!> getExpr tables
     7 -> ExRec <$!> getList (getBind tables) <*!> getExpr tables
-    12 -> ExCase <$!> getExpr tables <*!> pure Nothing <*!> getType tables <*!> getNonEmpty (getAlt tables)
-    8 -> ExCase <$!> getExpr tables <*!> (Just <$!> getBinder tables) <*!> getType tables <*!> getNonEmpty (getAlt tables)
+    12 -> ExCase <$!> getExpr tables <*!> pure Nothing <*!> getNonEmpty (getAlt tables)
+    8 -> ExCase <$!> getExpr tables <*!> (Just <$!> getBinder tables) <*!> getNonEmpty (getAlt tables)
     9 -> ExCast <$!> getExpr tables <*!> getCoercion tables
     10 -> ExCoercion <$!> getCoercion tables
     11 -> ExForeignCall <$!> getForeignCall tables <*!> getList (getType tables) <*!> getList (getExpr tables)

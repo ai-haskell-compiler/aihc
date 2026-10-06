@@ -44,13 +44,13 @@ expected: |-
 
   pub val 1.vunit :: tUnit
     = let _pat_rhs : tInt =
-      vfromInteger @tInt v$fNumInt (cIS 10#cIntRep);
+      vfromInteger @tInt v$fNumInt (cIS lit (10#cIntRep) :: tInt#);
     let n# : tInt# =
-      case _pat_rhs return (tInt#) of {
+      case _pat_rhs of {
         cI# (n# : tInt#) →
           n#
       };
-    case _pat_rhs return (tUnit) of {
+    case _pat_rhs of {
       cI# (n#{1} : tInt#) →
         c()
     }

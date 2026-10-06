@@ -23,8 +23,8 @@ pub type 1.tOnly :: 2.sType {
     pub 1.cOnly :: 1.tBool 2.→ 1.tOnly
 }
 
-val 1.vbad :: 1.tBool
- = case 1.cOnly 1.cTrue as (w : 1.tOnly) return (1.tOnly) of {
+val 1.vbad :: 1.tOnly
+ = case 1.cOnly 1.cTrue as (w : 1.tOnly) of {
     1.cOnly (value : 1.tBool) →
         value
 }

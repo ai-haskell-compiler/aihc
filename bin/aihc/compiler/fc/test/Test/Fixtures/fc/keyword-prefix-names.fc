@@ -10,7 +10,7 @@ pub val 1.vtoggle :: tFlag 2.→ tFlag
   = λ(letter : tFlag).
     let recent : tFlag =
       letter;
-    case recent as (cases : tFlag) return (tFlag) of {
+    case recent as (cases : tFlag) of {
       cOff →
         cOn;
       cOn →

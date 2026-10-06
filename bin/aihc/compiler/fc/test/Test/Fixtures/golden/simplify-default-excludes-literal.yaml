@@ -43,15 +43,15 @@ expected: |-
 
   pub val 1.vpick :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tBool)
     = λ(x : tInt#) (y : tInt#).
-      case x return (tBool) of {
+      case x of {
         0#cIntRep →
           cFalse;
         _ →
-          case y return (tBool) of {
+          case y of {
             0#cIntRep →
               cTrue;
             _ →
-              case x return (tBool) of {
+              case x of {
                 1#cIntRep →
                   cFalse;
                 _ →

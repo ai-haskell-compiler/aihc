@@ -136,7 +136,7 @@ pub type 1.tBool :: 2.sType {
 
 pub val 1.vnot :: 1.tBool → 1.tBool
  = λ(x : 1.tBool).
-     case x as (w{1} : 1.tBool) return (1.tBool) of {
+     case x as (w{1} : 1.tBool) of {
        1.cTrue → 1.cFalse;
        1.cFalse → 1.cTrue
      }
@@ -144,7 +144,12 @@ pub val 1.vnot :: 1.tBool → 1.tBool
 
 Use `::` on declarations.
 Use `:` on `λ`, `Λ`, and `∀` binders.
-Use Core-style `case` with a case binder, a result type, and `_` for default.
+Use `case` with an optional case binder and `_` for default.
+The first alternative gives the result type.
+All alternatives must have the same result type.
+An alternative type variable must not occur free in the result type.
+Use `lit (1#cIntRep) :: tInt#` for a literal expression.
+Each literal expression has its full type and runtime representation.
 Use `@(a : k)` before field binders to bind existential types in constructor alternatives.
 Require at least one alternative in each `case` expression.
 Use `absurd e return (T)` for an empty case.

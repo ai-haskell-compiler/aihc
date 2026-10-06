@@ -50,16 +50,16 @@ expected: |-
 
   val 1.v$fMyEqBool$ceq :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
-          case y return (tBool) of {
+          case y of {
             cTrue →
               cTrue;
             _ →
               cFalse
           };
         cFalse →
-          case y return (tBool) of {
+          case y of {
             cFalse →
               cTrue;
             _ →
@@ -69,16 +69,16 @@ expected: |-
 
   val 1.v$fMyEqBool$cneq :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
-      case x return (tBool) of {
+      case x of {
         cTrue →
-          case y return (tBool) of {
+          case y of {
             cTrue →
               cFalse;
             _ →
               cTrue
           };
         cFalse →
-          case y return (tBool) of {
+          case y of {
             cFalse →
               cFalse;
             _ →

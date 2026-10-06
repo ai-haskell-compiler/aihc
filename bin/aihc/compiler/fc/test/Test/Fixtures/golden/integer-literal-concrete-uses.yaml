@@ -48,9 +48,9 @@ expected: |-
 
   pub val 1.v== :: tInt 3.→ tInt 3.→ tBool
     = λ(x : tInt) (y : tInt).
-      case x return (tBool) of {
+      case x of {
         cI# (x{1} : tInt#) →
-          case y return (tBool) of {
+          case y of {
             cI# (y{1} : tInt#) →
               cTrue
           }
@@ -92,15 +92,15 @@ expected: |-
     7.sType = tTYPE sLiftedRep
 
   pub val 1.vasInt :: tInt
-    = vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)
+    = vfromInteger @tInt v$fNumInt (cIS lit (1#cIntRep) :: tInt#)
 
   pub val 1.vasInteger :: tInteger
-    = vfromInteger @tInteger v$fNumInteger (cIS 1#cIntRep)
+    = vfromInteger @tInteger v$fNumInteger (cIS lit (1#cIntRep) :: tInt#)
 
   pub val 1.vcaseInt :: tUnit
     = let _case : tInt =
-      vfromInteger @tInt v$fNumInt (cIS 1#cIntRep);
-    case v== _case (vfromInteger @tInt v$fNumInt (cIS 1#cIntRep)) return (tUnit) of {
+      vfromInteger @tInt v$fNumInt (cIS lit (1#cIntRep) :: tInt#);
+    case v== _case (vfromInteger @tInt v$fNumInt (cIS lit (1#cIntRep) :: tInt#)) of {
       cTrue →
         c();
       cFalse →

@@ -20,7 +20,7 @@ pub type 1.tBox :: 2.sType {
 
 val 1.vkeep :: 1.tBox 2.→ 1.tBox
  = λ(x : 1.tBox).
-  case x as (w : 1.tBox) return (1.tBox) of {
+  case x as (w : 1.tBox) of {
       1.cBox @(a : 2.sType) (value : a) →
           x
   }

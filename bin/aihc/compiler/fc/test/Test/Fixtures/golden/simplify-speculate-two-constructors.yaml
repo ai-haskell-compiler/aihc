@@ -46,9 +46,9 @@ expected: |-
 
   pub val 1.vpick :: tStrict 2.→ tBox
     = λ(x : tStrict).
-      case x return (tBox) of {
+      case x of {
         cStrict (b : tBool) →
-          cBox (case b return (tBool) of {
+          cBox (case b of {
             cTrue →
               cFalse
           })

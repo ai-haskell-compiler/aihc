@@ -35,7 +35,7 @@ expected: |-
   pub val 1.v$mHead :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tL a 3.→ (FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tL a) (y : FUN @sLiftedRep @rep a r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      case x return (r) of {
+      case x of {
         cC (x{1} : a) (_pat : tL a) →
           y x{1};
         _ →

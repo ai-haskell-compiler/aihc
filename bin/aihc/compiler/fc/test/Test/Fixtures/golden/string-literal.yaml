@@ -52,18 +52,18 @@ expected: |-
     4.sType = tTYPE sLiftedRep
 
   pub val 1.vtext :: t[] tChar
-    = vunpackCString# "ab"#cAddrRep
+    = vunpackCString# lit ("ab"#cAddrRep) :: tAddr#
 
   pub val 1.vempty :: t[] tChar
     = c[] @tChar
 
   pub val 1.vsingle :: t[] tChar
-    = c: @tChar (cC# 'x'#cWordRep) (c[] @tChar)
+    = c: @tChar (cC# lit ('x'#cWordRep) :: tChar#) (c[] @tChar)
 
   pub val 1.vnul :: t[] tChar
-    = vunpackCStringUtf8# "a\xc0\x80b"#cAddrRep
+    = vunpackCStringUtf8# lit ("a\xc0\x80b"#cAddrRep) :: tAddr#
 
   pub val 1.vunicode :: t[] tChar
-    = vunpackCStringUtf8# "\xce\xbb\xe2\x86\x92"#cAddrRep
+    = vunpackCStringUtf8# lit ("\xce\xbb\xe2\x86\x92"#cAddrRep) :: tAddr#
 status: pass
 reason: A string literal of at most one character is a spelled-out list; a longer one unpacks an Addr# literal, stored as Latin-1 when every character is between 1 and 127 and as modified UTF-8 with NUL encoded as C0 80 otherwise.

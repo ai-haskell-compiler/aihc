@@ -57,13 +57,13 @@ expected: |-
       rec {
         $wgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @cIntRep (t[] tInt) tInt#)) =
           λ(x{1} : tInt#) (x{2} : tInt) (y{1} : t[] tInt).
-            case y{1} return (tInt#) of {
+            case y{1} of {
               c[] →
                 x{1};
               c: (y{2} : tInt) (ys : t[] tInt) →
-                $wgo (prim +# x{1} 1#cIntRep) (x y{2}) ys
+                $wgo (prim +# x{1} lit (1#cIntRep) :: tInt#) (x y{2}) ys
             }
       } in
-      cI# ($wgo 0#cIntRep (cI# 0#cIntRep) y)
+      cI# ($wgo lit (0#cIntRep) :: tInt# (cI# lit (0#cIntRep) :: tInt#) y)
 status: pass
 reason: The local loop has a free variable, so it stays local. Its worker takes the fields of the cursor, and the recursive call builds no cursor.

@@ -89,7 +89,7 @@ expected: |-
 
   pub val 2.vunwrap :: tPayload tUnit 3.→ tUnit
     = λ(x : tPayload tUnit).
-      case x ▷ axiom-co $ax$Payload$PayloadUnit return (tUnit) of {
+      case x ▷ axiom-co $ax$Payload$PayloadUnit of {
         cPayloadUnit (value : tUnit) →
           value
       }

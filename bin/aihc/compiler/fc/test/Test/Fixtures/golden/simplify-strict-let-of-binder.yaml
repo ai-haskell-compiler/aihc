@@ -38,9 +38,9 @@ expected: |-
 
   pub val 1.vrun :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (x{1} : tInt#) →
-          cI# (prim +# x{1} 1#cIntRep)
+          cI# (prim +# x{1} lit (1#cIntRep) :: tInt#)
       }
 status: pass
 reason: A strict binding whose body is its own binder is its right-hand side, because the right-hand side is evaluated at the same point in both forms.

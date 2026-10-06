@@ -35,7 +35,7 @@ expected: |-
 
   pub val 1.vunbox :: ∀(a : sType). tBox a 2.→ a
     = Λ(a : sType). λ(x : tBox a).
-      case x return (a) of {
+      case x of {
         cBox (x{1} : a) →
           x{1}
       }

@@ -59,6 +59,6 @@ expected: |-
   axiom 1.$ax$IO (a : sType) : tIO a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a)
 
   pub val 1.vmain :: tIO tCInt
-    = foreign {ccall unsafe "puts" [Addr → Int32; real-world] using [axiom 1.$ax$IO, axiom 1.$ax$CInt, constructor 1.cI32#] 1.vputs :: FUN @cAddrRep @sLiftedRep tAddr# (tIO tCInt)} "hello world\x0a"#cAddrRep
+    = foreign {ccall unsafe "puts" [Addr → Int32; real-world] using [axiom 1.$ax$IO, axiom 1.$ax$CInt, constructor 1.cI32#] 1.vputs :: FUN @cAddrRep @sLiftedRep tAddr# (tIO tCInt)} lit ("hello world\x0a"#cAddrRep) :: tAddr#
 status: pass
 reason: The real primitive modules provide Int32Rep and Tuple2# for lint.

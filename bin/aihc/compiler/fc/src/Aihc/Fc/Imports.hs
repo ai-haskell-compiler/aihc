@@ -221,17 +221,16 @@ exprReferences :: Expr -> References
 exprReferences expr =
   case expr of
     ExVar name -> nameReference name
-    ExLit literal -> literalReferences literal
+    ExLit literal ty -> literalReferences literal <> typeReferences ty
     ExApp function argument -> exprReferences function <> exprReferences argument
     ExTyApp function argument -> exprReferences function <> typeReferences argument
     ExLam binder body -> binderReferences binder <> exprReferences body
     ExTyLam binder body -> binderReferences binder <> exprReferences body
     ExLet binding body -> bindReferences binding <> exprReferences body
     ExRec bindings body -> foldMap bindReferences bindings <> exprReferences body
-    ExCase scrutinee binder result (NE.toList -> alts) ->
+    ExCase scrutinee binder (NE.toList -> alts) ->
       exprReferences scrutinee
         <> foldMap binderReferences binder
-        <> typeReferences result
         <> foldMap altReferences alts
     ExCoercion proof -> coercionReferences proof
     ExAbsurd scrutinee resultType -> exprReferences scrutinee <> typeReferences resultType

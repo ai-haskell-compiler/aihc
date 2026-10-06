@@ -331,8 +331,8 @@ dropIdentityOperand call types arguments = do
   [left, right] <- Just arguments
   (rightIdentity, leftIdentity) <- Map.lookup (nameText (foreignCallName call)) identityOperands
   case (left, right) of
-    (_, ExLit (LitInt _ value)) | Just value == rightIdentity -> Just left
-    (ExLit (LitInt _ value), _) | Just value == leftIdentity -> Just right
+    (_, ExLit (LitInt _ value) _) | Just value == rightIdentity -> Just left
+    (ExLit (LitInt _ value) _, _) | Just value == leftIdentity -> Just right
     _ -> Nothing
 
 -- | The operations that 'dropIdentityOperand' removes, with the literal
@@ -380,19 +380,19 @@ foldLiteralCall env call types arguments = do
   [] <- Just types
   operands <- mapM literalOperand arguments
   result <- foldPrimitive (nameText (foreignCallName call)) operands
-  resultRep <- resultRepresentation (length arguments) (foreignCallType call)
+  (resultRep, literalType) <- resultRepresentation (length arguments) (foreignCallType call)
   case result of
     PrimInt rep value -> do
       TyCon name <- Just (reduceType env resultRep)
-      if nameText name == rep then Just (ExLit (LitInt resultRep value)) else Nothing
-    PrimChar value -> Just (ExLit (LitChar resultRep value))
+      if nameText name == rep then Just (ExLit (LitInt resultRep value) literalType) else Nothing
+    PrimChar value -> Just (ExLit (LitChar resultRep value) literalType)
   where
     literalOperand expr =
       case expr of
-        ExLit (LitInt rep value) -> do
+        ExLit (LitInt rep value) _ -> do
           TyCon name <- Just (reduceType env rep)
           Just (PrimInt (nameText name) value)
-        ExLit (LitChar _ value) -> Just (PrimChar value)
+        ExLit (LitChar _ value) _ -> Just (PrimChar value)
         _ -> Nothing
 
 -- | Whether an expression holds a primitive call whose every argument is
@@ -410,7 +410,7 @@ hasLiteralPrimitiveCall expr =
     ExTyLam _ body -> hasLiteralPrimitiveCall body
     ExLet bind body -> hasLiteralPrimitiveCall (bindRhs bind) || hasLiteralPrimitiveCall body
     ExRec binds body -> any (hasLiteralPrimitiveCall . bindRhs) binds || hasLiteralPrimitiveCall body
-    ExCase scrutinee _ _ (NE.toList -> alternatives) -> hasLiteralPrimitiveCall scrutinee || any (hasLiteralPrimitiveCall . altRhs) alternatives
+    ExCase scrutinee _ (NE.toList -> alternatives) -> hasLiteralPrimitiveCall scrutinee || any (hasLiteralPrimitiveCall . altRhs) alternatives
     ExAbsurd scrutinee _ -> hasLiteralPrimitiveCall scrutinee
     ExCast body _ -> hasLiteralPrimitiveCall body
     ExForeignCall call _ arguments ->
@@ -424,10 +424,10 @@ hasLiteralPrimitiveCall expr =
 
 -- | The result representation of a function type applied to the given
 -- number of arguments: the result representation of the last arrow.
-resultRepresentation :: Int -> Type -> Maybe Type
+resultRepresentation :: Int -> Type -> Maybe (Type, Type)
 resultRepresentation arity ty =
   case ty of
     TyFun _ resultRep _ result
-      | arity == 1 -> Just resultRep
+      | arity == 1 -> Just (resultRep, result)
       | arity > 1 -> resultRepresentation (arity - 1) result
     _ -> Nothing

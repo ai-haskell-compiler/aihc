@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- | Type-check System FC terms and types. Kinds are types.
 module Aihc.Fc.Lint
@@ -358,7 +357,9 @@ typeAppRep env =
 checkExpr :: TypeEnv -> String -> Type -> Expr -> Either LintError ()
 checkExpr env context expected expr =
   case expr of
-    ExLit literal -> checkLiteral env expected literal
+    ExLit literal ty -> do
+      unless (typesEqual env expected ty) (Left (TypeMismatch "literal type" expected ty))
+      checkLiteral env ty literal
     ExLam binder body ->
       case viewFun env expected of
         Just (_, _, argument, result) -> do
@@ -381,10 +382,6 @@ checkExpr env context expected expr =
       recEnv <- bindRecGroup env bindings
       mapM_ (lintRecRhs recEnv) bindings
       checkExpr recEnv context expected body
-    ExCase scrutinee binder resultType (NE.toList -> alts) -> do
-      unless (typesEqual env expected resultType) (Left (TypeMismatch "case result" expected resultType))
-      _ <- lintCase env scrutinee binder resultType alts
-      Right ()
     ExCast body coercion -> do
       (source, target) <- coercionEndpoints env coercion
       unless (typesEqual env expected target) (Left (TypeMismatch "cast target" expected target))
@@ -456,7 +453,7 @@ lintExpr env expr =
       _ <- lintType env ty
       Right ty
     ExVar name -> lookupTerm env name
-    ExLit {} -> Left (LintFailure "literal expression needs an expected type")
+    ExLit literal ty -> checkLiteral env ty literal >> pure ty
     ExApp function argument -> do
       functionType <- lintExpr env function
       case viewFun env functionType of
@@ -491,10 +488,10 @@ lintExpr env expr =
       mapM_ (lintRecRhs recEnv) binds
       lintExpr recEnv body
     ExAbsurd scrutinee resultType -> do
-      lintDiscardedExpr env scrutinee
+      _ <- lintExpr env scrutinee
       _ <- representationOf env resultType
       Right resultType
-    ExCase scrutinee binder resultType (NE.toList -> alts) -> lintCase env scrutinee binder resultType alts
+    ExCase scrutinee binder alts -> lintCase env scrutinee binder alts
     ExCast body coercion -> do
       (source, target) <- coercionEndpoints env coercion
       checkExpr env "cast source" source body
@@ -559,33 +556,8 @@ bindRecGroup env binds = do
 lintRecRhs :: TypeEnv -> Bind -> Either LintError ()
 lintRecRhs env bind = checkExpr env "rec binding" (binderType (bindBinder bind)) (bindRhs bind)
 
--- | Check an expression whose value an absurd expression discards.
--- A literal needs a valid representation but no expected result type.
-lintDiscardedExpr :: TypeEnv -> Expr -> Either LintError ()
-lintDiscardedExpr env expr =
-  case expr of
-    ExLit literal -> do
-      kind <- lintType env (literalRepresentation literal)
-      unless (typesEqual env (runtimeRepKind env) kind) (Left (KindMismatch "literal representation" (runtimeRepKind env) kind))
-      checkLiteralRepresentation literal
-    ExLam binder body -> do
-      inner <- bindLocal env binder
-      _ <- representationOf env (binderType binder)
-      lintDiscardedExpr inner body
-    ExTyLam binder body -> bindLocal env binder >>= \inner -> lintDiscardedExpr inner body
-    ExLet binding body -> lintNonRecBind env binding >>= \inner -> lintDiscardedExpr inner body
-    ExRec bindings body -> do
-      inner <- bindRecGroup env bindings
-      mapM_ (lintRecRhs inner) bindings
-      lintDiscardedExpr inner body
-    ExApp (ExLam binder body) argument -> do
-      checkExpr env "application argument" (binderType binder) argument
-      inner <- bindLocal env binder
-      lintDiscardedExpr inner body
-    _ -> lintExpr env expr >> Right ()
-
-lintCase :: TypeEnv -> Expr -> Maybe Binder -> Type -> [Alt] -> Either LintError Type
-lintCase env scrutinee binder resultType alts = do
+lintCase :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> Either LintError Type
+lintCase env scrutinee binder alts = do
   (scrutineeType, caseEnv) <- case binder of
     Nothing -> do
       ty <- lintExpr env scrutinee
@@ -594,22 +566,25 @@ lintCase env scrutinee binder resultType alts = do
       checkExpr env "case binder" (binderType named) scrutinee
       inner <- evaluated [binderName named] <$> bindLocal env named
       pure (binderType named, inner)
+  let alternatives = NE.toList alts
+      inner = evaluated (scrutineeVariable scrutinee) caseEnv
+  resultType <- lintAlt inner scrutineeType Nothing (NE.head alts)
   _ <- representationOf env resultType
-  mapM_ (lintAlt (evaluated (scrutineeVariable scrutinee) caseEnv) scrutineeType resultType) alts
+  mapM_ (lintAlt inner scrutineeType (Just resultType)) (drop 1 alternatives)
   Right resultType
 
-lintAlt :: TypeEnv -> Type -> Type -> Alt -> Either LintError ()
+lintAlt :: TypeEnv -> Type -> Maybe Type -> Alt -> Either LintError Type
 lintAlt env scrutType expected alt =
   case altCon alt of
     AltDefault -> do
       unless (null (altTypeBinders alt)) (Left (LintFailure "default alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "default alternative has field binders"))
-      checkExpr env "case alternative" expected (altRhs alt)
+      checkResult env
     AltLit literal -> do
       unless (null (altTypeBinders alt)) (Left (LintFailure "literal alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "literal alternative has field binders"))
       matchLiteralAlternative env scrutType literal
-      checkExpr env "case alternative" expected (altRhs alt)
+      checkResult env
     AltData name ->
       case lookupHeaderType env name of
         Nothing -> Left (UnboundName name)
@@ -627,7 +602,11 @@ lintAlt env scrutType expected alt =
           envFields <- foldM (bindField name) envEx (zip (map (substTypes substitution) fields) (altBinders alt))
           let strict = Map.findWithDefault [] name (teConStrictFields env)
               strictBinders = [binderName binder | (position, binder) <- zip [0 ..] (altBinders alt), position `elem` strict]
-          checkExpr (evaluated strictBinders envFields) "case alternative" expected (altRhs alt)
+          checkResult (evaluated strictBinders envFields)
+  where
+    checkResult inner = case expected of
+      Nothing -> lintExpr inner (altRhs alt)
+      Just result -> checkExpr inner "case alternative" result (altRhs alt) >> pure result
 
 -- | The variable that a scrutinee names under its casts.
 scrutineeVariable :: Expr -> [Name]

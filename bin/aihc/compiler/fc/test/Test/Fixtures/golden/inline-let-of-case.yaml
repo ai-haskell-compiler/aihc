@@ -45,11 +45,11 @@ expected: |-
 
   pub val 1.vpick :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (n : tInt#) →
-          case prim ==# n 0#cIntRep return (tInt) of {
+          case prim ==# n lit (0#cIntRep) :: tInt# of {
             1#cIntRep →
-              cI# 1#cIntRep;
+              cI# lit (1#cIntRep) :: tInt#;
             _ →
               x
           }

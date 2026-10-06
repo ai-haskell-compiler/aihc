@@ -52,14 +52,14 @@ expected: |-
 
   val 1.vunbox :: ∀(a : sType). tBox a 2.→ a
     = Λ(a : sType). λ(x : tBox a).
-      case x return (a) of {
+      case x of {
         cBox (a{1} : a) →
           a{1}
       }
 
   pub val 1.vrun :: tBox tBool 2.→ tBool
     = λ(x : tBox tBool).
-      case x return (tBool) of {
+      case x of {
         cBox (a : tBool) →
           a
       }

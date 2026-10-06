@@ -38,7 +38,7 @@ expected: |-
   pub val 1.vwrap :: tInt 2.→ tBox
     = λ(x : tInt).
       (λ(_strict_field : tInt).
-        case _strict_field return (tBox) of {
+        case _strict_field of {
           _ →
             cBox _strict_field
         }) x

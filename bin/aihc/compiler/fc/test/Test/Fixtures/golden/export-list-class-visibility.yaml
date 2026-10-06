@@ -36,7 +36,7 @@ expected: |-
 
   pub val 1.vmethod :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
     = Λ(a : sType). λ($d0 : t$Dict$C a).
-      case $d0 return (a 2.→ a) of {
+      case $d0 of {
         c$Dict$C ($method0 : a 2.→ a) →
           $method0
       }

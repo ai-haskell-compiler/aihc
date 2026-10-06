@@ -47,18 +47,18 @@ expected: |-
 
   val 1.vdouble :: tInt 3.→ tInt
     = λ(x : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (i : tInt#) →
           cI# (prim +# i i)
       }
 
   pub val 1.vtwice :: tInt 3.→ tInt
     = λ(x : tInt).
-      case vdouble x as (y : tInt) return (tInt) of {
+      case vdouble x as (y : tInt) of {
         _ →
-          case y return (tInt) of {
+          case y of {
             cI# (a : tInt#) →
-              case y return (tInt) of {
+              case y of {
                 cI# (b : tInt#) →
                   cI# (prim +# a b)
               }

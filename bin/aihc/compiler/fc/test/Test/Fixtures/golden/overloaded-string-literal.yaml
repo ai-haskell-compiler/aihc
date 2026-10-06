@@ -56,6 +56,6 @@ expected: |-
       _newtype ▷ sym (axiom-co $ax$Name)
 
   pub val 1.vgreeting :: tName
-    = vfromString @tName v$fIsStringName (vunpackCString# "hi"#cAddrRep)
+    = vfromString @tName v$fIsStringName (vunpackCString# lit ("hi"#cAddrRep) :: tAddr#)
 status: pass
 reason: OverloadedStrings applies the resolved fromString to the ordinary string literal.

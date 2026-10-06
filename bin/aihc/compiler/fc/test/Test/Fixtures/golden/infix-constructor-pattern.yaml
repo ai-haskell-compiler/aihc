@@ -33,7 +33,7 @@ expected: |-
 
   pub val 1.vfirst :: ∀(a : sType). tPair a 2.→ a
     = Λ(a : sType). λ(x : tPair a).
-      case x return (a) of {
+      case x of {
         c:*: (value : a) (_pat : a) →
           value
       }

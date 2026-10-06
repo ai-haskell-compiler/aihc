@@ -34,7 +34,7 @@ expected: |-
 
   val 1.vunwrap :: tWrapped 3.→ tWrapped
     = λ($record : tWrapped).
-      case $record return (tWrapped) of {
+      case $record of {
         cWrapped ($field0 : tWrapped) →
           $field0
       }
@@ -42,7 +42,7 @@ expected: |-
   pub val 1.v$mShown :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tWrapped 3.→ (FUN @sLiftedRep @rep tWrapped r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tWrapped) (y : FUN @sLiftedRep @rep tWrapped r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      case x return (r) of {
+      case x of {
         cWrapped (x{1} : tWrapped) →
           y x{1}
       }
@@ -54,7 +54,7 @@ expected: |-
   val 1.v$mHidden :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tWrapped 3.→ (FUN @sLiftedRep @rep tWrapped r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tWrapped) (y : FUN @sLiftedRep @rep tWrapped r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      case x return (r) of {
+      case x of {
         cWrapped (x{1} : tWrapped) →
           y x{1}
       }

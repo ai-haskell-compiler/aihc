@@ -13,6 +13,7 @@ import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, reduceType, repOf, typeEnvFro
 import Aihc.Resolve (PackageId)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 
 normalizeProgram :: PackageId -> Program -> Program
@@ -47,12 +48,10 @@ normalizeExpr env expr =
       ExRec
         (map (normalizeBind env) binds)
         (normalizeExpr env body)
-    ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
-      caseFromList
-        (normalizeExpr env scrutinee)
-        binder
-        resultType
-        (map (normalizeAlt env) (normalizeCaseAlternatives env binder alternatives))
+    ExCase scrutinee binder alternatives ->
+      let normalized = normalizeCaseAlternatives env binder (NE.toList alternatives)
+          kept = fromMaybe alternatives (NE.nonEmpty normalized)
+       in ExCase (normalizeExpr env scrutinee) binder (fmap (normalizeAlt env) kept)
     ExAbsurd scrutinee resultType -> ExAbsurd (normalizeExpr env scrutinee) resultType
     ExCast body coercion -> ExCast (normalizeExpr env body) coercion
     ExForeignCall call types arguments -> ExForeignCall call types (map (normalizeExpr env) arguments)
@@ -125,7 +124,7 @@ occurrences name = go
         ExTyLam _ body -> go body
         ExLet bind body -> go (bindRhs bind) <> go body
         ExRec binds body -> repeated (foldMap (go . bindRhs) binds) <> go body
-        ExCase scrutinee _ _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
         ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExCoercion {} -> mempty
@@ -148,8 +147,8 @@ substExpr name replacement = go
         ExTyLam binder body -> ExTyLam binder (go body)
         ExLet bind body -> ExLet (substBind bind) (go body)
         ExRec binds body -> ExRec (map substBind binds) (go body)
-        ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
-          caseFromList (go scrutinee) binder resultType (map substAlt alternatives)
+        ExCase scrutinee binder alternatives ->
+          ExCase (go scrutinee) binder (fmap substAlt alternatives)
         ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
         ExCast body coercion -> ExCast (go body) coercion
         ExCoercion {} -> expr

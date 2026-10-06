@@ -33,7 +33,7 @@ expected: |-
 
   pub val 1.vswap :: tPair 2.→ tPair
     = λ(x : tPair).
-      case x return (tPair) of {
+      case x of {
         cPair (left : tBool) (right : tBool) →
           cPair right left
       }

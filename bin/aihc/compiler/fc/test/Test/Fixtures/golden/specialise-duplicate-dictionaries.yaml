@@ -65,7 +65,7 @@ expected: |-
 
   val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
     = Λ(a : sType). λ($d0 : t$Dict$Weight a).
-      case $d0 return (a 3.→ tInt) of {
+      case $d0 of {
         c$Dict$Weight ($method0 : a 3.→ tInt) →
           $method0
       }
@@ -75,18 +75,18 @@ expected: |-
 
   val 1.v$fWeightBool$cweight :: tBool 3.→ tInt
     = λ(x : tBool).
-      case x return (tInt) of {
+      case x of {
         cTrue →
-          cI# 1#cIntRep;
+          cI# lit (1#cIntRep) :: tInt#;
         cFalse →
-          cI# 0#cIntRep
+          cI# lit (0#cIntRep) :: tInt#
       }
 
   val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
-      case x return (tInt) of {
+      case x of {
         cI# (a : tInt#) →
-          case y return (tInt) of {
+          case y of {
             cI# (b : tInt#) →
               cI# (prim +# a b)
           }
@@ -97,13 +97,13 @@ expected: |-
       rec {
         $sgo : t[] tBool 3.→ tInt 3.→ tInt =
           λ(x{1} : t[] tBool) (y : tInt).
-            case x{1} return (tInt) of {
+            case x{1} of {
               c[] →
                 y;
               c: (y{1} : tBool) (ys : t[] tBool) →
                 $sgo ys (vplus (vweight @tBool v$fWeightBool y{1}) (vplus y (vweight @tBool v$fWeightBool y{1})))
             }
       } in
-      $sgo x (cI# 0#cIntRep)
+      $sgo x (cI# lit (0#cIntRep) :: tInt#)
 status: pass
 reason: The two uses of 'weight' give 'go' two dictionary parameters of the same class, and the recursive call gives the first parameter for both slots. The one call from outside gives the same dictionary for both slots, so the copy is right.

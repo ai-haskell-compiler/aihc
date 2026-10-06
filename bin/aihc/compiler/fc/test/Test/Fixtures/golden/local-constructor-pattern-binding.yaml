@@ -43,7 +43,7 @@ expected: |-
 
   pub val 1.vunit :: tUnit
     = let n# : tInt# =
-      case vfromInteger @tInt v$fNumInt (cIS 10#cIntRep) return (tInt#) of {
+      case vfromInteger @tInt v$fNumInt (cIS lit (10#cIntRep) :: tInt#) of {
         cI# (n# : tInt#) →
           n#
       };
