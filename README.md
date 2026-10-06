@@ -157,41 +157,51 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 
 ## FAQ
 
-**Can AIHC compile itself?**
+### Can AIHC compile itself?
+
 Almost, but not quite yet.
 See [Self hosting](#self-hosting) for the current status.
 
-**Is AIHC compatible with GHC?**
+### Is AIHC compatible with GHC?
+
 AIHC aims at compiling any Haskell code that GHC accepts.
 
-**Which architectures does AIHC support?**
+### Which architectures does AIHC support?
+
 `apple-arm64`, `linux-amd64`, and `wasm32`.
 Use `--target` to select one.
 
-**Which language extensions does AIHC support?**
+### Which language extensions does AIHC support?
+
 Most of the extensions that GHC accepts.
 Template Haskell splices do not run yet.
 See the [user guide](https://ai-haskell-compiler.github.io/aihc/) for the full list.
 
-**Which Hackage packages does AIHC install?**
+### Which Hackage packages does AIHC install?
+
 See [Self hosting](#self-hosting) for the packages that install today.
 
-**How fast is the code that AIHC makes?**
+### How fast is the code that AIHC makes?
+
 Slower than GHC.
 See [Performance](#performance) for the current numbers.
 
-**Is there a binary release?**
+### Is there a binary release?
+
 No.
 Build the compiler from source with `cabal build exe:aihc`.
 
-**Did humans write any of the code?**
+### Did humans write any of the code?
+
 AI agents wrote the compiler code.
 Humans wrote the prompts and reviewed the results.
 
-**How do I run the test suite?**
+### How do I run the test suite?
+
 Run `just check`.
 For a hermetic build environment, run `nix flake check`.
 
-**What is the license?**
+### What is the license?
+
 AIHC is in the public domain.
 See [LICENSE](LICENSE).
