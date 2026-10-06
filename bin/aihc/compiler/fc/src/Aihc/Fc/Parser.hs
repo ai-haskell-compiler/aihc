@@ -21,6 +21,7 @@ import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, isSpace, ord)
 import Data.Either (isLeft, lefts, partitionEithers)
 import Data.Functor (($>))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -481,6 +482,7 @@ expression =
       letExpr,
       recExpr,
       caseExpr,
+      absurdExpr,
       castOrApp
     ]
 
@@ -513,7 +515,10 @@ caseExpr =
     <$> (keyword "case" *> expression)
     <*> MP.optional (keyword "as" *> openTermBinder SortValue)
     <*> (keyword "return" *> parens fcType)
-    <*> (keyword "of" *> braces (MP.sepBy caseAlt (symbol ";")))
+    <*> (keyword "of" *> braces ((NE.:|) <$> caseAlt <*> MP.many (symbol ";" *> caseAlt)))
+
+absurdExpr :: Parser Expr
+absurdExpr = ExAbsurd <$> (keyword "absurd" *> expression) <*> (keyword "return" *> parens fcType)
 
 caseAlt :: Parser Alt
 caseAlt =

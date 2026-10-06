@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Specialisation of local recursive functions on static dictionaries.
 --
@@ -54,6 +55,7 @@ import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -121,14 +123,15 @@ specialiseExpr scope expr =
       case binds' of
         [one] -> specialiseRec scope one body'
         _ -> pure (ExRec binds' body')
-    ExCase scrutinee binder resultType alternatives -> do
+    ExCase scrutinee binder resultType (NE.toList -> alternatives) -> do
       scrutinee' <- specialiseExpr scope scrutinee
       let withBinder = foldl' (flip bind) scope binder
           onAlt alternative = do
             let altScope = List.foldl' (flip bind) withBinder (altTypeBinders alternative <> altBinders alternative)
             rhs <- specialiseExpr altScope (altRhs alternative)
             pure alternative {altRhs = rhs}
-      ExCase scrutinee' binder resultType <$> mapM onAlt alternatives
+      caseFromList scrutinee' binder resultType <$> mapM onAlt alternatives
+    ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> specialiseExpr scope scrutinee
     ExCast body coercion -> (`ExCast` coercion) <$> specialiseExpr scope body
     ExForeignCall call types arguments -> ExForeignCall call types <$> mapM (specialiseExpr scope) arguments
   where
@@ -258,7 +261,8 @@ occurrences target count = go
         ExTyLam _ body -> go body
         ExLet (Bind _ rhs) body -> (<>) <$> go rhs <*> go body
         ExRec binds body -> concat <$> mapM go (map bindRhs binds <> [body])
-        ExCase scrutinee _ _ alternatives -> (<>) <$> go scrutinee <*> (concat <$> mapM (go . altRhs) alternatives)
+        ExCase scrutinee _ _ (NE.toList -> alternatives) -> (<>) <$> go scrutinee <*> (concat <$> mapM (go . altRhs) alternatives)
+        ExAbsurd scrutinee _ -> go scrutinee
         ExCast body _ -> go body
         ExForeignCall _ _ arguments -> concat <$> mapM go arguments
     spine expr =
@@ -286,8 +290,9 @@ rewriteCalls target count choose = go
         ExTyLam binder body -> ExTyLam binder (go body)
         ExLet (Bind binder rhs) body -> ExLet (Bind binder (go rhs)) (go body)
         ExRec binds body -> ExRec [Bind binder (go rhs) | Bind binder rhs <- binds] (go body)
-        ExCase scrutinee binder resultType alternatives ->
-          ExCase (go scrutinee) binder resultType [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
+          caseFromList (go scrutinee) binder resultType [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
         ExCast body coercion -> ExCast (go body) coercion
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
     spine expr =

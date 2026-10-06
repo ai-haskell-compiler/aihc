@@ -1,0 +1,15 @@
+extensions:
+  - EmptyCase
+  - ScopedTypeVariables
+modules:
+  - |
+    module Test where
+    data Flag = Flag
+    data Result = Result
+    value :: Result
+    value = case (\(x :: Flag) -> x) of {}
+passes:
+  - demand
+  - simplify: 0
+status: pass
+reason: An absurd expression accepts a lambda scrutinee.

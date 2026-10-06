@@ -1,3 +1,5 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -- | Make System FC local names easier to read.
 --
 -- Each optimizer pass ends with a tidy, so a whole program goes through
@@ -15,6 +17,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv (..))
 import Aihc.Tc.Types (Unique (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -277,14 +280,14 @@ tidyExpr env expr =
       let (binders, bodyEnv) = tidyEachBinder env (map bindBinder binds)
           binds' = zipWith (tidyRecBind bodyEnv) binders binds
        in rebuild2 ExRec binds (collect binds binds') body (tidyExpr bodyEnv body)
-    ExCase scrutinee binder resultType alternatives ->
+    ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
       let (binder', caseEnv) = case binder of
             Nothing -> (Same, env)
             Just named
               | all (\alternative -> binderName named `Set.notMember` (exprFreeNames (altRhs alternative) `Set.difference` Set.fromList (map binderName (altBinders alternative)))) alternatives -> (Changed Nothing, env)
               | otherwise -> let (named', inner) = tidyBinder env named in (rebuild1 Just named named', inner)
        in rebuild4
-            ExCase
+            caseFromList
             scrutinee
             (tidyExpr env scrutinee)
             binder
@@ -293,6 +296,7 @@ tidyExpr env expr =
             (tidyType env resultType)
             alternatives
             (tidyList (tidyAlt caseEnv) alternatives)
+    ExAbsurd scrutinee resultType -> rebuild2 ExAbsurd scrutinee (tidyExpr env scrutinee) resultType (tidyType env resultType)
     ExCoercion proof -> rebuild1 ExCoercion proof (tidyCoercion env proof)
     ExCast body coercion ->
       rebuild2 ExCast body (tidyExpr env body) coercion (tidyCoercion env coercion)

@@ -1,0 +1,15 @@
+extensions:
+  - EmptyCase
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim
+    data Result = Result
+    value :: Result
+    value = case 1# of {}
+passes:
+  - demand
+  - simplify: 0
+status: pass
+reason: An absurd expression preserves scrutinee evaluation.

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Direct value desugaring from checked source syntax to System FC.
 module Aihc.Fc.Desugar.Value
@@ -116,6 +117,7 @@ import Data.ByteString qualified as BS
 import Data.Char (isAsciiUpper, isDigit)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
@@ -532,12 +534,11 @@ patSynMatcherReference info annotation resultType = do
   let types = universalTypes <> [resultRepresentation, convertedResultType]
   pure (foldl ExTyApp (ExVar (Name (patSynHelperName "$m" info) SortValue (OriginTop package moduleName'))) types)
 
--- | The empty case that reports a failed match on one binder.
+-- | The absurd expression that reports a failed match on one binder.
 emptyCaseFailure :: TcType -> Binder -> ValueM Expr
 emptyCaseFailure resultType binder = do
   resultType' <- convertCheckedType resultType
-  failureBinder <- freshBinderFromType "_case_nomatch" (binderType binder)
-  pure (ExCase (ExVar (binderName binder)) (Just failureBinder) resultType' [])
+  pure (ExAbsurd (ExVar (binderName binder)) resultType')
 
 -- | Compile a row whose first pattern uses a pattern synonym. The matcher
 -- gets the argument, a continuation over the fields, and the failure. The
@@ -723,7 +724,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
           caseBinder <- freshBinder "$record_scrut" (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
           fieldType' <- convertCheckedType fieldType
           alternatives <- concat <$> mapM (recordSelectorAlternative label scrutineeType fieldType) constructors
-          pure (ExCase (ExCast record familyCoercion) (Just caseBinder) fieldType' alternatives)
+          pure (caseFromList (ExCast record familyCoercion) (Just caseBinder) fieldType' alternatives)
     (dataType : _, _) -> do
       typeArguments <-
         case scrutineeType of
@@ -737,7 +738,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
       caseBinder <- freshBinder "$record_scrut" scrutineeType
       fieldType' <- convertCheckedType fieldType
       alternatives <- concat <$> mapM (recordSelectorAlternative label scrutineeType fieldType) constructors
-      pure (ExCase (ExVar (binderName argument)) (Just caseBinder) fieldType' alternatives)
+      pure (caseFromList (ExVar (binderName argument)) (Just caseBinder) fieldType' alternatives)
 
 recordSelectorAlternative :: Text -> TcType -> TcType -> DataConInfo -> ValueM [Alt]
 recordSelectorAlternative label scrutineeType fieldType constructor =
@@ -1071,7 +1072,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
             (foldl ExTyApp (ExVar (binderName selected)) extraTypes)
             (map (ExVar . binderName) extraDictionaries)
         selection =
-          ExCase
+          caseFromList
             (ExVar (binderName classDictionary))
             (Just caseBinder)
             resultType'
@@ -1253,7 +1254,7 @@ desugarCoercedMethod annotation derived method = withTypeVariables (tcCoercedMet
   selected <- case drop (tcCoercedMethodIndex method) fields of
     field : _ -> pure field
     [] -> failValue "newtype method index is outside the dictionary layout"
-  let projection = ExCase evidence (Just sourceBinder) (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
+  let projection = caseFromList evidence (Just sourceBinder) (binderType selected) [Alt (AltData (classDictConName classTyCon)) [] fields (ExVar (binderName selected))]
       instantiated = foldl ExTyApp projection extraTypes
       applied = foldl ExApp instantiated (map (ExVar . binderName) dictionaries)
   -- The coercion's evidence bindings may mention the method's own dictionary
@@ -2008,7 +2009,8 @@ countUses name = go 0
             ExTyLam _ inner -> go total inner
             ExLet binding inner -> go (go total (bindRhs binding)) inner
             ExRec bindings inner -> go (foldl' go total (map bindRhs bindings)) inner
-            ExCase scrutinee _ _ alternatives -> foldl' go (go total scrutinee) (map altRhs alternatives)
+            ExCase scrutinee _ _ (NE.toList -> alternatives) -> foldl' go (go total scrutinee) (map altRhs alternatives)
+            ExAbsurd scrutinee _ -> go total scrutinee
             ExCast inner _ -> go total inner
             ExForeignCall _ _ arguments -> foldl' go total arguments
 
@@ -2028,8 +2030,9 @@ substituteVar name value = go
         ExTyLam binder inner -> ExTyLam binder (go inner)
         ExLet binding inner -> ExLet binding {bindRhs = go (bindRhs binding)} (go inner)
         ExRec bindings inner -> ExRec [binding {bindRhs = go (bindRhs binding)} | binding <- bindings] (go inner)
-        ExCase scrutinee binder ty alternatives ->
-          ExCase (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExCase scrutinee binder ty (NE.toList -> alternatives) ->
+          caseFromList (go scrutinee) binder ty [alternative {altRhs = go (altRhs alternative)} | alternative <- alternatives]
+        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
         ExCast inner coercion -> ExCast (go inner) coercion
         ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
 
@@ -2128,7 +2131,7 @@ desugarOverloadedLiteralMatch resultType arguments argumentTypes (match, locals)
           extra <- patternMatchBindings pattern' argument ty
           success <- compile (current <> matchBinderLocals extra) rest
           pure
-            ( ExCase
+            ( caseFromList
                 test
                 (Just testBinder)
                 resultType'
@@ -2159,8 +2162,7 @@ overloadedPatternFailure resultType arguments = do
   resultType' <- convertCheckedType resultType
   case arguments of
     argument : _ -> do
-      failureBinder <- freshBinderFromType "_case_nomatch" (binderType argument)
-      pure (ExCase (ExVar (binderName argument)) (Just failureBinder) resultType' [])
+      pure (ExAbsurd (ExVar (binderName argument)) resultType')
     [] -> failValue "overloaded literal match has no argument"
 
 -- | The binder of the result of a literal test. An overloaded literal
@@ -2365,7 +2367,7 @@ desugarScrutineePatterns resultType fallback scrutinee caseBinder root arguments
           updated <- mapM (extendMatchWork root scrutineeType) defaultWorks
           body <- desugarMatchArguments resultType shared arguments restTypes (map dropMatchWorkPattern updated)
           pure [Alt AltDefault [] [] body]
-    pure (ExCase scrutinee (Just caseBinder) resultType' (constructorAlternatives <> defaultAlternatives))
+    pure (caseFromList scrutinee (Just caseBinder) resultType' (constructorAlternatives <> defaultAlternatives))
 
 firstFamilyPattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataFamilyInstanceInfo))
 firstFamilyPattern matches = do
@@ -2917,7 +2919,7 @@ desugarGuardQualifiers resultType resultType' next qualifiers success =
       body <- desugarGuardQualifiers resultType resultType' next rest success
       failure <- guardFailure resultType' next binder
       pure
-        ( ExCase
+        ( caseFromList
             condition'
             (Just binder)
             resultType'
@@ -2949,8 +2951,7 @@ guardFailure resultType' next binder =
   case next of
     Just failure -> pure failure
     Nothing -> do
-      failureBinder <- freshBinderFromType "_guard_nomatch" (binderType binder)
-      pure (ExCase (ExVar (binderName binder)) (Just failureBinder) resultType' [])
+      pure (ExAbsurd (ExVar (binderName binder)) resultType')
 
 desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
@@ -3140,7 +3141,7 @@ desugarIf resultType condition thenExpression elseExpression = do
   thenExpression' <- desugarExpr thenExpression
   elseExpression' <- desugarExpr elseExpression
   pure
-    ( ExCase
+    ( caseFromList
         condition'
         (Just binder)
         resultType'
@@ -3329,7 +3330,7 @@ desugarTagToEnum types =
       pure
         ( ExLam
             tag
-            (ExCase (ExVar (binderName tag)) (Just scrutinee) resultType alternatives)
+            (caseFromList (ExVar (binderName tag)) (Just scrutinee) resultType alternatives)
         )
     _ -> failValue ("GHC.Prim.tagToEnum# has " <> show (length types) <> " type arguments")
 
@@ -3400,7 +3401,7 @@ desugarPrimitiveSeq termArgumentTypes =
             first
             ( ExLam
                 second
-                ( ExCase
+                ( caseFromList
                     (ExVar (binderName first))
                     (Just evaluated)
                     resultType
@@ -3526,7 +3527,7 @@ forceLifted result source sourceType strict inner
         else do
           evaluated <- freshBinder "_strict_forced" sourceType
           body <- inner
-          pure (ExCase source (Just evaluated) result [Alt AltDefault [] [] body])
+          pure (caseFromList source (Just evaluated) result [Alt AltDefault [] [] body])
 
 caseStoredProduct :: Type -> Expr -> TcType -> (PackageId, Text, Text) -> FieldRep -> ([Expr] -> ValueM Expr) -> ValueM Expr
 caseStoredProduct result source sourceType (package, moduleName', constructorName) rep continue = do
@@ -3535,7 +3536,7 @@ caseStoredProduct result source sourceType (package, moduleName', constructorNam
   body <- continue (map (ExVar . binderName) binders)
   scrutinee <- freshBinder "_unpack_scrut" sourceType
   let name = Name constructorName SortDataConstructor (OriginTop package moduleName')
-  pure (ExCase source (Just scrutinee) result [Alt (AltData name) [] binders body])
+  pure (caseFromList source (Just scrutinee) result [Alt (AltData name) [] binders body])
 
 representationBinders :: FieldRep -> ValueM [Binder]
 representationBinders rep =
@@ -4063,7 +4064,7 @@ desugarListCompGenerator resultElementType cons expression pattern' source remai
       (Just recursiveCall)
   source' <- desugarExpr source
   let loop =
-        ExCase
+        caseFromList
           (ExVar (binderName argument))
           (Just caseBinder)
           resultType
@@ -4081,7 +4082,7 @@ desugarListCompGuard resultElementType guard success failure = do
   trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
   falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
   pure
-    ( ExCase
+    ( caseFromList
         guard'
         (Just binder)
         resultType
@@ -4396,7 +4397,7 @@ recTupleSelections knot tupleType variables =
           ( \((key, ty), field) -> do
               variable <- freshBinder "_rec_var" ty
               caseBinder <- freshBinderFromType "_rec_case" tupleType'
-              let selection = ExCase (ExVar (binderName knot)) (Just caseBinder) (binderType field) [Alt (AltData constructor) [] fields (ExVar (binderName field))]
+              let selection = caseFromList (ExVar (binderName knot)) (Just caseBinder) (binderType field) [Alt (AltData constructor) [] fields (ExVar (binderName field))]
               pure (Bind variable selection, (key, (variable, ty)))
           )
           (zip variables fields)
@@ -4443,10 +4444,9 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
             case failure of
               Just failureExpression -> pure failureExpression
               Nothing -> do
-                failureBinder <- freshBinderFromType "_literal_nomatch" (binderType binder)
-                pure (ExCase (ExVar (binderName binder)) (Just failureBinder) resultType' [])
+                pure (ExAbsurd (ExVar (binderName binder)) resultType')
           pure
-            ( ExCase
+            ( caseFromList
                 test
                 (Just testBinder)
                 resultType'
@@ -4578,7 +4578,7 @@ desugarDoUnpackedPattern resultType binder pattern' info success failure = do
           inner <- desugarDoChildPatterns resultType (zip3 sourceBinders fieldTypes children) success failure
           pure (foldr ExLet inner rebuilds)
     let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
-    pure (ExCase (ExVar (binderName binder)) (Just caseBinder) resultType' (Alt constructor typeBinders (dictionaries <> leafBinders) body : defaultAlternatives))
+    pure (caseFromList (ExVar (binderName binder)) (Just caseBinder) resultType' (Alt constructor typeBinders (dictionaries <> leafBinders) body : defaultAlternatives))
 
 desugarDoStoredPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoStoredPattern resultType binder pattern' success failure = do
@@ -4599,7 +4599,7 @@ desugarDoStoredPattern resultType binder pattern' success failure = do
         (zipWith Dictionary predicates dictionaries)
         (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
     let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
-    pure (ExCase (ExVar (binderName binder)) (Just caseBinder) resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
+    pure (caseFromList (ExVar (binderName binder)) (Just caseBinder) resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success failure =
@@ -4648,7 +4648,7 @@ forceDefaultPattern resultType binder pattern' body
   | otherwise = do
       resultType' <- convertCheckedType resultType
       caseBinder <- freshBinderFromType "_strict_scrut" (binderType binder)
-      pure (ExCase (ExVar (binderName binder)) (Just caseBinder) resultType' [Alt AltDefault [] [] body])
+      pure (caseFromList (ExVar (binderName binder)) (Just caseBinder) resultType' [Alt AltDefault [] [] body])
 
 directPatternBindings :: Syn.Pattern -> Binder -> TcType -> ValueM (Maybe [(Entity, (Binder, TcType))])
 directPatternBindings pattern' binder ty =
@@ -4721,9 +4721,8 @@ desugarCase resultType scrutinee alternatives = do
   convertedType <- convertCheckedType scrutineeType
   case alternatives of
     [] -> do
-      binder <- freshBinder "_case" scrutineeType
       resultType' <- convertCheckedType resultType
-      pure (ExCase scrutinee' (Just binder) resultType' [])
+      pure (ExAbsurd scrutinee' resultType')
     _ -> do
       let matches = map caseAlternativeMatch alternatives
       case scrutinee' of
@@ -4909,10 +4908,11 @@ expressionFreeNames expression =
     ExRec bindings inner ->
       let names = Set.fromList (map (binderName . bindBinder) bindings)
        in (foldMap (expressionFreeNames . bindRhs) bindings <> expressionFreeNames inner) `Set.difference` names
-    ExCase scrutinee binder _ alternatives ->
+    ExCase scrutinee binder _ (NE.toList -> alternatives) ->
       expressionFreeNames scrutinee
         <> (foldMap alternativeFreeNames alternatives `Set.difference` foldMap (Set.singleton . binderName) binder)
     ExCoercion _ -> Set.empty
+    ExAbsurd scrutinee _ -> expressionFreeNames scrutinee
     ExCast inner _ -> expressionFreeNames inner
     ExForeignCall _ _ arguments -> foldMap expressionFreeNames arguments
   where
@@ -5044,7 +5044,7 @@ desugarSuperClass evidence =
           fieldType : _ -> convertCheckedType fieldType
           [] -> failValue "superclass field type index is outside the dictionary layout"
       pure
-        ( ExCase
+        ( caseFromList
             sourceExpression
             (Just sourceBinder)
             resultType
@@ -5165,8 +5165,9 @@ compactStringValues declarations = do
               ExTyLam binder body -> ExTyLam binder <$> compact body
               ExLet binding body -> ExLet <$> compactBind binding <*> compact body
               ExRec bindings body -> ExRec <$> mapM compactBind bindings <*> compact body
-              ExCase scrutinee binder resultType alternatives ->
-                ExCase <$> compact scrutinee <*> pure binder <*> pure resultType <*> mapM compactAlt alternatives
+              ExCase scrutinee binder resultType (NE.toList -> alternatives) ->
+                caseFromList <$> compact scrutinee <*> pure binder <*> pure resultType <*> mapM compactAlt alternatives
+              ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> compact scrutinee
               ExCast body coercion -> (`ExCast` coercion) <$> compact body
               ExForeignCall call types arguments -> ExForeignCall call types <$> mapM compact arguments
               _ -> pure expression

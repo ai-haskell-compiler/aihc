@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Type-check System FC terms and types. Kinds are types.
 module Aihc.Fc.Lint
@@ -20,6 +21,7 @@ import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, isJust)
@@ -379,7 +381,7 @@ checkExpr env context expected expr =
       recEnv <- bindRecGroup env bindings
       mapM_ (lintRecRhs recEnv) bindings
       checkExpr recEnv context expected body
-    ExCase scrutinee binder resultType alts -> do
+    ExCase scrutinee binder resultType (NE.toList -> alts) -> do
       unless (typesEqual env expected resultType) (Left (TypeMismatch "case result" expected resultType))
       _ <- lintCase env scrutinee binder resultType alts
       Right ()
@@ -488,7 +490,11 @@ lintExpr env expr =
       recEnv <- bindRecGroup env binds
       mapM_ (lintRecRhs recEnv) binds
       lintExpr recEnv body
-    ExCase scrutinee binder resultType alts -> lintCase env scrutinee binder resultType alts
+    ExAbsurd scrutinee resultType -> do
+      lintDiscardedExpr env scrutinee
+      _ <- representationOf env resultType
+      Right resultType
+    ExCase scrutinee binder resultType (NE.toList -> alts) -> lintCase env scrutinee binder resultType alts
     ExCast body coercion -> do
       (source, target) <- coercionEndpoints env coercion
       checkExpr env "cast source" source body
@@ -552,6 +558,31 @@ bindRecGroup env binds = do
 
 lintRecRhs :: TypeEnv -> Bind -> Either LintError ()
 lintRecRhs env bind = checkExpr env "rec binding" (binderType (bindBinder bind)) (bindRhs bind)
+
+-- | Check an expression whose value an absurd expression discards.
+-- A literal needs a valid representation but no expected result type.
+lintDiscardedExpr :: TypeEnv -> Expr -> Either LintError ()
+lintDiscardedExpr env expr =
+  case expr of
+    ExLit literal -> do
+      kind <- lintType env (literalRepresentation literal)
+      unless (typesEqual env (runtimeRepKind env) kind) (Left (KindMismatch "literal representation" (runtimeRepKind env) kind))
+      checkLiteralRepresentation literal
+    ExLam binder body -> do
+      inner <- bindLocal env binder
+      _ <- representationOf env (binderType binder)
+      lintDiscardedExpr inner body
+    ExTyLam binder body -> bindLocal env binder >>= \inner -> lintDiscardedExpr inner body
+    ExLet binding body -> lintNonRecBind env binding >>= \inner -> lintDiscardedExpr inner body
+    ExRec bindings body -> do
+      inner <- bindRecGroup env bindings
+      mapM_ (lintRecRhs inner) bindings
+      lintDiscardedExpr inner body
+    ExApp (ExLam binder body) argument -> do
+      checkExpr env "application argument" (binderType binder) argument
+      inner <- bindLocal env binder
+      lintDiscardedExpr inner body
+    _ -> lintExpr env expr >> Right ()
 
 lintCase :: TypeEnv -> Expr -> Maybe Binder -> Type -> [Alt] -> Either LintError Type
 lintCase env scrutinee binder resultType alts = do
