@@ -112,7 +112,7 @@ module Data.List
   )
 where
 
-import Data.Foldable (foldl', length)
+import Data.Foldable (find, foldl', length)
 import Data.Traversable (mapAccumL, mapAccumR)
 -- @foldl'@ and @length@ come from 'Data.Foldable' here, as they do in
 -- @base@: the rest of the fold vocabulary this module re-exports is already
@@ -249,13 +249,6 @@ isSuffixOf suffix value = reverse suffix `isPrefixOf` reverse value
 
 isInfixOf :: (Eq a) => [a] -> [a] -> Bool
 isInfixOf needle haystack = any (isPrefixOf needle) (tails haystack)
-
-find :: (a -> Bool) -> [a] -> Maybe a
-find _ [] = Nothing
-find matches (value : values) =
-  if matches value
-    then Just value
-    else find matches values
 
 partition :: (a -> Bool) -> [a] -> ([a], [a])
 partition select = foldr (selectPartition select) ([], [])
