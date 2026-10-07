@@ -125,7 +125,9 @@ improveStuckEqualities givens stuck = do
     then pure True
     else improveSharedFamilyApplications stuck
 
--- | Separate constraints that changed after a meta variable received a solution.
+-- | Separate constraints that changed after a meta variable received a
+-- solution. A change of a given that the constraint keeps from its scope
+-- is a change too: the given can now prove the constraint.
 partitionProgress :: [Ct] -> TcM ([Ct], [Ct])
 partitionProgress stuckCts = do
   results <- mapM progress stuckCts
@@ -133,7 +135,12 @@ partitionProgress stuckCts = do
   where
     progress ct = do
       predicate <- zonkPred (ctPred ct) >>= reducePredFamilies
-      pure (ct {ctPred = predicate}, predicate /= ctPred ct)
+      givens <- mapM progressGiven (ctBranchGivens ct)
+      let changed = predicate /= ctPred ct || map ctPred givens /= map ctPred (ctBranchGivens ct)
+      pure (ct {ctPred = predicate, ctBranchGivens = givens}, changed)
+    progressGiven given = do
+      predicate <- zonkPred (ctPred given)
+      pure given {ctPred = predicate}
 
 -- | Process a single constraint from the worklist.
 processConstraint :: Ct -> WorkList -> InertSet -> TcM SolveResult

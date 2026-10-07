@@ -50,7 +50,8 @@ data EqResult
 -- | Attempt to solve an equality constraint.
 solveEquality :: Ct -> TcM EqResult
 solveEquality ct = do
-  givens <- getGivenPredicates
+  -- A wanted that left a scope with givens keeps them.
+  givens <- (<> map ctPred (ctBranchGivens ct)) <$> getGivenPredicates
   proved <- solveGivenEquality givens ct
   if proved then pure EqSolved else solveRewrittenByGivens givens ct
 
