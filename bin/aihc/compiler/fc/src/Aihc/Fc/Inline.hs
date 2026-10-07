@@ -3,12 +3,15 @@
 
 -- | Inline the value declarations of one System FC program.
 --
--- The inliner follows the non-recursive inliner of MLton. It walks the
--- value declarations from the leaves of the call graph to the roots. At
--- each use of a non-recursive value it puts a copy of the body in place,
--- simplifies the copy with "Aihc.Fc.Simplify", and keeps the result when
--- the policy accepts the site. A value that nothing uses after this is
--- dropped when the program does not need to keep it.
+-- The inliner walks the value declarations from the leaves of the call
+-- graph to the roots, as the non-recursive inliner of MLton does. At each
+-- use of a non-recursive value it decides the site from the body of the
+-- value and the arguments at the site, as GHC's @callSiteInline@ decides
+-- from an unfolding, and when the policy accepts the site it puts a copy
+-- of the body in place and simplifies the copy once with
+-- "Aihc.Fc.Simplify". No copy is made for a rejected site, and no copy is
+-- thrown away. A value that nothing uses after this is dropped when the
+-- program does not need to keep it.
 --
 -- Every decision is local. A site is accepted from the callee, the
 -- arguments at the site, and the value the site sits in; nothing depends
@@ -390,7 +393,7 @@ simplifyValue config known recursive inTemplates st name
               reachable = calleesOf (inRefs st) references
               candidates =
                 Map.fromList
-                  [ (callee, Candidate calleeBody sites requested)
+                  [ (callee, Candidate calleeBody sites requested (candidateGuidance (inEnv st) arities calleeBody))
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
@@ -440,7 +443,8 @@ simplifyValue config known recursive inTemplates st name
                             spCredit = credit,
                             spInside = False,
                             spCredits = snd (callArityAnalysis credit False body),
-                            spSpeculative = False
+                            spSpeculative = False,
+                            spCaseContext = Nothing
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less
