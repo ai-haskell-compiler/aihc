@@ -43,6 +43,7 @@ level="0"
 store=""
 log_dir=""
 package_timeout="1800"
+runtime_args=()
 root_executable="aihc"
 bootstrap_dir=""
 bootstrap_stage=""
@@ -276,6 +277,7 @@ run_stage() {
 	echo "Preparing the $target toolchain at -O$level in $store"
 	"$aihc" install core-libs/aihc-base \
 		--store "$store" --immutable --target "$target" -O "$level" \
+		${runtime_args[@]+"${runtime_args[@]}"} \
 		2>&1 | tee "$log_dir/core-libraries.log"
 
 	# The last row is the package that compiles itself.
@@ -319,11 +321,13 @@ run_stage() {
 				--constraint "aihc -hackage" \
 				"${output_args[@]}" \
 				--store "$store" --build-root "$work_directory/build" --target "$target" -O "$level" \
+				${runtime_args[@]+"${runtime_args[@]}"} \
 				>>"$log" 2>&1 || status=$?
 		else
 			echo "Installing $name-$version"
 			run_with_timeout "$aihc" install "$workspace/$name" \
 				--store "$store" --immutable --target "$target" -O "$level" \
+				${runtime_args[@]+"${runtime_args[@]}"} \
 				>>"$log" 2>&1 || status=$?
 		fi
 		if [ "$status" -eq 0 ]; then
@@ -363,6 +367,8 @@ if [ -n "$bootstrap_dir" ]; then
 	fi
 
 	aihc="$bootstrap_dir/stage2/$root_executable"
+	# Give the native compiler more space between minor collections.
+	runtime_args=(+RTS -A64M -B128M -RTS)
 	printf 'stage2\tpass\t0\n' >>"$bootstrap_dir/bootstrap.tsv"
 	bootstrap_stage=stage3
 	store="$work_directory/stage3-store"
