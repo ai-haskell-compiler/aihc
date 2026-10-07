@@ -1,0 +1,52 @@
+extensions:
+- ConstraintKinds
+- FlexibleInstances
+- FunctionalDependencies
+- GADTs
+- RankNTypes
+- ScopedTypeVariables
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+- UndecidableSuperClasses
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, FlexibleInstances, FunctionalDependencies, GADTs, RankNTypes, ScopedTypeVariables, TypeFamilies, TypeOperators, UndecidableInstances, UndecidableSuperClasses #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: Constraint) where
+    Dict :: c => Dict c
+  newtype a :- b = Sub (a => Dict b)
+  class HasDict c e | e -> c where
+    evidence :: e -> Dict c
+  instance HasDict a (Dict a) where
+    evidence d = d
+  instance a => HasDict b (a :- b) where
+    evidence (Sub d) = d
+  withDict :: HasDict c e => e -> (c => r) -> r
+  withDict d r = case evidence d of
+    Dict -> r
+  infixl 1 \\
+  (\\) :: HasDict c e => (c => r) -> e -> r
+  r \\ d = withDict d r
+  type family StM (m :: Type -> Type) a
+  class StM m a ~ a => Pure m a
+  instance StM m a ~ a => Pure m a
+  viaOperator :: forall m a. Dict (Pure m a) -> m (StM m a) -> m a
+  viaOperator d x = x \\ d
+  viaWithDict :: forall m a. Dict (Pure m a) -> m (StM m a) -> m a
+  viaWithDict d x = withDict d x
+  viaCase :: Dict (Pure m a) -> m (StM m a) -> m a
+  viaCase d x = case d of
+    Dict -> x
+  data Box a = Box a
+  class Monad' m where
+    unit :: a -> m a
+  boxed :: Monad' m => m a -> m (Box (StM m a))
+  boxed x = boxed x
+  pointFree :: forall m a. Monad' m => Dict (Pure m a) -> m a -> m (Box a)
+  pointFree d = boxed \\ d
+  pair :: (b a -> b c -> r) -> (forall x. m x -> b (StM m x)) -> Dict (Pure m a) -> Dict (Pure m c) -> m a -> m c -> r
+  pair f run da dc left right = f (run left \\ da) (run right \\ dc)
+status: pass
+reason: The given c of a (c => r) argument is Pure m a only after the HasDict fundep fixes c, and the superclass StM m a ~ a of that given then proves the argument type.

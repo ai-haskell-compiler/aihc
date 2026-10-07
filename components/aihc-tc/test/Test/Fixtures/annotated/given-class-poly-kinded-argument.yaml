@@ -1,0 +1,81 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, KindSignatures, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  data Product f g a = Pair (f a) (g a)
+       │               └─ type: ∀ k0 f g a. f a → g a → Product f g a
+       └─ type: (k0 → Type) → (k0 → Type) → k0 → Type
+  newtype Alt f a = Alt (f a)
+          │         └─ type: ∀ k0 f a. f a → Alt f a
+          └─ type: (k0 → Type) → k0 → Type
+  class Empty (f :: k -> Type) where
+  └─ class methods: empty ∷ ∀ k f a. (Empty f) ⇒ f a
+    empty :: f a
+  class ApplicativeB (b :: (k -> Type) -> Type) where
+  └─ class methods: bprod ∷ ∀ k b f g. (ApplicativeB b) ⇒ b f → b g → b (Product f g)
+    bprod :: b f -> b g -> b (Product f g)
+  class FunctorT (t :: (k -> Type) -> k' -> Type) where
+  └─ class methods: tmap ∷ ∀ k k' t f g x. (FunctorT t) ⇒ (∀ a. f a → g a) → t f x → t g x
+    tmap :: (forall a. f a -> g a) -> t f x -> t g x
+  getAlt :: Alt f a -> f a
+  getAlt (Alt x) = x
+  │       │   └─ type: f a
+  │       └─ type: Alt f a
+  └─ type: ∀ k0 f a. Alt f a → f a
+  -- The given names the same poly-kinded application as the wanted.
+  btprod :: (ApplicativeB (b (Alt (Product f f'))), FunctorT b, Empty f, Empty f') => b f g -> b f' g' -> b (Product f f') (Product g g')
+  btprod l r = tmap getAlt (bprod (tmap oneL l) (tmap oneR r))
+  │      │ │   │││            │      │││             └─ type: (∀ a. f' a → Alt (Product f f') a) → b f' g' → b (Alt (Product f f')) g'; type-args: k0, k1 → Type, b, f', Alt (Product f f'), g'; evidence: given FunctorT b
+  │      │ │   │││            │      │││             └─ type: ∀ a. f' a → Alt (Product f f') a
+  │      │ │   │││            │      │││             └─ type: f' a → Alt (Product f f') a; type-args: f', a, f; evidence: given Empty f
+  │      │ │   │││            │      └─ type: ∀ a. f a → Alt (Product f f') a
+  │      │ │   │││            │      └─ type: (∀ a. f a → Alt (Product f f') a) → b f g → b (Alt (Product f f')) g; type-args: k0, k1 → Type, b, f, Alt (Product f f'), g; evidence: given FunctorT b
+  │      │ │   │││            │      └─ type: f a → Alt (Product f f') a; type-args: f, a, f'; evidence: given Empty f'
+  │      │ │   │││            └─ type: b (Alt (Product f f')) g → b (Alt (Product f f')) g' → b (Alt (Product f f')) (Product g g'); type-args: k1, b (Alt (Product f f')), g, g'; evidence: given ApplicativeB b (Alt (Product f f'))
+  │      │ │   └─ type: ∀ a. Alt (Product f f') a → Product f f' a
+  │      │ │   └─ type: (∀ a. Alt (Product f f') a → Product f f' a) → b (Alt (Product f f')) (Product g g') → b (Product f f') (Product g g'); type-args: k0, k1 → Type, b, Alt (Product f f'), Product f f', Product g g'; evidence: given FunctorT b
+  │      │ │   └─ type: Alt (Product f f') a → Product f f' a; type-args: k0, Product f f', a
+  │      │ └─ type: b f' g'
+  │      └─ type: b f g
+  └─ type: ∀ k0 k1 b f f' g g'. (ApplicativeB (b (Alt (Product f f'))), FunctorT b, Empty f, Empty f') ⇒ b f g → b f' g' → b (Product f f') (Product g g')
+    where
+      oneL la = Alt (Pair la empty)
+      │    │    │    │       └─ type: c b; type-args: k0, c, b; evidence: given Empty c
+      │    │    │    └─ type: a b → c b → Product a c b; type-args: k0, a, c, b
+      │    │    └─ type: Product a c b → Alt (Product a c) b; type-args: k0, Product a c, b
+      │    └─ type: a b
+      └─ type: ∀ a b c. (Empty c) ⇒ a b → Alt (Product a c) b
+      oneR ga = Alt (Pair empty ga)
+      │    │    │    │    └─ type: c b; type-args: k0, c, b; evidence: given Empty c
+      │    │    │    └─ type: c b → a b → Product c a b; type-args: k0, c, a, b
+      │    │    └─ type: Product c a b → Alt (Product c a) b; type-args: k0, Product c a, b
+      │    └─ type: a b
+      └─ type: ∀ a b c. (Empty c) ⇒ a b → Alt (Product c a) b
+extensions:
+- FlexibleContexts
+- KindSignatures
+- PolyKinds
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, KindSignatures, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  data Product f g a = Pair (f a) (g a)
+  newtype Alt f a = Alt (f a)
+  class Empty (f :: k -> Type) where
+    empty :: f a
+  class ApplicativeB (b :: (k -> Type) -> Type) where
+    bprod :: b f -> b g -> b (Product f g)
+  class FunctorT (t :: (k -> Type) -> k' -> Type) where
+    tmap :: (forall a. f a -> g a) -> t f x -> t g x
+  getAlt :: Alt f a -> f a
+  getAlt (Alt x) = x
+  -- The given names the same poly-kinded application as the wanted.
+  btprod :: (ApplicativeB (b (Alt (Product f f'))), FunctorT b, Empty f, Empty f') => b f g -> b f' g' -> b (Product f f') (Product g g')
+  btprod l r = tmap getAlt (bprod (tmap oneL l) (tmap oneR r))
+    where
+      oneL la = Alt (Pair la empty)
+      oneR ga = Alt (Pair empty ga)
+status: pass

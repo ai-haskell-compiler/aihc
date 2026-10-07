@@ -82,7 +82,6 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     gadtBodyResultType,
     instanceHeadName,
-    instanceHeadTypes,
     mkAnnotation,
     moduleExports,
     moduleName,
@@ -140,7 +139,7 @@ import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, instanceHeadArguments, makeParamEnv, makeParamEnvWith, patSynSigToScheme, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -1980,7 +1979,7 @@ annotateInstanceDeclTc origin derived = annotateInstanceDeclWithPlan origin deri
 
 annotateInstanceDeclWithPlan :: (Text, Text) -> Bool -> Maybe TcDerivingPlan -> InstanceDecl -> TcM Decl
 annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
-  case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
+  case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadArguments (instanceDeclHead instanceDecl)) of
     -- An instance of a nullary class has no head types and still needs to be
     -- registered and annotated: the FC desugarer refuses an instance
     -- declaration that carries no type-checker annotation.
@@ -2249,7 +2248,7 @@ tcInstanceDeclBodies (DeclAnn ann inner)
       pure (DeclAnn ann (DeclInstance (instanceDecl {instanceDeclItems = items})))
   | otherwise = DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
-  case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
+  case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadArguments (instanceDeclHead instanceDecl)) of
     -- An instance of a nullary class has no head types and still needs to be
     -- registered and annotated: the FC desugarer refuses an instance
     -- declaration that carries no type-checker annotation.
@@ -4192,9 +4191,19 @@ registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instance
 instantiateAssociatedDefault :: (Text, Text) -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
 instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys info defaultEquation = do
   kinds <- getKinds
-  args <- mapM argumentType (atiClassParams info)
+  let defaultArguments = typeArguments (tfiiLeft defaultEquation)
+  -- The class arguments fix the kind variables of the default equation:
+  -- @type AllB (c :: k -> Constraint) b = ...@ at @b := Unit@ fixes @k@.
+  headKinds <-
+    sequence
+      [ (,) (tvKind tyVar) <$> (zonkKind =<< tcTypeKind ty)
+      | (TcTyVar tyVar, Just ty) <- zip defaultArguments (map (associatedClassArgument headTys) (atiClassParams info))
+      ]
+  let kindSubstitution = fromMaybe Map.empty (matchTypes (map fst headKinds) (map snd headKinds))
+  args <- zipWithM (argumentType kindSubstitution) (map Just defaultArguments <> repeat Nothing) (atiClassParams info)
   let substitution =
-        Map.fromList [(tvUnique tyVar, arg) | (TcTyVar tyVar, arg) <- zip (typeArguments (tfiiLeft defaultEquation)) args]
+        kindSubstitution
+          <> Map.fromList [(tvUnique tyVar, arg) | (TcTyVar tyVar, arg) <- zip defaultArguments args]
       freshTyVars = [tyVar | TcTyVar tyVar <- args, tyVar `notElem` instanceTyVars]
   pure
     TypeFamilyInstanceInfo
@@ -4207,12 +4216,16 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
         tfiiClosed = False
       }
   where
-    argumentType maybeIndex =
+    -- A parameter that is not a class parameter gets a fresh variable of
+    -- the kind the default equation gives it.
+    argumentType kindSubstitution defaultArgument maybeIndex =
       case associatedClassArgument headTys maybeIndex of
         Just ty -> pure ty
         Nothing -> do
           rawTyVar <- freshSkolemTv "a"
-          kind <- freshKindMeta
+          kind <- case defaultArgument of
+            Just (TcTyVar tyVar) -> pure (applySubst kindSubstitution (tvKind tyVar))
+            _ -> freshKindMeta
           pure (TcTyVar (setTyVarKind kind rawTyVar))
 
 associatedClassArgument :: [TcType] -> Maybe Int -> Maybe TcType
@@ -4297,7 +4310,7 @@ registerInstanceDecl origin instanceDecl =
   case instanceHeadName (instanceDeclHead instanceDecl) of
     Nothing -> pure []
     Just className -> do
-      let headArgs = instanceHeadTypes (instanceDeclHead instanceDecl)
+      let headArgs = instanceHeadArguments (instanceDeclHead instanceDecl)
       (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgs
       let classNameText = nameText className
       headTys <- checkInstanceHeadTypes className tvEnv headArgs

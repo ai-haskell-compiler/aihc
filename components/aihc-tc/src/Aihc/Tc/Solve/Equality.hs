@@ -14,7 +14,7 @@ import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Congruence (applyGivenSubst, givenEqualities, proveGivenEquality)
+import Aihc.Tc.Solve.Congruence (applyGivenSubst, givenEqualities, proveFromEqualities, proveGivenEquality)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
@@ -29,7 +29,20 @@ solveGivenEquality givens ct = case ctPred ct of
     left' <- zonkType left
     right' <- zonkType right
     predicates <- mapM zonkPred givens
-    result <- proveGivenEquality predicates left' right'
+    asWritten <- proveGivenEquality predicates left' right'
+    -- A given can name a family application that the wanted has reduced:
+    -- the given @AllB c b ~ GAll 0 c (GAllRepB b)@ against the wanted
+    -- @AllB c b ~ GAll 0 c (TagSelf0' ...)@. Compare both in the reduced
+    -- form. Each proof still names its given as written, and the System FC
+    -- lint compares the types up to the same reductions.
+    result <- case asWritten of
+      Just proof -> pure (Just proof)
+      Nothing -> do
+        equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) predicates
+        reduced <- traverse (\(givenLeft, givenRight, proof) -> (,,proof) <$> reduceTypeFamilies givenLeft <*> reduceTypeFamilies givenRight) equalities
+        reducedLeft <- reduceTypeFamilies left'
+        reducedRight <- reduceTypeFamilies right'
+        proveFromEqualities reduced reducedLeft reducedRight
     case result of
       Just proof -> do
         bindEvidence (ctEvVar ct) (EvCoercion proof)
@@ -50,7 +63,8 @@ data EqResult
 -- | Attempt to solve an equality constraint.
 solveEquality :: Ct -> TcM EqResult
 solveEquality ct = do
-  givens <- getGivenPredicates
+  -- A wanted that left a scope with givens keeps them.
+  givens <- (<> map ctPred (ctBranchGivens ct)) <$> getGivenPredicates
   proved <- solveGivenEquality givens ct
   if proved then pure EqSolved else solveRewrittenByGivens givens ct
 

@@ -117,6 +117,7 @@ module Aihc.Tc.Types
     isConstraintTupleTyCon,
     collectForAllTypes,
     collectTypeApplications,
+    canonicalApplications,
     isImplicitParamTyConName,
   )
 where
@@ -244,7 +245,12 @@ bareTyCon ty =
 -- A saturated arrow becomes the function type.
 mkAppTy :: TcType -> TcType -> TcType
 mkAppTy function argument
+  -- The arguments determine the kinds once they saturate the constructor.
+  -- @Any :: forall k. k@ has its kind only in the result, and it never
+  -- reduces: @Any \@(k -> Type) a@, the default of an ambiguous @g a@,
+  -- keeps its kind.
   | (TcKindedTyCon tyCon _, arguments) <- collectTypeApplications function,
+    not (isAnyTyCon tyCon),
     length arguments + 1 >= tyConArity tyCon =
       TcTyCon tyCon (arguments <> [argument])
   | otherwise =
@@ -254,6 +260,11 @@ mkAppTy function argument
         TcKindedTyCon {} -> TcAppTy function argument
         TcAppTy TcArrowTy domain -> TcFunTy domain argument
         _ -> TcAppTy function argument
+
+-- | Whether a type constructor is @GHC.Types.Any@, the type family without
+-- equations that defaulting uses for an ambiguous type variable.
+isAnyTyCon :: TyCon -> Bool
+isAnyTyCon tyCon = tyConName tyCon == "Any" && tyConModuleName tyCon == "GHC.Types" && tyConArity tyCon == 0
 
 tyConNamespace :: TyCon -> ResolutionNamespace
 tyConNamespace (TyConInternal _ _ _ namespace _) = namespace
@@ -490,6 +501,21 @@ collectTypeApplications ty =
       let (headType, arguments) = collectTypeApplications function
        in (headType, arguments <> [argument])
     _ -> (ty, [])
+
+-- | One spelling of a type. A poly-kinded constructor that a use site
+-- applied to its kinds heads an application spine (@Product \@k f g@), and
+-- another use can write the same type as a constructor application without
+-- its kinds (@Product f g@). Both become the constructor application. The
+-- kinds follow from the arguments.
+canonicalApplications :: TcType -> TcType
+canonicalApplications ty =
+  case ty of
+    TcAppTy function argument
+      | (TcKindedTyCon tyCon _, arguments@(_ : _)) <- collectTypeApplications ty -> TcTyCon tyCon (map canonicalApplications arguments)
+      | otherwise -> TcAppTy (canonicalApplications function) (canonicalApplications argument)
+    TcTyCon tyCon arguments -> TcTyCon tyCon (map canonicalApplications arguments)
+    TcFunTy argument result -> TcFunTy (canonicalApplications argument) (canonicalApplications result)
+    _ -> ty
 
 -- | The kind vocabulary, resolved to the module that declares it.
 --

@@ -1,0 +1,60 @@
+extensions:
+  - ConstraintKinds
+  - DataKinds
+  - KindSignatures
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE ConstraintKinds, DataKinds, KindSignatures, PolyKinds, TypeFamilies #-}
+    module Test where
+    import GHC.Types (Constraint, Type)
+    data N = Z
+    type family G (n :: N) (c :: k -> Constraint) (b :: (k -> Type) -> Type) :: Constraint
+    class C (b :: (k -> Type) -> Type) where
+      -- The default names a parameter that is not a class parameter.
+      type AllB (c :: k -> Constraint) b :: Constraint
+      type AllB c b = G 'Z c b
+    data Unit (f :: k -> Type) = Unit
+    instance C Unit
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tN :: sType {
+    pub 1.cZ :: tN
+  }
+
+  pub type 1.tG (k : sType) (n : tN) (c : k 2.→ sType) (b : (k 2.→ sType) 2.→ sType) :: sType @N @N @N @N {}
+
+  pub type 1.t$Dict$C (k : sType) (b : (k 2.→ sType) 2.→ sType) :: sType {
+    pub 1.c$Dict$C :: ∀(k : sType) (b : (k 2.→ sType) 2.→ sType). t$Dict$C k b
+  }
+
+  pub type 1.tAllB (k : sType) (c : k 2.→ sType) (b : (k 2.→ sType) 2.→ sType) :: sType @N @N @N {}
+
+  pub type 1.tUnit (k : sType) (f : k 2.→ sType) :: sType {
+    pub 1.cUnit :: ∀(k : sType) (f : k 2.→ sType). tUnit k f
+  }
+
+  axiom 1.$ax$AllB$a$Unit (k0 : sType) (a : k0 2.→ sType) : tAllB k0 a (tUnit k0) ~N tG k0 cZ a (tUnit k0)
+
+  pub val 1.v$fCUnit :: ∀(k0 : sType). t$Dict$C k0 (tUnit k0)
+    = Λ(k0 : sType).
+      c$Dict$C @k0 @(tUnit k0)
+status: pass
+reason: An instance takes an associated type default whose extra parameter has the kind
+  that the class arguments fix.

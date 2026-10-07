@@ -388,7 +388,14 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
   where
     classVariables = ciKindTyVars classInfo <> ciTyVars classInfo
     extraTypeVariables = filter (`notElem` classVariables) typeVariables
-    remainingPredicates = filter (not . isClassPredicate) predicates
+    -- Only the first predicate on the class is the class itself. A method
+    -- can repeat it, as @tembed :: MonadT t => ...@ in @class MonadT t@
+    -- does, and the dictionary field keeps that repetition, as the System
+    -- FC dictionary constructor does.
+    remainingPredicates =
+      case break isClassPredicate predicates of
+        (before, _ : after) -> before <> after
+        (before, []) -> before
     qualifiedBody
       | null remainingPredicates = body
       | otherwise = TcQualTy remainingPredicates body

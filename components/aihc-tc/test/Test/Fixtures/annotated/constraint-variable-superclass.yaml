@@ -1,0 +1,29 @@
+annotated:
+- |-
+  {-# LANGUAGE AllowAmbiguousTypes, ConstraintKinds, FlexibleContexts, FlexibleInstances, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeFamilies, TypeOperators, UndecidableInstances, UndecidableSuperClasses #-}
+  module Test where
+  -- The superclasses apply the class parameters to the third parameter.
+  class (c a, d a) => (c & d) a where
+  └─ class methods:
+  instance (c a, d a) => (c & d) a where
+  └─ $f&cda ∷ ∀ k0 c a d. (c a, d a) ⇒ & c d a [superclasses: given c a, given d a]
+extensions:
+- AllowAmbiguousTypes
+- ConstraintKinds
+- FlexibleContexts
+- FlexibleInstances
+- KindSignatures
+- MultiParamTypeClasses
+- PolyKinds
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+- UndecidableSuperClasses
+modules:
+- |
+  {-# LANGUAGE AllowAmbiguousTypes, ConstraintKinds, FlexibleContexts, FlexibleInstances, KindSignatures, MultiParamTypeClasses, PolyKinds, TypeFamilies, TypeOperators, UndecidableInstances, UndecidableSuperClasses #-}
+  module Test where
+  -- The superclasses apply the class parameters to the third parameter.
+  class (c a, d a) => (c & d) a where
+  instance (c a, d a) => (c & d) a where
+status: pass

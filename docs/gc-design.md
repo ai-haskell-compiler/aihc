@@ -190,13 +190,8 @@ they are older than the snapshot and the barrier does not shade young
 objects. This work is bounded by the nursery size. It scans the top chunk of
 every live stack at once, which is bounded. It defers lower chunks: the marker
 scans them in later slices, and a pop into a deferred chunk scans it in the
-pop runtime call before the mutator can overwrite a frame. The marker scans
-every referenced frame in a chunk and records each frame address. One
-continuation chain can skip frames that another reference still reaches.
-The pop also scans deferred frames above its destination before it removes
-them. A forward frame can pass their values to its parent without a frame
-read. The marker traces static objects through their static reference tables
-as ordinary mark work.
+pop runtime call before the mutator can overwrite a frame. Static objects are
+traced through their static reference tables as ordinary mark work.
 
 **Slices.** A slice runs at the end of each minor collection and when the mark
 buffer is full. It pops the mark stack and the mark buffer, marks each object
@@ -260,9 +255,11 @@ cycles, and the bytes of each generation after the last collection.
 - `aihc_helpers.lir` emits the barrier fast path in the inline update.
 - `aihc_constants.lir` and `Aihc.Lir.Lower` share the new region constants as
   they share the stack chunk constants today.
-- The GC fuzz driver in `bin/aihc/compiler/native/test/gc-fuzz` gains
-  commands for promotion, barrier stores, and slices, and its model gains
-  generations.
+- The GC fuzz driver in `bin/aihc/compiler/native/test/gc-fuzz` plays
+  compiled code for several threads with real stacks. Its model checks
+  reachability, not policy. The verifier in `aihc_gc.c`, built under
+  `AIHC_GC_VERIFY`, checks the invariants of the collector after each
+  collection. See the fuzz test section of `docs/native-runtime-objects.md`.
 
 ## Build order
 

@@ -16,6 +16,7 @@ module Aihc.Cli.Progress
 where
 
 import Aihc.Cli.TaskGraph (TaskKind (..), TaskObserver (..))
+import Aihc.Cli.Terminal (liveTerminal, terminalSize)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar)
@@ -30,9 +31,8 @@ import Data.Text qualified as T
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showFFloat)
-import System.Console.Terminal.Size qualified as Terminal
 import System.Environment (lookupEnv)
-import System.IO (BufferMode (..), Handle, hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hSetBuffering)
+import System.IO (BufferMode (..), Handle, hFlush, hGetBuffering, hPutStr, hPutStrLn, hSetBuffering)
 
 -- | What the progress is about: a package of the plan, named with its
 -- version, or an executable, named as its Cabal file names it.
@@ -93,14 +93,14 @@ quietProgress handle = ProgressReporter {progressReport = report, progressColor 
         _ -> pure ()
 
 -- | Run an action with a reporter that writes to the handle. A terminal
--- gets the live frame, unless @TERM@ is @dumb@. Everything else gets one
--- line for each event that matters. @NO_COLOR@ removes the colors.
+-- gets the live frame, unless @TERM@ is @dumb@ or the Cabal flag
+-- @pretty-ui@ is off. Everything else gets one line for each event that
+-- matters. @NO_COLOR@ removes the colors.
 withProgress :: Handle -> (ProgressReporter -> IO a) -> IO a
 withProgress handle action = do
-  isTerminal <- hIsTerminalDevice handle
-  term <- lookupEnv "TERM"
+  live <- liveTerminal handle
   noColor <- lookupEnv "NO_COLOR"
-  if isTerminal && term /= Just "dumb"
+  if live
     then withLiveProgress handle (isNothing noColor) action
     else withPlainProgress handle action
 
@@ -332,14 +332,6 @@ redrawLive handle color liveVar =
     hPutStr handle (eraseFrame (liveFrameLines live) <> concatMap (<> "\n") (pending <> frame))
     hFlush handle
     pure live {livePending = [], liveFrameLines = length frame, liveTick = liveTick live + 1}
-
--- | The columns and rows of the terminal. A terminal that reports no size,
--- such as a pseudo-terminal without a window, counts as 80 by 24.
-terminalSize :: Handle -> IO (Int, Int)
-terminalSize handle = do
-  window <- Terminal.hSize handle
-  let known fallback value = if value > 0 then value else fallback
-  pure (maybe 80 (known 80 . Terminal.width) window, maybe 24 (known 24 . Terminal.height) window)
 
 terminalWidth :: Handle -> IO Int
 terminalWidth handle = fst <$> terminalSize handle

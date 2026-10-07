@@ -1,0 +1,64 @@
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, DefaultSignatures, FlexibleContexts, KindSignatures, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Wrap b = Wrap b
+       │        └─ type: ∀ b. b → Wrap b
+       └─ type: Type → Type
+  type family All (r :: Type) :: Constraint
+              └─ type: Type → GHC.Types.Constraint
+  type family Shape (b :: Type) :: Type where
+              └─ type: Type → Type
+    Shape b = Wrap b
+  class Constrained b where
+  └─ class methods: addDicts ∷ ∀ b. (Constrained b, AllOf b) ⇒ b → b
+    type AllOf b :: Constraint
+         └─ type: Type → GHC.Types.Constraint
+    type AllOf b = All (Shape b)
+    addDicts :: AllOf b => b -> b
+    -- The given equality has an unreduced side; the wanted is reduced.
+    default addDicts :: (AllOf b ~ All (Shape b), AllOf b) => b -> b
+    addDicts = addDictsDefault
+    │          └─ type: b → b; type-args: b; evidence: given AllOf b ~ All (Shape b), given AllOf b
+    └─ addDicts ∷ ∀ b. (Constrained b, (AllOf b) ~ (All (Shape b)), AllOf b) ⇒ b → b
+  addDictsDefault :: (AllOf b ~ All (Shape b), AllOf b) => b -> b
+  addDictsDefault x = needsAll x
+  │               │   └─ type: b → b; type-args: b; evidence: cast(given AllOf b, sym (sym (given AllOf b ~ All (Shape b))))
+  │               └─ type: b
+  └─ type: ∀ b. ((AllOf b) ~ (All (Shape b)), AllOf b) ⇒ b → b
+  -- The given @AllOf b@ rewrites through the given equality and reduces
+  -- to the wanted.
+  needsAll :: All (Wrap b) => b -> b
+  needsAll x = x
+  │        └─ type: b
+  └─ type: ∀ b. (All (Wrap b)) ⇒ b → b
+extensions:
+- ConstraintKinds
+- DefaultSignatures
+- FlexibleContexts
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DefaultSignatures, FlexibleContexts, KindSignatures, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data Wrap b = Wrap b
+  type family All (r :: Type) :: Constraint
+  type family Shape (b :: Type) :: Type where
+    Shape b = Wrap b
+  class Constrained b where
+    type AllOf b :: Constraint
+    type AllOf b = All (Shape b)
+    addDicts :: AllOf b => b -> b
+    -- The given equality has an unreduced side; the wanted is reduced.
+    default addDicts :: (AllOf b ~ All (Shape b), AllOf b) => b -> b
+    addDicts = addDictsDefault
+  addDictsDefault :: (AllOf b ~ All (Shape b), AllOf b) => b -> b
+  addDictsDefault x = needsAll x
+  -- The given @AllOf b@ rewrites through the given equality and reduces
+  -- to the wanted.
+  needsAll :: All (Wrap b) => b -> b
+  needsAll x = x
+status: pass

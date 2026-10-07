@@ -11,6 +11,8 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM, (<=<))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 
@@ -54,18 +56,34 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
           unwrapped <- if family then unwrapEither leftType rightType else pure Nothing
           case unwrapped of
             Just (leftInner, rightInner) -> go edges visited nested leftInner rightInner
-            Nothing ->
-              and
-                <$> sequence
-                  [ do
-                      phantom <- phantomParameter left index
-                      representational <- representationParameter [] left index
-                      if
-                        | phantom -> phantomPair argument argument'
-                        | representational -> go edges visited True argument argument'
-                        | otherwise -> nominal argument argument'
-                  | (index, (argument, argument')) <- zip [0 ..] (zip args args')
-                  ]
+            Nothing -> do
+              saved <- lift get
+              decomposed <- decompose
+              -- The arguments can differ although the two sides have the
+              -- same representation: @Backwards (Backwards f) a@ unwraps
+              -- to @Backwards f a@. Unwrap a newtype side, as GHC does.
+              if decomposed
+                then pure True
+                else do
+                  -- A failed decomposition must not keep its unifications.
+                  lift (put saved)
+                  inner <- unwrapEither leftType rightType
+                  case inner of
+                    Just (leftInner, rightInner) -> go edges visited nested leftInner rightInner
+                    Nothing -> pure False
+      where
+        decompose =
+          and
+            <$> sequence
+              [ do
+                  phantom <- phantomParameter left index
+                  representational <- representationParameter [] left index
+                  if
+                    | phantom -> phantomPair argument argument'
+                    | representational -> go edges visited True argument argument'
+                    | otherwise -> nominal argument argument'
+              | (index, (argument, argument')) <- zip [0 ..] (zip args args')
+              ]
     shapes edges visited nested left right = do
       leftRepresentation <- representation left
       rightRepresentation <- representation right

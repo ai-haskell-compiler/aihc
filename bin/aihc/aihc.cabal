@@ -122,6 +122,16 @@ flag hackage
   default: True
   manual: True
 
+flag pretty-ui
+  description:
+    Show a live progress frame that redraws in place when stderr is a
+    terminal. Without this flag, aihc does not depend on terminal-size, it
+    makes no assumption that stderr is a terminal, and the progress output
+    is always one line for each event.
+
+  default: True
+  manual: True
+
 library
   exposed-modules:
     Aihc.Amd64.Assemble
@@ -152,6 +162,7 @@ library
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Store
     Aihc.Cli.TaskGraph
+    Aihc.Cli.Terminal
     Aihc.Cli.TypeArtifact
     Aihc.Fc
     Aihc.Fc.Arity
@@ -272,7 +283,6 @@ library
     primitive >=0.9 && <0.10,
     process >=1.6 && <1.8,
     stm >=2.5 && <2.6,
-    terminal-size >=0.3.2 && <0.4,
     text >=2.1.4 && <2.2,
     transformers,
     unix >=2.7 && <2.9,
@@ -283,6 +293,12 @@ library
     build-depends: aihc-hackage-fetch
   else
     hs-source-dirs: hackage/disabled
+
+  if flag(pretty-ui)
+    hs-source-dirs: pretty-ui/enabled
+    build-depends: terminal-size >=0.3.2 && <0.4
+  else
+    hs-source-dirs: pretty-ui/disabled
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall

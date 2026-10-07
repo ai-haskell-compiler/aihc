@@ -56,7 +56,7 @@ import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
-import Aihc.Tc.Unify (unifyDeferring)
+import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (when)
@@ -532,7 +532,31 @@ checkExpr expected expression = case expression of
   ELetDecls declarations body -> do
     (declarations', body', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected body)
     pure (ELetDecls declarations' body', ty, constraints)
-  _ -> inferExpr expression
+  _
+    | isAnnotatedApplication expression -> checkApplicationAt Nothing expression
+    | otherwise -> inferExpr expression
+  where
+    -- The annotations keep their source spans for the spine, as
+    -- 'inferExprAt' keeps them.
+    checkApplicationAt ambient expr = case expr of
+      EAnn annotation inner -> do
+        (inner', ty, constraints) <- checkApplicationAt (fromAnnotation @SourceSpan annotation <|> ambient) inner
+        pure (EAnn annotation inner', ty, constraints)
+      EParen inner -> do
+        (inner', ty, constraints) <- checkApplicationAt ambient inner
+        pure (EParen inner', ty, constraints)
+      EPragma pragma inner -> do
+        (inner', ty, constraints) <- checkApplicationAt ambient inner
+        pure (EPragma pragma inner', ty, constraints)
+      _ -> checkApplicationSpine expected ambient expr
+    isAnnotatedApplication expr = case expr of
+      EAnn _ inner -> isAnnotatedApplication inner
+      EParen inner -> isAnnotatedApplication inner
+      EPragma _ inner -> isAnnotatedApplication inner
+      EApp {} -> True
+      ETypeApp {} -> True
+      EInfix {} -> True
+      _ -> False
 
 -- | Give lambda parameters their expected types before the body check.
 checkLambda :: TcType -> Maybe SourceSpan -> [Pattern] -> Expr -> TcM (Expr, TcType, [Ct])
@@ -808,7 +832,20 @@ data SpineStep
 -- expected type is a polytype is checked against it, any other argument
 -- is inferred and equated. The checked nodes rebuild the source shape.
 inferApplicationSpine :: Maybe SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
-inferApplicationSpine ambient expr = do
+inferApplicationSpine = applicationSpine Nothing
+
+-- | Check an application spine against the type that its place expects.
+--
+-- An argument of a qualified type, such as @c => r@, is checked under its
+-- givens. The result type of the spine can fix the types in the argument
+-- type. Then the quick look binds them from the expected type before the
+-- arguments are checked. If it did not, the argument would fix them
+-- outside of the givens.
+checkApplicationSpine :: TcType -> Maybe SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
+checkApplicationSpine expected = applicationSpine (Just expected)
+
+applicationSpine :: Maybe TcType -> Maybe SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
+applicationSpine expected ambient expr = do
   let (spineHead, frames) = collectSpine ambient expr
   (headExpr, headTy, headCts, headTypeArgs) <-
     case spineHead of
@@ -819,7 +856,12 @@ inferApplicationSpine ambient expr = do
         (op', opTy, opCts) <- inferOperator sp op
         pure (EVar op', opTy, opCts, nameTypeArgs op')
   let instantiationVariables = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables headTypeArgs))
-  (steps, resultTy) <- planSpine instantiationVariables headTypeArgs headTy frames
+  (steps, resultTy, spineVariables) <- planSpine instantiationVariables headTypeArgs headTy frames
+  case expected of
+    Just expectedTy -> do
+      qualified <- anyM qualifiedArgument steps
+      when qualified (quickLookUnify spineVariables expectedTy resultTy)
+    Nothing -> pure ()
   (expr', stepCts) <- checkSpineSteps headExpr steps
   -- An application with a polymorphic result, for example a record field
   -- of higher rank applied to its record, is instantiated like a variable.
@@ -835,6 +877,19 @@ inferApplicationSpine ambient expr = do
       pure (annotatePendingExprAt sp pending expr', instantiated, headCts <> stepCts <> cts)
     else pure (expr', resultTy, headCts <> stepCts)
 
+-- | Whether a step is an argument whose expected type has givens.
+qualifiedArgument :: SpineStep -> TcM Bool
+qualifiedArgument step =
+  case step of
+    StepArg plan -> hasGivens <$> zonkType (argPlanExpected plan)
+    _ -> pure False
+  where
+    hasGivens ty =
+      case ty of
+        TcForAllTy _ body -> hasGivens body
+        TcQualTy (_ : _) _ -> True
+        _ -> False
+
 uniqueKey :: Unique -> Int
 uniqueKey (Unique key) = key
 
@@ -846,11 +901,12 @@ nameTypeArgs name =
 
 -- | The first pass over the frames. The remaining type arguments are the
 -- instantiation's type arguments that visible type applications have not
--- consumed yet; a value argument ends them.
-planSpine :: IntSet -> [TcType] -> TcType -> [SpineFrame] -> TcM ([SpineStep], TcType)
+-- consumed yet; a value argument ends them. The result holds the
+-- instantiation variables of the whole spine.
+planSpine :: IntSet -> [TcType] -> TcType -> [SpineFrame] -> TcM ([SpineStep], TcType, IntSet)
 planSpine = go
   where
-    go _ _ funTy [] = pure ([], funTy)
+    go instantiationVariables _ funTy [] = pure ([], funTy, instantiationVariables)
     go instantiationVariables remainingTypeArgs funTy (frame : frames) =
       case frame of
         SpineAnn ann -> continue (StepAnn ann) instantiationVariables remainingTypeArgs funTy frames
@@ -891,8 +947,8 @@ planSpine = go
         SpineInfixRhs sp arg -> valueArg sp arg True instantiationVariables funTy frames
 
     continue step instantiationVariables remainingTypeArgs funTy frames = do
-      (steps, resultTy) <- go instantiationVariables remainingTypeArgs funTy frames
-      pure (step : steps, resultTy)
+      (steps, resultTy, spineVariables) <- go instantiationVariables remainingTypeArgs funTy frames
+      pure (step : steps, resultTy, spineVariables)
 
     valueArg sp arg isInfixRhs instantiationVariables funTy frames = do
       zonkedFunTy <- zonkType funTy
@@ -925,7 +981,10 @@ planSpine = go
         if isGuardedArgument arg
           then do
             boundary <- getUniqueBoundary
-            (arg', argTy, argCts) <- inferExpr arg
+            -- The expected type only guides an application argument: its
+            -- type is still inferred, and the quick look below and the
+            -- equality of the second pass relate the two.
+            (arg', argTy, argCts) <- checkExpr expectedArgTy arg
             quickLookUnify instantiationVariables' expectedArgTy argTy
             pure (ArgInferred boundary arg' argTy argCts)
           else pure (ArgDeferred arg)
@@ -1037,20 +1096,33 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   -- An equality that a stuck type family application leaves undecided
   -- becomes a wanted: the meta variable that blocks the reduction may
   -- only be solved by a later part of the enclosing binding.
-  deferred <- unifyDeferring sp (AppOrigin sp) actualTy expectedBody
-  deferredCts <- mapM deferredConstraint deferred
+  deferred <-
+    if null predicates
+      then unifyDeferring sp (AppOrigin sp) actualTy expectedBody
+      else unifyDeferringUnderGivens sp (AppOrigin sp) actualTy expectedBody
+  -- Under givens, a deferred equality can need them, as @StM m a ~ a@
+  -- needs the given @Pure m a@. Then the argument gets a cast to the
+  -- expected type, and the proof of the cast can use the givens.
+  (castArg, deferredCts) <-
+    if null predicates || null deferred
+      then (arg',) <$> mapM deferredConstraint deferred
+      else do
+        evidence <- freshEvVar
+        pure (annotateExprCast expectedBody evidence arg', [mkWantedCt (EqPred expectedBody actualTy) evidence (AppOrigin sp) sp])
   rejectEscapingHigherRankMetas sp boundary skolems actualTy
   givenCts <- mapM makeGiven predicates
   let (equalityCts, dictionaryCts) = partition isEqualityConstraint (argCts <> deferredCts)
   residualEqualities <- concat <$> mapM (solveEqualityConstraint predicates) equalityCts
   residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
-  -- A dictionary that the local givens do not solve can need them and
-  -- the givens of the enclosing scope together, as an instance context
-  -- does. It leaves with the local givens, as a wanted that leaves a
-  -- pattern branch does.
+  -- A wanted that the local givens do not solve can need them and the
+  -- givens of the enclosing scope together, as an instance context does.
+  -- A given can also wait on a meta variable that a later argument
+  -- solves, as the @c@ of @(c => r) -> e -> r@ waits on @e@. The wanted
+  -- leaves with the local givens, as a wanted that leaves a pattern
+  -- branch does.
   let withArgumentGivens ct = ct {ctBranchGivens = givenCts <> ctBranchGivens ct}
-      annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) arg'
-  pure (annotatedArg, residualEqualities <> map withArgumentGivens residualDictionaries)
+      annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) castArg
+  pure (annotatedArg, map withArgumentGivens (residualEqualities <> residualDictionaries))
   where
     deferredConstraint (left, right) = do
       evidence <- freshEvVar

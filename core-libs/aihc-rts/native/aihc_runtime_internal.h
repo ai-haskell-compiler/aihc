@@ -368,12 +368,16 @@ struct AihcStackChunk {
   AihcStack *stack;
   AihcStackChunk *below;
   AihcStackChunk *above;
+  /* The highest frame the marking of cycle scanned_cycle has scanned in
+     this chunk. Every frame of the chunk at or below it is scanned. */
+  uint8_t *scanned_from;
   /* The age of the frames in the chunk, packed with the bookkeeping of the
      running collection: bits 0 to 7 hold the generation, bits 8 to 15 the
      youngest generation a referent of a scanned frame ended in, and the
      rest the number of the collection those bits belong to. See
      docs/gc-design.md. */
   uint64_t state;
+  uint64_t scanned_cycle;
   /* The number of chunks below this one in its stack. */
   uint64_t depth;
 };
