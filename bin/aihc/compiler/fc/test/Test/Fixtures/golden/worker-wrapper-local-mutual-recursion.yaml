@@ -55,21 +55,17 @@ expected: |-
       rec {
         $wping : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt) =
           λ(x{2} : tInt#) (y{1} : tInt#).
-            let y{2} : tInt =
-              cI# y{1};
             case x{2} of {
               0#cIntRep →
-                y{2};
+                cI# y{1};
               _ →
                 $wpong (prim -# x{2} lit (1#cIntRep) :: tInt#) (prim +# y{1} lit (1#cIntRep) :: tInt#)
             };
         $wpong : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt) =
           λ(x{2} : tInt#) (y{1} : tInt#).
-            let y{2} : tInt =
-              cI# y{1};
             case x{2} of {
               0#cIntRep →
-                y{2};
+                cI# y{1};
               _ →
                 let! cI# (s : tInt#) = x;
                 $wping (prim -# x{2} lit (1#cIntRep) :: tInt#) (prim +# y{1} s)
