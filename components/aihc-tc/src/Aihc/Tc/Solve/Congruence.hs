@@ -7,16 +7,18 @@ module Aihc.Tc.Solve.Congruence
   )
 where
 
-import Aihc.Tc.Env (ClassInfo (..), classFieldTypes)
+import Aihc.Tc.Env (ClassInfo (..), TyConInfo (..), classFieldTypes)
 import Aihc.Tc.Evidence
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (gets)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Set qualified as Set
 
 -- | The vertices are types up to the kinds of their variable occurrences:
@@ -48,7 +50,9 @@ proveFromEqualities equalities left right
           vertices = Map.elems (Map.unions (map subterms (left : right : concat [[a, b] | (a, b, _) <- equalities])))
           pairs = [(a, b) | a : rest <- List.tails vertices, b <- rest]
       projections <- traverse projection pairs
-      pure (findProof graph left right <|> findProof (closeGraph pairs (concat projections) graph) left right)
+      kinds <- getKinds
+      kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
+      pure (findProof graph left right <|> findProof (closeGraph (KindContext kinds kindEnv) pairs (concat projections) graph) left right)
     projection (a, b) = case (a, b) of
       (TcTyCon {}, TcTyCon {}) -> project a b
       (TcFunTy {}, TcFunTy {}) -> project a b
@@ -113,11 +117,15 @@ findProof graph source target = go (Set.singleton (typeShape source)) [(source, 
     compose proof (Refl _) = proof
     compose first second = Trans first second
 
-closeGraph :: [(TcType, TcType)] -> [(TcType, TcType, Int, TcType, TcType)] -> ProofGraph -> ProofGraph
-closeGraph pairs projections graph =
+-- | The kinds that congruence needs to find the implicit kind arguments
+-- of a type constructor application.
+data KindContext = KindContext TcKinds TcKindEnv
+
+closeGraph :: KindContext -> [(TcType, TcType)] -> [(TcType, TcType, Int, TcType, TcType)] -> ProofGraph -> ProofGraph
+closeGraph context pairs projections graph =
   case List.foldl' project (List.foldl' extend (False, graph) pairs) projections of
     (False, _) -> graph
-    (True, graph') -> closeGraph pairs projections graph'
+    (True, graph') -> closeGraph context pairs projections graph'
   where
     project (changed, current) (outerLeft, outerRight, index, left, right)
       | isJust (findProof current left right) = (changed, current)
@@ -127,25 +135,55 @@ closeGraph pairs projections graph =
     extend (changed, current) (left, right)
       | isJust (findProof current left right) = (changed, current)
       | otherwise =
-          case congruence current left right of
+          case congruence context current left right of
             Nothing -> (changed, current)
             Just proof -> (True, addProof left right proof current)
 
 -- | Congruence permits equality under a family as well as under a data type.
 -- This rule does not project equality out of a family application.
-congruence :: ProofGraph -> TcType -> TcType -> Maybe Coercion
-congruence graph left right =
+congruence :: KindContext -> ProofGraph -> TcType -> TcType -> Maybe Coercion
+congruence context graph left right =
   case (left, right) of
     (TcFunTy a b, TcFunTy c d) ->
       FunCo <$> findProof graph a c <*> findProof graph b d
     (TcTyCon leftCon leftArgs, TcTyCon rightCon rightArgs)
       | leftCon == rightCon,
         length leftArgs == length rightArgs ->
-          TyConAppCo leftCon leftArgs <$> traverse (uncurry (findProof graph)) (zip leftArgs rightArgs)
+          TyConAppCo leftCon leftArgs
+            <$> traverse (uncurry (findProof graph)) (zip leftArgs rightArgs)
+            <*> pure (kindArgumentProofs context graph leftCon leftArgs rightArgs)
     _ -> do
       (leftFunction, leftArgument) <- application left
       (rightFunction, rightArgument) <- application right
       AppCo <$> findProof graph leftFunction rightFunction <*> findProof graph leftArgument rightArgument
+
+-- | Prove the implicit kind arguments of the two sides equal.
+--
+-- Heterogeneous arguments can give the two sides different kind
+-- arguments, as in @a ~~ a@ and @a ~~ b@ with @a :: k0@ and @b :: k1@.
+-- A proof of @k0 ~ k1@ from the graph then relates the kind arguments.
+-- When the kind arguments are equal, the list is empty.
+kindArgumentProofs :: KindContext -> ProofGraph -> TyCon -> [TcType] -> [TcType] -> [Coercion]
+kindArgumentProofs (KindContext kinds kindEnv) graph tyCon leftArgs rightArgs =
+  case (Map.lookup (tyConKey tyCon) kindEnv, kindArguments leftArgs, kindArguments rightArgs) of
+    (Just (ForAll quantified _ _), Right leftKinds, Right rightKinds)
+      | any (differs leftKinds rightKinds) quantified ->
+          map (proof leftKinds rightKinds) quantified
+    _ -> []
+  where
+    kindArguments arguments =
+      tcInvisibleKindSubstitution <$> typeApplicationKinds kinds kindEnv tyCon arguments Nothing
+    differs leftKinds rightKinds tyVar =
+      case (Map.lookup (tvUnique tyVar) leftKinds, Map.lookup (tvUnique tyVar) rightKinds) of
+        (Just leftKind, Just rightKind) -> not (sameType leftKind rightKind)
+        _ -> False
+    -- A kind argument without a proof stays reflexive, as it was before
+    -- the kind arguments had proofs.
+    proof leftKinds rightKinds tyVar =
+      case (Map.lookup (tvUnique tyVar) leftKinds, Map.lookup (tvUnique tyVar) rightKinds) of
+        (Just leftKind, Just rightKind) -> fromMaybe (Refl leftKind) (findProof graph leftKind rightKind)
+        (Just leftKind, Nothing) -> Refl leftKind
+        _ -> Refl (TcTyVar tyVar)
 
 application :: TcType -> Maybe (TcType, TcType)
 application ty =

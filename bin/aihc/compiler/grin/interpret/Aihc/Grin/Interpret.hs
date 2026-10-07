@@ -1114,6 +1114,9 @@ evalPrimitive "quotRemWord2#" [high, low, divisor] = do
 evalPrimitive "and#" [left, right] = evalWordPrimitive "and#" (.&.) left right
 evalPrimitive "or#" [left, right] = evalWordPrimitive "or#" (.|.) left right
 evalPrimitive "xor#" [left, right] = evalWordPrimitive "xor#" xor left right
+evalPrimitive "andI#" [left, right] = evalIntPrimitive "andI#" (.&.) left right
+evalPrimitive "orI#" [left, right] = evalIntPrimitive "orI#" (.|.) left right
+evalPrimitive "xorI#" [left, right] = evalIntPrimitive "xorI#" xor left right
 evalPrimitive "plusWord2#" [left, right] = do
   leftWord <- expectWordPrimitiveArgument "plusWord2#" left
   rightWord <- expectWordPrimitiveArgument "plusWord2#" right

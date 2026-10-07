@@ -357,7 +357,8 @@ showStage level stage target = do
   loaded <- liftIO (loadDocument state level stage moduleName)
   case loaded of
     Left message -> do
-      put state {explorerStage = stage, explorerDocument = emptyDocument, explorerCursor = 0, explorerTop = 0}
+      -- The next change of view searches for the same definition.
+      put state {explorerStage = stage, explorerDocument = emptyDocument, explorerCursor = 0, explorerTop = 0, explorerTarget = fmap (,0) target}
       setStatus message
     Right document -> do
       put state {explorerStage = stage, explorerDocument = document, explorerCursor = 0, explorerTop = 0, explorerTarget = Nothing}
@@ -377,7 +378,7 @@ showStage level stage target = do
               jumpTo line
               keepTarget line
               setStatus (absent <> "; the first definition of " <> fromMaybe moduleName (definitionModule definition) <> " is shown")
-            Nothing -> setStatus absent
+            Nothing -> keepTarget 0 >> setStatus absent
 
 -- | The document of a stage of a module. The Haskell source comes from the
 -- file of the module. The other stages come from the output of the module,
@@ -583,7 +584,7 @@ drawStatus :: Explorer -> Widget ()
 drawStatus state =
   hBox
     [ padRight Max (txt (explorerStatus state)),
-      txt (buildText <> "  1-5/Tab stage  o level  g module  / definition  q quit")
+      txt (buildText <> "  1-8/Tab stage  o level  g module  / definition  q quit")
     ]
   where
     buildText = case [(level, message) | (level, BuildRunning message) <- Map.toList (explorerBuilds state)] of
