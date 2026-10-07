@@ -1,0 +1,120 @@
+entry: $entry
+rts-arguments: ["+RTS", "-A64K", "-F1", "-RTS"]
+program: |
+  constructor Box/1 [IntRep]
+  constructor Nil/0 []
+  constructor Cons/2 [IntRep, BoxedRep Lifted]
+  constructor End/1 [BoxedRep Lifted]
+  constructor Holder/1 [BoxedRep Lifted]
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+  global nil = (CNil)
+  global table = (F$table)
+
+  $range (count :: IntRep) (list :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (list :: BoxedRep Lifted)
+      _ ->
+        (node :: BoxedRep Lifted) <- store (CCons (count :: IntRep) (list :: BoxedRep Lifted))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $range (next :: IntRep) (node :: BoxedRep Lifted)
+
+  $table -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $range (3000 :: IntRep) global-ref nil
+
+  $holder -> BoxedRep Lifted =
+    store (CHolder global-ref table)
+
+  $total (list :: BoxedRep Lifted) (sum :: IntRep) -> IntRep =
+    case (list :: BoxedRep Lifted) as tested :: BoxedRep Lifted of
+      data Nil ->
+        constant (sum :: IntRep)
+      data End (last :: BoxedRep Lifted) ->
+        constant (sum :: IntRep)
+      data Cons (value :: IntRep) (rest :: BoxedRep Lifted) ->
+        (next :: IntRep) <- primitive-call @IntRep +# (sum :: IntRep) (value :: IntRep)
+        call @IntRep $total (rest :: BoxedRep Lifted) (next :: IntRep)
+
+  $last (list :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (list :: BoxedRep Lifted) as tested :: BoxedRep Lifted of
+      data End (last :: BoxedRep Lifted) ->
+        constant (last :: BoxedRep Lifted)
+      data Cons (value :: IntRep) (rest :: BoxedRep Lifted) ->
+        call @(BoxedRep Lifted) $last (rest :: BoxedRep Lifted)
+
+  $build (count :: IntRep) (list :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (list :: BoxedRep Lifted)
+      _ ->
+        (node :: BoxedRep Lifted) <- store (CCons (count :: IntRep) (list :: BoxedRep Lifted))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $build (next :: IntRep) (node :: BoxedRep Lifted)
+
+  $hold (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (cell :: BoxedRep Lifted) <- store (CCons (count :: IntRep) global-ref nil)
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $hold (next :: IntRep)
+        case (cell :: BoxedRep Lifted) as held :: BoxedRep Lifted of
+          data Cons (value :: IntRep) (tail :: BoxedRep Lifted) ->
+            constant (rest :: IntRep)
+
+  $churn (count :: IntRep) (depth :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (zero :: IntRep) <- call @IntRep $hold (depth :: IntRep)
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @IntRep $churn (next :: IntRep) (depth :: IntRep)
+
+  $grow (count :: IntRep) (list :: BoxedRep Lifted) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (node :: BoxedRep Lifted) <- store (CCons (count :: IntRep) (list :: BoxedRep Lifted))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @IntRep $grow (next :: IntRep) (node :: BoxedRep Lifted)
+
+  $rounds (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (zero :: IntRep) <- call @IntRep $grow (100000 :: IntRep) global-ref nil
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @IntRep $rounds (next :: IntRep)
+
+  $prepare -> BoxedRep Lifted =
+    (forced :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) global-ref table
+    (thunk :: BoxedRep Lifted) <- store (F$holder)
+    (end :: BoxedRep Lifted) <- store (CEnd (thunk :: BoxedRep Lifted))
+    call @(BoxedRep Lifted) $build (20000 :: IntRep) (end :: BoxedRep Lifted)
+
+  $entry -> IntRep =
+    (list :: BoxedRep Lifted) <- call @(BoxedRep Lifted) $prepare
+    (first :: IntRep) <- call @IntRep $churn (100000 :: IntRep) (20 :: IntRep)
+    (thunk :: BoxedRep Lifted) <- call @(BoxedRep Lifted) $last (list :: BoxedRep Lifted)
+    (held :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (thunk :: BoxedRep Lifted)
+    (second :: IntRep) <- call @IntRep $rounds (40 :: IntRep)
+    case (held :: BoxedRep Lifted) as holder :: BoxedRep Lifted of
+      data Holder (tableRef :: BoxedRep Lifted) ->
+        (tableValue :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (tableRef :: BoxedRep Lifted)
+        (tableSum :: IntRep) <- call @IntRep $total (tableValue :: BoxedRep Lifted) (0 :: IntRep)
+        (listSum :: IntRep) <- call @IntRep $total (list :: BoxedRep Lifted) (0 :: IntRep)
+        (sum :: IntRep) <- primitive-call @IntRep +# (tableSum :: IntRep) (listSum :: IntRep)
+        (more :: IntRep) <- primitive-call @IntRep +# (sum :: IntRep) (first :: IntRep)
+        primitive-call @IntRep +# (more :: IntRep) (second :: IntRep)
+return: "204511500"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 144552048
+  linux-amd64: 144552048
+status: pass
+reason: A thunk update deletes the code of the thunk, so the barrier must shade the static reference table of the code as well as its fields. Here the only code that reaches the CAF table is a thunk at the end of a list of 20000 cells, and the function that made the thunk has returned. With -F1 and a small nursery, a gen2 cycle is active when the thunk is evaluated, and the marker has not reached the thunk yet. The marker then finds an indirection with no table, and the cycle must still keep the list of the CAF. Otherwise a later collection copies new cells into the freed slots, and the sum through the holder is wrong.
