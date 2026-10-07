@@ -115,8 +115,12 @@ data Coercion
     Sym !Coercion
   | -- | Transitivity: @Trans co1 co2 : t1 ~ t3@.
     Trans !Coercion !Coercion
-  | -- | Lift through a type constructor. The argument types determine implicit kind arguments.
-    TyConAppCo !TyCon ![TcType] ![Coercion]
+  | -- | Lift through a type constructor. The argument types are the left
+    -- side, and they determine the implicit kind arguments. The first list
+    -- has one proof for each visible argument. The second list has one
+    -- proof for each implicit kind argument, in the order of the kind
+    -- scheme. An empty second list makes each kind argument reflexive.
+    TyConAppCo !TyCon ![TcType] ![Coercion] ![Coercion]
   | -- | Congruence for a type application.
     AppCo !Coercion !Coercion
   | -- | Congruence for a function domain and range.

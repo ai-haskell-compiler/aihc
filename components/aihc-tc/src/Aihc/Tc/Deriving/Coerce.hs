@@ -61,7 +61,7 @@ coercionBetween equations rawSource rawTarget = go [] (normalize rawSource) (nor
           | sourceConstructor == targetConstructor,
             length sourceArguments == length targetArguments -> do
               proofs <- sequence <$> zipWithM (argumentProof visited sourceConstructor) [0 ..] (zip sourceArguments targetArguments)
-              pure (TyConAppCo sourceConstructor sourceArguments <$> proofs)
+              pure ((\argumentProofs -> TyConAppCo sourceConstructor sourceArguments argumentProofs []) <$> proofs)
         _ -> pure Nothing
 
     -- An axiom proves @target ~ representation@, so a proof of

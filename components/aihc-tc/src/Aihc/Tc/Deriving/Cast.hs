@@ -43,7 +43,7 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
       dictionaryCast <- case (tcDerivingDataType plan, tcInstanceSuperClasses annotation, evidence) of
         (Just _, [], Just _) | null (ciKindTyVars info) -> do
           proof <- coercionBetween (tcInstanceAssociatedTypes annotation) sourceType (last (tcInstanceHeadTypes annotation))
-          pure (TyConAppCo (ciTyCon info) headTypes . (map Refl (init headTypes) <>) . (: []) <$> proof)
+          pure ((\lastProof -> TyConAppCo (ciTyCon info) headTypes (map Refl (init headTypes) <> [lastProof]) []) <$> proof)
         _ -> pure Nothing
       pure annotation {tcInstanceCoerced = Just (TcCoercedInstance headTypes evidence fieldTypes dictionaryCast (catMaybes methods))}
   where
