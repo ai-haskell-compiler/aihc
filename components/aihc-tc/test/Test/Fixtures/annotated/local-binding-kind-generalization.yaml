@@ -1,0 +1,48 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Test where
+  import GHC.Types (Type)
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data Const a (b :: k) = Const a
+       │                  └─ type: ∀ k a b. a → Const a b
+       └─ type: Type → k → Type
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  -- The local binding is used at two kinds of its phantom parameter.
+  pair :: (Const Unit Maybe, Const Unit Box)
+  pair = (neuter Unit, neuter Unit)
+  │      ││            └─ type: () → Const () Box; type-args: Type, (), Box
+  │      │└─ type: () → Const () Maybe; type-args: Type → Type, (), Maybe
+  │      └─ type: (Const () Maybe, Const () Box); type-args: Const () Maybe, Const () Box
+  └─ type: (Const () Maybe, Const () Box)
+    where
+      neuter x = Const x
+      │      │   └─ type: a → Const a b; type-args: k0, a, b
+      │      └─ type: a
+      └─ type: ∀ k0 a b. a → Const a b
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+extensions:
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds #-}
+  module Test where
+  import GHC.Types (Type)
+  data Unit = Unit
+  data Const a (b :: k) = Const a
+  data Box = Box
+  -- The local binding is used at two kinds of its phantom parameter.
+  pair :: (Const Unit Maybe, Const Unit Box)
+  pair = (neuter Unit, neuter Unit)
+    where
+      neuter x = Const x
+  data Maybe a = Nothing | Just a
+status: pass

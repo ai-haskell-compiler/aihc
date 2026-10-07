@@ -3,6 +3,7 @@
 
 module Aihc.Tc.Kind
   ( TvKindEnv,
+    instanceHeadArguments,
     ParamInfo (..),
     checkSurfaceType,
     checkRuntimeType,
@@ -59,7 +60,6 @@ import Aihc.Parser.Syntax
     forallTelescopeBinders,
     fromAnnotation,
     instanceHeadName,
-    instanceHeadTypes,
     nameText,
     peelTypeHead,
     tyVarBinderKind,
@@ -655,11 +655,20 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
 
     applyRemainingArguments result [] = pure result
     applyRemainingArguments (functionType, functionKind) (argument : rest) = do
-      (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
-      resultKind <- freshKindMeta
-      unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
-      zonkedResultKind <- zonkKind resultKind
-      applyRemainingArguments (mkAppTy functionType argumentType, zonkedResultKind) rest
+      zonkedFunctionKind <- zonkKind functionKind
+      case zonkedFunctionKind of
+        -- A known argument kind checks the argument, as an ordinary
+        -- application does. A wildcard then takes that kind: @P n X _@ with
+        -- @P = Param@ is the pattern @Param n X _@.
+        KFun argumentKind resultKind -> do
+          argumentType <- checkSurfaceType tvEnv argument argumentKind
+          applyRemainingArguments (mkAppTy functionType argumentType, resultKind) rest
+        _ -> do
+          (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
+          resultKind <- freshKindMeta
+          unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
+          zonkedResultKind <- zonkKind resultKind
+          applyRemainingArguments (mkAppTy functionType argumentType, zonkedResultKind) rest
 
 -- | Apply a substitution without capture. A binder of the type that has
 -- the unique of a variable in a substituted type gets a fresh unique.
@@ -1573,7 +1582,7 @@ surfaceClassPredToPred tvEnv ty = do
   case instanceHeadName (peelTypeHead ty) of
     Just className -> do
       let classNameText = nameText className
-          headArgs = instanceHeadTypes (peelTypeHead ty)
+          headArgs = instanceHeadArguments (peelTypeHead ty)
       maybeClassInfo <- lookupResolvedTyCon className
       case maybeClassInfo of
         Just classInfo
@@ -1651,3 +1660,19 @@ takeClassArgKinds kinds n kind
       case kind of
         KFun arg rest -> arg : takeClassArgKinds kinds (n - 1) rest
         _ -> replicate n (typeKind kinds)
+
+-- | The class arguments of an instance head. An infix class can take more
+-- arguments after the parenthesized infix part: @(c & d) a@ has the
+-- arguments @c@, @d@, and @a@. The parser's @instanceHeadTypes@ keeps only
+-- @c@ and @d@ there.
+instanceHeadArguments :: Type -> [Type]
+instanceHeadArguments = go []
+  where
+    go arguments ty =
+      case ty of
+        TAnn _ inner -> go arguments inner
+        TApp function argument -> go (argument : arguments) function
+        TTypeApp function _ -> go arguments function
+        TParen inner -> go arguments inner
+        TInfix left _ _ right -> left : right : arguments
+        _ -> arguments

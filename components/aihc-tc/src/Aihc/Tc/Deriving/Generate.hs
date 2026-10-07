@@ -145,9 +145,11 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
             (Nothing, Nothing) -> do
               emitError (genSpan gen) (OtherError (mechanism <> " cannot express the instance head or context as source syntax"))
               pure Nothing
-            (Nothing, Just (headerBinders, surfaceContext, surfaceHead)) -> do
+            (Nothing, Just (headerBinders, headerContext, surfaceHead)) -> do
               items <- generateItems gen
-              let forallBinders = fromMaybe headerBinders (polyKindedGenericBinders headerBinders)
+              let polyKinded = polyKindedBinders headerBinders
+                  forallBinders = maybe headerBinders fst polyKinded
+                  surfaceContext = headerContext <> maybe [] snd polyKinded
               pure $
                 items <&> \generated ->
                   markCoerced $
@@ -184,13 +186,25 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
         }
     className = T.unpack (tcDerivingClassName plan)
     -- A derived Generic instance of a poly-kinded datatype binds the kind
-    -- variables of the datatype, as its Rep equation does.
-    polyKindedGenericBinders headerBinders = do
+    -- variables of the datatype, as its Rep equation does. A derived Data
+    -- instance binds them as well, and asks Typeable of each, as GHC does:
+    -- @Typeable (Unit f)@ for @f :: k -> Type@ needs @Typeable k@.
+    polyKindedBinders headerBinders = do
       guard (null headerBinders)
-      guard (stockClassMethodsOf (tcDerivingClassName plan) == Just StockGenericMethods)
       dataType <- tcDerivingDataType plan
       guard (not (null (datatypeKindVariables dataType)))
-      genericKindBinders gen dataType
+      case stockClassMethodsOf (tcDerivingClassName plan) of
+        Just StockGenericMethods -> (,[]) <$> genericKindBinders gen dataType
+        Just StockDataMethods
+          | TcDerivingExplicitContext context <- tcDerivingContext plan,
+            typeableTyCon : _ <- [classTyCon | ClassPred classTyCon _ <- context, tyConName classTyCon == "Typeable"] -> do
+              binders <- genericKindBinders gen dataType
+              let kindContext =
+                    [ TApp (TCon (tyConNameSyntax (genSpan gen) typeableTyCon) Unpromoted) (TVar (mkUnqualifiedName NameVarId name))
+                    | name <- nub (map tvName (datatypeKindVariables dataType))
+                    ]
+              pure (binders, kindContext)
+        _ -> Nothing
     datatypeDescription = maybe "datatype" (("datatype " <>) . T.unpack . dtiName) (tcDerivingDataType plan)
     mechanism =
       case tcDerivingStrategy plan of

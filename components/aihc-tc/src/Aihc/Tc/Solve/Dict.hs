@@ -318,7 +318,7 @@ solveNormalizedDict visited givens ct
       where
         normalizedEvidence [] = pure Nothing
         normalizedEvidence ((given, normalized) : rest)
-          | normalized == target = pure (Just (EvGiven given))
+          | samePredicate normalized target = pure (Just (EvGiven given))
           | otherwise = do
               quantified <- useQuantifiedEvidence visited' target (EvGiven given) normalized
               projected <- superclassEvidence [] visited' target (EvGiven given) normalized
@@ -371,7 +371,7 @@ solveNormalizedDict visited givens ct
 
     searchSuperClasses _ _ _ _ _ _ _ _ [] = pure Nothing
     searchSuperClasses classVisited solveVisited sourceEvidence sourceOrigin sourcePredicate fieldTypes target index (superClass : rest)
-      | superClass == target =
+      | samePredicate superClass target =
           pure (Just (EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index))
       | otherwise = do
           let projection = EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index
@@ -757,6 +757,24 @@ givenRewriteRuleSets givens = do
         (TcTyVar _, _) -> [(left, right, proof)]
         (_, TcTyVar _) -> [(right, left, Sym proof)]
         _ -> []
+
+-- | Whether two predicates are the same up to the spelling of their
+-- applications ('canonicalPred'). The evidence keeps each predicate as
+-- written, because only that spelling has its kind arguments.
+samePredicate :: Pred -> Pred -> Bool
+samePredicate left right = left == right || canonicalPred left == canonicalPred right
+
+-- | One spelling of a predicate for the comparison with a given. A
+-- poly-kinded constructor that a use site applied to its kinds heads an
+-- application spine (@Product \@k f g@), and another use can write the
+-- same type as a partial application without its kinds (@Product f g@).
+-- Both become the partial application. The kinds follow from the
+-- arguments.
+canonicalPred :: Pred -> Pred
+canonicalPred predicate =
+  case predicate of
+    ClassPred className arguments -> ClassPred className (map canonicalApplications arguments)
+    _ -> predicate
 
 -- | Rewrite every occurrence of a rule's left side, outermost first, and
 -- prove the result equal to the original by congruence. Types under a
