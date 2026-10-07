@@ -37,6 +37,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
+    TupleFlavor (..),
     TyVarBSpecificity (..),
     TyVarBVisibility (..),
     TyVarBinder (..),
@@ -973,17 +974,17 @@ dataItems gen dataType
 -- reach.
 functorialItems :: Gen -> (Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]) -> [DataConInfo] -> TcM (Maybe [InstanceDeclItem])
 functorialItems gen build constructors =
-  case functorialUses (genPlan gen) constructors of
+  case functorialUses (genKinds gen) (genPlan gen) constructors of
     Left message -> do
       emitError (genSpan gen) (OtherError message)
       pure Nothing
     Right uses -> Just <$> build gen uses
 
 -- | What every field of every constructor does with the last parameter.
-functorialUses :: TcDerivingPlan -> [DataConInfo] -> Either String [(DataConInfo, [FieldUse])]
-functorialUses plan constructors =
+functorialUses :: TcKinds -> TcDerivingPlan -> [DataConInfo] -> Either String [(DataConInfo, [FieldUse])]
+functorialUses kinds plan constructors =
   case stockClassObligationsOf (tcDerivingClassName plan) of
-    Just (FunctorialObligations functions) -> zip constructors <$> functorialFieldUses functions plan
+    Just (FunctorialObligations functions) -> zip constructors <$> functorialFieldUses kinds functions plan
     _ -> Left ("stock " <> T.unpack (tcDerivingClassName plan) <> " deriving is not functor-like")
 
 functorItems :: Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]
@@ -1011,6 +1012,10 @@ functorItems gen constructors = do
         FieldContainer _ inner -> do
           step <- fieldFunction gen (mapField function) function inner
           pure (methodApp gen "fmap" [step, value])
+        FieldTuple uses -> do
+          components <- tupleLocals gen uses
+          mapped <- zipWithM (mapField function) uses (map (localExpr gen) components)
+          pure (caseOf gen value [(tuplePattern gen components, tupleExpr gen mapped)])
         FieldFunction domain result -> do
           argument <- freshLocal gen "x"
           mappedArgument <- mapField function domain (localExpr gen argument)
@@ -1050,6 +1055,14 @@ foldableItems gen constructors = do
         FieldContainer _ inner -> do
           step <- foldStep function inner
           pure (methodApp gen "foldr" [step, rest, value])
+        FieldTuple uses -> do
+          components <- tupleLocals gen uses
+          body <-
+            foldrM
+              (\(componentUse, component) folded -> foldField function componentUse (localExpr gen component) folded)
+              rest
+              (zip uses components)
+          pure (caseOf gen value [(tuplePattern gen components, body)])
         FieldFunction {} -> unvisitableField gen rest
         FieldForAll {} -> unvisitableField gen rest
     -- The step of a nested fold takes the element and what follows it.
@@ -1085,6 +1098,21 @@ traversableItems gen constructors = do
         FieldContainer _ inner -> do
           step <- fieldFunction gen (visitField function) function inner
           pure (methodApp gen "traverse" [step, value])
+        FieldTuple uses -> do
+          components <- tupleLocals gen uses
+          visited <- zipWithM (visitField function) uses (map (localExpr gen) components)
+          results <- tupleLocals gen uses
+          let rebuild = foldr (lambda gen) (tupleExpr gen (map (localExpr gen) results)) results
+              applied = applyN gen (referenceExpr gen derivingPure) [rebuild]
+          pure
+            ( caseOf
+                gen
+                value
+                [ ( tuplePattern gen components,
+                    foldl (\left right -> applyN gen (referenceExpr gen derivingApply) [left, right]) applied visited
+                  )
+                ]
+            )
         FieldFunction {} -> unvisitableField gen value
         FieldForAll {} -> unvisitableField gen value
 
@@ -1095,6 +1123,19 @@ unvisitableField :: Gen -> Expr -> TcM Expr
 unvisitableField gen value = do
   emitError (genSpan gen) (OtherError "internal error: a derived element visit reached a function or polymorphic field")
   pure value
+
+-- | A fresh local for each component of a tuple field.
+tupleLocals :: Gen -> [a] -> TcM [UnqualifiedName]
+tupleLocals gen components =
+  mapM (\index -> freshLocal gen ("t" <> T.pack (show index))) [1 .. length components]
+
+-- | A boxed tuple pattern of variables.
+tuplePattern :: Gen -> [UnqualifiedName] -> Pattern
+tuplePattern gen components = atPattern gen (PTuple Boxed (map (atPattern gen . PVar) components))
+
+-- | A boxed tuple expression.
+tupleExpr :: Gen -> [Expr] -> Expr
+tupleExpr gen components = at gen (ETuple Boxed (map Just components))
 
 -- | The function a nested position is visited with: the function the method
 -- was given when the position is the parameter itself, and a lambda that

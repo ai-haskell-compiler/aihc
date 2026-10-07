@@ -225,7 +225,7 @@ derivingObligations kinds unlifted plan =
           Just $ case shape of
             FieldObligations -> fieldObligations
             DataObligations -> ((superclassObligations kinds plan <> argumentObligations) <>) <$> fieldObligations
-            FunctorialObligations functions -> functorialObligations functions plan
+            FunctorialObligations functions -> functorialObligations kinds functions plan
             NoObligations -> Right []
       | otherwise -> Nothing
     TcDerivingNewtype ->
@@ -401,17 +401,17 @@ anyClassObligations kinds plan =
 
 -- | The classes that the fields of a functor-like plan need at the types
 -- that stand between them and the last datatype parameter.
-functorialObligations :: FunctionFields -> TcDerivingPlan -> Either String [Pred]
-functorialObligations functions plan = do
-  uses <- functorialFieldUses functions plan
+functorialObligations :: TcKinds -> FunctionFields -> TcDerivingPlan -> Either String [Pred]
+functorialObligations kinds functions plan = do
+  uses <- functorialFieldUses kinds functions plan
   pure (nub (concatMap (fieldUseObligations (tcDerivingClassTyCon plan)) (concat uses)))
 
 -- | What every field of every constructor of a functor-like plan does with
 -- the last datatype parameter.
-functorialFieldUses :: FunctionFields -> TcDerivingPlan -> Either String [[FieldUse]]
-functorialFieldUses functions plan = do
+functorialFieldUses :: TcKinds -> FunctionFields -> TcDerivingPlan -> Either String [[FieldUse]]
+functorialFieldUses kinds functions plan = do
   (parameter, fields) <- stockFunctorialFields plan
-  mapM (mapM (fieldUse mechanism functions parameter)) fields
+  mapM (mapM (fieldUse kinds mechanism functions parameter)) fields
   where
     mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
 
