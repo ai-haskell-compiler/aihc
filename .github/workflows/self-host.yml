@@ -55,6 +55,7 @@ jobs:
             --report self-host-results/stage2.tsv \
             --log-dir self-host-results/stage2-logs \
             --target linux-amd64 \
+            --timeout 10800 \
             --bootstrap-dir self-host-results 2>&1 | tee self-host-results/bootstrap.log
 
       - name: Report the result
