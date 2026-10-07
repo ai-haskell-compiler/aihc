@@ -268,8 +268,10 @@ through `aihc_stack_enter_chunk`. The list keeps every pending frame,
 because a scan stops at the first chunk that the cycle scanned, and the
 chunks below that chunk can still wait for a scan. A pop can pass a frame
 without a read, because a forward frame gives its values to its parent.
-Thus `aihc_stack_enter_chunk` removes the pending frames above the frame
-that it enters, and a slice never scans a frame that new frames replaced.
+Thus `aihc_stack_enter_chunk` removes the pending frames at or above the
+frame that it enters, scans the entered frame at once, and a slice never
+scans a frame that new frames replaced. The pending list holds live frames
+only.
 The exception walk and
 the continuation capture read frames they pop, so they scan them first
 through `aihc_gc_frame_read`. A frame named by a heap object is scanned
@@ -301,7 +303,19 @@ When the collector scans an object of generation k, it copies each referent
 that moves into generation k at least. Thus an old object points only at old
 objects after one scan. When a referent still ends younger, because an
 earlier reference copied it there, the object goes back to the remembered
-set.
+set. A thread record or a waiter that names a frame goes back as well while
+the chunk of the frame can be scanned again: a chunk the collection scans
+counts as young, and another chunk counts as its own age. The chunk is
+reached only through the record, so the record must stay in the set until
+the chunk is older than every collection that could scan it.
+
+A record that deletes a pointer takes the write barrier first, so the
+deletion barrier of an active cycle shades the old value. The run queue
+dequeue, the selection of a thread, the pop of an MVar waiter, and the
+completion of an IO request are such deletions. Without the barrier, a
+thread that the snapshot reached only through the queue link of a dequeued
+record is never marked, and the end of the cycle frees its record and
+releases its stack.
 
 ### Write barrier and remembered set
 
@@ -362,6 +376,9 @@ chunk with a scanned frame takes generation g plus one, or the youngest
 generation its frames refer to when that is lower, so a collection of that
 generation scans the chunk again. The chunk of the running stack pointer
 stays young, because compiled code pushes into it without a runtime call.
+The walk of a collection stops at the first chunk older than the collected
+generations, so no chunk may be younger than a chunk above it: when a chunk
+takes a low age, the chunks above it take that age as well.
 
 A chunk becomes young again when the stack pointer enters it from above.
 The continue helpers compare the stack limit of the entered frame with the
@@ -525,15 +542,38 @@ copies that generation. Static indirections stay in place, because static
 objects do not move. The collector forwards their targets instead.
 
 The collector has a fuzz test in `Test.Native.GcFuzz`. The test generates
-random scripts that build heaps through the runtime interface, change them,
-and force collections. A C driver runs each script against the runtime and
-reports the new space, the roots, and the static objects after every
-collection. A model of the same script predicts the report. The scripts cover
-constructors, closures, thunks, partial applications, arrays, indirection
-chains, cycles, blackholes, static objects, reference tables, and every root
-source the collector visits. The driver process stays alive across cases, so
-the test can compile the driver with sanitizers when the C compiler supports
-them.
+random scripts that build heaps and stacks through the runtime interface,
+change them, and force collections. A C driver runs each script against the
+runtime. The driver plays the part of compiled code for several threads: it
+pushes and enters frames as the continue helpers do, and it gives each
+resumption of the scheduler to the thread it names. After every collection
+the driver reports the objects, the frames of every live stack, the threads,
+the run queue, the MVar waiters, the blackhole table, the roots, and the
+static objects. A model of the same script checks the report.
+
+The model knows no collector policy. After every collection, each object
+and frame the model reaches from the roots must survive with the same
+content, the ages of the survivors must grow, and the scheduler state must
+match. A full collection must keep the reachable set and nothing else. At
+the end of a gen2 cycle, the gen2 objects that were dead at its snapshot must
+be gone. The scripts cover constructors, closures, thunks, partial
+applications, arrays, indirection chains, blackholes, static objects,
+reference tables, MVars, threads, every frame kind, pops across chunks,
+exceptions, and every root source the collector visits. The generator never
+names an object the model says is dead, because no program can resurrect
+garbage. The driver process stays alive across cases, so the test can
+compile the driver with sanitizers when the C compiler supports them.
+
+The runtime has a verifier for these tests. When the C preprocessor symbol
+`AIHC_GC_VERIFY` is defined, every collection ends with a walk of the
+objects the roots reach. The walk checks that each reachable object is in
+an occupied slot of a live block, that no reachable header is a forwarding
+header, that each reachable frame is live in a registered chunk, that the
+remembered set and the blackhole table hold valid objects, that the
+pending frames of a cycle are live, and that the chunks of a stack grow
+older from its top. A violation stops the program at the collection that
+caused it. The fuzz driver and the GRIN `gc-stress` fixtures run with the
+verifier. A release runtime does not pay for the walk.
 
 The cooperative scheduler keeps pending IO requests in managed pinned objects. Suspended threads retain
 ordinary action closures or pointers to continuation frames on their stacks. The scheduler hands a selected thread

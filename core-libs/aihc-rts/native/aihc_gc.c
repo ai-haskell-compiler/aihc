@@ -1,5 +1,7 @@
 #include "aihc_runtime_internal.h"
 
+#include <inttypes.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -141,6 +143,10 @@ static void aihc_mark_frames(AihcMachine *machine, AihcValue *frame);
 static int aihc_frame_above(const AihcValue *first, const AihcValue *second);
 static int aihc_frame_is_live(const AihcMachine *machine,
                               const AihcValue *frame);
+#ifdef AIHC_GC_VERIFY
+static void aihc_gc_verify(AihcMachine *machine, uint64_t root_count,
+                           AihcSlot *roots, const AihcSrt *srt);
+#endif
 
 typedef struct {
   AihcMachine *machine;
@@ -186,6 +192,10 @@ typedef struct {
   AihcGcContext *gc;
   unsigned target;
   unsigned youngest;
+  /* Whether the scanned object is a frame. The parent link of a frame does
+     not age its chunk, but a record that names a frame must stay in the
+     remembered set while the chunk of the frame can be scanned again. */
+  int from_frame;
 } AihcScanContext;
 
 /* Static objects and continuation frames never move, so the collector marks
@@ -989,16 +999,19 @@ void aihc_stack_resume_after(AihcMachine *machine, const AihcValue *frame) {
   aihc_stack_enter_chunk(machine, frame);
 }
 
-/* Remove the deferred frames above a frame that the stack pointer enters.
-   The entry pops them, and a pop can pass a frame without a read: a
-   forward frame gives its values to its parent. New frames then take
-   their place, so a slice must not scan them. */
+/* Remove the deferred frames at or above a frame that the stack pointer
+   enters. The entry pops the frames above it, and a pop can pass a frame
+   without a read: a forward frame gives its values to its parent. New
+   frames then take their place, so a slice must not scan them. The entered
+   frame itself is scanned at once by the caller, so its entry goes too:
+   the code of the frame pops it next, and the list holds live frames
+   only. */
 static void aihc_stack_drop_pending_above(AihcStack *stack,
                                           const AihcValue *frame) {
   size_t kept = 0;
   for (size_t index = 0; index < stack->pending_count; ++index) {
     AihcValue *pending = stack->pending[index];
-    if (!aihc_frame_above(pending, frame)) {
+    if (aihc_frame_above(frame, pending)) {
       stack->pending[kept++] = pending;
     }
   }
@@ -1286,6 +1299,18 @@ static AihcSlot aihc_scan_slot(AihcSlot slot, void *opaque_context) {
   AihcValue *value =
       aihc_evacuate(scan->gc, (AihcValue *)(uintptr_t)slot, scan->target);
   unsigned generation = aihc_generation_of(scan->gc->machine, value);
+  if (value != NULL && !scan->from_frame &&
+      aihc_region_kind(value) == AIHC_REGION_STACK) {
+    /* A thread record or a waiter names a frame. The chunk of the frame is
+       reached only through the record, so the record stays in the
+       remembered set until the chunk is older than every collection that
+       could scan it again: a chunk this collection scans is young, and
+       another chunk has its own age. Without this rule, a record in gen2
+       drops out of the set after one scan, and a later gen1 collection
+       never reaches the frames of its thread. */
+    unsigned age = aihc_chunk_generation(aihc_stack_chunk_of(value));
+    generation = age <= scan->gc->collected ? 0 : age;
+  }
   if (generation < scan->youngest) {
     scan->youngest = generation;
   }
@@ -1342,6 +1367,23 @@ static void aihc_age_chunks(AihcGcContext *context) {
       generation = 0;
     }
     aihc_chunk_set_generation(chunk, generation);
+  }
+  /* The walk of a collection stops at the first chunk older than the
+     collected generations, so no chunk may be younger than a chunk above
+     it. A chunk whose frames refer to a young object takes a low age, and
+     the chunks above it take that age as well: the walk then reaches it
+     again. Without this rule a gen1 collection stopped at an older chunk
+     above a chunk with a gen1 referent, and the referent moved away from
+     under the frame. */
+  for (size_t index = 0; index < context->touched_count; ++index) {
+    AihcStackChunk *chunk = context->touched[index];
+    unsigned generation = aihc_chunk_generation(chunk);
+    for (AihcStackChunk *above = chunk->above; above != NULL;
+         above = above->above) {
+      if (aihc_chunk_generation(above) > generation) {
+        aihc_chunk_set_generation(above, generation);
+      }
+    }
   }
   free(context->touched);
 }
@@ -1429,6 +1471,7 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
       .gc = context,
       .target = generation == AIHC_GENERATION_STATIC ? 2 : generation,
       .youngest = AIHC_GENERATION_STATIC,
+      .from_frame = aihc_region_kind(object) == AIHC_REGION_STACK,
   };
   const AihcInfo *info = aihc_value_info_table(object);
   if (!aihc_visit_runtime_object(object, aihc_scan_slot, &scan)) {
@@ -2372,6 +2415,9 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
     aihc_sweep_slice(machine);
   }
   machine->heap_live_bytes = aihc_occupied_bytes(machine);
+#ifdef AIHC_GC_VERIFY
+  aihc_gc_verify(machine, root_count, roots, srt);
+#endif
   uint64_t pause_ns = aihc_host_monotonic_ns() - started_ns;
   machine->gc_time_ns += pause_ns;
   if (pause_ns > machine->gc_max_pause_ns) {
@@ -2676,6 +2722,318 @@ AihcValue *aihc_gc_allocate_pinned(AihcMachine *machine, uint64_t words) {
   }
   return aihc_pinned_block_adopt(machine, block, bytes);
 }
+
+/* The verifier. Under AIHC_GC_VERIFY, every collection ends with a walk of
+   the objects the roots reach, and each step of the walk checks the
+   invariants the collector relies on: a reachable object is in an occupied
+   slot of a live block, its header names an info table, a reachable frame
+   is live in a registered chunk, the remembered set and the blackhole
+   table hold valid objects, the pending frames of a cycle are live, and the
+   chunks of a stack grow older from its top. A violation stops the
+   program at the collection that caused it. The test runtimes enable the
+   flag; a release runtime does not pay for the walk. */
+
+#ifdef AIHC_GC_VERIFY
+
+static AihcAddressSet aihc_verify_seen;
+static AihcAddressSet aihc_verify_pinned;
+static AihcAddressSet aihc_verify_srts;
+static AihcValueWorklist aihc_verify_work;
+static AihcSrtWorklist aihc_verify_srt_work;
+static const AihcMachine *aihc_verify_machine;
+/* The object whose fields the walk scans, for the report of a violation. */
+static const AihcValue *aihc_verify_parent;
+
+static _Noreturn void aihc_verify_fail(const char *message,
+                                       const AihcValue *value) {
+  const AihcInfo *info = aihc_verify_parent == NULL
+                             ? NULL
+                             : aihc_value_info_table(aihc_verify_parent);
+  fprintf(stderr,
+          "aihc verifier: %s: value %p (region kind %d) reached from %p (kind "
+          "%d, frame kind %d, identity %" PRIuPTR ")\n",
+          message, (const void *)value, (int)aihc_region_kind(value),
+          (const void *)aihc_verify_parent,
+          info == NULL ? -1 : (int)info->object_kind,
+          info == NULL ? -1 : (int)info->frame_kind,
+          info == NULL ? (uintptr_t)0 : info->identity);
+  aihc_fail(message);
+}
+
+static void aihc_verify_srt(const AihcSrt *srt) {
+  if (srt == NULL || !aihc_address_set_insert(&aihc_verify_srts,
+                                              (AihcValue *)(uintptr_t)srt)) {
+    return;
+  }
+  if (aihc_verify_srt_work.count == aihc_verify_srt_work.capacity) {
+    aihc_verify_srt_work.items = aihc_worklist_grow(
+        aihc_verify_srt_work.items, &aihc_verify_srt_work.capacity,
+        sizeof(*aihc_verify_srt_work.items));
+  }
+  aihc_verify_srt_work.items[aihc_verify_srt_work.count++] = srt;
+}
+
+/* Check one reachable value and queue it for a scan when it is new. */
+static void aihc_verify_value(AihcValue *value) {
+  const AihcMachine *machine = aihc_verify_machine;
+  if (value == NULL) {
+    return;
+  }
+  switch (aihc_region_kind(value)) {
+  case AIHC_REGION_NURSERY:
+    if (aihc_in_nursery(machine, value)) {
+      aihc_fail("verifier: a reachable object is in the empty nursery");
+    }
+    aihc_fail("verifier: a reachable object is in a released nursery");
+  case AIHC_REGION_FROM1:
+    aihc_verify_fail("verifier: a reachable object is in a released gen1 block",
+                     value);
+  case AIHC_REGION_FREE:
+    aihc_verify_fail("verifier: a reachable object is in a free region", value);
+  case AIHC_REGION_GEN1: {
+    int inside = 0;
+    for (const AihcHeapBlock *block = machine->generations[0].first;
+         block != NULL; block = block->link) {
+      if ((const uint8_t *)value >= block->start &&
+          (const uint8_t *)value < block->next) {
+        inside = 1;
+        break;
+      }
+    }
+    if (!inside) {
+      aihc_fail("verifier: a reachable gen1 address is outside every block");
+    }
+    break;
+  }
+  case AIHC_REGION_GEN2: {
+    AihcSegment *segment = aihc_segment_of(value);
+    size_t offset =
+        (size_t)((const uint8_t *)value - aihc_segment_slots(segment));
+    if (offset % aihc_segment_slot_bytes(segment) != 0) {
+      aihc_fail("verifier: a reachable gen2 address is not a slot start");
+    }
+    uint32_t slot = aihc_segment_slot_of(segment, value);
+    if (slot >= segment->slot_count) {
+      aihc_fail("verifier: a reachable gen2 address is past its segment");
+    }
+    if (!aihc_segment_occupied(segment, slot)) {
+      aihc_fail("verifier: a reachable gen2 object is in a free slot");
+    }
+    break;
+  }
+  case AIHC_REGION_LARGE:
+  case AIHC_REGION_PINNED: {
+    AihcPinnedBlock *block = aihc_pinned_block_of(value);
+    if (!aihc_address_set_contains(&aihc_verify_pinned, (AihcValue *)block)) {
+      aihc_fail("verifier: a reachable fixed object is not on the pinned list");
+    }
+    if (aihc_pinned_generation(block) > 2) {
+      aihc_fail("verifier: a reachable fixed object has an invalid generation");
+    }
+    break;
+  }
+  case AIHC_REGION_OUTSIDE:
+    if (aihc_outside_is_pinned(value)) {
+      AihcPinnedBlock *block = aihc_pinned_block_of(value);
+      if (!aihc_address_set_contains(&aihc_verify_pinned, (AihcValue *)block)) {
+        aihc_fail(
+            "verifier: a reachable pinned object is not on the pinned list");
+      }
+    }
+    break;
+  case AIHC_REGION_STACK: {
+    AihcStackChunk *chunk = aihc_stack_chunk_of(value);
+    if (chunk->stack == NULL) {
+      aihc_fail("verifier: a reachable frame is in a released chunk");
+    }
+    if ((const uint8_t *)value < aihc_stack_chunk_frames(chunk)) {
+      aihc_fail("verifier: a reachable frame starts in a chunk header");
+    }
+    if (!aihc_frame_is_live(machine, value)) {
+      aihc_fail("verifier: a reachable frame is popped");
+    }
+    break;
+  }
+  default:
+    aihc_fail("verifier: a reachable address has an invalid region kind");
+  }
+  if (aihc_header_is_forward(value->header)) {
+    aihc_fail("verifier: a reachable object has a forwarding header");
+  }
+  const AihcInfo *info = aihc_value_info_table(value);
+  AihcObjectKind kind = info->object_kind;
+  if (kind > AIHC_OBJECT_IO_HANDLE || kind == AIHC_OBJECT_RUNTIME ||
+      kind == AIHC_OBJECT_BLACKHOLE_RECORD) {
+    aihc_fail("verifier: a reachable object has an invalid kind");
+  }
+  if (aihc_region_kind(value) == AIHC_REGION_STACK &&
+      (kind != AIHC_OBJECT_CLOSURE || info->frame_kind == AIHC_FRAME_NONE)) {
+    aihc_fail("verifier: a reachable frame is not a continuation");
+  }
+  if (aihc_address_set_insert(&aihc_verify_seen, value)) {
+    aihc_value_worklist_push(&aihc_verify_work, value);
+  }
+}
+
+static AihcSlot aihc_verify_slot(AihcSlot slot, void *context) {
+  (void)context;
+  aihc_verify_value((AihcValue *)(uintptr_t)slot);
+  return slot;
+}
+
+/* Scan one reachable object: its pointer fields, the static objects its
+   code reaches, and for a frame the parent link. */
+static void aihc_verify_scan(AihcValue *object) {
+  aihc_verify_parent = object;
+  if (aihc_visit_runtime_object(object, aihc_verify_slot, NULL)) {
+    return;
+  }
+  const AihcInfo *info = aihc_value_info_table(object);
+  aihc_verify_srt(info->srt);
+  aihc_visit_plain_fields(object, aihc_verify_slot, NULL);
+  if (aihc_region_kind(object) == AIHC_REGION_STACK && info->field_count != 0) {
+    AihcValue *parent = (AihcValue *)(uintptr_t)object->fields[0];
+    if (parent != NULL) {
+      if (aihc_region_kind(parent) != AIHC_REGION_STACK ||
+          aihc_stack_chunk_of(parent)->stack !=
+              aihc_stack_chunk_of(object)->stack ||
+          !aihc_frame_above(object, parent)) {
+        aihc_fail("verifier: a frame's parent is not below it in its stack");
+      }
+    }
+  }
+}
+
+/* Check one entry of the remembered set: an allocated old object. */
+static void aihc_verify_remembered(const AihcValue *object) {
+  switch (aihc_region_kind(object)) {
+  case AIHC_REGION_GEN1:
+  case AIHC_REGION_LARGE:
+  case AIHC_REGION_PINNED:
+  case AIHC_REGION_OUTSIDE:
+    break;
+  case AIHC_REGION_GEN2: {
+    AihcSegment *segment = aihc_segment_of(object);
+    if (!aihc_segment_occupied(segment,
+                               aihc_segment_slot_of(segment, object))) {
+      aihc_fail("verifier: the remembered set holds a freed gen2 object");
+    }
+    break;
+  }
+  default:
+    aihc_fail("verifier: the remembered set holds an invalid address");
+  }
+  if (aihc_header_is_forward(object->header)) {
+    aihc_fail("verifier: the remembered set holds a forwarded object");
+  }
+  if (aihc_value_info_table(object)->object_kind > AIHC_OBJECT_IO_HANDLE) {
+    aihc_fail("verifier: the remembered set holds an invalid object kind");
+  }
+}
+
+/* Check the stacks: every pending frame is live in its stack, and the
+   chunks of a stack grow older from its top, so the walk of a collection
+   that stops at the first older chunk misses nothing. */
+static void aihc_verify_stacks(const AihcMachine *machine) {
+  AihcStackChunk *running = machine->stack_next == NULL
+                                ? NULL
+                                : aihc_stack_chunk_of(machine->stack_next - 1);
+  if (running != NULL && running->stack == NULL) {
+    aihc_fail("verifier: the stack pointer is in a released chunk");
+  }
+  for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
+    for (size_t index = 0; index < stack->pending_count; ++index) {
+      const AihcValue *frame = stack->pending[index];
+      if (aihc_region_kind(frame) != AIHC_REGION_STACK ||
+          aihc_stack_chunk_of(frame)->stack != stack) {
+        aihc_fail("verifier: a pending frame is not in its stack");
+      }
+      if (!aihc_frame_is_live(machine, frame)) {
+        aihc_fail("verifier: a pending frame is popped");
+      }
+    }
+    AihcStackChunk *top = NULL;
+    if (running != NULL && running->stack == stack) {
+      top = running;
+    } else if (stack->top != NULL) {
+      top = aihc_stack_chunk_of(stack->top);
+    }
+    unsigned generation = 0;
+    for (AihcStackChunk *chunk = top; chunk != NULL; chunk = chunk->below) {
+      if (chunk->stack != stack) {
+        aihc_fail("verifier: a chunk of a stack names another stack");
+      }
+      if (aihc_chunk_generation(chunk) < generation) {
+        aihc_fail("verifier: a chunk is younger than the chunk above it");
+      }
+      generation = aihc_chunk_generation(chunk);
+    }
+  }
+}
+
+static void aihc_gc_verify(AihcMachine *machine, uint64_t root_count,
+                           AihcSlot *roots, const AihcSrt *srt) {
+  aihc_verify_machine = machine;
+  aihc_verify_parent = NULL;
+  aihc_address_set_clear(&aihc_verify_seen);
+  aihc_address_set_clear(&aihc_verify_pinned);
+  aihc_address_set_clear(&aihc_verify_srts);
+  aihc_verify_work.count = 0;
+  aihc_verify_srt_work.count = 0;
+  for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
+       block = block->next) {
+    (void)aihc_address_set_insert(&aihc_verify_pinned, (AihcValue *)block);
+  }
+  aihc_verify_stacks(machine);
+  for (uint64_t index = 0; index < machine->remembered_count; ++index) {
+    aihc_verify_remembered(machine->remembered[index]);
+  }
+  aihc_visit_roots(machine, root_count, roots, aihc_verify_slot, NULL);
+  aihc_verify_srt(srt);
+  for (const AihcForeignFrame *frame = machine->foreign_frames; frame != NULL;
+       frame = frame->previous) {
+    aihc_verify_srt(frame->srt);
+  }
+  for (AihcStableName *name = machine->stable_names; name != NULL;
+       name = name->next) {
+    aihc_verify_value((AihcValue *)name);
+    aihc_verify_value(name->value);
+  }
+  const AihcBlackholeTable *table = machine->blackholes;
+  if (table != NULL) {
+    for (size_t index = 0; index < table->capacity; ++index) {
+      AihcValue *object = table->entries[index].object;
+      if (object == NULL) {
+        continue;
+      }
+      if (aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE ||
+          (object->header & AIHC_HEADER_WAITERS) == 0) {
+        aihc_fail("verifier: a blackhole table key is not a contended thunk");
+      }
+    }
+  }
+  for (;;) {
+    if (aihc_verify_srt_work.count != 0) {
+      const AihcSrt *table_entry =
+          aihc_verify_srt_work.items[--aihc_verify_srt_work.count];
+      for (uintptr_t index = 0; index < table_entry->object_count; ++index) {
+        aihc_verify_value((AihcValue *)table_entry->entries[index]);
+      }
+      for (uintptr_t index = 0; index < table_entry->child_count; ++index) {
+        aihc_verify_srt((const AihcSrt *)table_entry
+                            ->entries[table_entry->object_count + index]);
+      }
+      continue;
+    }
+    if (aihc_verify_work.count != 0) {
+      aihc_verify_scan(aihc_verify_work.items[--aihc_verify_work.count]);
+      continue;
+    }
+    break;
+  }
+}
+
+#endif
 
 /* The heap walk of the test drivers. */
 
