@@ -1084,6 +1084,10 @@ static AihcThread *aihc_dequeue_thread(AihcMachine *machine) {
   if (machine->run_queue_head == NULL) {
     machine->run_queue_tail = NULL;
   }
+  /* The link to the next thread is deleted from an old record. The barrier
+     shades it, so a gen2 cycle that took its snapshot with the thread on
+     the queue still marks the threads behind it. */
+  aihc_write_barrier(machine, (AihcValue *)thread);
   thread->next = NULL;
   return thread;
 }
@@ -1413,6 +1417,10 @@ static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
 static const AihcResume *aihc_select_thread(AihcMachine *machine,
                                             AihcThread *thread) {
   AihcResume *resume = &machine->selected_resume;
+  /* The resumption is deleted from the record. The barrier shades its
+     function, continuation, and value, which only the running code names
+     from now on. */
+  aihc_write_barrier(machine, (AihcValue *)thread);
   resume->kind = thread->resume_kind;
   resume->function = thread->resume_function;
   resume->continuation = thread->resume_continuation;
@@ -1440,6 +1448,9 @@ void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
   AihcValue *continuation = request->continuation;
   request->state = AIHC_IO_COMPLETED;
   request->result = result;
+  /* The thread and the continuation are deleted from an old record, as in
+     aihc_dequeue_thread. */
+  aihc_write_barrier(machine, (AihcValue *)request);
   request->thread = NULL;
   request->continuation = NULL;
   request->next = NULL;
@@ -1703,6 +1714,9 @@ static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcMVarWaiter **head,
   if (*head == NULL) {
     *tail = NULL;
   }
+  /* The link to the next waiter is deleted from an old record, as in
+     aihc_dequeue_thread. */
+  aihc_write_barrier(aihc_process_machine, (AihcValue *)waiter);
   waiter->next = NULL;
   return waiter;
 }

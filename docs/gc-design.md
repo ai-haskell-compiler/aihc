@@ -255,9 +255,11 @@ cycles, and the bytes of each generation after the last collection.
 - `aihc_helpers.lir` emits the barrier fast path in the inline update.
 - `aihc_constants.lir` and `Aihc.Lir.Lower` share the new region constants as
   they share the stack chunk constants today.
-- The GC fuzz driver in `bin/aihc/compiler/native/test/gc-fuzz` gains
-  commands for promotion, barrier stores, and slices, and its model gains
-  generations.
+- The GC fuzz driver in `bin/aihc/compiler/native/test/gc-fuzz` plays
+  compiled code for several threads with real stacks. Its model checks
+  reachability, not policy. The verifier in `aihc_gc.c`, built under
+  `AIHC_GC_VERIFY`, checks the invariants of the collector after each
+  collection. See the fuzz test section of `docs/native-runtime-objects.md`.
 
 ## Build order
 
