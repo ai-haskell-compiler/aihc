@@ -1,0 +1,29 @@
+extensions:
+  - PolyKinds
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE PolyKinds #-}
+    {-# LANGUAGE RankNTypes #-}
+    module Test where
+
+    import Data.Functor.Const (Const (..))
+    import Data.Functor.Identity (Identity (..))
+
+    data Two f = Two (f Int) (f Bool)
+
+    traverseTwo :: Applicative e => (forall a. f a -> e (g a)) -> Two f -> e (Two g)
+    traverseTwo h (Two a b) = Two <$> h a <*> h b
+
+    -- Nothing fixes the functor @g@ of the traversal, so it defaults to
+    -- @Any@ at a function kind, as in GHC.
+    foldMapTwo :: Monoid m => (forall a. f a -> m) -> Two f -> m
+    foldMapTwo f = getConst . traverseTwo (Const . f)
+
+    result :: Bool
+    result = length (foldMapTwo (\_ -> [()]) (Two (Identity 1) (Identity True))) == 2
+expression: result
+output: |
+  True
+status: pass
+reason: an ambiguous type variable of a function kind defaults to Any, which keeps its kind when it is applied

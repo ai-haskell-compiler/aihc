@@ -4,6 +4,7 @@
 module Aihc.Tc.Unify
   ( unify,
     unifyDeferring,
+    unifyDeferringUnderGivens,
     unifyTypes,
   )
 where
@@ -41,15 +42,11 @@ unifyDeferring loc origin t1 t2 = do
   t2' <- zonkType t2 >>= reduceTypeFamilies
   result <- unifyCollecting loc t1' t2'
   case result of
-    Left err -> report err >> pure []
+    Left err -> reportUnifyError loc origin err >> pure []
     -- The rest of the unification may have solved the meta variables
     -- that kept an application from reducing, so retry before deferring.
     Right deferred -> concat <$> mapM retry deferred
   where
-    report (UnificationError left right _ provenance) =
-      emitError loc (UnificationError left right origin provenance)
-    report err = emitError loc err
-
     retry (left, right) = do
       left' <- zonkType left >>= reduceTypeFamilies
       right' <- zonkType right >>= reduceTypeFamilies
@@ -59,7 +56,28 @@ unifyDeferring loc origin t1 t2 = do
           result <- unifyTypesAt loc left' right'
           case result of
             Right () -> pure []
-            Left err -> report err >> pure []
+            Left err -> reportUnifyError loc origin err >> pure []
+
+-- | Unify two types as 'unifyDeferring' does, but return each equality
+-- that a type family application holds back without a retry. A caller
+-- with givens in scope uses it: a given can prove such an equality when
+-- no solution of a meta variable can, as the given @StM m a ~ a@ proves
+-- @StM m a ~ a@.
+unifyDeferringUnderGivens :: Maybe SourceSpan -> CtOrigin -> TcType -> TcType -> TcM [(TcType, TcType)]
+unifyDeferringUnderGivens loc origin t1 t2 = do
+  t1' <- zonkType t1 >>= reduceTypeFamilies
+  t2' <- zonkType t2 >>= reduceTypeFamilies
+  result <- unifyCollecting loc t1' t2'
+  case result of
+    Left err -> reportUnifyError loc origin err >> pure []
+    Right deferred -> pure deferred
+
+reportUnifyError :: Maybe SourceSpan -> CtOrigin -> TcErrorKind -> TcM ()
+reportUnifyError loc origin err =
+  case err of
+    UnificationError left right _ provenance ->
+      emitError loc (UnificationError left right origin provenance)
+    _ -> emitError loc err
 
 -- | Attempt to unify two types, returning an error kind on failure.
 unifyTypes :: TcType -> TcType -> TcM (Either TcErrorKind ())

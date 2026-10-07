@@ -76,10 +76,14 @@ givenEqualities visited (predicate, evidence) = case predicate of
       ]
   IrredPred constraint -> do
     kinds <- getKinds
-    pure $ case constraintTypeToPred kinds constraint of
+    case constraintTypeToPred kinds constraint of
       Just equality@(EqPred left right) ->
-        [(left, right, EvidenceCo equality (EvSuperClass evidence Nothing predicate [constraint] 0))]
-      _ -> []
+        pure [(left, right, EvidenceCo equality (EvSuperClass evidence Nothing predicate [constraint] 0))]
+      -- A constraint variable that an instantiation solved to a class,
+      -- such as @c@ of @Dict c@ at @Pure m a@, has the superclass
+      -- equalities of that class. The given dictionary is the evidence.
+      Just classPredicate@ClassPred {} -> givenEqualities visited (classPredicate, evidence)
+      _ -> pure []
   ClassPred tyCon arguments
     | tyCon `notElem` visited -> do
         maybeInfo <- lookupClass tyCon
