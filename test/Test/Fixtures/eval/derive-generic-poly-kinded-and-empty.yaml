@@ -1,0 +1,78 @@
+extensions:
+  - DeriveGeneric
+  - EmptyCase
+  - KindSignatures
+  - PolyKinds
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE EmptyCase #-}
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE PolyKinds #-}
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import Data.Functor.Const (Const (..))
+    import Data.Kind (Type)
+    import GHC.Generics
+
+    class Count (f :: Type -> Type) where
+      count :: f p -> Int
+
+    instance Count U1 where
+      count _ = 0
+
+    instance Count V1 where
+      count _ = 0
+
+    instance Count (K1 i a) where
+      count _ = 1
+
+    instance (Count a) => Count (M1 i c a) where
+      count (M1 x) = count x
+
+    instance (Count a, Count b) => Count (a :*: b) where
+      count (x :*: y) = count x + count y
+
+    -- A poly-kinded datatype: the instance binds the kind variable.
+    data Unit (f :: k -> Type) = Unit
+      deriving (Generic)
+
+    data Pair (f :: k -> Type) (a :: k) = Pair (f a) (f a)
+      deriving (Generic)
+
+    -- An empty datatype has the representation V1.
+    data Empty (f :: k -> Type)
+      deriving (Generic)
+
+    -- The field applies a variable to a poly-kinded constructor.
+    newtype Container b a = Container (b (Const a))
+      deriving (Generic)
+
+    newtype Box (f :: Type -> Type) = Box (f Int)
+
+    unitFields :: Int
+    unitFields = count (from (Unit :: Unit Maybe))
+
+    pairFields :: Int
+    pairFields = count (from (Pair (Just 'a') Nothing))
+
+    roundTrip :: Bool
+    roundTrip = case to (from (Pair [True] [False])) of
+      Pair [True] [False] -> True
+      _ -> False
+
+    container :: Int
+    container = count (from (Container (Box (Const 'x')) :: Container Box Char))
+
+    emptyFields :: Empty Maybe -> Int
+    emptyFields value = count (from value)
+
+    result :: Bool
+    result = unitFields == 0 && pairFields == 2 && roundTrip && container == 1
+expression: result
+output: |
+  True
+status: pass
+reason: stock Generic deriving covers a poly-kinded datatype, an empty datatype, and a field that applies a variable to a poly-kinded constructor

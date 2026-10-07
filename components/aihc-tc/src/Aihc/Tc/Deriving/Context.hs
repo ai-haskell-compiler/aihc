@@ -55,7 +55,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Dict (matchInstanceKinds)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Types
-import Control.Monad (foldM)
+import Control.Monad (foldM, unless)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -458,7 +458,9 @@ stockFieldTypes plan = do
       Right
       (tcDerivingDataType plan)
   targetArguments <- targetTypeArguments mechanism dataType plan
-  validateStockDataType mechanism dataType
+  -- An empty datatype has a Generic representation, @V1@, as in GHC.
+  unless (null (dtiConstructors dataType) && stockClassMethodsOf (tcDerivingClassName plan) == Just StockGenericMethods) $
+    validateStockDataType mechanism dataType
   let substitution =
         Map.fromList
           [ (tvUnique tyVar, argument)

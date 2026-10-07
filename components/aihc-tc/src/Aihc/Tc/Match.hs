@@ -44,6 +44,15 @@ matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
 -- @CmdM m@: the head takes all arguments but the last one.
 matchOne subst (TcAppTy f a, TcTyCon targetTc targetArgs@(_ : _)) =
   matchOne subst (f, TcTyCon targetTc (init targetArgs)) >>= \subst' -> matchOne subst' (a, last targetArgs)
+-- Two quantified types match when their bodies do, with the pattern's
+-- bound variable standing for the target's. A default signature and its
+-- method share @forall a. f a -> e (g a)@ with different binders. The bound
+-- variable must not escape into the binding of a pattern variable.
+matchOne subst (TcForAllTy tv body, TcForAllTy targetTv targetBody) = do
+  inner <- matchOne (Map.insert (tvUnique tv) (TcTyVar targetTv) subst) (body, targetBody)
+  let result = maybe (Map.delete (tvUnique tv) inner) (\previous -> Map.insert (tvUnique tv) previous inner) (Map.lookup (tvUnique tv) subst)
+      escapes = or [typeMentionsTyVar targetTv bound | (unique, bound) <- Map.toList result, Map.lookup unique subst /= Just bound]
+  if escapes then Nothing else Just result
 matchOne subst (patternTy, targetTy)
   | patternTy == targetTy = Just subst
   | otherwise = Nothing

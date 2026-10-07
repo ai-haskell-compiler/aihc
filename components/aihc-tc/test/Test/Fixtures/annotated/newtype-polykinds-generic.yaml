@@ -13,7 +13,7 @@ modules:
   {-# LANGUAGE StarIsType, DeriveGeneric, NoImplicitPrelude, PolyKinds #-}
   module Test where
   import GHC.Generics (Generic, Generic1)
-  newtype Wrapper f a = Wrapper (f a) deriving (Generic, Generic1)
-  newtype Constant a b = Constant a deriving (Generic, Generic1)
+  newtype Wrapper f a = Wrapper (f a) deriving (Generic1)
+  newtype Constant a b = Constant a deriving (Generic1)
 status: pass
-reason: a poly-kinded newtype specializes the kind of its Generic1 head, and neither Generic nor Generic1 generates an instance for it yet.
+reason: a poly-kinded newtype specializes the kind of its Generic1 head, and Generic1 generates no instance for it yet.

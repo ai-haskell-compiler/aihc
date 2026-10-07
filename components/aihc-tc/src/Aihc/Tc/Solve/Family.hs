@@ -286,14 +286,27 @@ firstEquation family kindOf equations arguments argumentKinds extraArguments =
           | Just patternKinds <- traverse kindOf patterns,
             Just kindSubstitution <- matchTypes patternKinds argumentKinds,
             Just substitution <- matchTypes patterns arguments,
-            Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution) ->
-              Just (applySubst (substitution <> kindSubstitution <> resultSubstitution) (tfiiRight equation))
+            let variableSubstitution = variableKinds equation substitution,
+            Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
+              Just (applySubst (substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution) (tfiiRight equation))
           | tfiiClosed equation,
             and (zipWith (couldUnify family) patterns arguments),
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
         _ -> firstEquation family kindOf rest arguments argumentKinds extraArguments
   where
+    -- A kind variable that only the kind of an equation variable names:
+    -- in @Rep (C b a) = ... (b (Const a))@ with @b :: (k -> Type) -> Type@,
+    -- the right-hand side applies @Const@ at @k@, but no argument kind
+    -- mentions @k@. The kind of the type that @b@ matched gives it.
+    variableKinds equation substitution =
+      let pairs =
+            [ (tvKind variable, actualKind)
+            | variable <- tfiiTyVars equation,
+              Just actual <- [Map.lookup (tvUnique variable) substitution],
+              Just actualKind <- [kindOf actual]
+            ]
+       in fromMaybe Map.empty (matchTypes (map fst pairs) (map snd pairs))
     matchResultKinds _ _ | null extraArguments = Just Map.empty
     matchResultKinds equation substitution = do
       resultKind <- applySubst substitution <$> kindOf (tfiiLeft equation)

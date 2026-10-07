@@ -1,0 +1,78 @@
+extensions:
+  - FlexibleContexts
+  - KindSignatures
+  - PolyKinds
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts, KindSignatures, PolyKinds, RankNTypes #-}
+    module Test where
+    import GHC.Types (Type)
+    class FunctorT (t :: (k -> Type) -> k' -> Type) where
+      tmap :: (forall a. f a -> g a) -> t f x -> t g x
+    class FunctorT t => MonadT t where
+      tjoin :: t (t f) a -> t f a
+      tjoin = tembed (\x -> x)
+      -- The method repeats the constraint of its class.
+      tembed :: MonadT t => (forall x. f x -> t g x) -> t f a -> t g a
+      tembed h x = tjoin (tmap h x)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.t$Dict$FunctorT (k : sType) (k' : sType) (t : (k 2.→ sType) 2.→ k' 2.→ sType) :: sType {
+    pub 1.c$Dict$FunctorT :: ∀(k : sType) (k' : sType) (t : (k 2.→ sType) 2.→ k' 2.→ sType). (∀(f : k 2.→ sType) (g : k 2.→ sType) (x : k'). (∀(a : k). f a 2.→ g a) 2.→ t f x 2.→ t g x) 2.→ t$Dict$FunctorT k k' t
+  }
+
+  pub type 1.t$Dict$MonadT (k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) :: sType {
+    pub 1.c$Dict$MonadT :: ∀(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType). t$Dict$FunctorT k0 k0 t 2.→ (∀(f : k0 2.→ sType) (a : k0). t (t f) a 2.→ t f a) 2.→ (∀(f : k0 2.→ sType) (g : k0 2.→ sType) (a : k0). t$Dict$MonadT k0 t 2.→ (∀(x : k0). f x 2.→ t g x) 2.→ t f a 2.→ t g a) 2.→ t$Dict$MonadT k0 t
+  }
+
+  pub val 1.vtmap :: ∀(k : sType) (k' : sType) (t : (k 2.→ sType) 2.→ k' 2.→ sType) (f : k 2.→ sType) (g : k 2.→ sType) (x : k'). t$Dict$FunctorT k k' t 2.→ (∀(a : k). f a 2.→ g a) 2.→ t f x 2.→ t g x
+    = Λ(k : sType) (k' : sType) (t : (k 2.→ sType) 2.→ k' 2.→ sType) (f : k 2.→ sType) (g : k 2.→ sType) (x : k').
+    λ($d0 : t$Dict$FunctorT k k' t).
+      let! c$Dict$FunctorT ($method0 : ∀(f{1} : k 2.→ sType) (g{1} : k 2.→ sType) (x{1} : k'). (∀(a : k). f{1} a 2.→ g{1} a) 2.→ t f{1} x{1} 2.→ t g{1} x{1}) =
+        $d0;
+      $method0 @f @g @x
+
+  pub val 1.vtjoin :: ∀(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (a : k0). t$Dict$MonadT k0 t 2.→ t (t f) a 2.→ t f a
+    = Λ(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (a : k0). λ($d0 : t$Dict$MonadT k0 t).
+      let! c$Dict$MonadT ($method0 : t$Dict$FunctorT k0 k0 t) ($method1 : ∀(f{1} : k0 2.→ sType) (a{1} : k0). t (t f{1}) a{1} 2.→ t f{1} a{1}) ($method2 : ∀(f{1} : k0 2.→ sType) (g : k0 2.→ sType) (a{1} : k0). t$Dict$MonadT k0 t 2.→ (∀(x : k0). f{1} x 2.→ t g x) 2.→ t f{1} a{1} 2.→ t g a{1}) =
+        $d0;
+      $method1 @f @a
+
+  pub val 1.vtembed :: ∀(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (g : k0 2.→ sType) (a : k0). t$Dict$MonadT k0 t 2.→ t$Dict$MonadT k0 t 2.→ (∀(x : k0). f x 2.→ t g x) 2.→ t f a 2.→ t g a
+    = Λ(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (g : k0 2.→ sType) (a : k0).
+    λ($d0 : t$Dict$MonadT k0 t) ($d1 : t$Dict$MonadT k0 t).
+      let! c$Dict$MonadT ($method0 : t$Dict$FunctorT k0 k0 t) ($method1 : ∀(f{1} : k0 2.→ sType) (a{1} : k0). t (t f{1}) a{1} 2.→ t f{1} a{1}) ($method2 : ∀(f{1} : k0 2.→ sType) (g{1} : k0 2.→ sType) (a{1} : k0). t$Dict$MonadT k0 t 2.→ (∀(x : k0). f{1} x 2.→ t g{1} x) 2.→ t f{1} a{1} 2.→ t g{1} a{1}) =
+        $d0;
+      $method2 @f @g @a $d1
+
+  pub val 1.v$dmtjoin :: ∀(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (a : k0). t$Dict$MonadT k0 t 2.→ t (t f) a 2.→ t f a
+    = Λ(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (a : k0). λ($d0 : t$Dict$MonadT k0 t).
+      vtembed @k0 @t @(t f) @f @a $d0 $d0 (Λ(x : k0). λ(x{1} : t f x).
+        x{1})
+
+  pub val 1.v$dmtembed :: ∀(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (g : k0 2.→ sType) (a : k0). t$Dict$MonadT k0 t 2.→ t$Dict$MonadT k0 t 2.→ (∀(x : k0). f x 2.→ t g x) 2.→ t f a 2.→ t g a
+    = Λ(k0 : sType) (t : (k0 2.→ sType) 2.→ k0 2.→ sType) (f : k0 2.→ sType) (g : k0 2.→ sType) (a : k0).
+    λ($d0 : t$Dict$MonadT k0 t) ($d1 : t$Dict$MonadT k0 t) (x : ∀(x : k0). f x 2.→ t g x) (y : t f a).
+      vtjoin @k0 @t @g @a $d0 (vtmap @k0 @k0 @t @f @(t g) @a (let! c$Dict$MonadT ($super_field0 : t$Dict$FunctorT k0 k0 t) ($super_field1 : ∀(f{1} : k0 2.→ sType) (a{1} : k0). t (t f{1}) a{1} 2.→ t f{1} a{1}) ($super_field2 : ∀(f{1} : k0 2.→ sType) (g{1} : k0 2.→ sType) (a{1} : k0). t$Dict$MonadT k0 t 2.→ (∀(x{1} : k0). f{1} x{1} 2.→ t g{1} x{1}) 2.→ t f{1} a{1} 2.→ t g{1} a{1}) =
+        $d0;
+      $super_field0) (Λ(a{1} : k0).
+        x @a{1}) y)
+status: pass
+reason: A class method whose signature repeats the class constraint keeps that constraint
+  in the dictionary field and in its default method.

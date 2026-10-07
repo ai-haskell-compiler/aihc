@@ -700,7 +700,11 @@ typeableArguments ty =
 givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
 givenRewriteRuleSets givens = do
   written <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
-  equalities <- concat <$> mapM (decomposeGiven (8 :: Int)) written
+  decomposed <- concat <$> mapM (decomposeGiven (8 :: Int)) written
+  -- A rule is compared with a wanted whose families are reduced, so its
+  -- sides are reduced too. The proof still names the given as written.
+  reduced <- traverse (\(left, right, proof) -> (,,proof) <$> reduceTypeFamilies left <*> reduceTypeFamilies right) decomposed
+  let equalities = decomposed <> [equality | equality@(left, right, _) <- reduced, (left, right) `notElem` [(l, r) | (l, r, _) <- decomposed]]
   oriented <- mapM orient equalities
   let familyRules = concat [rules | (rules, _) <- oriented]
       variableRules = concat [rules | (_, rules) <- oriented]
@@ -739,7 +743,12 @@ givenRewriteRuleSets givens = do
         (True, False) -> ([(left, right, proof)], [])
         (False, True) -> ([(right, left, Sym proof)], [])
         (False, False) -> ([], variableRule left right proof)
-        (True, True) -> ([], [])
+        -- Two family applications have no preferred side. Each direction
+        -- is an alternative: the given @AllB c b ~ GAll 0 c (Rep b)@
+        -- rewrites a wanted @GAll 0 c (Rep b)@ to the given @AllB c b@.
+        (True, True)
+          | sameType left right -> ([], [])
+          | otherwise -> ([], [(left, right, proof), (right, left, Sym proof)])
     variableRule left right proof =
       case (left, right) of
         (TcTyVar leftVar, TcTyVar rightVar)

@@ -1,0 +1,52 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, MagicHash, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Coercible, Type)
+  import GHC.Prim (unsafeCoerce#)
+  import Wrap (Backwards (..))
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  class MonadT (t :: (k -> Type) -> k -> Type) where
+  └─ class methods: tjoin ∷ ∀ k t f a. (MonadT t) ⇒ t (t f) a → t f a
+    tjoin :: t (t f) a -> t f a
+  -- The left side unwraps one newtype layer to the right side.
+  instance MonadT Backwards where
+  └─ $fMonadTBackwards ∷ ∀ k0. () ⇒ MonadT Backwards
+    tjoin = coerce
+    │       └─ type: Wrap.Backwards (Wrap.Backwards f) a → Wrap.Backwards f a; type-args: Backwards (Backwards f) a, Backwards f a; evidence: coercible @Backwards (Backwards f) a @Backwards f a
+    └─ tjoin ∷ ∀ f a. Backwards (Backwards f) a → Backwards f a
+- |-
+  {-# LANGUAGE KindSignatures, MagicHash, PolyKinds, RankNTypes #-}
+  module Wrap where
+  import GHC.Types (Type)
+  newtype Backwards f a = Backwards (f a)
+          │               └─ type: ∀ k0 f a. f a → Backwards f a
+          └─ type: (k0 → Type) → k0 → Type
+extensions:
+- MagicHash
+- PolyKinds
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE KindSignatures, MagicHash, PolyKinds, RankNTypes #-}
+  module Wrap where
+  import GHC.Types (Type)
+  newtype Backwards f a = Backwards (f a)
+- |
+  {-# LANGUAGE KindSignatures, MagicHash, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Coercible, Type)
+  import GHC.Prim (unsafeCoerce#)
+  import Wrap (Backwards (..))
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  class MonadT (t :: (k -> Type) -> k -> Type) where
+    tjoin :: t (t f) a -> t f a
+  -- The left side unwraps one newtype layer to the right side.
+  instance MonadT Backwards where
+    tjoin = coerce
+reason: a Coercible wanted unwraps one layer of a nested poly-kinded newtype
+status: pass

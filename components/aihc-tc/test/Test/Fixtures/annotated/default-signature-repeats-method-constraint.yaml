@@ -1,0 +1,52 @@
+annotated:
+- |-
+  {-# LANGUAGE DefaultSignatures, KindSignatures, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  class Ap (e :: Type -> Type) where
+  └─ class methods: pureAp ∷ ∀ e a. (Ap e) ⇒ a → e a
+    pureAp :: a -> e a
+  class Derivable (b :: (k -> Type) -> Type)
+  └─ class methods:
+  data Unit (f :: k -> Type) = Unit
+       │                       └─ type: ∀ k f. Unit f
+       └─ type: (k → Type) → Type
+  instance Derivable Unit
+  └─ $fDerivableUnit ∷ ∀ k0. () ⇒ Derivable Unit
+  traverseDefault :: (Ap e, Derivable b) => (forall a. f a -> e (g a)) -> b f -> e (b g)
+  traverseDefault = traverseDefault
+  │                 └─ type: (∀ a. f a → e (g a)) → b f → e (b g); type-args: k0, e, b, f, g; evidence: given Ap e, given Derivable b
+  └─ type: ∀ k0 e b f g. (Ap e, Derivable b) ⇒ (∀ a. f a → e (g a)) → b f → e (b g)
+  class Traversable' (b :: (k -> Type) -> Type) where
+  └─ class methods: btraverse ∷ ∀ k b e f g. (Traversable' b, Ap e) ⇒ (∀ a. f a → e (g a)) → b f → e (b g)
+    btraverse :: Ap e => (forall a. f a -> e (g a)) -> b f -> e (b g)
+    -- The default signature repeats the constraint of the method.
+    default btraverse :: (Ap e, Derivable b) => (forall a. f a -> e (g a)) -> b f -> e (b g)
+    btraverse = traverseDefault
+    │           └─ type: (∀ a. f a → e (g a)) → b f → e (b g); type-args: k, e, b, f, g; evidence: given Ap e, given Derivable b
+    └─ btraverse ∷ ∀ k b e f g. (Traversable' b, Ap e, Derivable b) ⇒ (∀ a. f a → e (g a)) → b f → e (b g)
+  instance Traversable' Unit
+  └─ $fTraversable'Unit ∷ ∀ k0. () ⇒ Traversable' Unit
+extensions:
+- DefaultSignatures
+- PolyKinds
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, KindSignatures, PolyKinds, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  class Ap (e :: Type -> Type) where
+    pureAp :: a -> e a
+  class Derivable (b :: (k -> Type) -> Type)
+  data Unit (f :: k -> Type) = Unit
+  instance Derivable Unit
+  traverseDefault :: (Ap e, Derivable b) => (forall a. f a -> e (g a)) -> b f -> e (b g)
+  traverseDefault = traverseDefault
+  class Traversable' (b :: (k -> Type) -> Type) where
+    btraverse :: Ap e => (forall a. f a -> e (g a)) -> b f -> e (b g)
+    -- The default signature repeats the constraint of the method.
+    default btraverse :: (Ap e, Derivable b) => (forall a. f a -> e (g a)) -> b f -> e (b g)
+    btraverse = traverseDefault
+  instance Traversable' Unit
+status: pass
