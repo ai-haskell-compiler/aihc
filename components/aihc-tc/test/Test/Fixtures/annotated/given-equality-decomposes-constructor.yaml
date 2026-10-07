@@ -1,0 +1,48 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, FlexibleInstances, GADTs, MultiParamTypeClasses, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+
+  data Proxy a = Proxy
+       │         └─ type: ∀ a. Proxy a
+       └─ type: (Type → Type) → Type
+  newtype M1 f x = M1 (f x)
+          │        └─ type: ∀ f x. f x → M1 f x
+          └─ type: (Type → Type) → Type → Type
+
+  class Pure f g where
+  └─ class methods: pure' ∷ ∀ f g x. (Pure f g, f ~ g) ⇒ Proxy f → f x → f x
+    pure' :: (f ~ g) => Proxy f -> f x -> f x
+
+  -- The given @M1 f ~ M1 g@ gives @f ~ g@, which the recursive use needs.
+  instance Pure f g => Pure (M1 f) (M1 g) where
+  └─ $fPureM1fM1g ∷ ∀ f g. (Pure f g) ⇒ Pure (M1 f) (M1 g)
+    pure' _ (M1 x) = M1 (pure' (Proxy @f) x)
+    │     │  │  │    │   │      └─ type: Proxy f; type-args: f
+    │     │  │  │    │   └─ type: Proxy f → f x → f x; type-args: f, f, x; evidence: cast(cast(given Pure f g, Pure nth[0](given M1 f ~ M1 g) refl g), sym (Pure nth[0](given M1 f ~ M1 g) nth[0](given M1 f ~ M1 g))), refl f
+    │     │  │  │    └─ type: f x → M1 f x; type-args: f, x
+    │     │  │  └─ type: f x
+    │     │  └─ type: M1 f x
+    │     └─ type: Proxy (M1 f)
+    └─ pure' ∷ ∀ x. ((M1 f) ~ (M1 g)) ⇒ Proxy (M1 f) → M1 f x → M1 f x
+extensions:
+- FlexibleContexts
+- GADTs
+- MultiParamTypeClasses
+- ScopedTypeVariables
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, FlexibleInstances, GADTs, MultiParamTypeClasses, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+
+  data Proxy a = Proxy
+  newtype M1 f x = M1 (f x)
+
+  class Pure f g where
+    pure' :: (f ~ g) => Proxy f -> f x -> f x
+
+  -- The given @M1 f ~ M1 g@ gives @f ~ g@, which the recursive use needs.
+  instance Pure f g => Pure (M1 f) (M1 g) where
+    pure' _ (M1 x) = M1 (pure' (Proxy @f) x)
+status: pass

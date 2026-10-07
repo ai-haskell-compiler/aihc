@@ -32,6 +32,7 @@ import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
+import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
@@ -117,8 +118,7 @@ solveNormalizedDict visited givens ct
                   solved <- case info of
                     Just classInfo
                       | null (ciMethods classInfo),
-                        null (ciSuperClassTypes classInfo),
-                        null (ciKindTyVars classInfo) -> do
+                        null (ciSuperClassTypes classInfo) -> do
                           direct <- solveCoercible className givens' left right
                           if direct
                             then pure True
@@ -699,12 +699,39 @@ typeableArguments ty =
 -- the other.
 givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
 givenRewriteRuleSets givens = do
-  equalities <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
+  written <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
+  equalities <- concat <$> mapM (decomposeGiven (8 :: Int)) written
   oriented <- mapM orient equalities
   let familyRules = concat [rules | (rules, _) <- oriented]
       variableRules = concat [rules | (_, rules) <- oriented]
   pure (familyRules : [familyRules <> [rule] | rule <- variableRules])
   where
+    -- A given equality between two applications of one constructor also
+    -- gives the equalities of their arguments: @M1 f ~ M1 g@ gives @f ~
+    -- g@, which can rewrite a wanted @C f@ to the given @C g@. Each part
+    -- keeps the given and its projection, and the projection numbers the
+    -- arguments from the last one, as 'NthCo' does.
+    decomposeGiven depth equality@(left, right, proof)
+      | depth <= 0 || not (decomposable left && decomposable right) = pure [equality]
+      | otherwise = do
+          children <- decomposeNominalEquality left right
+          case children of
+            Nothing -> pure [equality]
+            Just pairs -> do
+              parts <-
+                mapM
+                  (decomposeGiven (depth - 1))
+                  [ (childLeft, childRight, NthCo index proof)
+                  | (index, (childLeft, childRight)) <- zip [0 ..] (reverse pairs),
+                    not (sameType childLeft childRight)
+                  ]
+              pure (equality : concat parts)
+    decomposable ty =
+      case ty of
+        TcTyCon {} -> True
+        TcAppTy {} -> True
+        TcFunTy {} -> True
+        _ -> False
     orient (left, right, proof) = do
       leftIsFamily <- isTypeFamilyApplication left
       rightIsFamily <- isTypeFamilyApplication right

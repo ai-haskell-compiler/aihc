@@ -1,0 +1,47 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeFamilies #-}
+  module Test where
+
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Type)
+
+  data family Param (n :: Natural) (a :: k) :: k
+              └─ type: GHC.Prim.Natural.Natural → k → k
+
+  newtype Rec (p :: Type) a x = Rec a
+          │                     └─ type: ∀ k0 p a x. a → Rec p a x
+          └─ type: Type → Type → k0 → Type
+
+  -- The synonym keeps the kind variable of the family.
+  type P = Param
+       └─ type: GHC.Prim.Natural.Natural → k0 → k0
+
+  type Direct n (f :: k -> Type) a = Rec (Param n f a) (f a)
+       └─ type: GHC.Prim.Natural.Natural → (k0 → Type) → k0 → k1 → Type
+
+  type Synonym n (f :: k -> Type) a = Rec (P n f a) (f a)
+       └─ type: GHC.Prim.Natural.Natural → (k0 → Type) → k0 → k1 → Type
+extensions:
+- DataKinds
+- PolyKinds
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeFamilies #-}
+  module Test where
+
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Type)
+
+  data family Param (n :: Natural) (a :: k) :: k
+
+  newtype Rec (p :: Type) a x = Rec a
+
+  -- The synonym keeps the kind variable of the family.
+  type P = Param
+
+  type Direct n (f :: k -> Type) a = Rec (Param n f a) (f a)
+
+  type Synonym n (f :: k -> Type) a = Rec (P n f a) (f a)
+status: pass

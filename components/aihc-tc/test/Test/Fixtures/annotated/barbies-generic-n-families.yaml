@@ -1,0 +1,63 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Type)
+
+  data family Param (n :: Natural) (a :: k) :: k
+              └─ type: GHC.Prim.Natural.Natural → k → k
+
+  type family Succ (n :: Natural) :: Natural
+              └─ type: GHC.Prim.Natural.Natural → GHC.Prim.Natural.Natural
+
+  -- The recursive use instantiates the kind variable @k@ at a function kind.
+  type family Indexed (t :: k) (i :: Natural) :: k where
+              └─ type: k → GHC.Prim.Natural.Natural → k
+    Indexed (t a) i = Indexed t (Succ i) (Param i a)
+    Indexed t _ = t
+
+  data Pair a b = Pair a b
+       │          └─ type: ∀ a b. a → b → Pair a b
+       └─ type: Type → Type → Type
+  newtype Wrap (p :: Type) a x = Wrap a
+          │                      └─ type: ∀ k0 p a x. a → Wrap p a x
+          └─ type: Type → Type → k0 → Type
+
+  -- The result kind is a function kind.
+  type family Zip (a :: Type -> Type) (b :: Type -> Type) :: Type -> Type where
+              └─ type: (Type → Type) → (Type → Type) → Type → Type
+    Zip (Pair a) (Pair b) = Wrap a b
+    Zip a a = a
+extensions:
+- DataKinds
+- PolyKinds
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Type)
+
+  data family Param (n :: Natural) (a :: k) :: k
+
+  type family Succ (n :: Natural) :: Natural
+
+  -- The recursive use instantiates the kind variable @k@ at a function kind.
+  type family Indexed (t :: k) (i :: Natural) :: k where
+    Indexed (t a) i = Indexed t (Succ i) (Param i a)
+    Indexed t _ = t
+
+  data Pair a b = Pair a b
+  newtype Wrap (p :: Type) a x = Wrap a
+
+  -- The result kind is a function kind.
+  type family Zip (a :: Type -> Type) (b :: Type -> Type) :: Type -> Type where
+    Zip (Pair a) (Pair b) = Wrap a b
+    Zip a a = a
+status: pass
