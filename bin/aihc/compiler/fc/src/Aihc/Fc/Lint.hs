@@ -795,27 +795,35 @@ coercionEndpoints env coercion =
             (zip (axiomBinders declaration) arguments)
           Right (substTypes subst (axiomLeft declaration), substTypes subst (axiomRight declaration))
 
+-- | Check the arguments of a type constructor coercion against the
+-- constructor header. The coercion must give one argument for each
+-- parameter of the header as it is written, so the second type is the
+-- header without the substitution of the arguments. A poly-kinded result,
+-- such as the @k@ of @Param :: forall k. Nat -> k -> k@, can become a
+-- function kind. It is not a parameter of the constructor, but it can take
+-- more arguments: @Param n f a@ with @f :: k0 -> Type@.
 checkTyConCoercion :: TypeEnv -> Type -> [(Type, Type)] -> Either LintError ()
-checkTyConCoercion env = go
+checkTyConCoercion env header = go header header
   where
-    go ty [] =
-      case viewForAll env ty of
-        Just {} -> Left (LintFailure "type constructor coercion arity mismatch")
-        Nothing ->
-          case viewFun env ty of
-            Just {} -> Left (LintFailure "type constructor coercion arity mismatch")
-            Nothing -> Right ()
-    go ty ((left, right) : rest) =
+    go _ written []
+      | isJust (viewForAll env written) || isJust (viewFun env written) =
+          Left (LintFailure "type constructor coercion arity mismatch")
+      | otherwise = Right ()
+    go ty written ((left, right) : rest) =
       case viewForAll env ty of
         Just (binder, body) -> do
           checkCoercionArgumentKind env (binderType binder) left right
-          go (substType (binderName binder) left body) rest
+          go (substType (binderName binder) left body) (writtenResult written) rest
         Nothing ->
           case viewFun env ty of
             Just (_, _, expected, result) -> do
               checkCoercionArgumentKind env expected left right
-              go result rest
+              go result (writtenResult written) rest
             Nothing -> Left (LintFailure "type constructor coercion arity mismatch")
+    writtenResult written =
+      case viewForAll env written of
+        Just (_, body) -> body
+        Nothing -> maybe written (\(_, _, _, result) -> result) (viewFun env written)
 
 checkCoercionArgumentKind :: TypeEnv -> Type -> Type -> Type -> Either LintError ()
 checkCoercionArgumentKind env expected left right = do
