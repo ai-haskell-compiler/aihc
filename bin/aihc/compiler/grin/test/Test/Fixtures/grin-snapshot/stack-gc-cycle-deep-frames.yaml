@@ -1,0 +1,99 @@
+entry: $entry
+gc-stress: true
+rts-arguments: ["+RTS", "-F1", "-RTS"]
+program: |
+  constructor Box/1 [IntRep]
+  constructor Nil/0 []
+  constructor Cons/2 [IntRep, BoxedRep Lifted]
+  global nil = (CNil)
+  primitive -# :: IntRep/2
+  primitive +# :: IntRep/2
+  primitive *# :: IntRep/2
+  primitive remInt# :: IntRep/2
+  primitive touch# :: TupleRep []/1
+
+  $build (count :: IntRep) (list :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (list :: BoxedRep Lifted)
+      _ ->
+        (node :: BoxedRep Lifted) <- store (CCons (count :: IntRep) (list :: BoxedRep Lifted))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $build (next :: IntRep) (node :: BoxedRep Lifted)
+
+  $total (list :: BoxedRep Lifted) (sum :: IntRep) -> IntRep =
+    case (list :: BoxedRep Lifted) as tested :: BoxedRep Lifted of
+      data Nil ->
+        constant (sum :: IntRep)
+      data Cons (value :: IntRep) (rest :: BoxedRep Lifted) ->
+        (next :: IntRep) <- primitive-call @IntRep +# (sum :: IntRep) (value :: IntRep)
+        call @IntRep $total (rest :: BoxedRep Lifted) (next :: IntRep)
+
+  $deep (count :: IntRep) (rounds :: IntRep) (list :: BoxedRep Lifted) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        (climbed :: IntRep) <- call @IntRep $churn (rounds :: IntRep) (0 :: IntRep) (list :: BoxedRep Lifted)
+        (filled :: IntRep) <- call @IntRep $fill (3000 :: IntRep)
+        primitive-call @IntRep +# (climbed :: IntRep) (filled :: IntRep)
+      _ ->
+        (cell :: BoxedRep Lifted) <- store (CBox (count :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $deep (next :: IntRep) (rounds :: IntRep) (list :: BoxedRep Lifted)
+        case (cell :: BoxedRep Lifted) as boxed :: BoxedRep Lifted of
+          data Box (value :: IntRep) ->
+            primitive-call @IntRep +# (value :: IntRep) (rest :: IntRep)
+
+  $fill (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (cell :: BoxedRep Lifted) <- store (CBox (1000 :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (rest :: IntRep) <- call @IntRep $fill (next :: IntRep)
+        case (cell :: BoxedRep Lifted) as boxed :: BoxedRep Lifted of
+          data Box (value :: IntRep) ->
+            primitive-call @IntRep +# (value :: IntRep) (rest :: IntRep)
+
+  $churn (rounds :: IntRep) (sum :: IntRep) (list :: BoxedRep Lifted) -> IntRep =
+    case (rounds :: IntRep) as tested :: IntRep of
+      0 ->
+        call @IntRep $total (list :: BoxedRep Lifted) (sum :: IntRep)
+      _ ->
+        (phase :: IntRep) <- primitive-call @IntRep remInt# (rounds :: IntRep) (5 :: IntRep)
+        (extra :: IntRep) <- primitive-call @IntRep *# (phase :: IntRep) (200 :: IntRep)
+        (height :: IntRep) <- primitive-call @IntRep +# (extra :: IntRep) (300 :: IntRep)
+        (climbed :: IntRep) <- call @IntRep $climb (height :: IntRep)
+        (next :: IntRep) <- primitive-call @IntRep -# (rounds :: IntRep) (1 :: IntRep)
+        (total :: IntRep) <- primitive-call @IntRep +# (sum :: IntRep) (climbed :: IntRep)
+        call @IntRep $churn (next :: IntRep) (total :: IntRep) (list :: BoxedRep Lifted)
+
+  $guard (owner :: BoxedRep Lifted) (action :: BoxedRep Lifted) -> forwarded =
+    () <- apply @forwarded (action :: BoxedRep Lifted) ()
+    () <- primitive-call @(TupleRep []) touch# (owner :: BoxedRep Lifted)
+    forward
+
+  $step (count :: IntRep) -> IntRep =
+    call @IntRep $climb (count :: IntRep)
+
+  $climb (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (owner :: BoxedRep Lifted) <- store (CBox (count :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        (action :: BoxedRep Lifted) <- store (P$step/[[]] (next :: IntRep))
+        (rest :: IntRep) <- call @IntRep $guard (owner :: BoxedRep Lifted) (action :: BoxedRep Lifted)
+        primitive-call @IntRep +# (rest :: IntRep) (1 :: IntRep)
+
+  $entry -> IntRep =
+    (list :: BoxedRep Lifted) <- call @(BoxedRep Lifted) $build (20000 :: IntRep) global-ref nil
+    call @IntRep $deep (3000 :: IntRep) (40 :: IntRep) (list :: BoxedRep Lifted)
+return: "207539500"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 1472000
+  linux-amd64: 1472000
+status: pass
+reason: Under GC stress with -F1, a gen2 cycle is almost always active, and the marking of a list of 20000 cells delays the scan of deferred stack chunks. The program keeps 3000 frames that hold cells across many stack chunks. Then it climbs 40 times above them through forward frames and returns. A return into a lower chunk defers the chunk below it, and the cycle must scan each deferred chunk before it ends. A later deferral must not replace an earlier one, and a slice must not scan a deferred frame that a pop through a forward frame removed. Otherwise the cycle frees cells that live frames hold, or the slice scans the frames that replaced a removed frame.

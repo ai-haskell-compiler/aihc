@@ -1,0 +1,86 @@
+entry: $entry
+program: |
+  constructor Number/1 [IntRep]
+  primitive fork# :: BoxedRep Unlifted/1
+  primitive yield# :: TupleRep []/0
+  primitive newMVar# :: BoxedRep Unlifted/0
+  primitive putMVar# :: TupleRep []/2
+  primitive takeMVar# :: BoxedRep Lifted/1
+  primitive +# :: IntRep/2
+  primitive -# :: IntRep/2
+
+  $wait (cell :: BoxedRep Unlifted) -> IntRep =
+    (value :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (cell :: BoxedRep Unlifted)
+    case (value :: BoxedRep Lifted) as waited :: BoxedRep Lifted of
+      data Number (number :: IntRep) ->
+        constant (number :: IntRep)
+
+  $nested (cell :: BoxedRep Unlifted) -> IntRep =
+    (number :: IntRep) <- call @IntRep $wait (cell :: BoxedRep Unlifted)
+    primitive-call @IntRep +# (number :: IntRep) (1 :: IntRep)
+
+  $churn (count :: IntRep) -> IntRep =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        constant (0 :: IntRep)
+      _ ->
+        (box :: BoxedRep Lifted) <- store (CNumber (count :: IntRep))
+        (next :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @IntRep $churn (next :: IntRep)
+
+  $allocate (number :: IntRep) -> IntRep =
+    (zero :: IntRep) <- call @IntRep $churn (400000 :: IntRep)
+    primitive-call @IntRep +# (number :: IntRep) (zero :: IntRep)
+
+  $wide (a :: IntRep) (b :: IntRep) (c :: IntRep) (d :: IntRep) (e :: IntRep) (f :: IntRep) (g :: IntRep) (h :: IntRep) -> IntRep =
+    (x :: IntRep) <- call @IntRep $allocate (a :: IntRep)
+    (s1 :: IntRep) <- primitive-call @IntRep +# (x :: IntRep) (b :: IntRep)
+    (s2 :: IntRep) <- primitive-call @IntRep +# (s1 :: IntRep) (c :: IntRep)
+    (s3 :: IntRep) <- primitive-call @IntRep +# (s2 :: IntRep) (d :: IntRep)
+    (s4 :: IntRep) <- primitive-call @IntRep +# (s3 :: IntRep) (e :: IntRep)
+    (s5 :: IntRep) <- primitive-call @IntRep +# (s4 :: IntRep) (f :: IntRep)
+    (s6 :: IntRep) <- primitive-call @IntRep +# (s5 :: IntRep) (g :: IntRep)
+    primitive-call @IntRep +# (s6 :: IntRep) (h :: IntRep)
+
+  $first (cell :: BoxedRep Unlifted) (out :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    (number :: IntRep) <- call @IntRep $nested (cell :: BoxedRep Unlifted)
+    (total :: IntRep) <- call @IntRep $wide (number :: IntRep) (1000 :: IntRep) (2000 :: IntRep) (3000 :: IntRep) (4000 :: IntRep) (5000 :: IntRep) (6000 :: IntRep) (7000 :: IntRep)
+    (result :: BoxedRep Lifted) <- store (CNumber (total :: IntRep))
+    () <- primitive-call @(TupleRep []) putMVar# (out :: BoxedRep Unlifted) (result :: BoxedRep Lifted)
+    constant (result :: BoxedRep Lifted)
+
+  $second (cell :: BoxedRep Unlifted) (out :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    (value :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (cell :: BoxedRep Unlifted)
+    () <- primitive-call @(TupleRep []) putMVar# (out :: BoxedRep Unlifted) (value :: BoxedRep Lifted)
+    constant (value :: BoxedRep Lifted)
+
+  $entry -> IntRep =
+    (cell :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (out :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newMVar#
+    (one :: BoxedRep Lifted) <- store (CNumber (41 :: IntRep))
+    (two :: BoxedRep Lifted) <- store (CNumber (100 :: IntRep))
+    (firstAction :: BoxedRep Lifted) <- store (P$first/[[]] (cell :: BoxedRep Unlifted) (out :: BoxedRep Unlifted))
+    (secondAction :: BoxedRep Lifted) <- store (P$second/[[]] (cell :: BoxedRep Unlifted) (out :: BoxedRep Unlifted))
+    (firstThread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (firstAction :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) yield#
+    (zero :: IntRep) <- call @IntRep $churn (400000 :: IntRep)
+    (secondThread :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# (secondAction :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) yield#
+    () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (one :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) yield#
+    () <- primitive-call @(TupleRep []) putMVar# (cell :: BoxedRep Unlifted) (two :: BoxedRep Lifted)
+    (left :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (out :: BoxedRep Unlifted)
+    (right :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) takeMVar# (out :: BoxedRep Unlifted)
+    case (left :: BoxedRep Lifted) as leftValue :: BoxedRep Lifted of
+      data Number (a :: IntRep) ->
+        case (right :: BoxedRep Lifted) as rightValue :: BoxedRep Lifted of
+          data Number (b :: IntRep) ->
+            (sum :: IntRep) <- primitive-call @IntRep +# (a :: IntRep) (b :: IntRep)
+            primitive-call @IntRep +# (sum :: IntRep) (zero :: IntRep)
+return: "28142"
+heap: "[]"
+allocated-bytes:
+  macos-arm64: 12800504
+  linux-amd64: 12800504
+status: pass
+reason: A woken MVar waiter can stay in the remembered set, and its thread then pops the frame that the waiter named. The first thread waits in a nested call. An allocation of more than one nursery makes its waiter old, and the waiter of the second thread then makes it a remembered entry. After the wake, the first thread returns from the nested call, pushes one wide frame of integers over the popped frames, and allocates until a collection runs. The woken waiter must not name the popped frame, or the collection scans an integer as a frame header.
