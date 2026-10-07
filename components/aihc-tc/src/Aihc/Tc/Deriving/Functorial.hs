@@ -9,6 +9,10 @@
 -- it -- and in the last case the derived body hands the work to the
 -- instance of that type, so the context needs it.
 --
+-- A boxed tuple is not handed to an instance. As in GHC, a derived body
+-- takes the tuple apart and visits each component, so a field such as
+-- @(Int, a)@ needs no instance for the tuple type.
+--
 -- @Functor@ can also go through a function: the result of a function is a
 -- position like any other, and the domain is a position of the opposite
 -- polarity. The parameter can occur in a domain of a domain, but not in a
@@ -41,6 +45,9 @@ data FieldUse
     -- without that last argument, whose instance does the work; the second
     -- is what the argument itself does with the parameter.
     FieldContainer !TcType !FieldUse
+  | -- | The field is a boxed tuple of two or more components. Each element
+    -- is what one component does with the parameter.
+    FieldTuple ![FieldUse]
   | -- | The field is a function. The first component is what the domain
     -- does with the parameter, at the opposite polarity. The second is
     -- what the result does with it.
@@ -65,8 +72,8 @@ data FunctionFields
 -- appears anywhere but as the last argument of a type, or the result of a
 -- function when the class permits functions, has no derived instance,
 -- because there is no instance to hand that position to.
-fieldUse :: String -> FunctionFields -> TyVarId -> TcType -> Either String FieldUse
-fieldUse mechanism functions parameter field = go True field
+fieldUse :: TcKinds -> String -> FunctionFields -> TyVarId -> TcType -> Either String FieldUse
+fieldUse kinds mechanism functions parameter field = go True field
   where
     -- The flag is the polarity of the position: 'True' when the position
     -- is covariant, 'False' when it is in an odd number of domains.
@@ -75,6 +82,10 @@ fieldUse mechanism functions parameter field = go True field
       | TcTyVar tyVar <- ty,
         tvUnique tyVar == tvUnique parameter =
           if covariant then Right FieldParameter else reject
+      | TcTyCon tyCon arguments <- ty,
+        length arguments >= 2,
+        tyCon == kindsBoxedTupleTyCon kinds (length arguments) =
+          FieldTuple <$> mapM (go covariant) arguments
       | functions == FunctionFieldsMapped,
         TcFunTy domain result <- ty =
           FieldFunction <$> go (not covariant) domain <*> go covariant result
@@ -129,6 +140,7 @@ fieldUseObligations classTyCon = go []
         FieldContainer function inner
           | any (`typeMentionsTyVar` function) bound -> go bound inner
           | otherwise -> ClassPred classTyCon [function] : go bound inner
+        FieldTuple components -> concatMap (go bound) components
         FieldFunction domain result -> go bound domain <> go bound result
         FieldForAll tyVars inner -> go (tyVars <> bound) inner
 

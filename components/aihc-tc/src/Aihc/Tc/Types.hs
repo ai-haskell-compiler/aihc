@@ -509,6 +509,8 @@ data TcKinds = TcKinds
     kindsEqualityTyCon :: TyCon,
     -- | The constraint tuple of one arity; see 'constraintTypeToPreds'.
     kindsConstraintTupleTyCon :: Int -> TyCon,
+    -- | The boxed tuple type of one arity, such as @Tuple2@ for @(a, b)@.
+    kindsBoxedTupleTyCon :: Int -> TyCon,
     -- | The type constructor that 'TcArrowTy' denotes. Nothing inside the
     -- type checker needs it -- an arrow is recognised by its form -- but a
     -- partially applied arrow that leaves for the desugarer has to be
