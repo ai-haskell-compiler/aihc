@@ -15,6 +15,7 @@ module GHC.Num.BigNat
     bigNatIndex#,
     bigNatSize#,
     bigNatSizeInBase#,
+    bigNatSizeInBase,
     bigNatIsZero,
     bigNatIsOne,
     bigNatAdd,
@@ -93,7 +94,7 @@ import GHC.Prim
     (==#),
   )
 import GHC.Prim.Integer (Integer (..), integerAnd, integerFromMagnitude#, integerFromTwoWords#, integerFromWord#, integerLogBase#, integerOr, integerToInt#, integerXor)
-import GHC.Types (Bool (..), Int (..), isTrue#)
+import GHC.Types (Bool (..), Int (..), Word (..), isTrue#)
 import Prelude (Eq (..), Integral (..), Num (..), Ord (..), Ordering, gcd, not, otherwise)
 
 -- | The magnitude of an arbitrary-precision number: a canonical,
@@ -190,6 +191,11 @@ bigNatSizeInBase# base magnitude =
   case bigNatSize# magnitude of
     0# -> int2Word# 0#
     _ -> plusWord# (integerLogBase# (wordInteger base) (magnitudeInteger magnitude)) (int2Word# 1#)
+
+-- | The number of digits of a magnitude in a base, as a lifted 'Word'.
+-- Zero has no digit.
+bigNatSizeInBase :: Word -> BigNat# -> Word
+bigNatSizeInBase (W# base) magnitude = W# (bigNatSizeInBase# base magnitude)
 
 -- | Whether the magnitude is zero.
 bigNatIsZero :: BigNat# -> Bool

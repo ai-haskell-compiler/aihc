@@ -16,6 +16,7 @@ module GHC.Prim
     addIntC#,
     addWordC#,
     and#,
+    andI#,
     andWord8#,
     andWord16#,
     andWord32#,
@@ -172,6 +173,7 @@ module GHC.Prim
     notI#,
     ord#,
     or#,
+    orI#,
     orWord8#,
     orWord16#,
     orWord32#,
@@ -245,6 +247,7 @@ module GHC.Prim
     Word32#,
     Word64#,
     xor#,
+    xorI#,
     xorWord8#,
     xorWord16#,
     xorWord32#,
@@ -750,6 +753,12 @@ foreign import prim xorWord32# :: Word32# -> Word32# -> Word32#
 foreign import prim not# :: Word# -> Word#
 
 foreign import prim notI# :: Int# -> Int#
+
+foreign import prim andI# :: Int# -> Int# -> Int#
+
+foreign import prim orI# :: Int# -> Int# -> Int#
+
+foreign import prim xorI# :: Int# -> Int# -> Int#
 
 foreign import prim uncheckedShiftL# :: Word# -> Int# -> Word#
 
