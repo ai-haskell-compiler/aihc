@@ -139,6 +139,8 @@ static void aihc_shade_elements(AihcMachine *machine, AihcValue *array,
                                 uint64_t first, uint64_t end);
 static void aihc_mark_frames(AihcMachine *machine, AihcValue *frame);
 static int aihc_frame_above(const AihcValue *first, const AihcValue *second);
+static int aihc_frame_is_live(const AihcMachine *machine,
+                              const AihcValue *frame);
 
 typedef struct {
   AihcMachine *machine;
@@ -1235,9 +1237,12 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
       case AIHC_REGION_STACK:
         /* A frame of a young chunk is scanned from the worklist. A frame of
            an older chunk points only at objects of that generation or
-           above, which this collection does not move. */
+           above, which this collection does not move. A dead object in the
+           remembered set can name a frame that is popped, and new frames
+           can be at its address, so only a live frame is scanned. */
         if (aihc_chunk_generation(aihc_stack_chunk_of(value)) <=
-            context->collected) {
+                context->collected &&
+            aihc_frame_is_live(machine, value)) {
           aihc_mark_static(value);
         }
         return value;

@@ -272,7 +272,12 @@ the continuation capture read frames they pop, so they scan them first
 through `aihc_gc_frame_read`. A frame named by a heap object is scanned
 only when it is live: at or below the stack pointer of the running stack,
 or at or below the frame its thread suspended with, which
-`aihc_stack_note_top` records.
+`aihc_stack_note_top` records. The copy of a young collection uses the
+same rule, because a dead object in the remembered set can name a frame
+that is popped. A record that gives its continuation to a thread, such as
+a woken MVar or blackhole waiter, a selected thread, or a completed IO
+request, sets its continuation to null. A popped frame can be under new
+live frames, so the liveness rule alone does not cover such a record.
 
 Each collection ends with a slice. The slice does the mark work the
 promotions since the last slice owe, `-k` times their bytes, within a
