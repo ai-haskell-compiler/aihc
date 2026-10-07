@@ -190,8 +190,13 @@ they are older than the snapshot and the barrier does not shade young
 objects. This work is bounded by the nursery size. It scans the top chunk of
 every live stack at once, which is bounded. It defers lower chunks: the marker
 scans them in later slices, and a pop into a deferred chunk scans it in the
-pop runtime call before the mutator can overwrite a frame. Static objects are
-traced through their static reference tables as ordinary mark work.
+pop runtime call before the mutator can overwrite a frame. The marker scans
+every referenced frame in a chunk and records each frame address. One
+continuation chain can skip frames that another reference still reaches.
+The pop also scans deferred frames above its destination before it removes
+them. A forward frame can pass their values to its parent without a frame
+read. The marker traces static objects through their static reference tables
+as ordinary mark work.
 
 **Slices.** A slice runs at the end of each minor collection and when the mark
 buffer is full. It pops the mark stack and the mark buffer, marks each object

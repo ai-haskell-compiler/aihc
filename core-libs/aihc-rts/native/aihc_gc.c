@@ -227,6 +227,8 @@ static const AihcInfo aihc_buffer_info = {
 static AihcAddressSet aihc_marked_statics;
 /* The static objects the active gen2 cycle has marked. */
 static AihcAddressSet aihc_cycle_statics;
+/* The active gen2 cycle records each frame address. */
+static AihcAddressSet aihc_cycle_frames;
 static AihcValueWorklist aihc_static_worklist;
 static AihcValueWorklist aihc_pinned_worklist;
 /* The gen2 objects a collection has marked or copied and not yet scanned.
@@ -774,6 +776,7 @@ static void aihc_gen2_begin_marking(AihcMachine *machine) {
   machine->mark_debt = 0;
   aihc_mark_stack.count = 0;
   aihc_address_set_clear(&aihc_cycle_statics);
+  aihc_address_set_clear(&aihc_cycle_frames);
   aihc_clear_srt_stamps();
   aihc_srt_worklist.count = 0;
   for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
@@ -895,8 +898,6 @@ static AihcStackChunk *aihc_stack_chunk_new(AihcMachine *machine,
   chunk->below = NULL;
   chunk->above = NULL;
   chunk->state = 0;
-  chunk->scanned_from = NULL;
-  chunk->scanned_cycle = 0;
   chunk->depth = 0;
   return chunk;
 }
@@ -989,27 +990,29 @@ void aihc_stack_resume_after(AihcMachine *machine, const AihcValue *frame) {
   aihc_stack_enter_chunk(machine, frame);
 }
 
-/* Remove the deferred frames above a frame that the stack pointer enters.
-   The entry pops them, and a pop can pass a frame without a read: a
-   forward frame gives its values to its parent. New frames then take
-   their place, so a slice must not scan them. */
-static void aihc_stack_drop_pending_above(AihcStack *stack,
+/* Mark the deferred frames before a pop removes them from the snapshot.
+   A forward frame can pass values to its parent without a frame read.
+   Mark these values before new frames overwrite their last snapshot path. */
+static void aihc_stack_drop_pending_above(AihcMachine *machine,
+                                          AihcStack *stack,
                                           const AihcValue *frame) {
-  size_t kept = 0;
-  for (size_t index = 0; index < stack->pending_count; ++index) {
+  size_t index = 0;
+  while (index < stack->pending_count) {
     AihcValue *pending = stack->pending[index];
-    if (!aihc_frame_above(pending, frame)) {
-      stack->pending[kept++] = pending;
+    if (aihc_frame_above(pending, frame)) {
+      stack->pending[index] = stack->pending[--stack->pending_count];
+      aihc_mark_frames(machine, pending);
+    } else {
+      ++index;
     }
   }
-  stack->pending_count = kept;
 }
 
 void aihc_stack_enter_chunk(AihcMachine *machine, const AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
   aihc_chunk_set_generation(chunk, 0);
   if (machine->gen2_cycle_active) {
-    aihc_stack_drop_pending_above(chunk->stack, frame);
+    aihc_stack_drop_pending_above(machine, chunk->stack, frame);
     /* The frames above the entered one are gone. The entered frame and
        the frames below it in the chunk are read from now on, so the cycle
        scans them before the mutator overwrites any of them. */
@@ -1903,16 +1906,14 @@ static uint64_t aihc_mark_scan(AihcMachine *machine, AihcValue *object,
   return sizeof(AihcSlot) * aihc_value_words(object);
 }
 
-/* The scan of one frame: the parent is the highest frame below it in the
-   same chunk, and below is the frame the chain continues with in a lower
-   chunk. */
+/* Keep every referenced frame in the current chunk on the local worklist. */
 typedef struct {
   AihcMachine *machine;
   AihcStackChunk *chunk;
-  AihcValue *frame;
-  AihcValue *parent;
-  AihcValue *below;
+  AihcValueWorklist frames;
 } AihcFrameScan;
+
+static void aihc_stack_defer(AihcStack *stack, AihcValue *frame);
 
 static AihcSlot aihc_mark_frame_slot(AihcSlot slot, void *opaque_scan) {
   AihcFrameScan *scan = opaque_scan;
@@ -1923,28 +1924,17 @@ static AihcSlot aihc_mark_frame_slot(AihcSlot slot, void *opaque_scan) {
   }
   AihcStackChunk *chunk = aihc_stack_chunk_of(value);
   if (chunk == scan->chunk) {
-    if (value < scan->frame && (scan->parent == NULL || value > scan->parent)) {
-      scan->parent = value;
-    }
-  } else if (chunk->stack == scan->chunk->stack &&
-             chunk->depth < scan->chunk->depth &&
-             (scan->below == NULL || aihc_frame_above(value, scan->below))) {
-    scan->below = value;
+    aihc_value_worklist_push(&scan->frames, value);
+  } else {
+    aihc_stack_defer(chunk->stack, value);
   }
   return slot;
 }
 
-/* Record a frame that a slice must scan in a stack. The frame is the
-   highest frame of a chunk below a chunk that the cycle scanned. A frame
-   that an earlier scan of this cycle covered needs nothing. Every other
-   frame stays on the list. One deferred frame cannot stand for another: a
-   scan that starts high in the stack stops at the first chunk the cycle
-   scanned, and the chunks below that chunk can still wait for a scan. */
-static void aihc_stack_defer(AihcMachine *machine, AihcStack *stack,
-                             AihcValue *frame) {
-  AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
-  if (chunk->scanned_cycle == machine->gen2_epoch &&
-      (uint8_t *)frame <= chunk->scanned_from) {
+/* Keep every referenced frame in another chunk until a slice scans it.
+   A frame that the cycle already scanned needs no further scan. */
+static void aihc_stack_defer(AihcStack *stack, AihcValue *frame) {
+  if (aihc_address_set_contains(&aihc_cycle_frames, frame)) {
     return;
   }
   if (stack->pending_count != 0 &&
@@ -1958,38 +1948,27 @@ static void aihc_stack_defer(AihcMachine *machine, AihcStack *stack,
   stack->pending[stack->pending_count++] = frame;
 }
 
-/* Scan a frame and the frames below it in its chunk, down to the frames an
-   earlier scan of this cycle covered. The chunk records the highest frame
-   it was scanned from. When the chain leaves the chunk, the frame below is
-   deferred to a slice, or to the pop that enters it. Returns the bytes
-   scanned. */
+/* Scan all referenced frames in one chunk before the mutator can overwrite
+   them. A frame can reference separate continuation chains in the chunk.
+   Record each frame address and defer references to other chunks.
+   Return the number of bytes scanned. */
 static uint64_t aihc_mark_frames_counted(AihcMachine *machine,
                                          AihcValue *frame) {
   AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
-  uint8_t *limit = NULL;
-  if (chunk->scanned_cycle == machine->gen2_epoch) {
-    if ((uint8_t *)frame <= chunk->scanned_from) {
-      return 0;
-    }
-    limit = chunk->scanned_from;
-  }
-  chunk->scanned_cycle = machine->gen2_epoch;
-  chunk->scanned_from = (uint8_t *)frame;
   uint64_t scanned = 0;
   AihcFrameScan scan = {.machine = machine, .chunk = chunk};
-  while (frame != NULL && (limit == NULL || (uint8_t *)frame > limit)) {
-    scan.frame = frame;
-    scan.parent = NULL;
-    scan.below = NULL;
+  aihc_value_worklist_push(&scan.frames, frame);
+  while (scan.frames.count != 0) {
+    frame = scan.frames.items[--scan.frames.count];
+    if (!aihc_address_set_insert(&aihc_cycle_frames, frame)) {
+      continue;
+    }
     scanned += sizeof(AihcSlot) * aihc_value_words(frame);
     /* The code of the frame reaches static objects through its table. */
     aihc_walk_srt(aihc_value_info_table(frame)->srt);
     aihc_visit_plain_fields(frame, aihc_mark_frame_slot, &scan);
-    frame = scan.parent;
   }
-  if (frame == NULL && scan.below != NULL) {
-    aihc_stack_defer(machine, chunk->stack, scan.below);
-  }
+  free(scan.frames.items);
   return scanned;
 }
 
@@ -2004,6 +1983,8 @@ static void aihc_shade_fields(AihcMachine *machine, AihcValue *object) {
   if (!aihc_marks_object(object)) {
     return;
   }
+  /* A thunk update also removes the static references of its old code. */
+  aihc_walk_srt(aihc_value_info_table(object)->srt);
   if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
     return;
   }
@@ -2441,6 +2422,7 @@ void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes) {
   aihc_gen2_worklist.count = 0;
   aihc_mark_stack.count = 0;
   aihc_address_set_clear(&aihc_cycle_statics);
+  aihc_address_set_clear(&aihc_cycle_frames);
   aihc_clear_srt_stamps();
   aihc_srt_worklist.count = 0;
   machine->gen2_cycle_active = 0;
