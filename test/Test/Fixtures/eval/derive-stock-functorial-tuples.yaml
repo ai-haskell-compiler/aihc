@@ -1,0 +1,48 @@
+extensions:
+  - DeriveFunctor
+  - DeriveFoldable
+  - DeriveTraversable
+modules:
+  - |
+    {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
+    module Test where
+
+    data Results = Results [Int] Int (Maybe (Pairs Int)) (Maybe (Pairs Int)) Int
+
+    -- The parameter is in every component of a pair and in the last
+    -- component of a triple. No tuple instance does this work.
+    data Pairs a = Pairs (a, a) (Bool, Int, a) [(a, Char)]
+      deriving (Eq, Functor, Foldable, Traversable)
+
+    -- The parameter is in a four-tuple in the result of a function.
+    newtype Parser a = Parser (Int -> Either String (Int, Bool, String, a))
+      deriving (Functor)
+
+    runParser :: Parser a -> Int -> Either String (Int, Bool, String, a)
+    runParser (Parser run) = run
+
+    positive :: Int -> Maybe Int
+    positive value = if value > 0 then Just value else Nothing
+
+    sample :: Pairs Int
+    sample = Pairs (1, 2) (True, 7, 3) [(4, 'x'), (5, 'y')]
+
+    parsed :: Int
+    parsed =
+      case runParser (fmap (* 10) (Parser (\n -> Right (n, True, "", n + 1)))) 4 of
+        Right (_, _, _, value) -> value
+        Left _ -> 0
+
+    result :: Results
+    result =
+      Results
+        (foldr (:) [] sample)
+        (sum (fmap (* 2) sample))
+        (traverse positive sample)
+        (traverse positive (Pairs (1, 0) (False, 0, 1) []))
+        parsed
+expression: result
+output: |
+  Results (: (I# 1) (: (I# 2) (: (I# 3) (: (I# 4) (: (I# 5) []))))) (I# 30) (Just (Pairs ((I# 1),(I# 2)) (True,(I# 7),(I# 3)) (: ((I# 4),'x') (: ((I# 5),'y') [])))) Nothing (I# 50)
+status: pass
+reason: derived Functor, Foldable, and Traversable take a boxed tuple field apart and visit each component, as GHC does, so the tuple type needs no instance

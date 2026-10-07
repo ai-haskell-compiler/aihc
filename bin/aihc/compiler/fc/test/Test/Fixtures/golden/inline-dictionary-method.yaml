@@ -69,21 +69,11 @@ expected: |-
 
   val 1.v$fMyEqBool$cneq :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
-      case x of {
+      case v$fMyEqBool$ceq x y of {
         cTrue →
-          case y of {
-            cTrue →
-              cFalse;
-            _ →
-              cTrue
-          };
+          cFalse;
         cFalse →
-          case y of {
-            cFalse →
-              cFalse;
-            _ →
-              cTrue
-          }
+          cTrue
       }
 
   pub val 1.veqBool :: tBool 2.→ tBool 2.→ tBool

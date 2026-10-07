@@ -1,0 +1,37 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Num.BigNat (bigNatSizeInBase)
+    import GHC.Num.Integer (Integer (..), integerFromAddr)
+    import GHC.Prim (int2Word#)
+    import Prelude
+
+    sizeInBytes :: Integer -> Word
+    sizeInBytes (IP magnitude) = bigNatSizeInBase 256 magnitude
+    sizeInBytes (IN magnitude) = bigNatSizeInBase 256 magnitude
+    sizeInBytes (IS _) = 0
+
+    main :: IO ()
+    main = do
+      small <- integerFromAddr (int2Word# 3#) "\x01\x02\x03"# 1#
+      print small
+      little <- integerFromAddr (int2Word# 3#) "\x01\x02\x03"# 0#
+      print little
+      large <- integerFromAddr (int2Word# 9#) "\x01\x00\x00\x00\x00\x00\x00\x00\x00"# 1#
+      print large
+      print (sizeInBytes large)
+      print (sizeInBytes (negate (2 ^ (100 :: Int))))
+stdout: |
+  66051
+  197121
+  18446744073709551616
+  9
+  13
+output: |
+  ()
+expression: main
+status: pass
+reason: integerFromAddr reads an Integer from bytes at an address in IO, and bigNatSizeInBase gives the digit count of a magnitude as a Word

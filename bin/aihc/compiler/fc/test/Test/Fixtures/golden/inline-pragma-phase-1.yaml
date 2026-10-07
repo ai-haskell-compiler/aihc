@@ -86,15 +86,6 @@ expected: |-
           cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y)))))))))))))))))))))))))))))))))))))))
       }
 
-  val 1.vforce inline :: tNat 2.→ tNat
-    = λ(x : tNat).
-      case x of {
-        cZ →
-          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ)))))))))))))))))))))))))))))))))))))));
-        cS (y : tNat) →
-          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y)))))))))))))))))))))))))))))))))))))))
-      }
-
   pub val 1.vuseKeep :: tNat 2.→ tNat
     = λ(x : tNat).
       vkeep x
@@ -113,7 +104,12 @@ expected: |-
 
   pub val 1.vuseForce2 :: tNat 2.→ tNat
     = λ(x : tNat).
-      vforce (vforce x)
+      case x of {
+        cZ →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS cZ))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))));
+        cS (y : tNat) →
+          cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS (cS y))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+      }
 
   pub val 1.vuseLater :: tNat 2.→ tNat
     = λ(x : tNat).
@@ -123,4 +119,4 @@ expected: |-
     = λ(x : tNat).
       v$fCNat$cop x
 status: pass
-reason: In phase 1 the growing policy copies the NOINLINE [1] value and, at a site with room, the large INLINE value, while its unmarked twin is over the callee limit and the plain NOINLINE values still stay calls.
+reason: In phase 1 the growing policy copies the NOINLINE [1] value and, at a site with room, the large INLINE value, while its unmarked twin is over the callee limit and the plain NOINLINE values still stay calls. A call of the INLINE value on the result of another gives its parameter a known constructor, so the chain reduces to one case.

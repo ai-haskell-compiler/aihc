@@ -511,11 +511,25 @@ loop of `take` over `iterate`, and the 722,752 thunks of the seeds go away.
 
 ## The inliner
 
-The inliner follows the non-recursive inliner of MLton. It walks the values
-from the leaves of the call graph to the roots. At a use of a non-recursive
-value it puts a copy of the body in place, simplifies the copy, and keeps it
-when the policy accepts the site. A value that nothing uses after a round is
+The inliner walks the values from the leaves of the call graph to the
+roots, as the non-recursive inliner of MLton does. At a use of a
+non-recursive value it decides the site from what it knows about the body
+and the arguments, as GHC's `callSiteInline` decides from an unfolding.
+When the policy accepts the site, it puts a copy of the body in place and
+simplifies the copy once, in the position it lands in. No copy is made for
+a site that is rejected, and no copy is thrown away: the sites inside a
+copy are decided when the walk reaches them, with the same rule, and a
+decision is never revisited. A value that nothing uses after a round is
 dropped, unless it is a root.
+
+The earlier inliner made the copy first, simplified it, measured the
+result, and reverted the site when the policy rejected it. A rejected site
+inside a trial copy was tried again inside every trial copy of every site
+around it, and once more in the original when the outer site was reverted.
+The `Get` reader of the SHA message schedule, a chain of eighty `>>=`, made
+1.4 million trial copies for 33 sites, and the shrinking inliner took 69 of
+the 85 seconds of the `sha-digest` build. The decision before the copy
+takes that pass to under four seconds.
 
 ### The policy
 
@@ -543,16 +557,69 @@ The callee limit reduces work on large copies that the site rule would reject.
 A removable value bypasses this limit when its copies together replace it.
 `growPolicy` is the speed policy. Its numbers are in the code.
 
-The inliner decides a scrutinee site before it simplifies the case alternatives.
-The alternatives then use the allowance that remains after this decision.
-A rejected site simplifies only the original alternatives.
-This prevents duplicate work in nested cases.
+### The estimate
 
-The growth of a site is the size of the simplified copy less the size of the
-call it replaces, less the discounts. The size is `Aihc.Fc.Size.exprSize`,
-which follows the code the CPS conversion of GRIN makes: a case in bind
-position copies its continuation into each alternative, so a case whose
-scrutinee has several tail leaves counts its alternatives once per leaf.
+A site is decided from the growth its copy is expected to cause, which
+`Aihc.Fc.Simplify.estimateGrowth` computes from the body and the arguments
+without a copy:
+
+- The copy is the body less the lambdas the arguments remove. A case in
+  the body on a parameter that gets a known constructor or literal selects
+  its alternative, so the copy counts that alternative alone, with no case
+  and no other alternative (`Aihc.Fc.Size.exprSizeWith`). An argument is
+  known when it is a constructor application, a literal, a constructor, a
+  known top-level value such as a dictionary, or a local binding of a
+  constructor application.
+- Each argument that is not trivial is bound by a let, except one that the
+  copy consumes. A constructor application given to a parameter the body
+  scrutinises goes with the case that selects on it, and only its fields
+  that are not trivial are bound. A function given to a parameter the body
+  calls once lands on its arguments, so the let, the lambdas and the call
+  go, and the lets around such a function float out of it first.
+- The call the copy replaces comes off, and so does the function argument
+  discount of the policy.
+- When every tail of the body is a known constructor or a literal and the
+  site is the scrutinee of a case, or in the tail of a copy made in the
+  scrutinee of a case, that case resolves in each tail. The case and its
+  alternatives come off, and each tail becomes the alternative it selects.
+  The copy keeps the alternatives of the case for the sites in its tails,
+  and a part of the copy that is not in its tail, such as an argument or
+  the right-hand side of a let, sees no case.
+
+The estimate is a lower bound on the saving in most cases: a case on a
+field of a known constructor, on the case binder of an alternative, or on
+the result of a consumed function is not followed. The size is
+`Aihc.Fc.Size.exprSize`, which follows the code the CPS conversion of GRIN
+makes: a case in bind position copies its continuation into each
+alternative, so a case whose scrutinee has several tail leaves counts its
+alternatives once per leaf.
+
+A taken site charges the allowance of the value it lands in with the
+growth its copy measured after the one simplification, not with the
+estimate, less what the sites inside the copy paid, so that a copy is
+not charged twice. A site that the policy takes free of the allowance
+adds its growth to the limit of the value instead. An estimate that was
+too low can therefore take the allowance below zero, which rejects the
+measured sites that follow in the walk, and the value grows back to its
+limit at most in a later round. The shrinking policy takes a measured
+site only at an estimated growth of zero or less, and a copy whose
+estimate was low can still grow the program by a few nodes, so the
+bound of that policy holds in practice and not as a rule.
+
+What the estimate changed on the `sha-digest` benchmark: the `-O2`
+executable builds in 17 seconds in place of 85, and its program is 7%
+smaller, 1.14 MB in place of 1.22 MB. The `-Os` executable builds in 3
+seconds in place of 5 minutes, and its program is 6% larger, 1.45 MB in
+place of 1.37 MB. The
+measured decisions compared a scrutinee site against a fallback whose
+size the CPS-aware metric multiplied by the tails of the copy, so they
+took a chain of calls of the arithmetic of a boxed word apart into
+unboxed arithmetic wherever a case took the result apart, whatever the
+node count said. That is more nodes and less object. The estimate
+follows the node count, so at `-Os` such a chain stays calls. A site
+limit for reducing sites of two nodes recovers a third of the
+difference, and a larger one makes the object grow again, because the
+copies land in scrutinee positions that the CPS conversion multiplies.
 
 A value that is copied at every use and then dropped is exempt from the
 callee limit and from the growth of the value it lands in: the copies
@@ -872,11 +939,23 @@ and a change that breaks one needs a reason in its pull request.
   is unknown. A model of `MutVar#` and array cells per allocation site would
   keep such values known.
 
-- **Growth in context.** A site's growth is measured on the copy alone. A
-  copy that adds tail leaves to a strict let or a case scrutinee multiplies
-  the enclosing body under the CPS-aware size without charging the site. The
-  fix is to measure at the enclosing let or case, or to give the CPS
-  conversion a join point for a case in bind position.
+- **Growth in context.** A site's growth is estimated and measured on the
+  copy alone. A copy that adds tail leaves to a strict let or a case
+  scrutinee multiplies the enclosing body under the CPS-aware size without
+  charging the site. The fix is to measure at the enclosing let or case,
+  or to give the CPS conversion a join point for a case in bind position.
+- **A size that follows the object.** The CPS-aware size compounds through
+  a chain of strict lets, and reports the `sha-digest` program at tens of
+  millions of nodes where its object is 1.7 MB. The limit of a value that
+  the size inflates is then exhausted whatever its copies cost. A call
+  costs its nodes, where the lowered code pays a call sequence and a
+  continuation, so the shrinking policy keeps a chain of calls on boxed
+  words that the object would rather have as unboxed arithmetic. A size
+  that prices a call above its nodes was tried: with two or four nodes per
+  call the `-Os` object of `sha-digest` grew, because the callee limit and
+  the allowances of the values scale with the same size. A size that
+  follows the GRIN of the program, with the limits rebalanced to it, would
+  make the per-value allowance mean what it says.
 - **`-O1` in import order.** The inliner takes its candidates from the
   program it is given. The DAG mode is a second source of candidates: the
   small bodies that the System FC of an import exports, under the callee

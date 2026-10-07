@@ -15,6 +15,7 @@ import Aihc.Cli.Build (buildWithConfig)
 import Aihc.Cli.Install (CompileObservation (..), ModuleCompileConfig (..), PhaseOutput (..))
 import Aihc.Cli.Options (BuildOptions (..), defaultPlanOptions)
 import Aihc.Cli.Progress (ProgressEvent (..), ProgressItem (..), ProgressReporter (..))
+import Aihc.Dev.Explore.Backend (backendDocuments)
 import Aihc.Dev.Explore.Document (Definition (..), DefinitionKind (..), Document (..), Section (..), Segment (..), Stage (..), documentFromSections)
 import Aihc.Dev.Explore.TextMate (Grammar, Token (..), fcGrammar, grinGrammar, tokenizeLines)
 import Aihc.Fc qualified as Fc
@@ -68,7 +69,7 @@ runExplorerBuild input target directory level send = do
           ObservedSource package name path ->
             atomicModifyIORef' sources (\known -> (Map.insert name (ModuleSource (packageText package) path) known, ()))
           ObservedPhases output -> do
-            documents <- evaluate (phaseDocuments output)
+            documents <- evaluate (phaseDocuments target output)
             mapM_ forceDocument documents
             atomicModifyIORef' units (\known -> (Map.insert (phaseModule output) documents known, ()))
       reporter =
@@ -149,14 +150,15 @@ renderProgress state =
 
 -- | Render the phases of a unit. Each program is split at its top-level
 -- definitions.
-phaseDocuments :: PhaseOutput -> UnitOutput
-phaseDocuments output =
+phaseDocuments :: NativeTarget -> PhaseOutput -> UnitOutput
+phaseDocuments target output =
   Map.fromList
     [ (StageFc, documentFromSections (highlightWith fcGrammar) (fcSections (phaseFc output))),
       (StageGrin, documentFromSections (highlightWith grinGrammar) (grinSections (phaseGrin output))),
       (StageCpsGrin, documentFromSections (highlightWith grinGrammar) (grinSections (phaseCpsGrin output))),
-      (StageGcGrin, documentFromSections (highlightWith grinGrammar) (grinSections (phaseGcGrin output)))
+      (StageGcGrin, documentFromSections (highlightWith grinGrammar) (grinSections (Grin.gcGrinProgram (phaseGcGrin output))))
     ]
+    <> backendDocuments target (phaseLirSettings output) (phaseGcGrin output)
 
 fcSections :: Fc.Program -> [Section]
 fcSections program =
