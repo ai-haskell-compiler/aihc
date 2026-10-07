@@ -13,11 +13,14 @@
 -- value that is already evaluated, and a lazy constructor application of
 -- a primitive call that is safe to run early.
 --
--- A copy of a candidate at a use site is one of its rewrites. The
--- 'Simpl' environment carries the candidates and the site policy that
--- the inliner gives it; 'simplifyProgram', the standalone pass, gives it
--- none. The decision about which values are candidates, and the walk
--- over the call graph, belong to "Aihc.Fc.Inline".
+-- A copy of a candidate at a use site is one of its rewrites. The site
+-- is decided before the copy is made, from the body of the candidate and
+-- the arguments at the site ('estimateGrowth' and 'decideSite'), and the
+-- copy is simplified once where it lands. The 'Simpl' environment
+-- carries the candidates and the site policy that the inliner gives it;
+-- 'simplifyProgram', the standalone pass, gives it none. The decision
+-- about which values are candidates, and the walk over the call graph,
+-- belong to "Aihc.Fc.Inline".
 --
 -- Tidied programs reuse local names across sibling scopes, so every copy
 -- that moves into another scope gets binders with uniques above the
@@ -34,6 +37,8 @@ module Aihc.Fc.Simplify
     SimplM,
     Candidate (..),
     CandidateSites (..),
+    Guidance (..),
+    candidateGuidance,
     simplifyExpr,
 
     -- * Views of expressions
@@ -66,10 +71,10 @@ import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Normalize (normalizeCaseAlternatives)
 import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
-import Aihc.Fc.Size (exprSize, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
+import Aihc.Fc.Size (Known (..), exprSize, exprSizeWith, isLiftedBinder, isLiftedType, isStrictBinder, programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, exprType, extendBinder, lookupBinderType, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, typedCaseAlternatives, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -131,7 +136,8 @@ simplifyProgram phase program =
                 spCredit = 0,
                 spInside = False,
                 spCredits = Map.empty,
-                spSpeculative = False
+                spSpeculative = False,
+                spCaseContext = Nothing
               }
           escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
           callArities = topCallArities escaping (Map.elems bodies)
@@ -212,8 +218,50 @@ data Candidate = Candidate
     -- | Whether the pragma of the value asks for its copies, whatever
     -- its size. A reducing site of such a value is decided by the
     -- reducing site limit.
-    candidateRequested :: !Bool
+    candidateRequested :: !Bool,
+    -- | What a copy of the body costs, and what a site saves, computed
+    -- once from the body. See 'Guidance'.
+    candidateGuidanceOf :: !Guidance
   }
+
+-- | The guidance of a candidate: what the inliner knows about a copy of
+-- its body before it makes one. A site is decided from the guidance, the
+-- body and the arguments at the site, as GHC's @callSiteInline@ decides
+-- from an unfolding, so that no copy is made, simplified and thrown
+-- away. See 'estimateGrowth'.
+data Guidance = Guidance
+  { -- | The size of the body.
+    guidanceSize :: !Int,
+    -- | Whether every tail of the body is a known constructor or a
+    -- literal, so that a case on the result of a copy selects an
+    -- alternative in each tail.
+    guidanceTailsKnown :: !Bool
+  }
+  deriving (Eq, Show)
+
+-- | The guidance of a body.
+candidateGuidance :: TypeEnv -> Map Name Int -> Expr -> Guidance
+candidateGuidance env arities body =
+  Guidance
+    { guidanceSize = exprSize env body,
+      guidanceTailsKnown = tailsKnownIn env arities (underLambdas body)
+    }
+
+-- | An expression under the lets and recursive groups around it.
+underLets :: Expr -> Expr
+underLets expr =
+  case expr of
+    ExLet _ body -> underLets body
+    ExRec _ body -> underLets body
+    _ -> expr
+
+-- | A body under its lambdas: what a saturated call of it gives.
+underLambdas :: Expr -> Expr
+underLambdas expr =
+  case expr of
+    ExLam _ body -> underLambdas body
+    ExTyLam _ body -> underLambdas body
+    _ -> expr
 
 -- | How the sites of a candidate are decided.
 data CandidateSites
@@ -286,7 +334,13 @@ data Simpl = Simpl
     -- | Whether the walk simplifies a trial copy that 'pushIntoCase' may
     -- throw away. A trial copy pushes no context of its own. See
     -- 'letOfCase'.
-    spSpeculative :: !Bool
+    spSpeculative :: !Bool,
+    -- | The alternatives of the case whose scrutinee the expression under
+    -- simplification is the tail of, when there is one: the copy of a
+    -- candidate made in the scrutinee of a case keeps them for the sites
+    -- in its tails, whose results the case takes apart as well. Nothing
+    -- in any other position. See 'resultDiscount'.
+    spCaseContext :: !(Maybe [Alt])
   }
 
 data SimplState = SimplState
@@ -364,32 +418,28 @@ simplifyExpr env expr =
       -- A strict let evaluates its right-hand side before its body, so the
       -- chain of the right-hand side can move out of the let as it moves
       -- out of a scrutinee. See 'floatChain'. The body is then simplified
-      -- once, where the chain knows its scrutinees. The cases of the chain
-      -- take the type of the body, so the body must show it.
+      -- once, where the chain knows its scrutinees.
       if isStrictBinder (spEnv env) binder && isChain rhs
-        then case tailType (extendTypeBinder env binder) body of
-          Just resultType -> do
-            chain <- freshenExpr rhs
-            floatChain env resultType chain continue
-          Nothing -> continue env rhs
+        then do
+          chain <- freshenExpr rhs
+          floatChain env chain continue
         else continue env rhs
     ExRec binds body -> do
       let inner = env {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv inner (binderName (bindBinder bind))) (bindRhs bind)) binds
       simplifyExpr inner body >>= sinkGroup binds' ExRec
-    ExCase scrutinee binder (typedCaseAlternatives (spEnv env) binder -> Just (resultType, alternatives))
+    ExCase scrutinee binder alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args ->
-          inlineScrutinee (noOneShot env) name candidate args binder resultType alternatives
+          inlineScrutinee (noOneShot env) name candidate args binder alternatives
       | otherwise -> do
           scrutinee' <- simplifyExpr (noOneShot env) scrutinee
           if isChain scrutinee'
             then do
               chain <- freshenExpr scrutinee'
-              floatChain env resultType chain (\env' tailExpr -> simplifyCase env' tailExpr binder resultType alternatives)
-            else simplifyCase env scrutinee' binder resultType alternatives
-    ExCase {} -> pure expr
+              floatChain env chain (\env' tailExpr -> simplifyCase env' tailExpr binder alternatives)
+            else simplifyCase env scrutinee' binder alternatives
     ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> simplifyExpr (noOneShot env) scrutinee
     ExCast body coercion -> do
       body' <- simplifyExpr env body
@@ -413,8 +463,6 @@ simplifyExpr env expr =
 -- which put the field where the code read it from @b@. A chain of
 -- continuation closures, such as the reads of the @Get@ monad, each hold
 -- every earlier value, so each value held twice doubles every closure.
---
--- The case needs the result type of the body, which the body must show.
 readFieldsInside :: Simpl -> Expr -> SimplM Expr
 readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
   where
@@ -427,13 +475,12 @@ readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
         name `notElem` fields,
         Just (fieldTypes, conResult) <- constructorFields (lefts args) con,
         length fieldTypes == length fields,
-        isLiftedType (spEnv env) conResult,
-        Just resultType <- tailType env body = do
+        isLiftedType (spEnv env) conResult = do
           fresh <- mapM freshLocal fields
           binder <- freshLocal name
           let renamed = substExpr (Map.fromList (zip fields (map ExVar fresh))) body
               binders = zipWith Binder fresh fieldTypes
-          pure (caseFromList (ExVar name) (Just (Binder binder conResult)) resultType [Alt (AltData con) [] binders renamed])
+          pure (ExCase (ExVar name) (Just (Binder binder conResult)) (Alt (AltData con) [] binders renamed NE.:| []))
       | otherwise = pure body
       where
         used = exprValueNames body
@@ -490,21 +537,21 @@ isChain expr =
 -- The parts of the chain are simplified already and stay as they are.
 -- The caller gives the chain fresh binders, so that they capture no
 -- name of the alternatives.
-floatChain :: Simpl -> Type -> Expr -> (Simpl -> Expr -> SimplM Expr) -> SimplM Expr
-floatChain env resultType expr continue =
+floatChain :: Simpl -> Expr -> (Simpl -> Expr -> SimplM Expr) -> SimplM Expr
+floatChain env expr continue =
   case expr of
     ExLet bind inner
       | isStrictBinder (spEnv env) binder,
         isChain (bindRhs bind) ->
-          floatChain env resultType (bindRhs bind) $ \env' rhs ->
-            ExLet bind {bindRhs = rhs} <$> floatChain (bindingEnv env' binder rhs) resultType inner continue
+          floatChain env (bindRhs bind) $ \env' rhs ->
+            ExLet bind {bindRhs = rhs} <$> floatChain (bindingEnv env' binder rhs) inner continue
       | otherwise ->
-          ExLet bind <$> floatChain (bindingEnv env binder (bindRhs bind)) resultType inner continue
+          ExLet bind <$> floatChain (bindingEnv env binder (bindRhs bind)) inner continue
       where
         binder = bindBinder bind
     ExCase scrutinee binder (NE.toList -> [alternative]) -> do
-      rhs <- floatChain (alternativeEnv env scrutinee binder [alternative] alternative) resultType (altRhs alternative) continue
-      pure (mkCase (spEnv env) scrutinee binder resultType [alternative {altRhs = rhs}])
+      rhs <- floatChain (alternativeEnv env scrutinee binder [alternative] alternative) (altRhs alternative) continue
+      pure (mkCase (spEnv env) scrutinee binder (alternative {altRhs = rhs} NE.:| []))
     _ -> continue env expr
 
 -- | Get the expression type from the FC type environment.
@@ -530,35 +577,36 @@ tailType env expr =
 --
 -- The alternatives are simplified once, where they end up: inside the
 -- inner case when the scrutinee is a case, or in place otherwise.
-simplifyCase :: Simpl -> Expr -> Maybe Binder -> Type -> [Alt] -> SimplM Expr
-simplifyCase env scrutinee binder resultType originalAlternatives
-  -- A case that only evaluates an evaluated value does nothing. The case
-  -- binder is the scrutinee.
-  | [Alt AltDefault [] [] rhs] <- alternatives,
-    isEvaluated env scrutinee =
-      simplifyExpr env (substExpr (foldMap (\named -> Map.singleton (binderName named) scrutinee) binder) rhs)
-  | Just rewritten <- literalEqualityCase (spEnv env) scrutinee binder resultType alternatives = simplifyExpr env rewritten
-  | otherwise = do
-      reduced <- caseOfKnown env scrutinee binder alternatives
-      case reduced of
-        Just result -> simplifyExpr env result
-        Nothing -> do
-          pushed <- caseOfCaseRaw env scrutinee binder resultType alternatives
-          accepted <- case pushed of
-            Just pushed' -> acceptGrowth env (pushedGrowth env pushed')
-            Nothing -> pure False
-          case pushed of
-            Just pushed' | accepted -> expandJoins env (pushedJoins pushed') (pushedSmall pushed')
-            _ -> do
-              alternatives' <- mapM (simplifyAlt env scrutinee binder alternatives) alternatives
-              pure (mkCase (spEnv env) scrutinee binder resultType alternatives')
+simplifyCase :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM Expr
+simplifyCase env scrutinee binder originalAlternatives =
+  case NE.nonEmpty alternatives of
+    Nothing -> pure (rebuildCase (spEnv env) scrutinee binder originalAlternatives [])
+    Just remaining
+      | [Alt AltDefault [] [] rhs] <- alternatives,
+        isEvaluated env scrutinee ->
+          simplifyExpr env (substExpr (foldMap (\named -> Map.singleton (binderName named) scrutinee) binder) rhs)
+      | Just rewritten <- literalEqualityCase (spEnv env) scrutinee binder remaining -> simplifyExpr env rewritten
+      | otherwise -> do
+          reduced <- caseOfKnown env scrutinee binder alternatives
+          case reduced of
+            Just result -> simplifyExpr env result
+            Nothing -> do
+              pushed <- caseOfCaseRaw env scrutinee binder remaining
+              accepted <- case pushed of
+                Just pushed' -> acceptGrowth env (pushedGrowth env pushed')
+                Nothing -> pure False
+              case pushed of
+                Just pushed' | accepted -> expandJoins env (pushedJoins pushed') (pushedSmall pushed')
+                _ -> do
+                  alternatives' <- mapM (simplifyAlt env scrutinee binder alternatives) remaining
+                  pure (mkCase (spEnv env) scrutinee binder alternatives')
   where
     alternatives =
       normalizeCaseAlternatives
         (spEnv env)
         binder
         [ alternative
-        | alternative <- originalAlternatives,
+        | alternative <- NE.toList originalAlternatives,
           altCon alternative `Set.notMember` Map.findWithDefault Set.empty scrutinee (spExcluded env)
         ]
 
@@ -570,45 +618,47 @@ simplifyCase env scrutinee binder resultType originalAlternatives
 -- every tail is a known constructor earns the discount of a call that
 -- the case resolves: the case, the boxed result, and the call all go.
 --
--- The alternatives are not simplified before the decision, and their
--- size is not measured: a rejected site must not pay for them, and they
--- are as large as the rest of the function.
-inlineScrutinee :: Simpl -> Name -> Candidate -> [Arg] -> Maybe Binder -> Type -> [Alt] -> SimplM Expr
-inlineScrutinee env name candidate args binder resultType originalAlternatives = do
-  let alternatives = normalizeCaseAlternatives (spEnv env) binder originalAlternatives
+-- The site is decided from the guidance before the copy is made. The
+-- alternatives are simplified once, after the decision, in the position
+-- they end up in.
+inlineScrutinee :: Simpl -> Name -> Candidate -> [Arg] -> Maybe Binder -> NE.NonEmpty Alt -> SimplM Expr
+inlineScrutinee env name candidate args binder originalAlternatives = do
+  let remaining = fromMaybe originalAlternatives (NE.nonEmpty (normalizeCaseAlternatives (spEnv env) binder (NE.toList originalAlternatives)))
+      alternatives = NE.toList remaining
   args' <- mapM (either (pure . Left) (fmap Right . simplifyExpr env)) args
-  before <- get
-  inlined <- inlineCandidate env name candidate args'
-  paid <- gets (nestedPaid before)
   let original = rebuildSpine (ExVar name) args'
-      discount =
-        callDiscount env (candidateBody candidate) args'
-          + (if tailsAreKnown env inlined then spDiscount env else 0)
-          + paid
-      callGrowth = exprSize (spEnv env) inlined - exprSize (spEnv env) original - discount
-      fallback = do
-        restoreSite before
-        alternatives' <- mapM (simplifyAlt env original binder alternatives) alternatives
-        pure (mkCase (spEnv env) original binder resultType alternatives')
-      decide growth result = do
-        accepted <- acceptSite env candidate (siteReduction env (candidateBody candidate) args') paid growth
-        if accepted
-          then result
-          else fallback
-  reduced <- caseOfKnown env inlined binder alternatives
-  case reduced of
-    -- One alternative replaces the case and the call: a saving whatever
-    -- the sizes are.
-    Just result -> decide (-1) (simplifyExpr env result)
+      reduction = siteReduction env (candidateBody candidate) args'
+      discount = resultDiscount env candidate alternatives
+      growth = estimateGrowth env candidate args' reduction - discount
+  verdict <- decideSite env candidate reduction growth
+  case verdict of
     Nothing -> do
-      pushed <- caseOfCaseRaw env inlined binder resultType alternatives
-      case pushed of
-        Just pushed' -> decide (pushedGrowth env pushed' + callGrowth) (expandJoins env (pushedJoins pushed') (pushedSmall pushed'))
-        -- The alternatives use the remaining allowance. Simplify them only
-        -- after this site reserves its growth.
-        Nothing -> decide callGrowth $ do
-          alternatives' <- mapM (simplifyAlt env inlined binder alternatives) alternatives
-          pure (mkCase (spEnv env) inlined binder resultType alternatives')
+      alternatives' <- mapM (simplifyAlt env original binder alternatives) remaining
+      pure (mkCase (spEnv env) original binder alternatives')
+    Just charge -> do
+      before <- get
+      inlined <- inlineCandidate env {spCaseContext = Just alternatives} name candidate args'
+      paid <- gets (nestedPaid before)
+      let callGrowth = exprSize (spEnv env) inlined - exprSize (spEnv env) original - callDiscount env (candidateBody candidate) args'
+      reduced <- caseOfKnown env inlined binder alternatives
+      case reduced of
+        -- One alternative replaces the case and the call.
+        Just result -> do
+          recordSite charge paid (callGrowth - discount)
+          simplifyExpr env result
+        Nothing -> do
+          pushed <- caseOfCaseRaw env inlined binder remaining
+          accepted <- case pushed of
+            Just pushed' -> acceptGrowth env (pushedGrowth env pushed')
+            Nothing -> pure False
+          case pushed of
+            Just pushed' | accepted -> do
+              recordSite charge paid callGrowth
+              expandJoins env (pushedJoins pushed') (pushedSmall pushed')
+            _ -> do
+              recordSite charge paid callGrowth
+              alternatives' <- mapM (simplifyAlt env inlined binder alternatives) remaining
+              pure (mkCase (spEnv env) inlined binder alternatives')
 
 -- | The allowance the sites inside a copy took, from the state before
 -- the copy. The site around them takes it off its growth: that growth
@@ -616,64 +666,227 @@ inlineScrutinee env name candidate args binder resultType originalAlternatives =
 nestedPaid :: SimplState -> SimplState -> Int
 nestedPaid before after = ssAllowance before - ssAllowance after
 
--- | Decide a site whose growth is measured, and record it when it is
--- taken.
+-- | How a taken site is charged, once its copy is made.
+data Charge
+  = -- | The site is free of the allowance: a reducing site within its
+    -- limit, or a requested site within the requested site limit. The
+    -- allowance that the copies inside it took is given back, and the
+    -- limit of the value grows by the growth, so a later round does not
+    -- charge it either.
+    ChargeExempt
+  | -- | The site charges the allowance with its growth, less what the
+    -- copies inside it already paid.
+    ChargeAllowance
+  deriving (Eq, Show)
+
+-- | What a case on the result of a copy saves when every tail of the
+-- copy is a known constructor or a literal: the case and its
+-- alternatives go, and each tail becomes the alternative it selects,
+-- with its fields in place. The call the case resolved earns the
+-- function argument discount of the policy as well: the call, the case
+-- and the boxed result all go.
+resultDiscount :: Simpl -> Candidate -> [Alt] -> Int
+resultDiscount env candidate alternatives =
+  case tailConstructors env (candidateBody candidate) of
+    Just tails
+      | guidanceTailsKnown (candidateGuidanceOf candidate) ->
+          spDiscount env + caseSize - sum [selectedSize con - size | (con, size) <- tails]
+    _ -> 0
+  where
+    altSizes = [exprSize (spEnv env) (altRhs alternative) | alternative <- alternatives]
+    caseSize = 1 + sum (map (1 +) altSizes)
+    selectedSize con =
+      case [alternative | alternative <- alternatives, altCon alternative == con] ++ [alternative | alternative <- alternatives, altCon alternative == AltDefault] of
+        alternative : _ -> exprSize (spEnv env) (altRhs alternative)
+        [] -> caseSize
+
+-- | The growth a copy of a candidate is expected to cause at a site,
+-- from the body and the arguments, without the copy.
 --
--- The growth of a site is what its result adds over the call it
--- replaces, less the discounts of the call and what the sites inside
--- the copy have paid.
+-- The copy is the body less the lambdas the arguments remove. A case in
+-- the body on a parameter that gets a known constructor selects its
+-- alternative, so the copy counts that alternative alone, by
+-- 'exprSizeWith'. Each argument that is not trivial is bound by a let,
+-- except one that the copy consumes: a constructor application given to
+-- a parameter the body scrutinises goes with the case that selects on
+-- it, and a function given to a parameter the body calls once lands on
+-- its arguments, so the let, the lambdas and the call all go. The call
+-- the copy replaces comes off, and so does the function argument
+-- discount of the policy.
 --
--- An unconditional site is taken whatever its growth, but it still
--- charges the allowance with what it grew: the size metric counts a
--- case once for each path of its scrutinee, so a copy can be larger
--- than the value it replaces, and the sites after it must see the
--- allowance that is left.
+-- The estimate is a lower bound on the saving in most cases: a case on
+-- a field of a known constructor, or on the result of a consumed
+-- function, is not followed.
+estimateGrowth :: Simpl -> Candidate -> [Arg] -> Reduction -> Int
+estimateGrowth env candidate args reduction =
+  residual
+    - length applied
+    + sum (map contribution applied)
+    - callSize
+    - callDiscount env body args
+  where
+    body = candidateBody candidate
+    applied = valueArguments body args
+    -- The head and each value argument: what 'exprSize' gives the call.
+    callSize = 1 + sum [1 + exprSize (spEnv env) argument | Right argument <- args]
+    known
+      | reduction == NoReduction = Map.empty
+      | otherwise =
+          Map.fromList
+            [ (binderName binder, value)
+            | (binder, argument) <- applied,
+              scrutinises (binderName binder) body,
+              Just value <- [argumentKnown env argument]
+            ]
+    residual
+      | Map.null known = guidanceSize (candidateGuidanceOf candidate)
+      | otherwise = exprSizeWith (spEnv env) known body
+    contribution (binder, argument)
+      | isTrivial argument = 0
+      -- A consumed constructor application: the constructor and its
+      -- applications go, and each field that is not trivial is bound by
+      -- a let where the alternative uses it.
+      | Map.member (binderName binder) known,
+        (ExVar con, fields) <- collectSpine (fst (peelCasts argument)),
+        isConstructorName con =
+          sum [1 + exprSize (spEnv env) field | Right field <- fields, not (isTrivial field)]
+      -- A consumed function: no let, and at its one call the lambdas it
+      -- lands on go with the call, its head and its arguments. The lets
+      -- around a function float out of it, see 'floatValueLets'.
+      | (arity, _) <- movableArity (spArity env) (underLets argument),
+        arity > 0,
+        Occurrences 1 _ <- occurrences (binderName binder) body,
+        calls <- length [() | k <- [1 .. arity], saturatedCalls (binderName binder) k body == 1],
+        calls > 0 =
+          exprSize (spEnv env) argument - 3 * calls - 1
+      | otherwise = 1 + exprSize (spEnv env) argument
+
+-- | The constructor or literal an argument is known to be at a site: a
+-- constructor application, a literal, or a variable that names a known
+-- top-level value or a local binding of a constructor application.
+argumentConstructor :: Simpl -> Expr -> Maybe AltCon
+argumentConstructor env argument = (\(Known con _) -> con) <$> argumentKnown env argument
+
+-- | What an argument is known to hold at a site, with its fields: see
+-- 'argumentConstructor' and 'Known'.
+argumentKnown :: Simpl -> Expr -> Maybe Known
+argumentKnown env = go (4 :: Int)
+  where
+    -- A known value is followed into its fields to a fixed depth.
+    go depth argument =
+      case fst (peelCasts argument) of
+        ExVar name
+          | isConstructorName name -> Just (Known (AltData name) [])
+          | depth > 0, Just body <- Map.lookup name (spKnown env), functionArity body == 0 -> go (depth - 1) body
+          | depth > 0, Just rhs <- Map.lookup name (spLocals env) -> go (depth - 1) rhs
+          | otherwise -> Nothing
+        core ->
+          case collectSpine core of
+            (ExVar con, args)
+              | isConstructorName con ->
+                  Just (Known (AltData con) [if depth > 0 then go (depth - 1) field else Nothing | Right field <- args])
+              -- A call of a candidate whose every tail is the same
+              -- constructor: a case on the parameter that gets it
+              -- selects that alternative once the call is copied, and
+              -- the call is copied there, because the case gives its
+              -- copy the result discount. See 'resultDiscount'.
+              | Just candidate <- Map.lookup con (spInline env),
+                takesArgument env candidate args,
+                Just con' <- resultConstructor env candidate ->
+                  Just (Known con' [])
+            (ExLit literal _, []) -> Just (Known (AltLit literal) [])
+            _ -> Nothing
+
+-- | The constructor that every tail of a candidate gives, when there is
+-- one.
+resultConstructor :: Simpl -> Candidate -> Maybe AltCon
+resultConstructor env candidate
+  | guidanceTailsKnown (candidateGuidanceOf candidate),
+    Just ((con, _) : rest) <- tailConstructors env (candidateBody candidate),
+    all ((== con) . fst) rest =
+      Just con
+  | otherwise = Nothing
+
+-- | Whether a body has a case on the given name.
+scrutinises :: Name -> Expr -> Bool
+scrutinises name = go
+  where
+    go expr =
+      case expr of
+        ExCase scrutinee _ (NE.toList -> alternatives) ->
+          isScrutinee scrutinee || go scrutinee || any (go . altRhs) alternatives
+        ExLam _ inner -> go inner
+        ExTyLam _ inner -> go inner
+        ExLet bind inner -> go (bindRhs bind) || go inner
+        ExRec binds inner -> any (go . bindRhs) binds || go inner
+        ExApp function argument -> go function || go argument
+        ExTyApp function _ -> go function
+        ExCast inner _ -> go inner
+        ExForeignCall _ _ arguments -> any go arguments
+        _ -> False
+    isScrutinee expr =
+      case fst (peelCasts expr) of
+        ExVar var -> var == name
+        _ -> False
+
+-- | The constructor and the size of each tail of a body, when every tail
+-- is a known constructor or a literal.
+tailConstructors :: Simpl -> Expr -> Maybe [(AltCon, Int)]
+tailConstructors env = go . underLambdas
+  where
+    go expr =
+      case expr of
+        ExCase _ _ (NE.toList -> alternatives) -> concat <$> mapM (go . altRhs) alternatives
+        ExLet _ body -> go body
+        ExRec _ body -> go body
+        ExCast body _ -> go body
+        ExTyLam _ body -> go body
+        _ -> (\con -> [(con, exprSize (spEnv env) expr)]) <$> argumentConstructor env expr
+
+-- | Decide a site from its expected growth, before any copy is made.
 --
--- A requested site within the requested site limit is taken and does
--- not charge the allowance: the pragma asks for the copy, and a copy of
--- a few nodes must not starve the other sites of the value. The sites
--- inside the copy still charge the allowance. A requested site that
--- grows more is measured like any other: its growth counts the copies
--- inside it that went free, so a chain of requested copies stops where
--- it grows past the limit.
---
--- A reducing site that is not unconditional is taken without a charge
--- to the allowance when the copy, with the copies inside it, grows at
--- most by the site limit, or by the reducing site limit for a strong
--- reduction of a requested value. The allowance that the copies inside it took is given back: the
--- limit bounds them as part of the site. See 'Reduction'.
---
--- The growth that a site takes without a charge is recorded, and the
--- limit of the value grows by it, so a later round does not charge it.
-acceptSite :: Simpl -> Candidate -> Reduction -> Int -> Int -> SimplM Bool
-acceptSite env candidate reduction paid growth
+-- An unconditional site is taken whatever its growth. A reducing site
+-- that is not unconditional is taken free of the allowance when its
+-- expected growth is within the site limit, or within the reducing site
+-- limit for a strong reduction of a requested value. A requested site
+-- within the requested site limit is taken free of the allowance: the
+-- pragma asks for the copy, and a copy of a few nodes must not starve
+-- the other sites of the value. Any other site is taken when its
+-- expected growth fits the site limit and the allowance.
+decideSite :: Simpl -> Candidate -> Reduction -> Int -> SimplM (Maybe Charge)
+decideSite env candidate reduction growth
   | reduction /= NoReduction,
     candidateSites candidate /= SitesUnconditional,
-    growth + paid <= reducingLimit = do
-      modify' (\st -> st {ssAllowance = ssAllowance st + paid, ssInlined = ssInlined st + 1, ssExempt = ssExempt st + max 0 (growth + paid)})
-      pure True
+    growth <= reducingLimit =
+      pure (Just ChargeExempt)
   | otherwise =
       case candidateSites candidate of
-        SitesUnconditional -> do
-          modify' (\st -> st {ssAllowance = ssAllowance st - growth, ssInlined = ssInlined st + 1})
-          pure True
+        SitesUnconditional -> pure (Just ChargeAllowance)
         SitesRequested
-          | growth <= spRequestedSiteLimit env -> do
-              modify' (\st -> st {ssInlined = ssInlined st + 1, ssExempt = ssExempt st + max 0 growth})
-              pure True
+          | growth <= spRequestedSiteLimit env -> pure (Just ChargeExempt)
           | otherwise -> measured
         SitesMeasured -> measured
   where
     reducingLimit
       | reduction == StrongReduction && candidateRequested candidate = spReducingSiteLimit env
       | otherwise = spSiteLimit env
-    measured = do
-      accepted <- acceptGrowth env growth
-      if accepted
-        then do
-          modify' (\st -> st {ssInlined = ssInlined st + 1})
-          pure True
-        else pure False
+    measured
+      | growth <= 0 = pure (Just ChargeAllowance)
+      | otherwise = do
+          allowance <- gets ssAllowance
+          pure (if growth <= allowance && growth <= spSiteLimit env then Just ChargeAllowance else Nothing)
+
+-- | Record a taken site with the growth its copy measured, after the
+-- copy is simplified. The growth is what the result adds over the call
+-- it replaces, less the discounts of the call; what the sites inside the
+-- copy paid is in it, and is not charged twice.
+recordSite :: Charge -> Int -> Int -> SimplM ()
+recordSite charge paid growth =
+  case charge of
+    ChargeExempt ->
+      modify' (\st -> st {ssAllowance = ssAllowance st + paid, ssInlined = ssInlined st + 1, ssExempt = ssExempt st + max 0 growth})
+    ChargeAllowance ->
+      modify' (\st -> st {ssAllowance = ssAllowance st - (growth - paid), ssInlined = ssInlined st + 1})
 
 -- | How a call reduces its callee. A call reduces its callee when it gives
 -- a known constructor to a parameter that the callee scrutinises. The
@@ -700,39 +913,24 @@ siteReduction env body args =
   List.foldl'
     max
     NoReduction
-    [ knownArgument argument
+    [ knownArgument env argument
     | (binder, argument) <- valueArguments body args,
-      scrutinised (binderName binder) body
+      scrutinises (binderName binder) body
     ]
-  where
-    knownArgument argument =
-      case fst (peelCasts argument) of
-        ExVar name
-          | Map.member name (spKnown env) -> StrongReduction
-          | Map.member name (spLocals env) || maybe False (not . Set.null) (Map.lookup argument (spExcluded env)) -> WeakReduction
-          | otherwise -> NoReduction
-        core
-          | tailsAreKnown env core -> StrongReduction
-          | otherwise -> NoReduction
-    scrutinised name expr =
-      case expr of
-        ExCase scrutinee _ (NE.toList -> alternatives) ->
-          isVariable name scrutinee
-            || scrutinised name scrutinee
-            || any (scrutinised name . altRhs) alternatives
-        ExLam _ inner -> scrutinised name inner
-        ExTyLam _ inner -> scrutinised name inner
-        ExLet bind inner -> scrutinised name (bindRhs bind) || scrutinised name inner
-        ExRec binds inner -> any (scrutinised name . bindRhs) binds || scrutinised name inner
-        ExApp function argument -> scrutinised name function || scrutinised name argument
-        ExTyApp function _ -> scrutinised name function
-        ExCast inner _ -> scrutinised name inner
-        ExForeignCall _ _ arguments -> any (scrutinised name) arguments
-        _ -> False
-    isVariable name expr =
-      case fst (peelCasts expr) of
-        ExVar var -> var == name
-        _ -> False
+
+-- | How an argument is known at a site. See 'Reduction'.
+knownArgument :: Simpl -> Expr -> Reduction
+knownArgument env argument =
+  case fst (peelCasts argument) of
+    ExVar name
+      | isConstructorName name -> StrongReduction
+      | Map.member name (spKnown env) -> StrongReduction
+      | Map.member name (spLocals env) || maybe False (not . Set.null) (Map.lookup argument (spExcluded env)) -> WeakReduction
+      | otherwise -> NoReduction
+    core
+      | tailsAreKnown env core -> StrongReduction
+      | Just _ <- argumentKnown env core -> WeakReduction
+      | otherwise -> NoReduction
 
 -- | Forget the sites and the allowance a rejected copy took: its result
 -- is discarded, so nothing inside it happened. The supply stays, so that
@@ -745,15 +943,25 @@ restoreSite before =
 -- application or a literal, so that a case on the expression resolves
 -- in each of them.
 tailsAreKnown :: Simpl -> Expr -> Bool
-tailsAreKnown env expr =
+tailsAreKnown env = tailsKnownIn (spEnv env) (spArity env)
+
+-- | 'tailsAreKnown' from the arities alone. A tail is known when it is
+-- a literal or a constructor application, whatever its fields: a case
+-- on it selects its alternative and binds the fields.
+tailsKnownIn :: TypeEnv -> Map Name Int -> Expr -> Bool
+tailsKnownIn env arities expr =
   case expr of
-    ExCase _ _ (NE.toList -> alternatives) -> all (tailsAreKnown env . altRhs) alternatives
-    ExLet _ body -> tailsAreKnown env body
-    ExRec _ body -> tailsAreKnown env body
-    ExCast body _ -> tailsAreKnown env body
-    ExTyLam _ body -> tailsAreKnown env body
+    ExCase _ _ (NE.toList -> alternatives) -> all (tailsKnownIn env arities . altRhs) alternatives
+    ExLet _ body -> tailsKnownIn env arities body
+    ExRec _ body -> tailsKnownIn env arities body
+    ExCast body _ -> tailsKnownIn env arities body
+    ExTyLam _ body -> tailsKnownIn env arities body
     ExLit {} -> True
-    _ -> isKnownConstructor (spArity env) expr
+    _ ->
+      isKnownConstructor arities expr
+        || case collectSpine expr of
+          (ExVar con, _) -> isConstructorName con
+          _ -> False
 
 -- | Whether a call gives a candidate enough arguments to inline.
 --
@@ -946,23 +1154,23 @@ extendTypeBinder env binder = env {spEnv = extendBinder (spEnv env) binder}
 -- | The environment under a lambda: the result receives one argument
 -- fewer, and the first lambda of the binding has been passed.
 passLambda :: Simpl -> Simpl
-passLambda env = env {spCredit = max 0 (spCredit env - 1), spInside = True}
+passLambda env = env {spCredit = max 0 (spCredit env - 1), spInside = True, spCaseContext = Nothing}
 
 -- | The environment of a part that is not in leading position, such as
 -- the head or an argument of an application: no lambda in it is known to
 -- be entered once.
 noOneShot :: Simpl -> Simpl
-noOneShot env = env {spCredit = 0, spInside = False}
+noOneShot env = env {spCredit = 0, spInside = False, spCaseContext = Nothing}
 
 -- | The environment of the right-hand side of a local binder: its
 -- credit from the analysis of the body, when it has one.
 rhsEnv :: Simpl -> Name -> Simpl
-rhsEnv env name = env {spCredit = Map.findWithDefault 0 name (spCredits env), spInside = False}
+rhsEnv env name = env {spCredit = Map.findWithDefault 0 name (spCredits env), spInside = False, spCaseContext = Nothing}
 
 -- | The environment of a top-level body with the given credit: the
 -- credits of its local binders come from one analysis of the body.
 bodyEnv :: Simpl -> Int -> Expr -> Simpl
-bodyEnv env credit body = env {spCredit = credit, spInside = False, spCredits = snd (callArityAnalysis credit False body)}
+bodyEnv env credit body = env {spCredit = credit, spInside = False, spCredits = snd (callArityAnalysis credit False body), spCaseContext = Nothing}
 
 -- | Simplify an application. The head and the arguments are not in
 -- leading position, but what the application becomes is: a copy of the
@@ -1004,17 +1212,19 @@ rebuildApp env headExpr' args' = do
       | Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args' -> do
           let original = rebuildSpine headExpr' args'
-          before <- get
-          result <- inlineCandidate env name candidate args'
-          paid <- gets (nestedPaid before)
-          let discount = callDiscount env (candidateBody candidate) args' + paid
-              growth = exprSize (spEnv env) result - exprSize (spEnv env) original - discount
-          accepted <- acceptSite env candidate (siteReduction env (candidateBody candidate) args') paid growth
-          if accepted
-            then pure result
-            else do
-              restoreSite before
-              pure original
+              reduction = siteReduction env (candidateBody candidate) args'
+              -- A site in the tail of a copy made in the scrutinee of a
+              -- case: that case takes the result of this copy apart too.
+              discount = maybe 0 (resultDiscount env candidate) (spCaseContext env)
+          verdict <- decideSite env candidate reduction (estimateGrowth env candidate args' reduction - discount)
+          case verdict of
+            Nothing -> pure original
+            Just charge -> do
+              before <- get
+              result <- inlineCandidate env name candidate args'
+              paid <- gets (nestedPaid before)
+              recordSite charge paid (exprSize (spEnv env) result - exprSize (spEnv env) original - callDiscount env (candidateBody candidate) args' - discount)
+              pure result
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
     -- A let in the head of an application is a let around the
@@ -1027,15 +1237,14 @@ rebuildApp env headExpr' args' = do
         all (either (const True) (unused (binderName (bindBinder bind)))) args' -> do
           inner <- simplifyApp env body args'
           mkLet env bind inner
-    ExCase scrutinee binder (typedCaseAlternatives (spEnv env) binder -> Just (resultType, alternatives))
+    ExCase scrutinee binder alternatives
       | not (null args'),
-        all (either (const True) (copiable env)) args',
-        Just resultType' <- appliedType (spEnv env) resultType args' -> do
+        all (either (const True) (copiable env)) args' -> do
           -- The arguments are trivial, so a copy in each alternative costs
           -- no work. The alternative binders are distinct from every name
           -- in scope, so the copies capture nothing.
-          alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp (alternativeEnv env scrutinee binder alternatives alternative) (altRhs alternative) args') alternatives
-          pure (caseFromList scrutinee binder resultType' alternatives')
+          alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp (alternativeEnv env scrutinee binder (NE.toList alternatives) alternative) (altRhs alternative) args') alternatives
+          pure (ExCase scrutinee binder alternatives')
     ExRec binds body
       | not (null args'),
         all (either (const True) (\argument -> all ((`unused` argument) . binderName . bindBinder) binds)) args' -> do
@@ -1095,16 +1304,12 @@ bindApplication env headExpr args = do
 -- left is often a constructor with a primitive call, which
 -- 'bindLazyPrimitives' then binds by a strict let.
 --
--- The case gets the type of the application as its result type, so the
--- head must be a constructor or a top-level value whose type is known.
 -- The case moves into a larger scope, so its binders are fresh.
 speculateArguments :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
 speculateArguments env headExpr args
-  | ExVar name <- headExpr,
-    any (either (const False) speculable) args,
-    Just headType <- lookupBinderType (spEnv env) name <|> lookupHeaderType (spEnv env) name,
-    Just resultType <- appliedType (spEnv env) headType args = do
-      (wrappers, args') <- mapAndUnzipM (speculate resultType) args
+  | ExVar {} <- headExpr,
+    any (either (const False) speculable) args = do
+      (wrappers, args') <- mapAndUnzipM speculate args
       inner <- bindApplication env headExpr args'
       pure (Just (foldr ($) inner (concat wrappers)))
   | otherwise = pure Nothing
@@ -1118,13 +1323,13 @@ speculateArguments env headExpr args
       tyCon <- typeHead (reduceType (spEnv env) ty)
       [con] <- Map.lookup tyCon (teDataCons (spEnv env))
       pure con
-    speculate resultType argument
+    speculate argument
       | Right value <- argument,
         speculable value = do
           fresh <- freshenExpr value
           pure $ case fresh of
             ExCase scrutinee binder (NE.toList -> [alternative]) ->
-              ([\inner -> caseFromList scrutinee binder resultType [alternative {altRhs = inner}]], Right (altRhs alternative))
+              ([\inner -> ExCase scrutinee binder (alternative {altRhs = inner} NE.:| [])], Right (altRhs alternative))
             _ -> ([], argument)
       | otherwise = pure ([], argument)
 
@@ -1213,18 +1418,6 @@ valueArguments body args =
     (ExTyLam _ inner, Left _ : rest) -> valueArguments inner rest
     (ExLam binder inner, Right argument : rest) -> (binder, argument) : valueArguments inner rest
     _ -> []
-
--- | The type of a value of the given type applied to the arguments.
-appliedType :: TypeEnv -> Type -> [Arg] -> Maybe Type
-appliedType env ty args =
-  case args of
-    [] -> Just ty
-    Left argument : rest -> do
-      (binder, body) <- viewForAll env ty
-      appliedType env (substType (binderName binder) argument body) rest
-    Right _ : rest -> do
-      (_, _, _, result) <- viewFun env ty
-      appliedType env result rest
 
 -- | Apply a lambda chain to simplified arguments. A trivial argument
 -- replaces its parameter. Another argument is bound by a let, which the
@@ -1558,9 +1751,9 @@ mkLet env bind body
   -- move, because a case on the comparison is a case on the compared
   -- value.
   | Occurrences 1 False <- uses,
-    ExCase (ExVar scrutinee) caseBinder (typedCaseAlternatives (extendBinder (spEnv env) (bindBinder bind)) caseBinder -> Just (resultType, alternatives)) <- body,
+    ExCase (ExVar scrutinee) caseBinder alternatives <- body,
     scrutinee == name,
-    Just rewritten <- literalEqualityCase (spEnv env) rhs caseBinder resultType alternatives =
+    Just rewritten <- literalEqualityCase (spEnv env) rhs caseBinder alternatives =
       pure rewritten
   | otherwise = letOfCase env bind body
   where
@@ -1768,15 +1961,15 @@ expandJoins env joins = go env
             _ -> pure expr
 
 -- | 'Nothing' when the scrutinee has no case in its tail.
-caseOfCaseRaw :: Simpl -> Expr -> Maybe Binder -> Type -> [Alt] -> SimplM (Maybe Pushed)
-caseOfCaseRaw env scrutinee binder resultType alternatives
+caseOfCaseRaw :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM (Maybe Pushed)
+caseOfCaseRaw env scrutinee binder alternatives
   | not (hasCaseTail scrutinee) = pure Nothing
   | otherwise = do
       joined <- mapM joinPoint alternatives
-      let joins = Map.fromList [(name, rhs) | (Just (name, rhs), _) <- joined]
-          small = map snd joined
-      pushed <- pushSmall env binder resultType small scrutinee
-      pure (Just (Pushed pushed (caseFromList scrutinee binder resultType small) joins))
+      let joins = Map.fromList [(name, rhs) | (Just (name, rhs), _) <- NE.toList joined]
+          small = fmap snd joined
+      pushed <- pushSmall env binder small scrutinee
+      pure (Just (Pushed pushed (ExCase scrutinee binder small) joins))
   where
     hasCaseTail expr =
       case expr of
@@ -1810,21 +2003,21 @@ caseOfCaseRaw env scrutinee binder resultType alternatives
 -- under it, a known constructor or literal selects an alternative, and
 -- any other tail is scrutinised by a copy of the small case. Nothing
 -- that was simplified is simplified again.
-pushSmall :: Simpl -> Maybe Binder -> Type -> [Alt] -> Expr -> SimplM Expr
-pushSmall env binder resultType small = go env
+pushSmall :: Simpl -> Maybe Binder -> NE.NonEmpty Alt -> Expr -> SimplM Expr
+pushSmall env binder small = go env
   where
     go env' expr =
       case expr of
         ExLet bind body -> ExLet bind <$> go (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
         ExRec binds body -> ExRec binds <$> go env' body
-        ExCase scrutinee innerBinder (NE.toList -> alternatives) -> do
+        ExCase scrutinee innerBinder alternatives -> do
           alternatives' <-
             mapM
-              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee innerBinder alternatives alternative) (altRhs alternative))
+              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee innerBinder (NE.toList alternatives) alternative) (altRhs alternative))
               alternatives
-          pure (mkCase (spEnv env') scrutinee innerBinder resultType alternatives')
+          pure (mkCase (spEnv env') scrutinee innerBinder alternatives')
         _ -> do
-          copy <- freshenExpr (caseFromList expr binder resultType small)
+          copy <- freshenExpr (ExCase expr binder small)
           case copy of
             ExCase leaf binder' (NE.toList -> small') -> fromMaybe copy <$> caseOfKnown env' leaf binder' small'
             _ -> pure copy
@@ -1834,8 +2027,7 @@ freshLocal :: Name -> SimplM Name
 freshLocal name = state (\st -> (name {nameOrigin = OriginLocal (Unique (ssSupply st))}, st {ssSupply = ssSupply st + 1}))
 
 -- | Move a strict let whose right-hand side is a case into the
--- alternatives of that case. The result type of the pushed case is the
--- result type of the body, when the body shows it.
+-- alternatives of that case.
 --
 -- The push simplifies a copy of the body in each alternative before the
 -- size rule decides it. Inside such a trial copy, a strict let of a case
@@ -1846,10 +2038,7 @@ freshLocal name = state (\st -> (name {nameOrigin = OriginLocal (Unique (ssSuppl
 letOfCase :: Simpl -> Bind -> Expr -> SimplM Expr
 letOfCase env bind body
   | spSpeculative env = pure fallback
-  | otherwise =
-      case exprType (extendBinder (spEnv env) (bindBinder bind)) body of
-        Just resultType -> pushIntoCase env (bindRhs bind) (\inner -> ExLet bind {bindRhs = inner} body) resultType fallback
-        Nothing -> pure fallback
+  | otherwise = pushIntoCase env (bindRhs bind) (\inner -> ExLet bind {bindRhs = inner} body) fallback
   where
     fallback = ExLet bind body
 
@@ -1858,9 +2047,9 @@ letOfCase env bind body
 -- a known constructor or literal selects the path through the context.
 -- The result stands when the size rule accepts it. Let bindings around
 -- the inner case move out first.
-pushIntoCase :: Simpl -> Expr -> (Expr -> Expr) -> Type -> Expr -> SimplM Expr
-pushIntoCase env scrutinee context resultType fallback = do
-  pushed <- pushIntoCaseRaw env scrutinee context resultType
+pushIntoCase :: Simpl -> Expr -> (Expr -> Expr) -> Expr -> SimplM Expr
+pushIntoCase env scrutinee context fallback = do
+  pushed <- pushIntoCaseRaw env scrutinee context
   case pushed of
     Nothing -> pure fallback
     Just result -> do
@@ -1870,12 +2059,12 @@ pushIntoCase env scrutinee context resultType fallback = do
 
 -- | 'pushIntoCase' before the size rule: 'Nothing' when the scrutinee is
 -- not a case under its let bindings.
-pushIntoCaseRaw :: Simpl -> Expr -> (Expr -> Expr) -> Type -> SimplM (Maybe Expr)
-pushIntoCaseRaw env scrutinee context resultType =
+pushIntoCaseRaw :: Simpl -> Expr -> (Expr -> Expr) -> SimplM (Maybe Expr)
+pushIntoCaseRaw env scrutinee context =
   case core of
-    ExCase inner innerBinder (NE.toList -> innerAlternatives) -> do
-      innerAlternatives' <- mapM (push inner innerBinder innerAlternatives) innerAlternatives
-      pure (Just (foldr ExLet (mkCase (spEnv env) inner innerBinder resultType innerAlternatives') floated))
+    ExCase inner innerBinder innerAlternatives -> do
+      innerAlternatives' <- mapM (push inner innerBinder (NE.toList innerAlternatives)) innerAlternatives
+      pure (Just (foldr ExLet (mkCase (spEnv env) inner innerBinder innerAlternatives') floated))
     _ -> pure Nothing
   where
     (floated, core) = peelLets scrutinee
@@ -2235,16 +2424,15 @@ rebuildSpine = List.foldl' apply
 -- A variable or a pure primitive call with trivial arguments gives the same value again.
 -- The case binder holds the evaluated value even when the scrutinee is a call.
 -- Remove inner alternatives that the outer case already covers.
-mkCase :: TypeEnv -> Expr -> Maybe Binder -> Type -> [Alt] -> Expr
-mkCase env scrutinee binder resultType originalAlternatives =
+mkCase :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> Expr
+mkCase env scrutinee binder originalAlternatives =
   case List.partition ((== AltDefault) . altCon) alternatives of
     -- A case that returns its own binder is its scrutinee: both are
     -- undefined when the scrutinee is, and both are its value otherwise. A
     -- call in the scrutinee then stays a tail call.
     ([Alt AltDefault [] [] (ExVar returned)], [])
       | Just named <- binder,
-        returned == binderName named,
-        resultType == binderType named ->
+        returned == binderName named ->
           scrutinee
     -- An unlifted let evaluates its right-hand side at the same point.
     -- Keep a case when the runtime representation is not known.
@@ -2268,18 +2456,29 @@ mkCase env scrutinee binder resultType originalAlternatives =
                   altCon alternative `Set.notMember` covered
                 ]
               (innerDefaults, innerOthers) = List.partition ((== AltDefault) . altCon) continued
-           in caseFromList scrutinee binder resultType (normalizeCaseAlternatives env binder (others <> innerOthers <> innerDefaults))
-    _ -> caseFromList scrutinee binder resultType alternatives
+           in rebuildCase env scrutinee binder originalAlternatives (normalizeCaseAlternatives env binder (others <> innerOthers <> innerDefaults))
+    _ -> rebuildCase env scrutinee binder originalAlternatives alternatives
   where
-    alternatives = normalizeCaseAlternatives env binder originalAlternatives
+    alternatives = normalizeCaseAlternatives env binder (NE.toList originalAlternatives)
+
+-- | Recover a result type only when no alternative remains.
+-- If recovery fails, preserve the original case for the lint pass.
+rebuildCase :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> [Alt] -> Expr
+rebuildCase env scrutinee binder originalAlternatives alternatives =
+  case NE.nonEmpty alternatives of
+    Just remaining -> ExCase scrutinee binder remaining
+    Nothing ->
+      case caseResultType env binder originalAlternatives of
+        Just resultType -> ExAbsurd scrutinee resultType
+        Nothing -> ExCase scrutinee binder originalAlternatives
 
 -- | Rewrite a case on a comparison of a value with a literal into a case
 -- on the value: @case x ==# 3# of { 1# -> a; _ -> b }@ is
 -- @case x of { 3# -> a; _ -> b }@. The case binder of the comparison
 -- stands for the literal each alternative selects. The value is then the
 -- scrutinee of a case that a later case on the same value merges into.
-literalEqualityCase :: TypeEnv -> Expr -> Maybe Binder -> Type -> [Alt] -> Maybe Expr
-literalEqualityCase env scrutinee binder resultType alternatives = do
+literalEqualityCase :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> Maybe Expr
+literalEqualityCase env scrutinee binder alternatives = do
   (call, arguments) <- case scrutinee of
     ExForeignCall call [] arguments | foreignCallConvention call == Prim -> Just (call, arguments)
     _ -> Nothing
@@ -2303,8 +2502,7 @@ literalEqualityCase env scrutinee binder resultType alternatives = do
         env
         compared
         ((\named -> named {binderType = comparedType}) <$> binder)
-        resultType
-        [Alt (AltLit literal) [] [] hit, Alt AltDefault [] [] miss]
+        (Alt (AltLit literal) [] [] hit NE.:| [Alt AltDefault [] [] miss])
     )
 
 -- | The primitive comparisons of a value with a literal, and whether each
@@ -2347,12 +2545,12 @@ floatPrimitiveArgument env call types arguments
   | foreignCallConvention call /= Prim = pure Nothing
   | otherwise =
       case (primitiveSignature (spEnv env) call types, span isTrivial arguments) of
-        (Just (argumentTypes, resultType), (before, argument : after))
+        (Just (argumentTypes, _), (before, argument : after))
           | length argumentTypes == length arguments,
             isUnliftedArgument (argumentTypes !! length before),
             movable argument -> do
               argument' <- freshenExpr argument
-              pure (Just (float resultType before after argument'))
+              pure (Just (float before after argument'))
         _ -> pure Nothing
   where
     movable expr =
@@ -2360,11 +2558,11 @@ floatPrimitiveArgument env call types arguments
         ExCase _ _ (NE.toList -> [_]) -> True
         ExLet {} -> True
         _ -> False
-    float resultType before after expr =
+    float before after expr =
       case expr of
         ExCase scrutinee binder (NE.toList -> [alternative]) ->
-          caseFromList scrutinee binder resultType [alternative {altRhs = float resultType before after (altRhs alternative)}]
-        ExLet bind body -> ExLet bind (float resultType before after body)
+          ExCase scrutinee binder (alternative {altRhs = float before after (altRhs alternative)} NE.:| [])
+        ExLet bind body -> ExLet bind (float before after body)
         _ -> ExForeignCall call types (before <> (expr : after))
     -- An argument whose representation is known and is not lifted. A
     -- representation variable can stand for a lifted one.

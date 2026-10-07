@@ -4421,8 +4421,8 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       familyName = unqualifiedNameText familyBinder
       params = binderHeadParams (dataFamilyDeclHead familyDecl)
       arity = length params
-  (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
-  inferredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
+  (kindParams, paramInfos) <- familyParamInfos maybeKindScheme params (dataFamilyDeclKind familyDecl)
+  inferredKind <- tyConKindFromParamsWith (paramKindEnv kindParams) paramInfos (dataFamilyDeclKind familyDecl)
   familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
@@ -4642,7 +4642,12 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
       let familyName = unqualifiedNameText familyBinder
           params = typeFamilyDeclParams familyDecl
           arity = length params
-      (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+      -- An associated family shares its kind variables with the class, so
+      -- only a top-level family quantifies the kind variables it mentions.
+      (kindParams, paramInfos) <-
+        if Map.null sharedKinds
+          then familyParamInfos maybeKindScheme params (typeFamilyResultKindType familyDecl)
+          else typeDeclParamInfos maybeKindScheme params
       forM_ paramInfos $ \param ->
         forM_ (Map.lookup (paramName param) sharedKinds) (`unifyKinds` paramKind param)
       -- A closed family without a standalone kind signature takes the kinds
@@ -4659,7 +4664,7 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
           then do
             resultKind <- freshKindMeta
             pure (foldr (KFun . paramKind) resultKind paramInfos)
-          else tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
+          else tyConKindFromParamsWith (paramKindEnv kindParams) paramInfos (typeFamilyResultKindType familyDecl)
       familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
       let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
       storeTyConInfo
@@ -4723,7 +4728,10 @@ registerClosedTypeFamilyEquations origin familyDecl =
   case typeFamilyDeclEquations familyDecl of
     Nothing -> pure []
     Just equations -> do
-      mapM_ (registerTypeFamilyEquation origin True (typeFamilyDeclParams familyDecl)) equations
+      -- The header binders do not scope over the equations, as in GHC:
+      -- @type family Zip (a :: Type -> Type) b where Zip (Pair a) b = ...@
+      -- binds a new @a@ of kind 'Type' in its equation.
+      mapM_ (registerTypeFamilyEquation origin True []) equations
       pure []
 
 registerTypeFamilyInstance :: (Text, Text) -> TypeFamilyInst -> TcM [TcBindingResult]
@@ -4897,11 +4905,32 @@ typeDeclParamInfos maybeKindScheme params =
           paramKind = kind
         }
 
+-- | The parameters of a family header. Without a standalone kind
+-- signature, a kind variable that the header mentions is one variable of
+-- the family kind: @type family Indexed (t :: k) (i :: Nat) :: k@ has the
+-- kind @forall k. k -> Nat -> k@, and each use instantiates @k@ again.
+familyParamInfos :: Maybe TypeScheme -> [TyVarBinder] -> Maybe Type -> TcM ([ParamInfo], [ParamInfo])
+familyParamInfos maybeKindScheme params maybeResultKind =
+  case maybeKindScheme of
+    Just {} -> typeDeclParamInfos maybeKindScheme params
+    Nothing -> do
+      kindParams <- implicitKindParams params (maybe [] freeTypeVars maybeResultKind)
+      paramInfos <- makeParamEnvWith (paramKindEnv kindParams) params
+      pure (kindParams, paramInfos)
+
+paramKindEnv :: [ParamInfo] -> TvKindEnv
+paramKindEnv kindParams = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
+
 implicitBinderKindParams :: [TyVarBinder] -> TcM [ParamInfo]
-implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
+implicitBinderKindParams binders = implicitKindParams binders []
+
+-- | The kind variables that the binder kinds and the extra names mention,
+-- without the binders themselves.
+implicitKindParams :: [TyVarBinder] -> [Text] -> TcM [ParamInfo]
+implicitKindParams binders extraNames = mapM makeImplicitParam implicitNames
   where
     explicitNames = map tyVarBinderName binders
-    implicitNames = nub (concatMap (maybe [] freeTypeVars . tyVarBinderKind) binders) \\ explicitNames
+    implicitNames = nub (concatMap (maybe [] freeTypeVars . tyVarBinderKind) binders <> extraNames) \\ explicitNames
     makeImplicitParam name = do
       rawTyVar <- freshSkolemTv name
       kind <- freshKindMeta

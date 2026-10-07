@@ -1707,9 +1707,14 @@ static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcMVarWaiter **head,
   return waiter;
 }
 
+/* A woken waiter gives its continuation to its thread. The waiter can stay
+   in the remembered set after this, and the frame is popped later, so the
+   waiter keeps no pointer to it. */
 static void aihc_mvar_wake(AihcMachine *machine, AihcMVarWaiter *waiter,
                            uint64_t count, AihcSlot value) {
-  aihc_suspend_continue(waiter->thread, waiter->continuation, count, value);
+  AihcValue *continuation = waiter->continuation;
+  waiter->continuation = NULL;
+  aihc_suspend_continue(waiter->thread, continuation, count, value);
   aihc_enqueue_thread(machine, waiter->thread);
 }
 
@@ -1963,8 +1968,10 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
   AihcBlackholeWaiter *waiter = aihc_remove_blackhole_waiters(machine, object);
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
-    aihc_suspend_continue(waiter->thread, waiter->continuation, 1,
-                          (AihcSlot)value);
+    AihcValue *continuation = waiter->continuation;
+    /* As for an MVar waiter: the frame is popped later. */
+    waiter->continuation = NULL;
+    aihc_suspend_continue(waiter->thread, continuation, 1, (AihcSlot)value);
     aihc_enqueue_thread(machine, waiter->thread);
     waiter = next;
   }
@@ -1983,7 +1990,9 @@ static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
   AihcBlackholeWaiter *waiter = aihc_remove_blackhole_waiters(machine, object);
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
-    aihc_suspend_raise(waiter->thread, exception, waiter->continuation);
+    AihcValue *continuation = waiter->continuation;
+    waiter->continuation = NULL;
+    aihc_suspend_raise(waiter->thread, exception, continuation);
     aihc_enqueue_thread(machine, waiter->thread);
     waiter = next;
   }

@@ -142,6 +142,7 @@ mkTcKinds wiring =
       kindsDataCon = tcWiringKindDataCon wiring,
       kindsEqualityTyCon = tcWiringEqualityTyCon wiring,
       kindsConstraintTupleTyCon = tcWiringConstraintTupleTyCon wiring,
+      kindsBoxedTupleTyCon = tcWiringBoxedTupleTyCon wiring,
       kindsArrowTyCon = tcWiringArrowTyCon wiring,
       kindsListTyCon = tcWiringListTyCon wiring,
       kindsListDeclaration = tcWiringListDeclaration wiring,

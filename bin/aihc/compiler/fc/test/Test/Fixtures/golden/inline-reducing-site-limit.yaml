@@ -25,7 +25,7 @@ passes:
     value-growth: 0
     value-slack: 0
     requested-site-limit: 0
-    reducing-site-limit: 10
+    reducing-site-limit: 20
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types

@@ -1,5 +1,3 @@
-{-# LANGUAGE TupleSections #-}
-
 -- | typeOf and unfold tables for implicit FUN representations.
 module Aihc.Fc.TypeOf
   ( TypeEnv (..),
@@ -13,7 +11,6 @@ module Aihc.Fc.TypeOf
     exprType,
     exprTypeWith,
     caseResultType,
-    typedCaseAlternatives,
     unfoldType,
     representationFromKind,
     repOf,
@@ -53,6 +50,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 
@@ -504,7 +502,7 @@ applyNominalAxiom env declaration source
   | axiomRole declaration /= Nominal = Nothing
   | otherwise = do
       substitution <- matchAxiomTypes env (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceSynonyms env (axiomLeft declaration)) source
-      resolved <- sequenceA substitution
+      resolved <- sequenceA (matchBinderKinds env (axiomBinders declaration) substitution)
       pure (substTypes resolved (axiomRight declaration))
 
 coercionEndpoints :: TypeEnv -> Coercion -> Maybe (Type, Type)
@@ -585,9 +583,47 @@ matchRepresentationalAxiom env declaration source
   | axiomRole declaration /= Representational = Nothing
   | otherwise = do
       substitution <- matchAxiomTypes env (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) (reduceType env source)
-      resolved <- sequenceA substitution
+      resolved <- sequenceA (matchBinderKinds env (axiomBinders declaration) substitution)
       arguments <- traverse (\binder -> Map.lookup (binderName binder) resolved) (axiomBinders declaration)
       pure (arguments, substTypes resolved (axiomRight declaration))
+
+-- | Bind the axiom binders that only the kinds of other binders mention.
+-- In @Indexed k1 (t a) i ~ Indexed (k0 -> k1) t ...@ with @t : k0 -> k1@
+-- and @a : k0@, the left-hand side names @k0@ only in those kinds, so a
+-- match of the type gives no @k0@. The kind of the type that a binder
+-- matched gives it. A kind that does not match leaves the binders as
+-- they are, and an unbound binder then stops the axiom.
+matchBinderKinds :: TypeEnv -> [Binder] -> Map Name (Maybe Type) -> Map Name (Maybe Type)
+matchBinderKinds env binders = go (length binders)
+  where
+    go fuel substitution
+      | fuel <= 0 || all isJust substitution = substitution
+      | next == substitution = substitution
+      | otherwise = go (fuel - 1) next
+      where
+        next = List.foldl' matchKind substitution binders
+    matchKind substitution binder =
+      case Map.lookup (binderName binder) substitution of
+        Just (Just actual)
+          | Just actualKind <- typeOf env actual,
+            Just next <- matchAxiomTypes env substitution (reduceSynonyms env (binderType binder)) (asArrows (reduceSynonyms env actualKind)) ->
+              next
+        _ -> substitution
+    -- A header binds every parameter with a quantifier, so a partial
+    -- application has a kind like @forall (a : k). Type@. When the
+    -- quantified variable is not used, this kind is @k -> Type@
+    -- ('kindFunctionsEqual'), which is the form the axioms use.
+    asArrows kind =
+      case kind of
+        TyForAll quantified body
+          | not (typeUsesName (binderName quantified) body) ->
+              TyFun liftedRep liftedRep (binderType quantified) (asArrows body)
+        TyFun r1 r2 argument result -> TyFun r1 r2 argument (asArrows result)
+        _ -> kind
+    liftedRep =
+      TyApp
+        (TyCon (wiredGhcTypes (tePrimPackage env) "BoxedRep" SortDataConstructor))
+        (TyCon (wiredGhcTypes (tePrimPackage env) "Lifted" SortDataConstructor))
 
 -- | Match an axiom left-hand side against a type. The substitution holds
 -- the axiom binders; a bound binder must match an equal type again.
@@ -874,8 +910,3 @@ caseResultTypeWith substitution env binder alternatives = do
   result <- exprTypeWith scoped inner (altRhs first)
   guard (not (any (\bound -> typeUsesName (binderName bound) result) (altTypeBinders first)))
   pure result
-
--- | Pair the inferred result type with the alternatives for FC transformations.
-typedCaseAlternatives :: TypeEnv -> Maybe Binder -> NE.NonEmpty Alt -> Maybe (Type, [Alt])
-typedCaseAlternatives env binder alternatives =
-  (,NE.toList alternatives) <$> caseResultType env binder alternatives

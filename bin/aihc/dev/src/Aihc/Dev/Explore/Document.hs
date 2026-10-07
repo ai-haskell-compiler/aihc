@@ -32,6 +32,9 @@ data Stage
   | StageGrin
   | StageCpsGrin
   | StageGcGrin
+  | StageLir
+  | StageAssembly
+  | StageLlvm
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 stageLabel :: Stage -> Text
@@ -42,6 +45,9 @@ stageLabel stage =
     StageGrin -> "GRIN"
     StageCpsGrin -> "GRIN-CPS"
     StageGcGrin -> "GRIN-GC"
+    StageLir -> "Lir"
+    StageAssembly -> "Assembly"
+    StageLlvm -> "LLVM IR"
 
 -- | A top-level definition: the module that its name comes from, if the name
 -- has a module, its name without the module, and its kind.

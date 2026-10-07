@@ -138,6 +138,9 @@ static void aihc_shade_fields(AihcMachine *machine, AihcValue *object);
 static void aihc_shade_elements(AihcMachine *machine, AihcValue *array,
                                 uint64_t first, uint64_t end);
 static void aihc_mark_frames(AihcMachine *machine, AihcValue *frame);
+static int aihc_frame_above(const AihcValue *first, const AihcValue *second);
+static int aihc_frame_is_live(const AihcMachine *machine,
+                              const AihcValue *frame);
 
 typedef struct {
   AihcMachine *machine;
@@ -774,7 +777,7 @@ static void aihc_gen2_begin_marking(AihcMachine *machine) {
   aihc_clear_srt_stamps();
   aihc_srt_worklist.count = 0;
   for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
-    stack->pending = NULL;
+    stack->pending_count = 0;
   }
   for (unsigned index = 0; index < AIHC_SIZE_CLASS_COUNT; ++index) {
     AihcSizeClass *class = &aihc_size_classes[index];
@@ -916,6 +919,8 @@ AihcStack *aihc_stack_new(AihcMachine *machine, AihcThread *thread) {
   stack->next = machine->stacks;
   stack->top = NULL;
   stack->pending = NULL;
+  stack->pending_count = 0;
+  stack->pending_capacity = 0;
   machine->stacks = stack;
   return stack;
 }
@@ -943,6 +948,7 @@ void aihc_stack_release(AihcMachine *machine, AihcStack *stack) {
     aihc_stack_chunk_free(machine, chunk);
     chunk = above;
   }
+  free(stack->pending);
   free(stack);
 }
 
@@ -983,9 +989,27 @@ void aihc_stack_resume_after(AihcMachine *machine, const AihcValue *frame) {
   aihc_stack_enter_chunk(machine, frame);
 }
 
+/* Remove the deferred frames above a frame that the stack pointer enters.
+   The entry pops them, and a pop can pass a frame without a read: a
+   forward frame gives its values to its parent. New frames then take
+   their place, so a slice must not scan them. */
+static void aihc_stack_drop_pending_above(AihcStack *stack,
+                                          const AihcValue *frame) {
+  size_t kept = 0;
+  for (size_t index = 0; index < stack->pending_count; ++index) {
+    AihcValue *pending = stack->pending[index];
+    if (!aihc_frame_above(pending, frame)) {
+      stack->pending[kept++] = pending;
+    }
+  }
+  stack->pending_count = kept;
+}
+
 void aihc_stack_enter_chunk(AihcMachine *machine, const AihcValue *frame) {
-  aihc_chunk_set_generation(aihc_stack_chunk_of(frame), 0);
+  AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
+  aihc_chunk_set_generation(chunk, 0);
   if (machine->gen2_cycle_active) {
+    aihc_stack_drop_pending_above(chunk->stack, frame);
     /* The frames above the entered one are gone. The entered frame and
        the frames below it in the chunk are read from now on, so the cycle
        scans them before the mutator overwrites any of them. */
@@ -1213,9 +1237,12 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
       case AIHC_REGION_STACK:
         /* A frame of a young chunk is scanned from the worklist. A frame of
            an older chunk points only at objects of that generation or
-           above, which this collection does not move. */
+           above, which this collection does not move. A dead object in the
+           remembered set can name a frame that is popped, and new frames
+           can be at its address, so only a live frame is scanned. */
         if (aihc_chunk_generation(aihc_stack_chunk_of(value)) <=
-            context->collected) {
+                context->collected &&
+            aihc_frame_is_live(machine, value)) {
           aihc_mark_static(value);
         }
         return value;
@@ -1907,20 +1934,28 @@ static AihcSlot aihc_mark_frame_slot(AihcSlot slot, void *opaque_scan) {
   return slot;
 }
 
-/* Record the frame a slice scans next in a stack: the highest frame of
-   the chunks the cycle has not scanned. A chunk the cycle scanned once was
-   scanned down to its base, and that scan deferred the chunk below it, so
-   a frame in such a chunk defers nothing. Without this rule a scan of a
-   chunk pushed after the snapshot would replace the deferred frame with
-   one that is covered, and the chunks below would never be scanned. */
+/* Record a frame that a slice must scan in a stack. The frame is the
+   highest frame of a chunk below a chunk that the cycle scanned. A frame
+   that an earlier scan of this cycle covered needs nothing. Every other
+   frame stays on the list. One deferred frame cannot stand for another: a
+   scan that starts high in the stack stops at the first chunk the cycle
+   scanned, and the chunks below that chunk can still wait for a scan. */
 static void aihc_stack_defer(AihcMachine *machine, AihcStack *stack,
                              AihcValue *frame) {
-  if (aihc_stack_chunk_of(frame)->scanned_cycle == machine->gen2_epoch) {
+  AihcStackChunk *chunk = aihc_stack_chunk_of(frame);
+  if (chunk->scanned_cycle == machine->gen2_epoch &&
+      (uint8_t *)frame <= chunk->scanned_from) {
     return;
   }
-  if (stack->pending == NULL || aihc_frame_above(frame, stack->pending)) {
-    stack->pending = frame;
+  if (stack->pending_count != 0 &&
+      stack->pending[stack->pending_count - 1] == frame) {
+    return;
   }
+  if (stack->pending_count == stack->pending_capacity) {
+    stack->pending = aihc_worklist_grow(
+        stack->pending, &stack->pending_capacity, sizeof(*stack->pending));
+  }
+  stack->pending[stack->pending_count++] = frame;
 }
 
 /* Scan a frame and the frames below it in its chunk, down to the frames an
@@ -2111,7 +2146,7 @@ static void aihc_cycle_finish(AihcMachine *machine) {
   aihc_sweep_stacks(&context);
   aihc_sweep_pinned_cycle(machine);
   for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
-    stack->pending = NULL;
+    stack->pending_count = 0;
   }
   aihc_clear_srt_stamps();
   machine->gen2_cycle_active = 0;
@@ -2156,12 +2191,11 @@ static void aihc_mark_slice(AihcMachine *machine, uint64_t budget) {
       continue;
     }
     AihcStack *stack = machine->stacks;
-    while (stack != NULL && stack->pending == NULL) {
+    while (stack != NULL && stack->pending_count == 0) {
       stack = stack->next;
     }
     if (stack != NULL) {
-      AihcValue *frame = stack->pending;
-      stack->pending = NULL;
+      AihcValue *frame = stack->pending[--stack->pending_count];
       done += aihc_mark_frames_counted(machine, frame);
       continue;
     }
@@ -2413,7 +2447,7 @@ void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes) {
   machine->gen2_marked_bytes = 0;
   machine->mark_debt = 0;
   for (AihcStack *stack = machine->stacks; stack != NULL; stack = stack->next) {
-    stack->pending = NULL;
+    stack->pending_count = 0;
   }
   while (machine->pinned_blocks != NULL) {
     AihcPinnedBlock *block = machine->pinned_blocks;

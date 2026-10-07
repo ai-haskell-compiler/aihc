@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Flag = Off | On
+    choose :: Flag -> a -> a -> a
+    choose flag = case flag of
+      Off -> \x y -> x
+      On -> \x y -> y
+    apply :: Flag -> a -> a -> a
+    apply flag x y = (case flag of
+      Off -> choose On
+      On -> choose Off) x y
+passes:
+  - simplify: 0
+  - inline: shrink
+  - simplify: 0
+status: pass
+reason: Case transformations preserve polymorphic function results.

@@ -298,7 +298,7 @@ renderCoercion coercion =
     ForAllCo tyVar body -> "forall " <> T.unpack (tvName tyVar) <> ". (" <> renderCoercion body <> ")"
     NthCo index proof -> "nth[" <> show index <> "](" <> renderCoercion proof <> ")"
     EvidenceCo _ evidence -> renderEvTerm evidence
-    TyConAppCo tyCon _ args -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)
+    TyConAppCo tyCon _ args _ -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)
     AxiomInstCo key tys -> show key <> renderTypeArgs tys
 
 renderEvVar :: EvVar -> String

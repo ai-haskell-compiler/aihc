@@ -115,6 +115,9 @@ table =
         | (name, operation) <- [("quotWord#", quot), ("remWord#", rem)]
         ],
         [("not#", ([Just wordRep], unary wordRep (Just . complement)))],
+        [ (name, ([Just intRep, Just intRep], intBinary operation))
+        | (name, operation) <- [("andI#", (.&.)), ("orI#", (.|.)), ("xorI#", xor)]
+        ],
         [("notI#", ([Just intRep], unary intRep (Just . complement)))],
         [("bitReverse#", ([Just wordRep], unary wordRep (Just . reverseBits)))],
         [ (name, ([Just wordRep, Just wordRep], wordBinary operation))
@@ -347,7 +350,9 @@ identityOperands =
       ("plusWord#", (Just 0, Just 0)),
       ("minusWord#", (Just 0, Nothing)),
       ("or#", (Just 0, Just 0)),
-      ("xor#", (Just 0, Just 0))
+      ("xor#", (Just 0, Just 0)),
+      ("orI#", (Just 0, Just 0)),
+      ("xorI#", (Just 0, Just 0))
     ]
 
 -- | Each conversion, with the conversion whose result it takes back to the

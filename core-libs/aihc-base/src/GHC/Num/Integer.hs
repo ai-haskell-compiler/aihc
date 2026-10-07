@@ -22,6 +22,7 @@ module GHC.Num.Integer
     integerShiftR#,
     integerSizeInBase#,
     integerFromAddr#,
+    integerFromAddr,
     integerToAddr#,
     integerFromByteArray#,
     integerToMutableByteArray#,
@@ -34,6 +35,7 @@ import GHC.Num.BigNat (BigNat (..), BigNat#, bigNatCheck#, bigNatFromAddr#, bigN
 import GHC.Num.Primitives (Bool#)
 import GHC.Prim (Addr#, ByteArray#, MutableByteArray#, State#, Word#, int2Word#, word2Int#, (<#))
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
+import GHC.Types (IO (..))
 import Prelude (Eq (..), Integral (..), Num (..), Ord (..), gcd, lcm, odd, otherwise)
 
 -- | Whether an 'Integer' is canonical: a small value is in @IS@, and the
@@ -177,6 +179,11 @@ integerFromAddr# :: Word# -> Addr# -> Bool# -> State# s -> (# State# s, Integer 
 integerFromAddr# count address endian state =
   case bigNatFromAddr# count address endian state of
     (# state1, magnitude #) -> (# state1, integerFromBigNat# magnitude #)
+
+-- | Read a non-negative 'Integer' from a number of bytes at an address in
+-- 'IO'.  With the endianness @1#@, the most significant byte is first.
+integerFromAddr :: Word# -> Addr# -> Bool# -> IO Integer
+integerFromAddr count address endian = IO (integerFromAddr# count address endian)
 
 -- | Write the bytes of the absolute value to an address and give their
 -- number.  With the endianness @1#@, the most significant byte is first.

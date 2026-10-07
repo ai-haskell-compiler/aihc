@@ -1,0 +1,46 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, KindSignatures, MagicHash, ScopedTypeVariables, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Coercible, Type)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  type family Rep (a :: Type) :: Type -> Type
+              └─ type: Type → Type → Type
+  type family RepN (a :: Type) :: Type -> Type
+              └─ type: Type → Type → Type
+  -- The given relates two types of kind @Type -> Type@.
+  toN :: forall a x. Coercible (Rep a) (RepN a) => (Rep a x -> a) -> RepN a x -> a
+  toN to = coerce to
+  │   │    └─ type: (Rep a x → a) → RepN a x → a; type-args: Rep a x → a, RepN a x → a; evidence: coercible @Rep a x → a @RepN a x → a
+  │   └─ type: Rep a x → a
+  └─ type: ∀ a x. (GHC.Types.Coercible (Rep a) (RepN a)) ⇒ (Rep a x → a) → RepN a x → a
+  unwrapAll :: Coercible f g => f x -> g x
+  unwrapAll = coerce
+  │           └─ type: f x → g x; type-args: f x, g x; evidence: coercible @f x @g x
+  └─ type: ∀ f g x. (GHC.Types.Coercible f g) ⇒ f x → g x
+extensions:
+- FlexibleContexts
+- MagicHash
+- ScopedTypeVariables
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, KindSignatures, MagicHash, ScopedTypeVariables, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Coercible, Type)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  type family Rep (a :: Type) :: Type -> Type
+  type family RepN (a :: Type) :: Type -> Type
+  -- The given relates two types of kind @Type -> Type@.
+  toN :: forall a x. Coercible (Rep a) (RepN a) => (Rep a x -> a) -> RepN a x -> a
+  toN to = coerce to
+  unwrapAll :: Coercible f g => f x -> g x
+  unwrapAll = coerce
+reason: a Coercible given at the kind Type -> Type solves a wanted on the applied types
+status: pass

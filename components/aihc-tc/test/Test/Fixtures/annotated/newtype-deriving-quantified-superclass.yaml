@@ -31,7 +31,7 @@ annotated:
   │       └─ type: (Type → Type) → Type → Type
   └─ deriving plans: newtype NFData1 (Lone f) [context: NFData1 f] [methods: liftRnf]
     deriving NFData1
-             └─ $fNFData1Lonef ∷ ∀ f. (NFData1 f) ⇒ NFData1 (Lone f) [superclasses: ev71952]
+             └─ $fNFData1Lonef ∷ ∀ f. (NFData1 f) ⇒ NFData1 (Lone f) [superclasses: ev71955]
              └─ error: unsolved constraint forall a. (NFData a) => NFData Lone f a
 extensions:
 - KindSignatures

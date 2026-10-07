@@ -5472,12 +5472,21 @@ convertCoercionWithExpectedKind expectedKind coercion =
         binder <- convertTypeBinder tyVar
         (converted, bindings) <- convertCoercion body
         pure (CoForAll binder converted, bindings)
-    Ev.TyConAppCo tyCon types arguments -> do
+    Ev.TyConAppCo tyCon types arguments kindProofs -> do
       env <- gets vsConvertEnv
       kinds <- liftEither (invisibleKindArgs env tyCon types expectedKind)
       argumentKinds <- liftEither (visibleArgumentKinds env tyCon types expectedKind)
       converted <- zipWithM convertCoercionWithExpectedKind (map Just argumentKinds <> repeat Nothing) arguments
-      pure (CoTyConApp (tyConNameFc env tyCon) (map CoRefl kinds <> map fst converted), concatMap snd converted)
+      -- The type checker gives a proof for each kind argument only when
+      -- the two sides have different kind arguments.
+      kindConverted <-
+        if null kindProofs
+          then pure [(CoRefl kind, []) | kind <- kinds]
+          else
+            if length kindProofs == length kinds
+              then mapM convertCoercion kindProofs
+              else failValue ("kind argument proofs do not match the kind arguments of " <> T.unpack (tyConName tyCon))
+      pure (CoTyConApp (tyConNameFc env tyCon) (map fst kindConverted <> map fst converted), concatMap snd kindConverted <> concatMap snd converted)
     Ev.AxiomInstCo key arguments -> do
       let name = lookupAxiomName key
       newtypes <- gets vsNewtypeConstructors

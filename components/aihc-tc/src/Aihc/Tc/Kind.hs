@@ -577,8 +577,12 @@ expandTypeSynonym tvEnv ty =
         _ -> pure Nothing
     Nothing -> pure Nothing
 
--- | Zonk the kinds of the type variables in a type. The type itself is
--- not zonked, thus a recursive synonym in it is not expanded.
+-- | Zonk the kinds of the type variables in a type, and the kind
+-- arguments of its constructors. The type itself is not zonked, thus a
+-- recursive synonym in it is not expanded. A kind argument can be a meta
+-- that the generalization of the synonym kind solved: in @type P = Param@
+-- it is the kind variable of the synonym, and each expansion must
+-- instantiate it again.
 zonkTyVarKinds :: TcType -> TcM TcType
 zonkTyVarKinds ty =
   case ty of
@@ -587,7 +591,7 @@ zonkTyVarKinds ty =
     TcArrowTy -> pure ty
     TcTyLit {} -> pure ty
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM zonkTyVarKinds arguments
-    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM zonkTyVarKinds kindArguments
+    TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM zonkKind kindArguments
     TcFunTy argument result -> TcFunTy <$> zonkTyVarKinds argument <*> zonkTyVarKinds result
     TcForAllTy tyVar body -> TcForAllTy <$> zonkVariable tyVar <*> zonkTyVarKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM zonkPredicate predicates <*> zonkTyVarKinds body

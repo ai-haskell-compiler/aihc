@@ -394,10 +394,13 @@ struct AihcStack {
   /* The top frame of the stack when its thread suspended last. The frames
      at or below it are live while the thread is not running. */
   AihcValue *top;
-  /* The highest frame the marking of the active gen2 cycle has not scanned
-     yet, or null when the cycle scanned every frame below the ones it
-     scanned. The marker takes it in a slice. */
-  AihcValue *pending;
+  /* The frames the marking of the active gen2 cycle deferred. Each one is
+     the highest frame of a chunk below a chunk that the cycle scanned. A
+     slice takes them. The list is empty when the cycle scanned every frame
+     below the ones it scanned. */
+  AihcValue **pending;
+  size_t pending_count;
+  size_t pending_capacity;
 };
 
 /* Make the stack of a new thread. */

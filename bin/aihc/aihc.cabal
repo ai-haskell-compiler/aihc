@@ -313,6 +313,7 @@ executable aihc-dev
 
   other-modules:
     Aihc.Dev.Explore
+    Aihc.Dev.Explore.Backend
     Aihc.Dev.Explore.Build
     Aihc.Dev.Explore.Document
     Aihc.Dev.Explore.Haskell
