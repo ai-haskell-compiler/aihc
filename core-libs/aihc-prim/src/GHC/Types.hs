@@ -212,8 +212,10 @@ type Any :: forall k. k
 type family Any where
 
 -- | The compiler proves that both types have the same representation.
-type Coercible :: Type -> Type -> Constraint
-class Coercible a b
+-- The class is kind-polymorphic, as in GHC: @Coercible f g@ can relate two
+-- types of kind @Type -> Type@.
+type Coercible :: forall k. k -> k -> Constraint
+class Coercible (a :: k) (b :: k)
 
 -- | The compiler supplies nominal equality evidence for this class.
 type (~) :: forall k. k -> k -> Constraint

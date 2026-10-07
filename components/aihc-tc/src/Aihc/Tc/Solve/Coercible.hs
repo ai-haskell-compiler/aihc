@@ -72,13 +72,29 @@ solveCoercible coercibleClass givens wantedLeft wantedRight = do
       case (leftRepresentation, rightRepresentation) of
         (Just inner, _) -> go edges visited nested inner right
         (_, Just inner) -> go edges visited nested left inner
-        -- A meta variable can become a newtype of a type constructor
-        -- later, so its pair with a type constructor must wait. A
-        -- unification here can bind a wrong type to it.
+        -- Two applications to the same argument have the same
+        -- representation when their functions have it, as in GHC:
+        -- @Coercible f g@ solves @Coercible (f x) (g x)@. The argument
+        -- position is nominal, so the arguments must be equal already.
         _
-          | isMeta left && hasTyConHead right || isMeta right && hasTyConHead left -> pure False
-          | nested -> nominal left right
-          | otherwise -> pure False
+          | Just (leftFunction, leftArgument) <- splitApplication left,
+            Just (rightFunction, rightArgument) <- splitApplication right,
+            leftArgument == rightArgument -> do
+              functions <- go edges visited True leftFunction rightFunction
+              if functions then pure True else fallback nested left right
+        _ -> fallback nested left right
+    -- A meta variable can become a newtype of a type constructor later, so
+    -- its pair with a type constructor must wait. A unification here can
+    -- bind a wrong type to it.
+    fallback nested left right
+      | isMeta left && hasTyConHead right || isMeta right && hasTyConHead left = pure False
+      | nested = nominal left right
+      | otherwise = pure False
+    splitApplication ty =
+      case ty of
+        TcAppTy function argument -> Just (function, argument)
+        TcTyCon constructor arguments@(_ : _) -> Just (TcTyCon constructor (init arguments), last arguments)
+        _ -> Nothing
     isMeta TcMetaTv {} = True
     isMeta _ = False
     hasTyConHead ty = case ty of

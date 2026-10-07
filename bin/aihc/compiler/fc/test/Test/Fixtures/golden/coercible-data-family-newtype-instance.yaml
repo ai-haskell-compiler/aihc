@@ -37,7 +37,7 @@ expected: |-
     unsafeCoerce# = 2.vunsafeCoerce# :: ∀(q : tRuntimeRep) (r : tRuntimeRep) (a{1} : tTYPE q) (b{1} : tTYPE r). FUN @q @r a{1} b{1}
 
   import headers
-    constructors [3.c$Dict$Coercible] 3.t$Dict$Coercible :: ∀(a : sType) (b : sType). sType;
+    constructors [3.c$Dict$Coercible] 3.t$Dict$Coercible :: ∀(k : sType) (a : k) (b : k). sType;
     constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
     constructors [3.cI#] 3.tInt :: sType;
     2.tInt# :: tTYPE cIntRep;
@@ -46,7 +46,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.c$Dict$Coercible :: ∀(a : sType) (b : sType). t$Dict$Coercible a b;
+    3.c$Dict$Coercible :: ∀(k : sType) (a : k) (b : k). t$Dict$Coercible k a b;
     3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
@@ -103,18 +103,18 @@ expected: |-
 
   val 1.v$fLenMVWrapa$clen :: ∀(a : sType) (s : sType). tMV s (tWrap a) 3.→ tInt
     = Λ(a : sType) (s : sType).
-      vcoerce @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt) (c$Dict$Coercible @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt)) (vlen @tVec @a @s (v$fLenVeca @a))
+      vcoerce @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt) (c$Dict$Coercible @(tTYPE (cBoxedRep cLifted)) @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt)) (vlen @tVec @a @s (v$fLenVeca @a))
 
-  pub val 1.vcoerce :: ∀(a : sType) (b : sType). t$Dict$Coercible a b 3.→ a 3.→ b
-    = Λ(a : sType) (b : sType). λ($d0 : t$Dict$Coercible a b) (_foreign_argument : a).
+  pub val 1.vcoerce :: ∀(a : sType) (b : sType). t$Dict$Coercible (tTYPE (cBoxedRep cLifted)) a b 3.→ a 3.→ b
+    = Λ(a : sType) (b : sType). λ($d0 : t$Dict$Coercible (tTYPE (cBoxedRep cLifted)) a b) (_foreign_argument : a).
       prim unsafeCoerce# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @a @b _foreign_argument
 
   pub val 1.vtoF :: tInt 3.→ tF tBool
-    = vcoerce @tInt @(tF tBool) (c$Dict$Coercible @tInt @(tF tBool))
+    = vcoerce @tInt @(tF tBool) (c$Dict$Coercible @(tTYPE (cBoxedRep cLifted)) @tInt @(tF tBool))
 
   pub val 1.vmapF :: (tInt 3.→ tInt) 3.→ tF tBool 3.→ tF tBool
     = λ(x : tInt 3.→ tInt).
-      vcoerce @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool) (c$Dict$Coercible @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool)) x
+      vcoerce @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool) (c$Dict$Coercible @(tTYPE (cBoxedRep cLifted)) @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool)) x
 status: pass
 reason: Coercible evidence through a newtype instance of a data family passes the
   System FC lint
