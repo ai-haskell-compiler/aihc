@@ -268,7 +268,7 @@ solveNormalizedDict visited givens ct
       -- dictionary is cast along the congruence of the rules.
       case rewrittenGivenMatches rules allGivens className args of
         (given, givenArgs, givenCoercions) : _ -> do
-          bindEvidence (ctEvVar ct) (EvCast (EvGiven given) (TyConAppCo className givenArgs givenCoercions))
+          bindEvidence (ctEvVar ct) (EvCast (EvGiven given) (TyConAppCo className givenArgs givenCoercions []))
           pure DictSolved
         [] ->
           if null rules || and (zipWith sameType rewrittenArgs args)
@@ -299,7 +299,7 @@ solveNormalizedDict visited givens ct
           case inner of
             Nothing -> pure (DictStuck ct)
             Just evidence -> do
-              bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions)))
+              bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions [])))
               pure DictSolved
 
     -- A given that does not match as written is compared in the normal
@@ -737,7 +737,7 @@ rewriteWithRules rules = go
               let (arguments', proofs) = unzip (map go arguments)
                in if and (zipWith sameType arguments' arguments)
                     then (ty, Refl ty)
-                    else (TcTyCon tyCon arguments', TyConAppCo tyCon arguments proofs)
+                    else (TcTyCon tyCon arguments', TyConAppCo tyCon arguments proofs [])
             TcAppTy function argument ->
               let (function', functionProof) = go function
                   (argument', argumentProof) = go argument

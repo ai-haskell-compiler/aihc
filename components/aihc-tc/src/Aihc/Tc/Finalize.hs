@@ -267,8 +267,8 @@ zonkCoercion coercion =
     AppCo function argument -> AppCo <$> zonkCoercion function <*> zonkCoercion argument
     FunCo domain range -> FunCo <$> zonkCoercion domain <*> zonkCoercion range
     ForAllCo tyVar body -> ForAllCo tyVar <$> zonkCoercion body
-    TyConAppCo tyCon arguments coercions ->
-      TyConAppCo tyCon <$> mapM zonkType arguments <*> mapM zonkCoercion coercions
+    TyConAppCo tyCon arguments coercions kindCoercions ->
+      TyConAppCo tyCon <$> mapM zonkType arguments <*> mapM zonkCoercion coercions <*> mapM zonkCoercion kindCoercions
     AxiomInstCo name typeArgs ->
       AxiomInstCo name <$> mapM zonkType typeArgs
 
@@ -482,8 +482,8 @@ firstMetaCoercion coercion =
     AppCo function argument -> firstMetaCoercion function <|> firstMetaCoercion argument
     FunCo domain range -> firstMetaCoercion domain <|> firstMetaCoercion range
     ForAllCo _ body -> firstMetaCoercion body
-    TyConAppCo _ arguments coercions ->
-      firstJusts (map firstMetaType arguments <> map firstMetaCoercion coercions)
+    TyConAppCo _ arguments coercions kindCoercions ->
+      firstJusts (map firstMetaType arguments <> map firstMetaCoercion (coercions <> kindCoercions))
     AxiomInstCo _ typeArgs ->
       firstJusts (map firstMetaType typeArgs)
 
