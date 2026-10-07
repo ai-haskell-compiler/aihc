@@ -2007,6 +2007,11 @@ static void aihc_shade_fields(AihcMachine *machine, AihcValue *object) {
   if (aihc_visit_runtime_object(object, aihc_mark_slot, machine)) {
     return;
   }
+  /* A thunk update deletes the code of the thunk as well. The code reaches
+     static objects through its table, and the objects that the code made
+     after the snapshot can name them, so the table is shaded too. After
+     the update, the marker finds an indirection, which has no table. */
+  aihc_walk_srt(aihc_value_info_table(object)->srt);
   aihc_visit_plain_fields(object, aihc_mark_slot, machine);
 }
 

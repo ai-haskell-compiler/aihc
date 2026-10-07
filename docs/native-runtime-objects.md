@@ -249,7 +249,10 @@ again from the start.
 The write barrier shades: before a store into an object the cycle marks,
 the old values of its pointer fields are marked, and a store into an array
 shades the element or the run it writes. A thunk update shades every
-field. Marking follows the current fields of an object, so a value stored
+field, and it walks the static reference table of the thunk code. The
+update deletes that code, and the objects the code made after the snapshot
+can name the static objects of the table. The marker later finds an
+indirection, which has no table. Marking follows the current fields of an object, so a value stored
 after the snapshot is marked when it is old, and left to the young
 collections when it is young. An object copied into gen2 while a cycle
 runs is marked when it is allocated. A gen2 indirection is marked like any
