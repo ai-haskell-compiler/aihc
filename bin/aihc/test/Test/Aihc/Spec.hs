@@ -756,26 +756,26 @@ test_lto getStore =
         targetRoot = buildRoot </> nativeTargetStoreDirectory target
         greetRoot = targetRoot </> "exe" </> "greet"
         programObject = greetRoot </> "lto" </> "program" </> "program.o"
-        programCore = greetRoot </> "lto" </> "program" </> "core"
+        programCore = greetRoot </> "lto" </> "program" </> "core.fc"
         ltoOptions = options {buildOptimization = O2, buildKeepCore = True}
     outputs <- build ltoOptions
     assertEqual "built executables" [targetRoot </> "bin" </> "greet", targetRoot </> "bin" </> "shout"] outputs
     forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
       -- The modules of the executable stop at System FC.
       assertFileExists (targetRoot </> "exe" </> name </> "lto" </> "program" </> "program.o")
-      assertCoreFile (targetRoot </> "exe" </> name </> "Main" </> "core")
+      assertCoreFile (targetRoot </> "exe" </> name </> "Main" </> "core.fc")
       assertFileDoesNotExist (targetRoot </> "exe" </> name </> "Main" </> "Main.o")
       (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> name) [] ""
       assertEqual (name <> " exit status") ExitSuccess status
       assertEqual (name <> " stdout") expected stdout
       assertEqual (name <> " stderr") "" stderr
     -- The library of the package stops at System FC as well.
-    assertCoreFile (targetRoot </> "executables-0.1.0.0" </> "Words" </> "core")
+    assertCoreFile (targetRoot </> "executables-0.1.0.0" </> "Words" </> "core.fc")
     assertFileDoesNotExist (targetRoot </> "executables-0.1.0.0" </> "Words" </> "Words.o")
     -- @--keep-core@ keeps the merged program as well as the modules it was
     -- merged from, so the kept program holds more than the executable's own
     -- module does.
-    mainCore <- readCoreFile (greetRoot </> "Main" </> "core")
+    mainCore <- readCoreFile (greetRoot </> "Main" </> "core.fc")
     programCoreProgram <- readCoreFile programCore
     assertBool
       "the kept program holds the merged declarations"
@@ -793,7 +793,7 @@ test_lto getStore =
     manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath basePackage)
     assertBool "manifest records the lto flag" ("lto" `elem` packageManifestFlags manifest)
     assertBool "manifest lists the compiled modules" ("GHC.Base" `elem` packageManifestCompiledModules manifest)
-    assertCoreFile (basePackage </> "GHC" </> "Base" </> "core")
+    assertCoreFile (basePackage </> "GHC" </> "Base" </> "core.fc")
     assertFileDoesNotExist (basePackage </> "GHC" </> "Base" </> "GHC.Base.o")
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", basePackage </> "lib" </> "libaihc-base.a"] ""
     let moduleObjects = [T.unpack name <> ".o" | name <- packageManifestCompiledModules manifest]
@@ -815,19 +815,21 @@ test_lto getStore =
     let installOptions = InstallOptions fixtureRoot (Just storeRoot) (Just (root </> "install-build")) False False False False False False True O2 False False False False target Nothing defaultPlanOptions
     result <- install installOptions
     let packageRoot = installStorePath result
-    assertEqual "lto install writes the module" ["Demo"] (installWrittenModules result)
-    assertCoreFile (packageRoot </> "Demo" </> "core")
+    assertEqual "lto install writes the module" ["Demo", "Demo.Core"] (installWrittenModules result)
+    assertCoreFile (packageRoot </> "Demo" </> "core.fc")
+    -- The Core child module must not share the FC file path on a filesystem that ignores case.
+    assertCoreFile (packageRoot </> "Demo" </> "Core" </> "core.fc")
     assertFileDoesNotExist (packageRoot </> "Demo" </> "grin")
     assertFileDoesNotExist (packageRoot </> "Demo" </> "Demo.o")
     demoManifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath packageRoot)
     assertEqual "manifest flags" ["lto", "O2"] (packageManifestFlags demoManifest)
-    assertEqual "manifest compiled modules" ["Demo"] (packageManifestCompiledModules demoManifest)
+    assertEqual "manifest compiled modules" ["Demo", "Demo.Core"] (packageManifestCompiledModules demoManifest)
     let archivePath = packageRoot </> "lib" </> "libdemo.a"
     assertFileExists archivePath
     demoMembers <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
     assertEqual "archive members" [] demoMembers
     reused <- install installOptions
-    assertEqual "lto install reuses the module" ["Demo"] (installReusedModules reused)
+    assertEqual "lto install reuses the module" ["Demo", "Demo.Core"] (installReusedModules reused)
 
 -- | A @--lto@ build of the @llvm@ target compiles every object to LLVM
 -- bitcode: the program, the entry, the runtime units and the C sources of
@@ -1204,7 +1206,7 @@ test_buildModuleKeepIntermediates getStore =
             }
         moduleRoot = root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "Main"
     void (build keepOptions)
-    assertCoreFile (moduleRoot </> "core")
+    assertCoreFile (moduleRoot </> "core.fc")
     forM_ ["grin", "cps.grin", "gc.grin"] $ \name -> assertFileExists (moduleRoot </> name)
     -- The object backends of the host write the object themselves, so the
     -- Lir text is also the native source there.
@@ -1261,7 +1263,7 @@ test_installArchSourceDirs getStore = do
     storeRoot <- sandboxStore sandbox "store"
     forM_ targets $ \target -> do
       result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False target Nothing defaultPlanOptions)
-      core <- T.unpack . Fc.renderProgram <$> readCoreFile (installStorePath result </> "Payload" </> "core")
+      core <- T.unpack . Fc.renderProgram <$> readCoreFile (installStorePath result </> "Payload" </> "core.fc")
       let expected = archSourceDirPayload target
           unexpected = if expected == "32#" then "64#" else "32#"
       assertBool
