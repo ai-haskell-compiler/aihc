@@ -1,0 +1,28 @@
+extensions:
+  - KindSignatures
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE PolyKinds #-}
+    module Test where
+
+    import Data.Functor.Const (Const (..))
+
+    data Box = Box
+
+    -- The local binding is generalized over the kind of its phantom
+    -- parameter, and each use chooses another kind.
+    pair :: (Const Int Maybe, Const Int Box)
+    pair = (neuter 1, neuter 2)
+      where
+        neuter x = Const x
+
+    result :: Bool
+    result = case pair of
+      (Const a, Const b) -> a + b == (3 :: Int)
+expression: result
+output: |
+  True
+status: pass
+reason: a local binding without a signature is generalized over an open kind, as in GHC without MonoLocalBinds

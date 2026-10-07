@@ -28,6 +28,12 @@ modules:
     data Bool = False | True
     applied :: (f ~ g) => Proxy (Param 'Z f Int) -> Proxy (Param 'Z g Int)
     applied proxy = proxy
+
+    -- The kind argument of a poly-kinded constructor is not a type argument:
+    -- @Indexed (t a)@ does not match @Box k@, and the second equation applies.
+    data Box (f :: k -> Type) = Box
+    boxed :: Proxy (Indexed (Box f) 'Z) -> Proxy (Box (Param 'Z f))
+    boxed proxy = proxy
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
@@ -78,6 +84,10 @@ expected: |-
     pub 1.cTrue :: tBool
   }
 
+  pub type 1.tBox (k : sType) (f : k 2.→ sType) :: sType {
+    pub 1.cBox :: ∀(k : sType) (f : k 2.→ sType). tBox k f
+  }
+
   pub val 1.vindexed :: tProxy (tTYPE (cBoxedRep cLifted)) (tIndexed (tTYPE (cBoxedRep cLifted)) (tPair tInt tBool) cZ) 2.→ tProxy (tTYPE (cBoxedRep cLifted)) (tPair (tParam (tTYPE (cBoxedRep cLifted)) (cS cZ) tInt) (tParam (tTYPE (cBoxedRep cLifted)) cZ tBool))
     = λ(x : tProxy (tTYPE (cBoxedRep cLifted)) (tIndexed (tTYPE (cBoxedRep cLifted)) (tPair tInt tBool) cZ)).
       x
@@ -86,6 +96,11 @@ expected: |-
     = Λ(k0 : sType) (f : sType 2.→ k0) (g : sType 2.→ k0). λ($d0 : f ~ g)
     (x : tProxy k0 (tParam (tTYPE (cBoxedRep cLifted) 2.→ k0) cZ f tInt)).
       x ▷ tycon-co tProxy (refl k0) (tycon-co tParam (refl (tTYPE (cBoxedRep cLifted) 2.→ k0)) (refl cZ) ($d0) (refl tInt))
+
+  pub val 1.vboxed :: ∀(k0 : sType) (f : k0 2.→ sType). tProxy (tTYPE (cBoxedRep cLifted)) (tIndexed (tTYPE (cBoxedRep cLifted)) (tBox k0 f) cZ) 2.→ tProxy (tTYPE (cBoxedRep cLifted)) (tBox k0 (tParam (k0 2.→ tTYPE (cBoxedRep cLifted)) cZ f))
+    = Λ(k0 : sType) (f : k0 2.→ sType).
+    λ(x : tProxy (tTYPE (cBoxedRep cLifted)) (tIndexed (tTYPE (cBoxedRep cLifted)) (tBox k0 f) cZ)).
+      x
 status: pass
 reason: A family axiom binds a kind variable from the kinds of its other binders, and a
   type constructor coercion applies a family at a function result kind to more arguments.

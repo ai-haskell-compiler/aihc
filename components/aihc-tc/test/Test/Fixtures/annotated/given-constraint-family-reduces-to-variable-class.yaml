@@ -1,0 +1,85 @@
+annotated:
+- |-
+  {-# LANGUAGE AllowAmbiguousTypes, FlexibleInstances, MultiParamTypeClasses, ConstraintKinds, DataKinds, FlexibleContexts, GADTs, KindSignatures, PolyKinds, ScopedTypeVariables, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: k -> Constraint) (a :: k) where
+       └─ type: (k → GHC.Types.Constraint) → k → Type
+    Dict :: c a => Dict c a
+    └─ type: ∀ k c a. (c a) ⇒ Dict c a
+  data X a
+       └─ type: k0 → Type
+  data family Param (n :: Natural) (a :: k) :: k
+              └─ type: GHC.Prim.Natural.Natural → k → k
+  type P = Param
+       └─ type: GHC.Prim.Natural.Natural → k0 → k0
+  type family GAllRec (n :: Natural) (c :: k -> Constraint) (l :: Type) (r :: Type) :: Constraint where
+              └─ type: GHC.Prim.Natural.Natural → (k → GHC.Types.Constraint) → Type → Type → GHC.Types.Constraint
+    GAllRec n c (P n X _) (X a) = c a
+    GAllRec _ _ _ _ = ()
+  -- The given reduces to @c a@, which the constructor needs.
+  dict :: forall n c a a'. GAllRec n c (Param n X a') (X a) => X a' -> Dict c a
+  dict _ = Dict
+  │    │   └─ type: Dict c a; type-args: k0, c, a; evidence: given GAllRec n c (Param n X a') (X a)
+  │    └─ type: X a'
+  └─ type: ∀ k0 k1 n c a a'. (GAllRec n c (Param n X a') (X a)) ⇒ X a' → Dict c a
+  newtype Rec (p :: Type) a x = Rec a
+          │                     └─ type: ∀ k0 p a x. a → Rec p a x
+          └─ type: Type → Type → k0 → Type
+  type family GAll (n :: Natural) (c :: k -> Constraint) (repbf :: Type -> Type) :: Constraint
+              └─ type: GHC.Prim.Natural.Natural → (k → GHC.Types.Constraint) → (Type → Type) → GHC.Types.Constraint
+  type instance GAll n c (Rec l r) = GAllRec n c l r
+  class GConstraints n c repbx result where
+  └─ class methods: gdict ∷ ∀ k0 n c repbx result. (GConstraints n c repbx result, GAll n c repbx) ⇒ Proxy repbx → result
+    gdict :: GAll n c repbx => Proxy repbx -> result
+  data Proxy (a :: k) = Proxy
+       │                └─ type: ∀ k a. Proxy a
+       └─ type: k → Type
+  -- The class method gives @GAll n c repbx@, which reduces to @c a@.
+  instance GConstraints n c (Rec (P n X a') (X a)) (Dict c a) where
+  └─ $fGConstraintsncRecParamnXa'XaDictca ∷ ∀ n k0 k1 c a' a. () ⇒ GConstraints n c (Rec (Param n X a') (X a)) (Dict c a)
+    gdict _ = Dict
+    │     │   └─ type: Dict c a; type-args: k0, c, a; evidence: given GAll n c (Rec (Param n X a') (X a))
+    │     └─ type: Proxy (Rec (Param n X a') (X a))
+    └─ gdict ∷ (GAll n c (Rec (Param n X a') (X a))) ⇒ Proxy (Rec (Param n X a') (X a)) → Dict c a
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- GADTs
+- KindSignatures
+- PolyKinds
+- ScopedTypeVariables
+- TypeFamilies
+- UndecidableInstances
+- MultiParamTypeClasses
+- FlexibleInstances
+- AllowAmbiguousTypes
+modules:
+- |
+  {-# LANGUAGE AllowAmbiguousTypes, FlexibleInstances, MultiParamTypeClasses, ConstraintKinds, DataKinds, FlexibleContexts, GADTs, KindSignatures, PolyKinds, ScopedTypeVariables, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint, Type)
+  data Dict (c :: k -> Constraint) (a :: k) where
+    Dict :: c a => Dict c a
+  data X a
+  data family Param (n :: Natural) (a :: k) :: k
+  type P = Param
+  type family GAllRec (n :: Natural) (c :: k -> Constraint) (l :: Type) (r :: Type) :: Constraint where
+    GAllRec n c (P n X _) (X a) = c a
+    GAllRec _ _ _ _ = ()
+  -- The given reduces to @c a@, which the constructor needs.
+  dict :: forall n c a a'. GAllRec n c (Param n X a') (X a) => X a' -> Dict c a
+  dict _ = Dict
+  newtype Rec (p :: Type) a x = Rec a
+  type family GAll (n :: Natural) (c :: k -> Constraint) (repbf :: Type -> Type) :: Constraint
+  type instance GAll n c (Rec l r) = GAllRec n c l r
+  class GConstraints n c repbx result where
+    gdict :: GAll n c repbx => Proxy repbx -> result
+  data Proxy (a :: k) = Proxy
+  -- The class method gives @GAll n c repbx@, which reduces to @c a@.
+  instance GConstraints n c (Rec (P n X a') (X a)) (Dict c a) where
+    gdict _ = Dict
+status: pass

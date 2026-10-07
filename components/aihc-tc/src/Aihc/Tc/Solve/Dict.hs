@@ -318,7 +318,7 @@ solveNormalizedDict visited givens ct
       where
         normalizedEvidence [] = pure Nothing
         normalizedEvidence ((given, normalized) : rest)
-          | normalized == target = pure (Just (EvGiven given))
+          | samePredicate normalized target = pure (Just (EvGiven given))
           | otherwise = do
               quantified <- useQuantifiedEvidence visited' target (EvGiven given) normalized
               projected <- superclassEvidence [] visited' target (EvGiven given) normalized
@@ -371,7 +371,7 @@ solveNormalizedDict visited givens ct
 
     searchSuperClasses _ _ _ _ _ _ _ _ [] = pure Nothing
     searchSuperClasses classVisited solveVisited sourceEvidence sourceOrigin sourcePredicate fieldTypes target index (superClass : rest)
-      | superClass == target =
+      | samePredicate superClass target =
           pure (Just (EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index))
       | otherwise = do
           let projection = EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index
@@ -700,7 +700,11 @@ typeableArguments ty =
 givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
 givenRewriteRuleSets givens = do
   written <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
-  equalities <- concat <$> mapM (decomposeGiven (8 :: Int)) written
+  decomposed <- concat <$> mapM (decomposeGiven (8 :: Int)) written
+  -- A rule is compared with a wanted whose families are reduced, so its
+  -- sides are reduced too. The proof still names the given as written.
+  reduced <- traverse (\(left, right, proof) -> (,,proof) <$> reduceTypeFamilies left <*> reduceTypeFamilies right) decomposed
+  let equalities = decomposed <> [equality | equality@(left, right, _) <- reduced, (left, right) `notElem` [(l, r) | (l, r, _) <- decomposed]]
   oriented <- mapM orient equalities
   let familyRules = concat [rules | (rules, _) <- oriented]
       variableRules = concat [rules | (_, rules) <- oriented]
@@ -739,7 +743,12 @@ givenRewriteRuleSets givens = do
         (True, False) -> ([(left, right, proof)], [])
         (False, True) -> ([(right, left, Sym proof)], [])
         (False, False) -> ([], variableRule left right proof)
-        (True, True) -> ([], [])
+        -- Two family applications have no preferred side. Each direction
+        -- is an alternative: the given @AllB c b ~ GAll 0 c (Rep b)@
+        -- rewrites a wanted @GAll 0 c (Rep b)@ to the given @AllB c b@.
+        (True, True)
+          | sameType left right -> ([], [])
+          | otherwise -> ([], [(left, right, proof), (right, left, Sym proof)])
     variableRule left right proof =
       case (left, right) of
         (TcTyVar leftVar, TcTyVar rightVar)
@@ -748,6 +757,24 @@ givenRewriteRuleSets givens = do
         (TcTyVar _, _) -> [(left, right, proof)]
         (_, TcTyVar _) -> [(right, left, Sym proof)]
         _ -> []
+
+-- | Whether two predicates are the same up to the spelling of their
+-- applications ('canonicalPred'). The evidence keeps each predicate as
+-- written, because only that spelling has its kind arguments.
+samePredicate :: Pred -> Pred -> Bool
+samePredicate left right = left == right || canonicalPred left == canonicalPred right
+
+-- | One spelling of a predicate for the comparison with a given. A
+-- poly-kinded constructor that a use site applied to its kinds heads an
+-- application spine (@Product \@k f g@), and another use can write the
+-- same type as a partial application without its kinds (@Product f g@).
+-- Both become the partial application. The kinds follow from the
+-- arguments.
+canonicalPred :: Pred -> Pred
+canonicalPred predicate =
+  case predicate of
+    ClassPred className arguments -> ClassPred className (map canonicalApplications arguments)
+    _ -> predicate
 
 -- | Rewrite every occurrence of a rule's left side, outermost first, and
 -- prove the result equal to the original by congruence. Types under a

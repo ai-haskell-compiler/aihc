@@ -1,6 +1,7 @@
 -- | Congruence closure with explicit nominal evidence.
 module Aihc.Tc.Solve.Congruence
   ( proveGivenEquality,
+    proveFromEqualities,
     givenEqualities,
     applyGivenSubst,
   )
@@ -29,13 +30,19 @@ type ProofGraph = Map TypeShape [(TcType, Coercion)]
 -- Closure uses only subterms of the givens and the wanted.
 -- Each new edge joins two components, so closure terminates.
 proveGivenEquality :: [Pred] -> TcType -> TcType -> TcM (Maybe Coercion)
-proveGivenEquality predicates left right
+proveGivenEquality predicates left right = do
+  equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) predicates
+  proveFromEqualities equalities left right
+
+-- | Prove an equality from given equalities that are already taken apart.
+-- Each equality keeps the proof of the given it came from.
+proveFromEqualities :: [(TcType, TcType, Coercion)] -> TcType -> TcType -> TcM (Maybe Coercion)
+proveFromEqualities equalities left right
   | sameType left right = pure (Just (Refl left))
-  | otherwise = do
-      equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) predicates
-      if null equalities then pure Nothing else prove equalities
+  | null equalities = pure Nothing
+  | otherwise = prove
   where
-    prove equalities = do
+    prove = do
       -- Taking a function type apart names the arrow, so the constructor
       -- has to be declared even though no source syntax mentioned it.
       _ <- arrowType

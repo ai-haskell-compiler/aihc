@@ -27,7 +27,6 @@ import Aihc.Parser.Syntax
     binderHeadParams,
     fromAnnotation,
     instanceHeadName,
-    instanceHeadTypes,
     mkAnnotation,
     nameText,
     tyVarBinderName,
@@ -45,7 +44,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback, isAutomaticTypeableClass)
 import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
@@ -133,7 +132,7 @@ attachedDerivingClassHeads clause =
             ( Just
                 AttachedDerivingClassHead
                   { attachedClassName = className,
-                    attachedClassArguments = instanceHeadTypes classType,
+                    attachedClassArguments = instanceHeadArguments classType,
                     attachedClassSpan = nameSourceSpan className <|> typeSpan classType
                   }
             )
@@ -244,7 +243,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
     Just classNameSyntax -> do
       let className = nameText classNameSyntax
           classSpan = nameSourceSpan classNameSyntax <|> typeSpan (standaloneDerivingHead derivingDecl)
-          headArguments = instanceHeadTypes (standaloneDerivingHead derivingDecl)
+          headArguments = instanceHeadArguments (standaloneDerivingHead derivingDecl)
           surfaceTypes = standaloneDerivingContext derivingDecl <> headArguments <> derivingStrategyTypes (standaloneDerivingStrategy derivingDecl)
           explicitNames = map tyVarBinderName (standaloneDerivingForall derivingDecl)
           implicitNames = nub (concatMap freeTypeVars surfaceTypes) \\ explicitNames

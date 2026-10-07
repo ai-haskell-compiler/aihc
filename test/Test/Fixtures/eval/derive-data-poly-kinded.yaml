@@ -1,0 +1,25 @@
+extensions:
+  - DeriveDataTypeable
+  - KindSignatures
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE PolyKinds #-}
+    module Test where
+
+    import Data.Data (Data, showConstr, toConstr)
+    import Data.Kind (Type)
+
+    -- The derived instance asks Typeable of the kind variable, as in GHC.
+    data Unit (f :: k -> Type) = Unit
+      deriving (Data)
+
+    result :: Bool
+    result = showConstr (toConstr (Unit :: Unit Maybe)) == "Unit"
+expression: result
+output: |
+  True
+status: pass
+reason: stock Data deriving of a poly-kinded datatype binds its kind variable and asks Typeable of it

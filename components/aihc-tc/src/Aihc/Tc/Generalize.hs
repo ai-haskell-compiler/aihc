@@ -20,7 +20,7 @@ import Aihc.Tc.Kind (defaultKindMetas, deferKindMetas)
 import Aihc.Tc.Monad (TcBinder (..), TcM, deferKindMeta, freshSkolemTv, getKinds, getMetaTermEnv, getPolyKinds, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (forM_, void, when)
+import Control.Monad (forM, forM_, void, when)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -91,12 +91,14 @@ generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
       uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd (concat bindingMetaVars))
   settleKinds <- settleKindsNow
   when settleKinds (mapM_ defaultMetaKind uniqueMetaVars)
+  kindVariables <- openKindVariables settleKinds envMetaVars uniqueMetaVars (map fst zonked') (concatMap snd zonked')
   tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   forM_ subst (uncurry writeMetaTv)
   pure
-    [ Scheme [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] [] (map (substMetasPred subst) preds) (substMetas subst ty)
-    | ((ty, preds), metaVars) <- zip zonked' bindingMetaVars
+    [ Scheme ([kindVariable | kindVariable <- kindVariables, any (typeMentionsTyVar kindVariable . tvKind) bound] <> bound) [] (map (substMetasPred subst) preds) (substMetas subst ty)
+    | ((ty, preds), metaVars) <- zip zonked' bindingMetaVars,
+      let bound = [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars]
     ]
   where
     zonkBinding (ty, preds) = (,) <$> zonkType ty <*> mapM zonkPred preds
@@ -119,13 +121,68 @@ generalizeIgnoringWithSubst ignoredKeys interior ty preds = do
   -- its open kind until a use fixes it; an unlifted use is still possible.
   settleKinds <- settleKindsNow
   when settleKinds (mapM_ defaultMetaKind uniqueMetaVars)
+  -- Under PolyKinds an open kind of a quantified variable is a kind
+  -- variable of the binding, as in GHC: @neuter x = Const x@ has the type
+  -- @forall {k} a (b :: k). a -> Const a b@, and each use chooses @k@. A
+  -- kind meta that the environment can still reach stays open.
+  kindVariables <- openKindVariables settleKinds envMetaVars uniqueMetaVars (ty'' : interior'') preds''
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   let quantifiedTy = substMetas subst ty''
   let quantifiedPreds = map (substMetasPred subst) preds''
-  pure (Scheme tvs [] quantifiedPreds quantifiedTy, subst)
+  pure (Scheme (kindVariables <> tvs) [] quantifiedPreds quantifiedTy, subst)
+
+-- | The kind variables of a binding that quantifies the given metas: each
+-- open kind meta that their kinds reach and the environment does not.
+-- The types are the binding types: a meta at a value position of them has
+-- a lifted kind, and its kind is not a kind variable.
+--
+-- A class predicate does not spell the kind arguments of its class, so a
+-- binding whose predicates mention a quantified meta keeps its kinds open:
+-- they are settled with the enclosing declaration, as before.
+openKindVariables :: Bool -> [Unique] -> [Unique] -> [TcType] -> [Pred] -> TcM [TyVarId]
+openKindVariables settleKinds envMetaVars quantified bindingTypes predicates
+  | settleKinds = pure []
+  | any (any (`elem` quantified) . predMetaVars) predicates = pure []
+  | otherwise = do
+      kinds <- getKinds
+      forM_ (concatMap valuePositionMetas bindingTypes) $ \meta -> do
+        metaKind <- zonkType =<< readMetaTvKind meta
+        case metaKind of
+          TcMetaTv kindMeta -> writeMetaTv kindMeta (typeKind kinds)
+          _ -> pure ()
+      environmentReachable <- reachableMetaVars envMetaVars
+      reachable <- reachableMetaVars quantified
+      quantifyKindMetas [meta | meta <- reachable, meta `notElem` quantified, meta `notElem` environmentReachable]
+
+-- | The metas that stand for the type of a value: the type itself, and
+-- the arguments and results of its function arrows.
+valuePositionMetas :: TcType -> [Unique]
+valuePositionMetas ty =
+  case ty of
+    TcMetaTv unique -> [unique]
+    TcFunTy argument result -> valuePositionMetas argument ++ valuePositionMetas result
+    TcForAllTy _ body -> valuePositionMetas body
+    TcQualTy _ body -> valuePositionMetas body
+    _ -> []
+
+-- | Turn open kind metas of kind 'Type' into kind variables.
+quantifyKindMetas :: [Unique] -> TcM [TyVarId]
+quantifyKindMetas metas = do
+  kinds <- getKinds
+  fmap concat . forM (zip [0 :: Int ..] metas) $ \(index, meta) -> do
+    solution <- readMetaTv meta
+    metaKind <- zonkType =<< readMetaTvKind meta
+    case solution of
+      Nothing
+        | metaKind == typeKind kinds -> do
+            variable <- freshSkolemTv (T.pack ("k" <> show index))
+            let kindVariable = setTyVarKind metaKind variable
+            writeMetaTv meta (TcTyVar kindVariable)
+            pure [kindVariable]
+      _ -> pure []
 
 -- | Solve every RuntimeRep meta-variable that quantification would capture.
 --

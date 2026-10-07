@@ -73,11 +73,11 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
-import Control.Monad (forM, zipWithM)
+import Control.Monad (forM, guard, zipWithM)
 import Data.Foldable (find, foldrM)
 import Data.Functor ((<&>))
 import Data.List (nub)
-import Data.Maybe (catMaybes, fromMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -146,8 +146,11 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
             (Nothing, Nothing) -> do
               emitError (genSpan gen) (OtherError (mechanism <> " cannot express the instance head or context as source syntax"))
               pure Nothing
-            (Nothing, Just (forallBinders, surfaceContext, surfaceHead)) -> do
+            (Nothing, Just (headerBinders, headerContext, surfaceHead)) -> do
               items <- generateItems gen
+              let polyKinded = polyKindedBinders headerBinders
+                  forallBinders = maybe headerBinders fst polyKinded
+                  surfaceContext = headerContext <> maybe [] snd polyKinded
               pure $
                 items <&> \generated ->
                   markCoerced $
@@ -183,6 +186,26 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
           genClassOrigin = fromMaybe origin (tcDerivingClassOrigin plan)
         }
     className = T.unpack (tcDerivingClassName plan)
+    -- A derived Generic instance of a poly-kinded datatype binds the kind
+    -- variables of the datatype, as its Rep equation does. A derived Data
+    -- instance binds them as well, and asks Typeable of each, as GHC does:
+    -- @Typeable (Unit f)@ for @f :: k -> Type@ needs @Typeable k@.
+    polyKindedBinders headerBinders = do
+      guard (null headerBinders)
+      dataType <- tcDerivingDataType plan
+      guard (not (null (datatypeKindVariables dataType)))
+      case stockClassMethodsOf (tcDerivingClassName plan) of
+        Just StockGenericMethods -> (,[]) <$> genericKindBinders gen dataType
+        Just StockDataMethods
+          | TcDerivingExplicitContext context <- tcDerivingContext plan,
+            typeableTyCon : _ <- [classTyCon | ClassPred classTyCon _ <- context, tyConName classTyCon == "Typeable"] -> do
+              binders <- genericKindBinders gen dataType
+              let kindContext =
+                    [ TApp (TCon (tyConNameSyntax (genSpan gen) typeableTyCon) Unpromoted) (TVar (mkUnqualifiedName NameVarId name))
+                    | name <- nub (map tvName (datatypeKindVariables dataType))
+                    ]
+              pure (binders, kindContext)
+        _ -> Nothing
     datatypeDescription = maybe "datatype" (("datatype " <>) . T.unpack . dtiName) (tcDerivingDataType plan)
     mechanism =
       case tcDerivingStrategy plan of
@@ -203,12 +226,13 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
               Left ("stock deriving of " <> className <> " is not available for a class outside the core libraries")
           -- A representation names the datatype applied to its arguments,
           -- and the kind arguments of a poly-kinded head are not among
-          -- them: source syntax cannot write an invisible argument, so the
-          -- equation would fix each one at 'Type' while the instance
-          -- methods keep it a variable. Until the kind arguments can be
-          -- written, such a datatype gets no instance.
+          -- them. The instance and its equation bind the kind variables
+          -- explicitly ('genericKindBinders'). A datatype whose parameter
+          -- kinds have no source syntax gets no instance.
           | stockClassMethodsOf (tcDerivingClassName plan) == Just StockGenericMethods,
-            not (all (null . datatypeKindVariables) (tcDerivingDataType plan)) ->
+            Just dataType <- tcDerivingDataType plan,
+            not (null (datatypeKindVariables dataType)),
+            isNothing (genericKindBinders gen dataType) ->
               Left ("stock deriving of " <> className <> " is not supported for the poly-kinded " <> datatypeDescription <> "; no instance is generated")
           | generatesStockMethods (tcDerivingClassName plan) -> Right ()
           | otherwise -> Left ("stock deriving of " <> className <> " is not supported yet; no instance is generated")
@@ -1210,15 +1234,27 @@ genericItems gen dataType =
                 [ (constructor, zip (dciFields constructor) fields)
                 | (constructor, fields) <- zip (dtiConstructors dataType) fieldSyntax
                 ]
+              -- A poly-kinded datatype names its kind variables in the
+              -- equation, so that the equation does not fix them.
+              equationBinders
+                | null (datatypeKindVariables dataType) = []
+                | otherwise = fromMaybe [] (genericKindBinders gen dataType)
               equation =
                 InstanceItemTypeFamilyInst
                   ( TypeFamilyInst
-                      []
+                      equationBinders
                       TypeHeadPrefix
                       (applyTypes (TCon (tyConNameSyntax (genSpan gen) repTyCon) Unpromoted) headTypes)
                       (genericRepType gen dataType constructors)
                   )
-          fromMatches <- mapM (genericFromMatch gen) (repTreePaths constructors)
+          fromMatches <-
+            if null constructors
+              then do
+                -- An empty datatype has no constructor to match. As in GHC,
+                -- @from@ takes its argument apart with an empty case.
+                value <- freshLocal gen "x"
+                pure [simpleMatch gen [atPattern gen (PVar value)] (applyN gen (genericExpr gen genericM1) [caseOf gen (localExpr gen value) []])]
+              else mapM (genericFromMatch gen) (repTreePaths constructors)
           toItem <- genericToItem gen constructors
           pure (Just [equation, methodBind gen "from" fromMatches, toItem])
   where
@@ -1226,6 +1262,36 @@ genericItems gen dataType =
     failWith message = do
       emitError (genSpan gen) (OtherError message)
       pure Nothing
+
+-- | The explicit binders of a derived Generic instance for a poly-kinded
+-- datatype: the kind variables of the datatype, then each parameter with
+-- its kind. @data Unit (f :: k -> Type)@ gives @forall k (f :: k -> *)@.
+-- The result is 'Nothing' when a kind has no source syntax.
+genericKindBinders :: Gen -> DataTypeInfo -> Maybe [TyVarBinder]
+genericKindBinders gen dataType = do
+  headArguments <-
+    case tcDerivingHeadTypes (genPlan gen) of
+      [TcTyCon _ arguments] -> Just arguments
+      _ -> Nothing
+  guard (length headArguments == length (dtiTyVars dataType))
+  names <- mapM argumentName headArguments
+  parameterKinds <- mapM (surfaceKind . tvKind) (dtiTyVars dataType)
+  let kindVariables = nub (map tvName (datatypeKindVariables dataType))
+  guard (all (`notElem` names) kindVariables)
+  pure ([binder name Nothing | name <- kindVariables] <> zipWith (\name kind -> binder name (Just kind)) names parameterKinds)
+  where
+    argumentName argument =
+      case argument of
+        TcTyVar tyVar -> Just (tvName tyVar)
+        _ -> Nothing
+    binder name kind = TyVarBinder [] name kind TyVarBSpecified TyVarBVisible
+    surfaceKind kind
+      | kind == typeKind (genKinds gen) = Just (TStar "*")
+      | otherwise =
+          case kind of
+            TcTyVar tyVar -> Just (TVar (mkUnqualifiedName NameVarId (tvName tyVar)))
+            TcFunTy argument result -> TFun ArrowUnrestricted <$> surfaceKind argument <*> surfaceKind result
+            _ -> surfaceType (genSpan gen) kind
 
 -- | The kind variables a datatype is quantified over. A poly-kinded
 -- datatype has some; one whose every parameter has a concrete kind has
@@ -1681,6 +1747,12 @@ surfaceType sp ty =
     TcTyCon tyCon arguments
       | tyConNamespace tyCon == ResolutionNamespaceType ->
           foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
+    -- A poly-kinded constructor that a use site applied to its kinds, such
+    -- as the @Const@ of @b (Const a)@. Source syntax does not spell the
+    -- kinds, and the check of the generated declaration infers them again.
+    TcKindedTyCon tyCon _
+      | tyConNamespace tyCon == ResolutionNamespaceType ->
+          Just (TCon (tyConNameSyntax sp tyCon) Unpromoted)
     _ -> Nothing
 
 surfacePred :: Maybe SourceSpan -> Pred -> Maybe Type
