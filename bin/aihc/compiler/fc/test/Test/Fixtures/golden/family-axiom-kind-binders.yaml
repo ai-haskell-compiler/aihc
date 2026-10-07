@@ -1,0 +1,91 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - KindSignatures
+  - PolyKinds
+  - TypeFamilies
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, KindSignatures, PolyKinds, TypeFamilies, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (Type)
+    data N = Z | S N
+    data Proxy (a :: k) = Proxy
+    data Pair a b = Pair a b
+    data family Param (n :: N) (a :: k) :: k
+
+    -- The axiom names the kind of @a@ only in the kinds of @t@ and @a@.
+    type family Indexed (t :: k) (i :: N) :: k where
+      Indexed (t a) i = Indexed t ('S i) (Param i a)
+      Indexed t _ = t
+
+    indexed :: Proxy (Indexed (Pair Int Bool) 'Z) -> Proxy (Pair (Param ('S 'Z) Int) (Param 'Z Bool))
+    indexed proxy = proxy
+
+    -- The coercion applies @Param@ at a function kind to one more argument.
+    data Int = Int
+    data Bool = False | True
+    applied :: (f ~ g) => Proxy (Param 'Z f Int) -> Proxy (Param 'Z g Int)
+    applied proxy = proxy
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tN :: sType {
+    pub 1.cZ :: tN;
+    pub 1.cS :: tN 2.→ tN
+  }
+
+  pub type 1.tProxy (k : sType) (a : k) :: sType {
+    pub 1.cProxy :: ∀(k : sType) (a : k). tProxy k a
+  }
+
+  pub type 1.tPair (a : sType) (b : sType) :: sType {
+    pub 1.cPair :: ∀(a : sType) (b : sType). a 2.→ b 2.→ tPair a b
+  }
+
+  pub type 1.tParam (k : sType) (n : tN) (a : k) :: k @N @N @N {}
+
+  pub type 1.tIndexed (k : sType) (t : k) (i : tN) :: k @N @N @N {}
+
+  axiom 1.$ax$Indexed$0 (k0 : sType) (k1 : sType) (i : tN) (t : k0 2.→ k1) (a : k0) : tIndexed k1 (t a) i ~N tIndexed (k0 2.→ k1) t (cS i) (tParam k0 i a)
+
+  axiom 1.$ax$Indexed$1 (k0 : sType) (_ : tN) (t : k0) : tIndexed k0 t _ ~N t
+
+  pub type 1.tInt :: sType {
+    pub 1.cInt :: tInt
+  }
+
+  pub type 1.tBool :: sType {
+    pub 1.cFalse :: tBool;
+    pub 1.cTrue :: tBool
+  }
+
+  pub val 1.vindexed :: tProxy (tTYPE (cBoxedRep cLifted)) (tIndexed (tTYPE (cBoxedRep cLifted)) (tPair tInt tBool) cZ) 2.→ tProxy (tTYPE (cBoxedRep cLifted)) (tPair (tParam (tTYPE (cBoxedRep cLifted)) (cS cZ) tInt) (tParam (tTYPE (cBoxedRep cLifted)) cZ tBool))
+    = λ(x : tProxy (tTYPE (cBoxedRep cLifted)) (tIndexed (tTYPE (cBoxedRep cLifted)) (tPair tInt tBool) cZ)).
+      x
+
+  pub val 1.vapplied :: ∀(k0 : sType) (f : sType 2.→ k0) (g : sType 2.→ k0). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (f ~ g) (tProxy k0 (tParam (tTYPE (cBoxedRep cLifted) 2.→ k0) cZ f tInt) 2.→ tProxy k0 (tParam (tTYPE (cBoxedRep cLifted) 2.→ k0) cZ g tInt))
+    = Λ(k0 : sType) (f : sType 2.→ k0) (g : sType 2.→ k0). λ($d0 : f ~ g)
+    (x : tProxy k0 (tParam (tTYPE (cBoxedRep cLifted) 2.→ k0) cZ f tInt)).
+      x ▷ tycon-co tProxy (refl k0) (tycon-co tParam (refl (tTYPE (cBoxedRep cLifted) 2.→ k0)) (refl cZ) ($d0) (refl tInt))
+status: pass
+reason: A family axiom binds a kind variable from the kinds of its other binders, and a
+  type constructor coercion applies a family at a function result kind to more arguments.
