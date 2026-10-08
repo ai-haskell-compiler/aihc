@@ -1,0 +1,30 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ErrorCall, catch, evaluate)
+    import GHC.Arr (Array, array, listArray, (!))
+    import GHC.Ix (index)
+    import Prelude
+
+    -- Each error gives the message of GHC instead of a loop.
+    report :: Int -> IO ()
+    report value =
+      (evaluate value >>= print) `catch` \exception -> putStrLn (show (exception :: ErrorCall))
+
+    main :: IO ()
+    main = do
+      report (index (0, 3 :: Int) 7)
+      report (array (0, 1) [(0, 10)] ! 1)
+      report ((listArray (0, -2) [] :: Array Int Int) ! 0)
+      report (listArray (0, 2) [1, 2, 3] ! 2)
+stdout: |
+  Ix{Int}.index: Index (7) out of range ((0,3))
+  (Array.!): undefined array element
+  Ix{Int}.index: Index (0) out of range ((0,-2))
+  3
+output: |
+  ()
+expression: main
+status: pass
+reason: the array index errors report the message of GHC instead of a loop
