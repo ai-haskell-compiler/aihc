@@ -37,6 +37,11 @@ writeAmd64Elf image = writeImage (imageMetadata image) (map imageSectionBytes (i
 -- piece added to the addend. So the object writes no name that only this
 -- object reads, and the symbol table holds only the section symbols and the
 -- global names.
+--
+-- A Global Offset Table relocation is different: the linker adds its addend
+-- to the address of the table entry, not to the symbol. When neighbouring
+-- atoms share one piece, such a relocation to a symbol inside the piece
+-- names a nameless local symbol at that point instead.
 writeImage :: Image -> [BL.ByteString] -> Either ObjectError BL.ByteString
 writeImage image payloads = do
   mapM_ validateRelocations (imageSections image)
@@ -50,29 +55,36 @@ writeImage image payloads = do
           Map.union
           [(pieceRole piece, Map.singleton (pieceStart piece) index) | (index, piece) <- pieceIndexes]
       pieceAt role offset = Map.lookupLE offset (Map.findWithDefault Map.empty role pieceStarts)
-      -- A relocation target: a named symbol, or a piece and the distance into it.
       target relocation =
         let symbol = symbols ! relocationSymbol relocation
          in case symbolSection symbol of
               Just role
                 | not (symbolGlobal symbol),
                   Just (start, index) <- pieceAt role (symbolOffset symbol) ->
-                    Left (index, fromIntegral (symbolOffset symbol - start) :: Int64)
-              _ -> Right (relocationSymbol relocation)
+                    let distance = symbolOffset symbol - start
+                     in if distance /= 0 && not (addendOffsetsSymbol (relocationKind relocation))
+                          then PointTarget index distance
+                          else PieceTarget index (fromIntegral distance)
+              _ -> NamedTarget (relocationSymbol relocation)
       relocationTargets =
         [ target relocation
         | piece <- pieces,
           relocation <- pieceRelocations piece
         ]
-      sectionSymbols = Set.toAscList (Set.fromList [index | Left (index, _) <- relocationTargets])
+      sectionSymbols = Set.toAscList (Set.fromList [index | PieceTarget index _ <- relocationTargets])
+      pointSymbols = Set.toAscList (Set.fromList [(index, distance) | PointTarget index distance <- relocationTargets])
       namedSymbols = [(index, symbol) | (index, symbol) <- zip [0 ..] (imageSymbols image), symbolGlobal symbol]
-      -- Index zero is the null symbol, so the table starts at one.
+      -- Index zero is the null symbol, so the table starts at one. ELF puts
+      -- the local symbols before the global ones.
+      localSymbolCount = 1 + length sectionSymbols + length pointSymbols
       sectionSymbolIndexes = Map.fromList (zip sectionSymbols [1 :: Word32 ..])
-      namedIndexes = IntMap.fromList (zip (map fst namedSymbols) [fromIntegral (1 + length sectionSymbols) ..])
+      pointSymbolIndexes = Map.fromList (zip pointSymbols [fromIntegral (1 + length sectionSymbols) :: Word32 ..])
+      namedIndexes = IntMap.fromList (zip (map fst namedSymbols) [fromIntegral localSymbolCount ..])
       relocationEntry relocation =
         case target relocation of
-          Left (index, distance) -> (sectionSymbolIndexes Map.! index, relocationAddend relocation + distance)
-          Right index -> (namedIndexes IntMap.! index, relocationAddend relocation)
+          PieceTarget index distance -> (sectionSymbolIndexes Map.! index, relocationAddend relocation + distance)
+          PointTarget index distance -> (pointSymbolIndexes Map.! (index, distance), relocationAddend relocation)
+          NamedTarget index -> (namedIndexes IntMap.! index, relocationAddend relocation)
       symbolStrings = buildStringTable (map (symbolName . snd) namedSymbols)
       relocationSections =
         [ RelocationDescription
@@ -96,7 +108,7 @@ writeImage image payloads = do
       (baseEnd, placedPieces) = mapAccumL placePiece 64 pieces
       (relocationEnd, placedRelocations) = mapAccumL placeRelocationSection (alignUp 8 baseEnd) relocationSections
       symbolOffset' = alignUp 8 relocationEnd
-      symbolSize = fromIntegral ((1 + length sectionSymbols + length namedSymbols) * 24)
+      symbolSize = fromIntegral ((localSymbolCount + length namedSymbols) * 24)
       stringOffset = symbolOffset' + symbolSize
       sectionStringOffset = stringOffset + fromIntegral (BS.length (snd symbolStrings))
       sectionHeaderOffset = alignUp 8 (sectionStringOffset + fromIntegral (BS.length (snd sectionStrings)))
@@ -111,6 +123,7 @@ writeImage image payloads = do
     putPadding (symbolOffset' - relocationEnd)
     putNullSymbol
     mapM_ putSectionSymbol sectionSymbols
+    mapM_ putPointSymbol pointSymbols
     mapM_ (putNamedSymbol pieceOf (fst symbolStrings) . snd) namedSymbols
     putByteString (snd symbolStrings)
     putByteString (snd sectionStrings)
@@ -118,9 +131,28 @@ writeImage image payloads = do
     putNullSectionHeader
     mapM_ (putPieceSectionHeader (fst sectionStrings)) placedPieces
     mapM_ (putRelocationSectionHeader (fst sectionStrings) symbolTableIndex) placedRelocations
-    putTableSectionHeader (fst sectionStrings Map.! ".symtab") 2 symbolOffset' symbolSize stringTableIndex (fromIntegral (1 + length sectionSymbols)) 8 24
+    putTableSectionHeader (fst sectionStrings Map.! ".symtab") 2 symbolOffset' symbolSize stringTableIndex (fromIntegral localSymbolCount) 8 24
     putTableSectionHeader (fst sectionStrings Map.! ".strtab") 3 stringOffset (fromIntegral (BS.length (snd symbolStrings))) 0 0 1 0
     putTableSectionHeader (fst sectionStrings Map.! ".shstrtab") 3 sectionStringOffset (fromIntegral (BS.length (snd sectionStrings))) 0 0 1 0
+
+-- | What a relocation names in the symbol table.
+data RelocationTarget
+  = -- | The section symbol of a piece. The distance into the piece goes
+    -- into the addend.
+    PieceTarget !Word32 !Int64
+  | -- | A nameless local symbol at a distance into a piece.
+    PointTarget !Word32 !Word64
+  | -- | A global symbol, by its index in the image.
+    NamedTarget !Int
+
+-- | Whether the linker adds the addend of a relocation to the address of its
+-- symbol. A Global Offset Table load adds it to the address of the table
+-- entry, so a distance in the addend would read the entry of another symbol.
+addendOffsetsSymbol :: FixupKind -> Bool
+addendOffsetsSymbol kind =
+  case kind of
+    X86GotPcRelX -> False
+    _ -> True
 
 -- | One atom, or a run of atoms, of an image section.
 data Piece = Piece
@@ -314,6 +346,16 @@ putSectionSymbol index = do
   putWord8 0
   putWord16le (fromIntegral index)
   putWord64le 0
+  putWord64le 0
+
+-- | A nameless local symbol at a distance into one piece.
+putPointSymbol :: (Word32, Word64) -> Put
+putPointSymbol (index, distance) = do
+  putWord32le 0
+  putWord8 0
+  putWord8 0
+  putWord16le (fromIntegral index)
+  putWord64le distance
   putWord64le 0
 
 -- | A global symbol: defined in a piece, at its offset in the piece, or
