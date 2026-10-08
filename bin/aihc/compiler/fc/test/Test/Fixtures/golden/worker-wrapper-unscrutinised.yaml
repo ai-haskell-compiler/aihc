@@ -32,7 +32,7 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tBox :: sType {
-    strict [0] 1.cBox :: tInt 2.→ tBox
+    pub strict [0] 1.cBox :: tInt 2.→ tBox
   }
 
   pub val 1.vwrap :: tInt 2.→ tBox

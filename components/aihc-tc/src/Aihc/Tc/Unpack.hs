@@ -4,6 +4,7 @@
 -- registered. An importer reads the stored layout.
 module Aihc.Tc.Unpack
   ( decideConstructorRepresentations,
+    unpackableConstructor,
   )
 where
 
@@ -207,11 +208,20 @@ typeHead tyCon arguments maybeType =
         null (dciTheta info) ->
           HeadNewtype info tyCon arguments (instantiate info (TcTyCon tyCon arguments) (dcfiType field))
     Just dataType
-      | dtiFlavor dataType == DataTyCon,
-        [info] <- dtiConstructors dataType,
-        unpackableProduct info ->
+      | Just info <- unpackableConstructor dataType ->
           HeadProduct info
     _ -> HeadOther
+
+-- | The constructor that a strict field with an UNPACK pragma can unpack.
+-- Only a data type with one constructor has one. The field can be in
+-- any module, also when the export list hides this constructor.
+unpackableConstructor :: DataTypeInfo -> Maybe DataConInfo
+unpackableConstructor dataType
+  | dtiFlavor dataType == DataTyCon,
+    [info] <- dtiConstructors dataType,
+    unpackableProduct info =
+      Just info
+  | otherwise = Nothing
 
 unpackableProduct :: DataConInfo -> Bool
 unpackableProduct info =

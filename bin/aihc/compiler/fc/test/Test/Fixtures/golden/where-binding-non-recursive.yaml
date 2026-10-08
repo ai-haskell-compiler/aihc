@@ -44,15 +44,15 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tBox :: sType {
-    1.cBox :: tInt 3.→ tBox
+    pub 1.cBox :: tInt 3.→ tBox
   }
 
   type 1.tPair :: sType {
-    1.cPair :: tInt 3.→ tBox 3.→ tPair
+    pub 1.cPair :: tInt 3.→ tBox 3.→ tPair
   }
 
   type 1.tStream :: sType {
-    1.cCons :: tInt 3.→ tStream 3.→ tStream
+    pub 1.cCons :: tInt 3.→ tStream 3.→ tStream
   }
 
   pub val 1.vpair :: tInt 3.→ tPair

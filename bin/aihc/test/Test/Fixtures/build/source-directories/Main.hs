@@ -8,6 +8,7 @@ import KindOrderChecks (kindOrderChecks)
 import PrimitiveChecks (primitiveChecks)
 import RecordUpdateChecks (recordUpdateChecks)
 import STMChecks (stmChecks)
+import UnpackChecks (unpackChecks)
 import SumChecks (sumChecks)
 import Message
 import System.Environment (getArgs)
@@ -19,7 +20,7 @@ main = do
   if files then pure () else error "file input check failed"
   blackholes <- blackholeChecks
   transactions <- stmChecks
-  if blackholes && primitiveChecks && transactions && frozenChecks && familyBindChecks && kindOrderChecks && sumChecks && recordUpdateChecks then run else error "primitive check failed"
+  if blackholes && primitiveChecks && transactions && frozenChecks && familyBindChecks && kindOrderChecks && sumChecks && recordUpdateChecks && unpackChecks then run else error "primitive check failed"
 
 run :: IO ()
 run = do

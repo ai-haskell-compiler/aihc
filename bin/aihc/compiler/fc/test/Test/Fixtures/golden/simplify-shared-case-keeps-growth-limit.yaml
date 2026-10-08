@@ -45,7 +45,7 @@ expected: |-
   }
 
   type 1.tBox :: sType {
-    1.cBox :: tBool 2.→ tBool 2.→ tBool 2.→ tBool 2.→ tBox
+    pub 1.cBox :: tBool 2.→ tBool 2.→ tBool 2.→ tBool 2.→ tBox
   }
 
   val 1.vopaque noinline :: tBool 2.→ tBool

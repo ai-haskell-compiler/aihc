@@ -45,7 +45,7 @@ expected: |-
   }
 
   type 1.tBase :: sType {
-    1.cBase :: tBool 2.→ tBase
+    pub 1.cBase :: tBool 2.→ tBase
   }
 
   type 1.tWrap :: sType {}

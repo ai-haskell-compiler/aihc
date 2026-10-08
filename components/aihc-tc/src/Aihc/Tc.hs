@@ -84,6 +84,7 @@ module Aihc.Tc
     applySubstRep,
     repHasUnpack,
     repLeaves,
+    unpackableConstructor,
     DataConSourceForm (..),
     dataConArgTypes,
     dataFamilyAxiomKey,
@@ -133,6 +134,7 @@ import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBin
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Aihc.Tc.Unpack (unpackableConstructor)
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics)
 import Data.List qualified as List

@@ -1,7 +1,7 @@
 expected: |-
   scope 1 = "" Target
 
-  constructor 1.Box [IntRep]
+  pub constructor 1.Box [IntRep]
 
   primitive *# :: IntRep/2
 

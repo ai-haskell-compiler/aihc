@@ -62,6 +62,7 @@ import Aihc.Tc
     tcModuleDiagnostics,
     tcModuleSuccess,
     typeFamilyAxiomKey,
+    unpackableConstructor,
   )
 import Aihc.Tc.Annotations (TcInstanceAnnotation (..))
 import Aihc.Tc.Env (DataConSourceForm (..), TypeSynonymInfo (..))
@@ -900,7 +901,13 @@ convertDataType env info = do
       bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (dtiResultKind info)
-  constructors <- mapM (convertConstructor env) (dtiConstructors info)
+  converted <- mapM (convertConstructor env) (dtiConstructors info)
+  -- A strict field in another module can unpack this constructor, also
+  -- when the export list hides it. That module then builds and matches the
+  -- constructor, so the constructor stays public, as its tables must be.
+  let constructors = case unpackableConstructor info of
+        Just _ -> [constructor {conVis = Pub} | constructor <- converted]
+        Nothing -> converted
   pure
     ( DeclType
         TypeDecl

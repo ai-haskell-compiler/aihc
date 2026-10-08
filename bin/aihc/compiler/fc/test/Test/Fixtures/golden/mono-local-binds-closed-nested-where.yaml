@@ -58,11 +58,11 @@ expected: |-
   axiom 1.$ax$ST (s : sType) (a : sType) : tST s a ~R a
 
   type 1.tRef (s : sType) :: sType {
-    1.cRef :: ∀(s : sType). tRef s
+    pub 1.cRef :: ∀(s : sType). tRef s
   }
 
   type 1.tUnit :: sType {
-    1.cUnit :: 1.tUnit
+    pub 1.cUnit :: 1.tUnit
   }
 
   val 1.vunST :: ∀(s : sType) (a : sType). tST s a 3.→ a

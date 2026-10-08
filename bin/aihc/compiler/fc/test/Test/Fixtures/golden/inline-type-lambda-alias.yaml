@@ -39,7 +39,7 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tBox (a : sType) :: sType {
-    1.cBox :: ∀(a : sType). a 2.→ tBox a
+    pub 1.cBox :: ∀(a : sType). a 2.→ tBox a
   }
 
   type 1.t$Dict$Pick (f : sType 2.→ sType) :: sType {

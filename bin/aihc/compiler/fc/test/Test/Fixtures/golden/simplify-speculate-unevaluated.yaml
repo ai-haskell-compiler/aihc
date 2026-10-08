@@ -41,7 +41,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tBox :: sType {
-    1.cBox :: tInt 3.→ tBox
+    pub 1.cBox :: tInt 3.→ tBox
   }
 
   pub val 1.vnext :: tInt 3.→ tBox

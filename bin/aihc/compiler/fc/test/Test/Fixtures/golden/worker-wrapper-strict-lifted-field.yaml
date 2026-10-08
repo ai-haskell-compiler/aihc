@@ -33,7 +33,7 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tPair :: sType {
-    strict [0, 1] 1.cPair :: tInt 2.→ tInt 2.→ tPair
+    pub strict [0, 1] 1.cPair :: tInt 2.→ tInt 2.→ tPair
   }
 
   pub val 1.vfirst :: tPair 2.→ tInt

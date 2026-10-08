@@ -64,7 +64,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tT :: sType {
-    1.cT :: tT
+    pub 1.cT :: tT
   }
 
   pub val 1.v$fCT :: t$Dict$C tT

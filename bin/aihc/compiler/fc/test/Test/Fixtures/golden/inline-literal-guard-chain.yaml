@@ -76,7 +76,7 @@ expected: |-
   }
 
   type 1.tInt32 :: sType {
-    1.cI32# :: FUN @cInt32Rep @sLiftedRep tInt32# tInt32
+    pub 1.cI32# :: FUN @cInt32Rep @sLiftedRep tInt32# tInt32
   }
 
   type 1.tCInt :: sType {}

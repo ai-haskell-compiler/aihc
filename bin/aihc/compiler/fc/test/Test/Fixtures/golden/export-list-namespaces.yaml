@@ -3,15 +3,20 @@ extensions: []
 modules:
 - |
   module Abstract (X) where
-  data X = X
+  data X = X | OtherX
 - |
   module Bundled (Y(Y)) where
-  data Y = Y
+  data Y = Y | OtherY
 - |
   module Hidden (mk) where
-  data Z = Z
+  data Z = Z | OtherZ
   mk :: Z
   mk = Z
+- |
+  module Product (P, mkP) where
+  data P a = P a
+  mkP :: a -> P a
+  mkP = P
 expected: |-
   scope 1 = "" Abstract
   scope 2 = "aihc-prim" GHC.Types
@@ -30,7 +35,8 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.tX :: sType {
-    1.cX :: tX
+    1.cX :: tX;
+    1.cOtherX :: tX
   }
   scope 1 = "" Bundled
   scope 2 = "aihc-prim" GHC.Types
@@ -49,7 +55,8 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.tY :: sType {
-    pub 1.cY :: tY
+    pub 1.cY :: tY;
+    1.cOtherY :: tY
   }
   scope 1 = "" Hidden
   scope 2 = "aihc-prim" GHC.Types
@@ -68,10 +75,34 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tZ :: sType {
-    1.cZ :: tZ
+    1.cZ :: tZ;
+    1.cOtherZ :: tZ
   }
 
   pub val 1.vmk :: tZ
     = cZ
+  scope 1 = "" Product
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tP (a : sType) :: sType {
+    pub 1.cP :: ∀(a : sType). a 2.→ tP a
+  }
+
+  pub val 1.vmkP :: ∀(a : sType). a 2.→ tP a
+    = Λ(a : sType).
+      cP @a
 status: pass
-reason: An export item names one namespace, so X exports the type alone and Y(Y) also the data constructor.
+reason: An export item names one namespace, so X exports the type alone and Y(Y) also the data constructor. The constructor of a type with one constructor is public, because a strict field in another module can unpack it.
