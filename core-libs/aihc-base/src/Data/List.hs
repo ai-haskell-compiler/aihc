@@ -112,7 +112,7 @@ module Data.List
   )
 where
 
-import Data.Foldable (foldl', length)
+import Data.Foldable (find, foldl', length, maximumBy, minimumBy)
 import Data.Traversable (mapAccumL, mapAccumR)
 -- @foldl'@ and @length@ come from 'Data.Foldable' here, as they do in
 -- @base@: the rest of the fold vocabulary this module re-exports is already
@@ -250,13 +250,6 @@ isSuffixOf suffix value = reverse suffix `isPrefixOf` reverse value
 isInfixOf :: (Eq a) => [a] -> [a] -> Bool
 isInfixOf needle haystack = any (isPrefixOf needle) (tails haystack)
 
-find :: (a -> Bool) -> [a] -> Maybe a
-find _ [] = Nothing
-find matches (value : values) =
-  if matches value
-    then Just value
-    else find matches values
-
 partition :: (a -> Bool) -> [a] -> ([a], [a])
 partition select = foldr (selectPartition select) ([], [])
 
@@ -377,14 +370,6 @@ insertBy order value (next : rest) =
   case order value next of
     GT -> next : insertBy order value rest
     _ -> value : next : rest
-
-maximumBy :: (a -> a -> Ordering) -> [a] -> a
-maximumBy _ [] = errorWithoutStackTrace "List.maximumBy: empty list"
-maximumBy order (value : values) = foldl (\best next -> if order best next == LT then next else best) value values
-
-minimumBy :: (a -> a -> Ordering) -> [a] -> a
-minimumBy _ [] = errorWithoutStackTrace "List.minimumBy: empty list"
-minimumBy order (value : values) = foldl (\best next -> if order best next == GT then next else best) value values
 
 genericLength :: (Num i) => [a] -> i
 genericLength [] = 0
