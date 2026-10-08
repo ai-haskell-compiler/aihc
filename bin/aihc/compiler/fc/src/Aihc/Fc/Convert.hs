@@ -106,8 +106,8 @@ data ConvertEnv = ConvertEnv
     -- lint unfolds, and not a type constructor name.
     ceSynonymTyCons :: Set GlobalName,
     -- | The visible top-level names of the module, as
-    -- 'Aihc.Resolve.exportedLocalNames' gives them. 'Nothing' comes from a
-    -- caller that knows of no export list, and keeps every name public.
+    -- 'Aihc.Tc.CheckedModule' supplies the resolver names. 'Nothing' comes
+    -- from an explicit all-public configuration.
     ceExportedNames :: !(Maybe (Set (ResolutionNamespace, Text)))
   }
 

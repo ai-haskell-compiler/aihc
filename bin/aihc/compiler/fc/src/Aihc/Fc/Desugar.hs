@@ -6,7 +6,7 @@
 module Aihc.Fc.Desugar
   ( desugarModuleFc,
     DesugarConfig (..),
-    moduleDesugarConfig,
+    exportListDesugarConfig,
     allPublicDesugarConfig,
     FcDesugarResult (..),
   )
@@ -35,10 +35,11 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Syn
-import Aihc.Resolve (Entity (..), GlobalName (..), ModuleExports, Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderResolution, exportedLocalNames)
+import Aihc.Resolve (Entity (..), GlobalName (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderResolution)
 import Aihc.Resolve qualified as Resolve
 import Aihc.Tc
   ( AssociatedTypeInfo (..),
+    CheckedModule (..),
     ClassInfo (..),
     DataConFieldInfo (..),
     DataConInfo (..),
@@ -108,30 +109,21 @@ data DesugarConfig = DesugarConfig
   { primPackageId :: PackageId,
     -- | The kind vocabulary of the compiler that checked these modules.
     desugarKinds :: TcKinds,
-    -- | The visible top-level names of the module, as
-    -- 'Aihc.Resolve.exportedLocalNames' gives them. A name outside the set
-    -- is private, so no other module can name it and the backend need not
-    -- give it a symbol.
-    exportedNames :: !(Maybe (Set (ResolutionNamespace, Text)))
+    -- | Keep every top-level name public when the caller selects this rule.
+    desugarAllPublic :: !Bool
   }
   deriving (Show)
 
--- | The desugaring configuration of one module, with the visibility of its
--- top-level names taken from the resolver export scope. A module that the
--- scope map does not mention keeps every name public.
-moduleDesugarConfig :: TcKinds -> PackageId -> Package -> Text -> ModuleExports -> DesugarConfig
-moduleDesugarConfig kinds prim package moduleName' exports =
-  DesugarConfig
-    { primPackageId = prim,
-      desugarKinds = kinds,
-      exportedNames = Set.union (compilerVisibleNames moduleName') <$> exportedLocalNames package moduleName' exports
-    }
+-- | The desugaring configuration with top-level name visibility from the
+-- resolver export scope.
+exportListDesugarConfig :: TcKinds -> PackageId -> DesugarConfig
+exportListDesugarConfig kinds prim =
+  DesugarConfig {primPackageId = prim, desugarKinds = kinds, desugarAllPublic = False}
 
--- | The configuration of a caller that knows of no export list, and so
--- keeps every top-level name public.
+-- | The configuration that keeps every top-level name public.
 allPublicDesugarConfig :: TcKinds -> PackageId -> DesugarConfig
 allPublicDesugarConfig kinds prim =
-  DesugarConfig {primPackageId = prim, desugarKinds = kinds, exportedNames = Nothing}
+  DesugarConfig {primPackageId = prim, desugarKinds = kinds, desugarAllPublic = True}
 
 -- | The names of one module that the compiler builds references to on its
 -- own, from whatever module it is desugaring, and that the export list of
@@ -171,17 +163,21 @@ withConversionContext :: String -> Either String a -> Either String a
 withConversionContext context =
   either (Left . ((context <> ": ") <>)) Right
 
-interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
-interfaceConvertEnv config interface =
+interfaceConvertEnv :: DesugarConfig -> TcInterface -> Text -> CheckedModule -> ConvertEnv
+interfaceConvertEnv config interface currentModule checked =
   withKindEnv
     (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
     ( withClassTyCons
         (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
         ( withSynonymTyCons
             [tyConKey (tciTyCon info) | info <- tcInterfaceTyCons interface, tciFlavor info == SynonymTyCon]
-            (withExportedNames (exportedNames config) (emptyConvertEnv (desugarKinds config) (primPackageId config)))
+            (withExportedNames visibleNames (emptyConvertEnv (desugarKinds config) (primPackageId config)))
         )
     )
+  where
+    visibleNames
+      | desugarAllPublic config = Nothing
+      | otherwise = Just (Set.union (compilerVisibleNames currentModule) (checkedModuleExportedNames checked))
 
 convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)
 convertTyConHeader env info = do
@@ -225,7 +221,7 @@ convertTypeScheme env (ForAll tyVars predicates body) = do
   convertedBody <- convertType bindersEnv body
   pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
-desugarModuleFc :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> FcDesugarResult
+desugarModuleFc :: DesugarConfig -> [TcBindingResult] -> TcInterface -> CheckedModule -> FcDesugarResult
 desugarModuleFc config bindings interface checked =
   if not (tcModuleSuccess checked)
     then failedDesugar (map show (tcModuleDiagnostics checked))
@@ -238,9 +234,10 @@ desugarModuleFc config bindings interface checked =
             dsErrors = []
           }
 
-desugarFromInterface :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Either String Program
-desugarFromInterface config moduleBindings interface checked = do
-  let convertEnv = interfaceConvertEnv config interface
+desugarFromInterface :: DesugarConfig -> [TcBindingResult] -> TcInterface -> CheckedModule -> Either String Program
+desugarFromInterface config moduleBindings interface checkedModule = do
+  let checked = checkedModuleAst checkedModule
+      convertEnv = interfaceConvertEnv config interface currentModule checkedModule
       (packageId, currentModule) = resolvedModuleOrigin checked
       moduleOrigin = (packageId, currentModule)
       dataTypes = Map.fromList [(dataTypeSourceKey info, info) | info <- tcInterfaceDataTypes interface]

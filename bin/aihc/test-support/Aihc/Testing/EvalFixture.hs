@@ -62,7 +62,7 @@ import Aihc.Resolve
     resolveUnit,
     unnamedPackage,
   )
-import Aihc.Tc (MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (CheckedModule (..), MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (evaluate)
 import Control.Monad (filterM, forM, unless)
@@ -335,8 +335,8 @@ compileEvalCaseWithWrappers env tc = do
         Left ("typecheck error: " <> renderTcErrors tcResults)
       let interface = mergeTcInterfaces CheckMergedFacts [envInterface env, localInterface]
           bindings = envBindings env <> moduleGroupBindings tcResults
-          configs = desugarConfigsByModule fixtureExports packageModules
-          results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig configs checked) bindings interface checked) tcResults
+          collisionNames = duplicateModuleNames packageModules
+          results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig collisionNames checked) bindings interface checked) tcResults
       unless (all Fc.dsSuccess results) $
         Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results))
       -- This program contains only the fixture modules. The shared
@@ -355,25 +355,27 @@ evalWiring = primTcWiring primPackageId
 evalKinds :: TcKinds
 evalKinds = mkTcKinds evalWiring
 
--- | How to desugar each module, by module name.
---
--- Two packages could in principle bring the same module name; the desugared
--- module carries no package, so such a pair falls back to keeping every name
--- public rather than picking one package's export list for the other.
-desugarConfigsByModule :: ModuleExports -> [ModuleUnit] -> Map.Map Text Fc.DesugarConfig
-desugarConfigsByModule exports packageModules =
-  Map.fromListWith
-    (\_ _ -> Fc.allPublicDesugarConfig evalKinds primPackageId)
-    [ (moduleKeyOf modu, Fc.moduleDesugarConfig evalKinds primPackageId package (moduleKeyOf modu) exports)
-    | ModuleUnit {moduleUnitPackage = package, moduleUnitAst = modu} <- packageModules
-    ]
+-- | The module names that occur more than once in the input.
+duplicateModuleNames :: [ModuleUnit] -> Set.Set Text
+duplicateModuleNames packageModules =
+  Map.keysSet (Map.filter (> 1) counts)
+  where
+    counts = Map.fromListWith (+) [(moduleKeyOf (moduleUnitAst unit), 1 :: Int) | unit <- packageModules]
 
 moduleKeyOf :: Surface.Module -> Text
 moduleKeyOf = fromMaybe "Main" . Surface.moduleName
 
-evalDesugarConfig :: Map.Map Text Fc.DesugarConfig -> Surface.Module -> Fc.DesugarConfig
-evalDesugarConfig configs modu =
-  Map.findWithDefault (Fc.allPublicDesugarConfig evalKinds primPackageId) (moduleKeyOf modu) configs
+-- | How to desugar each module, by module name.
+--
+-- Two input modules with the same module name keep every name public.
+-- This rule applies until its separate item of #2516 is complete.
+evalDesugarConfig :: Set.Set Text -> CheckedModule -> Fc.DesugarConfig
+evalDesugarConfig collisionNames checked
+  | moduleKeyOf (checkedModuleAst checked) `Set.member` collisionNames = Fc.allPublicDesugarConfig evalKinds primPackageId
+  | otherwise = evalScopedDesugarConfig
+
+evalScopedDesugarConfig :: Fc.DesugarConfig
+evalScopedDesugarConfig = Fc.exportListDesugarConfig evalKinds primPackageId
 
 -- | Fixtures have no cabal file. They compile under one language edition,
 -- with whatever their own pragmas add to it.
@@ -464,11 +466,11 @@ evalDecl expr =
           }
       ]
 
-renderTcErrors :: [Module] -> String
+renderTcErrors :: [CheckedModule] -> String
 renderTcErrors results =
   let rendered =
         unlines
-          [ T.unpack (fromMaybe "<unknown>" (Surface.moduleName result))
+          [ T.unpack (fromMaybe "<unknown>" (Surface.moduleName (checkedModuleAst result)))
               <> ": "
               <> renderTcErrorKind (diagKind diagnostic)
           | result <- results,
@@ -503,13 +505,13 @@ renderTcErrorKind errorKind =
       "instance " <> renderPred predicate <> " conflicts with instance " <> renderPred other <> " under the functional dependency " <> renderFunDepNames determiners determined
     OtherError message -> message
 
-moduleGroupBindings :: [Module] -> [TcBindingResult]
+moduleGroupBindings :: [CheckedModule] -> [TcBindingResult]
 moduleGroupBindings =
   concatMap (tcModuleBindings evalWiring)
 
 -- | Typecheck the core library modules, which must arrive in dependency
 -- order. The wired-in modules are checked first as one group.
-typecheckCoreModules :: [ResolvedModule] -> ([Module], TcInterface)
+typecheckCoreModules :: [ResolvedModule] -> ([CheckedModule], TcInterface)
 typecheckCoreModules units =
   let (checkedPrim, primInterface) =
         typecheckModuleSccWithInterface evalTcConfig emptyTcInterface (sortOn moduleOrder primModules)
@@ -551,8 +553,8 @@ loadEvalEnvironment = do
       unless (all tcModuleSuccess tcResults) $
         fail ("core library typecheck error: " <> renderTcErrors tcResults)
       let bindings = moduleGroupBindings tcResults
-          configs = desugarConfigsByModule exports packageModules
-          results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig configs checked) bindings interface checked) tcResults
+          collisionNames = duplicateModuleNames packageModules
+          results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig collisionNames checked) bindings interface checked) tcResults
       unless (all Fc.dsSuccess results) $
         fail ("core library desugar error: " <> unlines (concatMap Fc.dsErrors results))
       let program = Fc.mergePrograms (map Fc.dsProgram results)

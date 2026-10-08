@@ -12,7 +12,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, SplitScope (..), decodeProgram, desugarModuleFc, encodeProgram, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
+import Aihc.Fc (DemandRewrites (..), DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, SplitScope (..), decodeProgram, desugarModuleFc, encodeProgram, exportListDesugarConfig, growPolicy, lintProgram, mergePrograms, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -309,7 +309,7 @@ renderFcCase tc =
                           let availableInterface = mergeTcInterfaces CheckMergedFacts [primitiveInterface, tcInterface]
                               fixtureResults =
                                 map
-                                  (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings fixtureWiring checked) availableInterface checked)
+                                  (\checked -> desugarModuleFc desugarConfig (tcModuleBindings fixtureWiring checked) availableInterface checked)
                                   fixtureTcResults
                           if all dsSuccess fixtureResults
                             then
@@ -390,7 +390,7 @@ preparePrimitiveSupport primitiveModules =
                       let primitiveBindings = concatMap (tcModuleBindings fixtureWiring) primitiveTcResults
                           primitiveResults =
                             map
-                              (\checked -> desugarModuleFc (desugarConfig primitivePackage exports checked) primitiveBindings tcInterface checked)
+                              (desugarModuleFc desugarConfig primitiveBindings tcInterface)
                               primitiveTcResults
                        in if all dsSuccess primitiveResults
                             then
@@ -452,9 +452,8 @@ fixtureWiring = primTcWiring (PackageId "aihc-prim")
 fixtureKinds :: TcKinds
 fixtureKinds = mkTcKinds fixtureWiring
 
-desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
-desugarConfig package exports modu =
-  moduleDesugarConfig fixtureKinds (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
+desugarConfig :: DesugarConfig
+desugarConfig = exportListDesugarConfig fixtureKinds (PackageId "aihc-prim")
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

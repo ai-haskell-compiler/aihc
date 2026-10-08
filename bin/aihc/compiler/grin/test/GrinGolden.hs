@@ -10,7 +10,7 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig, FcDesugarResult (..), desugarModuleFc, moduleDesugarConfig)
+import Aihc.Fc (DesugarConfig, FcDesugarResult (..), desugarModuleFc, exportListDesugarConfig)
 import Aihc.Fc qualified as Fc
 import Aihc.Grin (lintProgram, lowerProgram, prettyProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -122,7 +122,7 @@ buildFcPrograms extensions sources = do
           fixtureBindings = concatMap (tcModuleBindings fixtureWiring) fixtureTcResults
           fixtureResults =
             map
-              (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) fixtureBindings availableInterface checked)
+              (desugarModuleFc desugarConfig fixtureBindings availableInterface)
               fixtureTcResults
       if not (all dsSuccess fixtureResults)
         then Left (unlines (concatMap dsErrors fixtureResults))
@@ -214,7 +214,7 @@ preparePrimitiveSupport sources = do
       let primitiveBindings = concatMap (tcModuleBindings fixtureWiring) primitiveTcResults
           primitiveResults =
             map
-              (\checked -> desugarModuleFc (desugarConfig primitivePackage exports checked) primitiveBindings tcInterface checked)
+              (desugarModuleFc desugarConfig primitiveBindings tcInterface)
               primitiveTcResults
       if all dsSuccess primitiveResults
         then
@@ -254,9 +254,8 @@ fixtureWiring = primTcWiring (PackageId "aihc-prim")
 fixtureKinds :: TcKinds
 fixtureKinds = mkTcKinds fixtureWiring
 
-desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
-desugarConfig package exports modu =
-  moduleDesugarConfig fixtureKinds (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
+desugarConfig :: DesugarConfig
+desugarConfig = exportListDesugarConfig fixtureKinds (PackageId "aihc-prim")
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

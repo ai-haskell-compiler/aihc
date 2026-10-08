@@ -55,6 +55,7 @@ import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
 import Data.List (find)
 import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Set (Set)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -259,7 +260,9 @@ resolveErrorAt span' identifier namespace message =
 -- and the top-level terms it can see, including through qualified imports.
 data ResolvedModule = ResolvedModule
   { resolvedModuleUnit :: !ModuleUnit,
-    resolvedVisibleTerms :: ![GlobalName]
+    resolvedVisibleTerms :: ![GlobalName],
+    -- | The term and type names that this module defines and exports.
+    resolvedExportedNames :: !(Set (ResolutionNamespace, Text))
   }
   deriving (Show)
 

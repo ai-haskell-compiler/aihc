@@ -59,7 +59,6 @@ module Aihc.Resolve
     moduleDeclarationExports,
     resolveExportList,
     ResolvedExport (..),
-    exportedLocalNames,
 
     -- * Builtins
     Builtins,
@@ -189,14 +188,14 @@ resolveUnit (Builtins builtinScope) exports packageModules
     step currentNextLocal unit =
       resolveModule builtinScope (moduleUnitPackage unit) exports (moduleUnitExtensions unit) currentNextLocal (moduleUnitAst unit)
     (_, resolved) = mapAccumL step 0 packageModules
-    errors = concatMap (\(moduleErrors, _, _) -> moduleErrors) resolved
+    errors = concatMap (\(moduleErrors, _, _, _) -> moduleErrors) resolved
     modules =
       zipWith
-        (\unit (_, visibleTerms, modu) -> ResolvedModule unit {moduleUnitAst = modu} visibleTerms)
+        (\unit (_, visibleTerms, names, modu) -> ResolvedModule unit {moduleUnitAst = modu} visibleTerms names)
         packageModules
         resolved
 
-resolveModule :: Scope -> Package -> ModuleExports -> [Extension] -> Int -> Module -> (Int, ([ResolveError], [GlobalName], Module))
+resolveModule :: Scope -> Package -> ModuleExports -> [Extension] -> Int -> Module -> (Int, ([ResolveError], [GlobalName], Set.Set (ResolutionNamespace, Text), Module))
 resolveModule builtinScope package exports extensions nextLocal modu =
   let (imports', importErrors) = resolveModuleImports package exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
@@ -215,6 +214,7 @@ resolveModule builtinScope package exports extensions nextLocal modu =
    in ( nextLocal',
         ( importErrors <> declErrors,
           visibleTerms,
+          exportedScopeLocalNames package (moduleKey modu) (exportedScope package exports extensions modu),
           modu' {moduleDecls = decls'}
         )
       )

@@ -125,7 +125,7 @@ import Aihc.Cli.TaskGraph
     runTaskGraphWith,
   )
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts)
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
+import Aihc.Fc (DesugarConfig, FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
@@ -191,7 +191,8 @@ import Aihc.Resolve
     resolveUnit,
   )
 import Aihc.Tc
-  ( ClassInfo (..),
+  ( CheckedModule (..),
+    ClassInfo (..),
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
@@ -2694,11 +2695,7 @@ runTypeUnit context runtimes runtime = do
         if compileNoCode config || not success
           then pure Nothing
           else do
-            let desugarConfigs =
-                  Map.fromList
-                    [ (name, Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
-                    | name <- unitNames
-                    ]
+            let desugarConfig = Fc.exportListDesugarConfig (primKinds primIdentity) primIdentity
             (fcModules, desugarNs) <-
               measureTime
                 ( desugarCheckedModules
@@ -2707,7 +2704,7 @@ runTypeUnit context runtimes runtime = do
                     primIdentity
                     completeInterface
                     (moduleOutputPaths storePath (compileTarget config))
-                    desugarConfigs
+                    desugarConfig
                     checkedModules
                 )
             atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> mempty {backendDesugarNs = desugarNs}, ()))
@@ -2973,19 +2970,15 @@ configMergeCheck config
 -- | Desugar the checked modules of a unit to System FC, lint it when asked,
 -- and write it when a later build or a @--lto@ link reads it. This is the
 -- last phase that sees the Haskell AST.
-desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO [FcModule]
-desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
-  let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> DesugarConfig -> [CheckedModule] -> IO [FcModule]
+desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfig checkedModules = do
+  let moduleNames = map (fromMaybe "Main" . moduleName . checkedModuleAst) checkedModules
   do
-    let kinds = primKinds primIdentity
-        -- A module the resolver did not report on keeps every name public.
-        desugarConfig name =
-          Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
-        -- Each module is desugared against its own bindings; the rest of
+    let -- Each module is desugared against its own bindings; the rest of
         -- the unit reaches it through the interface.
         desugarResults =
-          [ Fc.desugarModuleFc (desugarConfig name) (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
-          | (name, checked) <- zip moduleNames checkedModules
+          [ Fc.desugarModuleFc desugarConfig (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
+          | checked <- checkedModules
           ]
         desugarErrors =
           [ T.unpack name <> ": " <> err

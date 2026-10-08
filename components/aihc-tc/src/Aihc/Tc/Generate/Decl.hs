@@ -452,18 +452,18 @@ binderBindingName name =
 -- | Type-check a module, returning the same syntax tree annotated with the
 -- inferred interface. Call 'moduleBindings' when a flat compatibility view is
 -- needed by older callers.
-tcModule :: ResolvedModule -> TcM Module
+tcModule :: ResolvedModule -> TcM CheckedModule
 tcModule resolved = do
   modules <- tcModuleScc [resolved]
   case modules of
     [result] -> pure result
-    _ -> pure (moduleUnitAst (resolvedModuleUnit resolved))
+    _ -> pure (CheckedModule (moduleUnitAst (resolvedModuleUnit resolved)) (resolvedExportedNames resolved))
 
 -- | Type-check one strongly connected module component. Data declarations and
 -- explicit signatures are registered for the whole component before any
 -- value body is checked, allowing a module to refer back to a signed binding
 -- in another member of the same import cycle.
-tcModuleScc :: [ResolvedModule] -> TcM [Module]
+tcModuleScc :: [ResolvedModule] -> TcM [CheckedModule]
 tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
@@ -520,13 +520,17 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
-  pending <- sequence (zipWith3 tcModuleBody (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized)
+  pending <- sequence (zipWith3 (\resolved scheme modu -> (,) resolved <$> tcModuleBody (resolvedVisibleTerms resolved) scheme modu) resolvedModules' schemes derivingFinalized)
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
   defaultGlobalKindMetas derivedKeys
-  annotated <- mapM annotatePendingModule pending
-  mapM finalizeModuleTc annotated
+  annotated <- forM pending $ \(resolved, body) -> do
+    modu <- annotatePendingModule body
+    pure (resolved, modu)
+  forM annotated $ \(resolved, modu) -> do
+    checked <- finalizeModuleTc modu
+    pure (CheckedModule checked (resolvedExportedNames resolved))
   where
     units = [unit {moduleUnitAst = withModuleIdentity unit (hoistAssociatedDataFamilies (moduleUnitAst unit))} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]

@@ -24,7 +24,8 @@ module Aihc.Resolve.Scope
     moduleDeclarationExports,
     resolveExportList,
     ResolvedExport (..),
-    exportedLocalNames,
+    exportedScope,
+    exportedScopeLocalNames,
     moduleScope,
     moduleKey,
     matchingModuleScopes,
@@ -325,23 +326,19 @@ collectModuleExportsWithDeps depExports packageModules
 -- A name counts when the export list of the module resolves it to a
 -- definition in that same module; a module without an export list exports
 -- every top-level name, which 'exportedScope' has already worked out. The
--- result is 'Nothing' when the map holds no scope for the module, which a
--- caller must read as \"assume every name is exported\".
-exportedLocalNames :: Package -> Text -> ModuleExports -> Maybe (Set (ResolutionNamespace, Text))
-exportedLocalNames package name exports =
-  localNames <$> lookupExportScope (ModuleKey package name) exports
-  where
-    localNames scope =
-      Set.fromList
-        [ (namespace, globalNameText global)
-        | (namespace, entries) <-
-            [ (ResolutionNamespaceTerm, scopeTerms scope),
-              (ResolutionNamespaceType, scopeTypes scope)
-            ],
-          EntityGlobal global <- Map.elems entries,
-          globalNamePackage global == packageId package,
-          globalNameModule global == name
-        ]
+-- result contains the local term and type names of the supplied scope.
+exportedScopeLocalNames :: Package -> Text -> Scope -> Set (ResolutionNamespace, Text)
+exportedScopeLocalNames package name scope =
+  Set.fromList
+    [ (namespace, globalNameText global)
+    | (namespace, entries) <-
+        [ (ResolutionNamespaceTerm, scopeTerms scope),
+          (ResolutionNamespaceType, scopeTypes scope)
+        ],
+      EntityGlobal global <- Map.elems entries,
+      globalNamePackage global == packageId package,
+      globalNameModule global == name
+    ]
 
 exportedScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
 exportedScope package exports extensions modu =

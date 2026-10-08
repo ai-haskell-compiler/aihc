@@ -38,7 +38,7 @@ module Aihc.Fc
     programSize,
     desugarModuleFc,
     DesugarConfig (..),
-    moduleDesugarConfig,
+    exportListDesugarConfig,
     allPublicDesugarConfig,
     FcDesugarResult (..),
     lintProgram,
@@ -52,7 +52,7 @@ where
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.Binary (decodeProgram, encodeProgram, programFileName, readProgramFile, writeProgramFile)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
-import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
+import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, exportListDesugarConfig)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Merge (mergePrograms)

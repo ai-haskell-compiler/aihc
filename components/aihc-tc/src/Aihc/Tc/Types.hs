@@ -4,7 +4,8 @@
 
 -- | Core type representation for the type checker.
 module Aihc.Tc.Types
-  ( Entity (..),
+  ( CheckedModule (..),
+    Entity (..),
     tyConTermKey,
     tyConMemberTermKey,
     termKeyName,
@@ -122,14 +123,26 @@ module Aihc.Tc.Types
   )
 where
 
+import Aihc.Parser.Syntax (Module)
 import Aihc.Resolve (Entity (..), GlobalName (..), LocalId (..), PackageId (..), ResolutionNamespace (..))
 import Control.DeepSeq (NFData (..))
 import Control.Monad (zipWithM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+
+-- | A module after type checks, with its resolver export names.
+data CheckedModule = CheckedModule
+  { checkedModuleAst :: !Module,
+    -- | The visible top-level names that the resolver supplies.
+    -- A name outside this set is private. No other module can name it.
+    -- The backend does not need to give it a symbol.
+    checkedModuleExportedNames :: !(Set (ResolutionNamespace, Text))
+  }
+  deriving (Show)
 
 -- | The term key with the name and origin of a type constructor.
 tyConTermKey :: TyCon -> Entity

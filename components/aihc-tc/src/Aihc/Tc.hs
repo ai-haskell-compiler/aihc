@@ -19,6 +19,7 @@ module Aihc.Tc
     typecheckModuleSccWithInterface,
 
     -- * Result types
+    CheckedModule (..),
     TcConfig,
     mkTcConfig,
     TcWiring (..),
@@ -123,7 +124,7 @@ module Aihc.Tc
   )
 where
 
-import Aihc.Parser.Syntax (Extension (..), Module (moduleDecls))
+import Aihc.Parser.Syntax (Extension (..), moduleDecls)
 import Aihc.Resolve (ModuleUnit (..), ResolvedModule (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
@@ -141,17 +142,17 @@ import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 
 -- | Top-level bindings recovered from a type-checked module's annotations.
-tcModuleBindings :: TcWiring -> Module -> [TcBindingResult]
-tcModuleBindings =
-  moduleBindings
+tcModuleBindings :: TcWiring -> CheckedModule -> [TcBindingResult]
+tcModuleBindings wiring =
+  moduleBindings wiring . checkedModuleAst
 
 -- | Diagnostics recovered from type-checker annotations in a module.
-tcModuleDiagnostics :: Module -> [TcDiagnostic]
+tcModuleDiagnostics :: CheckedModule -> [TcDiagnostic]
 tcModuleDiagnostics =
-  collectTcDiagnostics
+  collectTcDiagnostics . checkedModuleAst
 
 -- | Whether an annotated module contains no type-checker errors.
-tcModuleSuccess :: Module -> Bool
+tcModuleSuccess :: CheckedModule -> Bool
 tcModuleSuccess =
   not . any isError . tcModuleDiagnostics
   where
@@ -159,9 +160,9 @@ tcModuleSuccess =
 
 -- | Type-check dependency-ordered modules with an imported semantic interface.
 -- Return only facts that the specified modules define.
-typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([CheckedModule], TcInterface)
 typecheckModulesWithInterface config imported resolved
-  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
+  | all (null . moduleDecls . moduleUnitAst) units = (map uncheckedModule resolved, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
           (finalState, checkedModules) = List.mapAccumL check initialState resolved
@@ -174,17 +175,21 @@ typecheckModulesWithInterface config imported resolved
 
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
-typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([CheckedModule], TcInterface)
 typecheckModuleSccWithInterface config imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the component adds no types, evidence, or diagnostics.
-  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
+  | all (null . moduleDecls . moduleUnitAst) units = (map uncheckedModule resolved, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
           (checkedModules, finalState) = typecheckModuleSccWithState config initialState resolved
        in (checkedModules, tcInterfaceDifference initialState finalState)
   where
     units = map resolvedModuleUnit resolved
+
+uncheckedModule :: ResolvedModule -> CheckedModule
+uncheckedModule resolved =
+  CheckedModule (moduleUnitAst (resolvedModuleUnit resolved)) (resolvedExportedNames resolved)
 
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
@@ -233,13 +238,13 @@ exportedGlobalTerms = Map.mapMaybe binderScheme
         TcIdBinder scheme _ -> Just scheme
         _ -> Nothing
 
-typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([Module], TcState)
+typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([CheckedModule], TcState)
 typecheckModuleSccWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( case map moduleUnitAst units of
+      ( case map uncheckedModule resolved of
           [] -> []
-          first : rest -> annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] first : rest,
+          first : rest -> first {checkedModuleAst = annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (checkedModuleAst first)} : rest,
         st
       )
     Right (annotatedModules, st') ->
@@ -264,16 +269,16 @@ typecheckModuleSccWithState config st resolved =
           tcEnvPostfixOperators = any (elem PostfixOperators . moduleUnitExtensions) units
         }
 
-typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (Module, TcState)
+typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (CheckedModule, TcState)
 typecheckModuleWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (moduleUnitAst unit),
+      ( (uncheckedModule resolved) {checkedModuleAst = annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (moduleUnitAst unit)},
         st
       )
     Right (annotatedModule, st') ->
       let diags = reverse (tcsDiagnostics st')
-          result = annotateModuleDiagnostics diags annotatedModule
+          result = annotatedModule {checkedModuleAst = annotateModuleDiagnostics diags (checkedModuleAst annotatedModule)}
           nextState =
             st'
               { tcsDiagnostics = [],

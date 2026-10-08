@@ -44,7 +44,8 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve (Builtins, ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
 import Aihc.Tc
-  ( MergeCheck (..),
+  ( CheckedModule (..),
+    MergeCheck (..),
     TcConfig,
     TcInterface,
     TcWiring (..),
@@ -254,9 +255,9 @@ evaluateTcAnnotatedCasePure tc =
 renderTcAnnotatedCase :: TcAnnotatedCase -> Either String [String]
 renderTcAnnotatedCase tc = do
   checked <- checkTcAnnotatedCase tc
-  mapM_ (checkDependencies checked) (caseDependencies tc)
+  mapM_ (checkDependencies (map checkedModuleAst checked)) (caseDependencies tc)
   case caseAnnotated tc of
-    Just _ -> pure (renderAnnotatedTcResults (caseModules tc) checked)
+    Just _ -> pure (renderAnnotatedTcResults (caseModules tc) (map checkedModuleAst checked))
     Nothing
       | all tcModuleSuccess checked -> pure []
       | otherwise ->
@@ -290,7 +291,7 @@ checkDependencies modules expected = do
       _ -> T.pack (show key)
 
 -- | Parse, resolve, and type-check the modules of one case.
-checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [Module]
+checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [CheckedModule]
 checkTcAnnotatedCase tc =
   let parsedModules = map parseOne (caseModules tc)
    in case sequence parsedModules of
@@ -326,7 +327,7 @@ data ModuleNode = ModuleNode
     nodeDependencies :: ![Int]
   }
 
-typecheckModuleGraph :: TcConfig -> TcInterface -> [ResolvedModule] -> Either String [Module]
+typecheckModuleGraph :: TcConfig -> TcInterface -> [ResolvedModule] -> Either String [CheckedModule]
 typecheckModuleGraph config baseInterface units = do
   (checkedModules, _) <- foldl' checkComponent (Right (Map.empty, Map.empty)) components
   traverse (lookupCheckedModule checkedModules) [0 .. length units - 1]
@@ -371,7 +372,7 @@ lookupDependencyInterface :: Map Int TcInterface -> Int -> Either String TcInter
 lookupDependencyInterface interfaces index =
   maybe (Left ("module graph dependency was not checked: " <> show index)) Right (Map.lookup index interfaces)
 
-lookupCheckedModule :: Map Int Module -> Int -> Either String Module
+lookupCheckedModule :: Map Int CheckedModule -> Int -> Either String CheckedModule
 lookupCheckedModule checked index =
   maybe (Left ("module graph result is missing: " <> show index)) Right (Map.lookup index checked)
 

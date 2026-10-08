@@ -34,6 +34,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve.Traverse (Walk (..), collectAnnotations, idWalk, walk)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
+import Aihc.Tc.Types (CheckedModule (..))
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.List qualified as List
@@ -48,11 +49,11 @@ import Data.Text (Text)
 -- located diagnostics is attached in one walk of the module, because a
 -- walk for each diagnostic makes a large module with many diagnostics
 -- quadratic.
-attachSccDiagnostics :: [TcDiagnostic] -> [Module] -> [Module]
+attachSccDiagnostics :: [TcDiagnostic] -> [CheckedModule] -> [CheckedModule]
 attachSccDiagnostics diagnostics modules =
   zipWith annotateInOrder [0 :: Int ..] modules
   where
-    moduleNames = map moduleSourceNames modules
+    moduleNames = map (moduleSourceNames . checkedModuleAst) modules
     routed = concatMap route diagnostics
     route diagnostic =
       case diagLoc diagnostic of
@@ -63,7 +64,7 @@ attachSccDiagnostics diagnostics modules =
                 [] -> [(0, internalAbortDiagnostic "SCC diagnostic source did not match a module")]
                 indices -> [(index, diagnostic) | index <- indices]
     annotateInOrder index m =
-      foldl (flip annotateModuleDiagnostics) m (diagnosticRuns [diagnostic | (target, diagnostic) <- routed, target == index])
+      m {checkedModuleAst = foldl (flip annotateModuleDiagnostics) (checkedModuleAst m) (diagnosticRuns [diagnostic | (target, diagnostic) <- routed, target == index])}
 
 -- | Split diagnostics into runs that 'annotateModuleDiagnostics' can attach
 -- together without a change of order. It attaches located diagnostics before
