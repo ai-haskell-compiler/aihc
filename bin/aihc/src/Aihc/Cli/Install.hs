@@ -3282,7 +3282,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
 moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
 moduleOutputPaths storePath target name =
   ModuleOutputPaths
-    { outputFcPath = directory </> "core.fc",
+    { outputFcPath = directory </> "core",
       outputGrinPath = directory </> "grin",
       outputCpsGrinPath = directory </> "cps.grin",
       outputGcGrinPath = directory </> "gc.grin",
