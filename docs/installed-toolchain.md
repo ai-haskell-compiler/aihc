@@ -193,17 +193,17 @@ reconfigures when one of them changes.
 
 `aihc build` and `aihc install` take `--keep-core`, `--keep-grin` and `--keep-native`, and `aihc build` also takes `--keep-lir`.
 Each keeps the output of one compiler phase beside the object of the module it belongs to, as a debugging aid.
-A `--lto` build also reads the `core` files back, because it merges them into one program.
+A `--lto` build also reads the `core.fc` files back, because it merges them into one program.
 
 | Flag | Files |
 | --- | --- |
-| `--keep-core` | `core`, the System FC of the module in the binary format (see below) |
-| `--keep-grin` | `grin`, `cps.grin` and `gc.grin` |
+| `--keep-core` | `core.fc`, the System FC of the module in the binary format (see below) |
+| `--keep-grin` | `plain.grin`, `cps.grin` and `gc.grin` |
 | `--keep-lir` | `<Module>.o.lir`, the Lir of the module |
 | `--keep-native` | the source the C driver of the target compiles: `<Module>.o.ll` for `llvm` and `<Module>.o.s` for `wasm32-wasip3` |
 
-A `core` file is in the binary System FC format of `Aihc.Fc.Binary`.
-To show a `core` file in the System FC text format, use `aihc-dev fc-print FILE`.
+A `core.fc` file is in the binary System FC format of `Aihc.Fc.Binary`.
+To show a `core.fc` file in the System FC text format, use `aihc-dev fc-print FILE`.
 
 `apple-arm64` and `linux-amd64` have no such source, because their backends write the object themselves.
 `--keep-native` keeps the Lir text there, which is the same file `--keep-lir` keeps.
@@ -262,7 +262,7 @@ The level is part of the identity of an installed package.
 `aihc build --lto` and `aihc install --lto` stop each module at System FC.
 `-O2` and `-Os` imply the flag.
 The flag selects the same build at `-O0` and `-O1`, which is the default.
-An install with the flag writes the System FC of each module to its `core` file.
+An install with the flag writes the System FC of each module to its `core.fc` file.
 It writes no GRIN, no Lir, and no object below it.
 The library archive then holds only the C objects of the package and the C wrappers of its `capi` imports.
 The manifest records the flag `lto`.
@@ -275,7 +275,7 @@ A type keeps its header where a type the program keeps mentions it, because the 
 A type family keeps every equation of the family, because an equation is found by the head of its left side and never by name.
 The program is pruned again after it is inlined, so that a constructor whose last use inlining removed emits no info table.
 It then lowers the program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
-`--keep-core` writes the merged program, as it stands after inlining and the second prune, to `lto/program/core`, beside the `core` file of each module it was merged from.
+`--keep-core` writes the merged program, as it stands after inlining and the second prune, to `lto/program/core.fc`, beside the `core.fc` file of each module it was merged from.
 The link takes this object, the entry object, and the C, Lir and module objects and archives of the packages.
 A `--no-link` bundle carries the program object in place of the module objects.
 

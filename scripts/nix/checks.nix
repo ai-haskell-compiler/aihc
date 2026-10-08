@@ -582,8 +582,8 @@
       # macOS SDK.
       ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target ${hostBackendTarget}
 
-      test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
-      test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
+      test -n "$(find "$store" -path '*/GHC/Prim/core.fc' -print -quit)"
+      test -n "$(find "$store" -path '*/GHC/Prim/plain.grin' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-rts.a' -print -quit)"
@@ -595,7 +595,7 @@
       # too, for the same host backend.
       ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target ${hostBackendTarget}
 
-      test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
+      test -n "$(find "$store" -path '*/Language/Haskell/TH/core.fc' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
       archive="$(find "$store" -path '*/lib/libaihc-template-haskell.a' -print -quit)"
       test -n "$archive"

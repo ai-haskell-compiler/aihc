@@ -33,7 +33,7 @@ It has no ambiguity.
 source
   -> aihc-resolve
   -> aihc-tc
-  -> Aihc.Fc.Desugar    -> store .../core (with --keep-core)
+  -> Aihc.Fc.Desugar    -> store .../core.fc (with --keep-core)
 ```
 
 GRIN lowering is temporarily disabled.
@@ -261,17 +261,17 @@ name, and type is in the file one time. To show the file in the text
 format, use `aihc-dev fc-print`:
 
 ```text
-{store}/{pkg}-{version}-{dephash}/{Module/Path}/core
+{store}/{pkg}-{version}-{dephash}/{Module/Path}/core.fc
 ```
 
-Example: `Demo/A/core`.
+Example: `Demo/A/core.fc`.
 
 If Fc desugar fails, the install fails.
 If Fc lint fails, the install fails.
-Keep the `core` file at its normal path when Fc lint fails.
-Do not write `core` without `core`.
-`install` does not read the `core` file that it writes.
-It can decode imported `core` files through the store loader.
+Keep the `core.fc` file at its normal path when Fc lint fails.
+Do not write `core.fc` without `core.fc`.
+`install` does not read the `core.fc` file that it writes.
+It can decode imported `core.fc` files through the store loader.
 
 ## PR plan
 

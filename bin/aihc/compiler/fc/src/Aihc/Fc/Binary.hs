@@ -2,10 +2,10 @@
 
 -- | The binary format of System FC programs.
 --
--- The compiler writes a System FC program to a @core@ file in this format,
--- and reads it back for a whole-program build. The text format of
--- "Aihc.Fc.Pretty" is for people: @aihc-dev fc-print@ shows a @core@ file
--- in it.
+-- The compiler writes a System FC program to a @core.fc@ file in this
+-- format, and reads it back for a whole-program build. The text format of
+-- "Aihc.Fc.Pretty" is for people: @aihc-dev fc-print@ shows a @core.fc@
+-- file in it.
 --
 -- A file holds a header and four sections, as a sequence of CBOR items:
 --
@@ -25,6 +25,7 @@ module Aihc.Fc.Binary
     decodeProgram,
     readProgramFile,
     writeProgramFile,
+    programFileName,
   )
 where
 
@@ -60,6 +61,15 @@ formatMagic = "aihc-system-fc"
 -- | The version of the format. Change it when the layout changes.
 formatVersion :: Int
 formatVersion = 3
+
+-- | The name of the System FC file in the directory of a module.
+--
+-- The file name has an extension. A module directory can also contain the
+-- directory of a submodule, for example @Core@ for @Options.Applicative.Core@.
+-- A name without an extension, such as @core@, then clashes with that
+-- directory on a file system that ignores case.
+programFileName :: FilePath
+programFileName = "core.fc"
 
 -- | Write a program to a file in the binary format.
 writeProgramFile :: FilePath -> Program -> IO ()

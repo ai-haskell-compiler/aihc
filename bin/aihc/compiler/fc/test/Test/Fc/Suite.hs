@@ -106,8 +106,8 @@ scopeLoaderTest fixtureDirectory = testCase "loadScopeClosure loads a scoped mod
   createDirectoryIfMissing True typesDir
   createDirectoryIfMissing True primDir
   seed <- loadFcProgram (fixtureDirectory </> "GHC.Types.fc")
-  writeProgramFile (typesDir </> "core") seed
-  writeProgramFile (primDir </> "core") =<< loadFcProgram (fixtureDirectory </> "GHC.Prim.fc")
+  writeProgramFile (typesDir </> "core.fc") seed
+  writeProgramFile (primDir </> "core.fc") =<< loadFcProgram (fixtureDirectory </> "GHC.Prim.fc")
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)
