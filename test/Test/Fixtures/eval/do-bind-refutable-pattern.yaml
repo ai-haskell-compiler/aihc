@@ -1,0 +1,75 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+
+    data Convention = Prim | Ccall deriving (Eq, Show)
+
+    data Pair = Pair Int Int
+
+    newtype Box a = Box a
+
+    instance Functor Box where
+      fmap f (Box a) = Box (f a)
+
+    instance Applicative Box where
+      pure = Box
+      Box f <*> Box a = Box (f a)
+
+    instance Monad Box where
+      Box a >>= f = f a
+
+    -- Box has no MonadFail instance, so these patterns must be
+    -- irrefutable: a tuple, a single-constructor type, and a newtype.
+    unbox :: Box Int
+    unbox = do
+      (x, y) <- Box (1, 2)
+      Pair a b <- Box (Pair 3 4)
+      Box c <- Box (Box 5)
+      pure (x + y + a + b + c)
+
+    twoItems :: [Int] -> Maybe Int
+    twoItems items = do
+      [x, y] <- Just items
+      Just (x + y)
+
+    onlyPrim :: Convention -> Maybe Int
+    onlyPrim convention = do
+      Prim <- Just convention
+      Just 1
+
+    nested :: Maybe (Maybe Int, Int) -> Maybe Int
+    nested value = do
+      (Just x, y) <- value
+      Just (x + y)
+
+    justs :: [Maybe Int] -> [Int]
+    justs values = do
+      Just x <- values
+      [x, x]
+
+    main :: IO ()
+    main = do
+      case unbox of Box n -> print n
+      print (twoItems [1, 2])
+      print (twoItems [1])
+      print (onlyPrim Prim)
+      print (onlyPrim Ccall)
+      print (nested (Just (Just 1, 2)))
+      print (nested (Just (Nothing, 2)))
+      print (justs [Just 1, Nothing, Just 3])
+stdout: |
+  15
+  Just 3
+  Nothing
+  Just 1
+  Nothing
+  Just 3
+  Nothing
+  [1,1,3,3]
+output: |
+  ()
+expression: main
+status: pass
+reason: A refutable pattern in a do bind calls fail when the match fails, and an irrefutable pattern needs no MonadFail instance

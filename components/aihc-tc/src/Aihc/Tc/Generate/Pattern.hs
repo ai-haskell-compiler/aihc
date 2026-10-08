@@ -12,6 +12,7 @@ module Aihc.Tc.Generate.Pattern
     checkFunctionPatterns,
     checkedPattern,
     patternBinderNames,
+    patternCanFail,
     recStmtBinderNames,
     withPatternBindings,
     withPatternScope,
@@ -45,7 +46,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderEntity)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, TcPatternInstantiation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))
+import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
@@ -1074,6 +1075,76 @@ withPatternBindings ((name, ty) : rest) action =
 withPatternScope :: PatternCheck -> TcM a -> TcM a
 withPatternScope patCheck action =
   withPatternTyVars (pcTyVars patCheck) (withPatternBindings (pcBindings patCheck) action)
+
+-- | Whether a pattern can fail to match. A variable, a wildcard, a lazy
+-- pattern, and a tuple of such patterns cannot fail. A constructor pattern
+-- cannot fail when its type has one constructor and its fields cannot
+-- fail. A pattern synonym, a list, a literal, and an unboxed sum can fail.
+-- A @do@ bind with a pattern that can fail calls @fail@ in its default
+-- alternative.
+patternCanFail :: Pattern -> TcM Bool
+patternCanFail pat =
+  case pat of
+    PAnn _ inner -> patternCanFail inner
+    PParen inner -> patternCanFail inner
+    PAs _ inner -> patternCanFail inner
+    PStrict inner -> patternCanFail inner
+    PTypeSig inner _ -> patternCanFail inner
+    PView _ inner -> patternCanFail inner
+    PVar {} -> pure False
+    PWildcard -> pure False
+    PIrrefutable {} -> pure False
+    PTypeBinder {} -> pure False
+    PTypeSyntax {} -> pure False
+    PTuple _ items -> anyCanFail items
+    PBuiltinCon (BuiltinTuple _ _) _ items -> anyCanFail items
+    PCon name _ subPats -> constructorCanFail name subPats
+    PInfix lhs op rhs -> constructorCanFail op [lhs, rhs]
+    PRecord name fields _ -> constructorCanFail name (map recordFieldValue fields)
+    _ -> pure True
+  where
+    anyCanFail [] = pure False
+    anyCanFail (item : items) = do
+      itemCanFail <- patternCanFail item
+      if itemCanFail then pure True else anyCanFail items
+
+    constructorCanFail conSyntax subPats = do
+      target <- resolvedTermTarget conSyntax
+      mBinder <- lookupResolvedTerm (patternNameText conSyntax) target
+      mPatSyn <- lookupPatSynTarget target
+      case mBinder of
+        Just (TcIdBinder (Scheme _ _ _ conTy) _)
+          | Nothing <- mPatSyn,
+            TcTyCon tyCon _ <- functionResultType conTy -> do
+              mDataType <- lookupDataType tyCon
+              case mDataType of
+                Just info -> siblingsCanFail (dtiConstructors info) subPats
+                Nothing -> do
+                  -- A data instance constructor belongs to its data family
+                  -- instance, whose constructors are its siblings.
+                  familyInstances <- getDataFamilyInstances
+                  let conName = patternNameText conSyntax
+                      siblings =
+                        [ dfiiConstructors familyInstance
+                        | familyInstance <- familyInstances,
+                          TcTyCon familyTyCon _ <- [dfiiFamilyType familyInstance],
+                          familyTyCon == tyCon,
+                          conName `elem` map dciName (dfiiConstructors familyInstance)
+                        ]
+                  case siblings of
+                    [constructors] -> siblingsCanFail constructors subPats
+                    _ -> pure True
+        _ -> pure True
+
+    siblingsCanFail constructors subPats =
+      case constructors of
+        [_] -> anyCanFail subPats
+        _ -> pure True
+
+    functionResultType ty =
+      case ty of
+        TcFunTy _ result -> functionResultType result
+        _ -> ty
 
 patternNameText :: Name -> Text
 patternNameText name =

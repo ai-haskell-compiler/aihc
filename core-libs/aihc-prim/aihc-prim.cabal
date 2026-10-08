@@ -21,6 +21,7 @@ library
     GHC.Prim.Ext
     GHC.Prim.IO
     GHC.Prim.Integer
+    GHC.Prim.MonadFail
     GHC.Prim.MonadFix
     GHC.Prim.Natural
     GHC.Prim.Num

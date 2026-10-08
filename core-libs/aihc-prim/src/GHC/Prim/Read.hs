@@ -67,6 +67,7 @@ where
 import GHC.Prim (chr#, ord#, (+#), (<#), (==#))
 import GHC.Prim.Base (Applicative (..), Functor (..), Maybe (..), Monad (..), String)
 import GHC.Prim.Integer (Integer (..), eqInteger#)
+import GHC.Prim.MonadFail (MonadFail (..))
 import GHC.Prim.Num (Num (..))
 import GHC.Types (Bool (..), Char (..), Int (..))
 
@@ -108,6 +109,9 @@ instance Monad ReadPrec where
       )
 
   return = pure
+
+instance MonadFail ReadPrec where
+  fail _ = pfail
 
 mapReadResults :: (a -> b) -> [(a, String)] -> [(b, String)]
 mapReadResults _ [] = []

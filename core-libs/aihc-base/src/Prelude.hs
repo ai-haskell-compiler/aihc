@@ -185,6 +185,7 @@ import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#), (>#))
+import GHC.Prim.MonadFail (MonadFail (..))
 import GHC.Prim.MonadFix (MonadFix (..))
 import GHC.Prim.Read (ReadS, minPrec)
 import GHC.Real
@@ -1120,10 +1121,6 @@ instance Monad List where
 
   xs >> ys = thenList xs ys
   return x = [x]
-
--- | The monads that can report a failed pattern match in @do@ notation.
-class (Monad m) => MonadFail m where
-  fail :: String -> m a
 
 instance MonadFail IO where
   fail = error
