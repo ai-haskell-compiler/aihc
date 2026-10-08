@@ -45,7 +45,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.String (fromString)
 import Data.Word (Word64)
-import Hedgehog (Gen, Property, annotate, classify, cover, evalIO, failure, forAllWith, property)
+import Hedgehog (Gen, Property, annotate, classify, cover, evalIO, failure, forAllWith, property, withTests)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric (readHex, showHex)
@@ -144,8 +144,11 @@ checkScript getDriver script = do
   assertBool ("driver output:\n" <> unlines output <> unlines problems) (null problems)
   assertBool "the script reports a collection" (not (Map.null reports))
 
+-- The coverage targets below need enough scripts: a hundred scripts
+-- miss a target that one script in fifty reaches, and the property then
+-- fails without a defect.
 prop_collect :: IO Driver -> Property
-prop_collect getDriver = property $ do
+prop_collect getDriver = withTests 500 . property $ do
   script <- forAllWith renderScript genScript
   driver <- evalIO getDriver
   result <- evalIO (runScript driver (renderScript script))
