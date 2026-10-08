@@ -57,9 +57,7 @@ expected: |-
   pub val 1.vnext :: tStrict 3.→ tBox
     = λ(x : tStrict).
       let! cStrict (x{1} : tCount) = x;
-      let! cCount (a : tInt#) = x{1};
-      let argument : tInt# =
-        prim +# a lit (1#cIntRep) :: tInt#;
-      cBox (cCount argument)
+      cBox (let! cCount (a : tInt#) = x{1};
+      cCount (prim +# a lit (1#cIntRep) :: tInt#))
 status: pass
-reason: The only constructor of a type that the module declares is known from its declaration, so the case on the evaluated field binder moves out of the lazy constructor argument.
+reason: The case on the evaluated field binder stays inside the lazy constructor argument. A case around a constructor application is not a value, and a binding of the application can already count as evaluated.

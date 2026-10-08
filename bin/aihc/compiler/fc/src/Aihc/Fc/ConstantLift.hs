@@ -35,7 +35,10 @@ liftConstants program =
   case primPackageFromScopes (programScopes program) of
     Nothing -> (program, 0, 0)
     Just package ->
-      let env = typeEnvFromProgram package program
+      let types = typeEnvFromProgram package program
+          -- The top-level values that are in weak-head normal form by
+          -- their syntax: a strict field of a constant can hold one.
+          env = types {teEvaluated = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, isStaticValue types (valBody declaration)]}
           initial = LiftState 0 (Map.keysSet (teHeaders env)) Map.empty [] 0
           (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
        in ( program {programDecls = decls <> reverse (liftDecls final)},
@@ -91,12 +94,19 @@ walkChildren env owner expression =
 -- | Accept saturated, lifted constructors with no local references.
 -- Nullary constructors already have static objects. Partial constructors,
 -- unboxed results, and arbitrary calls are not candidates.
+--
+-- A strict field of the constructor gets a value that is in weak-head
+-- normal form by its syntax. The construction in the program evaluated
+-- the field first, and a constant has no code that evaluates it: a
+-- top-level thunk in a strict field would stay a thunk.
 constantType :: TypeEnv -> Expr -> Maybe Type
 constantType env expression = do
   let (headExpr, arguments) = collectSpine expression
   ExVar constructor <- pure headExpr
   guard (isConstructorName constructor && any isValueArgument arguments)
   guard (all isTop (exprReferences expression))
+  let strict = Map.findWithDefault [] constructor (teConStrictFields env)
+  guard (and [isStaticValue env argument | (position, Right argument) <- zip [0 :: Int ..] [argument | argument@(Right _) <- arguments], position `elem` strict])
   header <- lookupHeaderType env constructor
   ty <- foldM applyArgument header arguments
   guard (isNothing (viewForAll env ty) && isNothing (viewFun env ty))
@@ -116,6 +126,25 @@ constantType env expression = do
     isTop name = case nameOrigin name of
       OriginTop {} -> True
       OriginLocal {} -> False
+
+-- | Whether an expression is in weak-head normal form by its syntax: a
+-- literal, a function, a constructor application, or a top-level name
+-- whose declaration is one of these.
+isStaticValue :: TypeEnv -> Expr -> Bool
+isStaticValue env expression =
+  case expression of
+    ExLit {} -> True
+    ExCoercion {} -> True
+    ExLam {} -> True
+    ExTyLam _ body -> isStaticValue env body
+    ExTyApp body _ -> isStaticValue env body
+    ExCast body _ -> isStaticValue env body
+    ExVar name -> isConstructorName name || Set.member name (teEvaluated env)
+    ExApp {} ->
+      case collectSpine expression of
+        (ExVar name, _) -> isConstructorName name
+        _ -> False
+    _ -> False
 
 freshConstant :: Name -> State LiftState Name
 freshConstant owner = do
