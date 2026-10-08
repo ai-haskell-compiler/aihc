@@ -393,7 +393,7 @@ simplifyExpr env expr =
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
     ExLam binder body -> do
-      body' <- simplifyExpr (markUnlifted [binder] (passLambda env)) body
+      body' <- simplifyExpr (markUnlifted [binder] (passLambda (shadowNames [binderName binder] env))) body
       ExLam binder <$> readFieldsInside env body'
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
     ExLet bind body -> do
@@ -425,7 +425,7 @@ simplifyExpr env expr =
           floatChain env chain continue
         else continue env rhs
     ExRec binds body -> do
-      let inner = env {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
+      let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
       binds' <- mapM (\bind -> (\rhs -> bind {bindRhs = rhs}) <$> simplifyExpr (rhsEnv inner (binderName (bindBinder bind))) (bindRhs bind)) binds
       simplifyExpr inner body >>= sinkGroup binds' ExRec
     ExCase scrutinee binder alternatives
@@ -1006,7 +1006,7 @@ inlineCandidate env name candidate args = do
 -- application is recorded for the case of a known constructor, and a
 -- strict pure primitive call for the reuse of its binder.
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
-bindingEnv env binder rhs
+bindingEnv env0 binder rhs
   | isKnownConstructor (spArity env) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
   | isStrictBinder (spEnv env) binder,
     isPurePrimitiveCall (spEnv env) rhs || isStateToken rhs,
@@ -1014,9 +1014,31 @@ bindingEnv env binder rhs
       evaluatedEnv {spCse = Map.insert rhs (binderName binder) (spCse env)}
   | otherwise = evaluatedEnv
   where
+    env = shadowNames [binderName binder] env0
     evaluatedEnv
       | isValue env rhs = markEvaluated [binderName binder] (extendTypeBinder env binder)
       | otherwise = markUnlifted [binder] env
+
+-- | Forget what the environment knows about names that a binder binds
+-- again. A tidied program gives sibling scopes the same names, and a
+-- transformation that nests one scope in another then shadows a name.
+-- The facts about the outer name must not reach the inner binder: an
+-- evaluated outer variable does not make the inner one evaluated, and a
+-- known value or a shared primitive call of the outer name is not the
+-- inner one.
+shadowNames :: [Name] -> Simpl -> Simpl
+shadowNames names env
+  | null names = env
+  | otherwise =
+      env
+        { spEvaluated = List.foldl' (flip Set.delete) (spEvaluated env) names,
+          spLocals = List.foldl' (flip Map.delete) (spLocals env) names,
+          spDone = List.foldl' (flip Map.delete) (spDone env) names,
+          spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
+          spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names
+        }
+  where
+    shadowed = Set.fromList names
 
 -- | Record that the binders of an unlifted type hold values: such a value
 -- is never a thunk. A case with one default alternative on such a binder
@@ -1076,7 +1098,7 @@ simplifyAlt env scrutinee binder alternatives alternative = do
 -- under casts is the same application under the symmetric casts, so a
 -- later case on that variable, cast the same way, selects its fields.
 alternativeEnv :: Simpl -> Expr -> Maybe Binder -> [Alt] -> Alt -> Simpl
-alternativeEnv env scrutinee binder alternatives alternative =
+alternativeEnv env0 scrutinee binder alternatives alternative =
   markUnlifted (altBinders alternative) . markEvaluated (map binderName (foldr (:) [] binder) <> maybe [] pure scrutineeName <> strictBinders) $ case known of
     Just application ->
       typeEnv
@@ -1087,6 +1109,7 @@ alternativeEnv env scrutinee binder alternatives alternative =
         }
     Nothing -> typeEnv
   where
+    env = shadowNames (map binderName (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative)) env0
     typeEnv = (List.foldl' extendTypeBinder env (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative)) {spExcluded = exclusions}
     exclusions
       | AltDefault <- altCon alternative,
@@ -1305,9 +1328,15 @@ bindApplication env headExpr args = do
 -- 'bindLazyPrimitives' then binds by a strict let.
 --
 -- The case moves into a larger scope, so its binders are fresh.
+--
+-- The head is not a constructor: a constructor application is a value,
+-- and a case around it is not. A binding of the application may already
+-- count as evaluated, and a strict field may take it as it is, so the
+-- case stays inside the lazy field there.
 speculateArguments :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
 speculateArguments env headExpr args
-  | ExVar {} <- headExpr,
+  | ExVar name <- headExpr,
+    not (isConstructorName name),
     any (either (const False) speculable) args = do
       (wrappers, args') <- mapAndUnzipM speculate args
       inner <- bindApplication env headExpr args'
@@ -2936,26 +2965,36 @@ exprValueNames = go
 
 -- | Replace names by expressions. The binders of the target are distinct
 -- from every free name of a replacement, so no occurrence is captured.
+-- | Replace the free occurrences of names. A binder that binds one of the
+-- names again hides it: the occurrences under that binder are its own.
+-- The replacements are closed over the names they mention, as the caller
+-- gives them, so no binder of the expression captures a replacement.
 substExpr :: Map Name Expr -> Expr -> Expr
-substExpr subst = go
+substExpr = go
   where
-    go expr =
-      case expr of
-        ExVar name -> Map.findWithDefault expr name subst
-        ExLit {} -> expr
-        ExApp function argument -> ExApp (go function) (go argument)
-        ExTyApp function ty -> ExTyApp (go function) ty
-        ExLam binder body -> ExLam binder (go body)
-        ExTyLam binder body -> ExTyLam binder (go body)
-        ExLet bind body -> ExLet bind {bindRhs = go (bindRhs bind)} (go body)
-        ExRec binds body -> ExRec [bind {bindRhs = go (bindRhs bind)} | bind <- binds] (go body)
-        ExCase scrutinee binder alternatives ->
-          ExCase (go scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (altRhs alternative)}) alternatives)
-        ExAbsurd scrutinee resultType -> ExAbsurd (go scrutinee) resultType
-        ExCast body coercion -> ExCast (go body) (substCoercion coercion)
-        ExCoercion coercion -> ExCoercion (substCoercion coercion)
-        ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
-    substCoercion coercion =
+    go subst expr
+      | Map.null subst = expr
+      | otherwise =
+          case expr of
+            ExVar name -> Map.findWithDefault expr name subst
+            ExLit {} -> expr
+            ExApp function argument -> ExApp (go subst function) (go subst argument)
+            ExTyApp function ty -> ExTyApp (go subst function) ty
+            ExLam binder body -> ExLam binder (go (hide [binder] subst) body)
+            ExTyLam binder body -> ExTyLam binder (go (hide [binder] subst) body)
+            ExLet bind body -> ExLet bind {bindRhs = go subst (bindRhs bind)} (go (hide [bindBinder bind] subst) body)
+            ExRec binds body ->
+              let inner = hide (map bindBinder binds) subst
+               in ExRec [bind {bindRhs = go inner (bindRhs bind)} | bind <- binds] (go inner body)
+            ExCase scrutinee binder alternatives ->
+              let caseSubst = hide (foldr (:) [] binder) subst
+               in ExCase (go subst scrutinee) binder (fmap (\alternative -> alternative {altRhs = go (hide (altTypeBinders alternative <> altBinders alternative) caseSubst) (altRhs alternative)}) alternatives)
+            ExAbsurd scrutinee resultType -> ExAbsurd (go subst scrutinee) resultType
+            ExCast body coercion -> ExCast (go subst body) (substCoercion subst coercion)
+            ExCoercion coercion -> ExCoercion (substCoercion subst coercion)
+            ExForeignCall call types arguments -> ExForeignCall call types (map (go subst) arguments)
+    hide binders subst = List.foldl' (flip (Map.delete . binderName)) subst binders
+    substCoercion subst coercion =
       case coercion of
         CoVar name ->
           case Map.lookup name subst of
@@ -2963,13 +3002,13 @@ substExpr subst = go
             Just (ExVar replacement) -> CoVar replacement
             _ -> coercion
         CoRefl {} -> coercion
-        CoSym inner -> CoSym (substCoercion inner)
-        CoTrans left right -> CoTrans (substCoercion left) (substCoercion right)
-        CoApp left right -> CoApp (substCoercion left) (substCoercion right)
-        CoFun left right -> CoFun (substCoercion left) (substCoercion right)
-        CoForAll binder body -> CoForAll binder (substCoercion body)
-        CoNth index inner -> CoNth index (substCoercion inner)
-        CoTyConApp name inners -> CoTyConApp name (map substCoercion inners)
+        CoSym inner -> CoSym (substCoercion subst inner)
+        CoTrans left right -> CoTrans (substCoercion subst left) (substCoercion subst right)
+        CoApp left right -> CoApp (substCoercion subst left) (substCoercion subst right)
+        CoFun left right -> CoFun (substCoercion subst left) (substCoercion subst right)
+        CoForAll binder body -> CoForAll binder (substCoercion (hide [binder] subst) body)
+        CoNth index inner -> CoNth index (substCoercion subst inner)
+        CoTyConApp name inners -> CoTyConApp name (map (substCoercion subst) inners)
         CoAxiom {} -> coercion
 
 -- | Replace type variables in every type of an expression.

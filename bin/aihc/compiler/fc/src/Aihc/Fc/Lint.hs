@@ -45,7 +45,8 @@ data LintError
   | -- | A strict field of the named constructor, at the zero-based
     -- position, gets a lifted value that is not known to be in weak-head
     -- normal form. Each construction must evaluate a strict field first.
-    UnevaluatedStrictField !Name !Int
+    -- The string names the declaration that holds the construction.
+    UnevaluatedStrictField !String !Name !Int
   | UnusedImport !Name
   | LintFailure !String
   deriving (Eq, Show)
@@ -128,7 +129,7 @@ checkStrictField env function expected argument =
         position `elem` strict,
         isLiftedType env expected,
         not (isValueExpr env argument) ->
-          Left (UnevaluatedStrictField name position)
+          Left (UnevaluatedStrictField (take 600 (show argument)) name position)
     _ -> Right ()
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
@@ -219,6 +220,7 @@ addDeclarationContext name lintError =
         TypeMismatch context expected actual -> TypeMismatch (contextPrefix context) expected actual
         KindMismatch context expected actual -> KindMismatch (contextPrefix context) expected actual
         LintFailure message -> LintFailure (contextPrefix message)
+        UnevaluatedStrictField context con position -> UnevaluatedStrictField (contextPrefix context) con position
         other -> other
 
 lintTypeDecl :: TypeEnv -> TypeDecl -> [LintError]

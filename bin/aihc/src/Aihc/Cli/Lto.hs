@@ -7,6 +7,9 @@
 module Aihc.Cli.Lto
   ( compileLtoProgram,
     moduleCorePath,
+    demoteToEntry,
+    entryName,
+    readPrograms,
   )
 where
 

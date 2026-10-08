@@ -1,5 +1,7 @@
 module Main (main) where
 
+import Aihc.Cli.Lto (demoteToEntry, entryName, readPrograms)
+import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Dev.Explore (ExploreOptions (..), runExplore)
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibApiDivergences, runCoreLibProgressReports)
@@ -10,10 +12,11 @@ import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
 import Aihc.Dev.PipelineExamples (PipelineExamplesOptions (..), runPipelineExamples)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget, OptimizationLevel (..), hostNativeTarget, parseNativeTarget, parseOptimizationLevel)
-import Control.Monad (unless, when)
+import Control.Monad (foldM_, unless, when)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
+import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Yaml
 import Options.Applicative
@@ -44,6 +47,7 @@ data Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
   | FcPrint FilePath
+  | FcPasses [FilePath] OptimizationLevel [String]
   | Explore FilePath OptimizationLevel (Maybe NativeTarget)
 
 data ExtractHiOpts = ExtractHiOpts
@@ -120,12 +124,27 @@ commandParser =
               (progDesc "Print a binary System FC file in the System FC text format")
           )
         <> command
+          "fc-passes"
+          ( info
+              (fcPassesParser <**> helper)
+              (progDesc "Run the System FC passes of a level on a core file, lint after each pass, and print the declarations that fail the lint")
+          )
+        <> command
           "explore"
           ( info
               (exploreParser <**> helper)
               (progDesc "Build a program at each optimization level and show its Haskell source next to its System FC and GRIN in a terminal explorer")
           )
     )
+
+fcPassesParser :: Parser Command
+fcPassesParser =
+  FcPasses
+    <$> some (strArgument (metavar "FILE" <> help "Core files of a build root. Several files merge into one whole program, as the --lto link merges them"))
+    <*> option
+      (eitherReader parseOptimizationLevel)
+      (short 'O' <> metavar "LEVEL" <> value O2 <> help "The optimization level whose passes run: 0, 1, 2 or s (default: 2)")
+    <*> many (strOption (long "show" <> metavar "NAME" <> help "Print the declaration NAME before the passes and after each pass"))
 
 exploreParser :: Parser Command
 exploreParser =
@@ -271,6 +290,45 @@ runCommand (Explore input level target) = do
       TIO.hPutStrLn stderr "This host is not a supported target; pass --target"
       exitFailure
   runExplore ExploreOptions {exploreInput = input, exploreLevel = level, exploreTarget = resolved}
+runCommand (FcPasses paths level shown) = do
+  (program, roots) <- case paths of
+    [path] -> do
+      loaded <- Fc.readProgramFile path
+      case loaded of
+        Left message -> TIO.hPutStrLn stderr message >> exitFailure
+        Right program -> pure (program, Nothing)
+    _ -> do
+      programs <- readPrograms paths
+      let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))
+      TIO.hPutStrLn stderr ("merged " <> T.pack (show (length programs)) <> " modules, " <> T.pack (show (length (Fc.programDecls merged))) <> " reachable declarations")
+      pure (merged, Just [entryName])
+  let passes = planPasses (optimizationPlan True level)
+      showDecls label next =
+        mapM_
+          (\(name, text) -> when (maybe False ((`elem` map T.pack shown) . Fc.nameText) name) (TIO.putStrLn ("-- " <> label) >> TIO.putStrLn text))
+          (Fc.renderProgramSections next)
+      check label next = do
+        showDecls label next
+        -- An unused import is not a defect of the program: the merge keeps
+        -- the imports of every module.
+        let errors = [lintError | lintError <- Fc.lintProgram next, not (isUnusedImport lintError)]
+            isUnusedImport lintError = case lintError of
+              Fc.UnusedImport {} -> True
+              _ -> False
+        unless (null errors) $ do
+          TIO.hPutStrLn stderr ("lint failed " <> label <> ":")
+          mapM_ (TIO.hPutStrLn stderr . ("  " <>) . T.pack . show) errors
+          let failing = [T.pack (takeWhile (/= ':') context) | Fc.UnevaluatedStrictField context _ _ <- errors]
+          mapM_
+            (\(name, text) -> when (maybe False ((`elem` failing) . Fc.nameText) name) (TIO.putStrLn text))
+            (Fc.renderProgramSections next)
+      step current pass = do
+        let (next, report) = Fc.runPass roots pass current
+        TIO.hPutStrLn stderr (Fc.reportPass report <> ": size " <> T.pack (show (Fc.reportBefore report)) <> " -> " <> T.pack (show (Fc.reportAfter report)))
+        check ("after " <> Fc.reportPass report) next
+        pure next
+  check "before the passes" program
+  foldM_ step program passes
 runCommand (FcPrint path) = do
   loaded <- Fc.readProgramFile path
   case loaded of

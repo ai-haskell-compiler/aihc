@@ -54,9 +54,7 @@ expected: |-
   pub val 1.vnext :: tStrict 3.→ tBox
     = λ(x : tStrict).
       let! cStrict (x{1} : tInt) = x;
-      let! cI# (a : tInt#) = x{1};
-      let argument : tInt# =
-        prim +# a lit (1#cIntRep) :: tInt#;
-      cBox (cI# argument)
+      cBox (let! cI# (a : tInt#) = x{1};
+      cI# (prim +# a lit (1#cIntRep) :: tInt#))
 status: pass
-reason: The strict field binder is evaluated and I# is the only constructor of Int, so the case cannot fail and needs no evaluation. It moves out of the lazy constructor argument, and the constructor gets a value instead of a thunk.
+reason: The strict field binder is evaluated and I# is the only constructor of Int, but the case stays inside the lazy constructor argument. A case around a constructor application is not a value, and a binding of the application can already count as evaluated.
