@@ -44,11 +44,11 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tStrict :: sType {
-    strict [0] 1.cStrict :: tInt 3.→ tStrict
+    pub strict [0] 1.cStrict :: tInt 3.→ tStrict
   }
 
   type 1.tBox :: sType {
-    1.cBox :: tInt 3.→ tBox
+    pub 1.cBox :: tInt 3.→ tBox
   }
 
   pub val 1.vnext :: tStrict 3.→ tBox

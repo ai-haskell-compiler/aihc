@@ -53,7 +53,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tPair :: sType {
-    1.cPair :: tInt 3.→ tInt 3.→ tPair
+    pub 1.cPair :: tInt 3.→ tInt 3.→ tPair
   }
 
   pub val 1.varound inline :: tInt 3.→ tPair

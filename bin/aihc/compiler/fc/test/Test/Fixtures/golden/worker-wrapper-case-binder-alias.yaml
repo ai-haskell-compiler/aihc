@@ -56,7 +56,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tCursor :: sType {
-    1.cCursor :: FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ tCursor)
+    pub 1.cCursor :: FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ tCursor)
   }
 
   pub val 1.vfill :: (tInt 3.→ tInt) 3.→ tCursor 3.→ t[] tInt 3.→ tInt

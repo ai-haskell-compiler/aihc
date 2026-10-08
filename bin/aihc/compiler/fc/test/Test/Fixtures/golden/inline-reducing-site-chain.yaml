@@ -47,7 +47,7 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tState :: sType {
-    1.cState :: tBool 2.→ tBool 2.→ tBool 2.→ tState
+    pub 1.cState :: tBool 2.→ tBool 2.→ tBool 2.→ tState
   }
 
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tState

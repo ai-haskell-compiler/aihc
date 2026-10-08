@@ -52,7 +52,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tP :: sType {
-    1.cP :: FUN @cAddrRep @sLiftedRep tAddr# tP
+    pub 1.cP :: FUN @cAddrRep @sLiftedRep tAddr# tP
   }
 
   pub val 1.vbox :: (tInt 3.→ tInt) 3.→ FUN @cAddrRep @sLiftedRep tAddr# tInt

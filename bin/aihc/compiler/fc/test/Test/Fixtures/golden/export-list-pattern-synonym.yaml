@@ -29,7 +29,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tWrapped :: sType {
-    1.cWrapped :: tWrapped 3.→ tWrapped
+    pub 1.cWrapped :: tWrapped 3.→ tWrapped
   }
 
   val 1.vunwrap :: tWrapped 3.→ tWrapped

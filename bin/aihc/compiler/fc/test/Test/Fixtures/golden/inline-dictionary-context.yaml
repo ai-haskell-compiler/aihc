@@ -49,7 +49,7 @@ expected: |-
   }
 
   type 1.tPair (a : sType) :: sType {
-    1.cPair :: ∀(a : sType). a 2.→ a 2.→ tPair a
+    pub 1.cPair :: ∀(a : sType). a 2.→ a 2.→ tPair a
   }
 
   pub val 1.v$fMyEqBool :: t$Dict$MyEq tBool
