@@ -1,0 +1,29 @@
+modules:
+  - |
+    module Test where
+
+    import Data.List (find, maximumBy, minimumBy)
+    import Data.List.NonEmpty (NonEmpty (..))
+    import Data.Ord (comparing)
+    import Prelude
+
+    -- GHC gives these Data.List functions Foldable types, so they accept
+    -- a NonEmpty or a Maybe as well as a list.
+    main :: IO ()
+    main = do
+      print (find even (3 :| [4, 5 :: Int]))
+      print (find even (Just (7 :: Int)))
+      print (find even [1, 2, 3 :: Int])
+      print (maximumBy (comparing abs) ((-9) :| [2, 5 :: Int]))
+      print (minimumBy (comparing abs) ((-9) :| [2, 5 :: Int]))
+stdout: |
+  Just 4
+  Nothing
+  Just 2
+  -9
+  2
+output: |
+  ()
+expression: main
+status: pass
+reason: The Data.List functions find, maximumBy, and minimumBy accept a Foldable container, as in GHC
