@@ -41,7 +41,9 @@ data LintError
     -- carries no such rule; a function whose every exit is a tail call
     -- never places its result.
     RepresentationPolymorphicBinder !Name !Name
-  | ShadowedBinder !Name
+  | -- | A binder that binds a name again. The string names the
+    -- declaration that holds the binder.
+    ShadowedBinder !String !Name
   | -- | A strict field of the named constructor, at the zero-based
     -- position, gets a lifted value that is not known to be in weak-head
     -- normal form. Each construction must evaluate a strict field first.
@@ -221,6 +223,7 @@ addDeclarationContext name lintError =
         KindMismatch context expected actual -> KindMismatch (contextPrefix context) expected actual
         LintFailure message -> LintFailure (contextPrefix message)
         UnevaluatedStrictField context con position -> UnevaluatedStrictField (contextPrefix context) con position
+        ShadowedBinder context name' -> ShadowedBinder (contextPrefix context) name'
         other -> other
 
 lintTypeDecl :: TypeEnv -> TypeDecl -> [LintError]
@@ -265,7 +268,7 @@ bindLocal env binder = do
   case repOf env (binderType binder) of
     Just (TyVar representation) -> Left (RepresentationPolymorphicBinder name representation)
     _ -> pure ()
-  when (Map.member name (teBinders env) || Map.member name (teHeaders env)) (Left (ShadowedBinder name))
+  when (Map.member name (teBinders env) || Map.member name (teHeaders env)) (Left (ShadowedBinder "" name))
   pure (extendBinder env binder)
 
 lintType :: TypeEnv -> Type -> Either LintError Type

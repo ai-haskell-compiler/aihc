@@ -12,6 +12,7 @@ import Aihc.Fc.TypeOf (TypeEnv (..), lookupHeaderType, substType, typeEnvFromPro
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Control.Monad (foldM, guard)
 import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
+import Data.Either (rights)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
@@ -105,8 +106,7 @@ constantType env expression = do
   ExVar constructor <- pure headExpr
   guard (isConstructorName constructor && any isValueArgument arguments)
   guard (all isTop (exprReferences expression))
-  let strict = Map.findWithDefault [] constructor (teConStrictFields env)
-  guard (and [isStaticValue env argument | (position, Right argument) <- zip [0 :: Int ..] [argument | argument@(Right _) <- arguments], position `elem` strict])
+  guard (strictFieldsStatic env expression)
   header <- lookupHeaderType env constructor
   ty <- foldM applyArgument header arguments
   guard (isNothing (viewForAll env ty) && isNothing (viewFun env ty))
@@ -126,6 +126,20 @@ constantType env expression = do
     isTop name = case nameOrigin name of
       OriginTop {} -> True
       OriginLocal {} -> False
+
+-- | Whether every strict field of a constructor application, and of
+-- each constructor application nested in its arguments, gets a value
+-- that is in weak-head normal form by its syntax.
+strictFieldsStatic :: TypeEnv -> Expr -> Bool
+strictFieldsStatic env expression =
+  case collectSpine expression of
+    (ExVar constructor, arguments)
+      | isConstructorName constructor ->
+          let strict = Map.findWithDefault [] constructor (teConStrictFields env)
+              values = rights arguments
+           in and [isStaticValue env argument | (position, argument) <- zip [0 :: Int ..] values, position `elem` strict]
+                && all (strictFieldsStatic env) values
+    _ -> True
 
 -- | Whether an expression is in weak-head normal form by its syntax: a
 -- literal, a function, a constructor application, or a top-level name
