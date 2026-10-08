@@ -15,7 +15,7 @@ whole-program compilation is still found.
 
 Order matters. Packages are installed from top to bottom into one store, and a
 package may only depend on packages above it: the installs share a workspace, so
-a dependency is taken from the pinned source next to it rather than resolved
+a dependency is taken from the pinned workspace source rather than resolved
 against Hackage. Versions are exact for the same reason — a floating version
 would make the run depend on whatever Hackage prefers that day, and a failure
 would no longer point at a change in aihc.
@@ -33,6 +33,7 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | ------- | ------- |
 | deepseq | 1.5.2.0 |
 | array | 0.5.8.0 |
+| containers | 0.7 |
 | containers | 0.8 |
 | data-default | 0.8.0.2 |
 | bytestring | 0.12.2.0 |
@@ -67,6 +68,47 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | megaparsec | 9.8.2 |
 | StateVar | 1.2.2 |
 | contravariant | 1.5.6 |
+| aihc-cabal-syntax | 2.0.0.0 |
+| aihc-parser | 5.0.0.0 |
+| assoc | 1.1.1 |
+| base-orphans | 0.9.4 |
+| character-ps | 0.1 |
+| colour | 2.3.7 |
+| ansi-terminal-types | 1.1.3 |
+| ansi-terminal | 1.1.5 |
+| cryptohash-sha256 | 0.11.102.1 |
+| data-fix | 0.3.4 |
+| distributive | 0.6.3 |
+| indexed-traversable | 0.1.4 |
+| comonad | 5.0.10 |
+| bifunctors | 5.6.3 |
+| integer-conversion | 0.1.1 |
+| prettyprinter-ansi-terminal | 1.1.3 |
+| random | 1.2.1.3 |
+| QuickCheck | 2.15.0.1 |
+| text-short | 0.1.6.1 |
+| th-compat | 0.1.7 |
+| network-uri | 2.6.4.2 |
+| these | 1.2.1 |
+| strict | 0.5.1 |
+| time | 1.14 |
+| time-compat | 1.9.9 |
+| text-iso8601 | 0.1.1.1 |
+| transformers-compat | 0.7.2 |
+| unix | 2.8.8.0 |
+| directory | 1.3.10.1 |
+| process | 1.6.26.1 |
+| optparse-applicative | 0.18.1.0 |
+| unordered-containers | 0.2.20.1 |
+| async | 2.2.6 |
+| semigroupoids | 6.0.2 |
+| uuid-types | 1.0.6.1 |
+| vector-stream | 0.1.0.1 |
+| vector | 0.13.2.0 |
+| indexed-traversable-instances | 0.1.2.1 |
+| semialign | 1.3.1.1 |
+| witherable | 0.5 |
+| aeson | 2.2.4.1 |
 
 ## Running it locally
 

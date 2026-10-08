@@ -107,8 +107,9 @@ work_directory="$(mktemp -d)"
 trap 'rm -rf "$work_directory"' EXIT
 
 workspace="$work_directory/workspace"
+sources="$work_directory/sources"
 logs="$work_directory/logs"
-mkdir -p "$workspace" "$logs"
+mkdir -p "$workspace" "$sources" "$logs"
 
 if [ -z "$store" ]; then
 	store="$work_directory/store"
@@ -117,34 +118,35 @@ mkdir -p "$store"
 
 failed=""
 
-# Unpack each release next to the others. `aihc install` prefers the siblings of
-# the package it installs over Hackage, so every dependency is the pinned
-# version of this list rather than whatever Hackage prefers today.
+# Keep each release separate. Use the first release for dependency resolution.
 while read -r name version; do
+	package="$name-$version"
 	echo "Fetching $name-$version"
 	archive="$work_directory/$name-$version.tar.gz"
 	if ! curl --fail --silent --show-error --location \
 		--output "$archive" \
 		"https://hackage.haskell.org/package/$name-$version/$name-$version.tar.gz" \
-		2>"$logs/$name.log"; then
+		2>"$logs/$package.log"; then
 		# A version that is not on Hackage is a failure of the list, and is
 		# reported like a failed install rather than stopping the run.
 		failed="$failed $name-$version"
 		echo "  failed to download:"
-		sed 's/^/  /' "$logs/$name.log"
+		sed 's/^/  /' "$logs/$package.log"
 		continue
 	fi
-	tar -xzf "$archive" -C "$work_directory"
+	tar -xzf "$archive" -C "$sources"
 	rm -f "$archive"
-	mv "$work_directory/$name-$version" "$workspace/$name"
+	if [ ! -e "$workspace/$name" ]; then
+		ln -s "$sources/$package" "$workspace/$name"
+	fi
 	# A Hackage revision relaxes the bounds of a release after the fact, and
 	# the tarball carries the original cabal file. Take the latest revision,
 	# as cabal-install does when it unpacks, so the dependency solver sees
 	# the bounds Hackage publishes today.
 	if ! curl --fail --silent --show-error --location \
-		--output "$workspace/$name/$name.cabal" \
+		--output "$sources/$package/$name.cabal" \
 		"https://hackage.haskell.org/package/$name-$version/$name.cabal" \
-		2>>"$logs/$name.log"; then
+		2>>"$logs/$package.log"; then
 		echo "  could not fetch the revised cabal file, keeping the one of the tarball"
 	fi
 done <<<"$packages"
@@ -157,6 +159,7 @@ echo "Preparing the $target toolchain at -O$level in $store"
 	--store "$store" --immutable --lint --target "$target" -O "$level"
 
 while read -r name version; do
+	package="$name-$version"
 	case " $failed " in
 	*" $name-$version "*)
 		echo "Skipping $name-$version, which did not download."
@@ -164,8 +167,8 @@ while read -r name version; do
 		;;
 	esac
 	echo "Installing $name-$version"
-	log="$logs/$name.log"
-	if "$aihc" install "$workspace/$name" \
+	log="$logs/$package.log"
+	if "$aihc" install "$sources/$package" --workspace "$workspace" \
 		--store "$store" --immutable --lint --target "$target" -O "$level" \
 		>"$log" 2>&1; then
 		echo "  ok"
@@ -199,7 +202,7 @@ if [ -n "$report_dir" ]; then
 			echo "Last lines of the log; the workflow run holds all of it."
 			echo
 			echo '```'
-			tail -n 60 "$logs/$name.log"
+			tail -n 60 "$logs/$name-$version.log"
 			echo '```'
 		} >"$report_dir/$name-$version.md"
 	done <<<"$packages"
