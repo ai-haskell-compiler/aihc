@@ -23,5 +23,5 @@ output: |
   True
 expression: |
   result
-status: xfail
+status: pass
 reason: RebindableSyntax gives a refutable do pattern the in-scope fail

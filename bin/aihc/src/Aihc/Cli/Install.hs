@@ -2904,7 +2904,7 @@ selectInstanceProviders complete providers
     tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
 wiredTypeModules :: [Text]
-wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]
+wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFail", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Tuple", "GHC.Types"]
 
 -- | Modules whose names generated code refers to, but whose order the
 -- dependency graph must not fix: a derived @Read@ instance calls the reader
@@ -2932,7 +2932,7 @@ builtinFunctionScope :: Package -> ModuleExports -> Builtins
 builtinFunctionScope currentPackage visibleExports =
   builtins currentPackage visibleExports builtinFunctionModules
   where
-    builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFail", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do

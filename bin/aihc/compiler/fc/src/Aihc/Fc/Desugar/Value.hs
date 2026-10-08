@@ -4288,7 +4288,8 @@ desugarDoStatements resultType end statements =
           (annotation, resolution) <- requiredDoBindOccurrence statement
           bind <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
-          continuation <- desugarDoPatternContinuation annotation pattern' continue
+          failure <- doBindFailure statement
+          continuation <- desugarDoPatternContinuation annotation pattern' failure continue
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
@@ -4300,8 +4301,10 @@ desugarDoStatements resultType end statements =
       where
         continue = desugarDoStatements resultType end rest
 
-desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> ValueM Expr -> ValueM Expr
-desugarDoPatternContinuation annotation pattern' rest = do
+-- | The continuation of a bind statement. The failure expression, when the
+-- type checker gives one, is the default alternative of the pattern match.
+desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> Maybe Expr -> ValueM Expr -> ValueM Expr
+desugarDoPatternContinuation annotation pattern' failure rest = do
   ty <- requiredPatternType pattern'
   binder <- freshPatternBinder pattern' ty
   locals <- directPatternBindings pattern' binder ty
@@ -4309,8 +4312,47 @@ desugarDoPatternContinuation annotation pattern' rest = do
     Just bindings -> ExLam binder <$> withLocals bindings rest
     Nothing -> do
       resultType <- doBindResultType annotation
-      body <- desugarDoPattern resultType binder ty pattern' rest
+      body <- desugarPatternWithFailure resultType binder ty pattern' rest failure
       pure (ExLam binder body)
+
+-- | The call of @fail@ that a bind statement makes when its pattern does
+-- not match, when the type checker kept the method. The message names the
+-- statement, as in GHC.
+doBindFailure :: Syn.DoStmt Syn.Expr -> ValueM (Maybe Expr)
+doBindFailure statement =
+  case [(cast, annotation, resolution) | (cast, Just annotation, resolution) <- fst (recStmtAnnotations statement), resolutionIdentifier resolution == IdentifierNamed "fail"] of
+    [(cast, annotation, resolution)] -> do
+      method <- desugarResolvedOccurrence annotation resolution
+      method' <-
+        case cast of
+          Just proof -> withCoercion proof (pure . ExCast method)
+          Nothing -> pure method
+      message <- desugarStringValue ("Pattern match failure in do expression" <> maybe "" ((" at " <>) . renderSourceSpan) (doStmtSourceSpan statement))
+      pure (Just (ExApp method' message))
+    _ -> pure Nothing
+
+doStmtSourceSpan :: Syn.DoStmt body -> Maybe Syn.SourceSpan
+doStmtSourceSpan statement =
+  case statement of
+    Syn.DoAnn annotation inner -> Syn.fromAnnotation annotation <|> doStmtSourceSpan inner
+    _ -> Nothing
+
+-- | A span as GHC prints it: @file:line:col-col@ on one line, and
+-- @file:(line,col)-(line,col)@ otherwise.
+renderSourceSpan :: Syn.SourceSpan -> Text
+renderSourceSpan span' =
+  Syn.sourceSpanSourceName span' <> ":" <> position
+  where
+    startLine = Syn.sourceSpanStartLine span'
+    startCol = Syn.sourceSpanStartCol span'
+    endLine = Syn.sourceSpanEndLine span'
+    endCol = Syn.sourceSpanEndCol span'
+    showText :: Int -> Text
+    showText = T.pack . show
+    position
+      | startLine == endLine && startCol == endCol = showText startLine <> ":" <> showText startCol
+      | startLine == endLine = showText startLine <> ":" <> showText startCol <> "-" <> showText endCol
+      | otherwise = "(" <> showText startLine <> "," <> showText startCol <> ")-(" <> showText endLine <> "," <> showText endCol <> ")"
 
 -- | Desugar a @rec@ statement as
 --
@@ -4698,6 +4740,9 @@ requiredDoBindOccurrence statement =
     Just occurrence -> pure occurrence
     Nothing -> failValue ("missing checked do method occurrence: " <> take 80 (show statement))
 
+-- | The checked @>>=@ or @>>@ method of a statement: the first type
+-- annotation and the first resolution from the outside. The @fail@ method
+-- of a bind statement is inside them.
 doBindOccurrence :: Syn.DoStmt Syn.Expr -> Maybe (TcAnnotation, ResolutionAnnotation)
 doBindOccurrence = go Nothing Nothing
   where
@@ -4705,8 +4750,8 @@ doBindOccurrence = go Nothing Nothing
       case statement of
         Syn.DoAnn annotation inner ->
           go
-            ((Syn.fromAnnotation annotation :: Maybe TcAnnotation) <|> maybeAnnotation)
-            ((Syn.fromAnnotation annotation :: Maybe ResolutionAnnotation) <|> maybeResolution)
+            (maybeAnnotation <|> (Syn.fromAnnotation annotation :: Maybe TcAnnotation))
+            (maybeResolution <|> (Syn.fromAnnotation annotation :: Maybe ResolutionAnnotation))
             inner
         _ -> (,) <$> maybeAnnotation <*> maybeResolution
 

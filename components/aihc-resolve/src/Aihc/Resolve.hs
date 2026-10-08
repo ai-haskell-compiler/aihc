@@ -70,6 +70,7 @@ import Aihc.Parser.Syntax
     ArrowKind (..),
     BangType (..),
     BinderHead (..),
+    BuiltinCon (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
@@ -1248,6 +1249,7 @@ builtinSyntaxTerm info name =
         ">>=",
         ">>",
         "return",
+        "fail",
         "mfix",
         "enumFrom",
         "enumFromThen",
@@ -1394,7 +1396,7 @@ resolveDoStmt isLast stmt =
       scope <- currentScope
       body' <- resolveExpr body
       (patScope, pat') <- bindPattern pat
-      stmt' <- annotateDoMethod isLast ">>=" (DoBind pat' body')
+      stmt' <- annotateDoMethod isLast ">>=" =<< annotateDoBindFail isLast pat' (DoBind pat' body')
       pure (unionScope patScope scope, stmt')
     DoLetDecls decls -> do
       scope <- currentScope
@@ -1505,7 +1507,7 @@ resolveRecGroupStmt targets stmt =
     DoBind pat body -> do
       body' <- resolveExpr body
       pat' <- resolvePatternDefinition definition pat
-      annotateDoMethod False ">>=" (DoBind pat' body')
+      annotateDoMethod False ">>=" =<< annotateDoBindFail False pat' (DoBind pat' body')
     DoLetDecls decls ->
       DoLetDecls <$> resolveBoundDecls targets Map.empty decls
     DoRecStmt stmts -> do
@@ -1561,6 +1563,39 @@ annotateDoMethod isLast name stmt
       sp <- currentSpan
       methodAnn <- syntaxTermAnnotation sp name
       pure (DoAnn methodAnn stmt)
+
+-- | Annotate a bind statement with the @fail@ method when its pattern can
+-- fail to match. The method goes inside the @>>=@ annotation. The type
+-- checker drops the method when the constructors of the pattern make it
+-- irrefutable.
+annotateDoBindFail :: Bool -> Pattern -> DoStmt Expr -> ResolveM (DoStmt Expr)
+annotateDoBindFail isLast pat stmt
+  | isLast || not (patternMayFail pat) = pure stmt
+  | otherwise = do
+      sp <- currentSpan
+      failAnn <- syntaxTermAnnotation sp "fail"
+      pure (DoAnn failAnn stmt)
+
+-- | Whether a pattern can fail to match, as far as its syntax tells. A
+-- constructor pattern can fail here; the type checker knows the other
+-- constructors of its type and makes the final decision.
+patternMayFail :: Pattern -> Bool
+patternMayFail pat =
+  case pat of
+    PAnn _ inner -> patternMayFail inner
+    PParen inner -> patternMayFail inner
+    PAs _ inner -> patternMayFail inner
+    PStrict inner -> patternMayFail inner
+    PTypeSig inner _ -> patternMayFail inner
+    PView _ inner -> patternMayFail inner
+    PVar {} -> False
+    PWildcard -> False
+    PIrrefutable {} -> False
+    PTypeBinder {} -> False
+    PTypeSyntax {} -> False
+    PTuple _ items -> any patternMayFail items
+    PBuiltinCon (BuiltinTuple _ _) _ items -> any patternMayFail items
+    _ -> True
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
 resolveArithSeq arithSeq =

@@ -1,0 +1,27 @@
+modules:
+  - |
+    module Test where
+
+    import Text.Read (Lexeme (..), lexP, parens, readMaybe, readPrec)
+    import Prelude
+
+    data Wrap = Wrap Int deriving (Show)
+
+    -- A failed lexeme match in readPrec calls fail, which gives no parse.
+    instance Read Wrap where
+      readPrec = parens $ do
+        Ident "Wrap" <- lexP
+        Wrap <$> readPrec
+
+    main :: IO ()
+    main = do
+      print (readMaybe "Wrap 3" :: Maybe Wrap)
+      print (readMaybe "Other 3" :: Maybe Wrap)
+stdout: |
+  Just (Wrap 3)
+  Nothing
+output: |
+  ()
+expression: main
+status: pass
+reason: ReadPrec has a MonadFail instance whose fail gives no parse, as in GHC

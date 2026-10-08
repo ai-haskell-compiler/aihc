@@ -1808,23 +1808,12 @@ finishRecGroup sp innerTy binders = do
 inferResolvedDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferResolvedDoStmt end expected ambient resolutionAnn resolution stmt rest =
   case stmt of
-    DoBind pat action -> do
-      itemTy <- freshMetaTv
-      restExpected <- freshMetaTv
-      blockTy <- maybe freshMetaTv pure expected
-      (action', actionTy, actionCts) <- inferExprAt ambient action
-      let bindTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy restExpected) blockTy)
-      (pending, methodEv, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
-      prepareScrutinee (actionCts <> methodCts)
-      patCheck <- checkPattern ambient pat itemTy
-      (rest', restTy, restCts) <-
-        withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
-          withPatternScope patCheck (inferDoStmtsEnd end (Just restExpected) ambient rest)
-      resultEquality <- wantedDoEq ambient restTy restExpected
-      let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
-          stmt' = annotateDoStmtCast bindTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action')))
-      remainingCts <- solvePatternBranch ambient patCheck restExpected (restCts <> [resultEquality])
-      pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts)
+    DoAnn failAnn (DoBind pat action)
+      | Just failResolution <- fromAnnotation @ResolutionAnnotation failAnn,
+        isSyntaxTermResolution "fail" failResolution ->
+          inferResolvedDoBind end expected ambient resolutionAnn resolution (Just (failAnn, failResolution)) pat action rest
+    DoBind pat action ->
+      inferResolvedDoBind end expected ambient resolutionAnn resolution Nothing pat action rest
     DoExpr action -> do
       restExpected <- freshMetaTv
       blockTy <- maybe freshMetaTv pure expected
@@ -1839,6 +1828,59 @@ inferResolvedDoStmt end expected ambient resolutionAnn resolution stmt rest =
     _ -> do
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
       inferDoStmt end expected ambient stmt rest
+
+-- | Check a bind statement. The resolver gives the @fail@ method when the
+-- pattern can fail as far as its syntax tells. When the constructors of
+-- the pattern make it irrefutable, the method is dropped. Otherwise the
+-- desugaring calls it in the default alternative, so its result type is
+-- the type of the rest of the block.
+inferResolvedDoBind ::
+  DoEnd ->
+  Maybe TcType ->
+  Maybe SourceSpan ->
+  Annotation ->
+  ResolutionAnnotation ->
+  Maybe (Annotation, ResolutionAnnotation) ->
+  Pattern ->
+  Expr ->
+  [DoStmt Expr] ->
+  TcM ([DoStmt Expr], TcType, [Ct])
+inferResolvedDoBind end expected ambient resolutionAnn resolution failMethod pat action rest = do
+  itemTy <- freshMetaTv
+  restExpected <- freshMetaTv
+  blockTy <- maybe freshMetaTv pure expected
+  (action', actionTy, actionCts) <- inferExprAt ambient action
+  let bindTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy restExpected) blockTy)
+  (pending, methodEv, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
+  prepareScrutinee (actionCts <> methodCts)
+  patCheck <- checkPattern ambient pat itemTy
+  (rest', restTy, restCts) <-
+    withGivenPredicates (map ctPred (pcGivenCts patCheck)) $
+      withPatternScope patCheck (inferDoStmtsEnd end (Just restExpected) ambient rest)
+  resultEquality <- wantedDoEq ambient restTy restExpected
+  failure <-
+    case failMethod of
+      Nothing -> pure Nothing
+      Just (failAnn, failResolution) -> do
+        canFail <- patternCanFail pat
+        if canFail
+          then do
+            messageTy <- stringType
+            let failTy = TcFunTy messageTy restExpected
+            (failPending, failEv, failCts) <- inferDoMethod ambient "fail" failResolution failTy
+            pure (Just (failTy, failEv, failPending, failAnn, failCts))
+          else pure Nothing
+  let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+      bind = DoBind pat' action'
+      bindWithFailure =
+        case failure of
+          Just (failTy, failEv, failPending, failAnn, _) ->
+            annotateDoStmtCast failTy failEv (DoAnn (mkAnnotation failPending) (DoAnn failAnn bind))
+          Nothing -> bind
+      failCts = maybe [] (\(_, _, _, _, cts) -> cts) failure
+      stmt' = annotateDoStmtCast bindTy methodEv (DoAnn (mkAnnotation pending) (DoAnn resolutionAnn bindWithFailure))
+  remainingCts <- solvePatternBranch ambient patCheck restExpected (restCts <> [resultEquality])
+  pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts <> failCts)
 
 -- | The constraint that equates the argument of a literal method with the
 -- resolved type of the literal.

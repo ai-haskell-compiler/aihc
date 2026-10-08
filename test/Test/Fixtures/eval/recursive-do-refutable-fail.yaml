@@ -23,5 +23,5 @@ output: |
   []
 expression: |
   failures
-status: xfail
-reason: a refutable do pattern does not call the fail method of the monad yet
+status: pass
+reason: a refutable pattern in a rec group calls the fail method of the monad when the match fails
