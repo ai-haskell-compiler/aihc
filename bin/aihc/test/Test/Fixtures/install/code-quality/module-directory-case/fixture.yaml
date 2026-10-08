@@ -1,7 +1,0 @@
-status: pass
-reason: >-
-  The directory of module Demo holds the directory Core of module Demo.Core.
-  The System FC file of Demo must not have a name that is equal to Core
-  on a file system that ignores case.
-no-code: false
-optimization: "2"

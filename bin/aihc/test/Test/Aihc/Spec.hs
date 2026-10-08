@@ -14,7 +14,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, backendCompiler, hostNativeTarget, nativeTargetStoreDirectory, parseOptimizationLevel)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendArchiver, backendCompiler, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
@@ -461,10 +461,7 @@ data InstallFixture = InstallFixture
     installFixtureNeedsBase :: Bool,
     -- | The progress lines the install writes when its output is not a
     -- terminal. A duration in a line is compared as @<time>@.
-    installFixtureProgress :: Maybe [String],
-    -- | The optimization level of the install. A whole-program level
-    -- writes the System FC file of each module.
-    installFixtureOptimization :: OptimizationLevel
+    installFixtureProgress :: Maybe [String]
   }
 
 instance FromJSON InstallFixture where
@@ -483,7 +480,6 @@ instance FromJSON InstallFixture where
           <*> (Map.toList <$> obj .:? "environment" .!= Map.empty)
           <*> obj .:? "needs-base" .!= False
           <*> obj .:? "expect-progress"
-          <*> (either fail pure . parseOptimizationLevel =<< obj .:? "optimization" .!= "0")
       else fail "install fixtures require pass status"
 
 testInstallFixtures :: IO SeedStore -> IO SeedStore -> Assertion
@@ -502,7 +498,6 @@ testInstallFixtures getPrimStore getCoreStore = do
             (InstallOptions input (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget Nothing defaultPlanOptions)
               { installImmutable = installFixtureImmutable fixture,
                 installNoCode = installFixtureNoCode fixture,
-                installOptimization = installFixtureOptimization fixture,
                 installWorkspace = (directory </>) <$> installFixtureWorkspace fixture
               }
       -- A fixture with expected progress installs through a reporter that
