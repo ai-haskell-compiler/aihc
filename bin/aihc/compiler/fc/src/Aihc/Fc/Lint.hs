@@ -10,7 +10,7 @@ module Aihc.Fc.Lint
   )
 where
 
-import Aihc.Fc.Binary (readProgramFile)
+import Aihc.Fc.Binary (programFileName, readProgramFile)
 import Aihc.Fc.Imports (unusedImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Size (isLiftedType)
@@ -148,7 +148,7 @@ loadScopeClosure loader seeds = do
 
 storeModuleLoader :: FilePath -> ModuleLoader
 storeModuleLoader storeRoot package moduleName = do
-  let path = storeRoot </> T.unpack (packageIdText package) </> moduleDirectoryText moduleName </> "core"
+  let path = storeRoot </> T.unpack (packageIdText package) </> moduleDirectoryText moduleName </> programFileName
   exists <- doesFileExist path
   if not exists
     then pure Nothing

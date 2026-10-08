@@ -3282,8 +3282,8 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
 moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
 moduleOutputPaths storePath target name =
   ModuleOutputPaths
-    { outputFcPath = directory </> "core",
-      outputGrinPath = directory </> "grin",
+    { outputFcPath = directory </> Fc.programFileName,
+      outputGrinPath = directory </> "plain.grin",
       outputCpsGrinPath = directory </> "cps.grin",
       outputGcGrinPath = directory </> "gc.grin",
       outputLirPath = objectPath <> ".lir",
@@ -4187,4 +4187,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-48"
+packageArtifactFormatVersion = "aihc-artifacts-49"
