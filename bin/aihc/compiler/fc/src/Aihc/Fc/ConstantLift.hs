@@ -39,7 +39,7 @@ liftConstants program =
       let types = typeEnvFromProgram package program
           -- The top-level values that are in weak-head normal form by
           -- their syntax: a strict field of a constant can hold one.
-          env = types {teEvaluated = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, isStaticValue types (valBody declaration)]}
+          env = types {teEvaluated = staticTopLevelValues types program}
           initial = LiftState 0 (Map.keysSet (teHeaders env)) Map.empty [] 0
           (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
        in ( program {programDecls = decls <> reverse (liftDecls final)},
@@ -51,9 +51,17 @@ liftDecl :: TypeEnv -> Decl -> State LiftState Decl
 liftDecl env declaration =
   case declaration of
     DeclVal value -> do
-      -- The existing declaration already shares its root expression.
-      body <- walkChildren env (valName value) (valBody value)
+      -- The existing declaration already shares its root expression,
+      -- also under the casts around it. A lift of the application under
+      -- the casts would leave the declaration a thunk that evaluates to
+      -- the constant, in place of the value it is.
+      body <- walkRoot (valBody value)
       pure (DeclVal value {valBody = body})
+      where
+        walkRoot expression =
+          case expression of
+            ExCast inner coercion -> (`ExCast` coercion) <$> walkRoot inner
+            _ -> walkChildren env (valName value) expression
     _ -> pure declaration
 
 liftExpr :: TypeEnv -> Name -> Expr -> State LiftState Expr
@@ -140,6 +148,13 @@ strictFieldsStatic env expression =
            in and [isStaticValue env argument | (position, argument) <- zip [0 :: Int ..] values, position `elem` strict]
                 && all (strictFieldsStatic env) values
     _ -> True
+
+-- | The top-level values that are in weak-head normal form by their
+-- syntax. A value whose body names another top-level value is not one:
+-- GRIN lowers it to a thunk that evaluates to the other value.
+staticTopLevelValues :: TypeEnv -> Program -> Set Name
+staticTopLevelValues env program =
+  Set.fromList [valName declaration | DeclVal declaration <- programDecls program, isStaticValue env (valBody declaration)]
 
 -- | Whether an expression is in weak-head normal form by its syntax: a
 -- literal, a function, a constructor application, or a top-level name

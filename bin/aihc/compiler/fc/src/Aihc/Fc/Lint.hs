@@ -69,6 +69,9 @@ lintProgram program =
 
 -- | The values of a program whose body is in weak-head normal form. A
 -- value that is a function or a constructor application is never a thunk.
+-- | The top-level values that are in weak-head normal form. A value whose
+-- body names another top-level value is not one: GRIN lowers it to a
+-- thunk that evaluates to the other value.
 topLevelValues :: TypeEnv -> Program -> Set Name
 topLevelValues env program =
   Set.fromList
