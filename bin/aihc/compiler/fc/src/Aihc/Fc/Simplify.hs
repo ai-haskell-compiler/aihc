@@ -2129,11 +2129,20 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
     (binds, con, types, fields) <- known
     alternative <- List.find ((== AltData con) . altCon) alternatives <|> List.find ((== AltDefault) . altCon) alternatives
     let rhs = altRhs alternative
+        -- The case evaluated the scrutinee, so the binder held a value.
+        -- A scrutinee that is a value binds the binder as it is. A call
+        -- of a local alias of the constructor is not a value: a let of
+        -- it would be a thunk, so the binder gets the constructor
+        -- application that the unfolding found. A cast on the scrutinee
+        -- changes the type of that application, so the case stays.
+        application = List.foldl' ExApp (List.foldl' ExTyApp (ExVar con) types) fields
         caseBinderBind = case binder of
           Nothing -> Just []
           Just named
             | Occurrences 0 _ <- occurrences (binderName named) rhs -> Just []
-            | isLiftedBinder (spEnv env) named -> Just [Bind named scrutinee]
+            | not (isLiftedBinder (spEnv env) named) -> Nothing
+            | isValue env scrutinee -> Just [Bind named scrutinee]
+            | null (snd (peelCasts scrutinee)) -> Just [Bind named application]
             | otherwise -> Nothing
     caseBinds <- caseBinderBind
     body <- case altCon alternative of

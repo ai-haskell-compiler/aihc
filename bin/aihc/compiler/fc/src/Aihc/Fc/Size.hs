@@ -31,7 +31,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 
 -- | The size of a program: the sum of the sizes of its value bodies, plus
 -- one for each value.
@@ -147,8 +147,12 @@ tailLeavesWith = go
 
 -- | A binder that a let evaluates before its body: one whose type is not
 -- lifted.
+-- | A binder whose type is known to be unlifted: a let of such a binder
+-- evaluates its right-hand side before its body. A binder whose
+-- representation is not known, such as one of a type variable, is not
+-- strict: its value can be a thunk once the variable is instantiated.
 isStrictBinder :: TypeEnv -> Binder -> Bool
-isStrictBinder env = not . isLiftedBinder env
+isStrictBinder env binder = isJust (repOf env (binderType binder)) && not (isLiftedBinder env binder)
 
 -- | A binder whose type is lifted: a let of such a binder allocates a
 -- thunk and evaluates nothing before its body.
