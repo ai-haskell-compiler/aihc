@@ -93,7 +93,7 @@ instance Eq (STArray s i e) where
 
 -- | The value stored in an uninitialized immutable array slot.
 arrEleBottom :: a
-arrEleBottom = arrEleBottom
+arrEleBottom = errorWithoutStackTrace "(Array.!): undefined array element"
 
 array :: (Ix i) => (i, i) -> [(i, e)] -> Array i e
 array bounds' associations =
@@ -143,7 +143,7 @@ safeRangeSize bounds' =
         False -> size
 
 negRange :: Int
-negRange = negRange
+negRange = errorWithoutStackTrace "Negative range size"
 
 safeIndex :: (Ix i) => (i, i) -> Int -> i -> Int
 safeIndex bounds' size index' =
@@ -405,7 +405,7 @@ foldr1Elems combine array' =
     False -> foldRightFrom 0 (numElements array' - 1) combine (unsafeAt array' (numElements array' - 1)) array'
 
 emptyFold :: a
-emptyFold = emptyFold
+emptyFold = errorWithoutStackTrace "foldr1: empty Array"
 
 indexedAssociations :: (Ix i) => (i, i) -> Int -> [(i, a)] -> [(Int, a)]
 indexedAssociations _ _ [] = []

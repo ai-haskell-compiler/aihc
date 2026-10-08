@@ -30,11 +30,20 @@ class (Ord a) => Ix a where
 
   unsafeRangeSize bounds@(_, upper) = unsafeIndex bounds upper + 1
 
+-- | Report an index that is out of range, with the message of GHC.
 indexError :: (Show a) => (a, a) -> a -> String -> b
-indexError = indexError
+indexError bounds index typeName =
+  errorWithoutStackTrace
+    ( showString "Ix{"
+        . showString typeName
+        . showString "}.index: Index "
+        . showParen True (shows index)
+        . showString " out of range "
+        $ showParen True (shows bounds) ""
+    )
 
 hopelessIndexError :: Int
-hopelessIndexError = hopelessIndexError
+hopelessIndexError = errorWithoutStackTrace "Error in array index"
 
 instance Ix Bool where
   range = enumBounds
