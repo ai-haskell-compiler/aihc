@@ -1066,10 +1066,12 @@ rather than as a change of some object bytes. Run the suite with
   moves the stack pointer down to make room when it is larger and there is
   no frame, and otherwise builds the block below the frame and copies it up
   once the frame is gone. The stack does not grow.
-- The `c` convention is the procedure call standard with at most eight
-  integer and eight float arguments and one result. The two classes have
+- The `c` convention is the procedure call standard with one result. The
+  first eight integer arguments and the first eight float arguments go in
+  registers. The two classes have
   separate registers and separate counters, so a parameter takes the register
-  at its position within its own class rather than among all of them. A float
+  at its position within its own class rather than among all of them. The
+  other arguments go on the stack at their natural size and alignment. A float
   moves through a scratch register at the boundary, which leaves the argument
   register of the same number free for an integer of its own. A C function
   saves the preserved registers it uses, and all of them when it calls an
@@ -1122,9 +1124,13 @@ design of the AArch64 backend:
   address down to make room when it is larger and there is no frame, and
   otherwise builds the return address and the block below the frame and
   copies them up once the frame is gone.
-- The `c` convention is the System V convention with at most six integer and
-  eight float arguments and one result. A float travels as its bit pattern
-  and moves through `xmm0` at the boundary. A C function saves the preserved
+- The `c` convention is the System V convention with one result. The first
+  six integer arguments and the first eight float arguments go in registers,
+  with a separate counter for each class. The other arguments go on the stack
+  in argument order, and each one takes eight bytes. A C tail call writes its
+  stack arguments in place of the stack arguments of the caller when they
+  fit. Otherwise, the function calls and returns. A float travels as its bit
+  pattern and moves through an `xmm` register at the boundary. A C function saves the preserved
   registers it uses, and all of them when it calls an aihc function.
 - `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`, and
   `pdep` and `pext` are the BMI2 instructions of the same name. This backend

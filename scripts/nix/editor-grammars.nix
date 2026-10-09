@@ -12,7 +12,7 @@ pkgs: let
       ../../bin/aihc/compiler/lir/test/Test/Fixtures/lir/asm
       ../../bin/aihc/compiler/lir/test/Test/Fixtures/lir/eval
       ../../bin/aihc/compiler/lir/test/Test/Fixtures/lir/include
-      ../../bin/aihc/compiler/arm64/test/Test/Fixtures/c-abi
+      ../../bin/aihc/compiler/native/test/Test/Fixtures/c-abi
       (pkgs.lib.fileset.fileFilter (file: file.hasExt "lir") ../../core-libs/aihc-rts/native)
     ];
   };

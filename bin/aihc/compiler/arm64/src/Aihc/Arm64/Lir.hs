@@ -52,7 +52,7 @@ import Aihc.Lir.Lower (ModuleSettings, appleArm64Target)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
 import Aihc.Native.Emit qualified as Emit
-import Aihc.Native.Lir hiding (cArgumentMoves)
+import Aihc.Native.Lir
 import Aihc.Native.Lir qualified as Native
 import Aihc.Native.MachO (writeArm64MachO)
 import Control.Applicative ((<|>))
@@ -142,8 +142,6 @@ arm64Backend =
       nbScratchRight = scratchRight,
       nbCycleScratch = scratchExtra,
       nbSlotMoveScratch = scratchLeft,
-      nbFloatArgCount = 8,
-      nbCIntegerLimitWord = "eight",
       nbFrameOverhead = 16,
       nbReturnAddressGap = 0,
       nbMaxFrameBytes = Just 32000,
@@ -166,7 +164,7 @@ arm64Backend =
       -- trampoline takes the 128 MB reach of an unconditional branch.
       nbTrapTrampoline = Just (\local stub -> [Arm64Label local, arm64Instruction (ArmB (SymbolName stub))]),
       nbPrologueFrame = prologueFrame,
-      nbCParameterMoves = Just cParameterMoves,
+      nbCParameterMoves = cParameterMoves,
       nbTailCallFrame = cTailCallFrame,
       nbLeaveFrame = leaveFrame,
       nbBlockFrameBase = 16,
@@ -184,7 +182,6 @@ arm64Backend =
       nbCanonicalize = canonicalizeRegister,
       nbFloatFromVec = \ty slot dest -> [arm64Instruction (ArmFmovFromFloat (ty == F64) dest slot)],
       nbFloatToVec = \ty register slot -> [arm64Instruction (ArmFmovToFloat (ty == F64) slot register)],
-      nbCCallExtra = const [],
       nbJump = arm64Instruction . ArmB,
       nbCanFuseFloatCompare = const True,
       nbConditionTest = \ctx fused condition ->

@@ -60,6 +60,8 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.List (elemIndex)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -127,9 +129,6 @@ operandTo' = Native.operandTo amd64Backend
 parallelMove' :: [(Location Amd64Register, MoveSource Amd64Register)] -> [Amd64Statement]
 parallelMove' = Native.parallelMove amd64Backend
 
-cArgumentMoves' :: Ctx Amd64Register -> [Type] -> [Operand] -> M [Amd64Statement]
-cArgumentMoves' = Native.cArgumentMoves amd64Backend
-
 overflowBytes' :: Int -> Int
 overflowBytes' = Native.overflowBytes amd64Backend
 
@@ -152,8 +151,6 @@ amd64Backend =
       nbScratchRight = scratchRight,
       nbCycleScratch = scratchLeft,
       nbSlotMoveScratch = scratchRight,
-      nbFloatArgCount = 8,
-      nbCIntegerLimitWord = "six",
       nbFrameOverhead = 8,
       nbReturnAddressGap = 8,
       nbMaxFrameBytes = Nothing,
@@ -175,8 +172,8 @@ amd64Backend =
       -- stub from anywhere in the object.
       nbTrapTrampoline = Nothing,
       nbPrologueFrame = prologueFrame,
-      nbCParameterMoves = Nothing,
-      nbTailCallFrame = \_ _ -> False,
+      nbCParameterMoves = cParameterMoves,
+      nbTailCallFrame = cTailCallFrame,
       nbLeaveFrame = leaveFrame,
       -- The return address is already on the stack, so a block frame only
       -- reserves the stack allocations and aligns the stack for the call.
@@ -195,7 +192,6 @@ amd64Backend =
       nbCanonicalize = canonicalizeRegister,
       nbFloatFromVec = \_ty xmm dest -> [amd64Instruction (AmdMovqFromXmm dest xmm)],
       nbFloatToVec = \ty register xmm -> [toFloat ty xmm register],
-      nbCCallExtra = \count -> [immediate RAX count],
       nbJump = amd64Instruction . AmdJmp . Amd64JumpLabel,
       nbCanFuseFloatCompare = \op -> op `elem` [Eq, Ne, FLt, FLe, FGt, FGe],
       nbConditionTest = \ctx fused condition ->
@@ -1016,31 +1012,135 @@ amd64PtrAdd ctx a offset dst =
       | right == dest = [amd64Instruction (AmdAdd (Amd64RmRegister dest) (Amd64BinaryRegister left))]
       | otherwise = move dest left <> [amd64Instruction (AmdAdd (Amd64RmRegister dest) (Amd64BinaryRegister right))]
 
+data CArgumentLocation
+  = CGeneral Amd64Register
+  | CFloat Int
+  | CStack Int
+
+-- | The System V layout of the C arguments. Integer and float arguments use
+-- independent register counters. Each stack argument takes eight bytes, in
+-- the order of the arguments, and the area is a multiple of 16 bytes.
+cArgumentLayout :: [Type] -> ([(Int, Type, CArgumentLocation)], Int)
+cArgumentLayout = go 0 0 0 0
+  where
+    go _ _ _ offset [] = ([], ((offset + 15) `div` 16) * 16)
+    go index general floating offset (ty : rest)
+      | isFloatType ty && floating < 8 =
+          next (CFloat floating) general (floating + 1) offset
+      | not (isFloatType ty) && general < length argumentRegisters =
+          next (CGeneral (argumentRegisters !! general)) (general + 1) floating offset
+      | otherwise =
+          next (CStack offset) general floating (offset + 8)
+      where
+        next location general' floating' offset' =
+          let (locations, bytes) = go (index + 1) general' floating' offset' rest
+           in ((index, ty, location) : locations, bytes)
+
+-- | Move the C arguments to their places. A slot operand is at the given
+-- displacement above its usual offset, and the stack arguments start at
+-- @stackBase@ above the stack pointer. The moves do not change @r10@, which
+-- holds the target of an indirect call. @al@ gets the number of float
+-- registers, which a variadic callee uses.
+cArgumentMoves :: Ctx Amd64Register -> Int -> Int -> [Type] -> [Operand] -> [Amd64Statement]
+cArgumentMoves ctx displacement stackBase parameterTypes arguments =
+  concat
+    [ loads <> [storeSlot register (stackBase + offset)]
+    | (index, ty, CStack offset) <- locations,
+      let (loads, register) = operandIn' ctx displacement ty scratchLeft (arguments !! index)
+    ]
+    <> concat
+      [ loads <> [toFloat ty slot register]
+      | (index, ty, CFloat slot) <- locations,
+        let (loads, register) = operandIn' ctx displacement ty scratchLeft (arguments !! index)
+      ]
+    <> parallelMove'
+      [ (LocRegister register, Native.displaceSource displacement (source ty (arguments !! index)))
+      | (index, ty, CGeneral register) <- locations
+      ]
+    <> [immediate RAX (length [() | (_, _, CFloat _) <- locations])]
+  where
+    (locations, _) = cArgumentLayout (take (length arguments) (parameterTypes <> repeat I64))
+    source ty operand = case operand of
+      OperandVar var -> SourceLocation (home ctx var)
+      OperandLiteral literal -> SourceLiteral ty literal
+
+-- | Move the C parameters to their homes. The stack parameters start eight
+-- bytes above the return address.
+cParameterMoves :: Ctx Amd64Register -> [Amd64Statement]
+cParameterMoves ctx =
+  concat [canonicalizeRegister ty register | (_, ty, CGeneral register) <- locations]
+    <> parallelMove'
+      [ (home ctx (names !! index), SourceLocation (LocRegister register))
+      | (index, _, CGeneral register) <- locations
+      ]
+    <> concat
+      [ [amd64Instruction (AmdMovqFromXmm scratchLeft slot)]
+          <> canonicalizeRegister ty scratchLeft
+          <> save index
+      | (index, ty, CFloat slot) <- locations
+      ]
+    <> concat
+      [ [loadSlot scratchLeft (frameBytes' (ctxLayout ctx) + 8 + offset)]
+          <> canonicalizeRegister ty scratchLeft
+          <> save index
+      | (index, ty, CStack offset) <- locations
+      ]
+  where
+    parameters = functionParameters (ctxFunction ctx)
+    names = map fst parameters
+    (locations, _) = cArgumentLayout (map snd parameters)
+    save index = parallelMove' [(home ctx (names !! index), SourceLocation (LocRegister scratchLeft))]
+
+-- | A C tail call reuses the stack argument area of the caller only when
+-- that area is large enough. Otherwise, the function calls and returns.
+cTailNeedsCall :: Function -> [Type] -> Bool
+cTailNeedsCall function parameterTypes =
+  snd (cArgumentLayout parameterTypes) > available
+  where
+    available = case functionConvention function of
+      CConvention -> snd (cArgumentLayout (map snd (functionParameters function)))
+      AihcConvention -> 0
+
+cTailCallFrame :: Map Symbol Signature -> Function -> Bool
+cTailCallFrame signatures function = any needsFrame (functionBlocks function)
+  where
+    needsFrame block = case blockTerminator block of
+      TailCall symbol _ -> maybe False cFrame (Map.lookup symbol signatures)
+      TailCallIndirect _ _ signature -> cFrame signature
+      _ -> False
+    cFrame signature = signatureConvention signature == CConvention && cTailNeedsCall function (signatureParameters signature)
+
 amd64Call :: Ctx Amd64Register -> Either Symbol Signature -> [Operand] -> [Var] -> M [Amd64Statement]
-amd64Call ctx callee arguments results = do
+amd64Call ctx callee arguments results =
   let (convention, resultTypes, parameterTypes) = Native.calleeSignature ctx callee
-      outgoing = case convention of
-        CConvention -> 0
-        AihcConvention -> overflowBytes' (length arguments)
-      types = parameterTypes <> repeat I64
-  argumentMoves <-
-    case convention of
-      AihcConvention ->
-        pure
-          ( concat
-              [ loads <> [storeSlot register (8 * position)]
-              | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) (zip types arguments)),
-                let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
-              ]
-              <> parallelMove'
-                [ (LocRegister register, Native.displaceSource outgoing (operandSource ctx ty argument))
-                | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
-                ]
-          )
-      CConvention -> cArgumentMoves' ctx parameterTypes arguments
-  let branch = case callee of
+      branch = case callee of
         Left symbol -> [amd64Instruction (AmdCall (lirSymbol symbol))]
         Right _ -> [amd64Instruction (AmdCallRegister scratchRight)]
+   in pure (amd64CallWith ctx convention resultTypes parameterTypes branch arguments results)
+
+-- | A call with the given branch. An indirect call has its target in @r10@.
+amd64CallWith :: Ctx Amd64Register -> CallingConvention -> [Type] -> [Type] -> [Amd64Statement] -> [Operand] -> [Var] -> [Amd64Statement]
+amd64CallWith ctx convention resultTypes parameterTypes branch arguments results =
+  let outgoing = case convention of
+        CConvention -> snd (cArgumentLayout (take (length arguments) types))
+        AihcConvention -> overflowBytes' (length arguments)
+      types = parameterTypes <> repeat I64
+      argumentMoves = case convention of
+        AihcConvention ->
+          concat
+            [ loads <> [storeSlot register (8 * position)]
+            | (position, (ty, argument)) <- zip [0 :: Int ..] (drop (length aihcArgumentRegisters) (zip types arguments)),
+              let (loads, register) = operandIn' ctx outgoing ty scratchLeft argument
+            ]
+            <> parallelMove'
+              [ (LocRegister register, Native.displaceSource outgoing (operandSource ctx ty argument))
+              | (register, (ty, argument)) <- zip aihcArgumentRegisters (zip types arguments)
+              ]
+        CConvention -> cArgumentMoves ctx outgoing 0 parameterTypes arguments
+      -- The callee of the aihc convention removes its stack block.
+      cleanup = case convention of
+        CConvention -> adjustStack AmdAdd outgoing
+        AihcConvention -> []
       resultMoves =
         case convention of
           AihcConvention -> parallelMove' [(home ctx var, SourceLocation (LocRegister register)) | (var, register) <- zip results resultRegisters]
@@ -1049,7 +1149,7 @@ amd64Call ctx callee arguments results = do
               [ floatResult ty <> canonicalizeRegister ty RAX <> parallelMove' [(home ctx var, SourceLocation (LocRegister RAX))]
               | (var, ty) <- zip results resultTypes
               ]
-  pure (adjustStack AmdSub outgoing <> argumentMoves <> branch <> resultMoves)
+   in adjustStack AmdSub outgoing <> argumentMoves <> branch <> cleanup <> resultMoves
   where
     operandSource ctx' ty operand =
       case operand of
@@ -1074,7 +1174,6 @@ amd64TailCall ctx callee convention parameterTypes arguments =
     CConvention -> do
       when (ctxIncomingOverflow ctx /= 0) $
         unsupportedText "C tail call from a function with an overflow parameter block"
-      argumentMoves <- cArgumentMoves' ctx parameterTypes arguments
       targetLoad <- case callee of
         Left _ -> pure []
         Right operand -> do
@@ -1083,7 +1182,24 @@ amd64TailCall ctx callee convention parameterTypes arguments =
       let branch = case callee of
             Left label -> jump label
             Right _ -> amd64Instruction (AmdJmp (Amd64JumpRegister scratchRight))
-      pure (targetLoad <> argumentMoves <> leaveFrame ctx 0 <> [branch])
+          call = case callee of
+            Left label -> amd64Instruction (AmdCall label)
+            Right _ -> amd64Instruction (AmdCallRegister scratchRight)
+          function = ctxFunction ctx
+      -- After a call, the result of the callee stays in rax or xmm0, where
+      -- the caller of this function reads it.
+      pure $
+        if cTailNeedsCall function parameterTypes
+          then
+            targetLoad
+              <> amd64CallWith ctx CConvention (functionResults function) parameterTypes [call] arguments []
+              <> leaveFrame ctx 0
+              <> returnInstruction ctx
+          else
+            targetLoad
+              <> cArgumentMoves ctx 0 (frameBytes' layout + 8) parameterTypes arguments
+              <> leaveFrame ctx 0
+              <> [branch]
   where
     layout = ctxLayout ctx
     jump label = amd64Instruction (AmdJmp (Amd64JumpLabel (SymbolName label)))

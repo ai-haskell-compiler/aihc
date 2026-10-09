@@ -72,9 +72,9 @@ tests backend = do
   let directory = root </> "bin" </> "aihc" </> "compiler" </> "lir" </> "test" </> "Test" </> "Fixtures" </> "lir" </> "eval"
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
-  let cAbiDirectory = root </> "bin/aihc/compiler/arm64/test/Test/Fixtures/c-abi"
+  let cAbiDirectory = root </> "bin/aihc/compiler/native/test/Test/Fixtures/c-abi"
   cAbiNames <-
-    if backendTarget backend == AppleArm64
+    if backendTarget backend `elem` [AppleArm64, LinuxAmd64]
       then sort . filter ((== ".lir") . takeExtension) <$> listDirectory cAbiDirectory
       else pure []
   sourceSnapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory (root </> "bin/aihc/compiler/native/test/Test/Fixtures/source-snapshot")
