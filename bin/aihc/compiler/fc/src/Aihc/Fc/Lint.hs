@@ -266,12 +266,23 @@ lintAxiomDecl env declaration =
 
 bindLocal :: TypeEnv -> Binder -> Either LintError TypeEnv
 bindLocal env binder = do
+  let name = binderName binder
+  when (Map.member name (teBinders env)) (Left (ShadowedBinder "" name))
+  bindTypeLocal env binder
+
+-- | Bind the binder of a forall in a type. The binder can bind a name that
+-- an enclosing binder of the program also binds. The lint makes types from
+-- the declarations, for example the right side of a newtype axiom, and
+-- their binders do not know the local scope. Type substitution renames a
+-- binder that the replacement would capture, so the inner binder is safe.
+bindTypeLocal :: TypeEnv -> Binder -> Either LintError TypeEnv
+bindTypeLocal env binder = do
   _ <- lintType env (binderType binder)
   let name = binderName binder
   case repOf env (binderType binder) of
     Just (TyVar representation) -> Left (RepresentationPolymorphicBinder name representation)
     _ -> pure ()
-  when (Map.member name (teBinders env) || Map.member name (teHeaders env)) (Left (ShadowedBinder "" name))
+  when (Map.member name (teHeaders env)) (Left (ShadowedBinder "" name))
   pure (extendBinder env binder)
 
 lintType :: TypeEnv -> Type -> Either LintError Type
@@ -296,7 +307,7 @@ lintType env ty =
       applyKind env function functionKind argument argumentKind
     TyFun r1 r2 argument result -> lintFun env r1 r2 argument result
     TyForAll binder body -> do
-      binderEnv <- bindLocal env binder
+      binderEnv <- bindTypeLocal env binder
       lintType binderEnv body
     TyEq left right -> do
       -- Equality evidence can relate types with different kinds.
