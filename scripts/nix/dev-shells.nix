@@ -5,6 +5,7 @@
   hsPkgs = mkHsPkgs pkgs;
 in {
   default = pkgs.mkShell {
+    nativeBuildInputs = [pkgs.pkg-config];
     buildInputs = [
       hsPkgs.ghc
       pkgs.cabal-install
