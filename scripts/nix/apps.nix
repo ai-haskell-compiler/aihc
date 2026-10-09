@@ -234,6 +234,34 @@ in {
       exec bash ./scripts/self-hosting-progress.sh "$@"
     '';
 
+  # One stage of the self-compile. Stage 0 is the GHC-built aihc, so AIHC
+  # defaults to it. To build a later stage, set AIHC to the previous stage.
+  self-compile-stage =
+    mkAppWithInputs "self-compile-stage" [
+      pkgs.bash
+      pkgs.cacert
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.gnutar
+      pkgs.gzip
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.llvmPackages.bintools
+      pkgs.llvmPackages.clang
+      pkgs.haskellPackages.hsc2hs
+    ] ''
+      set -euo pipefail
+      ${repoRootGuard}
+      export GHCRTS=-N
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export AIHC="''${AIHC:-${aihcExe}}"
+      export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" selfHostingCLibraries}''${CPATH:+:$CPATH}"
+      export LIBRARY_PATH="${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+      export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      exec bash ./scripts/self-compile-stage.sh "$@"
+    '';
+
   generate-reports = mkReportsApp "generate-reports" ''
     set -euo pipefail
     ${repoRootGuard}
