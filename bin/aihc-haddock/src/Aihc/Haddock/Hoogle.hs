@@ -17,7 +17,7 @@ where
 import Aihc.Haddock.Markup (parseInline)
 import Aihc.Haddock.Model
 import Data.List (sortOn)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -31,7 +31,7 @@ renderHoogle package =
       "@version " <> packageDocVersion package,
       ""
     ]
-      <> concatMap renderHoogleModule (filter moduleDocExposed (packageDocModules package))
+      <> concatMap renderHoogleModule (sortOn moduleDocName (filter moduleDocExposed (packageDocModules package)))
 
 renderHoogleModule :: ModuleDoc -> [Text]
 renderHoogleModule modu =
@@ -45,25 +45,7 @@ renderHoogleModule modu =
 -- the subordinates the export list names.
 exportedDecls :: ModuleDoc -> [(DeclDoc, [DeclDoc])]
 exportedDecls modu =
-  case moduleDocExports modu of
-    Nothing -> [(decl, flattenSubordinates (declSubordinates decl)) | decl <- moduleDocDecls modu]
-    Just items -> mapMaybe exportedItem items
-  where
-    exportedItem item =
-      case item of
-        ExportDeclItem name ns subs -> do
-          decl <- lookupDecl name ns
-          let subordinates =
-                case subs of
-                  ExportNoSubordinates -> []
-                  ExportAllSubordinates -> flattenSubordinates (declSubordinates decl)
-                  ExportSomeSubordinates names -> filter ((`elem` names) . declName) (flattenSubordinates (declSubordinates decl))
-          pure (decl, subordinates)
-        _ -> Nothing
-    lookupDecl name ns =
-      case [decl | decl <- moduleDocDecls modu, declName decl == name, declNamespace decl == ns] of
-        decl : _ -> Just decl
-        [] -> Nothing
+  [(decl, flattenSubordinates (declSubordinates decl)) | ExportResolvedItem decl <- moduleDocResolvedExports modu]
 
 flattenSubordinates :: [DeclDoc] -> [DeclDoc]
 flattenSubordinates = concatMap (\sub -> sub : flattenSubordinates (declSubordinates sub))
@@ -92,12 +74,12 @@ renderDecl parent decl =
         DeclKindTypeFamily -> ["type family " <> fromMaybe name (declSignature decl)]
         DeclKindDataFamily -> ["data family " <> fromMaybe name (declSignature decl)]
         DeclKindAssociatedType -> ["type " <> fromMaybe name (declSignature decl)]
-        DeclKindConstructor -> signature binder
-        DeclKindField -> signature ("[" <> name <> "]")
+        DeclKindConstructor -> maybe (maybe [] (\sig -> ["pattern " <> binder <> " :: () => " <> sig]) (declSignature decl)) (const (signature binder)) parent
+        DeclKindField -> signature (maybe binder (const ("[" <> name <> "]")) parent)
         DeclKindMethod -> maybe [] (\sig -> [binder <> " :: " <> methodSignature sig]) (declSignature decl)
     signature prefix = maybe [] (\sig -> [prefix <> " :: " <> sig]) (declSignature decl)
     methodSignature sig =
-      case parent >>= classConstraint of
+      case declClassConstraint decl of
         Nothing -> sig
         Just constraint ->
           case T.breakOn " => " sig of
@@ -115,14 +97,6 @@ renderDecl parent decl =
       case declFixity decl of
         Nothing -> []
         Just fixity -> [renderFixity fixity <> " " <> name]
-
--- | The constraint a class puts on its methods: the head of the class
--- signature without the superclass context.
-classConstraint :: DeclDoc -> Maybe Text
-classConstraint classDecl = do
-  sig <- declSignature classDecl
-  let (_, rest) = T.breakOn " => " sig
-  pure (if T.null rest then sig else T.drop 4 rest)
 
 renderFixity :: Fixity -> Text
 renderFixity fixity =

@@ -26,12 +26,14 @@ library
     Aihc.Haddock.Comment
     Aihc.Haddock.Compare
     Aihc.Haddock.Hoogle
+    Aihc.Haddock.Interface
     Aihc.Haddock.Markup
     Aihc.Haddock.Model
     Aihc.Haddock.Package
     Aihc.Haddock.Reference.Hoogle
     Aihc.Haddock.Reference.Json
     Aihc.Haddock.Render
+    Aihc.Haddock.Resolve
     Aihc.Haddock.Store
 
   other-modules:
@@ -45,6 +47,7 @@ library
     aihc-hackage,
     aihc-package-plan,
     aihc-parser,
+    aihc-resolve,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
     containers >=0.5 && <0.9,

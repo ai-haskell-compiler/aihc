@@ -13,12 +13,14 @@ module Aihc.Haddock.Reference.Hoogle
   )
 where
 
+import Data.List (mapAccumL)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
 data HoogleEntry = HoogleEntry
-  { -- | Documentation lines with the comment prefix removed.
+  { hoogleEntryModule :: Text,
+    -- | Documentation lines with the comment prefix removed.
     hoogleEntryDoc :: [Text],
     -- | The declaration line, such as @area :: Shape -> Double@.
     hoogleEntryDecl :: Text
@@ -34,8 +36,12 @@ data HoogleFile = HoogleFile
 
 parseHoogleFile :: Text -> HoogleFile
 parseHoogleFile text =
-  go (HoogleFile Nothing Nothing []) [] (dropHeader (T.lines text))
+  let file = go (HoogleFile Nothing Nothing []) [] (dropHeader (T.lines text))
+   in file {hoogleEntries = snd (mapAccumL attachModule "" (hoogleEntries file))}
   where
+    attachModule current entry =
+      let name = fromMaybe current (T.stripPrefix "module " (hoogleEntryDecl entry))
+       in (name, entry {hoogleEntryModule = name})
     -- Everything before the first @package line is the generator's banner.
     dropHeader lines' =
       case break (T.isPrefixOf "@package") lines' of
@@ -51,7 +57,7 @@ parseHoogleFile text =
           | Just version <- T.stripPrefix "@version " line -> go file {hoogleVersion = Just (T.strip version)} pendingDoc rest
           | Just docLine <- commentLine line -> go file (pendingDoc <> [docLine]) rest
           | otherwise ->
-              let entry = HoogleEntry {hoogleEntryDoc = pendingDoc, hoogleEntryDecl = T.strip line}
+              let entry = HoogleEntry {hoogleEntryModule = "", hoogleEntryDoc = pendingDoc, hoogleEntryDecl = T.strip line}
                in go file {hoogleEntries = entry : hoogleEntries file} [] rest
 
     commentLine line = do

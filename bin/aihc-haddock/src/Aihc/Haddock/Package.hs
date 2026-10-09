@@ -4,10 +4,8 @@
 -- Module      : Aihc.Haddock.Package
 -- Description : Load a package's library modules into the documentation model
 --
--- Shares the package plan, cabal-file handling and source loading with the
--- compiler through @aihc-package-plan@ and @aihc-hackage@. Every library
--- module is loaded, exposed or not, so that later re-export resolution has
--- the hidden modules available.
+-- The package loader shares source input and preprocessing with the compiler.
+-- It reads hidden modules and dependencies before it requests export resolution.
 module Aihc.Haddock.Package
   ( documentationHeaderTarget,
     loadPackageDoc,
@@ -16,17 +14,18 @@ module Aihc.Haddock.Package
 where
 
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.Cpp (DependencyVersions)
 import Aihc.Hackage.Headers (HeaderTarget (..))
 import Aihc.Hackage.Package (parsePackageDescription)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Haddock.Build (BuildInput (..), buildModuleDoc)
 import Aihc.Haddock.Model
+import Aihc.Haddock.Resolve (resolveDocumentation)
 import Aihc.PackagePlan (dependencyVersionsFromManifests, packageSpecFromSource)
 import Aihc.PackagePlan.Diagnostic (renderHumanDiagnostic)
 import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), parseInterfaceFile)
 import Aihc.Parser.Syntax (moduleName)
+import Aihc.Resolve (ModuleUnit (..), Package (..), PackageId (..))
 import Data.ByteString qualified as BS
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -52,11 +51,9 @@ documentationHeaderTarget =
       headerArch = "x86_64"
     }
 
--- | Document the library of the package at the given root. The dependency
--- specs supply the versions that @MIN_VERSION_*@ macros report during CPP,
--- and the header directory holds the headers of the compiler, which a module
--- may include.
-loadPackageDoc :: FilePath -> FilePath -> [PackageSpec] -> IO PackageDoc
+-- | Document the package library with its direct dependency artifacts.
+-- Dependencies supply resolver interfaces, declarations, and versions for CPP macros.
+loadPackageDoc :: FilePath -> FilePath -> [PackageDoc] -> IO PackageDoc
 loadPackageDoc headerDir root dependencies = do
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <-
@@ -71,19 +68,23 @@ loadPackageDoc headerDir root dependencies = do
   spec <- packageSpecFromSource root
   files <- HackageCabal.collectLibraryFiles gpd root
   let exposed = HackageCabal.collectLibraryExposedModules gpd
-      versions = dependencyVersionsFromManifests [(T.pack (pkgName dep), T.pack (pkgVersion dep)) | dep <- dependencies]
-  modules <- mapM (loadModule headerDir root versions exposed) files
+      versions = dependencyVersionsFromManifests [(packageDocName dep, packageDocVersion dep) | dep <- dependencies]
+      package = Package (T.pack (pkgName spec)) (PackageId (T.pack (pkgName spec <> "-" <> pkgVersion spec)))
+  parsed <- mapM (parseInterfaceFile headerDir root versions) files
+  let modules = resolveDocumentation package dependencies [(ModuleUnit package (parsedFileExtensions file) (parsedFileModule file), buildParsedModule root exposed file) | file <- parsed]
   pure
     PackageDoc
       { packageDocFormatVersion = docModelFormatVersion,
         packageDocName = T.pack (pkgName spec),
         packageDocVersion = T.pack (pkgVersion spec),
-        packageDocDependencies = [T.pack (pkgName dep <> "-" <> pkgVersion dep) | dep <- dependencies],
+        packageDocDependencies = [packageDocName dep <> "-" <> packageDocVersion dep | dep <- dependencies],
         packageDocModules = modules
       }
 
-loadModule :: FilePath -> FilePath -> DependencyVersions -> [Text] -> HackageCabal.FileInfo -> IO ModuleDoc
-loadModule headerDir root versions exposed fileInfo = do
+buildParsedModule :: FilePath -> [Text] -> ParsedInterfaceFile -> ModuleDoc
+buildParsedModule
+  root
+  exposed
   ParsedInterfaceFile
     { parsedFilePath = path,
       parsedFileModule = modu,
@@ -91,24 +92,21 @@ loadModule headerDir root versions exposed fileInfo = do
       parsedFileCppDiagnostics = cppDiagnostics,
       parsedFileExtensions = extensions,
       parsedFileSource = source
-    } <-
-    parseInterfaceFile headerDir root versions fileInfo
-  let relative = normalise (makeRelative root path)
-      fallbackName = T.intercalate "." (map T.pack (splitDirectories (dropExtension relative)))
-      name = fromMaybe fallbackName (moduleName modu)
-      diagnostics =
-        map (T.pack . renderHumanDiagnostic "parse") parseDiagnostics
-          <> map (T.pack . renderHumanDiagnostic "cpp") cppDiagnostics
-  pure
-    ( buildModuleDoc
-        BuildInput
-          { buildFile = path,
-            buildRelativize = normalise . makeRelative root,
-            buildModule = modu,
-            buildSource = source,
-            buildExtensions = extensions,
-            buildExposed = name `elem` exposed,
-            buildFallbackName = fallbackName,
-            buildDiagnostics = map T.strip diagnostics
-          }
-    )
+    } =
+    let relative = normalise (makeRelative root path)
+        fallbackName = T.intercalate "." (map T.pack (splitDirectories (dropExtension relative)))
+        name = fromMaybe fallbackName (moduleName modu)
+        diagnostics =
+          map (T.pack . renderHumanDiagnostic "parse") parseDiagnostics
+            <> map (T.pack . renderHumanDiagnostic "cpp") cppDiagnostics
+     in buildModuleDoc
+          BuildInput
+            { buildFile = path,
+              buildRelativize = normalise . makeRelative root,
+              buildModule = modu,
+              buildSource = source,
+              buildExtensions = extensions,
+              buildExposed = name `elem` exposed,
+              buildFallbackName = fallbackName,
+              buildDiagnostics = map T.strip diagnostics
+            }

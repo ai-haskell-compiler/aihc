@@ -1,0 +1,271 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {},
+   "doc_map": {
+    "$main$Internal$Box": {
+     "document": {
+      "document": {
+       "string": "A box.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$first": {
+     "document": {
+      "document": {
+       "string": "Select the first value.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$second": {
+     "document": {
+      "document": {
+       "string": "Select the second value.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Internal$first",
+    "$main$Internal$second",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Internal",
+   "options": [
+    "OptHide"
+   ],
+   "visible_exports": []
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$main$Internal$first",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Bridge",
+   "options": [
+    "OptHide"
+   ],
+   "visible_exports": []
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$main$Internal$Box",
+    "$main$Internal$Box"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Partial",
+   "options": [],
+   "visible_exports": [
+    "$main$Internal$Box",
+    "$main$Internal$Box"
+   ]
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Mixed",
+   "options": [],
+   "visible_exports": [
+    "$main$Internal$Empty"
+   ]
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$main$Internal$first",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Public",
+   "options": [],
+   "visible_exports": [
+    "$main$Internal$first",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty"
+   ]
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$QualifiedOnly",
+   "options": [],
+   "visible_exports": []
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$main$Internal$second",
+    "$main$Internal$Box",
+    "$main$Internal$Box"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Restricted",
+   "options": [],
+   "visible_exports": [
+    "$main$Internal$second",
+    "$main$Internal$Box",
+    "$main$Internal$Box"
+   ]
+  },
+  {
+   "arg_map": {},
+   "doc_map": {
+    "$main$Self$identity": {
+     "document": {
+      "document": {
+       "string": "Return the input value.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Self$identity"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Self",
+   "options": [],
+   "visible_exports": [
+    "$main$Self$identity"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$Internal$Box": "Partial",
+  "$main$Internal$Empty": "Mixed",
+  "$main$Internal$first": "Public",
+  "$main$Internal$second": "Restricted",
+  "$main$Self$identity": "Self"
+ },
+ "package_info": "reexport-modules-0.1.0.0"
+}

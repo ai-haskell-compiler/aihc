@@ -1,0 +1,38 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$provider-0.1.0.0-inplace$Provider$Box",
+    "$provider-0.1.0.0-inplace$Provider$LeftBox",
+    "$provider-0.1.0.0-inplace$Provider$RightBox"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": "Haskell2010",
+    "maintainer": null,
+    "protability": null,
+    "safety": "Safe-Inferred",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$reexport-transitive-0.1.0.0-inplace$Public",
+   "options": [],
+   "visible_exports": [
+    "$provider-0.1.0.0-inplace$Provider$Box",
+    "$provider-0.1.0.0-inplace$Provider$LeftBox",
+    "$provider-0.1.0.0-inplace$Provider$RightBox"
+   ]
+  }
+ ],
+ "link_env": {
+  "$provider-0.1.0.0-inplace$Provider$Box": "Public",
+  "$provider-0.1.0.0-inplace$Provider$LeftBox": "Public",
+  "$provider-0.1.0.0-inplace$Provider$RightBox": "Public"
+ },
+ "package_info": "reexport-transitive-0.1.0.0"
+}

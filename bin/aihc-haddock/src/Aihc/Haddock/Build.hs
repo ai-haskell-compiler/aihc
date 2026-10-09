@@ -18,10 +18,12 @@ module Aihc.Haddock.Build
 where
 
 import Aihc.Haddock.Comment
+import Aihc.Haddock.Interface (DocInterface (..))
 import Aihc.Haddock.Markup (parseDocText, parseInline, parseMetaDocText)
 import Aihc.Haddock.Model
 import Aihc.Haddock.Render
 import Aihc.Parser.Syntax
+import Aihc.Resolve (exportsFromEntries)
 import Control.Applicative ((<|>))
 import Control.Monad (forM, forM_)
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
@@ -69,6 +71,8 @@ buildModuleDoc input =
       moduleDocInfo = info,
       moduleDocWarning = moduleWarningPragma modu >>= pragmaMessage,
       moduleDocExports = exports,
+      moduleDocResolvedExports = [],
+      moduleDocInterface = DocInterface (exportsFromEntries []),
       moduleDocDecls = decls,
       moduleDocInstances = reverse (stInstances finalState),
       moduleDocNamedChunks = chunks,
@@ -304,9 +308,11 @@ mkDecl :: Text -> Namespace -> DeclKind -> Maybe Text -> Maybe MetaDoc -> Map.Ma
 mkDecl name ns kind sig doc args subs loc =
   DeclDoc
     { declName = name,
+      declIdentity = Nothing,
       declNamespace = ns,
       declKind = kind,
       declSignature = sig,
+      declClassConstraint = Nothing,
       declDoc = doc,
       declArgDocs = args,
       declSubordinates = subs,
@@ -544,7 +550,10 @@ classDeclDoc msp col loc classDecl = do
   let head' = classDeclHead classDecl
       sig = renderContext (fromMaybe [] (classDeclContext classDecl)) <> renderBinderHead head'
   (doc, items) <- documented 0 msp (concat <$> mapM (classItem col) (classDeclItems classDecl))
-  pure [mkDecl (renderOccurrence (binderHeadName head')) NamespaceType DeclKindClass (Just sig) doc Map.empty (mergeValueDecls items) loc]
+  let attachClass item
+        | declKind item == DeclKindMethod = item {declClassConstraint = Just (renderBinderHead head')}
+        | otherwise = item
+  pure [mkDecl (renderOccurrence (binderHeadName head')) NamespaceType DeclKindClass (Just sig) doc Map.empty (map attachClass (mergeValueDecls items)) loc]
 
 classItem :: Int -> ClassDeclItem -> Build [DeclDoc]
 classItem classColumn item = do

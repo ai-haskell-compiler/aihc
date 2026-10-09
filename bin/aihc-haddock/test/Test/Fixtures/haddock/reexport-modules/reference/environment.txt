@@ -1,0 +1,6 @@
+haddock: Haddock version 2.32.0, (c) Simon Marlow 2006
+ghc: 9.12.4
+json-stream: stderr
+sources: src/Bridge.hs src/Internal.hs src/Mixed.hs src/Partial.hs src/Public.hs src/QualifiedOnly.hs src/Restricted.hs src/Self.hs
+command: haddock --optghc=-package-env=- --optghc=-isrc --package-name=reexport-modules --package-version=0.1.0.0 --hide=Internal --hide=Bridge --dump-interface=interface.haddock --hoogle -o hoogle SOURCES
+command: haddock --optghc=-package-env=- --optghc=-isrc --package-name=reexport-modules --package-version=0.1.0.0 --hide=Internal --hide=Bridge --show-interface=interface.haddock

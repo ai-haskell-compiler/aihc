@@ -1,0 +1,21 @@
+cabal-version: 2.4
+name: reexport-modules
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules:
+    Mixed
+    Partial
+    Public
+    QualifiedOnly
+    Restricted
+    Self
+
+  other-modules:
+    Bridge
+    Internal
+
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010

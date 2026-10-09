@@ -1,0 +1,11 @@
+haddock: Haddock version 2.32.0, (c) Simon Marlow 2006
+ghc: 9.12.4
+json-stream: stderr
+sources: src/Public.hs
+command: cabal haddock all --offline --enable-documentation --haddock-hoogle
+project:
+  packages:
+    ./dependencies/bridge/bridge.cabal
+    ./dependencies/bridge/dependencies/provider/provider.cabal
+    ./reexport-transitive.cabal
+command: haddock --optghc=-package-env=- --optghc=-isrc --package-name=reexport-transitive --package-version=0.1.0.0 --show-interface=interface.haddock

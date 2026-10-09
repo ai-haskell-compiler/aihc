@@ -15,7 +15,7 @@ module Test.Haddock.Fixtures (tests) where
 import Aihc.Hackage.Headers (writeCompilerHeaders)
 import Aihc.Haddock.Compare
 import Aihc.Haddock.Hoogle (renderHoogle)
-import Aihc.Haddock.Model (decodePackageDoc, encodePackageDoc)
+import Aihc.Haddock.Model (PackageDoc, decodePackageDoc, encodePackageDoc)
 import Aihc.Haddock.Package (documentationHeaderTarget, loadPackageDoc)
 import Aihc.Haddock.Reference.Hoogle (parseHoogleFile)
 import Aihc.Haddock.Reference.Json (decodeReferenceInterface)
@@ -52,24 +52,24 @@ fixtureTests accept headerDir name =
   testGroup
     name
     [ testCase "model" $ do
-        package <- loadPackageDoc headerDir dir []
+        package <- loadFixtureDoc headerDir dir
         checkGolden accept (expected "model.json") (TE.decodeUtf8 (BL.toStrict (encodePackageDoc package)))
         -- The model must survive a round trip through its own JSON.
         case decodePackageDoc (encodePackageDoc package) of
           Left err -> assertFailure ("model does not decode: " <> err)
           Right decoded -> unless (decoded == package) (assertFailure "model changes across a JSON round trip"),
       testCase "hoogle" $ do
-        package <- loadPackageDoc headerDir dir []
+        package <- loadFixtureDoc headerDir dir
         checkGolden accept (expected "hoogle.txt") (renderHoogle package),
       testCase "compare-json" $ do
-        package <- loadPackageDoc headerDir dir []
+        package <- loadFixtureDoc headerDir dir
         referenceBytes <- BL.readFile (dir </> "reference" </> "haddock.json")
         reference <- either (assertFailure . ("reference JSON: " <>)) pure (decodeReferenceInterface referenceBytes)
         let report = compareInterface defaultNormalization package reference
         checkGolden accept (expected "compare-json.txt") (renderReport report)
         checkStatus "json" (reportVerdict report),
       testCase "compare-hoogle" $ do
-        package <- loadPackageDoc headerDir dir []
+        package <- loadFixtureDoc headerDir dir
         reference <- parseHoogleFile <$> TIO.readFile (dir </> "reference" </> "hoogle.txt")
         let report = compareHoogle reference (parseHoogleFile (renderHoogle package))
         checkGolden accept (expected "compare-hoogle.txt") (renderReport report)
@@ -122,3 +122,18 @@ checkGolden accept path actual = do
           )
   where
     takeDirectoryOf = reverse . drop 1 . dropWhile (/= '/') . reverse
+
+-- | Each dependency is a source fixture. Decode its cache form before use.
+loadFixtureDoc :: FilePath -> FilePath -> IO PackageDoc
+loadFixtureDoc headerDir dir = do
+  let dependencyRoot = dir </> "dependencies"
+  exists <- doesDirectoryExist dependencyRoot
+  dependencies <-
+    if exists
+      then do
+        entries <- sort <$> listDirectory dependencyRoot
+        paths <- filterM doesDirectoryExist [dependencyRoot </> entry | entry <- entries]
+        mapM (loadFixtureDoc headerDir) paths
+      else pure []
+  cached <- mapM (either fail pure . decodePackageDoc . encodePackageDoc) dependencies
+  loadPackageDoc headerDir dir cached
