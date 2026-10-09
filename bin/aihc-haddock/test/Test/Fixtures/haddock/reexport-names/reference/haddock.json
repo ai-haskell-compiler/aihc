@@ -1,0 +1,248 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {},
+   "doc_map": {
+    "$main$Internal$<+>": {
+     "document": {
+      "document": {
+       "string": "Select the first value.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$Box": {
+     "document": {
+      "document": {
+       "string": "A box.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$Choice": {
+     "document": {
+      "document": {
+       "string": "A value with a choice.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$Record": {
+     "document": {
+      "document": {
+       "string": "A record.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$Secret": {
+     "document": {
+      "document": {
+       "string": "A hidden type.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$choose": {
+     "document": {
+      "document": {
+       "string": "Choose a value.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    },
+    "$main$Internal$identity": {
+     "document": {
+      "document": {
+       "string": "Return the input value.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Internal$<+>",
+    "$main$Internal$identity",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty",
+    "$main$Internal$Choice",
+    "$main$Internal$choose",
+    "$main$Internal$Record",
+    "$main$Internal$Record",
+    "$main$Internal$field",
+    "$main$Internal$Secret",
+    "$main$Internal$Secret"
+   ],
+   "fix_map": {
+    "$main$Internal$<+>": {
+     "direction": "infixl",
+     "prec": 4
+    }
+   },
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Internal",
+   "options": [
+    "OptHide"
+   ],
+   "visible_exports": []
+  },
+  {
+   "arg_map": {},
+   "doc_map": {
+    "$main$Other$identity": {
+     "document": {
+      "document": {
+       "string": "Select the second value.",
+       "tag": "DocString"
+      },
+      "tag": "DocParagraph"
+     },
+     "meta": {
+      "version": null
+     }
+    }
+   },
+   "exports": [
+    "$main$Other$identity"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Other",
+   "options": [
+    "OptHide"
+   ],
+   "visible_exports": []
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$main$Internal$<+>",
+    "$main$Internal$identity",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$choose",
+    "$main$Internal$field",
+    "$main$Internal$Secret"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Public",
+   "options": [],
+   "visible_exports": [
+    "$main$Internal$identity",
+    "$main$Internal$<+>",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Secret",
+    "$main$Internal$choose",
+    "$main$Internal$field"
+   ]
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$main$Other$identity",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty",
+    "$main$Internal$Choice",
+    "$main$Internal$choose"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": null,
+    "maintainer": null,
+    "protability": null,
+    "safety": "None",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$main$Qualified",
+   "options": [],
+   "visible_exports": [
+    "$main$Other$identity",
+    "$main$Internal$Box",
+    "$main$Internal$Box",
+    "$main$Internal$Empty",
+    "$main$Internal$Choice",
+    "$main$Internal$choose"
+   ]
+  }
+ ],
+ "link_env": {
+  "$main$Internal$<+>": "Public",
+  "$main$Internal$Box": "Public",
+  "$main$Internal$Choice": "Qualified",
+  "$main$Internal$Empty": "Qualified",
+  "$main$Internal$Secret": "Public",
+  "$main$Internal$choose": "Public",
+  "$main$Internal$field": "Public",
+  "$main$Internal$identity": "Public",
+  "$main$Other$identity": "Qualified"
+ },
+ "package_info": "reexport-names-0.1.0.0"
+}

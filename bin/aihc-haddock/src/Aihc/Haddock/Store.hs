@@ -7,8 +7,7 @@
 -- A cache separate from the compiler's store. Each package gets one artifact,
 -- keyed by the model format version, the package's source files and the keys
 -- of its dependencies, so that a change anywhere below a package invalidates
--- it. The artifact holds the documentation model; naming and type information
--- join it once those components are wired in.
+-- it. The artifact holds documentation, declaration identities, and resolver interfaces.
 module Aihc.Haddock.Store
   ( Store (..),
     defaultStoreRoot,
@@ -25,7 +24,7 @@ import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Haddock.Model
 import Aihc.Haddock.Package (documentationHeaderTarget, loadPackageDoc, packageSpecOf)
 import Aihc.PackagePlan (PackagePlan (..))
-import Control.Monad (filterM, forM)
+import Control.Monad (filterM, forM, when)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -116,27 +115,16 @@ storePackageDoc store key package = do
   BL.writeFile (artifactFile store key) (encodePackageDoc package)
   pure (artifactFile store key)
 
--- | Document a package plan: dependencies first, each cached under its key.
--- With @documentDependencies@ off only the root is documented and its
--- dependencies contribute just their versions.
+-- | Read dependency documentation before the package that uses it.
+-- With @documentDependencies@ off, do not write dependency artifacts.
+-- Export resolution still requires their interfaces and declarations.
 documentPlan :: Store -> Bool -> Bool -> (String -> IO ()) -> PackagePlan -> IO PackageDoc
-documentPlan store useCache documentDependencies say plan = do
-  dependencyKeys <-
-    if documentDependencies
-      then forM (planDependencyPlans plan) $ \dependency -> do
-        (key, _) <- go dependency
-        pure key
-      else forM (planDependencyPlans plan) $ \dependency -> do
-        spec <- packageSpecOf (planSourcePath dependency)
-        pure (ArtifactKey spec "")
-  snd <$> documentRoot dependencyKeys (planSourcePath plan)
+documentPlan store useCache documentDependencies say plan = snd <$> go True plan
   where
-    go dependency = do
-      dependencyKeys <- forM (planDependencyPlans dependency) (fmap fst . go)
-      documentRoot dependencyKeys (planSourcePath dependency)
-
-    documentRoot dependencyKeys root = do
-      key <- packageArtifactKey root dependencyKeys
+    go persist current = do
+      dependencies <- mapM (go documentDependencies) (planDependencyPlans current)
+      let root = planSourcePath current
+      key <- packageArtifactKey root (map fst dependencies)
       cached <- if useCache then lookupPackageDoc store key else pure Nothing
       case cached of
         Just package -> do
@@ -145,6 +133,8 @@ documentPlan store useCache documentDependencies say plan = do
         Nothing -> do
           say ("documenting " <> pkgName (artifactPackage key) <> "-" <> pkgVersion (artifactPackage key))
           headerDir <- writeCompilerHeaders documentationHeaderTarget (storeRoot store)
-          package <- loadPackageDoc headerDir root (map artifactPackage dependencyKeys)
-          _ <- storePackageDoc store key package
+          package <- loadPackageDoc headerDir root (map snd dependencies)
+          when persist $ do
+            _ <- storePackageDoc store key package
+            pure ()
           pure (key, package)

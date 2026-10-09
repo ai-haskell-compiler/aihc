@@ -1,0 +1,61 @@
+{
+ "inst_ifaces": [
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$provider-0.1.0.0-inplace$Private$identity",
+    "$provider-0.1.0.0-inplace$Private$Box",
+    "$provider-0.1.0.0-inplace$Private$Box"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": "Haskell2010",
+    "maintainer": null,
+    "protability": null,
+    "safety": "Safe-Inferred",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$reexport-dependency-0.1.0.0-inplace$Public",
+   "options": [],
+   "visible_exports": [
+    "$provider-0.1.0.0-inplace$Private$Box",
+    "$provider-0.1.0.0-inplace$Private$Box",
+    "$provider-0.1.0.0-inplace$Private$identity"
+   ]
+  },
+  {
+   "arg_map": {},
+   "doc_map": {},
+   "exports": [
+    "$provider-0.1.0.0-inplace$Private$identity",
+    "$provider-0.1.0.0-inplace$Private$Box",
+    "$provider-0.1.0.0-inplace$Private$Box"
+   ],
+   "fix_map": {},
+   "info": {
+    "copyright": null,
+    "description": null,
+    "extensions": [],
+    "language": "Haskell2010",
+    "maintainer": null,
+    "protability": null,
+    "safety": "Safe-Inferred",
+    "stability": null
+   },
+   "is_sig": false,
+   "module": "$reexport-dependency-0.1.0.0-inplace$Whole",
+   "options": [],
+   "visible_exports": []
+  }
+ ],
+ "link_env": {
+  "$provider-0.1.0.0-inplace$Private$Box": "Public",
+  "$provider-0.1.0.0-inplace$Private$identity": "Public"
+ },
+ "package_info": "reexport-dependency-0.1.0.0"
+}

@@ -1,0 +1,2084 @@
+{
+  "dependencies": [],
+  "format_version": 2,
+  "modules": [
+    {
+      "decls": [],
+      "description": null,
+      "diagnostics": [],
+      "exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Values",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": [
+            "identity",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "<+>",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            1,
+            {
+              "string": "Types",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": [
+            "Box",
+            "type",
+            {
+              "contents": [
+                "Box"
+              ],
+              "tag": "some_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Secret",
+            "type",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "choose",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "field",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        }
+      ],
+      "exposed": true,
+      "extensions": [
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/Public.hs",
+      "info": {
+        "copyright": null,
+        "description": null,
+        "license": null,
+        "maintainer": null,
+        "portability": null,
+        "stability": null
+      },
+      "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "<+>",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "<+>",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Box",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "choose",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "choose",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "field",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "field",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "identity",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Box",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Secret",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Secret",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "Box",
+            "Empty"
+          ],
+          "name": "Box",
+          "tag": "constructors"
+        },
+        {
+          "associativity": "infixl",
+          "name": "<+>",
+          "precedence": 4,
+          "tag": "fixity"
+        }
+      ],
+      "name": "Public",
+      "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Values",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Return the input value.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 19,
+              "end_line": 7,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 7
+            },
+            "name": "identity",
+            "namespace": "value",
+            "signature": "a -> a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Select the first value.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": {
+              "direction": "infixl",
+              "prec": 4
+            },
+            "identity": {
+              "module": "Internal",
+              "name": "<+>",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 21,
+              "end_line": 11,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 11
+            },
+            "name": "<+>",
+            "namespace": "value",
+            "signature": "a -> a -> a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            1,
+            {
+              "string": "Types",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A box.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 27,
+              "end_line": 4,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 4
+            },
+            "name": "Box",
+            "namespace": "type",
+            "signature": "Box a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "Box",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 19,
+                  "end_line": 4,
+                  "file": "src/Internal.hs",
+                  "start_column": 14,
+                  "start_line": 4
+                },
+                "name": "Box",
+                "namespace": "value",
+                "signature": "a -> Box a",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A hidden type.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Secret",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 21,
+              "end_line": 16,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 16
+            },
+            "name": "Secret",
+            "namespace": "type",
+            "signature": "Secret",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": "Choice a",
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Choose a value.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "choose",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "method",
+            "location": {
+              "end_column": 19,
+              "end_line": 21,
+              "file": "src/Internal.hs",
+              "start_column": 3,
+              "start_line": 21
+            },
+            "name": "choose",
+            "namespace": "value",
+            "signature": "a -> a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": null,
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "field",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "field",
+            "location": {
+              "end_column": 36,
+              "end_line": 24,
+              "file": "src/Internal.hs",
+              "start_column": 26,
+              "start_line": 24
+            },
+            "name": "field",
+            "namespace": "value",
+            "signature": "Record a -> a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
+      "warning": null
+    },
+    {
+      "decls": [],
+      "description": null,
+      "diagnostics": [],
+      "exports": [
+        {
+          "contents": [
+            "identity",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Box",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Choice",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        }
+      ],
+      "exposed": true,
+      "extensions": [
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/Qualified.hs",
+      "info": {
+        "copyright": null,
+        "description": null,
+        "license": null,
+        "maintainer": null,
+        "portability": null,
+        "stability": null
+      },
+      "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Box",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Empty",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Empty",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "choose",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "choose",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Other",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "identity",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Box",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Choice",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Choice",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "Box",
+            "Empty"
+          ],
+          "name": "Box",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "choose"
+          ],
+          "name": "Choice",
+          "tag": "methods"
+        }
+      ],
+      "name": "Qualified",
+      "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Select the second value.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Other",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 24,
+              "end_line": 4,
+              "file": "src/Other.hs",
+              "start_column": 1,
+              "start_line": 4
+            },
+            "name": "identity",
+            "namespace": "value",
+            "signature": "a -> b -> b",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A box.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 27,
+              "end_line": 4,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 4
+            },
+            "name": "Box",
+            "namespace": "type",
+            "signature": "Box a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "Box",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 19,
+                  "end_line": 4,
+                  "file": "src/Internal.hs",
+                  "start_column": 14,
+                  "start_line": 4
+                },
+                "name": "Box",
+                "namespace": "value",
+                "signature": "a -> Box a",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "Empty",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 27,
+                  "end_line": 4,
+                  "file": "src/Internal.hs",
+                  "start_column": 22,
+                  "start_line": 4
+                },
+                "name": "Empty",
+                "namespace": "value",
+                "signature": "Box a",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A value with a choice.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Choice",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "class",
+            "location": {
+              "end_column": 5,
+              "end_line": 24,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 19
+            },
+            "name": "Choice",
+            "namespace": "type",
+            "signature": "Choice a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": "Choice a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "Choose a value.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "choose",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 19,
+                  "end_line": 21,
+                  "file": "src/Internal.hs",
+                  "start_column": 3,
+                  "start_line": 21
+                },
+                "name": "choose",
+                "namespace": "value",
+                "signature": "a -> a",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
+      "warning": null
+    },
+    {
+      "decls": [
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A box.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "Internal",
+            "name": "Box",
+            "namespace": "type",
+            "package": "reexport-names-0.1.0.0"
+          },
+          "kind": "data",
+          "location": {
+            "end_column": 27,
+            "end_line": 4,
+            "file": "src/Internal.hs",
+            "start_column": 1,
+            "start_line": 4
+          },
+          "name": "Box",
+          "namespace": "type",
+          "signature": "Box a",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "Internal",
+                "name": "Box",
+                "namespace": "value",
+                "package": "reexport-names-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 19,
+                "end_line": 4,
+                "file": "src/Internal.hs",
+                "start_column": 14,
+                "start_line": 4
+              },
+              "name": "Box",
+              "namespace": "value",
+              "signature": "a -> Box a",
+              "subordinates": [],
+              "warning": null
+            },
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "Internal",
+                "name": "Empty",
+                "namespace": "value",
+                "package": "reexport-names-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 27,
+                "end_line": 4,
+                "file": "src/Internal.hs",
+                "start_column": 22,
+                "start_line": 4
+              },
+              "name": "Empty",
+              "namespace": "value",
+              "signature": "Box a",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Return the input value.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "Internal",
+            "name": "identity",
+            "namespace": "value",
+            "package": "reexport-names-0.1.0.0"
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 19,
+            "end_line": 7,
+            "file": "src/Internal.hs",
+            "start_column": 1,
+            "start_line": 7
+          },
+          "name": "identity",
+          "namespace": "value",
+          "signature": "a -> a",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Select the first value.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": {
+            "direction": "infixl",
+            "prec": 4
+          },
+          "identity": {
+            "module": "Internal",
+            "name": "<+>",
+            "namespace": "value",
+            "package": "reexport-names-0.1.0.0"
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 21,
+            "end_line": 11,
+            "file": "src/Internal.hs",
+            "start_column": 1,
+            "start_line": 11
+          },
+          "name": "<+>",
+          "namespace": "value",
+          "signature": "a -> a -> a",
+          "subordinates": [],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A hidden type.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "Internal",
+            "name": "Secret",
+            "namespace": "type",
+            "package": "reexport-names-0.1.0.0"
+          },
+          "kind": "data",
+          "location": {
+            "end_column": 21,
+            "end_line": 16,
+            "file": "src/Internal.hs",
+            "start_column": 1,
+            "start_line": 16
+          },
+          "name": "Secret",
+          "namespace": "type",
+          "signature": "Secret",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "Internal",
+                "name": "Secret",
+                "namespace": "value",
+                "package": "reexport-names-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 21,
+                "end_line": 16,
+                "file": "src/Internal.hs",
+                "start_column": 15,
+                "start_line": 16
+              },
+              "name": "Secret",
+              "namespace": "value",
+              "signature": "Secret",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A value with a choice.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "Internal",
+            "name": "Choice",
+            "namespace": "type",
+            "package": "reexport-names-0.1.0.0"
+          },
+          "kind": "class",
+          "location": {
+            "end_column": 5,
+            "end_line": 24,
+            "file": "src/Internal.hs",
+            "start_column": 1,
+            "start_line": 19
+          },
+          "name": "Choice",
+          "namespace": "type",
+          "signature": "Choice a",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "class_constraint": "Choice a",
+              "doc": {
+                "document": {
+                  "document": {
+                    "string": "Choose a value.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              },
+              "fixity": null,
+              "identity": {
+                "module": "Internal",
+                "name": "choose",
+                "namespace": "value",
+                "package": "reexport-names-0.1.0.0"
+              },
+              "kind": "method",
+              "location": {
+                "end_column": 19,
+                "end_line": 21,
+                "file": "src/Internal.hs",
+                "start_column": 3,
+                "start_line": 21
+              },
+              "name": "choose",
+              "namespace": "value",
+              "signature": "a -> a",
+              "subordinates": [],
+              "warning": null
+            }
+          ],
+          "warning": null
+        },
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "A record.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "Internal",
+            "name": "Record",
+            "namespace": "type",
+            "package": "reexport-names-0.1.0.0"
+          },
+          "kind": "data",
+          "location": {
+            "end_column": 38,
+            "end_line": 24,
+            "file": "src/Internal.hs",
+            "start_column": 1,
+            "start_line": 24
+          },
+          "name": "Record",
+          "namespace": "type",
+          "signature": "Record a",
+          "subordinates": [
+            {
+              "arg_docs": {},
+              "class_constraint": null,
+              "doc": null,
+              "fixity": null,
+              "identity": {
+                "module": "Internal",
+                "name": "Record",
+                "namespace": "value",
+                "package": "reexport-names-0.1.0.0"
+              },
+              "kind": "constructor",
+              "location": {
+                "end_column": 38,
+                "end_line": 24,
+                "file": "src/Internal.hs",
+                "start_column": 17,
+                "start_line": 24
+              },
+              "name": "Record",
+              "namespace": "value",
+              "signature": "a -> Record a",
+              "subordinates": [
+                {
+                  "arg_docs": {},
+                  "class_constraint": null,
+                  "doc": null,
+                  "fixity": null,
+                  "identity": {
+                    "module": "Internal",
+                    "name": "field",
+                    "namespace": "value",
+                    "package": "reexport-names-0.1.0.0"
+                  },
+                  "kind": "field",
+                  "location": {
+                    "end_column": 36,
+                    "end_line": 24,
+                    "file": "src/Internal.hs",
+                    "start_column": 26,
+                    "start_line": 24
+                  },
+                  "name": "field",
+                  "namespace": "value",
+                  "signature": "Record a -> a",
+                  "subordinates": [],
+                  "warning": null
+                }
+              ],
+              "warning": null
+            }
+          ],
+          "warning": null
+        }
+      ],
+      "description": null,
+      "diagnostics": [],
+      "exports": [
+        {
+          "contents": [
+            "Box",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "identity",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "<+>",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Secret",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Choice",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        },
+        {
+          "contents": [
+            "Record",
+            "type",
+            {
+              "tag": "all_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        }
+      ],
+      "exposed": false,
+      "extensions": [
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/Internal.hs",
+      "info": {
+        "copyright": null,
+        "description": null,
+        "license": null,
+        "maintainer": null,
+        "portability": null,
+        "stability": null
+      },
+      "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "<+>",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "<+>",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Box",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Empty",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Empty",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Record",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Record",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Secret",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Secret",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "choose",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "choose",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "field",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "field",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "identity",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Box",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Choice",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Choice",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Record",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Record",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Internal",
+              "name": "Secret",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "Secret",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "Box",
+            "Empty"
+          ],
+          "name": "Box",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "Record"
+          ],
+          "name": "Record",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "Secret"
+          ],
+          "name": "Secret",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "field"
+          ],
+          "name": "Record",
+          "tag": "fields"
+        },
+        {
+          "members": [
+            "choose"
+          ],
+          "name": "Choice",
+          "tag": "methods"
+        },
+        {
+          "associativity": "infixl",
+          "name": "<+>",
+          "precedence": 4,
+          "tag": "fixity"
+        }
+      ],
+      "name": "Internal",
+      "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A box.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Box",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 27,
+              "end_line": 4,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 4
+            },
+            "name": "Box",
+            "namespace": "type",
+            "signature": "Box a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "Box",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 19,
+                  "end_line": 4,
+                  "file": "src/Internal.hs",
+                  "start_column": 14,
+                  "start_line": 4
+                },
+                "name": "Box",
+                "namespace": "value",
+                "signature": "a -> Box a",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "Empty",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 27,
+                  "end_line": 4,
+                  "file": "src/Internal.hs",
+                  "start_column": 22,
+                  "start_line": 4
+                },
+                "name": "Empty",
+                "namespace": "value",
+                "signature": "Box a",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Return the input value.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 19,
+              "end_line": 7,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 7
+            },
+            "name": "identity",
+            "namespace": "value",
+            "signature": "a -> a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Select the first value.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": {
+              "direction": "infixl",
+              "prec": 4
+            },
+            "identity": {
+              "module": "Internal",
+              "name": "<+>",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 21,
+              "end_line": 11,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 11
+            },
+            "name": "<+>",
+            "namespace": "value",
+            "signature": "a -> a -> a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A hidden type.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Secret",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 21,
+              "end_line": 16,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 16
+            },
+            "name": "Secret",
+            "namespace": "type",
+            "signature": "Secret",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "Secret",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 21,
+                  "end_line": 16,
+                  "file": "src/Internal.hs",
+                  "start_column": 15,
+                  "start_line": 16
+                },
+                "name": "Secret",
+                "namespace": "value",
+                "signature": "Secret",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A value with a choice.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Choice",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "class",
+            "location": {
+              "end_column": 5,
+              "end_line": 24,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 19
+            },
+            "name": "Choice",
+            "namespace": "type",
+            "signature": "Choice a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": "Choice a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "Choose a value.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "choose",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 19,
+                  "end_line": 21,
+                  "file": "src/Internal.hs",
+                  "start_column": 3,
+                  "start_line": 21
+                },
+                "name": "choose",
+                "namespace": "value",
+                "signature": "a -> a",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A record.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Internal",
+              "name": "Record",
+              "namespace": "type",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 38,
+              "end_line": 24,
+              "file": "src/Internal.hs",
+              "start_column": 1,
+              "start_line": 24
+            },
+            "name": "Record",
+            "namespace": "type",
+            "signature": "Record a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Internal",
+                  "name": "Record",
+                  "namespace": "value",
+                  "package": "reexport-names-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 38,
+                  "end_line": 24,
+                  "file": "src/Internal.hs",
+                  "start_column": 17,
+                  "start_line": 24
+                },
+                "name": "Record",
+                "namespace": "value",
+                "signature": "a -> Record a",
+                "subordinates": [
+                  {
+                    "arg_docs": {},
+                    "class_constraint": null,
+                    "doc": null,
+                    "fixity": null,
+                    "identity": {
+                      "module": "Internal",
+                      "name": "field",
+                      "namespace": "value",
+                      "package": "reexport-names-0.1.0.0"
+                    },
+                    "kind": "field",
+                    "location": {
+                      "end_column": 36,
+                      "end_line": 24,
+                      "file": "src/Internal.hs",
+                      "start_column": 26,
+                      "start_line": 24
+                    },
+                    "name": "field",
+                    "namespace": "value",
+                    "signature": "Record a -> a",
+                    "subordinates": [],
+                    "warning": null
+                  }
+                ],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
+      "warning": null
+    },
+    {
+      "decls": [
+        {
+          "arg_docs": {},
+          "class_constraint": null,
+          "doc": {
+            "document": {
+              "document": {
+                "string": "Select the second value.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            },
+            "meta": {
+              "version": null
+            }
+          },
+          "fixity": null,
+          "identity": {
+            "module": "Other",
+            "name": "identity",
+            "namespace": "value",
+            "package": "reexport-names-0.1.0.0"
+          },
+          "kind": "function",
+          "location": {
+            "end_column": 24,
+            "end_line": 4,
+            "file": "src/Other.hs",
+            "start_column": 1,
+            "start_line": 4
+          },
+          "name": "identity",
+          "namespace": "value",
+          "signature": "a -> b -> b",
+          "subordinates": [],
+          "warning": null
+        }
+      ],
+      "description": null,
+      "diagnostics": [],
+      "exports": [
+        {
+          "contents": [
+            "identity",
+            "value",
+            {
+              "tag": "no_subordinates"
+            }
+          ],
+          "tag": "decl_item"
+        }
+      ],
+      "exposed": false,
+      "extensions": [
+        "CUSKs",
+        "DeepSubsumption",
+        "DatatypeContexts",
+        "DoAndIfThenElse",
+        "EmptyDataDecls",
+        "FieldSelectors",
+        "ForeignFunctionInterface",
+        "ImplicitPrelude",
+        "ImplicitStagePersistence",
+        "ListTuplePuns",
+        "MonomorphismRestriction",
+        "PatternGuards",
+        "RelaxedPolyRec",
+        "StarIsType",
+        "TraditionalRecordSyntax"
+      ],
+      "file": "src/Other.hs",
+      "info": {
+        "copyright": null,
+        "description": null,
+        "license": null,
+        "maintainer": null,
+        "portability": null,
+        "stability": null
+      },
+      "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Other",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            }
+          },
+          "name": "identity",
+          "tag": "term"
+        }
+      ],
+      "name": "Other",
+      "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Select the second value.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Other",
+              "name": "identity",
+              "namespace": "value",
+              "package": "reexport-names-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 24,
+              "end_line": 4,
+              "file": "src/Other.hs",
+              "start_column": 1,
+              "start_line": 4
+            },
+            "name": "identity",
+            "namespace": "value",
+            "signature": "a -> b -> b",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
+      "warning": null
+    }
+  ],
+  "name": "reexport-names",
+  "version": "0.1.0.0"
+}

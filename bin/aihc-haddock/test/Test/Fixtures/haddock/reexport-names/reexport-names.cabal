@@ -1,0 +1,17 @@
+cabal-version: 2.4
+name: reexport-names
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules:
+    Public
+    Qualified
+
+  other-modules:
+    Internal
+    Other
+
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010

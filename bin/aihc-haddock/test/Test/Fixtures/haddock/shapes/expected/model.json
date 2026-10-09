@@ -1,11 +1,12 @@
 {
   "dependencies": [],
-  "format_version": 1,
+  "format_version": 2,
   "modules": [
     {
       "decls": [
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -19,6 +20,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Doc.Fixture",
+            "name": "Shape",
+            "namespace": "type",
+            "package": "shapes-0.1.0.0"
+          },
           "kind": "data",
           "location": {
             "end_column": 22,
@@ -33,6 +40,7 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": null,
               "doc": {
                 "document": {
                   "document": {
@@ -46,6 +54,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Doc.Fixture",
+                "name": "Circle",
+                "namespace": "value",
+                "package": "shapes-0.1.0.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 18,
@@ -62,8 +76,15 @@
             },
             {
               "arg_docs": {},
+              "class_constraint": null,
               "doc": null,
               "fixity": null,
+              "identity": {
+                "module": "Doc.Fixture",
+                "name": "Rect",
+                "namespace": "value",
+                "package": "shapes-0.1.0.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 8,
@@ -78,6 +99,7 @@
               "subordinates": [
                 {
                   "arg_docs": {},
+                  "class_constraint": null,
                   "doc": {
                     "document": {
                       "document": {
@@ -91,6 +113,12 @@
                     }
                   },
                   "fixity": null,
+                  "identity": {
+                    "module": "Doc.Fixture",
+                    "name": "width",
+                    "namespace": "value",
+                    "package": "shapes-0.1.0.0"
+                  },
                   "kind": "field",
                   "location": {
                     "end_column": 24,
@@ -107,6 +135,7 @@
                 },
                 {
                   "arg_docs": {},
+                  "class_constraint": null,
                   "doc": {
                     "document": {
                       "document": {
@@ -120,6 +149,12 @@
                     }
                   },
                   "fixity": null,
+                  "identity": {
+                    "module": "Doc.Fixture",
+                    "name": "height",
+                    "namespace": "value",
+                    "package": "shapes-0.1.0.0"
+                  },
                   "kind": "field",
                   "location": {
                     "end_column": 25,
@@ -167,6 +202,7 @@
               }
             }
           },
+          "class_constraint": null,
           "doc": {
             "document": {
               "first": {
@@ -204,6 +240,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Doc.Fixture",
+            "name": "area",
+            "namespace": "value",
+            "package": "shapes-0.1.0.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 9,
@@ -220,6 +262,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -233,6 +276,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Doc.Fixture",
+            "name": "Named",
+            "namespace": "type",
+            "package": "shapes-0.1.0.0"
+          },
           "kind": "class",
           "location": {
             "end_column": 9,
@@ -247,6 +296,7 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": "Named a",
               "doc": {
                 "document": {
                   "document": {
@@ -260,6 +310,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Doc.Fixture",
+                "name": "name",
+                "namespace": "value",
+                "package": "shapes-0.1.0.0"
+              },
               "kind": "method",
               "location": {
                 "end_column": 22,
@@ -276,6 +332,7 @@
             },
             {
               "arg_docs": {},
+              "class_constraint": "Named a",
               "doc": {
                 "document": {
                   "document": {
@@ -289,6 +346,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Doc.Fixture",
+                "name": "rename",
+                "namespace": "value",
+                "package": "shapes-0.1.0.0"
+              },
               "kind": "method",
               "location": {
                 "end_column": 29,
@@ -333,6 +396,7 @@
               }
             }
           },
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -346,6 +410,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Doc.Fixture",
+            "name": "scale",
+            "namespace": "value",
+            "package": "shapes-0.1.0.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 15,
@@ -362,6 +432,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -377,6 +448,12 @@
           "fixity": {
             "direction": "infixl",
             "prec": 6
+          },
+          "identity": {
+            "module": "Doc.Fixture",
+            "name": "<+>",
+            "namespace": "value",
+            "package": "shapes-0.1.0.0"
           },
           "kind": "function",
           "location": {
@@ -650,6 +727,170 @@
           "overlap": null
         }
       ],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "<+>",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "<+>",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "Circle",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "Circle",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "Rect",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "Rect",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "area",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "area",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "height",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "height",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "name",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "name",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "rename",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "rename",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "scale",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "scale",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "width",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "width",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "Named",
+              "namespace": "type",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "Named",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Doc.Fixture",
+              "name": "Shape",
+              "namespace": "type",
+              "package": "shapes-0.1.0.0"
+            }
+          },
+          "name": "Shape",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "Circle",
+            "Rect"
+          ],
+          "name": "Shape",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "width",
+            "height"
+          ],
+          "name": "Rect",
+          "tag": "fields"
+        },
+        {
+          "members": [
+            "name",
+            "rename"
+          ],
+          "name": "Named",
+          "tag": "methods"
+        },
+        {
+          "associativity": "infixl",
+          "name": "<+>",
+          "precedence": 6,
+          "tag": "fixity"
+        }
+      ],
       "name": "Doc.Fixture",
       "named_chunks": {
         "extra": {
@@ -694,6 +935,555 @@
           "tag": "DocParagraph"
         }
       },
+      "resolved_exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Shapes",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A shape.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Doc.Fixture",
+              "name": "Shape",
+              "namespace": "type",
+              "package": "shapes-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 22,
+              "end_line": 30,
+              "file": "src/Doc/Fixture.hs",
+              "start_column": 1,
+              "start_line": 20
+            },
+            "name": "Shape",
+            "namespace": "type",
+            "signature": "Shape",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "A circle with a radius.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Doc.Fixture",
+                  "name": "Circle",
+                  "namespace": "value",
+                  "package": "shapes-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 18,
+                  "end_line": 22,
+                  "file": "src/Doc/Fixture.hs",
+                  "start_column": 5,
+                  "start_line": 22
+                },
+                "name": "Circle",
+                "namespace": "value",
+                "signature": "Double -> Shape",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Doc.Fixture",
+                  "name": "Rect",
+                  "namespace": "value",
+                  "package": "shapes-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 8,
+                  "end_line": 28,
+                  "file": "src/Doc/Fixture.hs",
+                  "start_column": 5,
+                  "start_line": 23
+                },
+                "name": "Rect",
+                "namespace": "value",
+                "signature": "Double -> Double -> Shape",
+                "subordinates": [
+                  {
+                    "arg_docs": {},
+                    "class_constraint": null,
+                    "doc": {
+                      "document": {
+                        "document": {
+                          "string": "the width",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocParagraph"
+                      },
+                      "meta": {
+                        "version": null
+                      }
+                    },
+                    "fixity": null,
+                    "identity": {
+                      "module": "Doc.Fixture",
+                      "name": "width",
+                      "namespace": "value",
+                      "package": "shapes-0.1.0.0"
+                    },
+                    "kind": "field",
+                    "location": {
+                      "end_column": 24,
+                      "end_line": 24,
+                      "file": "src/Doc/Fixture.hs",
+                      "start_column": 9,
+                      "start_line": 24
+                    },
+                    "name": "width",
+                    "namespace": "value",
+                    "signature": "Shape -> Double",
+                    "subordinates": [],
+                    "warning": null
+                  },
+                  {
+                    "arg_docs": {},
+                    "class_constraint": null,
+                    "doc": {
+                      "document": {
+                        "document": {
+                          "string": "the height",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocParagraph"
+                      },
+                      "meta": {
+                        "version": null
+                      }
+                    },
+                    "fixity": null,
+                    "identity": {
+                      "module": "Doc.Fixture",
+                      "name": "height",
+                      "namespace": "value",
+                      "package": "shapes-0.1.0.0"
+                    },
+                    "kind": "field",
+                    "location": {
+                      "end_column": 25,
+                      "end_line": 26,
+                      "file": "src/Doc/Fixture.hs",
+                      "start_column": 9,
+                      "start_line": 26
+                    },
+                    "name": "height",
+                    "namespace": "value",
+                    "signature": "Shape -> Double",
+                    "subordinates": [],
+                    "warning": null
+                  }
+                ],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {
+              "0": {
+                "document": {
+                  "document": {
+                    "string": "the shape",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              },
+              "1": {
+                "document": {
+                  "document": {
+                    "string": "its area",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              }
+            },
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "first": {
+                  "document": {
+                    "string": "Compute the area.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "second": {
+                  "first": {
+                    "examples": [
+                      {
+                        "exampleExpression": "area (Circle 1)",
+                        "exampleResult": [
+                          "3.14"
+                        ]
+                      }
+                    ],
+                    "tag": "DocExamples"
+                  },
+                  "second": {
+                    "document": {
+                      "string": "area (Rect 2 3) == 6\n",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocCodeBlock"
+                  },
+                  "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Doc.Fixture",
+              "name": "area",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 9,
+              "end_line": 44,
+              "file": "src/Doc/Fixture.hs",
+              "start_column": 1,
+              "start_line": 40
+            },
+            "name": "area",
+            "namespace": "value",
+            "signature": "Shape -> Double",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            2,
+            {
+              "string": "Helpers",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Things with names.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Doc.Fixture",
+              "name": "Named",
+              "namespace": "type",
+              "package": "shapes-0.1.0.0"
+            },
+            "kind": "class",
+            "location": {
+              "end_column": 9,
+              "end_line": 57,
+              "file": "src/Doc/Fixture.hs",
+              "start_column": 1,
+              "start_line": 49
+            },
+            "name": "Named",
+            "namespace": "type",
+            "signature": "Named a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": "Named a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "The name.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Doc.Fixture",
+                  "name": "name",
+                  "namespace": "value",
+                  "package": "shapes-0.1.0.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 22,
+                  "end_line": 51,
+                  "file": "src/Doc/Fixture.hs",
+                  "start_column": 3,
+                  "start_line": 51
+                },
+                "name": "name",
+                "namespace": "value",
+                "signature": "a -> String",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": "Named a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "Rename.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Doc.Fixture",
+                  "name": "rename",
+                  "namespace": "value",
+                  "package": "shapes-0.1.0.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 29,
+                  "end_line": 55,
+                  "file": "src/Doc/Fixture.hs",
+                  "start_column": 3,
+                  "start_line": 55
+                },
+                "name": "rename",
+                "namespace": "value",
+                "signature": "String -> a -> a",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            "extra",
+            {
+              "document": {
+                "first": {
+                  "string": "A named chunk about ",
+                  "tag": "DocString"
+                },
+                "second": {
+                  "first": {
+                    "document": {
+                      "string": "helpers",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocEmphasis"
+                  },
+                  "second": {
+                    "first": {
+                      "string": " and ",
+                      "tag": "DocString"
+                    },
+                    "second": {
+                      "first": {
+                        "document": {
+                          "string": "code",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocMonospaced"
+                      },
+                      "second": {
+                        "string": ".",
+                        "tag": "DocString"
+                      },
+                      "tag": "DocAppend"
+                    },
+                    "tag": "DocAppend"
+                  },
+                  "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+              },
+              "tag": "DocParagraph"
+            }
+          ],
+          "tag": "doc_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {
+              "0": {
+                "document": {
+                  "document": {
+                    "string": "factor",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              },
+              "1": {
+                "document": {
+                  "document": {
+                    "string": "input",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              }
+            },
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Scale a shape.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Doc.Fixture",
+              "name": "scale",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 15,
+              "end_line": 63,
+              "file": "src/Doc/Fixture.hs",
+              "start_column": 1,
+              "start_line": 61
+            },
+            "name": "scale",
+            "namespace": "value",
+            "signature": "Double -> Shape -> Shape",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Combine two areas.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": {
+              "direction": "infixl",
+              "prec": 6
+            },
+            "identity": {
+              "module": "Doc.Fixture",
+              "name": "<+>",
+              "namespace": "value",
+              "package": "shapes-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 34,
+              "end_line": 70,
+              "file": "src/Doc/Fixture.hs",
+              "start_column": 1,
+              "start_line": 70
+            },
+            "name": "<+>",
+            "namespace": "value",
+            "signature": "Shape -> Shape -> Double",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
       "warning": null
     }
   ],

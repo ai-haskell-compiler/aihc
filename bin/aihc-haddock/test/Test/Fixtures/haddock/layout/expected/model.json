@@ -1,11 +1,12 @@
 {
   "dependencies": [],
-  "format_version": 1,
+  "format_version": 2,
   "modules": [
     {
       "decls": [
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "first": {
@@ -29,6 +30,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Layout",
+            "name": "Config",
+            "namespace": "type",
+            "package": "layout-0.1.0.0"
+          },
           "kind": "data",
           "location": {
             "end_column": 30,
@@ -43,8 +50,15 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": null,
               "doc": null,
               "fixity": null,
+              "identity": {
+                "module": "Layout",
+                "name": "Config",
+                "namespace": "value",
+                "package": "layout-0.1.0.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 30,
@@ -64,6 +78,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "first": {
@@ -87,6 +102,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Layout",
+            "name": "Runnable",
+            "namespace": "type",
+            "package": "layout-0.1.0.0"
+          },
           "kind": "class",
           "location": {
             "end_column": 6,
@@ -101,6 +122,7 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": "Runnable a",
               "doc": {
                 "document": {
                   "document": {
@@ -114,6 +136,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Layout",
+                "name": "run",
+                "namespace": "value",
+                "package": "layout-0.1.0.0"
+              },
               "kind": "method",
               "location": {
                 "end_column": 20,
@@ -130,8 +158,15 @@
             },
             {
               "arg_docs": {},
+              "class_constraint": "Runnable a",
               "doc": null,
               "fixity": null,
+              "identity": {
+                "module": "Layout",
+                "name": "halt",
+                "namespace": "value",
+                "package": "layout-0.1.0.0"
+              },
               "kind": "method",
               "location": {
                 "end_column": 21,
@@ -151,6 +186,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -164,6 +200,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Layout",
+            "name": "build",
+            "namespace": "value",
+            "package": "layout-0.1.0.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 23,
@@ -193,6 +235,7 @@
               }
             }
           },
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -206,6 +249,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Layout",
+            "name": "step",
+            "namespace": "value",
+            "package": "layout-0.1.0.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 32,
@@ -304,8 +353,388 @@
         "stability": null
       },
       "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Layout",
+              "name": "Config",
+              "namespace": "value",
+              "package": "layout-0.1.0.0"
+            }
+          },
+          "name": "Config",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Layout",
+              "name": "build",
+              "namespace": "value",
+              "package": "layout-0.1.0.0"
+            }
+          },
+          "name": "build",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Layout",
+              "name": "halt",
+              "namespace": "value",
+              "package": "layout-0.1.0.0"
+            }
+          },
+          "name": "halt",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Layout",
+              "name": "run",
+              "namespace": "value",
+              "package": "layout-0.1.0.0"
+            }
+          },
+          "name": "run",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Layout",
+              "name": "step",
+              "namespace": "value",
+              "package": "layout-0.1.0.0"
+            }
+          },
+          "name": "step",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Layout",
+              "name": "Config",
+              "namespace": "type",
+              "package": "layout-0.1.0.0"
+            }
+          },
+          "name": "Config",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Layout",
+              "name": "Runnable",
+              "namespace": "type",
+              "package": "layout-0.1.0.0"
+            }
+          },
+          "name": "Runnable",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "Config"
+          ],
+          "name": "Config",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "run",
+            "halt"
+          ],
+          "name": "Runnable",
+          "tag": "methods"
+        }
+      ],
       "name": "Layout",
       "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "first": {
+                  "document": {
+                    "string": "Configuration.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "second": {
+                  "document": {
+                    "string": "A column-one comment after a data declaration.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "tag": "DocAppend"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Layout",
+              "name": "Config",
+              "namespace": "type",
+              "package": "layout-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 30,
+              "end_line": 11,
+              "file": "src/Layout.hs",
+              "start_column": 1,
+              "start_line": 11
+            },
+            "name": "Config",
+            "namespace": "type",
+            "signature": "Config",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Layout",
+                  "name": "Config",
+                  "namespace": "value",
+                  "package": "layout-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 30,
+                  "end_line": 11,
+                  "file": "src/Layout.hs",
+                  "start_column": 15,
+                  "start_line": 11
+                },
+                "name": "Config",
+                "namespace": "value",
+                "signature": "Int -> Bool -> Config",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "first": {
+                  "document": {
+                    "string": "Something that runs.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "second": {
+                  "document": {
+                    "string": "Column one after the class body: closes the block.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "tag": "DocAppend"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Layout",
+              "name": "Runnable",
+              "namespace": "type",
+              "package": "layout-0.1.0.0"
+            },
+            "kind": "class",
+            "location": {
+              "end_column": 6,
+              "end_line": 22,
+              "file": "src/Layout.hs",
+              "start_column": 1,
+              "start_line": 15
+            },
+            "name": "Runnable",
+            "namespace": "type",
+            "signature": "Runnable a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": "Runnable a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "Indented like a method: documents the method.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Layout",
+                  "name": "run",
+                  "namespace": "value",
+                  "package": "layout-0.1.0.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 20,
+                  "end_line": 16,
+                  "file": "src/Layout.hs",
+                  "start_column": 3,
+                  "start_line": 16
+                },
+                "name": "run",
+                "namespace": "value",
+                "signature": "a -> IO ()",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": "Runnable a",
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Layout",
+                  "name": "halt",
+                  "namespace": "value",
+                  "package": "layout-0.1.0.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 21,
+                  "end_line": 19,
+                  "file": "src/Layout.hs",
+                  "start_column": 3,
+                  "start_line": 19
+                },
+                "name": "halt",
+                "namespace": "value",
+                "signature": "a -> IO ()",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Column one after a function binding.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Layout",
+              "name": "build",
+              "namespace": "value",
+              "package": "layout-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 23,
+              "end_line": 22,
+              "file": "src/Layout.hs",
+              "start_column": 1,
+              "start_line": 22
+            },
+            "name": "build",
+            "namespace": "value",
+            "signature": "Int -> Config",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {
+              "2": {
+                "document": {
+                  "document": {
+                    "string": "Indented after the result type.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              }
+            },
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Step.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Layout",
+              "name": "step",
+              "namespace": "value",
+              "package": "layout-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 32,
+              "end_line": 27,
+              "file": "src/Layout.hs",
+              "start_column": 1,
+              "start_line": 27
+            },
+            "name": "step",
+            "namespace": "value",
+            "signature": "Config -> Int -> Config",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
       "warning": null
     }
   ],

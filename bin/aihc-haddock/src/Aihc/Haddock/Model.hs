@@ -42,6 +42,7 @@ module Aihc.Haddock.Model
   )
 where
 
+import Aihc.Haddock.Interface (DocInterface, DocName)
 import Aihc.Parser.Syntax (SourceSpan, pattern SourceSpan)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.!=), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
@@ -57,7 +58,7 @@ import GHC.Generics (Generic)
 -- | Bump when the JSON layout of 'PackageDoc' changes. Cached artifacts are
 -- keyed by this version, so a bump invalidates every cached package.
 docModelFormatVersion :: Int
-docModelFormatVersion = 1
+docModelFormatVersion = 2
 
 -- | Documentation markup. Constructors and their JSON tags follow Haddock's
 -- @DocH@.
@@ -171,12 +172,15 @@ locationFromSpan relativize (SourceSpan file startLine startCol endLine endCol _
 -- | One documented declaration or subordinate (constructor, field, method).
 data DeclDoc = DeclDoc
   { declName :: Text,
+    declIdentity :: Maybe DocName,
     declNamespace :: Namespace,
     declKind :: DeclKind,
     -- | The rendered signature or head, for example @Shape -> Double@ for a
     -- function or @Shape a@ for a data type. Missing when the source has no
     -- signature and type inference is not available.
     declSignature :: Maybe Text,
+    -- | The class constraint of a method, also available for separate exports.
+    declClassConstraint :: Maybe Text,
     declDoc :: Maybe MetaDoc,
     -- | Argument documentation by argument position, the result being the
     -- position after the last argument.
@@ -202,6 +206,9 @@ data ExportItem
     ExportDocItem (Maybe Text) Doc
   | ExportDeclItem Text Namespace ExportSubordinates
   | ExportModuleItem Text
+  | ExportResolvedItem DeclDoc
+  | -- | A complete public module, with its package identity and export declarations.
+    ExportResolvedModuleItem Text Text [DeclDoc]
   deriving (Eq, Show, Generic)
 
 data InstanceDoc = InstanceDoc
@@ -240,6 +247,10 @@ data ModuleDoc = ModuleDoc
     moduleDocWarning :: Maybe Text,
     -- | 'Nothing' when the module has no export list.
     moduleDocExports :: Maybe [ExportItem],
+    -- | Export documentation in display order, with resolver identities.
+    moduleDocResolvedExports :: [ExportItem],
+    -- | The resolver interface for clients of this module.
+    moduleDocInterface :: DocInterface,
     -- | Every top-level declaration in source order, exported or not.
     moduleDocDecls :: [DeclDoc],
     moduleDocInstances :: [InstanceDoc],

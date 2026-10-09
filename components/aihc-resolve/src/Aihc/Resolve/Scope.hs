@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Resolve.Scope
@@ -20,6 +21,9 @@ module Aihc.Resolve.Scope
     ModuleKey (..),
     collectModuleExports,
     collectModuleExportsWithDeps,
+    moduleDeclarationExports,
+    resolveExportList,
+    ResolvedExport (..),
     exportedLocalNames,
     moduleScope,
     moduleKey,
@@ -341,9 +345,60 @@ exportedLocalNames package name exports =
 
 exportedScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
 exportedScope package exports extensions modu =
-  case moduleExports modu of
-    Nothing -> ownScope
-    Just specs -> withSeparatelyExportedFields (withSeparatelyExportedMethods (List.foldl' unionScope emptyScope (map exportSpecScope specs)))
+  exportedScopeFor package exports extensions modu (moduleExports modu)
+
+-- | The identities and relationships of declarations in this module.
+-- Imports supply facts for record wildcard patterns, but do not become declarations.
+moduleDeclarationExports :: ModuleExports -> ModuleUnit -> Exports
+moduleDeclarationExports exports (ModuleUnit package extensions modu) =
+  Exports (exportedScopeFor package exports extensions modu Nothing)
+
+-- | One export item, its entities, and any complete module exports.
+-- Module keys retain the source of an import alias.
+data ResolvedExport = ResolvedExport
+  { resolvedExportSpec :: ExportSpec,
+    resolvedExportScope :: Exports,
+    resolvedExportModules :: [ModuleKey]
+  }
+
+-- | Resolve each explicit export item in source order.
+-- The caller must include the unit's exports and its dependency exports.
+resolveExportList :: ModuleExports -> ModuleUnit -> Maybe [ResolvedExport]
+resolveExportList exports (ModuleUnit package extensions modu) =
+  map resolve <$> moduleExports modu
+  where
+    select = exportedScopeFor package exports extensions modu
+    resolve spec =
+      let scope = select (Just [spec])
+       in ResolvedExport spec (Exports scope) (completeModules spec scope)
+    completeModules (ExportAnn _ inner) scope = completeModules inner scope
+    completeModules (ExportModule _ qualifier) scope =
+      List.nub
+        [ key
+        | (key, origin) <- candidates qualifier,
+          not (Set.null (entities origin)),
+          entities origin `Set.isSubsetOf` entities scope
+        ]
+    completeModules _ _ = []
+    entities scope = Set.fromList (Map.elems (scopeTerms scope) <> Map.elems (scopeTypes scope))
+    candidates qualifier =
+      concat
+        [ unique (matchingModuleEntries package (importDeclPackage imp) (importDeclModule imp) exports)
+        | imp <- moduleImports modu,
+          fromMaybe (importDeclModule imp) (importDeclAs imp) == qualifier
+        ]
+        <> [(ModuleKey package (moduleKey modu), select Nothing) | qualifier == moduleKey modu]
+        <> ( if qualifier == "Prelude" && moduleImportsImplicitPrelude extensions modu
+               then unique (matchingModuleEntries package Nothing "Prelude" exports)
+               else []
+           )
+    unique [entry] = [entry]
+    unique _ = []
+
+exportedScopeFor :: Package -> ModuleExports -> [Extension] -> Module -> Maybe [ExportSpec] -> Scope
+exportedScopeFor package exports extensions modu = \case
+  Nothing -> ownScope
+  Just specs -> withSeparatelyExportedFields (withSeparatelyExportedMethods (List.foldl' unionScope emptyScope (map exportSpecScope specs)))
   where
     (ownScope, imported) = ownAndImportedScopes package exports extensions modu
     availableScope = ownScope `unionScope` imported
@@ -877,15 +932,21 @@ lookupImportedModule currentPackage requestedPackage moduleName' exports =
     matchingScopes = matchingModuleScopes currentPackage requestedPackage moduleName' exports
 
 matchingModuleScopes :: Package -> Maybe Text -> Text -> ModuleExports -> [Scope]
-matchingModuleScopes currentPackage requestedPackage moduleName' (ModuleExports byName) =
+matchingModuleScopes currentPackage requestedPackage moduleName' exports =
+  map snd (matchingModuleEntries currentPackage requestedPackage moduleName' exports)
+
+matchingModuleEntries :: Package -> Maybe Text -> Text -> ModuleExports -> [(ModuleKey, Scope)]
+matchingModuleEntries currentPackage requestedPackage moduleName' (ModuleExports byName) =
   case Map.lookup moduleName' byName of
     Nothing -> []
     Just byPackage ->
-      case requestedPackage of
-        Nothing -> Map.elems byPackage
-        Just "this" -> maybeToList (Map.lookup currentPackage byPackage)
-        Just requested ->
-          [scope | (package, scope) <- Map.toList byPackage, packageName package == requested]
+      [ (ModuleKey package moduleName', scope)
+      | (package, scope) <- Map.toList byPackage,
+        case requestedPackage of
+          Nothing -> True
+          Just "this" -> package == currentPackage
+          Just requested -> packageName package == requested
+      ]
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =

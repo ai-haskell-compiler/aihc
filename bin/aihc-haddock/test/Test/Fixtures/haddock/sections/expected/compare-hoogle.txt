@@ -1,6 +1,7 @@
 FAIL 1 differences
-hoogle.decl [tagOf] :: Tagged a -> String
+hoogle.decl Data.Sections: [tagOf] :: Tagged a -> String
   expected: missing
   actual:   present
+note: module order is not significant
 note: instance heads compared without module qualifiers
 note: documentation compared as re-flowed text; line wrapping is not significant

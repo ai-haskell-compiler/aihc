@@ -1,11 +1,12 @@
 {
   "dependencies": [],
-  "format_version": 1,
+  "format_version": 2,
   "modules": [
     {
       "decls": [
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -19,6 +20,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Markup",
+            "name": "Thing",
+            "namespace": "type",
+            "package": "markup-0.1.0.0"
+          },
           "kind": "data",
           "location": {
             "end_column": 6,
@@ -46,6 +53,7 @@
                   }
                 }
               },
+              "class_constraint": null,
               "doc": {
                 "document": {
                   "document": {
@@ -59,6 +67,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Markup",
+                "name": "A",
+                "namespace": "value",
+                "package": "markup-0.1.0.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 10,
@@ -75,8 +89,15 @@
             },
             {
               "arg_docs": {},
+              "class_constraint": null,
               "doc": null,
               "fixity": null,
+              "identity": {
+                "module": "Markup",
+                "name": "B",
+                "namespace": "value",
+                "package": "markup-0.1.0.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 6,
@@ -91,6 +112,7 @@
               "subordinates": [
                 {
                   "arg_docs": {},
+                  "class_constraint": null,
                   "doc": {
                     "document": {
                       "document": {
@@ -104,6 +126,12 @@
                     }
                   },
                   "fixity": null,
+                  "identity": {
+                    "module": "Markup",
+                    "name": "fieldB",
+                    "namespace": "value",
+                    "package": "markup-0.1.0.0"
+                  },
                   "kind": "field",
                   "location": {
                     "end_column": 20,
@@ -126,6 +154,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -139,6 +168,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Markup",
+            "name": "T",
+            "namespace": "type",
+            "package": "markup-0.1.0.0"
+          },
           "kind": "type_synonym",
           "location": {
             "end_column": 15,
@@ -155,6 +190,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -168,6 +204,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Markup",
+            "name": "C",
+            "namespace": "type",
+            "package": "markup-0.1.0.0"
+          },
           "kind": "class",
           "location": {
             "end_column": 7,
@@ -182,6 +224,7 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": "C a",
               "doc": {
                 "document": {
                   "document": {
@@ -195,6 +238,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Markup",
+                "name": "meth",
+                "namespace": "value",
+                "package": "markup-0.1.0.0"
+              },
               "kind": "method",
               "location": {
                 "end_column": 19,
@@ -214,6 +263,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "first": {
@@ -524,6 +574,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Markup",
+            "name": "markup",
+            "namespace": "value",
+            "package": "markup-0.1.0.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 21,
@@ -540,6 +596,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "tag": "DocEmpty"
@@ -549,6 +606,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Markup",
+            "name": "identity",
+            "namespace": "value",
+            "package": "markup-0.1.0.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 19,
@@ -565,6 +628,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -580,6 +644,12 @@
           "fixity": {
             "direction": "infixr",
             "prec": 5
+          },
+          "identity": {
+            "module": "Markup",
+            "name": "%%",
+            "namespace": "value",
+            "package": "markup-0.1.0.0"
           },
           "kind": "function",
           "location": {
@@ -597,6 +667,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -610,6 +681,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Markup",
+            "name": "F",
+            "namespace": "type",
+            "package": "markup-0.1.0.0"
+          },
           "kind": "type_family",
           "location": {
             "end_column": 8,
@@ -626,6 +703,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -639,6 +717,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Markup",
+            "name": "P",
+            "namespace": "value",
+            "package": "markup-0.1.0.0"
+          },
           "kind": "pattern_synonym",
           "location": {
             "end_column": 26,
@@ -782,8 +866,941 @@
         "stability": null
       },
       "instances": [],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "%%",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "%%",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "A",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "A",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "B",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "B",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "P",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "P",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "fieldB",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "fieldB",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "identity",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "identity",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "markup",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "markup",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "meth",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "meth",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "C",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "C",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "F",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "F",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "T",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "T",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Markup",
+              "name": "Thing",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            }
+          },
+          "name": "Thing",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "A",
+            "B"
+          ],
+          "name": "Thing",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "fieldB"
+          ],
+          "name": "B",
+          "tag": "fields"
+        },
+        {
+          "members": [
+            "meth"
+          ],
+          "name": "C",
+          "tag": "methods"
+        },
+        {
+          "associativity": "infixr",
+          "name": "%%",
+          "precedence": 5,
+          "tag": "fixity"
+        }
+      ],
       "name": "Markup",
       "named_chunks": {},
+      "resolved_exports": [
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A thing.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Markup",
+              "name": "Thing",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 6,
+              "end_line": 13,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 6
+            },
+            "name": "Thing",
+            "namespace": "type",
+            "signature": "Thing",
+            "subordinates": [
+              {
+                "arg_docs": {
+                  "0": {
+                    "document": {
+                      "document": {
+                        "string": "trailing A doc",
+                        "tag": "DocString"
+                      },
+                      "tag": "DocParagraph"
+                    },
+                    "meta": {
+                      "version": null
+                    }
+                  }
+                },
+                "class_constraint": null,
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "The A thing.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Markup",
+                  "name": "A",
+                  "namespace": "value",
+                  "package": "markup-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 10,
+                  "end_line": 8,
+                  "file": "src/Markup.hs",
+                  "start_column": 5,
+                  "start_line": 8
+                },
+                "name": "A",
+                "namespace": "value",
+                "signature": "Int -> Thing",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Markup",
+                  "name": "B",
+                  "namespace": "value",
+                  "package": "markup-0.1.0.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 6,
+                  "end_line": 13,
+                  "file": "src/Markup.hs",
+                  "start_column": 5,
+                  "start_line": 10
+                },
+                "name": "B",
+                "namespace": "value",
+                "signature": "Int -> Thing",
+                "subordinates": [
+                  {
+                    "arg_docs": {},
+                    "class_constraint": null,
+                    "doc": {
+                      "document": {
+                        "document": {
+                          "string": "field doc before",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocParagraph"
+                      },
+                      "meta": {
+                        "version": null
+                      }
+                    },
+                    "fixity": null,
+                    "identity": {
+                      "module": "Markup",
+                      "name": "fieldB",
+                      "namespace": "value",
+                      "package": "markup-0.1.0.0"
+                    },
+                    "kind": "field",
+                    "location": {
+                      "end_column": 20,
+                      "end_line": 12,
+                      "file": "src/Markup.hs",
+                      "start_column": 7,
+                      "start_line": 12
+                    },
+                    "name": "fieldB",
+                    "namespace": "value",
+                    "signature": "Thing -> Int",
+                    "subordinates": [],
+                    "warning": null
+                  }
+                ],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "first": {
+                  "document": {
+                    "string": "Function with markup.",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "second": {
+                  "first": {
+                    "document": {
+                      "first": {
+                        "string": "Uses ",
+                        "tag": "DocString"
+                      },
+                      "second": {
+                        "first": {
+                          "name": "identity",
+                          "tag": "DocIdentifier"
+                        },
+                        "second": {
+                          "first": {
+                            "string": " and ",
+                            "tag": "DocString"
+                          },
+                          "second": {
+                            "first": {
+                              "string": "Data.Maybe",
+                              "tag": "DocModule"
+                            },
+                            "second": {
+                              "first": {
+                                "string": " and ",
+                                "tag": "DocString"
+                              },
+                              "second": {
+                                "first": {
+                                  "modName": "Data.List",
+                                  "name": "map",
+                                  "tag": "DocIdentifierUnchecked"
+                                },
+                                "second": {
+                                  "first": {
+                                    "string": ", also ",
+                                    "tag": "DocString"
+                                  },
+                                  "second": {
+                                    "first": {
+                                      "document": {
+                                        "string": "mono",
+                                        "tag": "DocString"
+                                      },
+                                      "tag": "DocMonospaced"
+                                    },
+                                    "second": {
+                                      "first": {
+                                        "string": ", ",
+                                        "tag": "DocString"
+                                      },
+                                      "second": {
+                                        "first": {
+                                          "document": {
+                                            "string": "emph",
+                                            "tag": "DocString"
+                                          },
+                                          "tag": "DocEmphasis"
+                                        },
+                                        "second": {
+                                          "first": {
+                                            "string": ", ",
+                                            "tag": "DocString"
+                                          },
+                                          "second": {
+                                            "first": {
+                                              "document": {
+                                                "string": "bold",
+                                                "tag": "DocString"
+                                              },
+                                              "tag": "DocBold"
+                                            },
+                                            "second": {
+                                              "string": ".",
+                                              "tag": "DocString"
+                                            },
+                                            "tag": "DocAppend"
+                                          },
+                                          "tag": "DocAppend"
+                                        },
+                                        "tag": "DocAppend"
+                                      },
+                                      "tag": "DocAppend"
+                                    },
+                                    "tag": "DocAppend"
+                                  },
+                                  "tag": "DocAppend"
+                                },
+                                "tag": "DocAppend"
+                              },
+                              "tag": "DocAppend"
+                            },
+                            "tag": "DocAppend"
+                          },
+                          "tag": "DocAppend"
+                        },
+                        "tag": "DocAppend"
+                      },
+                      "tag": "DocAppend"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "second": {
+                    "first": {
+                      "header": {
+                        "headerLevel": 1,
+                        "headerTitle": {
+                          "string": "Header",
+                          "tag": "DocString"
+                        }
+                      },
+                      "tag": "DocHeader"
+                    },
+                    "second": {
+                      "first": {
+                        "header": {
+                          "headerLevel": 2,
+                          "headerTitle": {
+                            "string": "Sub header",
+                            "tag": "DocString"
+                          }
+                        },
+                        "tag": "DocHeader"
+                      },
+                      "second": {
+                        "first": {
+                          "documents": [
+                            {
+                              "document": {
+                                "string": "bullet one",
+                                "tag": "DocString"
+                              },
+                              "tag": "DocParagraph"
+                            },
+                            {
+                              "document": {
+                                "string": "bullet two",
+                                "tag": "DocString"
+                              },
+                              "tag": "DocParagraph"
+                            }
+                          ],
+                          "tag": "DocUnorderedList"
+                        },
+                        "second": {
+                          "first": {
+                            "items": [
+                              {
+                                "document": {
+                                  "document": {
+                                    "string": "first",
+                                    "tag": "DocString"
+                                  },
+                                  "tag": "DocParagraph"
+                                },
+                                "seq": 1
+                              },
+                              {
+                                "document": {
+                                  "document": {
+                                    "string": "second",
+                                    "tag": "DocString"
+                                  },
+                                  "tag": "DocParagraph"
+                                },
+                                "seq": 2
+                              }
+                            ],
+                            "tag": "DocOrderedList"
+                          },
+                          "second": {
+                            "first": {
+                              "definitions": [
+                                {
+                                  "document": {
+                                    "string": "term",
+                                    "tag": "DocString"
+                                  },
+                                  "y": {
+                                    "string": "definition",
+                                    "tag": "DocString"
+                                  }
+                                }
+                              ],
+                              "tag": "DocDefList"
+                            },
+                            "second": {
+                              "first": {
+                                "document": {
+                                  "string": "birdtrack code\nmore",
+                                  "tag": "DocString"
+                                },
+                                "tag": "DocCodeBlock"
+                              },
+                              "second": {
+                                "first": {
+                                  "document": {
+                                    "hyperlink": {
+                                      "hyperlinkLabel": null,
+                                      "hyperlinkUrl": "http://example.com"
+                                    },
+                                    "tag": "DocHyperlink"
+                                  },
+                                  "tag": "DocParagraph"
+                                },
+                                "second": {
+                                  "first": {
+                                    "document": {
+                                      "hyperlink": {
+                                        "hyperlinkLabel": {
+                                          "string": "link label",
+                                          "tag": "DocString"
+                                        },
+                                        "hyperlinkUrl": "http://example.com"
+                                      },
+                                      "tag": "DocHyperlink"
+                                    },
+                                    "tag": "DocParagraph"
+                                  },
+                                  "second": {
+                                    "first": {
+                                      "document": {
+                                        "string": " math display ",
+                                        "tag": "DocMathDisplay"
+                                      },
+                                      "tag": "DocParagraph"
+                                    },
+                                    "second": {
+                                      "first": {
+                                        "string": "markup x == x",
+                                        "tag": "DocProperty"
+                                      },
+                                      "second": {
+                                        "first": {
+                                          "document": {
+                                            "string": "anchor",
+                                            "tag": "DocAName"
+                                          },
+                                          "tag": "DocParagraph"
+                                        },
+                                        "second": {
+                                          "first": {
+                                            "document": {
+                                              "picture": {
+                                                "pictureLabel": "pic",
+                                                "pictureUrl": "http://example.com/p.png"
+                                              },
+                                              "tag": "DocPic"
+                                            },
+                                            "tag": "DocParagraph"
+                                          },
+                                          "second": {
+                                            "first": {
+                                              "table": {
+                                                "tableBodyRows": [],
+                                                "tableHeaderRows": []
+                                              },
+                                              "tag": "DocTable"
+                                            },
+                                            "second": {
+                                              "document": {
+                                                "string": "Third paragraph with a\n line break. Escaped /slash/ and unicode: λ.",
+                                                "tag": "DocString"
+                                              },
+                                              "tag": "DocParagraph"
+                                            },
+                                            "tag": "DocAppend"
+                                          },
+                                          "tag": "DocAppend"
+                                        },
+                                        "tag": "DocAppend"
+                                      },
+                                      "tag": "DocAppend"
+                                    },
+                                    "tag": "DocAppend"
+                                  },
+                                  "tag": "DocAppend"
+                                },
+                                "tag": "DocAppend"
+                              },
+                              "tag": "DocAppend"
+                            },
+                            "tag": "DocAppend"
+                          },
+                          "tag": "DocAppend"
+                        },
+                        "tag": "DocAppend"
+                      },
+                      "tag": "DocAppend"
+                    },
+                    "tag": "DocAppend"
+                  },
+                  "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Markup",
+              "name": "markup",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 21,
+              "end_line": 62,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 62
+            },
+            "name": "markup",
+            "namespace": "value",
+            "signature": "Int -> Int",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "tag": "DocEmpty"
+              },
+              "meta": {
+                "version": "[1,2,3]"
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Markup",
+              "name": "identity",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 19,
+              "end_line": 66,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 66
+            },
+            "name": "identity",
+            "namespace": "value",
+            "signature": "a -> a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A type synonym.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Markup",
+              "name": "T",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "type_synonym",
+            "location": {
+              "end_column": 15,
+              "end_line": 16,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 16
+            },
+            "name": "T",
+            "namespace": "type",
+            "signature": "T = Thing",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A class.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Markup",
+              "name": "C",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "class",
+            "location": {
+              "end_column": 7,
+              "end_line": 62,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 19
+            },
+            "name": "C",
+            "namespace": "type",
+            "signature": "C a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": "C a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "method",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Markup",
+                  "name": "meth",
+                  "namespace": "value",
+                  "package": "markup-0.1.0.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 19,
+                  "end_line": 21,
+                  "file": "src/Markup.hs",
+                  "start_column": 3,
+                  "start_line": 21
+                },
+                "name": "meth",
+                "namespace": "value",
+                "signature": "a -> Int",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "An operator.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": {
+              "direction": "infixr",
+              "prec": 5
+            },
+            "identity": {
+              "module": "Markup",
+              "name": "%%",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 26,
+              "end_line": 70,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 70
+            },
+            "name": "%%",
+            "namespace": "value",
+            "signature": "Int -> Int -> Int",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A type family.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Markup",
+              "name": "F",
+              "namespace": "type",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "type_family",
+            "location": {
+              "end_column": 8,
+              "end_line": 79,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 75
+            },
+            "name": "F",
+            "namespace": "type",
+            "signature": "F a",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A pattern synonym.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Markup",
+              "name": "P",
+              "namespace": "value",
+              "package": "markup-0.1.0.0"
+            },
+            "kind": "pattern_synonym",
+            "location": {
+              "end_column": 26,
+              "end_line": 79,
+              "file": "src/Markup.hs",
+              "start_column": 1,
+              "start_line": 79
+            },
+            "name": "P",
+            "namespace": "value",
+            "signature": "Int -> Thing",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        }
+      ],
       "warning": null
     }
   ],

@@ -56,6 +56,9 @@ module Aihc.Resolve
     filterModuleExports,
     collectModuleExports,
     collectModuleExportsWithDeps,
+    moduleDeclarationExports,
+    resolveExportList,
+    ResolvedExport (..),
     exportedLocalNames,
 
     -- * Builtins

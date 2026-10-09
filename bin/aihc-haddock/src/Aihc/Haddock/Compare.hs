@@ -41,9 +41,11 @@ module Aihc.Haddock.Compare
   )
 where
 
+import Aihc.Haddock.Interface (DocName (..))
 import Aihc.Haddock.Model
 import Aihc.Haddock.Reference.Hoogle (HoogleEntry (..), HoogleFile (..))
 import Aihc.Haddock.Reference.Json
+import Aihc.Resolve (globalNameModule)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAlphaNum, isUpper)
@@ -158,16 +160,16 @@ comparisonFromModel config modu =
           | decl <- typesFirst,
             not (Map.null (declArgDocs decl))
           ],
-      comparisonExports = Set.fromList exported,
+      comparisonExports = Set.fromList allExported,
       comparisonVisibleExports = exported,
       comparisonFixities = Map.fromList [(identity decl, fixity) | decl <- allDecls, Just fixity <- [declFixity decl]],
-      comparisonTopLevel = Set.fromList (map identity (moduleDocDecls modu)),
+      comparisonTopLevel = Set.fromList (map identity (moduleDocDecls modu <> [decl | ExportResolvedItem decl <- moduleDocResolvedExports modu])),
       comparisonExcluded = [],
       comparisonErrors = []
     }
   where
     modName = canonicalModule config (moduleDocName modu)
-    identity decl = Identity modName (declName decl)
+    identity decl = Identity (maybe modName (canonicalModule config . globalNameModule . unDocName) (declIdentity decl)) (declName decl)
     allDecls = concatMap withSubordinates (moduleDocDecls modu)
     withSubordinates decl = decl : concatMap withSubordinates (declSubordinates decl)
     -- A type and its constructor of the same name share one Haddock stable
@@ -175,23 +177,8 @@ comparisonFromModel config modu =
     typesFirst = filter ((== NamespaceType) . declNamespace) allDecls <> filter ((/= NamespaceType) . declNamespace) allDecls
     keepFirst :: [(Identity, a)] -> Map Identity a
     keepFirst = Map.fromListWith (\_new old -> old)
-    exported =
-      case moduleDocExports modu of
-        Nothing -> map identity allDecls
-        Just items -> concatMap exportedIdentities items
-    exportedIdentities item =
-      case item of
-        ExportDeclItem name ns subs ->
-          case [decl | decl <- moduleDocDecls modu, declName decl == name, declNamespace decl == ns] of
-            decl : _ ->
-              identity decl
-                : case subs of
-                  ExportNoSubordinates -> []
-                  ExportAllSubordinates -> map identity (concatMap withSubordinates (declSubordinates decl))
-                  ExportSomeSubordinates names ->
-                    map identity (concatMap (filter ((`elem` names) . declName) . withSubordinates) (declSubordinates decl))
-            [] -> []
-        _ -> []
+    exported = [identity decl | ExportResolvedItem root <- moduleDocResolvedExports modu, decl <- withSubordinates root]
+    allExported = exported <> [identity decl | ExportResolvedModuleItem _ _ roots <- moduleDocResolvedExports modu, root <- roots, decl <- withSubordinates root]
 
 -- From the Haddock reference ---------------------------------------------------
 
@@ -268,7 +255,7 @@ compareInterface config package reference =
   mkReport (moduleDifferences <> concatMap (uncurry compareModules) paired) notes
   where
     ours = Map.fromList [(comparisonModuleName c, c) | modu <- packageDocModules package, moduleDocExposed modu, let c = comparisonFromModel config modu]
-    theirs = Map.fromList [(comparisonModuleName c, c) | modu <- referenceModules reference, let c = comparisonFromReference config modu]
+    theirs = Map.fromList [(comparisonModuleName c, c) | modu <- referenceModules reference, "OptHide" `notElem` referenceOptions modu, let c = comparisonFromReference config modu]
     paired = [(theirs Map.! name, ours Map.! name) | name <- Map.keys (Map.intersection theirs ours)]
     moduleDifferences =
       [Difference "modules" name "module present" "module missing" | name <- Map.keys (Map.difference theirs ours)]
@@ -327,22 +314,32 @@ compareHoogle :: HoogleFile -> HoogleFile -> Report
 compareHoogle expected actual =
   mkReport differences notes
   where
-    entries file = Map.fromListWith (\_ first -> first) [(normalizeDecl (hoogleEntryDecl e), normalizeDocLines (hoogleEntryDoc e)) | e <- hoogleEntries file]
+    entryKey entry = (hoogleEntryModule entry, normalizeDecl (hoogleEntryDecl entry))
+    renderKey (modu, decl) = modu <> ": " <> decl
+    entries file = Map.fromListWith (\_ first -> first) [(entryKey e, normalizeDocLines (hoogleEntryDoc e)) | e <- hoogleEntries file]
     left = entries expected
     right = entries actual
     differences =
       [Difference "hoogle.package" "" (fromMaybe "" (hooglePackage expected)) (fromMaybe "" (hooglePackage actual)) | hooglePackage expected /= hooglePackage actual]
         <> [Difference "hoogle.version" "" (fromMaybe "" (hoogleVersion expected)) (fromMaybe "" (hoogleVersion actual)) | hoogleVersion expected /= hoogleVersion actual]
-        <> [Difference "hoogle.decl" decl "present" "missing" | decl <- Map.keys (Map.difference left right)]
-        <> [Difference "hoogle.decl" decl "missing" "present" | decl <- Map.keys (Map.difference right left)]
-        <> [Difference "hoogle.doc" decl l r | (decl, (l, r)) <- Map.toList (Map.intersectionWith (,) left right), l /= r]
+        <> [Difference "hoogle.decl" (renderKey decl) "present" "missing" | decl <- Map.keys (Map.difference left right)]
+        <> [Difference "hoogle.decl" (renderKey decl) "missing" "present" | decl <- Map.keys (Map.difference right left)]
+        <> [Difference "hoogle.doc" (renderKey decl) l r | (decl, (l, r)) <- Map.toList (Map.intersectionWith (,) left right), l /= r]
         <> orderDifference
     orderDifference =
       let common = Set.fromList (Map.keys (Map.intersection left right))
-          order file = filter (`Set.member` common) (map (normalizeDecl . hoogleEntryDecl) (hoogleEntries file))
-       in [Difference "hoogle.order" "" (T.intercalate " | " (order expected)) (T.intercalate " | " (order actual)) | order expected /= order actual]
+          order file =
+            concat
+              ( Map.elems
+                  ( Map.fromListWith
+                      (flip (<>))
+                      [(hoogleEntryModule entry, [key]) | entry <- hoogleEntries file, let key = entryKey entry, Set.member key common]
+                  )
+              )
+       in [Difference "hoogle.order" "" (T.intercalate " | " (map renderKey (order expected))) (T.intercalate " | " (map renderKey (order actual))) | order expected /= order actual]
     notes =
-      [ "instance heads compared without module qualifiers",
+      [ "module order is not significant",
+        "instance heads compared without module qualifiers",
         "documentation compared as re-flowed text; line wrapping is not significant"
       ]
 

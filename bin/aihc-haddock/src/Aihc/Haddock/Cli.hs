@@ -72,7 +72,7 @@ buildParser =
     <$> strArgument (metavar "TARGET" <> help "Package directory, or a Hackage package NAME[-VERSION]")
     <*> optional (strOption (long "store" <> metavar "DIR" <> help "Artifact cache directory (default: XDG cache aihc-haddock)"))
     <*> flag True False (long "no-cache" <> help "Rebuild every artifact")
-    <*> flag True False (long "no-deps" <> help "Document only the target package")
+    <*> flag True False (long "no-deps" <> help "Cache only the target package; read dependencies for re-exports")
     <*> optional (strOption (long "json" <> metavar "FILE" <> help "Write the documentation model as JSON"))
     <*> optional (strOption (long "hoogle" <> metavar "FILE" <> help "Write a Hoogle database"))
     <*> switch (long "verbose" <> help "Report progress")

@@ -1,0 +1,10 @@
+haddock: Haddock version 2.32.0, (c) Simon Marlow 2006
+ghc: 9.12.4
+json-stream: stderr
+sources: src/Public.hs src/Whole.hs
+command: cabal haddock all --offline --enable-documentation --haddock-hoogle
+project:
+  packages:
+    ./dependencies/provider/provider.cabal
+    ./reexport-dependency.cabal
+command: haddock --optghc=-package-env=- --optghc=-isrc --package-name=reexport-dependency --package-version=0.1.0.0 --show-interface=interface.haddock

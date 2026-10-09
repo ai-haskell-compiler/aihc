@@ -1,11 +1,12 @@
 {
   "dependencies": [],
-  "format_version": 1,
+  "format_version": 2,
   "modules": [
     {
       "decls": [
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -19,6 +20,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Data.Sections",
+            "name": "Counter",
+            "namespace": "type",
+            "package": "sections-1.2.0"
+          },
           "kind": "newtype",
           "location": {
             "end_column": 27,
@@ -33,8 +40,15 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": null,
               "doc": null,
               "fixity": null,
+              "identity": {
+                "module": "Data.Sections",
+                "name": "Counter",
+                "namespace": "value",
+                "package": "sections-1.2.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 4,
@@ -49,6 +63,7 @@
               "subordinates": [
                 {
                   "arg_docs": {},
+                  "class_constraint": null,
                   "doc": {
                     "document": {
                       "document": {
@@ -62,6 +77,12 @@
                     }
                   },
                   "fixity": null,
+                  "identity": {
+                    "module": "Data.Sections",
+                    "name": "getCounter",
+                    "namespace": "value",
+                    "package": "sections-1.2.0"
+                  },
                   "kind": "field",
                   "location": {
                     "end_column": 22,
@@ -84,6 +105,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -97,6 +119,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Data.Sections",
+            "name": "newCounter",
+            "namespace": "value",
+            "package": "sections-1.2.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 22,
@@ -126,6 +154,7 @@
               }
             }
           },
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -139,6 +168,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Data.Sections",
+            "name": "increment",
+            "namespace": "value",
+            "package": "sections-1.2.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 10,
@@ -155,6 +190,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -170,6 +206,12 @@
           "fixity": {
             "direction": "infixl",
             "prec": 6
+          },
+          "identity": {
+            "module": "Data.Sections",
+            "name": "|+|",
+            "namespace": "value",
+            "package": "sections-1.2.0"
           },
           "kind": "function",
           "location": {
@@ -187,6 +229,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -200,6 +243,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Data.Sections",
+            "name": "Pair",
+            "namespace": "type",
+            "package": "sections-1.2.0"
+          },
           "kind": "type_synonym",
           "location": {
             "end_column": 21,
@@ -216,6 +265,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -229,6 +279,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Data.Sections",
+            "name": "Tagged",
+            "namespace": "type",
+            "package": "sections-1.2.0"
+          },
           "kind": "data",
           "location": {
             "end_column": 18,
@@ -243,8 +299,15 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": null,
               "doc": null,
               "fixity": null,
+              "identity": {
+                "module": "Data.Sections",
+                "name": "Tagged",
+                "namespace": "value",
+                "package": "sections-1.2.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 8,
@@ -259,6 +322,7 @@
               "subordinates": [
                 {
                   "arg_docs": {},
+                  "class_constraint": null,
                   "doc": {
                     "document": {
                       "document": {
@@ -272,6 +336,12 @@
                     }
                   },
                   "fixity": null,
+                  "identity": {
+                    "module": "Data.Sections",
+                    "name": "tagOf",
+                    "namespace": "value",
+                    "package": "sections-1.2.0"
+                  },
                   "kind": "field",
                   "location": {
                     "end_column": 24,
@@ -288,6 +358,7 @@
                 },
                 {
                   "arg_docs": {},
+                  "class_constraint": null,
                   "doc": {
                     "document": {
                       "document": {
@@ -301,6 +372,12 @@
                     }
                   },
                   "fixity": null,
+                  "identity": {
+                    "module": "Data.Sections",
+                    "name": "valueOf",
+                    "namespace": "value",
+                    "package": "sections-1.2.0"
+                  },
                   "kind": "field",
                   "location": {
                     "end_column": 21,
@@ -320,8 +397,15 @@
             },
             {
               "arg_docs": {},
+              "class_constraint": null,
               "doc": null,
               "fixity": null,
+              "identity": {
+                "module": "Data.Sections",
+                "name": "Untagged",
+                "namespace": "value",
+                "package": "sections-1.2.0"
+              },
               "kind": "constructor",
               "location": {
                 "end_column": 15,
@@ -341,6 +425,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -354,6 +439,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Data.Sections",
+            "name": "Countable",
+            "namespace": "type",
+            "package": "sections-1.2.0"
+          },
           "kind": "class",
           "location": {
             "end_column": 9,
@@ -368,6 +459,7 @@
           "subordinates": [
             {
               "arg_docs": {},
+              "class_constraint": "Countable a",
               "doc": {
                 "document": {
                   "document": {
@@ -381,6 +473,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Data.Sections",
+                "name": "count",
+                "namespace": "value",
+                "package": "sections-1.2.0"
+              },
               "kind": "method",
               "location": {
                 "end_column": 20,
@@ -397,6 +495,7 @@
             },
             {
               "arg_docs": {},
+              "class_constraint": "Countable a",
               "doc": {
                 "document": {
                   "document": {
@@ -410,6 +509,12 @@
                 }
               },
               "fixity": null,
+              "identity": {
+                "module": "Data.Sections",
+                "name": "isEmpty",
+                "namespace": "value",
+                "package": "sections-1.2.0"
+              },
               "kind": "method",
               "location": {
                 "end_column": 23,
@@ -429,6 +534,7 @@
         },
         {
           "arg_docs": {},
+          "class_constraint": null,
           "doc": {
             "document": {
               "document": {
@@ -442,6 +548,12 @@
             }
           },
           "fixity": null,
+          "identity": {
+            "module": "Data.Sections",
+            "name": "legacy",
+            "namespace": "value",
+            "package": "sections-1.2.0"
+          },
           "kind": "function",
           "location": {
             "end_column": 21,
@@ -788,6 +900,220 @@
           "overlap": null
         }
       ],
+      "interface": [
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "Counter",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "Counter",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "Tagged",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "Tagged",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "count",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "count",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "getCounter",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "getCounter",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "increment",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "increment",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "isEmpty",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "isEmpty",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "legacy",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "legacy",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "newCounter",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "newCounter",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "tagOf",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "tagOf",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "|+|",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "|+|",
+          "tag": "term"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "Countable",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "Countable",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "Counter",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "Counter",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "Pair",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "Pair",
+          "tag": "type"
+        },
+        {
+          "entity": {
+            "global": {
+              "module": "Data.Sections",
+              "name": "Tagged",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            }
+          },
+          "name": "Tagged",
+          "tag": "type"
+        },
+        {
+          "members": [
+            "Counter"
+          ],
+          "name": "Counter",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "Tagged",
+            "Untagged"
+          ],
+          "name": "Tagged",
+          "tag": "constructors"
+        },
+        {
+          "members": [
+            "getCounter"
+          ],
+          "name": "Counter",
+          "tag": "fields"
+        },
+        {
+          "members": [
+            "tagOf",
+            "valueOf"
+          ],
+          "name": "Tagged",
+          "tag": "fields"
+        },
+        {
+          "members": [
+            "count",
+            "isEmpty"
+          ],
+          "name": "Countable",
+          "tag": "methods"
+        },
+        {
+          "associativity": "infixl",
+          "name": "|+|",
+          "precedence": 6,
+          "tag": "fixity"
+        }
+      ],
       "name": "Data.Sections",
       "named_chunks": {
         "intro": {
@@ -829,6 +1155,622 @@
           "tag": "DocParagraph"
         }
       },
+      "resolved_exports": [
+        {
+          "contents": [
+            1,
+            {
+              "string": "Counters",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": [
+            "intro",
+            {
+              "document": {
+                "first": {
+                  "string": "Counters wrap an ",
+                  "tag": "DocString"
+                },
+                "second": {
+                  "first": {
+                    "name": "Int",
+                    "tag": "DocIdentifier"
+                  },
+                  "second": {
+                    "first": {
+                      "string": ". They ",
+                      "tag": "DocString"
+                    },
+                    "second": {
+                      "first": {
+                        "document": {
+                          "string": "never",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocEmphasis"
+                      },
+                      "second": {
+                        "string": " go below zero.",
+                        "tag": "DocString"
+                      },
+                      "tag": "DocAppend"
+                    },
+                    "tag": "DocAppend"
+                  },
+                  "tag": "DocAppend"
+                },
+                "tag": "DocAppend"
+              },
+              "tag": "DocParagraph"
+            }
+          ],
+          "tag": "doc_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A counter.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": "[1,1,0]"
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Data.Sections",
+              "name": "Counter",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            },
+            "kind": "newtype",
+            "location": {
+              "end_column": 27,
+              "end_line": 39,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 35
+            },
+            "name": "Counter",
+            "namespace": "type",
+            "signature": "Counter",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Data.Sections",
+                  "name": "Counter",
+                  "namespace": "value",
+                  "package": "sections-1.2.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 4,
+                  "end_line": 38,
+                  "file": "src/Data/Sections.hs",
+                  "start_column": 19,
+                  "start_line": 35
+                },
+                "name": "Counter",
+                "namespace": "value",
+                "signature": "Int -> Counter",
+                "subordinates": [
+                  {
+                    "arg_docs": {},
+                    "class_constraint": null,
+                    "doc": {
+                      "document": {
+                        "document": {
+                          "string": "the current count",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocParagraph"
+                      },
+                      "meta": {
+                        "version": null
+                      }
+                    },
+                    "fixity": null,
+                    "identity": {
+                      "module": "Data.Sections",
+                      "name": "getCounter",
+                      "namespace": "value",
+                      "package": "sections-1.2.0"
+                    },
+                    "kind": "field",
+                    "location": {
+                      "end_column": 22,
+                      "end_line": 36,
+                      "file": "src/Data/Sections.hs",
+                      "start_column": 5,
+                      "start_line": 36
+                    },
+                    "name": "getCounter",
+                    "namespace": "value",
+                    "signature": "Counter -> Int",
+                    "subordinates": [],
+                    "warning": null
+                  }
+                ],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A fresh counter at zero.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Data.Sections",
+              "name": "newCounter",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 22,
+              "end_line": 42,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 42
+            },
+            "name": "newCounter",
+            "namespace": "value",
+            "signature": "Counter",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            2,
+            {
+              "string": "Operations",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {
+              "1": {
+                "document": {
+                  "document": {
+                    "string": "the incremented counter",
+                    "tag": "DocString"
+                  },
+                  "tag": "DocParagraph"
+                },
+                "meta": {
+                  "version": null
+                }
+              }
+            },
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Add one.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Data.Sections",
+              "name": "increment",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 10,
+              "end_line": 49,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 46
+            },
+            "name": "increment",
+            "namespace": "value",
+            "signature": "Counter -> Counter",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Add two counters.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": {
+              "direction": "infixl",
+              "prec": 6
+            },
+            "identity": {
+              "module": "Data.Sections",
+              "name": "|+|",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 39,
+              "end_line": 55,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 55
+            },
+            "name": "|+|",
+            "namespace": "value",
+            "signature": "Counter -> Counter -> Counter",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            1,
+            {
+              "string": "Pairs",
+              "tag": "DocString"
+            }
+          ],
+          "tag": "section_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A pair of the same thing.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Data.Sections",
+              "name": "Pair",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            },
+            "kind": "type_synonym",
+            "location": {
+              "end_column": 21,
+              "end_line": 59,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 59
+            },
+            "name": "Pair",
+            "namespace": "type",
+            "signature": "Pair a = (a, a)",
+            "subordinates": [],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "A value with a tag.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Data.Sections",
+              "name": "Tagged",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            },
+            "kind": "data",
+            "location": {
+              "end_column": 18,
+              "end_line": 68,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 62
+            },
+            "name": "Tagged",
+            "namespace": "type",
+            "signature": "Tagged a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": null,
+                "doc": null,
+                "fixity": null,
+                "identity": {
+                  "module": "Data.Sections",
+                  "name": "Tagged",
+                  "namespace": "value",
+                  "package": "sections-1.2.0"
+                },
+                "kind": "constructor",
+                "location": {
+                  "end_column": 8,
+                  "end_line": 66,
+                  "file": "src/Data/Sections.hs",
+                  "start_column": 5,
+                  "start_line": 63
+                },
+                "name": "Tagged",
+                "namespace": "value",
+                "signature": "String -> a -> Tagged a",
+                "subordinates": [
+                  {
+                    "arg_docs": {},
+                    "class_constraint": null,
+                    "doc": {
+                      "document": {
+                        "document": {
+                          "string": "the tag",
+                          "tag": "DocString"
+                        },
+                        "tag": "DocParagraph"
+                      },
+                      "meta": {
+                        "version": null
+                      }
+                    },
+                    "fixity": null,
+                    "identity": {
+                      "module": "Data.Sections",
+                      "name": "tagOf",
+                      "namespace": "value",
+                      "package": "sections-1.2.0"
+                    },
+                    "kind": "field",
+                    "location": {
+                      "end_column": 24,
+                      "end_line": 64,
+                      "file": "src/Data/Sections.hs",
+                      "start_column": 9,
+                      "start_line": 64
+                    },
+                    "name": "tagOf",
+                    "namespace": "value",
+                    "signature": "Tagged a -> String",
+                    "subordinates": [],
+                    "warning": null
+                  }
+                ],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": [
+            null,
+            {
+              "document": {
+                "string": "An inline documentation chunk between two items.",
+                "tag": "DocString"
+              },
+              "tag": "DocParagraph"
+            }
+          ],
+          "tag": "doc_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Things that can be counted.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Data.Sections",
+              "name": "Countable",
+              "namespace": "type",
+              "package": "sections-1.2.0"
+            },
+            "kind": "class",
+            "location": {
+              "end_column": 9,
+              "end_line": 84,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 73
+            },
+            "name": "Countable",
+            "namespace": "type",
+            "signature": "Countable a",
+            "subordinates": [
+              {
+                "arg_docs": {},
+                "class_constraint": "Countable a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "Count the elements.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Data.Sections",
+                  "name": "count",
+                  "namespace": "value",
+                  "package": "sections-1.2.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 20,
+                  "end_line": 75,
+                  "file": "src/Data/Sections.hs",
+                  "start_column": 3,
+                  "start_line": 75
+                },
+                "name": "count",
+                "namespace": "value",
+                "signature": "a -> Int",
+                "subordinates": [],
+                "warning": null
+              },
+              {
+                "arg_docs": {},
+                "class_constraint": "Countable a",
+                "doc": {
+                  "document": {
+                    "document": {
+                      "string": "Whether there is nothing to count.",
+                      "tag": "DocString"
+                    },
+                    "tag": "DocParagraph"
+                  },
+                  "meta": {
+                    "version": null
+                  }
+                },
+                "fixity": null,
+                "identity": {
+                  "module": "Data.Sections",
+                  "name": "isEmpty",
+                  "namespace": "value",
+                  "package": "sections-1.2.0"
+                },
+                "kind": "method",
+                "location": {
+                  "end_column": 23,
+                  "end_line": 79,
+                  "file": "src/Data/Sections.hs",
+                  "start_column": 3,
+                  "start_line": 79
+                },
+                "name": "isEmpty",
+                "namespace": "value",
+                "signature": "a -> Bool",
+                "subordinates": [],
+                "warning": null
+              }
+            ],
+            "warning": null
+          },
+          "tag": "resolved_item"
+        },
+        {
+          "contents": {
+            "arg_docs": {},
+            "class_constraint": null,
+            "doc": {
+              "document": {
+                "document": {
+                  "string": "Kept for compatibility.",
+                  "tag": "DocString"
+                },
+                "tag": "DocParagraph"
+              },
+              "meta": {
+                "version": null
+              }
+            },
+            "fixity": null,
+            "identity": {
+              "module": "Data.Sections",
+              "name": "legacy",
+              "namespace": "value",
+              "package": "sections-1.2.0"
+            },
+            "kind": "function",
+            "location": {
+              "end_column": 21,
+              "end_line": 88,
+              "file": "src/Data/Sections.hs",
+              "start_column": 1,
+              "start_line": 88
+            },
+            "name": "legacy",
+            "namespace": "value",
+            "signature": "Int -> Int",
+            "subordinates": [],
+            "warning": "use 'increment' instead"
+          },
+          "tag": "resolved_item"
+        }
+      ],
       "warning": null
     }
   ],
