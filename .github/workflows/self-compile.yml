@@ -1,0 +1,149 @@
+name: Self-Compile
+
+# Make sure that aihc can compile itself to a fixed point. GHC compiles stage
+# 0, stage 0 compiles stage 1, and stage 1 compiles stage 2. Each stage after
+# stage 0 uses the native backend at -O2, and the minimal configuration of
+# aihc: no `hackage` flag and no `pretty-ui` flag. The workflow fails when
+# stage 1 and stage 2 are not byte-for-byte identical.
+#
+# The paths of the work directory get into the executable. Thus, both stages
+# use the same WORK_DIR. Each stage is a separate job, so each stage gets the
+# full time limit of a job.
+
+on:
+  schedule:
+    - cron: "23 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-compile
+  cancel-in-progress: false
+
+env:
+  TARGET: linux-amd64
+  OPTIMIZATION: "2"
+  WORK_DIR: /tmp/aihc-self-compile
+
+jobs:
+  stage1:
+    name: Compile stage 1 with stage 0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      # Without AIHC, the app uses the GHC-built aihc, which is stage 0.
+      - name: Compile stage 1
+        run: |
+          nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage1" \
+            --target "$TARGET" \
+            -O "$OPTIMIZATION"
+
+      - name: Upload stage 1
+        uses: actions/upload-artifact@v7
+        with:
+          name: aihc-stage1
+          path: ${{ runner.temp }}/stages/aihc-stage1
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the stage 1 logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: self-compile-stage1-logs
+          path: /tmp/aihc-self-compile/logs
+          retention-days: 14
+          if-no-files-found: ignore
+
+  stage2:
+    name: Compile stage 2 with stage 1 and compare
+    needs: stage1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Download stage 1
+        uses: actions/download-artifact@v8
+        with:
+          name: aihc-stage1
+          path: ${{ runner.temp }}/stages
+
+      - name: Compile stage 2
+        run: |
+          chmod +x "$RUNNER_TEMP/stages/aihc-stage1"
+          AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#self-compile-stage -- \
+            --work-dir "$WORK_DIR" \
+            --output "$RUNNER_TEMP/stages/aihc-stage2" \
+            --target "$TARGET" \
+            -O "$OPTIMIZATION"
+
+      - name: Compare stage 1 and stage 2
+        run: |
+          set -euo pipefail
+          stage1="$RUNNER_TEMP/stages/aihc-stage1"
+          stage2="$RUNNER_TEMP/stages/aihc-stage2"
+          status=0
+          cmp "$stage1" "$stage2" || status=$?
+          {
+            echo "### Self-compile of aihc"
+            echo
+            echo "| Stage | Size in bytes | SHA-256 |"
+            echo "| --- | --- | --- |"
+            for stage in 1 2; do
+              file="$RUNNER_TEMP/stages/aihc-stage$stage"
+              echo "| $stage | $(stat -c %s "$file") | \`$(sha256sum "$file" | cut -d' ' -f1)\` |"
+            done
+            echo
+            if [ "$status" -eq 0 ]; then
+              echo "Stage 1 and stage 2 are identical."
+            else
+              echo "Stage 1 and stage 2 are different."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Stage 1 and stage 2 of aihc are not byte-for-byte identical."
+            exit 1
+          fi
+
+      - name: Upload stage 2
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: aihc-stage2
+          path: ${{ runner.temp }}/stages/aihc-stage2
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload the stage 2 logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: self-compile-stage2-logs
+          path: /tmp/aihc-self-compile/logs
+          retention-days: 14
+          if-no-files-found: ignore
