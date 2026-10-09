@@ -340,6 +340,10 @@ struct AihcMachine {
   uint64_t gen2_cycle_start_bytes;
   /* The oldest generation the last collection copied. */
   uint64_t gc_last_generation;
+  /* The charges of the fixed blocks of each generation, zero to two. Their
+     sum is fixed_bytes. The gen1 and gen2 tests add the count of their
+     generation, so dead old fixed blocks start a collection. */
+  uint64_t fixed_generation_bytes[3];
 };
 
 /* The bounds of the nursery for the write barrier of compiled code: an
