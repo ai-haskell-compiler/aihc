@@ -18,9 +18,7 @@ module Aihc.Native.Lir
     SlotEffect (..),
     Source (..),
     blockArgumentMoves,
-    cArgumentMoves,
     calleeSignature,
-    classify,
     compileNativeStatements,
     compileNativeStatementsWith,
     compileNativeChunksWith,
@@ -109,8 +107,6 @@ data NativeBackend statement register error = NativeBackend
     nbScratchRight :: register,
     nbCycleScratch :: register,
     nbSlotMoveScratch :: register,
-    nbFloatArgCount :: Int,
-    nbCIntegerLimitWord :: Text,
     nbFrameOverhead :: Int,
     nbReturnAddressGap :: Int,
     nbMaxFrameBytes :: !(Maybe Int),
@@ -133,8 +129,9 @@ data NativeBackend statement register error = NativeBackend
     -- conditional branch reaches the whole object gives 'Nothing'.
     nbTrapTrampoline :: !(Maybe (Name -> Text -> [statement])),
     nbPrologueFrame :: Bool -> Int -> [statement],
-    -- | A backend can supply the complete C parameter layout, including stack parameters.
-    nbCParameterMoves :: Maybe (Ctx register -> [statement]),
+    -- | The moves of the C parameters to their homes, including the stack
+    -- parameters. The C parameter layout is specific to each target.
+    nbCParameterMoves :: Ctx register -> [statement],
     -- | Some C tail calls require a call and return with a saved return address.
     nbTailCallFrame :: Map Symbol Signature -> Function -> Bool,
     nbLeaveFrame :: Ctx register -> Int -> [statement],
@@ -160,7 +157,6 @@ data NativeBackend statement register error = NativeBackend
     nbCanonicalize :: Type -> register -> [statement],
     nbFloatFromVec :: Type -> Int -> register -> [statement],
     nbFloatToVec :: Type -> register -> Int -> [statement],
-    nbCCallExtra :: Int -> [statement],
     nbJump :: Name -> statement,
     nbCanFuseFloatCompare :: CompareOp -> Bool,
     nbConditionTest :: Ctx register -> Maybe Fused -> Operand -> NativeM error ([statement], BranchTest statement error),
@@ -473,14 +469,6 @@ wordBytes = 8
 typeBytes :: Type -> Int
 typeBytes ty = max 1 (typeBits ty `div` 8)
 
--- | Split the parameters of a C function into the integer class and the
--- float class. Each list pairs the parameter index with its type.
-classify :: [Type] -> ([(Int, Type)], [(Int, Type)])
-classify types =
-  ( [(index, ty) | (index, ty) <- zip [0 ..] types, not (isFloatType ty)],
-    [(index, ty) | (index, ty) <- zip [0 ..] types, isFloatType ty]
-  )
-
 -- | The bytes of the stack block that carries the aihc arguments after the
 -- argument registers.
 overflowBytes :: NativeBackend statement register error -> Int -> Int
@@ -550,12 +538,6 @@ prepareFunction backend signatures index function = do
               CConvention -> 0,
             ctxReads = readCounts function
           }
-  when (functionConvention function == CConvention && isNothing (nbCParameterMoves backend)) $ do
-    let (integers, floats) = classify (map snd (functionParameters function))
-    when (length integers > length (nbArgumentRegisters backend)) $
-      unsupported backend ("function " <> unSymbol (functionName function) <> " has more than " <> nbCIntegerLimitWord backend <> " integer C parameters")
-    when (length floats > nbFloatArgCount backend) $
-      unsupported backend ("function " <> unSymbol (functionName function) <> " has more than eight float C parameters")
   prologue <- functionPrologue backend ctx
   pure
     ( ctx,
@@ -739,18 +721,7 @@ functionPrologue backend ctx = do
               [ (home ctx var, SourceLocation (parameterLocation index))
               | (index, (var, _)) <- zip [0 ..] parameters
               ]
-          CConvention | Just parameterMoves <- nbCParameterMoves backend -> parameterMoves ctx
-          CConvention ->
-            let (integers, floats) = classify (map snd parameters)
-                names = map fst parameters
-             in concat [nbCanonicalize backend ty register | ((_, ty), register) <- zip integers (nbArgumentRegisters backend)]
-                  <> parallelMove backend [(home ctx (names !! index), SourceLocation (LocRegister register)) | ((index, _), register) <- zip integers (nbArgumentRegisters backend)]
-                  <> concat
-                    [ nbFloatFromVec backend ty slot (nbScratchLeft backend)
-                        <> nbCanonicalize backend ty (nbScratchLeft backend)
-                        <> parallelMove backend [(home ctx (names !! index), SourceLocation (LocRegister (nbScratchLeft backend)))]
-                    | ((index, ty), slot) <- zip floats [0 ..]
-                    ]
+          CConvention -> nbCParameterMoves backend ctx
   pure
     ( nbPrologueFrame backend (layoutFramed layout) (layoutSize layout)
         <> saveRegisters backend ctx
@@ -940,27 +911,6 @@ compileTerminator backend ctx next fused terminator =
     labelOf target = ctxLabels ctx Map.! targetLabel target
     isNext target = Just (targetLabel target) == next
     branchTo target = [nbJump backend (labelOf target) | not (isNext target)]
-
-cArgumentMoves :: (Eq register) => NativeBackend statement register error -> Ctx register -> [Type] -> [Operand] -> NativeM error [statement]
-cArgumentMoves backend ctx parameterTypes arguments = do
-  let (integers, floats) = classify (take (length arguments) (parameterTypes <> repeat I64))
-  when (length integers > length (nbArgumentRegisters backend)) $
-    unsupported backend ("C call with more than " <> nbCIntegerLimitWord backend <> " integer arguments")
-  when (length floats > nbFloatArgCount backend) $
-    unsupported backend "C call with more than eight float arguments"
-  pure
-    ( concat
-        [ loads <> nbFloatToVec backend ty register slot
-        | ((index, ty), slot) <- zip floats [0 ..],
-          let (loads, register) = operandIn backend ctx 0 ty (nbScratchLeft backend) (arguments !! index)
-        ]
-        <> parallelMove
-          backend
-          [ (LocRegister register, operandSource ctx ty (arguments !! index))
-          | ((index, ty), register) <- zip integers (nbArgumentRegisters backend)
-          ]
-        <> nbCCallExtra backend (length floats)
-    )
 
 blockArgumentMoves :: (Eq register) => NativeBackend statement register error -> Ctx register -> Target -> NativeM error [statement]
 blockArgumentMoves backend ctx (Target label arguments) = do

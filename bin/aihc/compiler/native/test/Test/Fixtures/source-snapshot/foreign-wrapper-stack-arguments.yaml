@@ -19,8 +19,6 @@ source: |
         answer -> case free callback of
           IO release -> case release s1 of
             (# _, _ #) -> I# (negateInt# (int8ToInt# answer)))
-codegen-errors:
-  linux-amd64: 'Amd64LirUnsupported "C call with more than six integer arguments"'
 return: "@0"
 heap: |
   @0 = CI# 42

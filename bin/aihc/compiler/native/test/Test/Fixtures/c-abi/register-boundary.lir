@@ -1,16 +1,21 @@
-; expect: 36, 45, 36.0, 45.0
-; Eight arguments use registers. A ninth argument needs stack space.
+; expect: 21, 28, 36, 45, 36.0, 45.0
+; AMD64 has six integer argument registers and ARM64 has eight. Both have
+; eight float argument registers. One more argument needs stack space.
 
+extern func @integers6(i64, i64, i64, i64, i64, i64) -> i64 cc c
+extern func @integers7(i64, i64, i64, i64, i64, i64, i64) -> i64 cc c
 extern func @integers8(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 cc c
 extern func @integers9(i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 cc c
 extern func @floats8(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 cc c
 extern func @floats9(f64, f64, f64, f64, f64, f64, f64, f64, f64) -> f64 cc c
 
-func @main() -> (i64, i64, f64, f64) {
+func @main() -> (i64, i64, i64, i64, f64, f64) {
 entry:
+  %integers6 = call @integers6(1, 2, 3, 4, 5, 6)
+  %integers7 = call @integers7(1, 2, 3, 4, 5, 6, 7)
   %integers8 = call @integers8(1, 2, 3, 4, 5, 6, 7, 8)
   %integers9 = call @integers9(1, 2, 3, 4, 5, 6, 7, 8, 9)
   %floats8 = call @floats8(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0)
   %floats9 = call @floats9(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0)
-  return %integers8, %integers9, %floats8, %floats9
+  return %integers6, %integers7, %integers8, %integers9, %floats8, %floats9
 }
