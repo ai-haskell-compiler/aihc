@@ -12,6 +12,7 @@ import Aihc.Fc.TypeOf (TypeEnv (..), lookupHeaderType, substType, typeEnvFromPro
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Control.Monad (foldM, guard)
 import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
+import Data.Either (rights)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
@@ -38,7 +39,7 @@ liftConstants program =
       let types = typeEnvFromProgram package program
           -- The top-level values that are in weak-head normal form by
           -- their syntax: a strict field of a constant can hold one.
-          env = types {teEvaluated = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, isStaticValue types (valBody declaration)]}
+          env = types {teEvaluated = staticTopLevelValues types program}
           initial = LiftState 0 (Map.keysSet (teHeaders env)) Map.empty [] 0
           (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
        in ( program {programDecls = decls <> reverse (liftDecls final)},
@@ -50,9 +51,17 @@ liftDecl :: TypeEnv -> Decl -> State LiftState Decl
 liftDecl env declaration =
   case declaration of
     DeclVal value -> do
-      -- The existing declaration already shares its root expression.
-      body <- walkChildren env (valName value) (valBody value)
+      -- The existing declaration already shares its root expression,
+      -- also under the casts around it. A lift of the application under
+      -- the casts would leave the declaration a thunk that evaluates to
+      -- the constant, in place of the value it is.
+      body <- walkRoot (valBody value)
       pure (DeclVal value {valBody = body})
+      where
+        walkRoot expression =
+          case expression of
+            ExCast inner coercion -> (`ExCast` coercion) <$> walkRoot inner
+            _ -> walkChildren env (valName value) expression
     _ -> pure declaration
 
 liftExpr :: TypeEnv -> Name -> Expr -> State LiftState Expr
@@ -105,8 +114,7 @@ constantType env expression = do
   ExVar constructor <- pure headExpr
   guard (isConstructorName constructor && any isValueArgument arguments)
   guard (all isTop (exprReferences expression))
-  let strict = Map.findWithDefault [] constructor (teConStrictFields env)
-  guard (and [isStaticValue env argument | (position, Right argument) <- zip [0 :: Int ..] [argument | argument@(Right _) <- arguments], position `elem` strict])
+  guard (strictFieldsStatic env expression)
   header <- lookupHeaderType env constructor
   ty <- foldM applyArgument header arguments
   guard (isNothing (viewForAll env ty) && isNothing (viewFun env ty))
@@ -126,6 +134,27 @@ constantType env expression = do
     isTop name = case nameOrigin name of
       OriginTop {} -> True
       OriginLocal {} -> False
+
+-- | Whether every strict field of a constructor application, and of
+-- each constructor application nested in its arguments, gets a value
+-- that is in weak-head normal form by its syntax.
+strictFieldsStatic :: TypeEnv -> Expr -> Bool
+strictFieldsStatic env expression =
+  case collectSpine expression of
+    (ExVar constructor, arguments)
+      | isConstructorName constructor ->
+          let strict = Map.findWithDefault [] constructor (teConStrictFields env)
+              values = rights arguments
+           in and [isStaticValue env argument | (position, argument) <- zip [0 :: Int ..] values, position `elem` strict]
+                && all (strictFieldsStatic env) values
+    _ -> True
+
+-- | The top-level values that are in weak-head normal form by their
+-- syntax. A value whose body names another top-level value is not one:
+-- GRIN lowers it to a thunk that evaluates to the other value.
+staticTopLevelValues :: TypeEnv -> Program -> Set Name
+staticTopLevelValues env program =
+  Set.fromList [valName declaration | DeclVal declaration <- programDecls program, isStaticValue env (valBody declaration)]
 
 -- | Whether an expression is in weak-head normal form by its syntax: a
 -- literal, a function, a constructor application, or a top-level name
