@@ -504,6 +504,11 @@ $sgo s0 64#
   inner loop, after the simplifier reduces the cases on the parameter that
   the copy builds again. So the pass runs in at most `callPatternRounds`
   rounds, with a simplifying walk after each round that changes the program.
+- The copy can give a constructor to a local function that the loop calls,
+  where the original gave it an unknown parameter. The simplifying walk of
+  the pass copies a local function at such a reducing site within the site
+  limit of `growPolicy` (see "Local functions" below). No inliner walk
+  follows the pass, so without this the call stays.
 
 The `-O1` and `-O2` plans run it at the end of the growing phase. In
 `snappy-roundtrip` it copies the fused loop over the block index and then the
@@ -689,6 +694,34 @@ that was free whatever its growth had no bound: the `text` package marks
 and each copy of `==` inside a copy of another `INLINE` value went free as
 well. The growing inliner made that program six times larger, and the
 compile ran out of memory at two gigabytes.
+
+### Local functions
+
+A lifted, non-recursive local lambda that scrutinises a parameter is a
+candidate in the body of its let (`Aihc.Fc.Simplify.localCandidateEnv`).
+Only a reducing site takes a copy, within the site limit and free of the
+allowance. Any other call stays a call. The copy of a lambda at a saturated
+call does no work twice. When a copy is at each use, the let has no use and
+goes.
+
+A binder between the let and a call can bind again a name that the body of
+the function uses. A copy under that binder would capture the name, so the
+binder removes the candidate (`shadowNames`).
+
+The inliner walks a body that binds such a function, also when the body
+references no top-level candidate. The standalone simplifying walk takes
+the site limit as an argument. `PassSimplify` gives it zero. The walk in
+call-pattern specialisation gives it the site limit of `growPolicy`.
+
+In `snappy-roundtrip`, `toByte` is a local function of the block. After
+call-pattern specialisation, the fused loop gives it the box `W64# s` at two
+calls, and the function takes the box apart in the lazy field of `W8#`.
+Before, the field held a case on the box and the call allocated the box. At
+`-O2` the copies took the allocation from 281 MB to 269 MB, the GC time from
+206 ms to 182 ms, and the instructions from 6.12 G to 5.65 G. The head of
+each cell is still a thunk: the field is the `Integer` path of
+`fromIntegral :: Word64 -> Word8`, a case that the simplifier cannot run
+early.
 
 ### What is deliberately not a rule
 

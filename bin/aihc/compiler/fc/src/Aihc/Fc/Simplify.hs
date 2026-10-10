@@ -49,6 +49,7 @@ module Aihc.Fc.Simplify
     isInlinable,
     isTrivial,
     functionArity,
+    hasLocalCandidate,
     collectSpine,
     castedSpine,
     exprValueNames,
@@ -104,14 +105,17 @@ data SimplifyReport = SimplifyReport
   deriving (Eq, Show)
 
 -- | Walk every value body of a program once with the local rewrites and
--- no candidate to copy. A case on a top-level value that is a known
--- constructor application still selects its alternative.
+-- no top-level candidate to copy. A case on a top-level value that is a
+-- known constructor application still selects its alternative. A local
+-- function is copied at a reducing site whose growth is within the given
+-- site limit (see 'localCandidateEnv'). Zero takes such a site only when
+-- the program does not grow.
 --
 -- This is the pass that runs after the eta expansion that follows the
 -- inliner, which wraps a value in a lambda that applies the old body to
 -- the new parameter, under the casts of a newtype it unfolded.
-simplifyProgram :: Int -> Program -> (Program, SimplifyReport)
-simplifyProgram phase program =
+simplifyProgram :: Int -> Int -> Program -> (Program, SimplifyReport)
+simplifyProgram phase siteLimit program =
   case primPackageFromScopes (programScopes program) of
     Nothing -> (program, SimplifyReport size0 size0 0)
     Just primPackage ->
@@ -129,7 +133,7 @@ simplifyProgram phase program =
                 spCse = Map.empty,
                 spEvaluated = Set.empty,
                 spDone = Map.empty,
-                spSiteLimit = 0,
+                spSiteLimit = siteLimit,
                 spRequestedSiteLimit = 0,
                 spReducingSiteLimit = 0,
                 spDiscount = 0,
@@ -138,7 +142,8 @@ simplifyProgram phase program =
                 spInside = False,
                 spCredits = Map.empty,
                 spSpeculative = False,
-                spCaseContext = Nothing
+                spCaseContext = Nothing,
+                spLocalCandidates = Map.empty
               }
           escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
           callArities = topCallArities escaping (Map.elems bodies)
@@ -333,6 +338,10 @@ data CandidateSites
   | -- | Take a site when its growth fits the site limit and the
     -- allowance.
     SitesMeasured
+  | -- | Take a reducing site within its limit, free of the allowance,
+    -- and no other site. A local function gets these sites: see
+    -- 'localCandidateEnv'.
+    SitesReducing
   deriving (Eq, Show)
 
 data Simpl = Simpl
@@ -398,7 +407,12 @@ data Simpl = Simpl
     -- candidate made in the scrutinee of a case keeps them for the sites
     -- in its tails, whose results the case takes apart as well. Nothing
     -- in any other position. See 'resultDiscount'.
-    spCaseContext :: !(Maybe [Alt])
+    spCaseContext :: !(Maybe [Alt]),
+    -- | The local functions in 'spInline', each with the free names of
+    -- its body. A binder that binds one of those names again removes the
+    -- candidate, because a copy under that binder would capture the name.
+    -- See 'localCandidateEnv'.
+    spLocalCandidates :: !(Map Name (Set Name))
   }
 
 data SimplState = SimplState
@@ -471,7 +485,7 @@ simplifyExpr env expr =
                 result <- continue fieldsEnv value
                 pure (foldr keepField result binds)
             | otherwise = do
-                body' <- simplifyExpr (bindingEnv env' binder rhs') body
+                body' <- simplifyExpr (localCandidateEnv (bindingEnv env' binder rhs') binder rhs') body
                 mkLet env' (Bind binder rhs') body'
       -- A strict let evaluates its right-hand side before its body, so the
       -- chain of the right-hand side can move out of the let as it moves
@@ -925,6 +939,7 @@ decideSite env candidate reduction growth
           | growth <= spRequestedSiteLimit env -> pure (Just ChargeExempt)
           | otherwise -> measured
         SitesMeasured -> measured
+        SitesReducing -> pure Nothing
   where
     reducingLimit
       | reduction == StrongReduction && candidateRequested candidate = spReducingSiteLimit env
@@ -1078,6 +1093,59 @@ bindingEnv env0 binder rhs
       | isValue env rhs = markEvaluated [binderName binder] (extendTypeBinder env binder)
       | otherwise = markUnlifted [binder] env
 
+-- | The environment of the body of a local function binding, with the
+-- function as a candidate when a call can reduce it.
+--
+-- A lifted, non-recursive local lambda that scrutinises a parameter is a
+-- candidate with 'SitesReducing': a call that gives a known constructor
+-- to such a parameter takes a copy within the site limit, and no other
+-- call does. The copy selects the alternative of the case on the
+-- parameter, so the constructor is not taken apart at run time, and a
+-- call that builds the constructor no longer allocates it. A copy of a
+-- lambda at a saturated call does no work twice.
+localCandidateEnv :: Simpl -> Binder -> Expr -> Simpl
+localCandidateEnv env binder rhs
+  | isLiftedBinder (spEnv env) binder,
+    not (isStrictBinder (spEnv env) binder),
+    functionArity rhs > 0,
+    Set.notMember name mentioned,
+    any parameterScrutinised (guidanceParameters guidance) =
+      env
+        { spInline = Map.insert name (Candidate rhs SitesReducing False guidance) (spInline env),
+          spLocalCandidates = Map.insert name mentioned (spLocalCandidates env)
+        }
+  | otherwise = env
+  where
+    name = binderName binder
+    mentioned = exprFreeNames rhs
+    guidance = candidateGuidance (spEnv env) (spArity env) rhs
+
+-- | Whether an expression binds a local function with a let that
+-- 'localCandidateEnv' can make a candidate: a lambda that scrutinises a
+-- parameter.
+hasLocalCandidate :: Expr -> Bool
+hasLocalCandidate = go
+  where
+    go expr =
+      case expr of
+        ExLet bind body -> candidate (bindRhs bind) || go (bindRhs bind) || go body
+        ExRec binds body -> any (go . bindRhs) binds || go body
+        ExApp function argument -> go function || go argument
+        ExTyApp function _ -> go function
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee || any (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> any go arguments
+        _ -> False
+    candidate rhs = functionArity rhs > 0 && any (`scrutinises` rhs) (parameterNames rhs)
+    parameterNames expr =
+      case expr of
+        ExLam binder body -> binderName binder : parameterNames body
+        ExTyLam _ body -> parameterNames body
+        _ -> []
+
 -- | Forget what the environment knows about names that a binder binds
 -- again. A tidied program gives sibling scopes the same names, and a
 -- transformation that nests one scope in another then shadows a name.
@@ -1094,10 +1162,19 @@ shadowNames names env
           spLocals = List.foldl' (flip Map.delete) (spLocals env) names,
           spDone = List.foldl' (flip Map.delete) (spDone env) names,
           spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
-          spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names
+          spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names,
+          spInline = List.foldl' (flip Map.delete) (spInline env) captured,
+          spLocalCandidates = List.foldl' (flip Map.delete) (spLocalCandidates env) captured
         }
   where
     shadowed = Set.fromList names
+    -- A local candidate that one of the names binds again, or whose body
+    -- mentions one of them.
+    captured =
+      [ candidate
+      | (candidate, mentioned) <- Map.toList (spLocalCandidates env),
+        Set.member candidate shadowed || not (Set.disjoint mentioned shadowed)
+      ]
 
 -- | Record that the binders of an unlifted type hold values: such a value
 -- is never a thunk. A case with one default alternative on such a binder

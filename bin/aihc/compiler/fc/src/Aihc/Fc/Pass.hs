@@ -59,8 +59,9 @@ data Pass
     PassSpecialise
   | -- | Copy each local loop whose calls give a constructor in a position,
     -- with the fields in place of the parameter, in rounds with a
-    -- simplifying walk in a phase. @Aihc.Fc.CallPattern@.
-    PassCallPatterns !Int
+    -- simplifying walk in a phase. The walk copies a local function at a
+    -- reducing site within the site limit. @Aihc.Fc.CallPattern@.
+    PassCallPatterns !Int !Int
   deriving (Eq, Show)
 
 -- | The phase a pass runs in. Phases count down as GHC's do, from 2 to
@@ -73,7 +74,7 @@ passPhase pass =
     PassDemand _ -> Nothing
     PassWorkerWrapper _ -> Nothing
     PassSpecialise -> Nothing
-    PassCallPatterns phase -> Just phase
+    PassCallPatterns phase _ -> Just phase
     PassInline _ _ phase -> Just phase
     PassSimplify phase -> Just phase
 
@@ -96,7 +97,7 @@ passName pass =
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
     PassWorkerWrapper SplitLocalFunctions -> "worker/wrapper locals"
     PassSpecialise -> "specialise"
-    PassCallPatterns phase -> "call patterns [" <> T.pack (show phase) <> "]"
+    PassCallPatterns phase _ -> "call patterns [" <> T.pack (show phase) <> "]"
     PassEtaExpand -> "eta expand"
     PassInline policy _ phase -> "inline " <> policyName policy <> " [" <> T.pack (show phase) <> "]"
     PassSimplify phase -> "simplify [" <> T.pack (show phase) <> "]"
@@ -146,8 +147,8 @@ runPass roots pass program =
                 reportDetail = count (reportSpecialisedBindings report) "bindings" <> ", " <> count (reportCopies report) "copies" <> ", " <> count (reportRewrittenCalls report) "calls"
               }
           )
-    PassCallPatterns phase ->
-      let (specialised, report) = callPatternProgram phase program
+    PassCallPatterns phase siteLimit ->
+      let (specialised, report) = callPatternProgram phase siteLimit program
        in ( specialised,
             PassReport
               { reportPass = passName pass,
@@ -178,7 +179,7 @@ runPass roots pass program =
               }
           )
     PassSimplify phase ->
-      let (simplified, report) = simplifyProgram phase program
+      let (simplified, report) = simplifyProgram phase 0 program
        in ( simplified,
             PassReport
               { reportPass = passName pass,
