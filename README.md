@@ -39,9 +39,9 @@ The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instr
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC over four weeks: from parser decisions to smaller programs](https://blog.aihc.app/posts/2026-10-02-aihc-highlights/)** (02 Oct 2026)
+**[AIHC this week: the compiler compiles itself, then tests the result](https://blog.aihc.app/posts/2026-10-09-aihc-highlights/)** (09 Oct 2026)
 
-A 28-day retrospective on parser costs, list fusion, worker/wrapper correctness, whole-program memory, and the route to aeson installation.
+An identical self-built compiler, incremental GC defects, faster inliner decisions with a runtime tradeoff, and Hackage downloads on WebAssembly.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
@@ -49,16 +49,16 @@ Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 ## Performance
 
 <!-- AUTO-GENERATED: START perf-highlights -->
-Each number is the AIHC value divided by the GHC value, as a geometric mean over 6 benchmarks. Lower is better. 1.00× is parity.
+Each number is the AIHC value divided by the GHC value, as a geometric mean over 7 benchmarks. Lower is better. 1.00× is parity.
 
 | Metric | Native | LLVM | Wasm |
 | --- | ---: | ---: | ---: |
-| Compile time `-O0` | 0.21× | 0.17× | 0.34× |
-| Artifact size `-Os` | 0.50× | 0.66× | 0.55× |
-| Runtime `-O1` | 15.9× | 26.1× | 29.0× |
-| Runtime `-O2` | 3.63× | 4.78× | 5.40× |
+| Compile time `-O0` | 0.25× | 0.20× | 0.36× |
+| Artifact size `-Os` | 0.71× | 0.96× | 0.57× |
+| Runtime `-O1` | 23.3× | 21.6× | 38.0× |
+| Runtime `-O2` | 3.91× | 3.30× | 4.39× |
 
-Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`49b86af5a`](https://github.com/ai-haskell-compiler/aihc/commit/49b86af5a2dd3d9c24ca96d09515278c4e2577d1) (2026-10-03). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=intel-i7-8705g-de9b72), commit [`f08dbf4fa`](https://github.com/ai-haskell-compiler/aihc/commit/f08dbf4fad1c991db7fe5c56db854b099b7d8001) (2026-10-10). Get all results at [perf.aihc.app](https://perf.aihc.app/).
 <!-- AUTO-GENERATED: END perf-highlights -->
 
 
