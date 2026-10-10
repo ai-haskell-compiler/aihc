@@ -459,6 +459,18 @@ static AihcGeneration *aihc_generation(AihcMachine *machine,
   return &machine->generations[generation - 1];
 }
 
+/* The bytes the gen1 and gen2 tests read: the blocks of the generation and
+   the fixed blocks of the same generation. A fixed block is a large object
+   or a pinned block. It has no space in a generation. Without its charge
+   here, a dead old fixed block waits for the -M limit. */
+static uint64_t aihc_gen1_bytes(const AihcMachine *machine) {
+  return machine->generations[0].bytes + machine->fixed_generation_bytes[1];
+}
+
+static uint64_t aihc_gen2_bytes(const AihcMachine *machine) {
+  return machine->generations[1].bytes + machine->fixed_generation_bytes[2];
+}
+
 static uint64_t aihc_generation_used(const AihcGeneration *generation) {
   uint64_t used = 0;
   for (const AihcHeapBlock *block = generation->first; block != NULL;
@@ -780,7 +792,7 @@ static void aihc_gen2_begin_marking(AihcMachine *machine) {
   ++machine->gen2_epoch;
   machine->gen2_cycle_active = 1;
   machine->gen2_marked_bytes = 0;
-  machine->gen2_cycle_start_bytes = machine->generations[1].bytes;
+  machine->gen2_cycle_start_bytes = aihc_gen2_bytes(machine);
   machine->mark_debt = 0;
   aihc_mark_stack.count = 0;
   aihc_address_set_clear(&aihc_cycle_statics);
@@ -1205,6 +1217,10 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
     /* The block enters gen2 black: the cycle keeps it. */
     block->bytes |= AIHC_PINNED_CYCLE_MARK;
   }
+  /* The charge of the fixed block moves with it to its new generation. */
+  uint64_t *fixed = context->machine->fixed_generation_bytes;
+  fixed[generation] -= aihc_pinned_bytes(block);
+  fixed[promoted] += aihc_pinned_bytes(block);
   aihc_pinned_set_generation(block, promoted);
   aihc_value_worklist_push(&aihc_pinned_worklist, object);
 }
@@ -1776,6 +1792,15 @@ void aihc_pinned_block_release(AihcPinnedBlock *block) {
   }
 }
 
+/* Remove the charge of a fixed block that the sweep frees from the fixed
+   byte counts. */
+static void aihc_fixed_uncharge(AihcMachine *machine,
+                                const AihcPinnedBlock *block) {
+  uint64_t bytes = aihc_pinned_bytes(block);
+  machine->fixed_bytes -= bytes;
+  machine->fixed_generation_bytes[aihc_pinned_generation(block)] -= bytes;
+}
+
 /* Free the pinned blocks of the collected generations that nothing reached,
    and clear the marks of the others. */
 static void aihc_sweep_pinned(AihcGcContext *context) {
@@ -1788,7 +1813,7 @@ static void aihc_sweep_pinned(AihcGcContext *context) {
       link = &block->next;
     } else if (aihc_pinned_generation(block) <= context->collected) {
       *link = block->next;
-      machine->fixed_bytes -= aihc_pinned_bytes(block);
+      aihc_fixed_uncharge(machine, block);
       aihc_pinned_block_release(block);
     } else {
       link = &block->next;
@@ -1809,7 +1834,7 @@ static void aihc_sweep_pinned_cycle(AihcMachine *machine) {
       link = &block->next;
     } else {
       *link = block->next;
-      machine->fixed_bytes -= aihc_pinned_bytes(block);
+      aihc_fixed_uncharge(machine, block);
       aihc_pinned_block_release(block);
     }
   }
@@ -2201,8 +2226,10 @@ static void aihc_cycle_finish(AihcMachine *machine) {
   machine->generations[1].bytes = machine->gen2_marked_bytes;
   /* The factor is at most AIHC_GEN2_FACTOR_MAX, so the product fits when
      the bytes leave the top bits clear. A check against a quotient would
-     become a wide multiply that the wasm32 link does not provide. */
-  uint64_t limit = machine->generations[1].bytes;
+     become a wide multiply that the wasm32 link does not provide. The
+     limit grows from the live gen2 fixed blocks too, because the gen2 test
+     counts them. */
+  uint64_t limit = aihc_gen2_bytes(machine);
   if (limit > (UINT64_MAX >> AIHC_GEN2_FACTOR_BITS)) {
     limit = UINT64_MAX;
   } else {
@@ -2292,15 +2319,16 @@ void aihc_gc_record_peak(AihcMachine *machine) {
 
 /* The oldest generation the next collection copies. Gen1 goes when it is
    above its maximum, gen2 when it has grown past its limit, and everything
-   when the -M limit is near. */
+   when the -M limit is near. The size of gen1 and gen2 includes their fixed
+   blocks. */
 static unsigned aihc_choose_generation(const AihcMachine *machine,
                                        uint64_t required_bytes) {
   unsigned generation = 0;
-  if (machine->generations[0].bytes >= machine->gen1_max_bytes) {
+  if (aihc_gen1_bytes(machine) >= machine->gen1_max_bytes) {
     generation = 1;
   }
   uint64_t limit = machine->gen2_limit_bytes;
-  if (machine->generations[1].bytes >= limit && !machine->gen2_cycle_active) {
+  if (aihc_gen2_bytes(machine) >= limit && !machine->gen2_cycle_active) {
     /* Gen2 is above its limit. A gen1 collection copies gen1 into gen2,
        and a cycle starts at its end. */
     generation = 1;
@@ -2315,7 +2343,7 @@ static unsigned aihc_choose_generation(const AihcMachine *machine,
       start = limit;
     }
     uint64_t doubled = start > UINT64_MAX / 2 ? UINT64_MAX : 2 * start;
-    if (machine->generations[1].bytes >= doubled) {
+    if (aihc_gen2_bytes(machine) >= doubled) {
       generation = 2;
     }
   }
@@ -2399,8 +2427,7 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   }
   free(context.kept);
   if (collected == 1 && !machine->gen2_cycle_active &&
-      (start_cycle ||
-       machine->generations[1].bytes >= machine->gen2_limit_bytes)) {
+      (start_cycle || aihc_gen2_bytes(machine) >= machine->gen2_limit_bytes)) {
     aihc_cycle_start(machine, root_count, roots, srt);
   }
   if (machine->gen2_cycle_active) {
@@ -2506,6 +2533,8 @@ void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes) {
     aihc_pinned_block_release(block);
   }
   machine->fixed_bytes = 0;
+  memset(machine->fixed_generation_bytes, 0,
+         sizeof(machine->fixed_generation_bytes));
   machine->fixed_since_gc = 0;
   free(machine->remembered);
   machine->remembered = NULL;
@@ -2647,6 +2676,8 @@ static AihcValue *aihc_pinned_block_adopt(AihcMachine *machine,
   block->next = machine->pinned_blocks;
   machine->pinned_blocks = block;
   machine->fixed_bytes += charge_bytes;
+  /* A new fixed block is young, as a new object in the nursery is. */
+  machine->fixed_generation_bytes[0] += charge_bytes;
   machine->fixed_since_gc += charge_bytes;
   size_t room = (size_t)(machine->heap_limit - machine->heap_next);
   machine->heap_limit -= charge_bytes < room ? charge_bytes : room;
@@ -2980,9 +3011,23 @@ static void aihc_gc_verify(AihcMachine *machine, uint64_t root_count,
   aihc_address_set_clear(&aihc_verify_srts);
   aihc_verify_work.count = 0;
   aihc_verify_srt_work.count = 0;
+  uint64_t fixed[3] = {0, 0, 0};
   for (AihcPinnedBlock *block = machine->pinned_blocks; block != NULL;
        block = block->next) {
     (void)aihc_address_set_insert(&aihc_verify_pinned, (AihcValue *)block);
+    if (aihc_pinned_generation(block) > 2) {
+      aihc_fail("verifier: a fixed block has an invalid generation");
+    }
+    fixed[aihc_pinned_generation(block)] += aihc_pinned_bytes(block);
+  }
+  /* The counts of each generation must agree with the pinned list. */
+  for (unsigned generation = 0; generation < 3; ++generation) {
+    if (fixed[generation] != machine->fixed_generation_bytes[generation]) {
+      aihc_fail("verifier: the fixed bytes of a generation are wrong");
+    }
+  }
+  if (fixed[0] + fixed[1] + fixed[2] != machine->fixed_bytes) {
+    aihc_fail("verifier: the fixed bytes are wrong");
   }
   aihc_verify_stacks(machine);
   for (uint64_t index = 0; index < machine->remembered_count; ++index) {

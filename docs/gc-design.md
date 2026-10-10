@@ -74,6 +74,14 @@ one aging step limits floating garbage in gen2, which only a full cycle frees.
 A gen2 cycle starts at a minor collection that empties gen1. It starts when
 gen2 is above `-F` times the live gen2 bytes after the last cycle.
 
+A fixed block is a large object or a pinned block. A fixed block never moves,
+but it has a generation. A new fixed block is young. A fixed block that
+survives a collection goes up one generation, as a copied object does. The
+size of gen1 and gen2 includes the charges of their fixed blocks. The gen1
+maximum, the gen2 limit, and the live gen2 bytes after a cycle count these
+charges. Thus a dead old fixed block causes the collection that frees it. It
+does not wait for the `-M` limit.
+
 If gen2 reaches the `-M` limit while a cycle is active, the collector finishes
 the cycle in one stop-the-world step. This is the only unbounded pause, and it
 is the degradation mode. A heap that is still full after it fails as today.

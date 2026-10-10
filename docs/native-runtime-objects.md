@@ -231,8 +231,10 @@ the next full collection, and the others are available to the allocator.
 
 The bytes of gen2 are the bytes of its occupied slots. A cycle counts the
 bytes it marks and the slots allocated while it runs, and gen2 takes that
-count when the cycle ends. The `-M` limit and the `-F` growth rule read
-this count.
+count when the cycle ends. A fixed block is a large object or a pinned
+block. The `-F` growth rule reads this count plus the charges of the gen2
+fixed blocks. The `-M` limit reads this count plus the used bytes of gen1 and
+the charges of all fixed blocks.
 
 ### Gen2 cycles
 
@@ -363,6 +365,17 @@ referrer, as a copied object does. A small pinned block is a C allocation
 outside every region. The collector tells it from a static object by its
 kind: the runtime allocates pinned only byte arrays and IO requests, and no
 static object has either kind.
+
+A fixed block is a large object or a pinned block. The machine keeps the
+charges of the fixed blocks of each generation in `fixed_generation_bytes`.
+A new fixed block counts in generation zero. A promotion moves the charge of
+a fixed block to its new generation. The sweep removes the charge of each
+fixed block that it frees. The gen1 test compares the bytes of the gen1
+blocks plus the charges of the gen1 fixed blocks with the gen1 maximum. The
+gen2 limit test and the doubling test of a cycle add the charges of the gen2
+fixed blocks to the gen2 bytes. The next gen2 limit after a cycle also
+includes these charges. Thus a dead old fixed block causes a collection
+before the `-M` limit is near.
 
 A static object is older than every generation. A full collection marks
 the static objects it reaches in an address set and scans each one once.

@@ -177,6 +177,11 @@
   );
   wasip3CompilationModes = _exampleName: compilationModes;
 
+  # The optional file max-peak-heap-bytes of an example holds one integer.
+  # When the file is there, the run writes the runtime statistics to a file.
+  # The test fails when peak_heap_bytes is above the integer. It also fails
+  # when the statistics file or its peak_heap_bytes field is missing. The
+  # wasm32-wasip3 runtime writes no statistics, so its test ignores the file.
   renderExampleTest = {
     backend,
     compilation,
@@ -185,6 +190,7 @@
     actual_stdout="$executable.stdout"
     actual_stderr="$executable.stderr"
     timeout_stderr="$executable.timeout-stderr"
+    statistics_file="$executable.statistics.json"
     run_directory="$executable.run"
     stdin_file=/dev/null
     if [[ -f "$example_directory/stdin" ]]; then
@@ -201,6 +207,17 @@
     expected_exit=0
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
+    fi
+    max_peak_heap_bytes=
+    statistics_environment=()
+    if [[ -f "$example_directory/max-peak-heap-bytes" ]]; then
+      max_peak_heap_bytes=$(<"$example_directory/max-peak-heap-bytes")
+      if [[ ! "$max_peak_heap_bytes" =~ ^[0-9]+$ ]]; then
+        echo "Invalid maximum peak heap bytes for $example_name: $max_peak_heap_bytes" >&2
+        exit 1
+      fi
+      rm -f "$statistics_file"
+      statistics_environment=("AIHC_RTS_STATS=$statistics_file")
     fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build "$source" \
       --target ${backend} \
@@ -220,7 +237,7 @@
       exit "$compile_exit"
     fi
     mkdir -p "$run_directory"
-    if timeout --foreground --kill-after=5s 10s \
+    if env "''${statistics_environment[@]}" timeout --foreground --kill-after=5s 10s \
       bash -c 'run_directory=$1; executable=$2; stderr=$3; argv0=$4; shift 4; cd "$run_directory"; exec -a "$argv0" "$executable" +RTS -M100M -RTS "$@" 2> "$stderr"' \
       bash "$run_directory" "$executable" "$actual_stderr" "$example_name" "''${example_args[@]}" \
       < "$stdin_file" > "$actual_stdout" 2> "$timeout_stderr"; then
@@ -255,6 +272,24 @@
       --label "$example_name/stderr-expected" \
       --label "$example_name/stderr-${backend}-${compilation.name}" \
       "$expected_stderr" "$actual_stderr"
+    if [[ -n "$max_peak_heap_bytes" ]]; then
+      if [[ ! -f "$statistics_file" ]]; then
+        echo "No runtime statistics file for $example_name/${backend}-${compilation.name}" >&2
+        exit 1
+      fi
+      statistics=$(<"$statistics_file")
+      peak_pattern='"peak_heap_bytes": *([0-9]+)'
+      if [[ ! "$statistics" =~ $peak_pattern ]]; then
+        echo "No peak_heap_bytes field in the runtime statistics of $example_name/${backend}-${compilation.name}:" >&2
+        cat "$statistics_file" >&2
+        exit 1
+      fi
+      peak_heap_bytes=''${BASH_REMATCH[1]}
+      if (( 10#$peak_heap_bytes > 10#$max_peak_heap_bytes )); then
+        echo "Peak heap of $example_name/${backend}-${compilation.name} is $peak_heap_bytes bytes, above the maximum of $max_peak_heap_bytes bytes" >&2
+        exit 1
+      fi
+    fi
   '';
 
   renderWasip3ExampleTest = compilation: ''

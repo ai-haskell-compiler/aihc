@@ -45,6 +45,7 @@
     "exit"
     "exit.ghc"
     "exit.wasm32-wasip3"
+    "max-peak-heap-bytes"
     "stdin"
     "stderr"
     "stdout"
