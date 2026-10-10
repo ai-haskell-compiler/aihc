@@ -31,6 +31,13 @@
 -- the constructor again, and at a call whose result a case takes apart,
 -- the constructor meets the case and goes away.
 --
+-- A function whose result is an unboxed tuple, such as the
+-- @(# State# RealWorld, Int #)@ of an @IO Int@ action, has a nested
+-- constructed result when every tail gives a component as the constructor
+-- of a product. Its worker returns a larger unboxed tuple, with the fields
+-- of the product in place of the product. The component is lazy, so each
+-- unlifted field must be safe to evaluate early.
+--
 -- A recursive call in the body of the worker calls a copy of the wrapper,
 -- so the worker calls itself with the fields, and the wrapper is not part
 -- of a recursive group, which the inliner would never copy.
@@ -84,17 +91,18 @@ module Aihc.Fc.WorkerWrapper
   )
 where
 
-import Aihc.Fc.Demand (Demand (..), Signature (..), Signatures, functionSignature, productConstructor, recursiveSignatures, topLevelSignatures)
+import Aihc.Fc.Demand (Demand (..), Signature (..), Signatures, functionSignature, productConstructor, recursiveSignatures, splitTypeApplication, topLevelSignatures)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (collectSpine, exprValueNames, freshenExprFrom, maxLocalUnique)
+import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, freshenExprFrom, isTrivial, maxLocalUnique, safePrimitiveCall)
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Fc.Wired (primPackageFromScopes, wiredGhcTypes)
 import Aihc.Tc.Types (Unique (..))
-import Control.Monad (foldM, guard)
+import Control.Applicative ((<|>))
+import Control.Monad (foldM, guard, zipWithM)
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -295,10 +303,25 @@ data Parameter
   | -- | The worker takes the fields of the one constructor of the type.
     Unbox !Binder !Name ![Type] ![(Type, Type)]
 
--- | How the worker returns the one constructor of the result of the
--- function: its fields, as the constructor, its type arguments, the field
--- types and their representations, and what the worker returns.
-data ResultProduct = ResultProduct !Name ![Type] ![(Type, Type)] !Returned
+-- | How the worker returns the result of the function.
+data ResultProduct
+  = -- | The one constructor of the result, returned as its fields: the
+    -- constructor, its type arguments, the field types and their
+    -- representations, and what the worker returns.
+    ResultProduct !Name ![Type] ![(Type, Type)] !Returned
+  | -- | An unboxed tuple with a product in one or more components, such as
+    -- the @(# State# RealWorld, Int #)@ of an @IO Int@ action. The worker
+    -- returns a larger unboxed tuple, with the fields of each product in
+    -- place of the product. The fields are the tuple constructor, its type
+    -- arguments, the components, and the constructor, the type arguments,
+    -- and the type of the tuple that the worker returns.
+    ResultNested !Name ![Type] ![Component] !Name ![Type] !Type
+
+-- | A component of an unboxed tuple result: its type, its
+-- representation, and the one constructor of a product that the worker
+-- returns as fields, with its type arguments, field types and their
+-- representations.
+data Component = Component !Type !Type !(Maybe (Name, [Type], [(Type, Type)]))
 
 -- | What a worker returns in place of a constructor.
 data Returned
@@ -396,13 +419,40 @@ splitFunction types self declaredType workerName demands function =
           | (binder, demand) <- zip valueBinders demands
           ]
       let unboxedNames = Set.fromList [binderName binder | Unbox binder _ _ _ <- parameters]
-          resultProduct = do
+          resultProduct = flatResult <|> nestedResult
+          flatResult = do
             guard (isNothing castLayer)
             (con, arguments, fields) <- productConstructor env result
             guard (constructedTails self unboxedNames con inner)
             reps <- traverse (repOf env) fields
             returned <- returnedKind env (zip fields reps)
             pure (ResultProduct con arguments (zip fields reps) returned)
+          -- A component of an unboxed tuple result is returned as fields
+          -- when each tail gives it as the constructor, an evaluated value,
+          -- or an unboxed parameter. The state token of an IO action is
+          -- such a tuple, so this also applies under a cast.
+          nestedResult = do
+            (tupleCon, tupleArguments) <- unboxedTupleType env result
+            let size = length tupleArguments `div` 2
+                (reps, componentTypes) = splitAt size tupleArguments
+                products =
+                  [ do
+                      (con, arguments, fields) <- productConstructor env ty
+                      guard (nestedTails env self unboxedNames tupleCon size position con fields inner)
+                      fieldReps <- traverse (repOf env) fields
+                      pure (con, arguments, zip fields fieldReps)
+                  | (position, ty) <- zip [0 ..] componentTypes
+                  ]
+            guard (any isJust products)
+            let components = zipWith3 Component componentTypes reps products
+                flat = concat [maybe [(ty, rep)] (\(_, _, fields) -> fields) shape | Component ty rep shape <- components]
+                count = T.pack (show (length flat))
+                returnedCon = wiredGhcTypes primPackage ("Tuple" <> count <> "#") SortDataConstructor
+                returnedTyCon = wiredGhcTypes primPackage ("Tuple" <> count <> "#") SortTypeConstructor
+                returnedArguments = map snd flat <> map fst flat
+            _ <- lookupHeaderType env returnedCon
+            _ <- lookupHeaderType env returnedTyCon
+            pure (ResultNested tupleCon tupleArguments components returnedCon returnedArguments (List.foldl' TyApp (TyCon returnedTyCon) returnedArguments))
       guard (not (Set.null unboxedNames) || isJust resultProduct)
       pure (tyBinders, parameters, castLayer, arrows, result, resultProduct, inner)
     -- One unlifted field is returned as it is. More fields are returned in
@@ -428,6 +478,7 @@ splitFunction types self declaredType workerName demands function =
         (ReturnField, [(ty, rep)]) -> Just (ty, Just rep)
         (ReturnTuple _ ty, _) -> Just (ty, repOf env ty)
         _ -> Nothing
+    returnedOf env (ResultNested _ _ _ _ _ ty) = Just (ty, repOf env ty)
     -- The fields of an unboxed parameter get fresh binders.
     workerParameter parameter =
       case parameter of
@@ -443,7 +494,7 @@ splitFunction types self declaredType workerName demands function =
       List.foldl' ExApp (List.foldl' ExTyApp (ExVar con) arguments)
     -- What the worker returns for the fields. A result with one field
     -- gives one value, so the last case does not happen.
-    returnedValue (ResultProduct con arguments fields returned) values =
+    returnedValue con arguments fields returned values =
       case (returned, values) of
         (ReturnTuple tupleCon _, _) -> construct tupleCon (map snd fields <> map fst fields) values
         (ReturnField, [value]) -> value
@@ -451,7 +502,11 @@ splitFunction types self declaredType workerName demands function =
     -- Each tail of the worker returns the fields of the constructor. A
     -- tail that is the constructor gives its arguments. Another tail is
     -- taken apart by a case.
-    returnFields result resultShape@(ResultProduct con _ fields returned) = go
+    returnFields result resultShape =
+      case resultShape of
+        ResultProduct con arguments fields returned -> returnProduct result con arguments fields returned
+        ResultNested tupleCon _ components returnedCon returnedArguments returnedType -> returnNested tupleCon components returnedCon returnedArguments returnedType
+    returnProduct result con arguments fields returned = go
       where
         returnedType = case (returned, fields) of
           (ReturnTuple _ ty, _) -> ty
@@ -467,11 +522,47 @@ splitFunction types self declaredType workerName demands function =
               | (ExVar head', spine) <- collectSpine expr,
                 head' == con,
                 length (rights spine) == length fields ->
-                  pure (returnedValue resultShape (rights spine))
+                  pure (returnedValue con arguments fields returned (rights spine))
               | otherwise -> do
                   binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh "field") fields
                   caseBinder <- (`Binder` result) <$> fresh "result"
-                  pure (caseFromList expr (Just caseBinder) returnedType [Alt (AltData con) [] binders (returnedValue resultShape (map (ExVar . binderName) binders))])
+                  pure (caseFromList expr (Just caseBinder) returnedType [Alt (AltData con) [] binders (returnedValue con arguments fields returned (map (ExVar . binderName) binders))])
+    -- Each tail of the worker returns the larger tuple. A tail that is the
+    -- tuple gives its components, with the fields of each product in place
+    -- of the product: the arguments of the constructor, or the binders of
+    -- a case on an evaluated value. Another tail, such as a recursive
+    -- call, is taken apart by a case.
+    returnNested tupleCon components returnedCon returnedArguments returnedType = go
+      where
+        go expr =
+          case expr of
+            ExAbsurd scrutinee _ -> pure (ExAbsurd scrutinee returnedType)
+            ExCase scrutinee binder (NE.toList -> alternatives) -> caseFromList scrutinee binder returnedType <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (altRhs alternative)) alternatives
+            ExLet bind body -> ExLet bind <$> go body
+            ExRec binds body -> ExRec binds <$> go body
+            _
+              | (ExVar head', spine) <- collectSpine expr,
+                head' == tupleCon,
+                length (rights spine) == length components ->
+                  flatten (rights spine)
+              | otherwise -> do
+                  binders <- traverse (\(Component ty _ _) -> (`Binder` ty) <$> fresh "component") components
+                  inner <- flatten (map (ExVar . binderName) binders)
+                  pure (caseFromList expr Nothing returnedType [Alt (AltData tupleCon) [] binders inner])
+        flatten values = do
+          pieces <- zipWithM piece components values
+          pure (foldr (\(wrap, _) inner -> wrap inner) (construct returnedCon returnedArguments (concatMap snd pieces)) pieces)
+        piece (Component _ _ shape) value =
+          case shape of
+            Nothing -> pure (id, [value])
+            Just (con, _, fields)
+              | (ExVar head', spine) <- collectSpine value,
+                head' == con,
+                length (rights spine) == length fields ->
+                  pure (id, rights spine)
+              | otherwise -> do
+                  binders <- traverse (\(ty, _) -> (`Binder` ty) <$> fresh "field") fields
+                  pure (\inner -> caseFromList value Nothing returnedType [Alt (AltData con) [] binders inner], map (ExVar . binderName) binders)
     -- The wrapper takes each unboxed parameter apart, calls the worker with
     -- the fields, and builds the result from what the worker returns. The
     -- parameters under a cast stay under it, with the cases inside them.
@@ -495,6 +586,19 @@ splitFunction types self declaredType workerName demands function =
               caseBinder <- (`Binder` tupleType) <$> fresh "returned"
               pure (caseFromList call (Just caseBinder) result [Alt (AltData tupleCon) [] binders (construct con arguments (map (ExVar . binderName) binders))])
             _ -> pure call
+        -- The wrapper builds each product of the tuple again from its
+        -- fields, in a lazy component of the tuple that it returns.
+        Just (ResultNested tupleCon tupleArguments components returnedCon _ _) -> do
+          pieces <-
+            traverse
+              ( \(Component ty _ shape) -> case shape of
+                  Nothing -> (\binder -> ([binder], ExVar (binderName binder))) . (`Binder` ty) <$> fresh "component"
+                  Just (con, arguments, fields) -> do
+                    binders <- traverse (\(fieldType, _) -> (`Binder` fieldType) <$> fresh "field") fields
+                    pure (binders, construct con arguments (map (ExVar . binderName) binders))
+              )
+              components
+          pure (caseFromList call Nothing result [Alt (AltData returnedCon) [] (concatMap fst pieces) (construct tupleCon tupleArguments (map snd pieces))])
       let cases =
             foldr
               ( \((parameter, fields), scrutineeBinder) inner ->
@@ -540,6 +644,71 @@ constructedTails self unboxed con body = all acceptable leaves && any constructe
       case fst (collectSpine leaf) of
         ExVar name -> name == con || name == self || Set.member name unboxed
         _ -> False
+
+-- | Whether every tail of a body that returns an unboxed tuple gives the
+-- component at a position as the one constructor of a product, and at
+-- least one tail builds that constructor there. A tail can also be a call
+-- of the function itself, an absurd case, or a tuple whose component is
+-- an evaluated value. An unboxed parameter counts as the constructor,
+-- because the worker builds it from its fields.
+--
+-- The component of a tuple is lazy, but the worker returns the fields of
+-- the product, so it evaluates them. An unlifted field must therefore be
+-- a value or a primitive call that is safe to run early. A case binder is
+-- an evaluated value, because the case evaluates its scrutinee.
+nestedTails :: TypeEnv -> Name -> Set Name -> Name -> Int -> Int -> Name -> [Type] -> Expr -> Bool
+nestedTails env self unboxed tupleCon size position con fields body = all acceptable leaves && any given leaves
+  where
+    leaves = tails Set.empty body
+    tails evaluated expr =
+      case expr of
+        ExCase _ binder (NE.toList -> alternatives) -> concatMap (tails (foldr (Set.insert . binderName) evaluated binder) . altRhs) alternatives
+        ExLet _ inner -> tails evaluated inner
+        ExRec _ inner -> tails evaluated inner
+        _ -> [(evaluated, expr)]
+    component leaf =
+      case collectSpine leaf of
+        (ExVar head', spine)
+          | head' == tupleCon,
+            values <- rights spine,
+            length values == size ->
+              Just (values !! position)
+        _ -> Nothing
+    -- A tail that gives the component, and is not a recursive call.
+    given (evaluated, leaf) =
+      case component leaf of
+        Just (ExVar name) -> Set.member name evaluated || Set.member name unboxed
+        _ -> constructed leaf
+    constructed leaf =
+      case component leaf of
+        Just (ExVar name) -> Set.member name unboxed
+        Just value
+          | (ExVar head', spine) <- collectSpine value,
+            head' == con,
+            values <- rights spine,
+            length values == length fields ->
+              and (zipWith safeField fields values)
+        _ -> False
+    safeField ty value = isLiftedType env ty || isTrivial value || isJust (safePrimitiveCall env value)
+    acceptable (evaluated, leaf) =
+      case leaf of
+        ExAbsurd {} -> True
+        _
+          -- A recursive call of an action is the call under a cast,
+          -- applied to the state token.
+          | (ExVar head', _) <- castedSpine leaf, head' == self -> True
+          | constructed leaf -> True
+          | Just (ExVar name) <- component leaf -> Set.member name evaluated
+          | otherwise -> False
+
+-- | The constructor and the type arguments of an unboxed tuple type.
+unboxedTupleType :: TypeEnv -> Type -> Maybe (Name, [Type])
+unboxedTupleType env ty = do
+  (tyCon, arguments) <- splitTypeApplication (reduceType env ty)
+  [con] <- Map.lookup tyCon (teDataCons env)
+  guard (Map.lookup con (teConRepresentations env) == Just UnboxedTupleConstructor)
+  guard (even (length arguments))
+  pure (con, arguments)
 
 -- | The arrows with the result representation of the last one replaced.
 setLastResultRep :: Type -> [(Type, Type)] -> [(Type, Type)]

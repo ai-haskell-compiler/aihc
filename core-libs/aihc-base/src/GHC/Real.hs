@@ -179,6 +179,15 @@ wordToInteger value =
       case (<#) intValue 0# of
         0# -> IS intValue
         _ -> integerFromWord# 1# value
+-- The rule is GHC's "Word# -> Integer -> Int#" rule. It removes the large
+-- Integer branch from a conversion such as fromIntegral :: Word64 -> Word8.
+-- The rule cannot match after the inliner copies the body, thus the inliner
+-- must keep the call until phase 1.
+{-# NOINLINE [0] wordToInteger #-}
+
+{-# RULES
+"integerToInt#/wordToInteger" forall x. integerToInt# (wordToInteger x) = word2Int# x
+  #-}
 
 instance Real Int8 where
   toRational value = Ratio (toInteger value) 1

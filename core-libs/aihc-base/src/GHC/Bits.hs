@@ -31,7 +31,15 @@ import GHC.Prim
     and#,
     andWord32#,
     clz#,
+    clz16#,
+    clz32#,
+    clz64#,
+    clz8#,
     ctz#,
+    ctz16#,
+    ctz32#,
+    ctz64#,
+    ctz8#,
     int16ToInt#,
     int2Word#,
     int32ToInt#,
@@ -46,9 +54,15 @@ import GHC.Prim
     or#,
     orWord32#,
     popCnt#,
+    uncheckedIShiftL#,
+    uncheckedIShiftRA#,
     uncheckedShiftL#,
+    uncheckedShiftL64#,
+    uncheckedShiftLWord16#,
     uncheckedShiftLWord32#,
     uncheckedShiftRL#,
+    uncheckedShiftRL64#,
+    uncheckedShiftRLWord16#,
     uncheckedShiftRLWord32#,
     word16ToWord#,
     word2Int#,
@@ -308,18 +322,18 @@ instance Bits Int where
         case (<#) count 64# of
           1# -> I# (word2Int# (uncheckedShiftL# (int2Word# word) count))
           _ -> I# 0#
-  unsafeShiftL (I# word) (I# count) = I# (word2Int# (uncheckedShiftL# (int2Word# word) count))
+  unsafeShiftL (I# word) (I# count) = I# (uncheckedIShiftL# word count)
   shiftR (I# word) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (I# word) (I# count)
       _ ->
         case (<#) count 64# of
-          1# -> I# (arithmeticShiftR# word count)
+          1# -> I# (uncheckedIShiftRA# word count)
           _ ->
             case (<#) word 0# of
               1# -> I# ((-#) 0# 1#)
               _ -> I# 0#
-  unsafeShiftR (I# word) (I# count) = I# (arithmeticShiftR# word count)
+  unsafeShiftR (I# word) (I# count) = I# (uncheckedIShiftRA# word count)
   rotate (I# word) (I# amount) = I# (word2Int# (rotateWord# (int2Word# word) (normalizeRotate# amount)))
   zeroBits = I# 0#
   bit (I# index) =
@@ -386,12 +400,12 @@ instance Bits Word8 where
     case (<#) count 0# of
       1# -> invalidShift (W8# value) (I# count)
       _ -> W8# (wordToWord8# (sizedShiftL# 8# (word8ToWord# value) count))
-  unsafeShiftL (W8# value) (I# count) = W8# (wordToWord8# (sizedShiftL# 8# (word8ToWord# value) count))
+  unsafeShiftL (W8# value) (I# count) = W8# (wordToWord8# (uncheckedShiftL# (word8ToWord# value) count))
   shiftR (W8# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W8# value) (I# count)
       _ -> W8# (wordToWord8# (sizedShiftRL# 8# (word8ToWord# value) count))
-  unsafeShiftR (W8# value) (I# count) = W8# (wordToWord8# (sizedShiftRL# 8# (word8ToWord# value) count))
+  unsafeShiftR (W8# value) (I# count) = W8# (wordToWord8# (uncheckedShiftRL# (word8ToWord# value) count))
   rotate (W8# value) (I# amount) = W8# (wordToWord8# (sizedRotate# 8# (word8ToWord# value) amount))
   zeroBits = W8# (wordToWord8# (int2Word# 0#))
   bit (I# index) = W8# (wordToWord8# (sizedBit# 8# index))
@@ -403,8 +417,8 @@ instance Bits Word8 where
 
 instance FiniteBits Word8 where
   finiteBitSize _ = I# 8#
-  countLeadingZeros (W8# value) = I# (sizedCountLeadingZeros# 8# (word8ToWord# value))
-  countTrailingZeros (W8# value) = I# (sizedCountTrailingZeros# 8# (word8ToWord# value))
+  countLeadingZeros (W8# value) = I# (word2Int# (clz8# (word8ToWord# value)))
+  countTrailingZeros (W8# value) = I# (word2Int# (ctz8# (word8ToWord# value)))
 
 instance Bits Word16 where
   W16# left .&. W16# right = W16# (wordToWord16# (and# (word16ToWord# left) (word16ToWord# right)))
@@ -415,12 +429,12 @@ instance Bits Word16 where
     case (<#) count 0# of
       1# -> invalidShift (W16# value) (I# count)
       _ -> W16# (wordToWord16# (sizedShiftL# 16# (word16ToWord# value) count))
-  unsafeShiftL (W16# value) (I# count) = W16# (wordToWord16# (sizedShiftL# 16# (word16ToWord# value) count))
+  unsafeShiftL (W16# value) (I# count) = W16# (uncheckedShiftLWord16# value count)
   shiftR (W16# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W16# value) (I# count)
       _ -> W16# (wordToWord16# (sizedShiftRL# 16# (word16ToWord# value) count))
-  unsafeShiftR (W16# value) (I# count) = W16# (wordToWord16# (sizedShiftRL# 16# (word16ToWord# value) count))
+  unsafeShiftR (W16# value) (I# count) = W16# (uncheckedShiftRLWord16# value count)
   rotate (W16# value) (I# amount) = W16# (wordToWord16# (sizedRotate# 16# (word16ToWord# value) amount))
   zeroBits = W16# (wordToWord16# (int2Word# 0#))
   bit (I# index) = W16# (wordToWord16# (sizedBit# 16# index))
@@ -432,8 +446,8 @@ instance Bits Word16 where
 
 instance FiniteBits Word16 where
   finiteBitSize _ = I# 16#
-  countLeadingZeros (W16# value) = I# (sizedCountLeadingZeros# 16# (word16ToWord# value))
-  countTrailingZeros (W16# value) = I# (sizedCountTrailingZeros# 16# (word16ToWord# value))
+  countLeadingZeros (W16# value) = I# (word2Int# (clz16# (word16ToWord# value)))
+  countTrailingZeros (W16# value) = I# (word2Int# (ctz16# (word16ToWord# value)))
 
 -- The Word32 methods use the 32-bit primops. A method that widens to
 -- Word# and narrows back costs a mask after each operation on a 64-bit
@@ -447,12 +461,12 @@ instance Bits Word32 where
     case (<#) count 0# of
       1# -> invalidShift (W32# value) (I# count)
       _ -> W32# (shiftLWord32# value count)
-  unsafeShiftL (W32# value) (I# count) = W32# (shiftLWord32# value count)
+  unsafeShiftL (W32# value) (I# count) = W32# (uncheckedShiftLWord32# value count)
   shiftR (W32# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W32# value) (I# count)
       _ -> W32# (shiftRLWord32# value count)
-  unsafeShiftR (W32# value) (I# count) = W32# (shiftRLWord32# value count)
+  unsafeShiftR (W32# value) (I# count) = W32# (uncheckedShiftRLWord32# value count)
   rotate (W32# value) (I# amount) = W32# (rotateWord32# value amount)
   zeroBits = W32# (wordToWord32# (int2Word# 0#))
   bit (I# index) = W32# (wordToWord32# (sizedBit# 32# index))
@@ -464,8 +478,8 @@ instance Bits Word32 where
 
 instance FiniteBits Word32 where
   finiteBitSize _ = I# 32#
-  countLeadingZeros (W32# value) = I# (sizedCountLeadingZeros# 32# (word32ToWord# value))
-  countTrailingZeros (W32# value) = I# (sizedCountTrailingZeros# 32# (word32ToWord# value))
+  countLeadingZeros (W32# value) = I# (word2Int# (clz32# (word32ToWord# value)))
+  countTrailingZeros (W32# value) = I# (word2Int# (ctz32# (word32ToWord# value)))
 
 instance Bits Word64 where
   W64# left .&. W64# right = W64# (wordToWord64# (and# (word64ToWord# left) (word64ToWord# right)))
@@ -476,12 +490,12 @@ instance Bits Word64 where
     case (<#) count 0# of
       1# -> invalidShift (W64# value) (I# count)
       _ -> W64# (wordToWord64# (sizedShiftL# 64# (word64ToWord# value) count))
-  unsafeShiftL (W64# value) (I# count) = W64# (wordToWord64# (sizedShiftL# 64# (word64ToWord# value) count))
+  unsafeShiftL (W64# value) (I# count) = W64# (uncheckedShiftL64# value count)
   shiftR (W64# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W64# value) (I# count)
       _ -> W64# (wordToWord64# (sizedShiftRL# 64# (word64ToWord# value) count))
-  unsafeShiftR (W64# value) (I# count) = W64# (wordToWord64# (sizedShiftRL# 64# (word64ToWord# value) count))
+  unsafeShiftR (W64# value) (I# count) = W64# (uncheckedShiftRL64# value count)
   rotate (W64# value) (I# amount) = W64# (wordToWord64# (sizedRotate# 64# (word64ToWord# value) amount))
   zeroBits = W64# (wordToWord64# (int2Word# 0#))
   bit (I# index) = W64# (wordToWord64# (sizedBit# 64# index))
@@ -493,8 +507,8 @@ instance Bits Word64 where
 
 instance FiniteBits Word64 where
   finiteBitSize _ = I# 64#
-  countLeadingZeros (W64# value) = I# (sizedCountLeadingZeros# 64# (word64ToWord# value))
-  countTrailingZeros (W64# value) = I# (sizedCountTrailingZeros# 64# (word64ToWord# value))
+  countLeadingZeros (W64# value) = I# (word2Int# (clz64# value))
+  countTrailingZeros (W64# value) = I# (word2Int# (ctz64# value))
 
 instance Bits Word where
   W# left .&. W# right = W# (and# left right)
@@ -505,12 +519,12 @@ instance Bits Word where
     case (<#) count 0# of
       1# -> invalidShift (W# value) (I# count)
       _ -> W# (sizedShiftL# 64# value count)
-  unsafeShiftL (W# value) (I# count) = W# (sizedShiftL# 64# value count)
+  unsafeShiftL (W# value) (I# count) = W# (uncheckedShiftL# value count)
   shiftR (W# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W# value) (I# count)
       _ -> W# (sizedShiftRL# 64# value count)
-  unsafeShiftR (W# value) (I# count) = W# (sizedShiftRL# 64# value count)
+  unsafeShiftR (W# value) (I# count) = W# (uncheckedShiftRL# value count)
   rotate (W# value) (I# amount) = W# (sizedRotate# 64# value amount)
   zeroBits = W# (int2Word# 0#)
   bit (I# index) = W# (sizedBit# 64# index)
@@ -522,8 +536,8 @@ instance Bits Word where
 
 instance FiniteBits Word where
   finiteBitSize _ = I# 64#
-  countLeadingZeros (W# value) = I# (sizedCountLeadingZeros# 64# value)
-  countTrailingZeros (W# value) = I# (sizedCountTrailingZeros# 64# value)
+  countLeadingZeros (W# value) = I# (word2Int# (clz# value))
+  countTrailingZeros (W# value) = I# (word2Int# (ctz# value))
 
 instance Bits Int8 where
   I8# left .&. I8# right = I8# (intToInt8# (word2Int# (and# (int2Word# (int8ToInt# left)) (int2Word# (int8ToInt# right)))))
@@ -534,12 +548,12 @@ instance Bits Int8 where
     case (<#) count 0# of
       1# -> invalidShift (I8# value) (I# count)
       _ -> I8# (intToInt8# (word2Int# (sizedShiftL# 8# (int2Word# (int8ToInt# value)) count)))
-  unsafeShiftL (I8# value) (I# count) = I8# (intToInt8# (word2Int# (sizedShiftL# 8# (int2Word# (int8ToInt# value)) count)))
+  unsafeShiftL (I8# value) (I# count) = I8# (intToInt8# (uncheckedIShiftL# (int8ToInt# value) count))
   shiftR (I8# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (I8# value) (I# count)
       _ -> I8# (intToInt8# (sizedShiftRA# 8# (int8ToInt# value) count))
-  unsafeShiftR (I8# value) (I# count) = I8# (intToInt8# (sizedShiftRA# 8# (int8ToInt# value) count))
+  unsafeShiftR (I8# value) (I# count) = I8# (intToInt8# (uncheckedIShiftRA# (int8ToInt# value) count))
   rotate (I8# value) (I# amount) = I8# (intToInt8# (word2Int# (sizedRotate# 8# (narrowWord# 8# (int2Word# (int8ToInt# value))) amount)))
   zeroBits = I8# (intToInt8# 0#)
   bit (I# index) = I8# (intToInt8# (word2Int# (sizedBit# 8# index)))
@@ -551,8 +565,8 @@ instance Bits Int8 where
 
 instance FiniteBits Int8 where
   finiteBitSize _ = I# 8#
-  countLeadingZeros (I8# value) = I# (sizedCountLeadingZeros# 8# (narrowWord# 8# (int2Word# (int8ToInt# value))))
-  countTrailingZeros (I8# value) = I# (sizedCountTrailingZeros# 8# (narrowWord# 8# (int2Word# (int8ToInt# value))))
+  countLeadingZeros (I8# value) = I# (word2Int# (clz8# (int2Word# (int8ToInt# value))))
+  countTrailingZeros (I8# value) = I# (word2Int# (ctz8# (int2Word# (int8ToInt# value))))
 
 instance Bits Int16 where
   I16# left .&. I16# right = I16# (intToInt16# (word2Int# (and# (int2Word# (int16ToInt# left)) (int2Word# (int16ToInt# right)))))
@@ -563,12 +577,12 @@ instance Bits Int16 where
     case (<#) count 0# of
       1# -> invalidShift (I16# value) (I# count)
       _ -> I16# (intToInt16# (word2Int# (sizedShiftL# 16# (int2Word# (int16ToInt# value)) count)))
-  unsafeShiftL (I16# value) (I# count) = I16# (intToInt16# (word2Int# (sizedShiftL# 16# (int2Word# (int16ToInt# value)) count)))
+  unsafeShiftL (I16# value) (I# count) = I16# (intToInt16# (uncheckedIShiftL# (int16ToInt# value) count))
   shiftR (I16# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (I16# value) (I# count)
       _ -> I16# (intToInt16# (sizedShiftRA# 16# (int16ToInt# value) count))
-  unsafeShiftR (I16# value) (I# count) = I16# (intToInt16# (sizedShiftRA# 16# (int16ToInt# value) count))
+  unsafeShiftR (I16# value) (I# count) = I16# (intToInt16# (uncheckedIShiftRA# (int16ToInt# value) count))
   rotate (I16# value) (I# amount) = I16# (intToInt16# (word2Int# (sizedRotate# 16# (narrowWord# 16# (int2Word# (int16ToInt# value))) amount)))
   zeroBits = I16# (intToInt16# 0#)
   bit (I# index) = I16# (intToInt16# (word2Int# (sizedBit# 16# index)))
@@ -580,8 +594,8 @@ instance Bits Int16 where
 
 instance FiniteBits Int16 where
   finiteBitSize _ = I# 16#
-  countLeadingZeros (I16# value) = I# (sizedCountLeadingZeros# 16# (narrowWord# 16# (int2Word# (int16ToInt# value))))
-  countTrailingZeros (I16# value) = I# (sizedCountTrailingZeros# 16# (narrowWord# 16# (int2Word# (int16ToInt# value))))
+  countLeadingZeros (I16# value) = I# (word2Int# (clz16# (int2Word# (int16ToInt# value))))
+  countTrailingZeros (I16# value) = I# (word2Int# (ctz16# (int2Word# (int16ToInt# value))))
 
 instance Bits Int32 where
   I32# left .&. I32# right = I32# (intToInt32# (word2Int# (and# (int2Word# (int32ToInt# left)) (int2Word# (int32ToInt# right)))))
@@ -592,12 +606,12 @@ instance Bits Int32 where
     case (<#) count 0# of
       1# -> invalidShift (I32# value) (I# count)
       _ -> I32# (intToInt32# (word2Int# (sizedShiftL# 32# (int2Word# (int32ToInt# value)) count)))
-  unsafeShiftL (I32# value) (I# count) = I32# (intToInt32# (word2Int# (sizedShiftL# 32# (int2Word# (int32ToInt# value)) count)))
+  unsafeShiftL (I32# value) (I# count) = I32# (intToInt32# (uncheckedIShiftL# (int32ToInt# value) count))
   shiftR (I32# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (I32# value) (I# count)
       _ -> I32# (intToInt32# (sizedShiftRA# 32# (int32ToInt# value) count))
-  unsafeShiftR (I32# value) (I# count) = I32# (intToInt32# (sizedShiftRA# 32# (int32ToInt# value) count))
+  unsafeShiftR (I32# value) (I# count) = I32# (intToInt32# (uncheckedIShiftRA# (int32ToInt# value) count))
   rotate (I32# value) (I# amount) = I32# (intToInt32# (word2Int# (sizedRotate# 32# (narrowWord# 32# (int2Word# (int32ToInt# value))) amount)))
   zeroBits = I32# (intToInt32# 0#)
   bit (I# index) = I32# (intToInt32# (word2Int# (sizedBit# 32# index)))
@@ -609,8 +623,8 @@ instance Bits Int32 where
 
 instance FiniteBits Int32 where
   finiteBitSize _ = I# 32#
-  countLeadingZeros (I32# value) = I# (sizedCountLeadingZeros# 32# (narrowWord# 32# (int2Word# (int32ToInt# value))))
-  countTrailingZeros (I32# value) = I# (sizedCountTrailingZeros# 32# (narrowWord# 32# (int2Word# (int32ToInt# value))))
+  countLeadingZeros (I32# value) = I# (word2Int# (clz32# (int2Word# (int32ToInt# value))))
+  countTrailingZeros (I32# value) = I# (word2Int# (ctz32# (int2Word# (int32ToInt# value))))
 
 instance Bits Int64 where
   I64# left .&. I64# right = I64# (intToInt64# (word2Int# (and# (int2Word# (int64ToInt# left)) (int2Word# (int64ToInt# right)))))
@@ -621,12 +635,12 @@ instance Bits Int64 where
     case (<#) count 0# of
       1# -> invalidShift (I64# value) (I# count)
       _ -> I64# (intToInt64# (word2Int# (sizedShiftL# 64# (int2Word# (int64ToInt# value)) count)))
-  unsafeShiftL (I64# value) (I# count) = I64# (intToInt64# (word2Int# (sizedShiftL# 64# (int2Word# (int64ToInt# value)) count)))
+  unsafeShiftL (I64# value) (I# count) = I64# (intToInt64# (uncheckedIShiftL# (int64ToInt# value) count))
   shiftR (I64# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (I64# value) (I# count)
       _ -> I64# (intToInt64# (sizedShiftRA# 64# (int64ToInt# value) count))
-  unsafeShiftR (I64# value) (I# count) = I64# (intToInt64# (sizedShiftRA# 64# (int64ToInt# value) count))
+  unsafeShiftR (I64# value) (I# count) = I64# (intToInt64# (uncheckedIShiftRA# (int64ToInt# value) count))
   rotate (I64# value) (I# amount) = I64# (intToInt64# (word2Int# (sizedRotate# 64# (narrowWord# 64# (int2Word# (int64ToInt# value))) amount)))
   zeroBits = I64# (intToInt64# 0#)
   bit (I# index) = I64# (intToInt64# (word2Int# (sizedBit# 64# index)))
@@ -638,8 +652,8 @@ instance Bits Int64 where
 
 instance FiniteBits Int64 where
   finiteBitSize _ = I# 64#
-  countLeadingZeros (I64# value) = I# (sizedCountLeadingZeros# 64# (narrowWord# 64# (int2Word# (int64ToInt# value))))
-  countTrailingZeros (I64# value) = I# (sizedCountTrailingZeros# 64# (narrowWord# 64# (int2Word# (int64ToInt# value))))
+  countLeadingZeros (I64# value) = I# (word2Int# (clz# (int2Word# (int64ToInt# value))))
+  countTrailingZeros (I64# value) = I# (word2Int# (ctz# (int2Word# (int64ToInt# value))))
 
 -- | Make a mask that has the low bits of a fixed width set.
 widthMask# :: Int# -> Word#
@@ -670,7 +684,7 @@ sizedShiftRL# width value count =
 sizedShiftRA# :: Int# -> Int# -> Int# -> Int#
 sizedShiftRA# width value count =
   case (<#) count width of
-    1# -> arithmeticShiftR# value count
+    1# -> uncheckedIShiftRA# value count
     _ ->
       case (<#) value 0# of
         1# -> (-#) 0# 1#
@@ -725,30 +739,6 @@ sizedTestBit# width value index =
       case (<#) index width of
         1# -> wordIsNonzero# (and# value (uncheckedShiftL# (int2Word# 1#) index))
         _ -> False
-
--- | Count the zero bits above the highest set bit of a fixed-width word.
-sizedCountLeadingZeros# :: Int# -> Word# -> Int#
-sizedCountLeadingZeros# width value = (-#) (word2Int# (clz# value)) ((-#) 64# width)
-
--- | Count the zero bits below the lowest set bit of a fixed-width word.
-sizedCountTrailingZeros# :: Int# -> Word# -> Int#
-sizedCountTrailingZeros# width value =
-  case word2Int# (ctz# value) of
-    count ->
-      case (<#) count width of
-        1# -> count
-        _ -> width
-
-arithmeticShiftR# :: Int# -> Int# -> Int#
-arithmeticShiftR# value amount =
-  case amount of
-    0# -> value
-    _ ->
-      case uncheckedShiftRL# (int2Word# value) amount of
-        shifted ->
-          case (<#) value 0# of
-            1# -> word2Int# (or# shifted (uncheckedShiftL# (not# (int2Word# 0#)) ((-#) 64# amount)))
-            _ -> word2Int# shifted
 
 normalizeRotate# :: Int# -> Int#
 normalizeRotate# amount = word2Int# (and# (int2Word# amount) (int2Word# 63#))
