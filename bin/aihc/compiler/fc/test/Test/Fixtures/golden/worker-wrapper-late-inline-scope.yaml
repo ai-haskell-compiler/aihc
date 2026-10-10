@@ -1,0 +1,107 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (useAll, uncalled) where
+
+  import GHC.Prim ((*#), (+#))
+  import GHC.Types (Int (..))
+
+  called :: Int -> Int -> Int
+  called x y = case x of
+    I# a -> case y of
+      I# b -> I# ((a *# b) +# a)
+  {-# INLINE called #-}
+
+  uncalled :: Int -> Int
+  uncalled x = case x of
+    I# a -> I# (a +# a)
+  {-# INLINE uncalled #-}
+
+  kept :: Int -> Int
+  kept x = case x of
+    I# a -> I# (a *# a)
+  {-# NOINLINE kept #-}
+
+  useful :: Int -> Int
+  useful x = case x of
+    I# a -> I# (a *# 3#)
+  {-# INLINABLE useful #-}
+
+  plain :: Int -> Int
+  plain x = case x of
+    I# a -> I# (a +# 1#)
+
+  useAll :: Int -> Int
+  useAll n = called (kept n) (called (useful n) (plain n))
+passes:
+- worker-wrapper: late
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  val 1.vcalled inline :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
+      let! _ as (field : tInt#) = v$wcalled x{1} y{1};
+      cI# field
+
+  val 1.v$wcalled inline :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    = λ(x : tInt#) (y : tInt#).
+      let x{1} : tInt =
+        cI# x;
+      let y{1} : tInt =
+        cI# y;
+      let! cI# (a : tInt#) = x{1};
+      let! cI# (b : tInt#) = y{1};
+      prim +# (prim *# a b) a
+
+  pub val 1.vuncalled inline :: tInt 3.→ tInt
+    = λ(x : tInt).
+      let! cI# (a : tInt#) = x;
+      cI# (prim +# a a)
+
+  val 1.vkept noinline :: tInt 3.→ tInt
+    = λ(x : tInt).
+      let! cI# (a : tInt#) = x;
+      cI# (prim *# a a)
+
+  val 1.vuseful inlinable :: tInt 3.→ tInt
+    = λ(x : tInt).
+      let! cI# (a : tInt#) = x;
+      cI# (prim *# a lit (3#cIntRep) :: tInt#)
+
+  val 1.vplain :: tInt 3.→ tInt
+    = λ(x : tInt).
+      let! cI# (a : tInt#) = x;
+      cI# (prim +# a lit (1#cIntRep) :: tInt#)
+
+  pub val 1.vuseAll :: tInt 3.→ tInt
+    = λ(x : tInt).
+      vcalled (vkept x) (vcalled (vuseful x) (vplain x))
+status: pass
+reason: The late split splits the INLINE function that another value calls. The wrapper is INLINE, and the worker keeps the INLINE pragma of the function. The late split does not split the INLINE function that no value calls, the NOINLINE function, the INLINABLE function, or the function without a pragma.

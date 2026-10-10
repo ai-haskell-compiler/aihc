@@ -73,7 +73,7 @@ passes:
 - inline: shrink
 - inline: grow
 - eta
-- worker-wrapper: locals
+- worker-wrapper: late
 - simplify
 expected: |-
   scope 1 = "" Test
@@ -262,4 +262,4 @@ expected: |-
    = vtake @a m xs
    :: tList a
 status: pass
-reason: The growing inliner makes the local loop of the fused take, after the first worker/wrapper split. Eta expansion gives the loop its two lambdas. The local split then gives the loop an Int# counter, and the recursive call builds no box. The top-level take keeps its boxed parameter, because this split is for local functions only.
+reason: The growing inliner makes the local loop of the fused take, after the first worker/wrapper split. Eta expansion gives the loop its two lambdas. The local split then gives the loop an Int# counter, and the recursive call builds no box. The top-level take keeps its boxed parameter, because the late split does not split a top-level function without an INLINE pragma.

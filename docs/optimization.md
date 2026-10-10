@@ -62,7 +62,7 @@ after each pass under `--lint`.
 | `PassSimplify phase` | One walk over every body with the local rewrites and no copy of any callee, in a phase. `Aihc.Fc.Simplify`. |
 | `PassLiftConstants` | Move closed constructor expressions to private constants. `Aihc.Fc.ConstantLift`. |
 | `PassDemand rewrites` | Demand analysis, then a case for every strict let, and with `StrictLetsAndArguments` for every strict argument of a saturated call. `Aihc.Fc.Demand`. |
-| `PassWorkerWrapper scope` | Split each function in the scope that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. The scope is every function, or the local recursive functions only. `Aihc.Fc.WorkerWrapper`. |
+| `PassWorkerWrapper scope` | Split each function in the scope that takes apart a strict parameter of a type with one constructor, or that returns a constructor of such a type, into a worker that takes and returns fields and an `INLINE` wrapper. The scope is every function without a pragma, or, in the late run, the local recursive functions and the top-level `INLINE` functions that another value calls. `Aihc.Fc.WorkerWrapper`. |
 | `PassSpecialise` | Copy each local recursive function whose calls give a constant dictionary, with the dictionary in place of the parameter. `Aihc.Fc.Specialise`. |
 | `PassCallPatterns phase` | Copy each local loop whose calls give a constructor in a position, with the fields in place of the parameter, in rounds with a simplifying walk in a phase. `Aihc.Fc.CallPattern`. |
 
@@ -83,7 +83,7 @@ The plans are:
 | Level | Passes |
 | ----- | ------ |
 | `-O0` | none |
-| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, worker/wrapper of the local functions, inline `growPolicy` [0] for one round, demand, simplify [0], call patterns [0], lift constants |
+| `-O1` | eta expand, specialise, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, simplify [0], call patterns [0], lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
 | `-Os` | eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], lift constants |
 
@@ -483,19 +483,46 @@ rewrite of the simplifier took the allocation from 280,966,312 bytes to
 nodes. Most of the allocation of the benchmark is the list that builds its
 input, so the loops of the codec are a small part of it.
 
-The pass runs a second time after the growing inliner, for the local
-functions only. The growing inliner makes new local loops: when it copies
-a fused producer, such as `take n (iterate f x)`, into its consumer, the
-loop that results takes the count as a boxed `Int`. Eta expansion first
-gives such a loop all its lambdas, and then the split gives it an `Int#`
-counter. That run does not split a top-level function, because no inliner
-follows to copy the wrapper, and a wrapper that is not copied is only one
-more call.
+The pass runs a second time after the growing inliner. This late run
+splits the local functions, and the top-level `INLINE` functions that
+another value still calls. The growing inliner makes new local loops: when
+it copies a fused producer, such as `take n (iterate f x)`, into its
+consumer, the loop that results takes the count as a boxed `Int`. Eta
+expansion first gives such a loop all its lambdas, and then the split gives
+it an `Int#` counter.
+
+The growing inliner copies a large `INLINE` value only where the site
+policy finds the copy useful (see "Inline pragmas" below). Thus a call of
+such a value can stay a call that builds a box for each argument. The first
+run does not split the value. Before the growing inliner, the body often
+still calls the class methods that take the parameters apart. After the
+growing inliner, the body takes them apart. The late run splits the value, and the
+round of the growing inliner in phase 0 copies the small wrapper at each
+call. The worker keeps the pragma of the value, so the inliner decides each
+copy of the worker as it decided each copy of the value. A small worker
+can thus be copied into its wrapper again.
+
+The late run does not split another top-level function. The first run
+already split a function without a pragma when it could, and the round in
+phase 0 only copies `INLINE` values.
+
+On the `snappy-roundtrip` benchmark at `-O2`, `Snappy.copyOverlap` is
+`INLINE` and has four parameters. It stayed a call with three `I#` boxes at
+each of its three calls in the decoder loop. With the late split, the calls
+give `Int#` fields to the worker. The run allocates 232.0 MB in place of
+241.8 MB (4.0% less), and runs 3.885 G instructions in place of 3.896 G.
+The split costs code in one place. The late run also splits `showsPrec` of
+`Show IOException`, which the dictionary keeps as a value. Thus the
+wrapper and the worker both stay, and each example program has 468 more
+bytes of code.
 
 The pass does not split:
 
 - a top-level function in a recursive group of more than one value;
-- a function with an inline pragma, or that a rewrite rule names;
+- a function with an `INLINABLE` or `NOINLINE` pragma, or that a rewrite
+  rule names;
+- in the first run, a function with an `INLINE` pragma, and in the late
+  run, a function without one;
 - a function whose lambdas are not type lambdas followed by value lambdas;
 - a parameter of a type with more than one constructor, an existential
   type or an equality, a class dictionary, or a constructor with a lifted
@@ -528,7 +555,8 @@ such as `Box` too early.
 
 The report gives the number of workers, the number of parameters they
 take as fields, and the number of workers that return fields. The fixtures are the `worker-wrapper-*.yaml` files; a
-`worker-wrapper` entry in `passes:` runs the pass.
+`worker-wrapper` entry in `passes:` runs the first run, and
+`worker-wrapper: late` runs the late run.
 
 ## Specialisation
 
@@ -960,7 +988,9 @@ Three things differ from GHC:
   each copy. The `text` package marks large functions `INLINE`, and
   honouring them GHC's way made its example two and a half times larger at
   `-O2`. A strong reducing site of such a value is the exception, within
-  the reducing site limit.
+  the reducing site limit. A call that stays a call does not keep its
+  boxed arguments: the late worker/wrapper split takes them off (see
+  "Worker/wrapper").
 - A copy of a small `INLINE` value that grows the site by more than the
   requested site limit charges the allowance like a measured copy. The
   growth of a site counts the free copies inside it, so a chain of
