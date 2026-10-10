@@ -150,7 +150,10 @@ dynamicReservation name arguments = case (name, arguments) of
 
 -- | Give each managed store a reservation. A continuation frame is not a
 -- managed object: the backend pushes it on the stack of the thread, which
--- never collects, so its store needs no reservation.
+-- never collects. But the runtime charges a new stack chunk to the nursery,
+-- because the next minor collection scans it. Thus a frame store gets a
+-- reservation of zero words: a recursion that does not allocate then
+-- collects after about one nursery of stack growth.
 insertHeapReservations :: Set FunctionName -> GrinProgram -> GrinProgram
 insertHeapReservations continuations program =
   program {grinFunctions = map (insertFunctionReservations continuations) (grinFunctions program)}
@@ -164,7 +167,10 @@ insertExprReservations continuations expression =
   case expression of
     GrinBind resultVars (GrinStore node) body
       | isFrame node ->
-          GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body)
+          GrinBind
+            []
+            (GrinEnsureHeap (staticHeapWords 0) [])
+            (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations continuations body))
     GrinBind resultVars (GrinStore node) body ->
       GrinBind
         []
@@ -182,7 +188,11 @@ insertExprReservations continuations expression =
     GrinBind resultVars valueExpression body ->
       GrinBind resultVars (insertExprReservations continuations valueExpression) (insertExprReservations continuations body)
     GrinStore node
-      | isFrame node -> GrinStoreUnchecked node
+      | isFrame node ->
+          GrinBind
+            []
+            (GrinEnsureHeap (staticHeapWords 0) [])
+            (GrinStoreUnchecked node)
     GrinStore node ->
       GrinBind
         []

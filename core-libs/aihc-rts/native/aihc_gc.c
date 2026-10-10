@@ -845,6 +845,31 @@ static uint64_t aihc_array_card_count(const AihcValue *array) {
   return (aihc_array_length(array) + AIHC_CARD_ELEMENTS - 1) >> AIHC_CARD_SHIFT;
 }
 
+/* Charge memory outside the nursery to the collection trigger, as if the
+   mutator took it from the nursery: count it in the fixed bytes since the
+   last collection, and lower the heap limit by it. When the charge uses
+   the rest of the nursery, the limit goes below the nursery start. Then
+   every reservation fails its compare and collects, a reservation of zero
+   words too: compiled code makes one before each push of a frame. The
+   first charge after a collection only empties the room: a collection at
+   once would not free its memory, and a stack growth that collects again
+   and again would not progress. Compiled code can keep a heap pointer
+   above the machine copy, so its limit can also go below its heap pointer
+   before that. */
+static void aihc_charge_fixed(AihcMachine *machine, size_t bytes) {
+  size_t room = machine->heap_limit > machine->heap_next
+                    ? (size_t)(machine->heap_limit - machine->heap_next)
+                    : 0;
+  if (bytes < room) {
+    machine->heap_limit -= bytes;
+  } else if (machine->fixed_since_gc == 0) {
+    machine->heap_limit = machine->heap_next;
+  } else {
+    machine->heap_limit = (uint8_t *)((uintptr_t)machine->heap_start - 1);
+  }
+  machine->fixed_since_gc += bytes;
+}
+
 /* Thread stacks. */
 
 static AihcStackChunk *aihc_stack_chunk_of(const void *address) {
@@ -885,6 +910,7 @@ static AihcStackChunk *aihc_stack_chunk_new(AihcMachine *machine,
   chunk->scanned_from = NULL;
   chunk->scanned_cycle = 0;
   chunk->depth = 0;
+  chunk->charged_gc = 0;
   return chunk;
 }
 
@@ -954,6 +980,14 @@ AihcValue *aihc_stack_grow(AihcMachine *machine, uint8_t *stack_next,
   }
   next->depth = current->depth + 1;
   aihc_chunk_set_generation(next, 0);
+  /* The next minor collection scans each young chunk, so a young chunk
+     costs that pause as much as a nursery object of its size. Charge the
+     chunk once for each collection: a push and pop across one boundary
+     then does not bring the collection closer each time. */
+  if (next->charged_gc != machine->gc_count + 1) {
+    next->charged_gc = machine->gc_count + 1;
+    aihc_charge_fixed(machine, AIHC_STACK_CHUNK_BYTES);
+  }
   return (AihcValue *)aihc_stack_chunk_frames(next);
 }
 
@@ -2771,9 +2805,7 @@ static AihcValue *aihc_pinned_block_adopt(AihcMachine *machine,
   machine->fixed_bytes += charge_bytes;
   /* A new fixed block is young, as a new object in the nursery is. */
   machine->fixed_generation_bytes[0] += charge_bytes;
-  machine->fixed_since_gc += charge_bytes;
-  size_t room = (size_t)(machine->heap_limit - machine->heap_next);
-  machine->heap_limit -= charge_bytes < room ? charge_bytes : room;
+  aihc_charge_fixed(machine, charge_bytes);
   machine->heap_allocated_bytes += charge_bytes;
   return (AihcValue *)block->object;
 }

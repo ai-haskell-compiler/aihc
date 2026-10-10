@@ -104,6 +104,16 @@ The frame fits when the new stack pointer is not above the stack limit.
 If the frame does not fit, `aihc_stack_grow` puts it at the start of the next chunk.
 Then the stack limit is the end of that chunk.
 A new chunk comes from the C allocator, so a push never collects.
+The next minor collection scans each young chunk.
+Thus `aihc_stack_grow` charges the next chunk to the nursery, as a large object does.
+It adds the chunk bytes to `fixed_since_gc` and lowers `heap_limit` by them.
+It charges a chunk one time for each collection, so a push and a pop across one boundary do not collect again and again.
+After the call, the push loads the heap limit again.
+When the charges use the nursery, `heap_limit` goes below the nursery start, and each reservation collects.
+The first charge after a collection only empties the room, so each collection is followed by at least one chunk of progress.
+The GC pass gives each frame push a reservation of zero words, so compiled code collects after about one nursery of stack growth, also when it does not allocate.
+`aihc_lir_eval` collects in the same condition when its push of an update frame grows the stack.
+Refer to "Pause bound" in [gc-design.md](gc-design.md).
 A frame keeps the address of its parent in field zero, in any chunk.
 Thus a chunk boundary needs no link frame.
 The largest frame has 256 words, so a frame always fits in an empty chunk.
@@ -679,7 +689,9 @@ Ordinary thunk evaluation allocates no table entry or blackhole record.
 `aihc_lir_eval` follows indirections before it selects a branch.
 A ready value requires no reservation or update frame.
 The thunk branch pushes a three-slot update frame on the thread stack.
-This push does not collect, so the thunk branch needs no reservation.
+If the push grows the stack and the charge of the new chunk uses the nursery, the branch collects.
+It protects the value and the continuation as roots, and then it evaluates the value again.
+The new chunk stays empty above the stack pointer for the next push.
 The blackhole branch reserves four slots, which cover a waiter on every target.
 It protects the resolved value and the continuation as roots across collection.
 The thunk branch stores the parent continuation and resolved thunk in the update frame.

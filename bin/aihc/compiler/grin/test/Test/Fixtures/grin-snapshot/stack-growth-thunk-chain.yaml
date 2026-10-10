@@ -1,0 +1,26 @@
+entry: $entry
+minimum-collections: 9
+program: |
+  constructor Number/1 [IntRep]
+  primitive -# :: IntRep/2
+
+  $link (previous :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (previous :: BoxedRep Lifted)
+
+  $chain (count :: IntRep) (previous :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (count :: IntRep) as tested :: IntRep of
+      0 ->
+        eval @(BoxedRep Lifted) (previous :: BoxedRep Lifted)
+      _ ->
+        (next :: BoxedRep Lifted) <- store (F$link (previous :: BoxedRep Lifted))
+        (rest :: IntRep) <- primitive-call @IntRep -# (count :: IntRep) (1 :: IntRep)
+        call @(BoxedRep Lifted) $chain (rest :: IntRep) (next :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    (bottom :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    call @(BoxedRep Lifted) $chain (1000000 :: IntRep) (bottom :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CNumber 42
+status: pass
+reason: Each thunk of the chain only evaluates the thunk below it, so the evaluation of the top thunk pushes one update frame for each thunk and allocates nothing. The evaluation helper charges each new stack chunk to the nursery and collects when the charges use the nursery. Thus one minor collection scans a bounded number of young stack chunks. The building of the chain causes about five collections, and the evaluation must cause at least four more.

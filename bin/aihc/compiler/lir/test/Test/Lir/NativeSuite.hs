@@ -270,6 +270,7 @@ data SnapshotFixture = SnapshotFixture
     snapshotFixtureGcStress :: !Bool,
     snapshotFixtureRtsArguments :: ![String],
     snapshotFixtureRequireGc :: !Bool,
+    snapshotFixtureMinimumCollections :: !(Maybe Word64),
     snapshotFixtureStatus :: !Text
   }
 
@@ -289,6 +290,7 @@ instance FromJSON SnapshotFixture where
         <*> object .:? "gc-stress" .!= False
         <*> object .:? "rts-arguments" .!= []
         <*> object .:? "gc" .!= False
+        <*> object .:? "minimum-collections"
         <*> object .: "status"
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
@@ -379,7 +381,12 @@ runObservedUnit backend fixture output metadata =
     let metadataPath = directory </> "snapshot_metadata.c"
         executablePath = directory </> "snapshot"
         cPath = directory </> "fixture.c"
-    TIO.writeFile metadataPath ((if snapshotFixtureRequireGc fixture || snapshotFixtureGcStress fixture then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "") <> metadata)
+    TIO.writeFile
+      metadataPath
+      ( (if snapshotFixtureRequireGc fixture || snapshotFixtureGcStress fixture then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "")
+          <> maybe "" (\count -> "#define AIHC_SNAPSHOT_MINIMUM_COLLECTIONS " <> T.pack (show count) <> "\n") (snapshotFixtureMinimumCollections fixture)
+          <> metadata
+      )
     forM_ (snapshotFixtureCSource fixture) (TIO.writeFile cPath)
     (clangExit, _, clangErr) <-
       readProcessWithExitCode
