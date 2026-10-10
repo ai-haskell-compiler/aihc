@@ -9,7 +9,8 @@
 -- case of a known constructor or literal, a case on a comparison with a
 -- literal, a strict pure primitive call bound twice, a case whose
 -- default alternative is a case on the same value, a case of a case with
--- join points, a cast against its symmetry, a case that only evaluates a
+-- join points, a match on an unboxed tuple that takes a component apart
+-- at once, a cast against its symmetry, a case that only evaluates a
 -- value that is already evaluated, and a lazy constructor application of
 -- a primitive call that is safe to run early or that the body evaluates
 -- first.
@@ -79,7 +80,7 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
 import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
-import Aihc.Fc.Wired (primPackageFromScopes)
+import Aihc.Fc.Wired (primPackageFromScopes, wiredGhcTypes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM)
@@ -656,9 +657,11 @@ simplifyCase env scrutinee binder originalAlternatives =
       | Just rewritten <- literalEqualityCase (spEnv env) scrutinee binder remaining -> simplifyExpr env rewritten
       | otherwise -> do
           reduced <- caseOfKnown env scrutinee binder alternatives
-          case reduced of
-            Just result -> simplifyExpr env result
-            Nothing -> do
+          nested <- maybe (nestedComponentCase env scrutinee binder alternatives) (const (pure Nothing)) reduced
+          case (reduced, nested) of
+            (Just result, _) -> simplifyExpr env result
+            (Nothing, Just (scrutinee', alternative')) -> simplifyCase env scrutinee' Nothing (alternative' NE.:| [])
+            (Nothing, Nothing) -> do
               pushed <- caseOfCaseRaw env scrutinee binder remaining
               accepted <- case pushed of
                 Just pushed' -> acceptGrowth env (pushedGrowth env pushed')
@@ -677,6 +680,118 @@ simplifyCase env scrutinee binder originalAlternatives =
         | alternative <- NE.toList originalAlternatives,
           altCon alternative `Set.notMember` Map.findWithDefault Set.empty scrutinee (spExcluded env)
         ]
+
+-- | A strict match on an unboxed tuple whose alternative first takes a
+-- component apart, as the bind of an @IO Int@ action does:
+--
+-- > let! (# s, v #) = case n of { 1# -> (# s0, I# e1 #); _ -> ... };
+-- > let! I# x = v;
+-- > rest
+--
+-- The tails of the scrutinee give the fields of the component in place of
+-- the component, so the match takes the fields and no tail builds the box:
+--
+-- > let! (# s, x #) = case n of { 1# -> (# s0, e1 #); _ -> ... };
+-- > rest
+--
+-- A case of a case would copy @rest@ into each tail, and a join point
+-- would still take the box. This rewrite copies nothing: each tail
+-- changes in place. A tail that builds the tuple gives the arguments of
+-- the constructor, or a case on an evaluated component. Any other tail
+-- is taken apart by a case on its tuple and then on its component.
+--
+-- The match evaluated the component at once, so the tails can evaluate it
+-- too. A tail evaluates the arguments of a tuple in an order that is not
+-- fixed, so a tail gives the fields in place only when the other
+-- components are trivial or the fields are safe to evaluate early. The
+-- rewrite applies only when at least one tail builds the constructor, the
+-- component has one constructor, and the program has the larger tuple.
+-- The two binders of the component, and the binder of the tuple, must
+-- have no other use.
+nestedComponentCase :: Simpl -> Expr -> Maybe Binder -> [Alt] -> SimplM (Maybe (Expr, Alt))
+nestedComponentCase env scrutinee binder alternatives
+  | [Alt (AltData tupleCon) [] components inner] <- alternatives,
+    Map.lookup tupleCon (teConRepresentations types) == Just UnboxedTupleConstructor,
+    maybe True ((`unused` inner) . binderName) binder,
+    ExCase (ExVar componentName) innerBinder (Alt (AltData con) [] fields@(_ : _) rest NE.:| []) <- inner,
+    (before, component : after) <- List.break ((== componentName) . binderName) components,
+    maybe True ((`unused` rest) . binderName) innerBinder,
+    unused componentName rest,
+    isLiftedType types (binderType component),
+    Just tyCon <- typeHead (reduceType types (binderType component)),
+    Map.lookup tyCon (teDataCons types) == Just [con],
+    position <- length before,
+    flat <- before <> fields <> after,
+    Just reps <- traverse (repOf types . binderType) flat,
+    count <- T.pack (show (length flat)),
+    newCon <- wiredGhcTypes (tePrimPackage types) ("Tuple" <> count <> "#") SortDataConstructor,
+    newTyCon <- wiredGhcTypes (tePrimPackage types) ("Tuple" <> count <> "#") SortTypeConstructor,
+    isJust (lookupHeaderType types newCon),
+    isJust (lookupHeaderType types newTyCon),
+    newArguments <- reps <> map binderType flat,
+    newType <- List.foldl' TyApp (TyCon newTyCon) newArguments,
+    any (constructs tupleCon (length components) con position) (tails scrutinee) = do
+      let build = List.foldl' ExApp (List.foldl' ExTyApp (ExVar newCon) newArguments)
+          fieldsOf value =
+            case collectSpine value of
+              (ExVar head', spine) | head' == con, values <- rights spine, length values == length fields -> Just values
+              _ -> Nothing
+          trivialOthers values = all isTrivial (take position values <> drop (position + 1) values)
+          freshBinders = mapM (\named -> (`Binder` binderType named) <$> freshLocal (binderName named))
+          -- The tuple again, with the fields of the component in place.
+          caseOnComponent value values = do
+            binders <- freshBinders fields
+            pure (ExCase value Nothing (Alt (AltData con) [] binders (build (take position values <> map (ExVar . binderName) binders <> drop (position + 1) values)) NE.:| []))
+          rewrite evaluated expr =
+            case expr of
+              ExAbsurd inside _ -> pure (ExAbsurd inside newType)
+              ExCase inside caseBinder caseAlternatives ->
+                ExCase inside caseBinder
+                  <$> traverse (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> rewrite (foldr (Set.insert . binderName) evaluated caseBinder) (altRhs alternative)) caseAlternatives
+              ExLet bind body -> ExLet bind <$> rewrite evaluated body
+              ExRec binds body -> ExRec binds <$> rewrite evaluated body
+              _
+                | Just values <- tupleValues tupleCon (length components) expr,
+                  value <- values !! position ->
+                    case (fieldsOf value, value) of
+                      (Just arguments, _)
+                        | trivialOthers values || and (zipWith safeField fields arguments) ->
+                            pure (build (take position values <> arguments <> drop (position + 1) values))
+                      (Nothing, ExVar name)
+                        | trivialOthers values || Set.member name evaluated || Set.member name (spEvaluated env) ->
+                            caseOnComponent value values
+                      _ -> generic expr
+                | otherwise -> generic expr
+          generic expr = do
+            binders <- freshBinders components
+            body <- caseOnComponent (ExVar (binderName (binders !! position))) (map (ExVar . binderName) binders)
+            pure (ExCase expr Nothing (Alt (AltData tupleCon) [] binders body NE.:| []))
+      scrutinee' <- rewrite Set.empty scrutinee
+      pure (Just (scrutinee', Alt (AltData newCon) [] flat rest))
+  | otherwise = pure Nothing
+  where
+    types = spEnv env
+    -- The components of a tail that builds the tuple.
+    tupleValues tupleCon size expr =
+      case collectSpine expr of
+        (ExVar head', spine)
+          | head' == tupleCon,
+            values <- rights spine,
+            length values == size ->
+              Just values
+        _ -> Nothing
+    tails expr =
+      case expr of
+        ExCase _ _ caseAlternatives -> concatMap (tails . altRhs) caseAlternatives
+        ExLet _ body -> tails body
+        ExRec _ body -> tails body
+        _ -> [expr]
+    -- Whether a tail builds the tuple with the constructor in the component.
+    constructs tupleCon size con position expr =
+      case tupleValues tupleCon size expr of
+        Just values | (ExVar head', _) <- collectSpine (values !! position) -> head' == con
+        _ -> False
+    safeField named value = isLiftedType types (binderType named) || isTrivial value || isJust (safePrimitiveCall types value)
 
 -- | Inline a candidate whose call is the scrutinee of a case, and decide
 -- the site on the case as a whole. The case of the inlined call takes
@@ -2598,6 +2713,16 @@ mkCase env scrutinee binder originalAlternatives =
     ([Alt AltDefault [] [] (ExVar returned)], [])
       | Just named <- binder,
         returned == binderName named ->
+          scrutinee
+    -- A match on an unboxed tuple that builds the same tuple again from
+    -- its binders is its scrutinee too. The type arguments of an unboxed
+    -- tuple follow from the types of its components, so the two tuples
+    -- have the same type.
+    ([], [Alt (AltData con) [] binders@(_ : _) rhs])
+      | Map.lookup con (teConRepresentations env) == Just UnboxedTupleConstructor,
+        (ExVar rebuilt, spine) <- collectSpine rhs,
+        rebuilt == con,
+        rights spine == map (ExVar . binderName) binders ->
           scrutinee
     -- An unlifted let evaluates its right-hand side at the same point.
     -- Keep a case when the runtime representation is not known.

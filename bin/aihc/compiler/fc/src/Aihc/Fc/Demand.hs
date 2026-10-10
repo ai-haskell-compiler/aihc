@@ -76,6 +76,7 @@ module Aihc.Fc.Demand
     functionSignature,
     recursiveSignatures,
     productConstructor,
+    splitTypeApplication,
   )
 where
 
