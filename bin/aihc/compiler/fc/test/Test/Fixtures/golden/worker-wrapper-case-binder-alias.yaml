@@ -59,20 +59,24 @@ expected: |-
     pub 1.cCursor :: FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ tCursor)
   }
 
-  pub val 1.vfill :: (tInt 3.→ tInt) 3.→ tCursor 3.→ t[] tInt 3.→ tInt
+  pub val 1.vfill inline :: (tInt 3.→ tInt) 3.→ tCursor 3.→ t[] tInt 3.→ tInt
     = λ(x : tInt 3.→ tInt) (y : tCursor) (z : t[] tInt).
-      let! cCursor (x{1} : tInt#) (x{2} : tInt) = y;
+      let! cCursor (y{1} : tInt#) (y{2} : tInt) = y;
+      v$wfill x y{1} y{2} z
+
+  val 1.v$wfill :: FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) (tInt 3.→ tInt) (FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) (t[] tInt) tInt)))
+    = λ(x : tInt 3.→ tInt) (y : tInt#) (y{1} : tInt) (z : t[] tInt).
       rec {
         $wgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @cIntRep (t[] tInt) tInt#)) =
-          λ(x{3} : tInt#) (x{4} : tInt) (y{1} : t[] tInt).
-            case y{1} of {
+          λ(x{1} : tInt#) (x{2} : tInt) (y{2} : t[] tInt).
+            case y{2} of {
               c[] →
-                x{3};
-              c: (y{2} : tInt) (ys : t[] tInt) →
-                let! cI# (_pat : tInt#) = x y{2};
-                $wgo (prim +# x{3} lit (1#cIntRep) :: tInt#) x{4} ys
+                x{1};
+              c: (y{3} : tInt) (ys : t[] tInt) →
+                let! cI# (_pat : tInt#) = x y{3};
+                $wgo (prim +# x{1} lit (1#cIntRep) :: tInt#) x{2} ys
             }
       } in
-      cI# ($wgo x{1} x{2} z)
+      cI# ($wgo y y{1} z)
 status: pass
 reason: The bang pattern evaluates the cursor with a case, and a later case takes apart the binder of that case. The binder is the same value, so the worker takes the fields of the cursor.

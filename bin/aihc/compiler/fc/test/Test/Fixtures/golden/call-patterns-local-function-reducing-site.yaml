@@ -1,0 +1,84 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (prefix) where
+
+  import GHC.Prim (Int#, (*#), (+#), (-#))
+  import GHC.Types (Bool (..), Int (..))
+
+  data List a = Nil | Cons a (List a)
+
+  prefix :: Int -> List Bool
+  prefix (I# s0) = go (I# (s0 +# 1#)) 10#
+    where
+      cell :: Int -> List Bool -> List Bool
+      cell x rest = Cons (case x of I# s -> case s of { 0# -> True; _ -> False }) rest
+      go :: Int -> Int# -> List Bool
+      go x n = case n of
+        1# -> cell x Nil
+        _ -> cell x (go (case x of I# s -> I# (s *# 3#)) (n -# 1#))
+passes:
+- call-patterns
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.tList (a : sType) :: sType {
+    1.cNil :: ∀(a : sType). tList a;
+    1.cCons :: ∀(a : sType). a 3.→ tList a 3.→ tList a
+  }
+
+  pub val 1.vprefix :: tInt 3.→ tList tBool
+    = λ(x : tInt).
+      let! cI# (s0 : tInt#) = x;
+      rec {
+        $sgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# (tList tBool)) =
+          λ(x{1} : tInt#) (y : tInt#).
+            case y of {
+              1#cIntRep →
+                cCons @tBool (case x{1} of {
+                  0#cIntRep →
+                    cTrue;
+                  _ →
+                    cFalse
+                }) (cNil @tBool);
+              _ →
+                cCons @tBool (case x{1} of {
+                  0#cIntRep →
+                    cTrue;
+                  _ →
+                    cFalse
+                }) ($sgo (prim *# x{1} lit (3#cIntRep) :: tInt#) (prim -# y lit (1#cIntRep) :: tInt#))
+            }
+      } in
+      $sgo (prim +# s0 lit (1#cIntRep) :: tInt#) lit (10#cIntRep) :: tInt#
+status: pass
+reason: The copy of the loop gives the box it builds again to the local function, which scrutinises it. The simplifying walk of the pass copies the function at those reducing sites. The case on the box goes, and the head of each cell is a case on the field.

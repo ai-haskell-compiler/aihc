@@ -79,7 +79,9 @@ optimizationPlan lto level =
     -- demand pass that follows. Call-pattern specialisation then copies
     -- the loops whose calls give a constructor in a position that the
     -- worker/wrapper split left boxed, because the loop does not always
-    -- evaluate it.
-    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassSimplify 0, Fc.PassCallPatterns 0, Fc.PassLiftConstants]
+    -- evaluate it. Its simplifying walks copy a local function at a call
+    -- that the copy of a loop gives a constructor, within the site limit
+    -- of the growing policy.
+    grow = [Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsOnly, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassLiftConstants]
     finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassLiftConstants]
     rounds = 4
