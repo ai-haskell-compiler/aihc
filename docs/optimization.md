@@ -116,7 +116,8 @@ inliner. It holds the rewrites that need no copy of a callee: beta reduction,
 a let, a recursive group or a case in the head of an application, a cast on
 such a head, the case of a known constructor, a case
 on a comparison with a literal, common strict primitive calls, case of case
-with join points, and cancelling casts. The inliner calls it on every copy it
+with join points, a match on an unboxed tuple that takes a component apart,
+and cancelling casts. The inliner calls it on every copy it
 makes, and the plan runs it standalone. A new local rewrite goes there. A new
 rule about *which* copies to make goes in the inliner.
 
@@ -128,6 +129,43 @@ the desugared body of `go m = act >> (case m of ... -> go m')` applies the
 state token to a cast of the case, and after the rewrite each alternative
 calls `go` with the state token, which the lowering compiles to one direct
 call instead of a partial application and a second application.
+
+A strict match on an unboxed tuple can take one component apart at once.
+The bind of an `IO Int` action gives this shape:
+
+```text
+let! (# s, v #) = case n of { 1# -> (# s0, I# e1 #); _ -> ... };
+let! I# x = v;
+rest
+```
+
+Case of case would copy `rest` into each tail of the scrutinee, and the
+size rule refuses that copy for a large `rest`. A join point would also
+take `v` as a parameter, so each tail would still build the box. The
+simplifier changes each tail in place: a tail gives the fields of the
+component in place of the component, and the match takes the fields.
+
+```text
+let! (# s, x #) = case n of { 1# -> (# s0, e1 #); _ -> ... };
+rest
+```
+
+A tail that builds the tuple gives the arguments of the constructor. A
+tail whose component is a variable gets a case on that variable. Any other
+tail, such as a call, gets a case on its tuple and then on its component.
+The match evaluates the component at once, so the tails can evaluate it
+too. The order in which a tuple evaluates its arguments is not fixed. Thus
+a tail gives the fields in place only when the other components are
+trivial, or when the fields are safe to evaluate early. The rewrite
+applies only when one or more tails build the constructor, the type of the
+component has one constructor, and the program has the larger tuple. The
+binders of the tuple and of the component must have no other use.
+
+A match on an unboxed tuple that builds the same tuple again from its
+binders is its scrutinee, as `case e of r -> r` is. The type arguments of
+an unboxed tuple follow from the types of its components, so the two
+tuples have the same type. A recursive call of a worker that returns an
+unboxed tuple thus stays a tail call.
 
 The simplifier moves a binding with one use to that use, unless the use is
 under a lambda, where the work would repeat. A lambda is entered at most
@@ -387,6 +425,43 @@ The worker takes those parameters too, and the cases of the wrapper stand
 under them: `f = λx. (λs. case x of I# a -> $wf a s) ▷ sym co`. Thus the
 wrapper evaluates nothing before the action runs, and a call that gives
 the state token reduces to a call of the worker.
+
+An `IO Int` action returns `(# State# RealWorld, Int #)`. The unboxed
+tuple is not a product that the worker can return as its fields, but its
+`Int` component is. A function whose result is an unboxed tuple has a
+nested constructed result when every tail of its body gives a component
+as the one constructor of a product. A tail can also be a recursive call,
+an absurd case, or a tuple whose component is an unboxed parameter or an
+evaluated value, such as the binder of a case. One or more tails must not
+be a recursive call. The worker then returns a larger unboxed tuple, with
+the fields of each such product in place of the product. The wrapper
+builds each product again in a lazy component of the tuple:
+
+```text
+go = λn acc s. case n of 0# -> (# s, I# acc #); _ -> go (n -# 1#) (acc +# n) s
+
+$wgo = λn acc s. case n of 0# -> (# s, acc #); _ -> $wgo (n -# 1#) (acc +# n) s
+go {-# INLINE #-} = λn acc s. case $wgo n acc s of (# s', r #) -> (# s', I# r #)
+```
+
+A component of an unboxed tuple is lazy. The worker evaluates the fields
+that it returns, but the caller does not have to use the component. Each
+unlifted argument of the constructor must therefore be trivial or a
+primitive call that is safe to run early. A division can fail, so a tail
+`(# s, I# (quotInt# n d) #)` stops the split. A lifted field stays lazy in
+the larger tuple.
+
+The split also applies under the cast of an `IO` action, because the state
+token is a parameter that the worker takes. A recursive call in such an
+action is a call under a cast that is applied to the state token,
+`((go a) ▷ co) s`. The pass sees through the cast. The flat constructed
+result does not apply under a cast.
+
+On the `snappy-roundtrip` benchmark at `-O2`, the split and the match
+rewrite of the simplifier took the allocation from 280,966,312 bytes to
+280,333,496 bytes, and the size of the program from 254,413 to 251,869
+nodes. Most of the allocation of the benchmark is the list that builds its
+input, so the loops of the codec are a small part of it.
 
 The pass runs a second time after the growing inliner, for the local
 functions only. The growing inliner makes new local loops: when it copies
@@ -952,6 +1027,12 @@ and a change that breaks one needs a reason in its pull request.
   phase (`simplify: 2`), and an `inline` object a `phase` knob.
 
 ## Not done
+
+- **Nested results of top-level actions.** The pass splits a top-level
+  function before the growing inliner only. At that time, the body of an
+  `IO` action such as `writeLiteral` of `snappy-hs` still calls `thenIO`
+  and `returnIO`, so its tails are not known, and it keeps its boxed
+  result. A local loop gets its split after the growing inliner.
 
 - **Faster points-to solving.** The solver does not merge cycles of copy
   edges, and it does not use more than one core. Constraint generation for
