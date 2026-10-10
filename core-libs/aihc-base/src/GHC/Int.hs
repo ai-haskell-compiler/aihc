@@ -25,6 +25,15 @@ import GHC.Prim
     intToInt32#,
     intToInt64#,
     intToInt8#,
+    plusInt16#,
+    plusInt32#,
+    plusInt8#,
+    subInt16#,
+    subInt32#,
+    subInt8#,
+    timesInt16#,
+    timesInt32#,
+    timesInt8#,
     (*#),
     (+#),
     (-#),
@@ -56,28 +65,28 @@ intSignum value =
         _ -> (-#) 0# 1#
 
 instance Num Int8 where
-  I8# left + I8# right = I8# (intToInt8# ((+#) (int8ToInt# left) (int8ToInt# right)))
-  I8# left - I8# right = I8# (intToInt8# ((-#) (int8ToInt# left) (int8ToInt# right)))
-  I8# left * I8# right = I8# (intToInt8# ((*#) (int8ToInt# left) (int8ToInt# right)))
-  negate (I8# value) = I8# (intToInt8# ((-#) 0# (int8ToInt# value)))
+  I8# left + I8# right = I8# (plusInt8# left right)
+  I8# left - I8# right = I8# (subInt8# left right)
+  I8# left * I8# right = I8# (timesInt8# left right)
+  negate (I8# value) = I8# (subInt8# (intToInt8# 0#) value)
   abs (I8# value) = I8# (intToInt8# (intAbs (int8ToInt# value)))
   signum (I8# value) = I8# (intToInt8# (intSignum (int8ToInt# value)))
   fromInteger value = I8# (intToInt8# (integerToInt# value))
 
 instance Num Int16 where
-  I16# left + I16# right = I16# (intToInt16# ((+#) (int16ToInt# left) (int16ToInt# right)))
-  I16# left - I16# right = I16# (intToInt16# ((-#) (int16ToInt# left) (int16ToInt# right)))
-  I16# left * I16# right = I16# (intToInt16# ((*#) (int16ToInt# left) (int16ToInt# right)))
-  negate (I16# value) = I16# (intToInt16# ((-#) 0# (int16ToInt# value)))
+  I16# left + I16# right = I16# (plusInt16# left right)
+  I16# left - I16# right = I16# (subInt16# left right)
+  I16# left * I16# right = I16# (timesInt16# left right)
+  negate (I16# value) = I16# (subInt16# (intToInt16# 0#) value)
   abs (I16# value) = I16# (intToInt16# (intAbs (int16ToInt# value)))
   signum (I16# value) = I16# (intToInt16# (intSignum (int16ToInt# value)))
   fromInteger value = I16# (intToInt16# (integerToInt# value))
 
 instance Num Int32 where
-  I32# left + I32# right = I32# (intToInt32# ((+#) (int32ToInt# left) (int32ToInt# right)))
-  I32# left - I32# right = I32# (intToInt32# ((-#) (int32ToInt# left) (int32ToInt# right)))
-  I32# left * I32# right = I32# (intToInt32# ((*#) (int32ToInt# left) (int32ToInt# right)))
-  negate (I32# value) = I32# (intToInt32# ((-#) 0# (int32ToInt# value)))
+  I32# left + I32# right = I32# (plusInt32# left right)
+  I32# left - I32# right = I32# (subInt32# left right)
+  I32# left * I32# right = I32# (timesInt32# left right)
+  negate (I32# value) = I32# (subInt32# (intToInt32# 0#) value)
   abs (I32# value) = I32# (intToInt32# (intAbs (int32ToInt# value)))
   signum (I32# value) = I32# (intToInt32# (intSignum (int32ToInt# value)))
   fromInteger value = I32# (intToInt32# (integerToInt# value))

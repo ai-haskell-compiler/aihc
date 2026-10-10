@@ -17,14 +17,34 @@ import GHC.Prim
     Word#,
     compareInt#,
     eqWord#,
+    eqWord16#,
+    eqWord32#,
+    eqWord64#,
+    eqWord8#,
     geWord#,
+    geWord16#,
+    geWord32#,
+    geWord64#,
+    geWord8#,
     gtWord#,
+    gtWord16#,
+    gtWord32#,
+    gtWord64#,
+    gtWord8#,
     int16ToInt#,
     int32ToInt#,
     int64ToInt#,
     int8ToInt#,
     leWord#,
+    leWord16#,
+    leWord32#,
+    leWord64#,
+    leWord8#,
     ltWord#,
+    ltWord16#,
+    ltWord32#,
+    ltWord64#,
+    ltWord8#,
     ord#,
     word16ToWord#,
     word32ToWord#,
@@ -78,19 +98,19 @@ instance Eq Word where
   left /= right = not (left == right)
 
 instance Eq Word8 where
-  W8# left == W8# right = wordEquals (word8ToWord# left) (word8ToWord# right)
+  W8# left == W8# right = isTrue# (eqWord8# left right)
   left /= right = not (left == right)
 
 instance Eq Word16 where
-  W16# left == W16# right = wordEquals (word16ToWord# left) (word16ToWord# right)
+  W16# left == W16# right = isTrue# (eqWord16# left right)
   left /= right = not (left == right)
 
 instance Eq Word32 where
-  W32# left == W32# right = wordEquals (word32ToWord# left) (word32ToWord# right)
+  W32# left == W32# right = isTrue# (eqWord32# left right)
   left /= right = not (left == right)
 
 instance Eq Word64 where
-  W64# left == W64# right = wordEquals (word64ToWord# left) (word64ToWord# right)
+  W64# left == W64# right = isTrue# (eqWord64# left right)
   left /= right = not (left == right)
 
 instance Eq Int8 where
@@ -156,37 +176,37 @@ instance Ord Word where
 
 instance Ord Word8 where
   compare = compareWord8
-  W8# left < W8# right = isTrue# (ltWord# (word8ToWord# left) (word8ToWord# right))
-  W8# left <= W8# right = isTrue# (leWord# (word8ToWord# left) (word8ToWord# right))
-  W8# left > W8# right = isTrue# (gtWord# (word8ToWord# left) (word8ToWord# right))
-  W8# left >= W8# right = isTrue# (geWord# (word8ToWord# left) (word8ToWord# right))
+  W8# left < W8# right = isTrue# (ltWord8# left right)
+  W8# left <= W8# right = isTrue# (leWord8# left right)
+  W8# left > W8# right = isTrue# (gtWord8# left right)
+  W8# left >= W8# right = isTrue# (geWord8# left right)
   max = classesMaxBy compareWord8
   min = classesMinBy compareWord8
 
 instance Ord Word16 where
   compare = compareWord16
-  W16# left < W16# right = isTrue# (ltWord# (word16ToWord# left) (word16ToWord# right))
-  W16# left <= W16# right = isTrue# (leWord# (word16ToWord# left) (word16ToWord# right))
-  W16# left > W16# right = isTrue# (gtWord# (word16ToWord# left) (word16ToWord# right))
-  W16# left >= W16# right = isTrue# (geWord# (word16ToWord# left) (word16ToWord# right))
+  W16# left < W16# right = isTrue# (ltWord16# left right)
+  W16# left <= W16# right = isTrue# (leWord16# left right)
+  W16# left > W16# right = isTrue# (gtWord16# left right)
+  W16# left >= W16# right = isTrue# (geWord16# left right)
   max = classesMaxBy compareWord16
   min = classesMinBy compareWord16
 
 instance Ord Word32 where
   compare = compareWord32
-  W32# left < W32# right = isTrue# (ltWord# (word32ToWord# left) (word32ToWord# right))
-  W32# left <= W32# right = isTrue# (leWord# (word32ToWord# left) (word32ToWord# right))
-  W32# left > W32# right = isTrue# (gtWord# (word32ToWord# left) (word32ToWord# right))
-  W32# left >= W32# right = isTrue# (geWord# (word32ToWord# left) (word32ToWord# right))
+  W32# left < W32# right = isTrue# (ltWord32# left right)
+  W32# left <= W32# right = isTrue# (leWord32# left right)
+  W32# left > W32# right = isTrue# (gtWord32# left right)
+  W32# left >= W32# right = isTrue# (geWord32# left right)
   max = classesMaxBy compareWord32
   min = classesMinBy compareWord32
 
 instance Ord Word64 where
   compare = compareWord64
-  W64# left < W64# right = isTrue# (ltWord# (word64ToWord# left) (word64ToWord# right))
-  W64# left <= W64# right = isTrue# (leWord# (word64ToWord# left) (word64ToWord# right))
-  W64# left > W64# right = isTrue# (gtWord# (word64ToWord# left) (word64ToWord# right))
-  W64# left >= W64# right = isTrue# (geWord# (word64ToWord# left) (word64ToWord# right))
+  W64# left < W64# right = isTrue# (ltWord64# left right)
+  W64# left <= W64# right = isTrue# (leWord64# left right)
+  W64# left > W64# right = isTrue# (gtWord64# left right)
+  W64# left >= W64# right = isTrue# (geWord64# left right)
   max = classesMaxBy compareWord64
   min = classesMinBy compareWord64
 
@@ -251,16 +271,40 @@ compareWord :: Word -> Word -> Ordering
 compareWord (W# left) (W# right) = compareWord# left right
 
 compareWord8 :: Word8 -> Word8 -> Ordering
-compareWord8 (W8# left) (W8# right) = compareWord# (word8ToWord# left) (word8ToWord# right)
+compareWord8 (W8# left) (W8# right) =
+  case eqWord8# left right of
+    0# ->
+      case ltWord8# left right of
+        0# -> GT
+        _ -> LT
+    _ -> EQ
 
 compareWord16 :: Word16 -> Word16 -> Ordering
-compareWord16 (W16# left) (W16# right) = compareWord# (word16ToWord# left) (word16ToWord# right)
+compareWord16 (W16# left) (W16# right) =
+  case eqWord16# left right of
+    0# ->
+      case ltWord16# left right of
+        0# -> GT
+        _ -> LT
+    _ -> EQ
 
 compareWord32 :: Word32 -> Word32 -> Ordering
-compareWord32 (W32# left) (W32# right) = compareWord# (word32ToWord# left) (word32ToWord# right)
+compareWord32 (W32# left) (W32# right) =
+  case eqWord32# left right of
+    0# ->
+      case ltWord32# left right of
+        0# -> GT
+        _ -> LT
+    _ -> EQ
 
 compareWord64 :: Word64 -> Word64 -> Ordering
-compareWord64 (W64# left) (W64# right) = compareWord# (word64ToWord# left) (word64ToWord# right)
+compareWord64 (W64# left) (W64# right) =
+  case eqWord64# left right of
+    0# ->
+      case ltWord64# left right of
+        0# -> GT
+        _ -> LT
+    _ -> EQ
 
 compareInt8 :: Int8 -> Int8 -> Ordering
 compareInt8 (I8# left) (I8# right) = orderingFromInt# (compareInt# (int8ToInt# left) (int8ToInt# right))

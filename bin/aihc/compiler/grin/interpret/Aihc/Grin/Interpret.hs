@@ -1122,6 +1122,22 @@ evalPrimitive "plusWord2#" [left, right] = do
   rightWord <- expectWordPrimitiveArgument "plusWord2#" right
   let exactResult = leftWord + rightWord
   pure [wordRuntimeValue (if exactResult >= wordModulus then 1 else 0), wordRuntimeValue exactResult]
+evalPrimitive "plusWord64#" [left, right] = evalSizedWordArithmetic "plusWord64#" Word64Rep 64 (+) left right
+evalPrimitive "subWord64#" [left, right] = evalSizedWordArithmetic "subWord64#" Word64Rep 64 (-) left right
+evalPrimitive "timesWord64#" [left, right] = evalSizedWordArithmetic "timesWord64#" Word64Rep 64 (*) left right
+evalPrimitive "and64#" [left, right] = evalSizedWordPrimitive "and64#" Word64Rep (.&.) left right
+evalPrimitive "or64#" [left, right] = evalSizedWordPrimitive "or64#" Word64Rep (.|.) left right
+evalPrimitive "xor64#" [left, right] = evalSizedWordPrimitive "xor64#" Word64Rep xor left right
+evalPrimitive "not64#" [value] = do
+  word <- expectRuntimeRepPrimitiveArgument "not64#" Word64Rep value
+  pure [RuntimeLit (GrinLitInt Word64Rep (word `xor` (shiftL 1 64 - 1)))]
+evalPrimitive "notWord8#" [value] = evalSizedWordNot "notWord8#" Word8Rep 8 value
+evalPrimitive "notWord16#" [value] = evalSizedWordNot "notWord16#" Word16Rep 16 value
+evalPrimitive "notWord32#" [value] = evalSizedWordNot "notWord32#" Word32Rep 32 value
+evalPrimitive "uncheckedShiftLWord8#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftLWord8#" Word8Rep 0xff shiftL value amount
+evalPrimitive "uncheckedShiftRLWord8#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftRLWord8#" Word8Rep 0xff shiftR value amount
 evalPrimitive "plusWord8#" [left, right] = evalSizedWordArithmetic "plusWord8#" Word8Rep 8 (+) left right
 evalPrimitive "subWord8#" [left, right] = evalSizedWordArithmetic "subWord8#" Word8Rep 8 (-) left right
 evalPrimitive "timesWord8#" [left, right] = evalSizedWordArithmetic "timesWord8#" Word8Rep 8 (*) left right
@@ -1334,7 +1350,8 @@ evalPrimitive "<=#" [left, right] =
   evalIntPrimitive "<=#" (\leftInt rightInt -> if leftInt <= rightInt then 1 else 0) left right
 evalPrimitive "/=#" [left, right] =
   evalIntPrimitive "/=#" (\leftInt rightInt -> if leftInt /= rightInt then 1 else 0) left right
-evalPrimitive "eqWord8#" [left, right] = evalWord8Comparison "eqWord8#" (==) left right
+evalPrimitive name [left, right]
+  | Just (rep, comparison) <- sizedWordComparison name = evalSizedWordComparison name rep comparison left right
 evalPrimitive "eqWord64#" [left, right] = evalWord64Comparison "eqWord64#" (==) left right
 evalPrimitive "neWord64#" [left, right] = evalWord64Comparison "neWord64#" (/=) left right
 evalPrimitive "ltWord64#" [left, right] = evalWord64Comparison "ltWord64#" (<) left right
@@ -2727,11 +2744,27 @@ compareOrdinal ordering =
     EQ -> 0
     GT -> 1
 
-evalWord8Comparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
-evalWord8Comparison name comparison left right = do
-  leftWord <- expectRuntimeRepPrimitiveArgument name Word8Rep left
-  rightWord <- expectRuntimeRepPrimitiveArgument name Word8Rep right
+-- | The comparisons of the 8-bit, 16-bit and 32-bit words, with the
+-- representation of their operands.
+sizedWordComparison :: Text -> Maybe (GrinRep, Integer -> Integer -> Bool)
+sizedWordComparison name = do
+  (prefix, width) <- Just (T.splitAt 2 name)
+  rep <- lookup width [("Word8#", Word8Rep), ("Word16#", Word16Rep), ("Word32#", Word32Rep)]
+  comparison <- lookup prefix [("eq", (==)), ("ne", (/=)), ("lt", (<)), ("le", (<=)), ("gt", (>)), ("ge", (>=))]
+  Just (rep, comparison)
+
+evalSizedWordComparison :: Text -> GrinRep -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedWordComparison name rep comparison left right = do
+  leftWord <- expectRuntimeRepPrimitiveArgument name rep left
+  rightWord <- expectRuntimeRepPrimitiveArgument name rep right
   pure [intRuntimeValue (if comparison leftWord rightWord then 1 else 0)]
+
+-- | The complement of a sized word. The result keeps only the bits of its
+-- width.
+evalSizedWordNot :: Text -> GrinRep -> Int -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedWordNot name rep bits value = do
+  word <- expectRuntimeRepPrimitiveArgument name rep value
+  pure [RuntimeLit (GrinLitInt rep (word `xor` (shiftL 1 bits - 1)))]
 
 evalWord64Comparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalWord64Comparison name comparison left right = do

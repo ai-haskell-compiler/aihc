@@ -20,6 +20,35 @@ module GHC.Prim
     andWord8#,
     andWord16#,
     andWord32#,
+    neWord8#,
+    ltWord8#,
+    leWord8#,
+    gtWord8#,
+    geWord8#,
+    eqWord16#,
+    neWord16#,
+    ltWord16#,
+    leWord16#,
+    gtWord16#,
+    geWord16#,
+    eqWord32#,
+    neWord32#,
+    ltWord32#,
+    leWord32#,
+    gtWord32#,
+    geWord32#,
+    and64#,
+    or64#,
+    xor64#,
+    not64#,
+    plusWord64#,
+    subWord64#,
+    timesWord64#,
+    notWord8#,
+    notWord16#,
+    notWord32#,
+    uncheckedShiftLWord8#,
+    uncheckedShiftRLWord8#,
     Addr#,
     Array#,
     ByteArray#,
@@ -1352,6 +1381,64 @@ foreign import prim wordToWord64# :: Word# -> Word64#
 foreign import prim word16ToWord# :: Word16# -> Word#
 
 foreign import prim eqWord8# :: Word8# -> Word8# -> Int#
+
+foreign import prim neWord8# :: Word8# -> Word8# -> Int#
+
+foreign import prim ltWord8# :: Word8# -> Word8# -> Int#
+
+foreign import prim leWord8# :: Word8# -> Word8# -> Int#
+
+foreign import prim gtWord8# :: Word8# -> Word8# -> Int#
+
+foreign import prim geWord8# :: Word8# -> Word8# -> Int#
+
+foreign import prim eqWord16# :: Word16# -> Word16# -> Int#
+
+foreign import prim neWord16# :: Word16# -> Word16# -> Int#
+
+foreign import prim ltWord16# :: Word16# -> Word16# -> Int#
+
+foreign import prim leWord16# :: Word16# -> Word16# -> Int#
+
+foreign import prim gtWord16# :: Word16# -> Word16# -> Int#
+
+foreign import prim geWord16# :: Word16# -> Word16# -> Int#
+
+foreign import prim eqWord32# :: Word32# -> Word32# -> Int#
+
+foreign import prim neWord32# :: Word32# -> Word32# -> Int#
+
+foreign import prim ltWord32# :: Word32# -> Word32# -> Int#
+
+foreign import prim leWord32# :: Word32# -> Word32# -> Int#
+
+foreign import prim gtWord32# :: Word32# -> Word32# -> Int#
+
+foreign import prim geWord32# :: Word32# -> Word32# -> Int#
+
+foreign import prim and64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim or64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim xor64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim not64# :: Word64# -> Word64#
+
+foreign import prim plusWord64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim subWord64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim timesWord64# :: Word64# -> Word64# -> Word64#
+
+foreign import prim notWord8# :: Word8# -> Word8#
+
+foreign import prim notWord16# :: Word16# -> Word16#
+
+foreign import prim notWord32# :: Word32# -> Word32#
+
+foreign import prim uncheckedShiftLWord8# :: Word8# -> Int# -> Word8#
+
+foreign import prim uncheckedShiftRLWord8# :: Word8# -> Int# -> Word8#
 
 foreign import prim eqWord64# :: Word64# -> Word64# -> Int#
 

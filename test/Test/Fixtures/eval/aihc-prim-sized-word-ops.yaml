@@ -1,0 +1,41 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int Int Int Int Int Int Int Int Int Int
+
+    w64 :: Word64# -> Int
+    w64 x = I# (word2Int# (word64ToWord# x))
+
+    w8 :: Word8# -> Int
+    w8 x = I# (word2Int# (word8ToWord# x))
+
+    results :: Results
+    results =
+      Results
+        (w64 (and64# (wordToWord64# 0xf0f0##) (wordToWord64# 0x0ff0##)))
+        (w64 (or64# (wordToWord64# 0xf0f0##) (wordToWord64# 0x0ff0##)))
+        (w64 (xor64# (wordToWord64# 0xf0f0##) (wordToWord64# 0x0ff0##)))
+        (w64 (not64# (wordToWord64# 0##)))
+        (w64 (plusWord64# (wordToWord64# 18446744073709551615##) (wordToWord64# 2##)))
+        (w64 (timesWord64# (wordToWord64# 4294967297##) (wordToWord64# 4294967297##)))
+        (w8 (notWord8# (wordToWord8# 5##)))
+        (I# (word2Int# (word16ToWord# (notWord16# (wordToWord16# 1##)))))
+        (I# (word2Int# (word32ToWord# (notWord32# (wordToWord32# 0##)))))
+        (w8 (uncheckedShiftLWord8# (wordToWord8# 0xf1##) 4#))
+        (w8 (uncheckedShiftRLWord8# (wordToWord8# 0x80##) 7#))
+        (I# (ltWord8# (wordToWord8# 200##) (wordToWord8# 100##)))
+        (I# (geWord32# (wordToWord32# 4000000000##) (wordToWord32# 4000000000##)))
+        (I# (neWord16# (wordToWord16# 1##) (wordToWord16# 2##)))
+        (I# (ltWord32# (wordToWord32# 4000000000##) (wordToWord32# 5##)))
+output: |
+  Results (I# 240) (I# 65520) (I# 65280) (I# -1) (I# 1) (I# 8589934593) (I# 250) (I# 65534) (I# 4294967295) (I# 16) (I# 1) (I# 0) (I# 1) (I# 1) (I# 0)
+expression: |
+  results
+status: pass
+reason: the sized word primops keep only the bits of their width and compare as unsigned numbers
