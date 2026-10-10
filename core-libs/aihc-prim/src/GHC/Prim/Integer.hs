@@ -449,6 +449,15 @@ integerToInt# :: Integer -> Int#
 integerToInt# (IS value) = value
 integerToInt# (IP magnitude) = word2Int# (indexWordArray# magnitude 0#)
 integerToInt# (IN magnitude) = 0# -# word2Int# (indexWordArray# magnitude 0#)
+-- GHC keeps integerToInt# as a call, thus the conversion rules can match it.
+-- For example, the rule for GHC.Real.wordToInteger removes the large Integer
+-- branch from fromIntegral :: Word64 -> Word8. The rule below is GHC's
+-- "Int# -> Integer -> Int#" rule. It removes a small Integer before phase 1.
+{-# NOINLINE [0] integerToInt# #-}
+
+{-# RULES
+"integerToInt#/IS" forall x. integerToInt# (IS x) = x
+  #-}
 
 -- | The base 2 logarithm of a 'Word#', rounded down.  @wordLog2# 0##@ is
 -- @-1@ read as an 'Int#'.
