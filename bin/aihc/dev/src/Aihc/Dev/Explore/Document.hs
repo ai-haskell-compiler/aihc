@@ -3,6 +3,7 @@
 module Aihc.Dev.Explore.Document
   ( Stage (..),
     stageLabel,
+    stageFileSuffix,
     Definition (..),
     DefinitionKind (..),
     Segment (..),
@@ -14,9 +15,13 @@ module Aihc.Dev.Explore.Document
     Match (..),
     findRelated,
     findDefinitionNamed,
+    documentText,
+    textMatches,
+    matchingLines,
   )
 where
 
+import Data.Char (isUpper, toLower)
 import Data.List (sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Ord (Down (..))
@@ -48,6 +53,19 @@ stageLabel stage =
     StageLir -> "Lir"
     StageAssembly -> "Assembly"
     StageLlvm -> "LLVM IR"
+
+-- | The file name extension of the saved output of a stage.
+stageFileSuffix :: Stage -> Text
+stageFileSuffix stage =
+  case stage of
+    StageHaskell -> "hs"
+    StageFc -> "fc"
+    StageGrin -> "grin"
+    StageCpsGrin -> "cps.grin"
+    StageGcGrin -> "gc.grin"
+    StageLir -> "lir"
+    StageAssembly -> "s"
+    StageLlvm -> "ll"
 
 -- | A top-level definition: the module that its name comes from, if the name
 -- has a module, its name without the module, and its kind.
@@ -166,3 +184,32 @@ findDefinitionNamed document name =
 -- | The name without the @$@ that GRIN puts in front of a function name.
 baseName :: Text -> Text
 baseName name = fromMaybe name (T.stripPrefix "$" name)
+
+-- | The text of a document, with a newline after each line.
+documentText :: Document -> Text
+documentText document = T.unlines (V.toList (documentLines document))
+
+-- | The offset and the length of each occurrence of a query in a line, from
+-- left to right. The occurrences do not overlap. A query without capital
+-- letters ignores the case of letters. An empty query has no occurrences.
+textMatches :: Text -> Text -> [(Int, Int)]
+textMatches query line
+  | T.null query = []
+  | otherwise = go 0 (fold line)
+  where
+    -- 'T.toLower' can make a text longer, so each letter changes alone.
+    fold = if T.any isUpper query then id else T.map toLower
+    needle = fold query
+    size = T.length needle
+    go offset rest =
+      case T.breakOn needle rest of
+        (before, after)
+          | T.null after -> []
+          | otherwise ->
+              let start = offset + T.length before
+               in (start, size) : go (start + size) (T.drop size after)
+
+-- | The lines of a document that contain a query, in line order.
+matchingLines :: Text -> Document -> [Int]
+matchingLines query document =
+  [index | (index, line) <- zip [0 ..] (V.toList (documentLines document)), not (null (textMatches query line))]
