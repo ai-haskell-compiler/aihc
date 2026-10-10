@@ -94,7 +94,7 @@ evaluateGrinCase fixture =
 renderCase :: GrinCase -> Either String String
 renderCase fixture = do
   programs <- buildFcPrograms (caseExtensions fixture) (caseModules fixture)
-  lowered <- traverse lowerProgram programs
+  lowered <- traverse (lowerProgram (PackageId "aihc-prim")) programs
   case concatMap lintProgram lowered of
     [] -> pure (trim (unlines (map (renderString . layoutPretty defaultLayoutOptions . prettyProgram) lowered)))
     errors -> Left ("GRIN lint error: " <> show errors)
@@ -128,7 +128,7 @@ buildFcPrograms extensions sources = do
         then Left (unlines (concatMap dsErrors fixtureResults))
         else do
           let fixturePrograms = map dsProgram fixtureResults
-          case concatMap Fc.lintProgram fixturePrograms of
+          case concatMap (Fc.lintProgram (PackageId "aihc-prim")) fixturePrograms of
             [] -> Right fixturePrograms
             errors -> Left (unlines ["System FC lint error: " <> show errorValue | errorValue <- errors])
 

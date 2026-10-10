@@ -46,7 +46,7 @@ import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv, typeEnvFromProgram)
-import Aihc.Fc.Wired (primPackageFromScopes)
+import Aihc.Resolve (PackageId)
 import Control.Monad.Trans.State.Strict (runState)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
@@ -180,33 +180,30 @@ data InlineReport = InlineReport
   deriving (Eq, Show)
 
 -- | Inline the values of a program under the given configuration.
-inlineProgram :: InlineConfig -> Program -> (Program, InlineReport)
-inlineProgram config program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, InlineReport size0 size0 0 0 0)
-    Just primPackage ->
-      let env = typeEnvFromProgram primPackage program
-          supply0 = maxLocalUnique program + 1
-          lifted = programDecls program
-          state0 = initialInliner config env lifted supply0
-          final = runRounds config (inlineRounds config) state0
-          decls = rebuildDecls lifted final
-          result =
-            tidyProgram
-              ( pruneImports
-                  program {programDecls = decls}
-              )
-          report =
-            InlineReport
-              { reportSizeBefore = size0,
-                reportSizeAfter = programSize result,
-                reportInlinedSites = inSites final,
-                reportDroppedValues = length lifted - length decls,
-                reportRulesFired = inRulesFired final
-              }
-       in (result, report)
+inlineProgram :: PackageId -> InlineConfig -> Program -> (Program, InlineReport)
+inlineProgram primPackage config program =
+  let env = typeEnvFromProgram primPackage program
+      supply0 = maxLocalUnique program + 1
+      lifted = programDecls program
+      state0 = initialInliner config env lifted supply0
+      final = runRounds config (inlineRounds config) state0
+      decls = rebuildDecls lifted final
+      result =
+        tidyProgram
+          ( pruneImports
+              program {programDecls = decls}
+          )
+      report =
+        InlineReport
+          { reportSizeBefore = size0,
+            reportSizeAfter = programSize primPackage result,
+            reportInlinedSites = inSites final,
+            reportDroppedValues = length lifted - length decls,
+            reportRulesFired = inRulesFired final
+          }
+   in (result, report)
   where
-    size0 = programSize program
+    size0 = programSize primPackage program
 
 -- * Driver
 

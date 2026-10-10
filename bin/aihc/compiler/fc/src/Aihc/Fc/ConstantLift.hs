@@ -9,7 +9,7 @@ import Aihc.Fc.Simplify (collectSpine, isConstructorName)
 import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv (..), lookupHeaderType, substType, typeEnvFromProgram, viewForAll, viewFun)
-import Aihc.Fc.Wired (primPackageFromScopes)
+import Aihc.Resolve (PackageId)
 import Control.Monad (foldM, guard)
 import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
 import Data.Either (rights)
@@ -31,21 +31,18 @@ data LiftState = LiftState
 -- | Return the program, the number of new constants, and the number of sites.
 -- The pass preserves lazy fields. It does not evaluate a constant early.
 -- Local term, type, and coercion references prevent a lift.
-liftConstants :: Program -> (Program, Int, Int)
-liftConstants program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, 0, 0)
-    Just package ->
-      let types = typeEnvFromProgram package program
-          -- The top-level values that are in weak-head normal form by
-          -- their syntax: a strict field of a constant can hold one.
-          env = types {teEvaluated = staticTopLevelValues types program}
-          initial = LiftState 0 (Map.keysSet (teHeaders env)) Map.empty [] 0
-          (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
-       in ( program {programDecls = decls <> reverse (liftDecls final)},
-            length (liftDecls final),
-            liftSites final
-          )
+liftConstants :: PackageId -> Program -> (Program, Int, Int)
+liftConstants primPackage program =
+  let types = typeEnvFromProgram primPackage program
+      -- The top-level values that are in weak-head normal form by
+      -- their syntax: a strict field of a constant can hold one.
+      env = types {teEvaluated = staticTopLevelValues types program}
+      initial = LiftState 0 (Map.keysSet (teHeaders env)) Map.empty [] 0
+      (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
+   in ( program {programDecls = decls <> reverse (liftDecls final)},
+        length (liftDecls final),
+        liftSites final
+      )
 
 liftDecl :: TypeEnv -> Decl -> State LiftState Decl
 liftDecl env declaration =

@@ -89,7 +89,7 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, exprType, extendBinder, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Fc.Views (castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
-import Aihc.Fc.Wired (primPackageFromScopes)
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (guard)
@@ -155,20 +155,17 @@ data DemandReport = DemandReport
 
 -- | Find the signatures of every value, then evaluate every strict let and
 -- every strict argument of a saturated call up front.
-demandProgram :: DemandRewrites -> Program -> (Program, DemandReport)
-demandProgram rewrites program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, DemandReport 0 0 0)
-    Just primPackage ->
-      let types = typeEnvFromProgram primPackage program
-          signatures = topLevelSignatures types (programDecls program)
-          env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites, envAnalysisOnly = False}
-          supply = maxLocalUnique program + 1
-          (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
-          strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
-       in ( tidyProgram (pruneImports program {programDecls = decls}),
-            DemandReport strictValues (dsStrictLets final) (dsStrictArguments final)
-          )
+demandProgram :: PackageId -> DemandRewrites -> Program -> (Program, DemandReport)
+demandProgram primPackage rewrites program =
+  let types = typeEnvFromProgram primPackage program
+      signatures = topLevelSignatures types (programDecls program)
+      env = Env {envTypes = types, envSignatures = signatures, envRewrites = rewrites, envAnalysisOnly = False}
+      supply = maxLocalUnique program + 1
+      (decls, final) = runState (traverse (rewriteDecl env) (programDecls program)) (DemandState supply 0 0)
+      strictValues = length [() | signature <- Map.elems signatures, any isStrict (signatureDemands signature)]
+   in ( tidyProgram (pruneImports program {programDecls = decls}),
+        DemandReport strictValues (dsStrictLets final) (dsStrictArguments final)
+      )
 
 -- * Signatures
 

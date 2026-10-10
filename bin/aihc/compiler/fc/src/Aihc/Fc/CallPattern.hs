@@ -54,8 +54,8 @@ import Aihc.Fc.Size (isLiftedBinder, isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, repOf, substType, typeEnvFromProgram)
-import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Fc.WorkerWrapper (Parameter (..), instantiate, splitLambdas, takeArrows, workerType)
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, runState, state)
 import Data.Either (lefts, rights)
@@ -88,17 +88,17 @@ callPatternRounds = 3
 -- at a reducing site within the given site limit: a copy of a loop can
 -- give a constructor to a local function that the loop calls, where the
 -- original gave it an unknown parameter.
-callPatternProgram :: Int -> Int -> Program -> (Program, CallPatternReport)
-callPatternProgram phase siteLimit = go 0 (CallPatternReport 0 0 0)
+callPatternProgram :: PackageId -> Int -> Int -> Program -> (Program, CallPatternReport)
+callPatternProgram primPackage phase siteLimit = go 0 (CallPatternReport 0 0 0)
   where
     go rounds report program
       | rounds >= callPatternRounds = (program, report)
       | otherwise =
-          let (specialised, loops, calls) = specialiseRound program
+          let (specialised, loops, calls) = specialiseRound primPackage program
            in if loops == 0
                 then (program, report)
                 else
-                  let (simplified, _) = simplifyProgram phase siteLimit specialised
+                  let (simplified, _) = simplifyProgram primPackage phase siteLimit specialised
                    in go
                         (rounds + 1)
                         report
@@ -112,24 +112,21 @@ type FreshM = State Int
 
 -- | One walk over every body: the number of loops that got a copy and the
 -- number of calls that name a copy.
-specialiseRound :: Program -> (Program, Int, Int)
-specialiseRound program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, 0, 0)
-    Just primPackage ->
-      let types = typeEnvFromProgram primPackage program
-          step supply decl =
-            case decl of
-              DeclVal declaration ->
-                let ((body, counts), supply') = runState (walk types (valBody declaration)) supply
-                 in (supply', (DeclVal declaration {valBody = body}, counts))
-              _ -> (supply, (decl, (0, 0)))
-          (_, results) = List.mapAccumL step (maxLocalUnique program + 1) (programDecls program)
-          loops = sum (map (fst . snd) results)
-          calls = sum (map (snd . snd) results)
-       in if loops == 0
-            then (program, 0, 0)
-            else (tidyProgram (pruneImports program {programDecls = map fst results}), loops, calls)
+specialiseRound :: PackageId -> Program -> (Program, Int, Int)
+specialiseRound primPackage program =
+  let types = typeEnvFromProgram primPackage program
+      step supply decl =
+        case decl of
+          DeclVal declaration ->
+            let ((body, counts), supply') = runState (walk types (valBody declaration)) supply
+             in (supply', (DeclVal declaration {valBody = body}, counts))
+          _ -> (supply, (decl, (0, 0)))
+      (_, results) = List.mapAccumL step (maxLocalUnique program + 1) (programDecls program)
+      loops = sum (map (fst . snd) results)
+      calls = sum (map (snd . snd) results)
+   in if loops == 0
+        then (program, 0, 0)
+        else (tidyProgram (pruneImports program {programDecls = map fst results}), loops, calls)
 
 -- | Specialise the loops of an expression, inner loops first.
 walk :: TypeEnv -> Expr -> FreshM (Expr, (Int, Int))

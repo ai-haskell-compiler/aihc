@@ -99,9 +99,8 @@ instance Semigroup TopParts where
 instance Monoid TopParts where
   mempty = TopParts [] []
 
-lowerProgram :: Fc.Program -> Either String GrinProgram
-lowerProgram program = do
-  primPackage <- maybe (Left "System FC program needs a GHC.Types scope") Right (Wired.primPackageFromScopes (Fc.programScopes program))
+lowerProgram :: PackageId -> Fc.Program -> Either String GrinProgram
+lowerProgram primPackage program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types

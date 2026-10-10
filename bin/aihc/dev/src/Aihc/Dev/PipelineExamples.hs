@@ -22,6 +22,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Lir.Lower qualified as Lower
 import Aihc.Native (NativeTarget (LinuxAmd64), renderNativeTarget)
+import Aihc.Resolve (PackageId (..))
 import Control.Monad (forM, unless, when)
 import Data.List (sort)
 import Data.Text (Text)
@@ -71,7 +72,7 @@ compileExample source = do
   program <- case programs of
     [single] -> Right single
     _ -> Left ("expected one System FC program, got " <> show (length programs))
-  grin <- either (Left . ("GRIN generation failed: " <>)) Right (Grin.lowerProgram program)
+  grin <- either (Left . ("GRIN generation failed: " <>)) Right (Grin.lowerProgram (PackageId "aihc-prim") program)
   let grinErrors = Grin.lintProgram grin
   unless (null grinErrors) (Left ("GRIN lint failed: " <> show grinErrors))
   cps <- either (Left . ("CPS-GRIN generation failed: " <>) . show) Right (Grin.toCpsGrin grin)

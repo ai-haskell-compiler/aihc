@@ -12,6 +12,7 @@ import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
 import Aihc.Dev.PipelineExamples (PipelineExamplesOptions (..), runPipelineExamples)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget, OptimizationLevel (..), hostNativeTarget, parseNativeTarget, parseOptimizationLevel)
+import Aihc.Resolve (PackageId (..))
 import Control.Monad (foldM_, unless, when)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
@@ -47,7 +48,7 @@ data Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
   | FcPrint FilePath
-  | FcPasses [FilePath] OptimizationLevel [String]
+  | FcPasses PackageId [FilePath] OptimizationLevel [String]
   | Explore FilePath OptimizationLevel (Maybe NativeTarget)
 
 data ExtractHiOpts = ExtractHiOpts
@@ -139,8 +140,9 @@ commandParser =
 
 fcPassesParser :: Parser Command
 fcPassesParser =
-  FcPasses
-    <$> some (strArgument (metavar "FILE" <> help "Core files of a build root. Several files merge into one whole program, as the --lto link merges them"))
+  FcPasses . PackageId
+    <$> strOption (long "prim-package" <> metavar "ID" <> help "The unit id of the aihc-prim package that the core files build against, such as the directory name of aihc-prim in the store")
+    <*> some (strArgument (metavar "FILE" <> help "Core files of a build root. Several files merge into one whole program, as the --lto link merges them"))
     <*> option
       (eitherReader parseOptimizationLevel)
       (short 'O' <> metavar "LEVEL" <> value O2 <> help "The optimization level whose passes run: 0, 1, 2 or s (default: 2)")
@@ -290,7 +292,7 @@ runCommand (Explore input level target) = do
       TIO.hPutStrLn stderr "This host is not a supported target; pass --target"
       exitFailure
   runExplore ExploreOptions {exploreInput = input, exploreLevel = level, exploreTarget = resolved}
-runCommand (FcPasses paths level shown) = do
+runCommand (FcPasses primPackage paths level shown) = do
   (program, roots) <- case paths of
     [path] -> do
       loaded <- Fc.readProgramFile path
@@ -311,7 +313,7 @@ runCommand (FcPasses paths level shown) = do
         showDecls label next
         -- An unused import is not a defect of the program: the merge keeps
         -- the imports of every module.
-        let errors = [lintError | lintError <- Fc.lintProgram next, not (isUnusedImport lintError)]
+        let errors = [lintError | lintError <- Fc.lintProgram primPackage next, not (isUnusedImport lintError)]
             isUnusedImport lintError = case lintError of
               Fc.UnusedImport {} -> True
               _ -> False
@@ -323,7 +325,7 @@ runCommand (FcPasses paths level shown) = do
             (\(name, text) -> when (maybe False ((`elem` failing) . Fc.nameText) name) (TIO.putStrLn text))
             (Fc.renderProgramSections next)
       step current pass = do
-        let (next, report) = Fc.runPass roots pass current
+        let (next, report) = Fc.runPass primPackage roots pass current
         TIO.hPutStrLn stderr (Fc.reportPass report <> ": size " <> T.pack (show (Fc.reportBefore report)) <> " -> " <> T.pack (show (Fc.reportAfter report)))
         check ("after " <> Fc.reportPass report) next
         pure next

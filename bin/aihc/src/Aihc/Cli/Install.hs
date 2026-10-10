@@ -551,7 +551,9 @@ data CompiledExecutable = CompiledExecutable
     compiledCObjects :: ![FilePath],
     compiledCCompileInfo :: !HackageCabal.CCompileInfo,
     -- | Every package below the executable, each once.
-    compiledPackages :: ![InstalledPackage]
+    compiledPackages :: ![InstalledPackage],
+    -- | The identity of the @aihc-prim@ package that the executable builds against.
+    compiledPrimPackage :: !PackageId
   }
 
 data CompiledPackageModules = CompiledPackageModules
@@ -1090,7 +1092,8 @@ prepareExecutable shared graph slot = do
                 compiledModuleObjects = moduleObjects,
                 compiledCObjects = cObjects,
                 compiledCCompileInfo = cCompileInfo,
-                compiledPackages = []
+                compiledPackages = [],
+                compiledPrimPackage = dependencyPrimIdentity package dependencies
               }
         releaseReaders closure
   addModuleBuild
@@ -2811,6 +2814,7 @@ runBackendUnit context runtime = do
           observe (ObservedSource package (sourceName source) (sourceModulePath source))
       (phaseTimings, capiOutputs) <-
         compileUnitFcModules
+          (taskPrimIdentity context)
           config
           (taskCapiStubOptions context)
           (compileVerbose config)
@@ -3000,7 +3004,7 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
       fmap concat $
         forM fcModules $ \fcModule -> do
           when lint (verbose ("Lint FC: " <> T.unpack (fcModuleName fcModule)))
-          let errors = [(fcModuleName fcModule, err) | err <- Fc.lintProgram (fcProgram fcModule)]
+          let errors = [(fcModuleName fcModule, err) | err <- Fc.lintProgram primIdentity (fcProgram fcModule)]
           when lint (void (evaluate (length errors)))
           pure errors
     let fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
@@ -3034,17 +3038,17 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
 -- | Compile the System FC of a unit to objects, and its capi wrappers
 -- beside them. Only the FC and the rendered wrappers come in: the frontend
 -- state of the unit is gone.
-compileUnitFcModules :: ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
-compileUnitFcModules config capiOptions verbose outputPaths pending = do
+compileUnitFcModules :: PackageId -> ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
+compileUnitFcModules primPackage config capiOptions verbose outputPaths pending = do
   (grinNs, nativeNs) <-
     if lto
       then pure (0, 0)
       else do
         -- Each module is inlined on its own: the program is not known here.
         optimized <- forM (pendingFcModules pending) $ \fcModule -> do
-          program <- optimizeFcProgram config verbose Nothing (fcModuleName fcModule) (fcProgram fcModule)
+          program <- optimizeFcProgram primPackage config verbose Nothing (fcModuleName fcModule) (fcProgram fcModule)
           pure fcModule {fcProgram = program}
-        compileFcModules config verbose outputPaths optimized
+        compileFcModules primPackage config verbose outputPaths optimized
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
   (capiOutputs, capiNs) <- measureTime (concat <$> mapM (uncurry buildCapiStub) (pendingCapiStubs pending))
@@ -3096,13 +3100,13 @@ compileUnitFcModules config capiOptions verbose outputPaths pending = do
 --
 -- The passes come from the plan of the level; nothing here reads the
 -- level. See @docs/optimization.md@.
-optimizeFcProgram :: ModuleCompileConfig -> (String -> IO ()) -> Maybe [Fc.Name] -> Text -> Fc.Program -> IO Fc.Program
-optimizeFcProgram config verbose roots name = foldM step `flip` compilePasses config
+optimizeFcProgram :: PackageId -> ModuleCompileConfig -> (String -> IO ()) -> Maybe [Fc.Name] -> Text -> Fc.Program -> IO Fc.Program
+optimizeFcProgram primPackage config verbose roots name = foldM step `flip` compilePasses config
   where
     step program pass = do
-      let (program', report) = Fc.runPass roots pass program
+      let (program', report) = Fc.runPass primPackage roots pass program
       verbose (renderPassReport name report)
-      lintOptimized config (T.unpack (Fc.reportPass report)) name program'
+      lintOptimized primPackage config (T.unpack (Fc.reportPass report)) name program'
       pure program'
 
 -- | One log line for a pass: its name, the program, the sizes before and
@@ -3118,10 +3122,10 @@ renderPassReport name report =
     <> show (Fc.reportAfter report)
     <> (if T.null (Fc.reportDetail report) then "" else ", " <> T.unpack (Fc.reportDetail report))
 
-lintOptimized :: ModuleCompileConfig -> String -> Text -> Fc.Program -> IO ()
-lintOptimized config phase name program =
+lintOptimized :: PackageId -> ModuleCompileConfig -> String -> Text -> Fc.Program -> IO ()
+lintOptimized primPackage config phase name program =
   when (compileLint config) $ do
-    let errors = Fc.lintProgram program
+    let errors = Fc.lintProgram primPackage program
     unless (null errors) (ioError (userError ("FC lint failed after " <> phase <> " " <> T.unpack name <> ":\n" <> unlines (map (("    " <>) . show) errors))))
 
 -- | Run the heap points-to analysis on a GRIN program, apply the rewrites
@@ -3180,8 +3184,8 @@ renderPointsToReport name stats rewrites analysisNs rewriteNs =
 -- | Lower System FC modules to objects: GRIN, then Lir, then the object of
 -- the target. A module with no declarations gets an empty object. Returns
 -- the time the GRIN phase and the native phase took.
-compileFcModules :: ModuleCompileConfig -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [FcModule] -> IO (Word64, Word64)
-compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
+compileFcModules :: PackageId -> ModuleCompileConfig -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [FcModule] -> IO (Word64, Word64)
+compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0)
   where
     keepGrin = compileKeepGrin config
     keepNative = compileKeepNative config
@@ -3251,7 +3255,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
       let name = fcModuleName fcModule
           paths = outputPaths name
       verbose ("Lower GRIN: " <> T.unpack (fcModuleName fcModule))
-      loweredProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
+      loweredProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram primPackage (fcProgram fcModule))
       plainProgram <-
         if compileGrinPointsTo config
           then optimizeGrinPointsTo verbose name loweredProgram

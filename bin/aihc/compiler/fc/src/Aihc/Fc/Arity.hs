@@ -83,7 +83,7 @@ import Aihc.Fc.TypeOf
     viewForAll,
     viewFun,
   )
-import Aihc.Fc.Wired (primPackageFromScopes)
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -381,20 +381,17 @@ manifestArity env expr = let AT lams = manifestArityType env expr in length lams
 
 -- | Eta expand every top-level value and every local binding of a program
 -- to the arity its body supports.
-etaExpandProgram :: Program -> (Program, EtaReport)
-etaExpandProgram program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, EtaReport 0 0 0)
-    Just primPackage ->
-      let types = typeEnvFromProgram primPackage program
-          env0 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types}
-          env = valueSignatures env0 (programDecls program)
-          supply = maxLocalUnique program + 1
-          (decls, (_, report)) = runState (traverse (expandDecl env) (programDecls program)) (supply, EtaReport 0 0 0)
-       in -- An expansion names the axiom of every newtype it unfolded, and
-          -- a merged whole program arrives with imports that no longer
-          -- match its declarations, so the import table is rebuilt here.
-          (pruneImports program {programDecls = decls}, report)
+etaExpandProgram :: PackageId -> Program -> (Program, EtaReport)
+etaExpandProgram primPackage program =
+  let types = typeEnvFromProgram primPackage program
+      env0 = Env {envTypes = types, envSigs = Map.empty, envNewtypes = newtypeAxioms types}
+      env = valueSignatures env0 (programDecls program)
+      supply = maxLocalUnique program + 1
+      (decls, (_, report)) = runState (traverse (expandDecl env) (programDecls program)) (supply, EtaReport 0 0 0)
+   in -- An expansion names the axiom of every newtype it unfolded, and
+      -- a merged whole program arrives with imports that no longer
+      -- match its declarations, so the import table is rebuilt here.
+      (pruneImports program {programDecls = decls}, report)
 
 -- | The arity type of every top-level value, in dependency order: a value
 -- is analysed after the values it names, so a call of one knows how many

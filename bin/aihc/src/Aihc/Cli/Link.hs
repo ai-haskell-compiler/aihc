@@ -74,7 +74,7 @@ linkCompiledExecutable compileConfig noLink buildRoot output executable = do
                 name <- packageManifestCompiledModules (installedManifest package)
               ]
                 <> [moduleCorePath target buildRoot name | name <- compiledModuleNames executable]
-        object <- compileLtoProgram compileConfig buildRoot corePaths
+        object <- compileLtoProgram (compiledPrimPackage executable) compileConfig buildRoot corePaths
         pure [object]
       else pure []
   createDirectoryIfMissing True (takeDirectory output)

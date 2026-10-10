@@ -20,6 +20,7 @@ import Aihc.Lir.Interpret (Value (..), renderValues)
 import Aihc.Lir.Lower (LowerTarget, defaultModuleSettings, lowerEntry, lowerModule)
 import Aihc.Native (NativeTarget (..), executableEntryName, renderNativeTarget)
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))
+import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
@@ -359,7 +360,7 @@ snapshotProgram fixture =
       programs <- GrinGolden.buildFcPrograms [MagicHash, UnboxedSums, UnboxedTuples, ExtendedLiterals] [source]
       case programs of
         [fc] -> do
-          program <- Grin.lowerProgram fc
+          program <- Grin.lowerProgram (PackageId "aihc-prim") fc
           let name = grinScopedName "" "Test" "value"
               entry = GrinFunction (FunctionName (snapshotFixtureEntry fixture)) [] liftedResultRep (GrinEval EvalUpdate liftedGrinRep (GrinGlobalValue name))
               result = program {grinFunctions = entry : grinFunctions program}
