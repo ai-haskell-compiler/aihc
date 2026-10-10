@@ -1,0 +1,70 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (readByte) where
+
+  import GHC.Prim (Addr#, indexWord8OffAddr#, word2Int#, word8ToWord#, (+#), (<=#))
+  import GHC.Types (Int (..))
+
+  readByte :: Addr# -> Int -> Int
+  readByte p (I# i) =
+    let n = I# (word2Int# (word8ToWord# (indexWord8OffAddr# p i)))
+     in case i +# 1# of
+          j -> case n of
+            I# x -> case x <=# j of
+              1# -> n
+              _ -> I# j
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    <=# = 2.v<=# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    indexWord8OffAddr# = 2.vindexWord8OffAddr# :: FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @cWord8Rep tInt# tWord8#);
+    word2Int# = 2.vword2Int# :: FUN @cWordRep @cIntRep tWord# tInt#;
+    word8ToWord# = 2.vword8ToWord# :: FUN @cWord8Rep @cWordRep tWord8# tWord#
+
+  import headers
+    2.tAddr# :: tTYPE cAddrRep;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    2.tWord8# :: tTYPE cWord8Rep;
+    3.cAddrRep :: tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cWord8Rep :: tRuntimeRep;
+    3.cWordRep :: tRuntimeRep
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vreadByte :: FUN @cAddrRep @sLiftedRep tAddr# (tInt 3.→ tInt)
+    = λ(x : tAddr#) (y : tInt).
+      let! cI# (i : tInt#) = y;
+      let field : tInt# =
+        prim word2Int# (prim word8ToWord# (prim indexWord8OffAddr# x i));
+      let _case : tInt# =
+        prim +# i lit (1#cIntRep) :: tInt#;
+      case prim <=# field _case of {
+        1#cIntRep →
+          cI# field;
+        _ →
+          cI# _case
+      }
+status: pass
+reason: The field of the box reads memory, so it is not safe to run early. But every path evaluates the box first, and only safe lets come before that point. A strict let binds the read first, and the case on the box selects its alternative.

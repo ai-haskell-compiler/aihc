@@ -1,0 +1,79 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test (writeThenRead) where
+
+  import GHC.Prim (Addr#, RealWorld, State#, indexWord8OffAddr#, word2Int#, word8ToWord#, wordToWord8#, writeWord8OffAddr#, (<#))
+  import GHC.Types (Int (..))
+
+  writeThenRead :: Addr# -> State# RealWorld -> (# State# RealWorld, Int #)
+  writeThenRead p s =
+    let n = I# (word2Int# (word8ToWord# (indexWord8OffAddr# p 0#)))
+     in case writeWord8OffAddr# p 0# (wordToWord8# 1##) s of
+          s' -> case n of
+            I# x -> case x <# 5# of
+              1# -> (# s', n #)
+              _ -> (# s', I# x #)
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    indexWord8OffAddr# = 2.vindexWord8OffAddr# :: FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @cWord8Rep tInt# tWord8#);
+    word2Int# = 2.vword2Int# :: FUN @cWordRep @cIntRep tWord# tInt#;
+    word8ToWord# = 2.vword8ToWord# :: FUN @cWord8Rep @cWordRep tWord8# tWord#;
+    writeWord8OffAddr# = 2.vwriteWord8OffAddr# :: ∀(d : sType). FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @sLiftedRep tInt# (FUN @cWord8Rep @sLiftedRep tWord8# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# d) (tState# d))))
+
+  import headers
+    2.tAddr# :: tTYPE cAddrRep;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    2.tWord8# :: tTYPE cWord8Rep;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cAddrRep :: tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cWord8Rep :: tRuntimeRep;
+    3.cWordRep :: tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vwriteThenRead :: FUN @cAddrRep @sLiftedRep tAddr# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt))
+    = λ(x : tAddr#) (y : tState# tRealWorld).
+      let n : tInt =
+        cI# (prim word2Int# (prim word8ToWord# (prim indexWord8OffAddr# x lit (0#cIntRep) :: tInt#)));
+      let _case : tState# tRealWorld =
+        prim writeWord8OffAddr# @tRealWorld x lit (0#cIntRep) :: tInt# lit (1#cWord8Rep) :: tWord8# y;
+      let! cI# (x{1} : tInt#) = n;
+      case prim <# x{1} lit (5#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @(tState# tRealWorld) @tInt _case n;
+        _ →
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @(tState# tRealWorld) @tInt _case (cI# x{1})
+      }
+status: pass
+reason: The field of the box reads memory, and a write to the same memory comes before the case on the box. The read must not move before the write, so the box stays lazy.
