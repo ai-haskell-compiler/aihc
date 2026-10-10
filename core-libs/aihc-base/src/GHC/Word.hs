@@ -56,24 +56,51 @@ import GHC.Prim
     byteSwap32#,
     byteSwap64#,
     eqWord#,
+    eqWord16#,
+    eqWord32#,
     eqWord64#,
+    eqWord8#,
     geWord#,
+    geWord16#,
+    geWord32#,
     geWord64#,
+    geWord8#,
     gtWord#,
+    gtWord16#,
+    gtWord32#,
     gtWord64#,
+    gtWord8#,
     int2Word#,
     leWord#,
+    leWord16#,
+    leWord32#,
     leWord64#,
+    leWord8#,
     ltWord#,
+    ltWord16#,
+    ltWord32#,
     ltWord64#,
+    ltWord8#,
     minusWord#,
     neWord#,
+    neWord16#,
+    neWord32#,
     neWord64#,
+    neWord8#,
     plusWord#,
+    plusWord16#,
     plusWord32#,
+    plusWord64#,
+    plusWord8#,
+    subWord16#,
     subWord32#,
+    subWord64#,
+    subWord8#,
     timesWord#,
+    timesWord16#,
     timesWord32#,
+    timesWord64#,
+    timesWord8#,
     word16ToWord#,
     word32ToWord#,
     word64ToWord#,
@@ -126,19 +153,19 @@ instance Num Word where
   fromInteger value = W# (int2Word# (integerToInt# value))
 
 instance Num Word8 where
-  W8# left + W8# right = W8# (wordToWord8# (plusWord# (word8ToWord# left) (word8ToWord# right)))
-  W8# left - W8# right = W8# (wordToWord8# (minusWord# (word8ToWord# left) (word8ToWord# right)))
-  W8# left * W8# right = W8# (wordToWord8# (timesWord# (word8ToWord# left) (word8ToWord# right)))
-  negate (W8# value) = W8# (wordToWord8# (wordNegate (word8ToWord# value)))
+  W8# left + W8# right = W8# (plusWord8# left right)
+  W8# left - W8# right = W8# (subWord8# left right)
+  W8# left * W8# right = W8# (timesWord8# left right)
+  negate (W8# value) = W8# (subWord8# (wordToWord8# (int2Word# 0#)) value)
   abs value = value
   signum (W8# value) = W8# (wordToWord8# (wordSignum (word8ToWord# value)))
   fromInteger value = W8# (wordToWord8# (int2Word# (integerToInt# value)))
 
 instance Num Word16 where
-  W16# left + W16# right = W16# (wordToWord16# (plusWord# (word16ToWord# left) (word16ToWord# right)))
-  W16# left - W16# right = W16# (wordToWord16# (minusWord# (word16ToWord# left) (word16ToWord# right)))
-  W16# left * W16# right = W16# (wordToWord16# (timesWord# (word16ToWord# left) (word16ToWord# right)))
-  negate (W16# value) = W16# (wordToWord16# (wordNegate (word16ToWord# value)))
+  W16# left + W16# right = W16# (plusWord16# left right)
+  W16# left - W16# right = W16# (subWord16# left right)
+  W16# left * W16# right = W16# (timesWord16# left right)
+  negate (W16# value) = W16# (subWord16# (wordToWord16# (int2Word# 0#)) value)
   abs value = value
   signum (W16# value) = W16# (wordToWord16# (wordSignum (word16ToWord# value)))
   fromInteger value = W16# (wordToWord16# (int2Word# (integerToInt# value)))
@@ -156,10 +183,10 @@ instance Num Word32 where
   fromInteger value = W32# (wordToWord32# (int2Word# (integerToInt# value)))
 
 instance Num Word64 where
-  W64# left + W64# right = W64# (wordToWord64# (plusWord# (word64ToWord# left) (word64ToWord# right)))
-  W64# left - W64# right = W64# (wordToWord64# (minusWord# (word64ToWord# left) (word64ToWord# right)))
-  W64# left * W64# right = W64# (wordToWord64# (timesWord# (word64ToWord# left) (word64ToWord# right)))
-  negate (W64# value) = W64# (wordToWord64# (wordNegate (word64ToWord# value)))
+  W64# left + W64# right = W64# (plusWord64# left right)
+  W64# left - W64# right = W64# (subWord64# left right)
+  W64# left * W64# right = W64# (timesWord64# left right)
+  negate (W64# value) = W64# (subWord64# (wordToWord64# (int2Word# 0#)) value)
   abs value = value
   signum (W64# value) = W64# (wordToWord64# (wordSignum (word64ToWord# value)))
   fromInteger value = W64# (wordToWord64# (int2Word# (integerToInt# value)))
@@ -177,28 +204,28 @@ ltWord (W# x) (W# y) = isTrue# (ltWord# x y)
 leWord (W# x) (W# y) = isTrue# (leWord# x y)
 
 eqWord8, neWord8, gtWord8, geWord8, ltWord8, leWord8 :: Word8 -> Word8 -> Bool
-eqWord8 (W8# x) (W8# y) = isTrue# (eqWord# (word8ToWord# x) (word8ToWord# y))
-neWord8 (W8# x) (W8# y) = isTrue# (neWord# (word8ToWord# x) (word8ToWord# y))
-gtWord8 (W8# x) (W8# y) = isTrue# (gtWord# (word8ToWord# x) (word8ToWord# y))
-geWord8 (W8# x) (W8# y) = isTrue# (geWord# (word8ToWord# x) (word8ToWord# y))
-ltWord8 (W8# x) (W8# y) = isTrue# (ltWord# (word8ToWord# x) (word8ToWord# y))
-leWord8 (W8# x) (W8# y) = isTrue# (leWord# (word8ToWord# x) (word8ToWord# y))
+eqWord8 (W8# x) (W8# y) = isTrue# (eqWord8# x y)
+neWord8 (W8# x) (W8# y) = isTrue# (neWord8# x y)
+gtWord8 (W8# x) (W8# y) = isTrue# (gtWord8# x y)
+geWord8 (W8# x) (W8# y) = isTrue# (geWord8# x y)
+ltWord8 (W8# x) (W8# y) = isTrue# (ltWord8# x y)
+leWord8 (W8# x) (W8# y) = isTrue# (leWord8# x y)
 
 eqWord16, neWord16, gtWord16, geWord16, ltWord16, leWord16 :: Word16 -> Word16 -> Bool
-eqWord16 (W16# x) (W16# y) = isTrue# (eqWord# (word16ToWord# x) (word16ToWord# y))
-neWord16 (W16# x) (W16# y) = isTrue# (neWord# (word16ToWord# x) (word16ToWord# y))
-gtWord16 (W16# x) (W16# y) = isTrue# (gtWord# (word16ToWord# x) (word16ToWord# y))
-geWord16 (W16# x) (W16# y) = isTrue# (geWord# (word16ToWord# x) (word16ToWord# y))
-ltWord16 (W16# x) (W16# y) = isTrue# (ltWord# (word16ToWord# x) (word16ToWord# y))
-leWord16 (W16# x) (W16# y) = isTrue# (leWord# (word16ToWord# x) (word16ToWord# y))
+eqWord16 (W16# x) (W16# y) = isTrue# (eqWord16# x y)
+neWord16 (W16# x) (W16# y) = isTrue# (neWord16# x y)
+gtWord16 (W16# x) (W16# y) = isTrue# (gtWord16# x y)
+geWord16 (W16# x) (W16# y) = isTrue# (geWord16# x y)
+ltWord16 (W16# x) (W16# y) = isTrue# (ltWord16# x y)
+leWord16 (W16# x) (W16# y) = isTrue# (leWord16# x y)
 
 eqWord32, neWord32, gtWord32, geWord32, ltWord32, leWord32 :: Word32 -> Word32 -> Bool
-eqWord32 (W32# x) (W32# y) = isTrue# (eqWord# (word32ToWord# x) (word32ToWord# y))
-neWord32 (W32# x) (W32# y) = isTrue# (neWord# (word32ToWord# x) (word32ToWord# y))
-gtWord32 (W32# x) (W32# y) = isTrue# (gtWord# (word32ToWord# x) (word32ToWord# y))
-geWord32 (W32# x) (W32# y) = isTrue# (geWord# (word32ToWord# x) (word32ToWord# y))
-ltWord32 (W32# x) (W32# y) = isTrue# (ltWord# (word32ToWord# x) (word32ToWord# y))
-leWord32 (W32# x) (W32# y) = isTrue# (leWord# (word32ToWord# x) (word32ToWord# y))
+eqWord32 (W32# x) (W32# y) = isTrue# (eqWord32# x y)
+neWord32 (W32# x) (W32# y) = isTrue# (neWord32# x y)
+gtWord32 (W32# x) (W32# y) = isTrue# (gtWord32# x y)
+geWord32 (W32# x) (W32# y) = isTrue# (geWord32# x y)
+ltWord32 (W32# x) (W32# y) = isTrue# (ltWord32# x y)
+leWord32 (W32# x) (W32# y) = isTrue# (leWord32# x y)
 
 eqWord64, neWord64, gtWord64, geWord64, ltWord64, leWord64 :: Word64 -> Word64 -> Bool
 eqWord64 (W64# x) (W64# y) = isTrue# (eqWord64# x y)

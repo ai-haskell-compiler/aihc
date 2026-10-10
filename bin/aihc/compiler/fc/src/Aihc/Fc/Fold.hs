@@ -144,6 +144,23 @@ table =
         | (width, rep) <- [("8", word8Rep), ("16", word16Rep), ("32", word32Rep)],
           (prefix, operation) <- [("and", (.&.)), ("or", (.|.)), ("xor", xor), ("plus", (+)), ("sub", (-)), ("times", (*))]
         ],
+        [ (prefix <> "Word64#", ([Just word64Rep, Just word64Rep], sizedBinary word64Rep operation))
+        | (prefix, operation) <- [("plus", (+)), ("sub", (-)), ("times", (*))]
+        ],
+        [ (name, ([Just word64Rep, Just word64Rep], sizedBinary word64Rep operation))
+        | (name, operation) <- [("and64#", (.&.)), ("or64#", (.|.)), ("xor64#", xor)]
+        ],
+        [("not64#", ([Just word64Rep], unary word64Rep (Just . complement)))],
+        [ (name, ([Just rep], unary rep (Just . xor (shiftL 1 bits - 1))))
+        | (name, bits, rep) <- [("notWord8#", 8, word8Rep), ("notWord16#", 16, word16Rep), ("notWord32#", 32, word32Rep)]
+        ],
+        [ (name, ([Just word8Rep, Just intRep], shift word8Rep 8 operation))
+        | (name, operation) <- [("uncheckedShiftLWord8#", shiftL), ("uncheckedShiftRLWord8#", shiftR)]
+        ],
+        [ (prefix <> "Word" <> width <> "#", ([Just rep, Just rep], comparison operation))
+        | (width, rep) <- [("8", word8Rep), ("16", word16Rep), ("32", word32Rep)],
+          (prefix, operation) <- [("eq", (==)), ("ne", (/=)), ("lt", (<)), ("le", (<=)), ("gt", (>)), ("ge", (>=))]
+        ],
         [ (prefix <> "Int" <> width <> "#", ([Just rep, Just rep], sizedBinary rep operation))
         | (width, rep) <- [("8", int8Rep), ("16", int16Rep), ("32", int32Rep)],
           (prefix, operation) <- [("plus", (+)), ("sub", (-)), ("times", (*))]
@@ -154,7 +171,6 @@ table =
         [ (name, ([Just word64Rep, Just word64Rep], comparison operation))
         | (name, operation) <- [("eqWord64#", (==)), ("neWord64#", (/=)), ("ltWord64#", (<)), ("leWord64#", (<=)), ("gtWord64#", (>)), ("geWord64#", (>=))]
         ],
-        [("eqWord8#", ([Just word8Rep, Just word8Rep], comparison (==)))],
         [ (name, ([Nothing, Nothing], charComparison operation))
         | (name, operation) <- [("eqChar#", (==)), ("neChar#", (/=)), ("ltChar#", (<)), ("leChar#", (<=)), ("gtChar#", (>)), ("geChar#", (>=))]
         ],
@@ -308,7 +324,11 @@ normalize rep value =
 -- argument undoes, or compute a call whose arguments are literals.
 foldForeignCall :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
 foldForeignCall env call types arguments =
-  cancelConversion call types arguments <|> dropIdentityOperand call types arguments <|> foldLiteralCall env call types arguments
+  cancelConversion call types arguments
+    <|> dropNarrowingMask call types arguments
+    <|> dropWideningNarrow call types arguments
+    <|> dropIdentityOperand call types arguments
+    <|> foldLiteralCall env call types arguments
 
 -- | Remove a conversion that undoes the conversion of its argument:
 -- @int2Word# (word2Int# x)@ is @x@. Each pair keeps every bit of @x@, so
@@ -323,6 +343,79 @@ cancelConversion call types arguments = do
   Prim <- Just (foreignCallConvention inner)
   outer <- Map.lookup (nameText (foreignCallName call)) inverseConversions
   if outer == nameText (foreignCallName inner) then Just value else Nothing
+
+-- | The width in bits of the sized word that each narrowing conversion
+-- from a @Word#@ makes.
+narrowingWidths :: Map Text Int
+narrowingWidths =
+  Map.fromList
+    [("wordToWord8#", 8), ("wordToWord16#", 16), ("wordToWord32#", 32), ("wordToWord64#", 64)]
+
+-- | The width in bits of the sized word that each widening conversion to a
+-- @Word#@ reads.
+wideningWidths :: Map Text Int
+wideningWidths =
+  Map.fromList
+    [("word8ToWord#", 8), ("word16ToWord#", 16), ("word32ToWord#", 32), ("word64ToWord#", 64)]
+
+-- | Remove a mask that a narrowing conversion makes useless: the narrowing
+-- of @and# e m@ is the narrowing of @e@ when @m@ keeps every bit of the
+-- width.
+dropNarrowingMask :: ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+dropNarrowingMask call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  [] <- Just types
+  [ExForeignCall inner [] [left, right]] <- Just arguments
+  Prim <- Just (foreignCallConvention inner)
+  width <- Map.lookup (nameText (foreignCallName call)) narrowingWidths
+  if nameText (foreignCallName inner) /= "and#"
+    then Nothing
+    else
+      if keepsWidth width right
+        then Just (ExForeignCall call [] [left])
+        else if keepsWidth width left then Just (ExForeignCall call [] [right]) else Nothing
+  where
+    keepsWidth width operand =
+      case operand of
+        ExLit (LitInt _ mask) _ -> mask .&. (shiftL 1 width - 1) == shiftL 1 width - 1
+        _ -> False
+
+-- | Remove a narrowing that a widening conversion undoes: the widening of
+-- @wordToWord8# e@ is @e@ when @e@ has no bit above the width.
+dropWideningNarrow :: ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+dropWideningNarrow call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  [] <- Just types
+  [ExForeignCall inner [] [value]] <- Just arguments
+  Prim <- Just (foreignCallConvention inner)
+  width <- Map.lookup (nameText (foreignCallName call)) wideningWidths
+  innerWidth <- Map.lookup (nameText (foreignCallName inner)) narrowingWidths
+  if width == innerWidth && fitsInWidth width value then Just value else Nothing
+
+-- | Whether a @Word#@ expression has no bit set at or above the given
+-- width, for every value of its variables.
+fitsInWidth :: Int -> Expr -> Bool
+fitsInWidth width expr =
+  case expr of
+    ExLit (LitInt _ value) _ -> value >= 0 && value < shiftL 1 width
+    ExForeignCall call [] arguments
+      | Prim <- foreignCallConvention call ->
+          case (nameText (foreignCallName call), arguments) of
+            ("and#", [left, right]) -> fitsInWidth width left || fitsInWidth width right
+            ("or#", [left, right]) -> fitsInWidth width left && fitsInWidth width right
+            ("xor#", [left, right]) -> fitsInWidth width left && fitsInWidth width right
+            ("uncheckedShiftRL#", [value, amount]) -> fitsInWidth width value || shiftsOutBits amount
+            ("quotWord#", [left, _]) -> fitsInWidth width left
+            ("remWord#", [left, right]) -> fitsInWidth width left || fitsInWidth width right
+            (name, [_]) -> maybe False (<= width) (Map.lookup name wideningWidths)
+            _ -> False
+    _ -> False
+  where
+    -- A logical shift to the right by @k@ leaves @64 - k@ bits.
+    shiftsOutBits amount =
+      case amount of
+        ExLit (LitInt _ count) _ -> count >= 0 && 64 - count <= toInteger width
+        _ -> False
 
 -- | Remove an operation whose literal operand leaves the other operand as
 -- it is: @plusAddr# a 0#@ is @a@. Only an operation that cannot fail and

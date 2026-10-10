@@ -2261,7 +2261,16 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       greater <- emitValue "greater" I1 (Compare GtS I64 leftOperand rightOperand) >>= widen
       result <- emitValue "result" I64 (Binary Sub I64 (typedOperand greater) (typedOperand less))
       bind [result]
+    (_, [value])
+      | Just mask <- lookup name narrowNotPrimitives -> do
+          operand <- word value
+          result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt mask)))
+          bind [result]
     ("not#", [value]) -> do
+      operand <- word value
+      result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
+      bind [result]
+    ("not64#", [value]) -> do
       operand <- word value
       result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
       bind [result]
@@ -2682,6 +2691,12 @@ binaryPrimitives =
     ("and#", And),
     ("or#", Or),
     ("xor#", Xor),
+    ("and64#", And),
+    ("or64#", Or),
+    ("xor64#", Xor),
+    ("plusWord64#", Add),
+    ("subWord64#", Sub),
+    ("timesWord64#", Mul),
     ("andI#", And),
     ("orI#", Or),
     ("xorI#", Xor),
@@ -2718,13 +2733,21 @@ keepsWidth op extend =
     ShrU -> extend == ZExt
     _ -> False
 
+-- | The complement of a sized word, with the mask of its width. The
+-- exclusive or with the mask flips the bits of the width and keeps the
+-- bits above it zero.
+narrowNotPrimitives :: [(Text, Integer)]
+narrowNotPrimitives = [("notWord8#", 0xff), ("notWord16#", 0xffff), ("notWord32#", 0xffffffff)]
+
 narrowBinaryPrimitives :: [(Text, (BinaryOp, Type, ConvertOp))]
 narrowBinaryPrimitives =
   [(name, (op, ty, ZExt)) | (name, (op, ty)) <- unsignedPrimitives]
     <> [(name, (op, ty, SExt)) | (name, (op, ty)) <- signedPrimitives]
   where
     unsignedPrimitives =
-      [ ("uncheckedShiftLWord16#", (Shl, I16)),
+      [ ("uncheckedShiftLWord8#", (Shl, I8)),
+        ("uncheckedShiftRLWord8#", (ShrU, I8)),
+        ("uncheckedShiftLWord16#", (Shl, I16)),
         ("uncheckedShiftRLWord16#", (ShrU, I16)),
         ("uncheckedShiftLWord32#", (Shl, I32)),
         ("uncheckedShiftRLWord32#", (ShrU, I32)),
@@ -2750,32 +2773,35 @@ narrowBinaryPrimitives =
 
 comparisonPrimitives :: [(Text, CompareOp)]
 comparisonPrimitives =
-  [ ("<#", LtS),
-    ("==#", Eq),
-    (">#", GtS),
-    (">=#", GeS),
-    ("<=#", LeS),
-    ("/=#", Ne),
-    ("eqWord#", Eq),
-    ("neWord#", Ne),
-    ("ltWord#", LtU),
-    ("leWord#", LeU),
-    ("gtWord#", GtU),
-    ("geWord#", GeU),
-    ("eqWord8#", Eq),
-    ("eqWord64#", Eq),
-    ("neWord64#", Ne),
-    ("ltWord64#", LtU),
-    ("leWord64#", LeU),
-    ("gtWord64#", GtU),
-    ("geWord64#", GeU),
-    ("eqChar#", Eq),
-    ("neChar#", Ne),
-    ("ltChar#", LtU),
-    ("leChar#", LeU),
-    ("gtChar#", GtU),
-    ("geChar#", GeU)
+  [ (prefix <> "Word" <> width <> "#", op)
+  | width <- ["8", "16", "32"],
+    (prefix, op) <- [("eq", Eq), ("ne", Ne), ("lt", LtU), ("le", LeU), ("gt", GtU), ("ge", GeU)]
   ]
+    <> [ ("<#", LtS),
+         ("==#", Eq),
+         (">#", GtS),
+         (">=#", GeS),
+         ("<=#", LeS),
+         ("/=#", Ne),
+         ("eqWord#", Eq),
+         ("neWord#", Ne),
+         ("ltWord#", LtU),
+         ("leWord#", LeU),
+         ("gtWord#", GtU),
+         ("geWord#", GeU),
+         ("eqWord64#", Eq),
+         ("neWord64#", Ne),
+         ("ltWord64#", LtU),
+         ("leWord64#", LeU),
+         ("gtWord64#", GtU),
+         ("geWord64#", GeU),
+         ("eqChar#", Eq),
+         ("neChar#", Ne),
+         ("ltChar#", LtU),
+         ("leChar#", LeU),
+         ("gtChar#", GtU),
+         ("geChar#", GeU)
+       ]
 
 -- | Comparisons of two addresses. An address compares as an unsigned number.
 -- The identity tests of the mutable heap objects belong here too: two

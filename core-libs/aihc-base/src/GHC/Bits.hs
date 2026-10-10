@@ -27,9 +27,15 @@ import GHC.Internal.Integer
 import GHC.Prim
   ( Int#,
     Word#,
+    Word16#,
     Word32#,
+    Word64#,
+    Word8#,
     and#,
+    and64#,
+    andWord16#,
     andWord32#,
+    andWord8#,
     clz#,
     clz16#,
     clz32#,
@@ -51,8 +57,15 @@ import GHC.Prim
     intToInt8#,
     minusWord#,
     not#,
+    not64#,
+    notWord16#,
+    notWord32#,
+    notWord8#,
     or#,
+    or64#,
+    orWord16#,
     orWord32#,
+    orWord8#,
     popCnt#,
     uncheckedIShiftL#,
     uncheckedIShiftRA#,
@@ -60,10 +73,12 @@ import GHC.Prim
     uncheckedShiftL64#,
     uncheckedShiftLWord16#,
     uncheckedShiftLWord32#,
+    uncheckedShiftLWord8#,
     uncheckedShiftRL#,
     uncheckedShiftRL64#,
     uncheckedShiftRLWord16#,
     uncheckedShiftRLWord32#,
+    uncheckedShiftRLWord8#,
     word16ToWord#,
     word2Int#,
     word32ToWord#,
@@ -74,7 +89,10 @@ import GHC.Prim
     wordToWord64#,
     wordToWord8#,
     xor#,
+    xor64#,
+    xorWord16#,
     xorWord32#,
+    xorWord8#,
     (+#),
     (-#),
     (<#),
@@ -392,21 +410,21 @@ instance Bits Integer where
   popCount value = I# (integerPopCount# value)
 
 instance Bits Word8 where
-  W8# left .&. W8# right = W8# (wordToWord8# (and# (word8ToWord# left) (word8ToWord# right)))
-  W8# left .|. W8# right = W8# (wordToWord8# (or# (word8ToWord# left) (word8ToWord# right)))
-  xor (W8# left) (W8# right) = W8# (wordToWord8# (xor# (word8ToWord# left) (word8ToWord# right)))
-  complement (W8# value) = W8# (wordToWord8# (not# (word8ToWord# value)))
+  W8# left .&. W8# right = W8# (andWord8# left right)
+  W8# left .|. W8# right = W8# (orWord8# left right)
+  xor (W8# left) (W8# right) = W8# (xorWord8# left right)
+  complement (W8# value) = W8# (notWord8# value)
   shiftL (W8# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W8# value) (I# count)
-      _ -> W8# (wordToWord8# (sizedShiftL# 8# (word8ToWord# value) count))
-  unsafeShiftL (W8# value) (I# count) = W8# (wordToWord8# (uncheckedShiftL# (word8ToWord# value) count))
+      _ -> W8# (shiftLWord8# value count)
+  unsafeShiftL (W8# value) (I# count) = W8# (uncheckedShiftLWord8# value count)
   shiftR (W8# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W8# value) (I# count)
-      _ -> W8# (wordToWord8# (sizedShiftRL# 8# (word8ToWord# value) count))
-  unsafeShiftR (W8# value) (I# count) = W8# (wordToWord8# (uncheckedShiftRL# (word8ToWord# value) count))
-  rotate (W8# value) (I# amount) = W8# (wordToWord8# (sizedRotate# 8# (word8ToWord# value) amount))
+      _ -> W8# (shiftRLWord8# value count)
+  unsafeShiftR (W8# value) (I# count) = W8# (uncheckedShiftRLWord8# value count)
+  rotate (W8# value) (I# amount) = W8# (rotateWord8# value amount)
   zeroBits = W8# (wordToWord8# (int2Word# 0#))
   bit (I# index) = W8# (wordToWord8# (sizedBit# 8# index))
   testBit (W8# value) (I# index) = sizedTestBit# 8# (word8ToWord# value) index
@@ -421,21 +439,21 @@ instance FiniteBits Word8 where
   countTrailingZeros (W8# value) = I# (word2Int# (ctz8# (word8ToWord# value)))
 
 instance Bits Word16 where
-  W16# left .&. W16# right = W16# (wordToWord16# (and# (word16ToWord# left) (word16ToWord# right)))
-  W16# left .|. W16# right = W16# (wordToWord16# (or# (word16ToWord# left) (word16ToWord# right)))
-  xor (W16# left) (W16# right) = W16# (wordToWord16# (xor# (word16ToWord# left) (word16ToWord# right)))
-  complement (W16# value) = W16# (wordToWord16# (not# (word16ToWord# value)))
+  W16# left .&. W16# right = W16# (andWord16# left right)
+  W16# left .|. W16# right = W16# (orWord16# left right)
+  xor (W16# left) (W16# right) = W16# (xorWord16# left right)
+  complement (W16# value) = W16# (notWord16# value)
   shiftL (W16# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W16# value) (I# count)
-      _ -> W16# (wordToWord16# (sizedShiftL# 16# (word16ToWord# value) count))
+      _ -> W16# (shiftLWord16# value count)
   unsafeShiftL (W16# value) (I# count) = W16# (uncheckedShiftLWord16# value count)
   shiftR (W16# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W16# value) (I# count)
-      _ -> W16# (wordToWord16# (sizedShiftRL# 16# (word16ToWord# value) count))
+      _ -> W16# (shiftRLWord16# value count)
   unsafeShiftR (W16# value) (I# count) = W16# (uncheckedShiftRLWord16# value count)
-  rotate (W16# value) (I# amount) = W16# (wordToWord16# (sizedRotate# 16# (word16ToWord# value) amount))
+  rotate (W16# value) (I# amount) = W16# (rotateWord16# value amount)
   zeroBits = W16# (wordToWord16# (int2Word# 0#))
   bit (I# index) = W16# (wordToWord16# (sizedBit# 16# index))
   testBit (W16# value) (I# index) = sizedTestBit# 16# (word16ToWord# value) index
@@ -456,7 +474,7 @@ instance Bits Word32 where
   W32# left .&. W32# right = W32# (andWord32# left right)
   W32# left .|. W32# right = W32# (orWord32# left right)
   xor (W32# left) (W32# right) = W32# (xorWord32# left right)
-  complement (W32# value) = W32# (xorWord32# value (wordToWord32# (not# (int2Word# 0#))))
+  complement (W32# value) = W32# (notWord32# value)
   shiftL (W32# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W32# value) (I# count)
@@ -482,21 +500,21 @@ instance FiniteBits Word32 where
   countTrailingZeros (W32# value) = I# (word2Int# (ctz32# (word32ToWord# value)))
 
 instance Bits Word64 where
-  W64# left .&. W64# right = W64# (wordToWord64# (and# (word64ToWord# left) (word64ToWord# right)))
-  W64# left .|. W64# right = W64# (wordToWord64# (or# (word64ToWord# left) (word64ToWord# right)))
-  xor (W64# left) (W64# right) = W64# (wordToWord64# (xor# (word64ToWord# left) (word64ToWord# right)))
-  complement (W64# value) = W64# (wordToWord64# (not# (word64ToWord# value)))
+  W64# left .&. W64# right = W64# (and64# left right)
+  W64# left .|. W64# right = W64# (or64# left right)
+  xor (W64# left) (W64# right) = W64# (xor64# left right)
+  complement (W64# value) = W64# (not64# value)
   shiftL (W64# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W64# value) (I# count)
-      _ -> W64# (wordToWord64# (sizedShiftL# 64# (word64ToWord# value) count))
+      _ -> W64# (shiftL64Word# value count)
   unsafeShiftL (W64# value) (I# count) = W64# (uncheckedShiftL64# value count)
   shiftR (W64# value) (I# count) =
     case (<#) count 0# of
       1# -> invalidShift (W64# value) (I# count)
-      _ -> W64# (wordToWord64# (sizedShiftRL# 64# (word64ToWord# value) count))
+      _ -> W64# (shiftRL64Word# value count)
   unsafeShiftR (W64# value) (I# count) = W64# (uncheckedShiftRL64# value count)
-  rotate (W64# value) (I# amount) = W64# (wordToWord64# (sizedRotate# 64# (word64ToWord# value) amount))
+  rotate (W64# value) (I# amount) = W64# (rotateWord64# value amount)
   zeroBits = W64# (wordToWord64# (int2Word# 0#))
   bit (I# index) = W64# (wordToWord64# (sizedBit# 64# index))
   testBit (W64# value) (I# index) = sizedTestBit# 64# (word64ToWord# value) index
@@ -719,6 +737,75 @@ rotateWord32# value amount =
   case word2Int# (and# (int2Word# amount) (int2Word# 31#)) of
     0# -> value
     normalized -> orWord32# (uncheckedShiftLWord32# value normalized) (uncheckedShiftRLWord32# value ((-#) 32# normalized))
+
+-- | Shift a 8-bit word to the left. A count of 8 or more gives zero.
+shiftLWord8# :: Word8# -> Int# -> Word8#
+shiftLWord8# value count =
+  case (<#) count 8# of
+    1# -> uncheckedShiftLWord8# value count
+    _ -> wordToWord8# (int2Word# 0#)
+
+-- | Shift a 8-bit word to the right and put zero bits in. A count of 8
+-- or more gives zero.
+shiftRLWord8# :: Word8# -> Int# -> Word8#
+shiftRLWord8# value count =
+  case (<#) count 8# of
+    1# -> uncheckedShiftRLWord8# value count
+    _ -> wordToWord8# (int2Word# 0#)
+
+-- | Rotate a 8-bit word to the left. The amount wraps at 8, so a
+-- negative amount rotates to the right.
+rotateWord8# :: Word8# -> Int# -> Word8#
+rotateWord8# value amount =
+  case word2Int# (and# (int2Word# amount) (int2Word# 7#)) of
+    0# -> value
+    normalized -> orWord8# (uncheckedShiftLWord8# value normalized) (uncheckedShiftRLWord8# value ((-#) 8# normalized))
+
+-- | Shift a 16-bit word to the left. A count of 16 or more gives zero.
+shiftLWord16# :: Word16# -> Int# -> Word16#
+shiftLWord16# value count =
+  case (<#) count 16# of
+    1# -> uncheckedShiftLWord16# value count
+    _ -> wordToWord16# (int2Word# 0#)
+
+-- | Shift a 16-bit word to the right and put zero bits in. A count of 16
+-- or more gives zero.
+shiftRLWord16# :: Word16# -> Int# -> Word16#
+shiftRLWord16# value count =
+  case (<#) count 16# of
+    1# -> uncheckedShiftRLWord16# value count
+    _ -> wordToWord16# (int2Word# 0#)
+
+-- | Rotate a 16-bit word to the left. The amount wraps at 16, so a
+-- negative amount rotates to the right.
+rotateWord16# :: Word16# -> Int# -> Word16#
+rotateWord16# value amount =
+  case word2Int# (and# (int2Word# amount) (int2Word# 15#)) of
+    0# -> value
+    normalized -> orWord16# (uncheckedShiftLWord16# value normalized) (uncheckedShiftRLWord16# value ((-#) 16# normalized))
+
+-- | Shift a 64-bit word to the left. A count of 64 or more gives zero.
+shiftL64Word# :: Word64# -> Int# -> Word64#
+shiftL64Word# value count =
+  case (<#) count 64# of
+    1# -> uncheckedShiftL64# value count
+    _ -> wordToWord64# (int2Word# 0#)
+
+-- | Shift a 64-bit word to the right and put zero bits in. A count of 64
+-- or more gives zero.
+shiftRL64Word# :: Word64# -> Int# -> Word64#
+shiftRL64Word# value count =
+  case (<#) count 64# of
+    1# -> uncheckedShiftRL64# value count
+    _ -> wordToWord64# (int2Word# 0#)
+
+-- | Rotate a 64-bit word to the left. The amount wraps at 64, so a
+-- negative amount rotates to the right.
+rotateWord64# :: Word64# -> Int# -> Word64#
+rotateWord64# value amount =
+  case word2Int# (and# (int2Word# amount) (int2Word# 63#)) of
+    0# -> value
+    normalized -> or64# (uncheckedShiftL64# value normalized) (uncheckedShiftRL64# value ((-#) 64# normalized))
 
 -- | Make a fixed-width word that has one bit set.
 sizedBit# :: Int# -> Int# -> Word#

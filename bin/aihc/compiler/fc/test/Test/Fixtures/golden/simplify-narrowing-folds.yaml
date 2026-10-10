@@ -1,0 +1,79 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim
+  import GHC.Types (Word (..))
+
+  -- The narrowing drops the bits that the mask clears, so the mask goes away.
+  narrowMasked :: Word -> Word
+  narrowMasked (W# w) = W# (word8ToWord# (wordToWord8# (and# w 255##)))
+
+  -- The value has no bit above the width, so the pair goes away.
+  widenFits :: Word -> Word
+  widenFits (W# w) = W# (word8ToWord# (wordToWord8# (and# w 127##)))
+
+  -- A shift to the right by 48 leaves 16 bits, so the pair goes away.
+  shiftFits :: Word -> Word
+  shiftFits (W# w) = W# (word16ToWord# (wordToWord16# (uncheckedShiftRL# w 48#)))
+
+  -- The mask clears every bit above the width, so the pair goes away.
+  maskedFits :: Word -> Word
+  maskedFits (W# w) = W# (word8ToWord# (wordToWord8# (and# w 15##)))
+passes:
+- simplify
+status: pass
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    and# = 2.vand# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cWordRep @cWordRep tWord# tWord#);
+    uncheckedShiftRL# = 2.vuncheckedShiftRL# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cIntRep @cWordRep tInt# tWord#);
+    word8ToWord# = 2.vword8ToWord# :: FUN @cWord8Rep @cWordRep tWord8# tWord#;
+    wordToWord8# = 2.vwordToWord8# :: FUN @cWordRep @cWord8Rep tWord# tWord8#
+
+  import headers
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [3.cW#] 3.tWord :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    2.tWord8# :: tTYPE cWord8Rep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
+    3.cWord8Rep :: tRuntimeRep;
+    3.cWordRep :: tRuntimeRep
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vnarrowMasked :: tWord 3.→ tWord
+    = λ(x : tWord).
+      let! cW# (w : tWord#) = x;
+      cW# (prim word8ToWord# (prim wordToWord8# w))
+
+  pub val 1.vwidenFits :: tWord 3.→ tWord
+    = λ(x : tWord).
+      let! cW# (w : tWord#) = x;
+      cW# (prim and# w lit (127#cWordRep) :: tWord#)
+
+  pub val 1.vshiftFits :: tWord 3.→ tWord
+    = λ(x : tWord).
+      let! cW# (w : tWord#) = x;
+      cW# (prim uncheckedShiftRL# w lit (48#cIntRep) :: tInt#)
+
+  pub val 1.vmaskedFits :: tWord 3.→ tWord
+    = λ(x : tWord).
+      let! cW# (w : tWord#) = x;
+      cW# (prim and# w lit (15#cWordRep) :: tWord#)
