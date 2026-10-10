@@ -11,7 +11,8 @@
 -- default alternative is a case on the same value, a case of a case with
 -- join points, a cast against its symmetry, a case that only evaluates a
 -- value that is already evaluated, and a lazy constructor application of
--- a primitive call that is safe to run early.
+-- a primitive call that is safe to run early or that the body evaluates
+-- first.
 --
 -- A copy of a candidate at a use site is one of its rewrites. The site
 -- is decided before the copy is made, from the body of the candidate and
@@ -463,17 +464,25 @@ simplifyExpr env expr =
             -- Normalize safe constructor fields before the body, so that
             -- cases inside local loops can use the known constructor.
             | isLiftedBinder (spEnv env') binder,
-              hasLazyPrimitive (spEnv env') rhs' = do
-                (binds, value) <- bindLazyPrimitives env' rhs'
-                let fieldsEnv = List.foldl' (\scope field -> bindingEnv scope (bindBinder field) (bindRhs field)) env' binds
-                    keepField field inner
-                      | unused (binderName (bindBinder field)) inner = inner
-                      | otherwise = ExLet field inner
-                result <- continue fieldsEnv value
-                pure (foldr keepField result binds)
+              hasLazyPrimitive (spEnv env') rhs' =
+                bindLazyPrimitives env' rhs' >>= fields env'
+            -- A body that evaluates the binder first gets its fields
+            -- first, so that the constructor has trivial fields. See
+            -- 'bindForcedFields'.
+            | isLiftedBinder (spEnv env') binder,
+              hasForcedField (spEnv env') rhs',
+              forcedFirst (spEnv env') (binderName binder) body =
+                bindForcedFields env' rhs' >>= fields env'
             | otherwise = do
                 body' <- simplifyExpr (bindingEnv env' binder rhs') body
                 mkLet env' (Bind binder rhs') body'
+          fields env' (binds, value) = do
+            let fieldsEnv = List.foldl' (\scope field -> bindingEnv scope (bindBinder field) (bindRhs field)) env' binds
+                keepField field inner
+                  | unused (binderName (bindBinder field)) inner = inner
+                  | otherwise = ExLet field inner
+            result <- continue fieldsEnv value
+            pure (foldr keepField result binds)
       -- A strict let evaluates its right-hand side before its body, so the
       -- chain of the right-hand side can move out of the let as it moves
       -- out of a scrutinee. See 'floatChain'. The body is then simplified
@@ -2832,24 +2841,141 @@ hasLazyPrimitive env expr =
           any (\value -> isJust (safePrimitiveCall env value) || hasLazyPrimitive env value) (rights args)
     _ -> False
 
+-- | Whether a constructor application has an unlifted field that is not
+-- trivial and that 'bindForcedFields' can bind.
+hasForcedField :: TypeEnv -> Expr -> Bool
+hasForcedField env expr =
+  case collectSpine expr of
+    (ExVar con, args) | isConstructorName con -> any (isJust . forcedField env) (rights args)
+    _ -> False
+
+-- | The type of a constructor field that can run where its constructor is
+-- made, when the program evaluates the constructor before any effect.
+forcedField :: TypeEnv -> Expr -> Maybe Type
+forcedField env field
+  | isTrivial field = Nothing
+  | otherwise = unliftedValue Forced env field
+
+-- | Bind the unlifted fields of a lazy constructor application that are
+-- not trivial to strict lets in front of it. Lowering makes a thunk of a
+-- constructor with such a field, and the program then evaluates the
+-- thunk and allocates the box. With the fields bound, the constructor has
+-- trivial fields, and a case on it selects its alternative.
+--
+-- A field can be a read of memory or a division, which must not run on a
+-- path that does not evaluate the constructor. The caller makes sure
+-- with 'forcedFirst' that every path evaluates it before any effect.
+bindForcedFields :: Simpl -> Expr -> SimplM ([Bind], Expr)
+bindForcedFields env expr =
+  case collectSpine expr of
+    (headExpr, args) -> do
+      bound <- mapM field args
+      pure (concatMap fst bound, rebuildSpine headExpr (map snd bound))
+  where
+    field arg =
+      case arg of
+        Right value
+          | Just ty <- forcedField (spEnv env) value -> do
+              name <- freshLocal (Name "field" SortValue (OriginLocal (Unique 0)))
+              pure ([Bind (Binder name ty) value], Right (ExVar name))
+        _ -> pure ([], arg)
+
+-- | Whether an expression evaluates a name on every path before any
+-- effect, and before anything that can fail. The path can go through
+-- lazy lets, strict lets of safe primitive calls, and cases on safe
+-- primitive calls. It ends at a case on the name.
+forcedFirst :: TypeEnv -> Name -> Expr -> Bool
+forcedFirst env name = go
+  where
+    go expr =
+      case expr of
+        ExLet (Bind binder rhs) rest ->
+          binderName binder /= name
+            && unused name rhs
+            && (isLiftedBinder env binder || isTrivial rhs || isJust (safePrimitiveCall env rhs))
+            && go rest
+        ExCase scrutinee binder alternatives
+          | (ExVar var, _) <- peelCasts scrutinee, var == name -> True
+          | otherwise ->
+              safeScrutinee scrutinee
+                && unused name scrutinee
+                && all ((/= name) . binderName) binder
+                && all (\alternative -> all ((/= name) . binderName) (altBinders alternative) && go (altRhs alternative)) alternatives
+        _ -> False
+    safeScrutinee scrutinee
+      | isTrivial scrutinee = maybe False (not . isLiftedType env) (exprType env scrutinee)
+      | otherwise = isJust (safePrimitiveCall env scrutinee)
+
 -- | The unlifted result type of a primitive call that is safe to run
 -- early: a call of an arithmetic, comparison, bit or conversion primitive
 -- on trivial arguments or on such calls. It has no effect, it reads no
 -- memory, and it cannot fail. A division can fail, so it is not safe.
+--
+-- A case whose scrutinee is such a call or an unlifted trivial value, and
+-- whose alternatives are literals or the default with such calls or
+-- trivial values on the right, is safe too. It only selects one of its
+-- alternatives, as @x < 0@ does in an arithmetic shift of @snappy-hs@.
 safePrimitiveCall :: TypeEnv -> Expr -> Maybe Type
-safePrimitiveCall env expr =
+safePrimitiveCall = unliftedValue Speculative
+
+-- | Where an unlifted value runs, as 'unliftedValue' examines it.
+data Evaluation
+  = -- | Before the point where the program evaluates it, or at a point
+    -- where the program does not evaluate it at all.
+    Speculative
+  | -- | Before the point where the program evaluates it, with no effect
+    -- between the two points. A read of memory or a division can run
+    -- there, because the program runs it after that point on every path.
+    Forced
+  deriving (Eq)
+
+-- | The unlifted result type of a primitive call, or of a case that
+-- selects such a call, that can run at an earlier point as the
+-- 'Evaluation' says. A call that uses a state token is never such a call.
+unliftedValue :: Evaluation -> TypeEnv -> Expr -> Maybe Type
+unliftedValue evaluation env expr =
   case expr of
     ExForeignCall call [] arguments
       | foreignCallConvention call == Prim,
-        isSafePrimitive (nameText (foreignCallName call)),
-        all (\argument -> isTrivial argument || isJust (safePrimitiveCall env argument)) arguments,
+        evaluation == Forced || isSafePrimitive (nameText (foreignCallName call)),
+        all operand arguments,
         Just (argumentTypes, resultType) <- foreignSignature env (foreignCallType call),
-        not (any (mentionsState env) (resultType : argumentTypes)),
-        -- One primitive value: not a tuple, and not a heap object.
-        Just (TyCon _) <- reduceType env <$> repOf env resultType,
-        not (isLiftedType env resultType) ->
-          Just resultType
+        not (any mentionsEffect (resultType : argumentTypes)) ->
+          primitiveResult resultType
+    ExCase scrutinee binder alternatives
+      | unliftedOperand scrutinee,
+        not (any (isLiftedBinder env) binder),
+        all selection alternatives,
+        Just resultType <- caseResultType env binder alternatives ->
+          primitiveResult resultType
     _ -> Nothing
+  where
+    operand argument = isTrivial argument || isJust (unliftedValue evaluation env argument)
+    unliftedOperand argument
+      | isTrivial argument = maybe False (not . isLiftedType env) (exprType env argument)
+      | otherwise = isJust (unliftedValue evaluation env argument)
+    selection alternative =
+      case alternative of
+        Alt (AltData _) _ _ _ -> False
+        Alt _ [] [] rhs -> operand rhs
+        _ -> False
+    mentionsEffect ty =
+      case evaluation of
+        Speculative -> mentionsState env ty
+        Forced -> mentionsStateToken env ty
+    -- One primitive value: not a tuple, and not a heap object.
+    primitiveResult resultType
+      | Just (TyCon _) <- reduceType env <$> repOf env resultType,
+        not (isLiftedType env resultType) =
+          Just resultType
+      | otherwise = Nothing
+
+-- | Whether a type mentions a state token.
+mentionsStateToken :: TypeEnv -> Type -> Bool
+mentionsStateToken env ty =
+  case typeSpine (reduceType env ty) of
+    (TyCon name, args) -> nameText name == "State#" || any (mentionsStateToken env) args
+    (_, args) -> any (mentionsStateToken env) args
 
 -- | The primitives that cannot fail and read no memory.
 isSafePrimitive :: Text -> Bool

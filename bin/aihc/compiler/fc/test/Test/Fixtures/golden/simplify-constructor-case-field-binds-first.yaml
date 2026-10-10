@@ -1,0 +1,71 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (step) where
+
+  import GHC.Prim ((*#), (+#), (<#))
+  import GHC.Types (Int (..))
+
+  step :: Int -> Int -> Int
+  step (I# a) (I# b) =
+    let box = I# (a +# (case b <# 0# of { 1# -> 1#; _ -> 2# }))
+     in case a <# b of
+          1# -> case box of I# x -> I# (x *# 2#)
+          _ -> case b <# 5# of
+            1# -> case box of I# x -> I# (x *# 3#)
+            _ -> I# b
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vstep :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      let argument : tInt# =
+        prim +# a (case prim <# b lit (0#cIntRep) :: tInt# of {
+          1#cIntRep →
+            lit (1#cIntRep) :: tInt#;
+          _ →
+            lit (2#cIntRep) :: tInt#
+        });
+      case prim <# a b of {
+        1#cIntRep →
+          cI# (prim *# argument lit (2#cIntRep) :: tInt#);
+        _ →
+          case prim <# b lit (5#cIntRep) :: tInt# of {
+            1#cIntRep →
+              cI# (prim *# argument lit (3#cIntRep) :: tInt#);
+            _ →
+              cI# b
+          }
+      }
+status: pass
+reason: The field of the box is an addition whose operand is a case on a comparison. The case only selects a literal, so it is safe to run early. A strict let binds the field first. The box then has a trivial field, and each case on it selects its alternative, so no path allocates the box.
