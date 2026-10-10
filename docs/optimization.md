@@ -149,6 +149,30 @@ case, because a copy in each alternative would only add code. A worker
 builds its unboxed parameters again with such lets, and often only one
 branch needs the box.
 
+A constructor with a field of an unlifted type that is not trivial is a
+thunk in a lazy let. The simplifier binds such a field with a strict let
+in front of the constructor, so that the constructor has trivial fields
+and the rule above applies. A case on the binder then selects its
+alternative, and no path allocates the box. The field must be safe to run
+at that point:
+
+- A safe primitive call can always run early. A safe primitive call is an
+  arithmetic, comparison, bit, or conversion primitive on trivial values
+  or on safe primitive calls. A case on such a call or on an unlifted
+  trivial value is safe too, when its alternatives are literals or the
+  default and their right-hand sides are safe.
+- Any other primitive call without a state token, such as a read of
+  memory or a division, can run early only when every path evaluates the
+  binder before any effect. Such a path goes through lazy lets, strict
+  lets of safe primitive calls, and cases on safe primitive calls, and it
+  ends at a case on the binder. Thus a read never moves to a path that
+  does not read, and never moves before a write.
+
+On `snappy-roundtrip` at `-O2`, the probe loop of the compressor and the
+copy loop of the decompressor allocated a 16-byte `I#` and took it apart
+again in each iteration. The rule took the allocation from 281.0 MB to
+254.6 MB.
+
 A function or a partial application is a value, so it moves to its one use
 under a lambda when that use is a call: the move repeats no work. A call
 with fewer arguments than the arity is a partial application at the use.

@@ -317,6 +317,10 @@ struct AihcMachine {
   AihcGeneration generations[2];
   uint64_t remembered_count;
   uint64_t remembered_capacity;
+  /* The entries that aihc_remember added since the last compaction. Only
+     those can repeat an object: an update and the collector each add an
+     object once. */
+  uint64_t remembered_repeatable;
   uint64_t gen1_max_bytes;
   uint64_t gen2_limit_bytes;
   uint64_t gen2_factor;
