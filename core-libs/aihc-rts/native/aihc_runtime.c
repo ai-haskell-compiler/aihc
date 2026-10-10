@@ -1954,7 +1954,7 @@ void aihc_update(AihcValue *object, AihcValue *value) {
   if (object == NULL || value == NULL) {
     aihc_fail("attempted to update with null");
   }
-  aihc_write_barrier(aihc_process_machine, object);
+  aihc_write_barrier_update(aihc_process_machine, object);
   /* An indirection has two words, and the rest of the thunk is slop. The
      collector never walks it: it follows an indirection of a generation it
      copies and leaves an older one in place. A heap walker, such as the
