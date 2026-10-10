@@ -1,0 +1,103 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test (sumTo, offset, total) where
+
+  import GHC.Prim (Int#, State#, RealWorld, (+#), (-#))
+  import GHC.Types (Int (..))
+
+  sumTo :: Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int #)
+  sumTo n acc s = case n of
+    0# -> (# s, I# acc #)
+    _ -> sumTo (n -# 1#) (acc +# n) s
+
+  offset :: Int -> Int# -> State# RealWorld -> (# State# RealWorld, Int #)
+  offset x n s = case x of
+    I# i -> case n of
+      0# -> (# s, x #)
+      _ -> (# s, I# (i +# n) #)
+
+  total :: Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  total n s = case sumTo n 0# s of
+    (# s', I# r #) -> case offset (I# r) n s' of
+      (# s'', I# t #) -> (# s'', t #)
+passes:
+- worker-wrapper
+- simplify: 1
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vsumTo inline :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt)))
+    = λ(x : tInt#) (y : tInt#) (z : tState# tRealWorld).
+      let! cTuple2# (component : tState# tRealWorld) (field : tInt#) = v$wsumTo x y z;
+      cTuple2# @(cTupleRep (c[] tRuntimeRep)) @(cBoxedRep cLifted) @(tState# tRealWorld) @tInt component (cI# field)
+
+  val 1.v$wsumTo :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#)))
+    = λ(x : tInt#) (y : tInt#) (z : tState# tRealWorld).
+      case x of {
+        0#cIntRep →
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# z y;
+        _ →
+          v$wsumTo (prim -# x lit (1#cIntRep) :: tInt#) (prim +# y x) z
+      }
+
+  pub val 1.voffset inline :: tInt 3.→ FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt))
+    = λ(x : tInt) (y : tInt#) (z : tState# tRealWorld).
+      let! cI# (x{1} : tInt#) = x;
+      case y of {
+        0#cIntRep →
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @(cBoxedRep cLifted) @(tState# tRealWorld) @tInt z (cI# x{1});
+        _ →
+          let field : tInt# =
+            prim +# x{1} y;
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @(cBoxedRep cLifted) @(tState# tRealWorld) @tInt z (cI# field)
+      }
+
+  pub val 1.vtotal :: FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#))
+    = λ(x : tInt#) (y : tState# tRealWorld).
+      let! cTuple2# (component : tState# tRealWorld) (field : tInt#) = v$wsumTo x lit (0#cIntRep) :: tInt# y;
+      let _pat : tInt =
+        cI# field;
+      case x of {
+        0#cIntRep →
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# component field;
+        _ →
+          cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# component (prim +# field x)
+      }
+status: pass
+reason: The result of sumTo is an unboxed pair with a boxed Int in its second component. Every tail gives that component as the constructor or as a recursive call, so the worker returns the field in a pair of State# and Int#. The recursive call in the worker stays a tail call. offset returns its unboxed parameter in one tail, which the worker builds from its field. At the calls in total, the wrapper meets the match on I# and no box is left.
