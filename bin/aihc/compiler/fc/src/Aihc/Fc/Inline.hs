@@ -442,11 +442,13 @@ simplifyValue config known recursive inTemplates st name
                     -- copy together replaces it or its pragma asks for it.
                     every || requested || withinLimit
                   ]
-              -- A body that references no candidate and scrutinises nothing
-              -- known is left alone.
+              -- A body that references no candidate, scrutinises nothing
+              -- known, and binds no local function that a call can reduce
+              -- is left alone.
               skip =
                 Map.null candidates
                   && Map.null known
+                  && not (hasLocalCandidate body)
                   && not (hasLiteralPrimitiveCall body)
                   && not (any (`Map.member` inRules st) (Set.toList (exprValueNames body)))
            in if skip
@@ -474,7 +476,8 @@ simplifyValue config known recursive inTemplates st name
                             spInside = False,
                             spCredits = snd (callArityAnalysis credit False body),
                             spSpeculative = False,
-                            spCaseContext = Nothing
+                            spCaseContext = Nothing,
+                            spLocalCandidates = Map.empty
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less

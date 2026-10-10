@@ -341,10 +341,28 @@ are evaluated before their call. The fixtures are the
 `demand` entry in `passes:` runs both rewrites and `demand: lets` the
 strict lets alone.
 
-A strict parameter gets the `StrictProduct` demand when a case in the
-body takes it apart with an alternative for its constructor, and its type
-has one constructor that a worker can take apart and build again (see
-`productConstructor`). The worker/wrapper pass reads that demand.
+A strict parameter gets the `StrictProduct` demand when the body takes
+it apart, and its type has one constructor that a worker can take apart
+and build again (see `productConstructor`). The body takes the parameter
+apart when a case on it has an alternative for its constructor, or when a
+saturated call gives it to a parameter that has the `StrictProduct`
+demand. The second rule is necessary before the inliner runs: then a
+function on `Int` often only gives its parameter to calls such as `+` of
+the `Num Int` instance, and the callee gets a worker of its own. The
+worker/wrapper pass reads that demand.
+
+The binder of a case on a parameter is an alias of the parameter, because
+it is the same value. A case on the alias, or a call with the alias, takes
+the parameter apart. A bang pattern and the `Strict` extension give this
+shape: `let! _ as (s : tInt) = x` evaluates the parameter `x`, and the
+body uses only `s`.
+
+In a recursive group, the fixpoint compares the strictness of the
+members, not their `StrictProduct` demands. The members see each other as
+`Strict` in each guess, so a call of a member does not make a
+`StrictProduct` demand. The result keeps the `StrictProduct` demands of
+the last step. Thus the iteration stops after the same number of steps
+as before.
 
 Not done: divergence, so a branch that calls `error` evaluates nothing
 and makes its function lazy in what the other branches evaluate; and
@@ -380,7 +398,9 @@ never copies.
 A function has a constructed product result when its result type has one
 constructor that a worker can take apart and build again, and every tail
 of its body is that constructor, a recursive call, or an unboxed
-parameter, which the worker builds from its fields. The worker then
+parameter, which the worker builds from its fields. The binder of a case
+on an unboxed parameter is an alias of the parameter, and a tail that is
+that binder counts as the parameter. The worker then
 returns the fields: the field itself when there is one and its type is
 unlifted, and an unboxed tuple of the fields when there are more. A
 single lifted field is not returned as it is: the wrapper evaluates what
@@ -603,6 +623,11 @@ $sgo s0 64#
   inner loop, after the simplifier reduces the cases on the parameter that
   the copy builds again. So the pass runs in at most `callPatternRounds`
   rounds, with a simplifying walk after each round that changes the program.
+- The copy can give a constructor to a local function that the loop calls,
+  where the original gave it an unknown parameter. The simplifying walk of
+  the pass copies a local function at such a reducing site within the site
+  limit of `growPolicy` (see "Local functions" below). No inliner walk
+  follows the pass, so without this the call stays.
 
 The `-O1` and `-O2` plans run it at the end of the growing phase. In
 `snappy-roundtrip` it copies the fused loop over the block index and then the
@@ -788,6 +813,34 @@ that was free whatever its growth had no bound: the `text` package marks
 and each copy of `==` inside a copy of another `INLINE` value went free as
 well. The growing inliner made that program six times larger, and the
 compile ran out of memory at two gigabytes.
+
+### Local functions
+
+A lifted, non-recursive local lambda that scrutinises a parameter is a
+candidate in the body of its let (`Aihc.Fc.Simplify.localCandidateEnv`).
+Only a reducing site takes a copy, within the site limit and free of the
+allowance. Any other call stays a call. The copy of a lambda at a saturated
+call does no work twice. When a copy is at each use, the let has no use and
+goes.
+
+A binder between the let and a call can bind again a name that the body of
+the function uses. A copy under that binder would capture the name, so the
+binder removes the candidate (`shadowNames`).
+
+The inliner walks a body that binds such a function, also when the body
+references no top-level candidate. The standalone simplifying walk takes
+the site limit as an argument. `PassSimplify` gives it zero. The walk in
+call-pattern specialisation gives it the site limit of `growPolicy`.
+
+In `snappy-roundtrip`, `toByte` is a local function of the block. After
+call-pattern specialisation, the fused loop gives it the box `W64# s` at two
+calls, and the function takes the box apart in the lazy field of `W8#`.
+Before, the field held a case on the box and the call allocated the box. At
+`-O2` the copies took the allocation from 281 MB to 269 MB, the GC time from
+206 ms to 182 ms, and the instructions from 6.12 G to 5.65 G. The head of
+each cell is still a thunk: the field is the `Integer` path of
+`fromIntegral :: Word64 -> Word8`, a case that the simplifier cannot run
+early.
 
 ### What is deliberately not a rule
 

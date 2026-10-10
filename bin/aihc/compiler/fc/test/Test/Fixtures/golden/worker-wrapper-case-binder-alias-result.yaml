@@ -1,0 +1,63 @@
+---
+extensions:
+- Strict
+- MagicHash
+modules:
+- |
+  module Test (step) where
+
+  import GHC.Prim ((+#), (-#))
+  import GHC.Types (Int (..))
+
+  step :: Int -> Int -> Int
+  step n acc = case n of
+    I# 0# -> acc
+    I# i -> case acc of
+      I# a -> step (I# (i -# 1#)) (I# (a +# i))
+passes:
+- worker-wrapper
+- simplify: 1
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vstep inline :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
+      let field : tInt# =
+        v$wstep x{1} y{1};
+      cI# field
+
+  val 1.v$wstep :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    = λ(x : tInt#) (y : tInt#).
+      case x of {
+        0#cIntRep →
+          y;
+        _ →
+          v$wstep (prim -# x lit (1#cIntRep) :: tInt#) (prim +# y x)
+      }
+status: pass
+reason: The Strict extension evaluates 'acc' with a case, and the base case returns the binder of that case. The binder is the same value as the unboxed parameter 'acc', so the tail counts as a constructed product. The worker returns an Int# and calls itself with fields only.

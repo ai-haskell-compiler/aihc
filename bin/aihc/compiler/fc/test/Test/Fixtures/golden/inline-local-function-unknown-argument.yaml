@@ -1,0 +1,62 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  data Box = Box Bool
+
+  data Pair = Pair Bool Bool
+
+  run :: Box -> Box -> Pair
+  run a b =
+    let invert x = case x of
+          Box v -> case v of
+            True -> False
+            False -> True
+     in Pair (invert a) (invert b)
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tBox :: sType {
+    pub 1.cBox :: tBool 2.→ tBox
+  }
+
+  type 1.tPair :: sType {
+    pub 1.cPair :: tBool 2.→ tBool 2.→ tPair
+  }
+
+  pub val 1.vrun :: tBox 2.→ tBox 2.→ tPair
+    = λ(x : tBox) (y : tBox).
+      let invert : tBox 2.→ tBool =
+        λ(x{1} : tBox).
+          let! cBox (v : tBool) = x{1};
+          case v of {
+            cTrue →
+              cFalse;
+            cFalse →
+              cTrue
+          };
+      cPair (invert x) (invert y)
+status: pass
+reason: A local function is copied only at a reducing site. The calls give unknown values, so the let and the calls stay.
