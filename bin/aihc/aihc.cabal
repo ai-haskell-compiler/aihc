@@ -506,6 +506,7 @@ test-suite dev-spec
 
   main-is: Spec.hs
   other-modules:
+    Aihc.Dev.Explore.Document
     Aihc.Dev.ExtractHi
     Aihc.Dev.ExtractHi.Compare
     Aihc.Dev.ExtractHi.GhcSession
@@ -517,6 +518,7 @@ test-suite dev-spec
     Aihc.Dev.Fuzz.Registry
     Aihc.Dev.Fuzz.TUI
     Aihc.Grin.Fuzz
+    Test.ExploreDocument
     Test.ExtractHiCompare
     Test.Fuzz
     Test.Grin.Arbitrary
@@ -554,4 +556,5 @@ test-suite dev-spec
     text >=1.2.3 && <2.2,
     time,
     unix >=2.7 && <2.9,
+    vector,
     yaml >=0.11 && <0.12,
