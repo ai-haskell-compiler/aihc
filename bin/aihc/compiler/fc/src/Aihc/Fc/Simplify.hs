@@ -1855,7 +1855,7 @@ mkLet env bind body
       | ExCase scrutinee _ (NE.toList -> alternatives) <- expr =
           unused name scrutinee && all (separateUses . altRhs) alternatives
       | otherwise = False
-    uses = occurrencesUnder (spCredit env) (spInside env) name body
+    uses = occurrencesUnder True (spCredit env) (spInside env) name body
 
 -- | A saturated constructor application whose arguments are trivial.
 isConstructorOfTrivials :: Expr -> Bool
@@ -2847,7 +2847,7 @@ instance Monoid Occurrences where
   mempty = Occurrences 0 False
 
 occurrences :: Name -> Expr -> Occurrences
-occurrences = occurrencesUnder 0 False
+occurrences = occurrencesUnder False 0 False
 
 -- | The occurrences of a name in an expression whose result receives the
 -- given number of arguments from every use, where the first lambda of
@@ -2856,31 +2856,31 @@ occurrences = occurrencesUnder 0 False
 -- per call, so a use under it is not repeated. The leading lambdas are
 -- the ones on the path through type lambdas, casts, the body of a let or
 -- a recursive group, and the alternatives of a case.
-occurrencesUnder :: Int -> Bool -> Name -> Expr -> Occurrences
-occurrencesUnder credit0 inside0 name = go credit0 inside0
+-- Stop at two uses when only zero and one can change the decision.
+occurrencesUnder :: Bool -> Int -> Bool -> Name -> Expr -> Occurrences
+occurrencesUnder bounded credit0 inside0 name expr0 = go credit0 inside0 False expr0 mempty
   where
-    go credit inside expr =
-      case expr of
-        ExVar var
-          | var == name -> Occurrences 1 False
-          | otherwise -> mempty
-        ExLit {} -> mempty
-        ExApp function argument -> go 0 False function <> go 0 False argument
-        ExTyApp function _ -> go 0 False function
-        ExLam _ body
-          | inside && credit > 0 -> go (credit - 1) True body
-          | otherwise -> repeated (go (max 0 (credit - 1)) True body)
-        ExTyLam _ body -> go credit inside body
-        ExLet bind body -> go 0 False (bindRhs bind) <> go credit inside body
-        ExRec binds body -> repeated (foldMap (go 0 False . bindRhs) binds) <> go credit inside body
-        ExCase scrutinee _ (NE.toList -> alternatives) -> go 0 False scrutinee <> foldMap (go credit inside . altRhs) alternatives
-        ExAbsurd scrutinee _ -> go 0 False scrutinee
-        ExCast body coercion -> go credit inside body <> coercionUses coercion
-        ExCoercion coercion -> coercionUses coercion
-        ExForeignCall _ _ arguments -> foldMap (go 0 False) arguments
-    coercionUses coercion =
-      Occurrences (length (filter (== name) (coercionVariables coercion))) False
-    repeated (Occurrences count _) = Occurrences count (count > 0)
+    go credit inside repeated expr seen@(Occurrences count _)
+      | bounded && count >= 2 = seen
+      | otherwise = case expr of
+          ExVar var -> if var == name then seen <> Occurrences 1 repeated else seen
+          ExLit {} -> seen
+          ExApp function argument -> go 0 False repeated argument (go 0 False repeated function seen)
+          ExTyApp function _ -> go 0 False repeated function seen
+          ExLam _ body -> go (max 0 (credit - 1)) True (repeated || not (inside && credit > 0)) body seen
+          ExTyLam _ body -> go credit inside repeated body seen
+          ExLet bind body -> go credit inside repeated body (go 0 False repeated (bindRhs bind) seen)
+          ExRec binds body -> go credit inside repeated body (walk (go 0 False True . bindRhs) binds seen)
+          ExCase scrutinee _ (NE.toList -> alternatives) -> walk (go credit inside repeated . altRhs) alternatives (go 0 False repeated scrutinee seen)
+          ExAbsurd scrutinee _ -> go 0 False repeated scrutinee seen
+          ExCast body coercion -> coercionUses repeated coercion (go credit inside repeated body seen)
+          ExCoercion coercion -> coercionUses repeated coercion seen
+          ExForeignCall _ _ arguments -> walk (go 0 False repeated) arguments seen
+    coercionUses repeated coercion = walk (\var seen -> if var == name then seen <> Occurrences 1 repeated else seen) (coercionVariables coercion)
+    walk step values seen@(Occurrences count _)
+      | bounded && count >= 2 = seen
+      | value : rest <- values = walk step rest (step value seen)
+      | otherwise = seen
 
 -- * Call arity
 
