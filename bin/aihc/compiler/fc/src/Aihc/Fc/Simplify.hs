@@ -3087,24 +3087,26 @@ bindForcedFields env expr =
 -- lazy lets, strict lets of safe primitive calls, and cases on safe
 -- primitive calls. It ends at a case on the name.
 forcedFirst :: TypeEnv -> Name -> Expr -> Bool
-forcedFirst env name = go
+forcedFirst env0 name = go env0
   where
-    go expr =
+    go env expr =
       case expr of
         ExLet (Bind binder rhs) rest ->
           binderName binder /= name
             && unused name rhs
             && (isLiftedBinder env binder || isTrivial rhs || isJust (safePrimitiveCall env rhs))
-            && go rest
+            && go (extendBinder env binder) rest
         ExCase scrutinee binder alternatives
           | (ExVar var, _) <- peelCasts scrutinee, var == name -> True
           | otherwise ->
-              safeScrutinee scrutinee
+              safeScrutinee env scrutinee
                 && unused name scrutinee
                 && all ((/= name) . binderName) binder
-                && all (\alternative -> all ((/= name) . binderName) (altBinders alternative) && go (altRhs alternative)) alternatives
+                && all (\alternative -> all ((/= name) . binderName) (altBinders alternative) && go env (altRhs alternative)) alternatives
         _ -> False
-    safeScrutinee scrutinee
+    -- A let binder in front of the scrutinee is in the type environment
+    -- of the walk, so a scrutinee that names it has a known type.
+    safeScrutinee env scrutinee
       | isTrivial scrutinee = maybe False (not . isLiftedType env) (exprType env scrutinee)
       | otherwise = isJust (safePrimitiveCall env scrutinee)
 
