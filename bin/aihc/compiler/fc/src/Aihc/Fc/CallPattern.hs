@@ -84,9 +84,12 @@ callPatternRounds = 3
 
 -- | Specialise the local loops of a program on the constructors that their
 -- calls give, in rounds, with a simplifying walk in the given phase after
--- each round that changes the program.
-callPatternProgram :: Int -> Program -> (Program, CallPatternReport)
-callPatternProgram phase = go 0 (CallPatternReport 0 0 0)
+-- each round that changes the program. The walk copies a local function
+-- at a reducing site within the given site limit: a copy of a loop can
+-- give a constructor to a local function that the loop calls, where the
+-- original gave it an unknown parameter.
+callPatternProgram :: Int -> Int -> Program -> (Program, CallPatternReport)
+callPatternProgram phase siteLimit = go 0 (CallPatternReport 0 0 0)
   where
     go rounds report program
       | rounds >= callPatternRounds = (program, report)
@@ -95,7 +98,7 @@ callPatternProgram phase = go 0 (CallPatternReport 0 0 0)
            in if loops == 0
                 then (program, report)
                 else
-                  let (simplified, _) = simplifyProgram phase specialised
+                  let (simplified, _) = simplifyProgram phase siteLimit specialised
                    in go
                         (rounds + 1)
                         report
