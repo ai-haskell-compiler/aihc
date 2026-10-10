@@ -130,7 +130,7 @@ import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..),
 import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, collectTcDiagnostics, internalAbortDiagnostic)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), applySubstRep, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvSince, instanceInfoKey, patSynKey, repHasUnpack, repLeaves, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc, withModuleIdentity)
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -160,14 +160,11 @@ tcModuleSuccess =
 -- | Type-check dependency-ordered modules with an imported semantic interface.
 -- Return only facts that the specified modules define.
 typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
-typecheckModulesWithInterface config imported resolved
-  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
-  | otherwise =
-      let initialState = initialTcState imported
-          (finalState, checkedModules) = List.mapAccumL check initialState resolved
-       in (checkedModules, tcInterfaceDifference initialState finalState)
+typecheckModulesWithInterface config = typecheckWithInterface checkModules
   where
-    units = map resolvedModuleUnit resolved
+    checkModules initialState resolved =
+      let (finalState, checkedModules) = List.mapAccumL check initialState resolved
+       in (checkedModules, finalState)
     check st m =
       let (result, st') = typecheckModuleWithState config st m
        in (st', result)
@@ -175,16 +172,21 @@ typecheckModulesWithInterface config imported resolved
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
 typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
-typecheckModuleSccWithInterface config imported resolved
+typecheckModuleSccWithInterface config = typecheckWithInterface (typecheckModuleSccWithState config)
+
+-- | Use the same module identity and interface rules for both check orders.
+typecheckWithInterface :: (TcState -> [ResolvedModule] -> ([Module], TcState)) -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckWithInterface check imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
-  -- the component adds no types, evidence, or diagnostics.
-  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
+  -- the modules add no types, evidence, or diagnostics.
+  | all (null . moduleDecls . moduleUnitAst) units = (map annotateIdentity units, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
-          (checkedModules, finalState) = typecheckModuleSccWithState config initialState resolved
+          (checkedModules, finalState) = check initialState resolved
        in (checkedModules, tcInterfaceDifference initialState finalState)
   where
     units = map resolvedModuleUnit resolved
+    annotateIdentity unit = withModuleIdentity unit (moduleUnitAst unit)
 
 initialTcState :: TcInterface -> TcState
 initialTcState imported =

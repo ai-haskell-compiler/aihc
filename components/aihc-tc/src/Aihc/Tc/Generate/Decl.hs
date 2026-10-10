@@ -10,6 +10,7 @@ module Aihc.Tc.Generate.Decl
   ( tcModule,
     tcModuleScc,
     moduleBindings,
+    withModuleIdentity,
     defaultMethodName,
     TcBindingResult (..),
     tbName,
