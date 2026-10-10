@@ -417,41 +417,6 @@ static int aihc_outside_is_pinned(const AihcValue *object) {
          ((const AihcByteArray *)object)->pinned != 0;
 }
 
-/* The number of the generation that holds an object after this collection.
-   The nursery and the from-spaces do not qualify: the caller forwards first.
-   A frame, a static object, and a null pointer are older than every
-   generation. */
-static unsigned aihc_generation_of(const AihcMachine *machine,
-                                   const AihcValue *value) {
-  if (value == NULL) {
-    return AIHC_GENERATION_STATIC;
-  }
-  switch (aihc_region_kind(value)) {
-  case AIHC_REGION_GEN1:
-    return 1;
-  case AIHC_REGION_GEN2:
-    return 2;
-  case AIHC_REGION_LARGE:
-  case AIHC_REGION_PINNED:
-    return aihc_pinned_generation(aihc_pinned_block_of(value));
-  case AIHC_REGION_OUTSIDE:
-    if (aihc_outside_is_pinned(value)) {
-      return aihc_pinned_generation(aihc_pinned_block_of(value));
-    }
-    return AIHC_GENERATION_STATIC;
-  case AIHC_REGION_STACK:
-    return AIHC_GENERATION_STATIC;
-  case AIHC_REGION_NURSERY:
-  case AIHC_REGION_FROM1:
-    if (aihc_in_nursery(machine, value)) {
-      return 0;
-    }
-    aihc_fail("collector asked the generation of an object that moves");
-  default:
-    aihc_fail("collector asked the generation of an invalid address");
-  }
-}
-
 /* The blocks of gen1. */
 
 static AihcGeneration *aihc_generation(AihcMachine *machine,
@@ -1063,10 +1028,28 @@ static int aihc_compare_addresses(const void *left, const void *right) {
   return first < second ? -1 : first > second;
 }
 
+static void aihc_remembered_grow(AihcMachine *machine) {
+  uint64_t capacity = machine->remembered_capacity == 0
+                          ? 256
+                          : machine->remembered_capacity * 2;
+  AihcValue **grown =
+      realloc(machine->remembered, capacity * sizeof(*machine->remembered));
+  if (grown == NULL) {
+    aihc_fail("out of memory");
+  }
+  machine->remembered = grown;
+  machine->remembered_capacity = capacity;
+}
+
 /* Keep one entry for each object. A hot mutable object enters the set at
-   every store, so the list is compacted when it is full, and it grows only
-   when distinct objects fill it. */
+   every store, so the list is compacted when it is full of such entries.
+   Without a repeatable entry since the last compaction, the list has no
+   duplicate and the sort is skipped. */
 static void aihc_remembered_compact(AihcMachine *machine) {
+  if (machine->remembered_repeatable == 0) {
+    return;
+  }
+  machine->remembered_repeatable = 0;
   if (machine->remembered_count == 0) {
     /* qsort takes no null list, and an empty list has nothing to sort. */
     return;
@@ -1089,8 +1072,12 @@ void aihc_remember(AihcMachine *machine, AihcValue *object) {
     /* A loop that stores into one object enters it once. */
     return;
   }
+  ++machine->remembered_repeatable;
   if (machine->remembered_count == machine->remembered_capacity) {
-    if (machine->remembered_capacity != 0) {
+    /* Compact only when repeatable entries are half the list or more.
+       Otherwise the sort would mostly reorder unique entries. */
+    if (machine->remembered_capacity != 0 &&
+        machine->remembered_repeatable * 2 >= machine->remembered_count) {
       aihc_remembered_compact(machine);
     }
     if (machine->remembered_count * 2 >= machine->remembered_capacity) {
@@ -1110,6 +1097,28 @@ void aihc_remember(AihcMachine *machine, AihcValue *object) {
     }
   }
   machine->remembered[machine->remembered_count++] = object;
+}
+
+/* Add an object that the set cannot hold since the last collection: no
+   compaction is necessary. */
+static void aihc_remember_unique(AihcMachine *machine, AihcValue *object) {
+  if (machine->remembered_count == machine->remembered_capacity) {
+    aihc_remembered_grow(machine);
+  }
+  machine->remembered[machine->remembered_count++] = object;
+}
+
+/* The barrier of a blackhole update. The update writes the result over the
+   payload, so the old referents are shaded as aihc_write_barrier does. A
+   blackhole is updated once, so its entry is unique. */
+void aihc_write_barrier_update(AihcMachine *machine, AihcValue *object) {
+  if (object == NULL || aihc_in_nursery(machine, object)) {
+    return;
+  }
+  if (machine->gen2_cycle_active) {
+    aihc_shade_fields(machine, object);
+  }
+  aihc_remember_unique(machine, object);
 }
 
 void aihc_write_barrier(AihcMachine *machine, AihcValue *object) {
@@ -1182,14 +1191,46 @@ static AihcValue *aihc_header_forward(AihcSlot header) {
   return (AihcValue *)(uintptr_t)(header & ~(AihcSlot)AIHC_HEADER_TAG_MASK);
 }
 
+/* The words of an object. The kinds that compiled code allocates are read
+   from the info table here, and the runtime records go to
+   aihc_value_words. The collector asks once for each copy and once for
+   each scanned gen1 object. */
+static inline uint64_t aihc_gc_words(const AihcValue *value) {
+  AihcObjectKind kind = aihc_value_kind(value);
+  if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+      kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_INDIRECTION ||
+      kind == AIHC_OBJECT_BLACKHOLE) {
+    uint64_t fields = aihc_value_info_table(value)->field_count;
+    if (fields == 0 && kind != AIHC_OBJECT_NODE &&
+        kind != AIHC_OBJECT_CLOSURE) {
+      fields = 1;
+    }
+    return 1 + fields;
+  }
+  return aihc_value_words(value);
+}
+
 static AihcValue *aihc_copy(AihcGcContext *context, AihcValue *value,
                             unsigned generation) {
-  uint64_t words = aihc_value_words(value);
+  uint64_t words = aihc_gc_words(value);
   size_t bytes = sizeof(AihcSlot) * words;
-  AihcValue *copy = (AihcValue *)aihc_generation_allocate(context->machine,
-                                                          generation, bytes);
+  AihcValue *copy =
+      (AihcValue *)(generation == 1
+                        ? aihc_gen1_allocate(context->machine, bytes)
+                        : aihc_generation_allocate(context->machine, generation,
+                                                   bytes));
   context->copied_bytes += bytes;
-  memcpy(copy, value, bytes);
+  /* Most objects have a few words, and a call of memcpy costs more than
+     the copy. */
+  if (words <= 8) {
+    AihcSlot *to = (AihcSlot *)copy;
+    const AihcSlot *from = (const AihcSlot *)value;
+    for (uint64_t index = 0; index < words; ++index) {
+      to[index] = from[index];
+    }
+  } else {
+    memcpy(copy, value, bytes);
+  }
   value->header = (AihcSlot)(uintptr_t)copy | AIHC_HEADER_WAITERS;
   if (generation == 2) {
     aihc_value_worklist_push(&aihc_gen2_worklist, copy);
@@ -1201,7 +1242,10 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
                              unsigned target) {
   AihcPinnedBlock *block = aihc_pinned_block_of(object);
   unsigned generation = aihc_pinned_generation(block);
-  if (generation > context->collected ||
+  /* A collection collects gen2 at most, so the first test also keeps the
+     generation an index of the three fixed charges. It is explicit for the
+     static analyzer, which does not know the bound of collected. */
+  if (generation > 2 || generation > context->collected ||
       (block->bytes & AIHC_PINNED_MARK) != 0) {
     return;
   }
@@ -1225,15 +1269,25 @@ static void aihc_mark_pinned(AihcGcContext *context, AihcValue *object,
   aihc_value_worklist_push(&aihc_pinned_worklist, object);
 }
 
+/* The where of an evacuated frame. A frame counts as static for its
+   referrer, unless the referrer is a thread record or a waiter, which reads
+   the age of the chunk. */
+#define AIHC_EVACUATED_FRAME (AIHC_GENERATION_STATIC + 1)
+
 /* Copy or mark one object and return where it lives now. target is the
    lowest generation a copied object may land in, or zero when the referrer
    makes no demand. Heap indirections in a from-space are followed and not
-   copied, so no indirection chain grows across collections. */
-static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
-                                unsigned target) {
+   copied, so no indirection chain grows across collections. where receives
+   the generation that holds the object after this collection: a frame, a
+   static object, and a null pointer are older than every generation. The
+   evacuation knows it from the region it looked up or from the copy, so
+   the scan of the referrer does not look it up again. */
+static AihcValue *aihc_evacuate_at(AihcGcContext *context, AihcValue *value,
+                                   unsigned target, unsigned *where) {
   AihcMachine *machine = context->machine;
   for (;;) {
     if (value == NULL) {
+      *where = AIHC_GENERATION_STATIC;
       return NULL;
     }
     unsigned source;
@@ -1245,8 +1299,10 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
         source = 1;
         break;
       case AIHC_REGION_GEN1:
+        *where = 1;
         return value;
       case AIHC_REGION_GEN2:
+        *where = 2;
         if (context->collected < 2) {
           return value;
         }
@@ -1262,8 +1318,10 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
       case AIHC_REGION_LARGE:
       case AIHC_REGION_PINNED:
         aihc_mark_pinned(context, value, target);
+        *where = aihc_pinned_generation(aihc_pinned_block_of(value));
         return value;
       case AIHC_REGION_STACK:
+        *where = AIHC_EVACUATED_FRAME;
         /* A frame of a young chunk is scanned from the worklist. A frame of
            an older chunk points only at objects of that generation or
            above, which this collection does not move. A dead object in the
@@ -1278,8 +1336,12 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
       case AIHC_REGION_OUTSIDE:
         if (aihc_outside_is_pinned(value)) {
           aihc_mark_pinned(context, value, target);
-        } else if (context->collected == 2) {
-          aihc_mark_static(value);
+          *where = aihc_pinned_generation(aihc_pinned_block_of(value));
+        } else {
+          *where = AIHC_GENERATION_STATIC;
+          if (context->collected == 2) {
+            aihc_mark_static(value);
+          }
         }
         return value;
       default:
@@ -1288,7 +1350,10 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
     }
     AihcSlot header = value->header;
     if (aihc_header_is_forward(header)) {
-      return aihc_header_forward(header);
+      /* An earlier reference copied the object into gen1 or gen2. */
+      AihcValue *forward = aihc_header_forward(header);
+      *where = aihc_region_kind(forward) == AIHC_REGION_GEN1 ? 1 : 2;
+      return forward;
     }
     if (aihc_value_kind(value) == AIHC_OBJECT_INDIRECTION) {
       value = (AihcValue *)(uintptr_t)value->fields[0];
@@ -1301,21 +1366,27 @@ static AihcValue *aihc_evacuate(AihcGcContext *context, AihcValue *value,
     if (generation > 2) {
       generation = 2;
     }
+    *where = generation;
     return aihc_copy(context, value, generation);
   }
 }
 
 static AihcSlot aihc_evacuate_root(AihcSlot root, void *opaque_context) {
-  return (AihcSlot)(uintptr_t)aihc_evacuate(opaque_context,
-                                            (AihcValue *)(uintptr_t)root, 0);
+  unsigned where;
+  return (AihcSlot)(uintptr_t)aihc_evacuate_at(
+      opaque_context, (AihcValue *)(uintptr_t)root, 0, &where);
 }
 
 static AihcSlot aihc_scan_slot(AihcSlot slot, void *opaque_context) {
   AihcScanContext *scan = opaque_context;
-  AihcValue *value =
-      aihc_evacuate(scan->gc, (AihcValue *)(uintptr_t)slot, scan->target);
-  unsigned generation = aihc_generation_of(scan->gc->machine, value);
+  unsigned generation;
+  AihcValue *value = aihc_evacuate_at(scan->gc, (AihcValue *)(uintptr_t)slot,
+                                      scan->target, &generation);
+  if (generation == AIHC_EVACUATED_FRAME) {
+    generation = AIHC_GENERATION_STATIC;
+  }
   if (value != NULL && !scan->from_frame &&
+      generation == AIHC_GENERATION_STATIC &&
       aihc_region_kind(value) == AIHC_REGION_STACK) {
     /* A thread record or a waiter names a frame. The chunk of the frame is
        reached only through the record, so the record stays in the
@@ -1483,14 +1554,35 @@ static void aihc_scan_large_array(AihcGcContext *context, AihcValue *array,
    names the static objects its code reaches. */
 static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
                              unsigned generation) {
+  /* Only a frame or a static object is scanned as static, so only those
+     need the region lookup. */
+  int is_frame = generation == AIHC_GENERATION_STATIC &&
+                 aihc_region_kind(object) == AIHC_REGION_STACK;
   AihcScanContext scan = {
       .gc = context,
       .target = generation == AIHC_GENERATION_STATIC ? 2 : generation,
       .youngest = AIHC_GENERATION_STATIC,
-      .from_frame = aihc_region_kind(object) == AIHC_REGION_STACK,
+      .from_frame = is_frame,
   };
   const AihcInfo *info = aihc_value_info_table(object);
-  if (!aihc_visit_runtime_object(object, aihc_scan_slot, &scan)) {
+  AihcObjectKind kind = aihc_value_kind(object);
+  /* The kinds that compiled code allocates are the most frequent. Their
+     pointer fields are scanned here, with no indirect call for each field.
+     The other kinds go through the general visitors. */
+  if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+      kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_BLACKHOLE) {
+    if (context->collected == 2) {
+      aihc_walk_srt(info->srt);
+    }
+    const uint8_t *pointers = info->field_is_pointer;
+    if (pointers != NULL) {
+      for (uint64_t index = 0; index < info->field_count; ++index) {
+        if (pointers[index]) {
+          object->fields[index] = aihc_scan_slot(object->fields[index], &scan);
+        }
+      }
+    }
+  } else if (!aihc_visit_runtime_object(object, aihc_scan_slot, &scan)) {
     if (context->collected == 2) {
       aihc_walk_srt(info->srt);
     }
@@ -1506,7 +1598,7 @@ static void aihc_scan_object(AihcGcContext *context, AihcValue *object,
      then. A frame needs no entry: its chunk takes the youngest generation
      its frames refer to, and a collection of that generation scans it. */
   unsigned demand = generation == AIHC_GENERATION_STATIC ? 2 : generation;
-  if (aihc_region_kind(object) == AIHC_REGION_STACK) {
+  if (is_frame) {
     aihc_chunk_note_frame(context, aihc_stack_chunk_of(object), scan.youngest);
   } else if (scan.youngest < demand) {
     aihc_gc_keep(context, object);
@@ -1537,7 +1629,7 @@ static void aihc_generation_scan_one(AihcGcContext *context,
   AihcGeneration *target = aihc_generation(context->machine, generation);
   AihcValue *object = (AihcValue *)target->scan;
   aihc_scan_object(context, object, generation);
-  target->scan += sizeof(AihcSlot) * aihc_value_words(object);
+  target->scan += sizeof(AihcSlot) * aihc_gc_words(object);
 }
 
 /* Copying, marking, and table walking all feed one another, so run every
@@ -2423,7 +2515,7 @@ static void aihc_collect(AihcMachine *machine, unsigned collected,
   machine->heap_alloc_base = machine->heap_next;
   machine->fixed_since_gc = 0;
   for (size_t index = 0; index < context.kept_count; ++index) {
-    aihc_remember(machine, context.kept[index]);
+    aihc_remember_unique(machine, context.kept[index]);
   }
   free(context.kept);
   if (collected == 1 && !machine->gen2_cycle_active &&
@@ -2540,6 +2632,7 @@ void aihc_heap_reset(AihcMachine *machine, size_t nursery_bytes) {
   machine->remembered = NULL;
   machine->remembered_count = 0;
   machine->remembered_capacity = 0;
+  machine->remembered_repeatable = 0;
   aihc_nursery_replace(machine, nursery_bytes);
   machine->gen2_limit_bytes = AIHC_GEN2_MINIMUM_BYTES;
 }

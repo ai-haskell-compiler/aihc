@@ -320,6 +320,9 @@ int aihc_host_unmap_regions(void *base, size_t count);
 
 /* Add an object to the remembered set. */
 void aihc_remember(AihcMachine *machine, AihcValue *object);
+/* The write barrier of an update. A blackhole is updated once, so its
+   remembered-set entry cannot repeat and needs no compaction. */
+void aihc_write_barrier_update(AihcMachine *machine, AihcValue *object);
 /* Replace the nursery of a machine with an empty one of the given bytes.
    The collector fuzz driver uses it to force frequent collections. */
 void aihc_nursery_replace(AihcMachine *machine, size_t bytes);

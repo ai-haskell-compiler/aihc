@@ -329,13 +329,20 @@ object. The sites are the array and MutVar stores and compare-and-swap
 primitives in the Lir lowering, the inline thunk update in
 `aihc_helpers.lir`, the array copy in `aihc_array.lir`, and every store of
 a pointer into an existing object in the C runtime: thread resumption,
-MVar operations, blackhole waiters, IO requests, transactions, `aihc_update`,
-and `aihc_set_field`. A thunk update of an old blackhole takes the C path.
+MVar operations, blackhole waiters, IO requests, transactions, and
+`aihc_set_field`. A thunk update of an old blackhole takes the C path,
+`aihc_update`, which calls `aihc_write_barrier_update`.
 
 The remembered set is a list of objects. A store into the object that
 entered last is not recorded again. A hot object still enters the list at
-many stores, so the list is compacted when it is full, and before a
-collection scans it. A collection scans each entry with the generation of the entry
+many stores, so the list is compacted: a sort removes the duplicates. Only
+an entry from `aihc_remember` can repeat an object. The update barrier adds
+a blackhole, which is updated once, and a collection adds each object that
+it keeps once. Those entries do not count. The list is compacted when it is
+full and at least half of it is entries that can repeat, and before a
+collection scans it when it has such an entry. Without this rule, a program
+that updates many old thunks sorted the whole list again each time it was
+full. A collection scans each entry with the generation of the entry
 as the floor of its referents and then drops the entry. An entry in a
 copied generation is dropped unscanned: the object is copied and scanned if
 it is live. A static entry is dropped unscanned in a full collection, which
