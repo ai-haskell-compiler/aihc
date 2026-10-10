@@ -1,0 +1,130 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Int#, Word#, word2Int#)
+  import GHC.Types (Int (..))
+
+  data Big = Small Int# | Large Int#
+
+  data W = W Word#
+
+  toBig :: Word# -> Big
+  toBig w = Small (word2Int# w)
+  {-# NOINLINE toBig #-}
+
+  -- fromBig evaluates its argument, so its demand signature is strict.
+  fromBig :: Big -> Int#
+  fromBig b = case b of
+    Small i -> i
+    Large i -> i
+  {-# NOINLINE fromBig #-}
+
+  ignore :: Big -> Int# -> Int#
+  ignore _ i = i
+  {-# NOINLINE ignore #-}
+
+  consume :: Int# -> Int
+  consume i = I# i
+  {-# NOINLINE consume #-}
+
+  {-# RULES
+  "fromBig/toBig" forall w. fromBig (toBig w) = word2Int# w
+    #-}
+
+  -- The case is in a strict argument of fromBig. It moves out of the
+  -- call, and the rule then matches fromBig (toBig w).
+  strictArgument :: W -> Int
+  strictArgument x = I# (fromBig (case x of W w -> toBig w))
+
+  -- The case is in an unlifted argument. It moves out of the call.
+  unliftedArgument :: W -> Int
+  unliftedArgument x = consume (case x of W w -> word2Int# w)
+
+  -- ignore does not evaluate its first argument, so the case stays in
+  -- the argument.
+  lazyArgument :: W -> Int
+  lazyArgument x = I# (ignore (case x of W w -> toBig w) 0#)
+passes:
+- simplify
+status: pass
+reason: A case moves out of a strict or unlifted argument of a call, so that a rule matches the call. A case in a lazy argument stays.
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    word2Int# = 2.vword2Int# :: FUN @cWordRep @cIntRep tWord# tInt#
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cWordRep :: tRuntimeRep
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tBig :: sType {
+    pub 1.cSmall :: FUN @cIntRep @sLiftedRep tInt# tBig;
+    pub 1.cLarge :: FUN @cIntRep @sLiftedRep tInt# tBig
+  }
+
+  pub type 1.tW :: sType {
+    pub 1.cW :: FUN @cWordRep @sLiftedRep tWord# tW
+  }
+
+  pub val 1.vtoBig noinline :: FUN @cWordRep @sLiftedRep tWord# tBig
+    = λ(x : tWord#).
+      cSmall (prim word2Int# x)
+
+  pub val 1.vfromBig noinline :: FUN @sLiftedRep @cIntRep tBig tInt#
+    = λ(x : tBig).
+      case x of {
+        cSmall (i : tInt#) →
+          i;
+        cLarge (i : tInt#) →
+          i
+      }
+
+  pub val 1.vignore noinline :: tBig 3.→ FUN @cIntRep @cIntRep tInt# tInt#
+    = λ(x : tBig) (y : tInt#).
+      y
+
+  pub val 1.vconsume noinline :: FUN @cIntRep @sLiftedRep tInt# tInt
+    = λ(x : tInt#).
+      cI# x
+
+  pub val 1.vstrictArgument :: tW 3.→ tInt
+    = λ(x : tW).
+      let! cW (w : tWord#) = x;
+      cI# (prim word2Int# w)
+
+  pub val 1.vunliftedArgument :: tW 3.→ tInt
+    = λ(x : tW).
+      let! cW (w : tWord#) = x;
+      vconsume (prim word2Int# w)
+
+  pub val 1.vlazyArgument :: tW 3.→ tInt
+    = λ(x : tW).
+      cI# (vignore (let! cW (w : tWord#) = x;
+      vtoBig w) lit (0#cIntRep) :: tInt#)
+
+  rule "fromBig/toBig" λ(w : tWord#).
+    vfromBig (vtoBig w)
+   = prim word2Int# w
+   :: tInt#
