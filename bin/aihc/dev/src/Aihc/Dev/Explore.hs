@@ -59,18 +59,25 @@ data BuildStatus
 data PromptKind
   = PromptModule
   | PromptFunction
-  | PromptSearch
+  | PromptSearch !SearchDirection
   | -- | The path that the user wrote when the explorer told that the file
     -- exists. Enter replaces the file only if the path is the same.
     PromptSave !(Maybe FilePath)
+  deriving (Eq)
+
+-- | The direction of a search through the lines of the view.
+data SearchDirection
+  = Forward
+  | Backward
   deriving (Eq)
 
 -- | The last query of a prompt that searches, for @n@ and @N@.
 data LastSearch
   = -- | A query that matches the names of definitions.
     SearchDefinition !Text
-  | -- | A query that matches the text of lines.
-    SearchText !Text
+  | -- | A query that matches the text of lines, and the direction of the
+    -- search. @n@ continues in this direction.
+    SearchText !SearchDirection !Text
 
 data Prompt = Prompt
   { promptKind :: !PromptKind,
@@ -246,15 +253,16 @@ handleKey key modifiers =
     Vty.KChar 'o' -> cycleLevel 1
     Vty.KChar 'O' -> cycleLevel (-1)
     Vty.KChar 'g' -> modify (\state -> state {explorerPrompt = Just (Prompt PromptModule "" 0)})
-    Vty.KChar '/' -> modify (\state -> state {explorerPrompt = Just (Prompt PromptFunction "" 0)})
-    Vty.KChar 's' -> modify (\state -> state {explorerPrompt = Just (Prompt PromptSearch "" 0)})
+    Vty.KChar 'd' -> modify (\state -> state {explorerPrompt = Just (Prompt PromptFunction "" 0)})
+    Vty.KChar '/' -> modify (\state -> state {explorerPrompt = Just (Prompt (PromptSearch Forward) "" 0)})
+    Vty.KChar '?' -> modify (\state -> state {explorerPrompt = Just (Prompt (PromptSearch Backward) "" 0)})
     Vty.KChar 'w' -> do
       state <- get
       if isNothing (explorerModule state)
         then setStatus "There is no output to save"
         else modify (\current -> current {explorerPrompt = Just (Prompt (PromptSave Nothing) (T.pack (defaultSavePath state)) 0)})
-    Vty.KChar 'n' -> repeatSearch 1
-    Vty.KChar 'N' -> repeatSearch (-1)
+    Vty.KChar 'n' -> repeatSearch Forward
+    Vty.KChar 'N' -> repeatSearch Backward
     _ -> pure ()
 
 handlePromptKey :: Prompt -> Vty.Key -> [Vty.Modifier] -> EventM () Explorer ()
@@ -262,7 +270,7 @@ handlePromptKey prompt key modifiers =
   case key of
     Vty.KEsc -> closePrompt
     Vty.KEnter -> case promptKind prompt of
-      PromptSearch -> closePrompt >> searchText (promptQuery prompt)
+      PromptSearch direction -> closePrompt >> searchText direction (promptQuery prompt)
       PromptSave confirmed -> closePrompt >> saveDocument confirmed (T.unpack (promptQuery prompt))
       _ -> do
         choices <- gets (promptChoices prompt)
@@ -289,7 +297,7 @@ promptChoices prompt state =
     PromptFunction ->
       -- The query matches the name, and the module is only shown.
       map definitionLabel (fuzzyFilterOn definitionName (promptQuery prompt) (uniqueDefinitions (map snd (documentDefinitions (explorerDocument state)))))
-    PromptSearch -> []
+    PromptSearch _ -> []
     PromptSave _ -> []
   where
     uniqueDefinitions = Map.elems . Map.fromList . map (\definition -> (definitionLabel definition, definition))
@@ -308,36 +316,39 @@ acceptChoice prompt choice =
       modify (\state -> state {explorerLastQuery = Just (SearchDefinition (promptQuery prompt))})
       document <- gets explorerDocument
       forM_ (lookup choice [(definitionLabel definition, line) | (line, definition) <- documentDefinitions document]) jumpTo
-    PromptSearch -> pure ()
+    PromptSearch _ -> pure ()
     PromptSave _ -> pure ()
 
 -- | Search the text of the view for a query, and go to the first line after
--- the cursor that contains it. An empty query stops the highlight.
-searchText :: Text -> EventM () Explorer ()
-searchText query
+-- or before the cursor that contains it. An empty query stops the
+-- highlight.
+searchText :: SearchDirection -> Text -> EventM () Explorer ()
+searchText direction query
   | T.null query = do
       modify (\state -> state {explorerLastQuery = Nothing})
       setStatus ""
   | otherwise = do
-      modify (\state -> state {explorerLastQuery = Just (SearchText query)})
-      repeatSearch 1
+      modify (\state -> state {explorerLastQuery = Just (SearchText direction query)})
+      repeatSearch Forward
 
--- | Go to the next or the previous line that matches the last query: a
--- definition for the function prompt, or the text of a line for the search
--- prompt.
-repeatSearch :: Int -> EventM () Explorer ()
-repeatSearch direction = do
+-- | Go to the next line that matches the last query: a definition for the
+-- definition prompt, or the text of a line for the search prompts. 'Forward'
+-- continues in the direction of the search, and 'Backward' goes in the
+-- opposite direction. A definition search goes down the view.
+repeatSearch :: SearchDirection -> EventM () Explorer ()
+repeatSearch step = do
   state <- get
   case explorerLastQuery state of
     Nothing -> setStatus "No search"
     Just search -> do
       let cursor = explorerCursor state
           document = explorerDocument state
-          (query, matching) = case search of
-            SearchDefinition text -> (text, [line | (line, definition) <- documentDefinitions document, isJust (fuzzyScore text (definitionName definition))])
-            SearchText text -> (text, matchingLines text document)
+          (query, matching, searchDirection) = case search of
+            SearchDefinition text -> (text, [line | (line, definition) <- documentDefinitions document, isJust (fuzzyScore text (definitionName definition))], Forward)
+            SearchText direction text -> (text, matchingLines text document, direction)
           next =
-            if direction > 0
+            -- The search goes down when both directions are the same.
+            if searchDirection == step
               then listToMaybe (filter (> cursor) matching <> matching)
               else listToMaybe (reverse (filter (< cursor) matching) <> reverse matching)
       case next of
@@ -346,7 +357,7 @@ repeatSearch direction = do
           jumpTo line
           case search of
             SearchDefinition _ -> setStatus ""
-            SearchText _ ->
+            SearchText _ _ ->
               setStatus (query <> ": match " <> T.pack (show (maybe 0 (+ 1) (elemIndex line matching))) <> " of " <> T.pack (show (length matching)))
 
 -- | The file name that the save prompt starts with: the module, the level,
@@ -637,7 +648,7 @@ drawBody state =
             | highlighted = [(clean (segmentText segment), classAttr (segmentClass segment)) | segment <- segments]
             | otherwise = [(clean text, attrName "plain")]
           content = case explorerLastQuery state of
-            Just (SearchText query) -> markMatches query pieces
+            Just (SearchText _ query) -> markMatches query pieces
             _ -> pieces
           lineAttr = if index == explorerCursor state then attrName "cursor" else attrName "plain"
        in hBox [withAttr (attrName "gutter") (txt (number <> " ")), withAttr lineAttr (padRight Max (hBox [withAttr attr (txt piece) | (piece, attr) <- content]))]
@@ -649,7 +660,7 @@ listsChoices kind =
   case kind of
     PromptModule -> True
     PromptFunction -> True
-    PromptSearch -> False
+    PromptSearch _ -> False
     PromptSave _ -> False
 
 -- | Give the occurrences of a query in a line the attribute of a match. The
@@ -684,19 +695,20 @@ drawPrompt prompt state =
     label = case promptKind prompt of
       PromptModule -> "Go to module: "
       PromptFunction -> "Go to definition: "
-      PromptSearch -> "Search: "
+      PromptSearch Forward -> "/"
+      PromptSearch Backward -> "?"
       PromptSave _ -> "Save to file: "
 
 drawStatus :: Explorer -> Widget ()
 drawStatus state =
   case explorerPrompt state of
-    Just (Prompt PromptSearch query _) -> padRight Max (txt ("Search: " <> query <> "_"))
+    Just (Prompt (PromptSearch direction) query _) -> padRight Max (txt ((if direction == Forward then "/" else "?") <> query <> "_"))
     Just (Prompt (PromptSave confirmed) path _) ->
       padRight Max (txt (maybe "" (const (explorerStatus state <> "  ")) confirmed <> "Save to file: " <> path <> "_"))
     _ ->
       hBox
         [ padRight Max (txt (explorerStatus state)),
-          txt (buildText <> "  1-8/Tab stage  o level  g module  / definition  s search  w save  q quit")
+          txt (buildText <> "  1-8/Tab stage  o level  g module  d definition  / ? search  w save  q quit")
         ]
   where
     buildText = case [(level, message) | (level, BuildRunning message) <- Map.toList (explorerBuilds state)] of
