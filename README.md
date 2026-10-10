@@ -1,6 +1,7 @@
 [![User guide](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/deploy-docs.yml?label=user%20guide)](https://ai-haskell-compiler.github.io/aihc/)
 [![API docs](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/deploy-docs.yml?label=API%20docs)](https://ai-haskell-compiler.github.io/aihc/api/)
 [![Generated Reports](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/generated-reports-update.yml?label=reports)](https://github.com/ai-haskell-compiler/aihc/actions/workflows/generated-reports-update.yml)
+[![Self-Compile](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/self-compile.yml?branch=main&label=Self-Compile)](https://github.com/ai-haskell-compiler/aihc/actions/workflows/self-compile.yml)
 [![Discord](https://img.shields.io/discord/1555935190487142460?label=discord&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/uGWkhMCZrZ)
 
 
@@ -64,7 +65,11 @@ Machine [`intel-i7-8705g-de9b72`](https://perf.aihc.app/timeline.html?machine=in
 
 ## Self hosting
 
-AIHC compiling itself ("self hosting") is the next milestone. Expand the details to see exactly what packages are required and which fail to install.
+AIHC can now compile itself ("self hosting").
+The [Self-Compile workflow](https://github.com/ai-haskell-compiler/aihc/actions/workflows/self-compile.yml) passed on `linux-amd64` with the native backend at `-O2`.
+It uses the minimal compiler configuration, with the `hackage` and `pretty-ui` flags disabled.
+The compiler built by AIHC compiles itself again and produces an identical executable.
+Expand the details to see the required packages and their installation status.
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
@@ -159,7 +164,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 
 ### Can AIHC compile itself?
 
-Almost, but not quite yet.
+Yes. AIHC can compile itself and produce an identical executable on the next compile.
 See [Self hosting](#self-hosting) for the current status.
 
 ### Is AIHC compatible with GHC?
