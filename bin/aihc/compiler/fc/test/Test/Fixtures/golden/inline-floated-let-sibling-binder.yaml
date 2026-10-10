@@ -120,11 +120,11 @@ expected: |-
 
   pub val 1.vrun :: tInt 3.→ tEff tInt
     = λ(x : tInt).
-      vkeep (let eta : tInt =
+      let eta : tInt =
         vmessage x;
       let x{1} : tInt =
         cI# lit (5#cIntRep) :: tInt#;
-      (λ(eta{1} : tState# tRealWorld).
+      vkeep ((λ(eta{1} : tState# tRealWorld).
         let! cI# (_pat : tInt#) = eta;
         case _pat of {
           0#cIntRep →

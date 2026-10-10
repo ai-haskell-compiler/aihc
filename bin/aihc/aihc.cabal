@@ -191,6 +191,7 @@ library
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf
+    Aihc.Fc.Views
     Aihc.Fc.Wired
     Aihc.Fc.WorkerWrapper
     Aihc.Grin

@@ -36,6 +36,7 @@ module Aihc.Fc.Inline
   )
 where
 
+import Aihc.Fc.Demand (Signatures, topLevelSignatures)
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
@@ -262,6 +263,10 @@ data Inliner = Inliner
     inRoots :: !(Set Name),
     -- | The rules that fire in this pass, by head.
     inRules :: !RuleTable,
+    -- | The demand signatures of the values, from their bodies when the
+    -- pass begins. A copy changes how a body computes its result, not
+    -- what the body evaluates, so a signature holds for the whole pass.
+    inSignatures :: !Signatures,
     -- | What the source said about inlining each value.
     inSpecs :: !(Map Name InlineSpec),
     inRulesFired :: !Int
@@ -292,6 +297,7 @@ initialInliner config env decls supply =
       inChanged = False,
       inRoots = roots,
       inRules = ruleTable (inlinePhase config) decls,
+      inSignatures = topLevelSignatures env decls,
       inSpecs = Map.map valInline declarations,
       inRulesFired = 0
     }
@@ -463,6 +469,7 @@ simplifyValue config known recursive inTemplates st name
                             spReducingSiteLimit = policyReducingSiteLimit policy,
                             spDiscount = policyFunctionArgumentDiscount policy,
                             spRules = inRules st,
+                            spSignatures = inSignatures st,
                             spCredit = credit,
                             spInside = False,
                             spCredits = snd (callArityAnalysis credit False body),

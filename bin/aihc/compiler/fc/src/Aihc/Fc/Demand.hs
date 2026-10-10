@@ -81,11 +81,11 @@ where
 
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
-import Aihc.Fc.Simplify (castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Size (isLiftedType, isStrictBinder)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, exprType, extendBinder, foreignArgumentTypes, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.Views (castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))

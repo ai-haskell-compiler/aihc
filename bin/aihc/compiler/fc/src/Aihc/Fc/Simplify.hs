@@ -67,8 +67,9 @@ module Aihc.Fc.Simplify
   )
 where
 
+import Aihc.Fc.Demand (Signature (..), Signatures, isStrict, topLevelSignatures)
 import Aihc.Fc.Fold (foldForeignCall)
-import Aihc.Fc.Imports (declReferences, pruneImports)
+import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Normalize (normalizeCaseAlternatives)
 import Aihc.Fc.Rules (RuleMatch (..), RuleTable, matchRule, ruleTable)
@@ -76,6 +77,7 @@ import Aihc.Fc.Size (Known (..), exprSize, exprSizeWith, isLiftedBinder, isLifte
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
+import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -87,7 +89,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -134,6 +136,7 @@ simplifyProgram phase program =
                 spReducingSiteLimit = 0,
                 spDiscount = 0,
                 spRules = ruleTable phase (programDecls program),
+                spSignatures = topLevelSignatures env (programDecls program),
                 spCredit = 0,
                 spInside = False,
                 spCredits = Map.empty,
@@ -155,10 +158,6 @@ simplifyProgram phase program =
     size0 = programSize program
 
 -- * Views of expressions
-
--- in the desugarer's output and in a parsed program alike.
-isConstructorName :: Name -> Bool
-isConstructorName name = nameSort name == SortDataConstructor
 
 isKnownConstructor :: Map Name Int -> Expr -> Bool
 isKnownConstructor arities expr =
@@ -374,6 +373,10 @@ data Simpl = Simpl
     -- | The rewrite rules that may fire, by the head of their left-hand
     -- side.
     spRules :: !RuleTable,
+    -- | The demand signatures of the top-level values. A call evaluates
+    -- the arguments that the signature of its head calls strict. See
+    -- 'floatStrictArgument'.
+    spSignatures :: !Signatures,
     -- | How many value arguments the expression under simplification
     -- receives from every use, when it is a right-hand side in leading
     -- position: the call arity of its binding, less the lambdas passed.
@@ -437,8 +440,6 @@ ruleFuel :: Int
 ruleFuel = 1000
 
 type SimplM = State SimplState
-
-type Arg = Either Type Expr
 
 simplifyExpr :: Simpl -> Expr -> SimplM Expr
 simplifyExpr env expr =
@@ -604,7 +605,7 @@ floatChain env expr continue =
           floatChain env (bindRhs bind) $ \env' rhs ->
             ExLet bind {bindRhs = rhs} <$> floatChain (bindingEnv env' binder rhs) inner continue
       | otherwise ->
-          ExLet bind <$> floatChain (bindingEnv env binder (bindRhs bind)) inner continue
+          floatChain (bindingEnv env binder (bindRhs bind)) inner continue >>= mkLet env bind
       where
         binder = bindBinder bind
     ExCase scrutinee binder (NE.toList -> [alternative]) -> do
@@ -1287,6 +1288,15 @@ simplifyArgs env = mapM (either (pure . Left) (fmap Right . simplifyExpr env))
 -- | Rebuild an application whose head and arguments are simplified.
 rebuildApp :: Simpl -> Expr -> [Arg] -> SimplM Expr
 rebuildApp env headExpr' args' = do
+  floated <- floatStrictArgument env headExpr' args'
+  case floated of
+    Just result -> pure result
+    Nothing -> rebuildCall env headExpr' args'
+
+-- | Rebuild an application whose head and arguments are simplified, and
+-- whose arguments give no chain to 'floatStrictArgument'.
+rebuildCall :: Simpl -> Expr -> [Arg] -> SimplM Expr
+rebuildCall env headExpr' args' = do
   fired <- fireRule env headExpr' args'
   case headExpr' of
     _ | Just rewritten <- fired -> simplifyExpr env rewritten
@@ -1348,6 +1358,77 @@ rebuildApp env headExpr' args' = do
       case speculated of
         Just result -> pure result
         Nothing -> bindApplication env headExpr' args'
+
+-- | Move the chain of an argument that the call evaluates out of the
+-- call: @f (let! K x = s; e)@ is @let! K x = s; f e@. This is the strict
+-- argument context of GHC's simplifier. A rule for @f@ then sees the
+-- tail of the chain, which is often the application that the rule names:
+-- @integerToInt# (let! W64# v = z; wordToInteger (..))@ is
+-- @let! W64# v = z; integerToInt# (wordToInteger (..))@.
+--
+-- The call evaluates an argument before its result is known when the
+-- argument is unlifted, or when the demand signature of the head calls
+-- the parameter strict and the call is saturated. Then the chain runs in
+-- both forms whenever the call runs: a strict callee that does not
+-- terminate first evaluates the argument, and the argument does not
+-- terminate either. A chain is a let or a case of one alternative, so
+-- no part of the call is copied.
+--
+-- Every argument that the call evaluates before the moved one is
+-- trivial, so that the evaluations keep their order. A lazy argument
+-- before it is a thunk and evaluates nothing. The moved chain gets fresh
+-- binders, so that they capture no name of the other arguments. The
+-- tail continues in the environment of the chain, where a case of the
+-- chain gives its fields to a case in the tail. See 'floatChain'.
+floatStrictArgument :: Simpl -> Expr -> [Arg] -> SimplM (Maybe Expr)
+floatStrictArgument env headExpr args =
+  case headExpr of
+    ExVar name
+      | any (either (const False) isChain) args,
+        Just headType <- exprType (spEnv env) headExpr,
+        Just evaluated <- evaluatedArguments name headType,
+        (before, (_, Right argument) : after) <- break (\(strict, arg) -> strict && either (const False) isChain arg) (zip evaluated args),
+        all (\(strict, arg) -> not strict || either (const True) isTrivial arg) before -> do
+          chain <- freshenExpr argument
+          Just <$> floatChain env chain (\env' tailExpr -> rebuildApp env' headExpr (map snd before <> (Right tailExpr : map snd after)))
+    _ -> pure Nothing
+  where
+    -- Whether the call evaluates each argument. A type argument
+    -- evaluates nothing.
+    evaluatedArguments name headType = do
+      types <- argumentTypes headType args
+      let values = length (rights args)
+          demands = case Map.lookup name (spSignatures env) of
+            Just (Signature signature)
+              | values >= length signature -> map isStrict signature <> repeat False
+            _ -> repeat False
+          go remaining argumentDemands =
+            case remaining of
+              [] -> []
+              Nothing : rest -> False : go rest argumentDemands
+              Just ty : rest ->
+                let (demand, more) = fromMaybe (False, []) (List.uncons argumentDemands)
+                 in (demand || isUnliftedArgument (spEnv env) ty) : go rest more
+      pure (go types demands)
+    -- The type of each value argument, and 'Nothing' for a type argument.
+    argumentTypes ty remaining =
+      case remaining of
+        [] -> Just []
+        Left argument : rest -> do
+          (binder, inner) <- viewForAll (spEnv env) ty
+          (Nothing :) <$> argumentTypes (substType (binderName binder) argument inner) rest
+        Right _ : rest -> do
+          (_, _, argument, result) <- viewFun (spEnv env) ty
+          (Just argument :) <$> argumentTypes result rest
+
+-- | Whether an argument type has a known representation that is not
+-- lifted. A representation variable can stand for a lifted one.
+isUnliftedArgument :: TypeEnv -> Type -> Bool
+isUnliftedArgument env ty =
+  case reduceType env <$> repOf env ty of
+    Just (TyVar _) -> False
+    Just _ -> not (isLiftedType env ty)
+    Nothing -> False
 
 -- | A cast of a case, a let or a recursive group as the same expression
 -- with the cast on each branch. The result type of the case becomes the
@@ -2425,28 +2506,6 @@ isTrivial expr =
     ExCast body _ -> isTrivial body
     _ -> False
 
-collectSpine :: Expr -> (Expr, [Arg])
-collectSpine = go []
-  where
-    go args expr =
-      case expr of
-        ExApp function argument -> go (Right argument : args) function
-        ExTyApp function ty -> go (Left ty : args) function
-        _ -> (expr, args)
-
--- | Collect an application spine through the casts on its head. A cast
--- is erased in the lowered code, so it neither hides a call nor stands
--- between a function and the arguments a call gives it.
-castedSpine :: Expr -> (Expr, [Arg])
-castedSpine = go []
-  where
-    go args expr =
-      case expr of
-        ExApp function argument -> go (Right argument : args) function
-        ExTyApp function ty -> go (Left ty : args) function
-        ExCast body _ -> go args body
-        _ -> (expr, args)
-
 -- | Push a cast on the head of an application spine into the arguments
 -- the spine gives it:
 --
@@ -2644,7 +2703,7 @@ floatPrimitiveArgument env call types arguments
       case (primitiveSignature (spEnv env) call types, span isTrivial arguments) of
         (Just (argumentTypes, _), (before, argument : after))
           | length argumentTypes == length arguments,
-            isUnliftedArgument (argumentTypes !! length before),
+            isUnliftedArgument (spEnv env) (argumentTypes !! length before),
             movable argument -> do
               argument' <- freshenExpr argument
               pure (Just (float before after argument'))
@@ -2661,13 +2720,6 @@ floatPrimitiveArgument env call types arguments
           ExCase scrutinee binder (alternative {altRhs = float before after (altRhs alternative)} NE.:| [])
         ExLet bind body -> ExLet bind (float before after body)
         _ -> ExForeignCall call types (before <> (expr : after))
-    -- An argument whose representation is known and is not lifted. A
-    -- representation variable can stand for a lifted one.
-    isUnliftedArgument ty =
-      case reduceType (spEnv env) <$> repOf (spEnv env) ty of
-        Just (TyVar _) -> False
-        Just _ -> not (isLiftedType (spEnv env) ty)
-        Nothing -> False
 
 -- | The argument types and the result type of a primitive call at its
 -- type arguments.
@@ -3009,26 +3061,6 @@ coercionVariables coercion =
     CoTyConApp _ inners -> concatMap coercionVariables inners
     CoAxiom {} -> []
 
--- | The value-class names an expression uses.
-exprValueNames :: Expr -> Set Name
-exprValueNames = go
-  where
-    go expr =
-      case expr of
-        ExVar name -> Set.singleton name
-        ExLit {} -> Set.empty
-        ExCoercion {} -> Set.empty
-        ExApp function argument -> go function <> go argument
-        ExTyApp function _ -> go function
-        ExLam _ body -> go body
-        ExTyLam _ body -> go body
-        ExLet bind body -> go (bindRhs bind) <> go body
-        ExRec binds body -> foldMap (go . bindRhs) binds <> go body
-        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> foldMap (go . altRhs) alternatives
-        ExAbsurd scrutinee _ -> go scrutinee
-        ExCast body _ -> go body
-        ExForeignCall _ _ arguments -> foldMap go arguments
-
 -- * Substitution
 
 -- | Replace names by expressions. The binders of the target are distinct
@@ -3270,60 +3302,3 @@ renameAlt renaming alternative = do
   (binders, rhsRenaming) <- renameBinders typeRenaming (altBinders alternative)
   rhs <- renameExpr rhsRenaming (altRhs alternative)
   pure (Alt con typeBinders binders rhs)
-
--- | The largest local unique of the program.
-maxLocalUnique :: Program -> Int
-maxLocalUnique program = maximum (0 : mapMaybe localValue (Set.toList names))
-  where
-    names = foldMap declReferences (programDecls program) <> foldMap declBinderNames (programDecls program)
-    localValue name =
-      case nameOrigin name of
-        OriginLocal (Unique unique) -> Just unique
-        OriginTop {} -> Nothing
-
-declBinderNames :: Decl -> Set Name
-declBinderNames decl =
-  case decl of
-    DeclVal declaration -> exprBinderNames (valBody declaration) <> typeBinderNames (valType declaration)
-    DeclRule declaration ->
-      Set.fromList (map binderName (ruleTypeBinders declaration <> ruleBinders declaration))
-        <> foldMap (typeBinderNames . binderType) (ruleTypeBinders declaration <> ruleBinders declaration)
-        <> typeBinderNames (ruleType declaration)
-        <> exprBinderNames (ruleLhs declaration)
-        <> exprBinderNames (ruleRhs declaration)
-    DeclType declaration -> Set.fromList (map binderName (typeBinders declaration)) <> foldMap (typeBinderNames . conType) (typeCons declaration)
-    DeclSynonym declaration -> Set.fromList (map binderName (synBinders declaration)) <> typeBinderNames (synBody declaration)
-    DeclAxiom declaration -> Set.fromList (map binderName (axiomBinders declaration))
-
-typeBinderNames :: Type -> Set Name
-typeBinderNames ty =
-  case ty of
-    TyVar {} -> Set.empty
-    TyCon {} -> Set.empty
-    TyLit {} -> Set.empty
-    TyApp function argument -> typeBinderNames function <> typeBinderNames argument
-    TyFun r1 r2 argument result -> foldMap typeBinderNames [r1, r2, argument, result]
-    TyForAll binder body -> Set.insert (binderName binder) (typeBinderNames (binderType binder) <> typeBinderNames body)
-    TyEq left right -> typeBinderNames left <> typeBinderNames right
-
-exprBinderNames :: Expr -> Set Name
-exprBinderNames = go
-  where
-    binderNames binder = Set.insert (binderName binder) (typeBinderNames (binderType binder))
-    go expr =
-      case expr of
-        ExVar {} -> Set.empty
-        ExLit _ ty -> typeBinderNames ty
-        ExCoercion {} -> Set.empty
-        ExApp function argument -> go function <> go argument
-        ExTyApp function ty -> go function <> typeBinderNames ty
-        ExLam binder body -> binderNames binder <> go body
-        ExTyLam binder body -> binderNames binder <> go body
-        ExLet bind body -> binderNames (bindBinder bind) <> go (bindRhs bind) <> go body
-        ExRec binds body -> foldMap (\bind -> binderNames (bindBinder bind) <> go (bindRhs bind)) binds <> go body
-        ExAbsurd scrutinee resultType -> go scrutinee <> typeBinderNames resultType
-        ExCase scrutinee binder (NE.toList -> alternatives) ->
-          go scrutinee <> foldMap binderNames binder <> foldMap altNames alternatives
-        ExCast body _ -> go body
-        ExForeignCall call types arguments -> typeBinderNames (foreignCallType call) <> foldMap typeBinderNames types <> foldMap go arguments
-    altNames alternative = foldMap binderNames (altTypeBinders alternative <> altBinders alternative) <> go (altRhs alternative)
