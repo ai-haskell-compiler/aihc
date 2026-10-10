@@ -62,7 +62,7 @@ jobs:
           echo "GNU_TIME=$RUNNER_TEMP/gnu-time/bin/time" >>"$GITHUB_ENV"
 
       - name: Restore the Hackage downloads
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .cache/aihc/hackage
