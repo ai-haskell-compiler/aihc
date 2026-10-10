@@ -39,7 +39,9 @@
 -- Local functions, recursive or not, get signatures the same way.
 --
 -- A strict parameter whose type has one constructor, and that the body
--- takes apart with a case, gets the 'StrictProduct' demand. The
+-- takes apart with a case or gives to a parameter with the
+-- 'StrictProduct' demand, gets the 'StrictProduct' demand. The binder of
+-- a case on the parameter is an alias of it. The
 -- worker/wrapper pass, "Aihc.Fc.WorkerWrapper", passes the fields of such
 -- a parameter in its place.
 --
@@ -95,6 +97,7 @@ import Data.Either (rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -222,7 +225,7 @@ lambdaSignature env expr =
       demand binder
         | Set.notMember (binderName binder) strict = Lazy
         | Just (con, _, _) <- productConstructor (envTypes inner) (binderType binder),
-          takenApart (binderName binder) con body =
+          takenApart inner (binderName binder) con body =
             StrictProduct
         | otherwise = Strict
    in Signature (map demand binders)
@@ -236,37 +239,78 @@ lambdaTypeBinders expr =
     ExCast body _ -> lambdaTypeBinders body
     _ -> []
 
--- | Whether a case on the variable, somewhere in the expression, has an
--- alternative for the constructor. The binder of a case on the variable is
--- the same value, so a case on that binder counts too. A bang pattern
--- gives this shape: its case evaluates the parameter, and the later match
--- takes apart the binder of that case.
-takenApart :: Name -> Name -> Expr -> Bool
-takenApart name con = go (Set.singleton name)
+-- | Whether the expression takes the variable apart somewhere: a case on
+-- the variable has an alternative for the constructor, or a saturated
+-- call gives the variable to a parameter that has the 'StrictProduct'
+-- demand. The binder of a case on the variable is the same value, so a
+-- case on that binder, or a call with it, counts too. A bang pattern
+-- and the @Strict@ extension give this shape: the case of the pattern
+-- evaluates the parameter, and the later match takes apart the binder of
+-- that case.
+--
+-- A call counts because the callee gets a worker of its own. Before the
+-- inliner runs, a function on @Int@ often only gives its parameter to
+-- such calls, for example to @+@ of the @Num Int@ instance.
+takenApart :: Env -> Name -> Name -> Expr -> Bool
+takenApart env0 name con = go env0 (Set.singleton name)
   where
-    go aliases expr =
+    go env aliases expr =
       case expr of
         ExCase scrutinee binder (NE.toList -> alternatives) ->
           let aliased = isVariable aliases scrutinee
               inner = if aliased then foldl' (\current named -> Set.insert (binderName named) current) aliases binder else aliases
            in (aliased && any ((== AltData con) . altCon) alternatives)
-                || go aliases scrutinee
-                || any (go inner . altRhs) alternatives
-        ExLam _ body -> go aliases body
-        ExTyLam _ body -> go aliases body
-        ExLet bind body -> go aliases (bindRhs bind) || go aliases body
-        ExRec binds body -> any (go aliases . bindRhs) binds || go aliases body
-        ExApp function argument -> go aliases function || go aliases argument
-        ExTyApp function _ -> go aliases function
-        ExAbsurd scrutinee _ -> go aliases scrutinee
-        ExCast body _ -> go aliases body
-        ExForeignCall _ _ arguments -> any (go aliases) arguments
+                || go env aliases scrutinee
+                || any (go env inner . altRhs) alternatives
+        ExLam _ body -> go env aliases body
+        ExTyLam _ body -> go env aliases body
+        ExLet (Bind binder rhs) body -> go env aliases rhs || go (lazySignature env binder rhs) aliases body
+        ExRec binds body ->
+          let inner = lazyRecursiveSignatures env binds
+           in any (go inner aliases . bindRhs) binds || go inner aliases body
+        ExApp {} -> goCall env aliases expr
+        ExTyApp {} -> goCall env aliases expr
+        ExAbsurd scrutinee _ -> go env aliases scrutinee
+        ExCast body _ -> go env aliases body
+        ExForeignCall _ _ arguments -> any (go env aliases) arguments
+        _ -> False
+    goCall env aliases expr =
+      let (function, arguments) = castedSpine expr
+          values = rights arguments
+          given = case function of
+            ExVar callee
+              | Just signature <- Map.lookup callee (envSignatures env),
+                length values >= length (signatureDemands signature) ->
+                  or [demand == StrictProduct && isAlias aliases value | (value, demand) <- zip values (signatureDemands signature)]
+            _ -> False
+       in given || go env aliases function || any (go env aliases) values
+    -- A variable that a cast changes can have another type than the
+    -- parameter, so only the variable itself counts in a call.
+    isAlias aliases value =
+      case value of
+        ExVar var -> Set.member var aliases
         _ -> False
     isVariable aliases scrutinee =
       case scrutinee of
         ExVar var -> Set.member var aliases
         ExCast inner _ -> isVariable aliases inner
         _ -> False
+
+-- | The signatures in scope under a let, as 'bindSignature' gives them,
+-- but computed only when a call of the function needs them.
+lazySignature :: Env -> Binder -> Expr -> Env
+lazySignature env binder rhs
+  | null (fst (collectLambdas rhs)) = env
+  | otherwise = env {envSignatures = LazyMap.insert (binderName binder) (lambdaSignature env rhs) (envSignatures env)}
+
+-- | The signatures in scope under a recursive group, as
+-- 'bindRecursiveSignatures' gives them, but computed only when a call of
+-- a member needs them.
+lazyRecursiveSignatures :: Env -> [Bind] -> Env
+lazyRecursiveSignatures env binds =
+  let fixed = fixSignatures env [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]
+      members = [(name, LazyMap.findWithDefault (Signature []) name fixed) | bind <- binds, let name = binderName (bindBinder bind)]
+   in env {envSignatures = List.foldl' (\current (name, signature) -> LazyMap.insert name signature current) (envSignatures env) members}
 
 -- | The one constructor of a type that a worker can take apart and build
 -- again, with the type arguments of the type and the types of the
@@ -346,13 +390,19 @@ fixSignatures env members = loop (0 :: Int) optimistic
     optimistic = Map.fromList [(name, Signature (replicate arity Strict)) | (name, arity) <- arities]
     pessimistic = Map.fromList [(name, Signature (replicate arity Lazy)) | (name, arity) <- arities]
     bound = 1 + sum (map snd arities)
+    -- The iteration compares strictness only. A 'StrictProduct' demand
+    -- of a member can come from a call of a member, so it could change
+    -- after the strictness is stable. The members see each other as
+    -- 'Strict' in the guess, and the result keeps the 'StrictProduct'
+    -- demands that the last step found with that guess.
     loop iteration current
       | iteration > bound = Map.union pessimistic (envSignatures env)
-      | next == current = Map.union current (envSignatures env)
-      | otherwise = loop (iteration + 1) next
+      | strictOnly next == current = Map.union next (envSignatures env)
+      | otherwise = loop (iteration + 1) (strictOnly next)
       where
         inner = env {envSignatures = Map.union current (envSignatures env)}
         next = Map.fromList [(name, lambdaSignature inner rhs) | (name, rhs) <- members]
+    strictOnly = Map.map (\(Signature demands) -> Signature [if isStrict demand then Strict else Lazy | demand <- demands])
 
 -- | The signatures in scope under a let: a right-hand side that is a
 -- function adds one.

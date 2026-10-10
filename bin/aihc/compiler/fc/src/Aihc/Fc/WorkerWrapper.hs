@@ -493,24 +493,35 @@ splitFunction types self declaredType workerName demands function =
 -- function itself, or an unboxed parameter, and at least one tail is not
 -- a call. The worker then returns fields that it has in hand: an unboxed
 -- parameter is a constructor that the worker builds from its fields, and
--- a recursive call returns the fields from the worker.
+-- a recursive call returns the fields from the worker. The binder of a
+-- case on an unboxed parameter is the same value, so a tail that is that
+-- binder counts as the parameter. A bang pattern and the @Strict@
+-- extension give such binders.
 constructedTails :: Name -> Set Name -> Name -> Expr -> Bool
 constructedTails self unboxed con body = all acceptable leaves && any constructed leaves
   where
-    leaves = tails body
-    tails expr =
+    leaves = tails unboxed body
+    tails aliases expr =
       case expr of
-        ExCase _ _ (NE.toList -> alternatives) -> concatMap (tails . altRhs) alternatives
-        ExLet _ inner -> tails inner
-        ExRec _ inner -> tails inner
-        _ -> [expr]
-    constructed leaf =
-      case fst (collectSpine leaf) of
-        ExVar name -> name == con || Set.member name unboxed
+        ExCase scrutinee binder (NE.toList -> alternatives) ->
+          let inner
+                | isAlias aliases scrutinee = foldl' (\current named -> Set.insert (binderName named) current) aliases binder
+                | otherwise = aliases
+           in concatMap (tails inner . altRhs) alternatives
+        ExLet _ inner -> tails aliases inner
+        ExRec _ inner -> tails aliases inner
+        _ -> [(aliases, expr)]
+    isAlias aliases expr =
+      case expr of
+        ExVar name -> Set.member name aliases
         _ -> False
-    acceptable leaf =
+    constructed (aliases, leaf) =
       case fst (collectSpine leaf) of
-        ExVar name -> name == con || name == self || Set.member name unboxed
+        ExVar name -> name == con || Set.member name aliases
+        _ -> False
+    acceptable (aliases, leaf) =
+      case fst (collectSpine leaf) of
+        ExVar name -> name == con || name == self || Set.member name aliases
         _ -> False
 
 -- | The arrows with the result representation of the last one replaced.
