@@ -130,7 +130,7 @@ import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..),
 import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, collectTcDiagnostics, internalAbortDiagnostic)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), applySubstRep, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvSince, instanceInfoKey, patSynKey, repHasUnpack, repLeaves, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc, withModuleIdentity)
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -161,7 +161,7 @@ tcModuleSuccess =
 -- Return only facts that the specified modules define.
 typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
 typecheckModulesWithInterface config imported resolved
-  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
+  | all (null . moduleDecls . moduleUnitAst) units = (map (\unit -> withModuleIdentity unit (moduleUnitAst unit)) units, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
           (finalState, checkedModules) = List.mapAccumL check initialState resolved
@@ -178,7 +178,7 @@ typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -
 typecheckModuleSccWithInterface config imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the component adds no types, evidence, or diagnostics.
-  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
+  | all (null . moduleDecls . moduleUnitAst) units = (map (\unit -> withModuleIdentity unit (moduleUnitAst unit)) units, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
           (checkedModules, finalState) = typecheckModuleSccWithState config initialState resolved

@@ -26,7 +26,6 @@ import Aihc.Parser.Syntax
     Module (..),
     TypeFamilyDecl (..),
     TypeSynDecl (..),
-    UnqualifiedName,
     binderHeadName,
     binderHeadParams,
     fromAnnotation,
@@ -35,8 +34,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Syn
-import Aihc.Resolve (Entity (..), GlobalName (..), ModuleExports, Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderResolution, exportedLocalNames)
-import Aihc.Resolve qualified as Resolve
+import Aihc.Resolve (Entity (..), GlobalName (..), ModuleExports, Package (..), PackageId (..), ResolutionNamespace (..), exportedLocalNames)
 import Aihc.Tc
   ( AssociatedTypeInfo (..),
     ClassInfo (..),
@@ -64,7 +62,7 @@ import Aihc.Tc
     typeFamilyAxiomKey,
     unpackableConstructor,
   )
-import Aihc.Tc.Annotations (TcInstanceAnnotation (..))
+import Aihc.Tc.Annotations (TcInstanceAnnotation (..), TcModuleIdentity (..))
 import Aihc.Tc.Env (DataConSourceForm (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Pred (..),
@@ -1210,51 +1208,9 @@ nameOriginPair name =
     OriginLocal {} -> []
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
-resolvedModuleOrigin resolvedModule =
-  fromMaybe ("", fromMaybe "Main" (Syn.moduleName resolvedModule)) $ do
-    resolved <- listToMaybe (mapMaybe definitionResolution (Syn.moduleDecls resolvedModule))
-    case resolutionTarget resolved of
-      EntityGlobal global -> pure (globalNamePackage global, globalNameModule global)
-      _ -> Nothing
-
-definitionResolution :: Syn.Decl -> Maybe ResolutionAnnotation
-definitionResolution declaration =
-  case peelDeclAnn declaration of
-    Syn.DeclValue (Syn.FunctionBind name _) -> nameResolution name
-    Syn.DeclValue (Syn.PatternBind _ pattern' _) -> patternResolution pattern'
-    Syn.DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    Syn.DeclTypeSyn synonymDeclaration -> nameResolution (binderHeadName (typeSynHead synonymDeclaration))
-    Syn.DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (Syn.newtypeDeclHead newtypeDeclaration))
-    Syn.DeclClass classDeclaration -> nameResolution (binderHeadName (Syn.classDeclHead classDeclaration))
-    Syn.DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (Syn.dataFamilyDeclHead familyDeclaration))
-    Syn.DeclTypeFamilyDecl familyDeclaration -> familyHeadResolution (typeFamilyDeclHead familyDeclaration)
-    Syn.DeclForeign foreignDecl -> nameResolution (Syn.foreignName foreignDecl)
-    Syn.DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    Syn.DeclPatSyn patSynDeclaration -> nameResolution (Syn.patSynDeclName patSynDeclaration)
-    Syn.DeclTypeSig names _ -> listToMaybe (mapMaybe nameResolution names)
-    _ -> Nothing
-
-patternResolution :: Syn.Pattern -> Maybe ResolutionAnnotation
-patternResolution pattern' =
-  case pattern' of
-    Syn.PVar name -> nameResolution name
-    Syn.PAnn _ inner -> patternResolution inner
-    Syn.PParen inner -> patternResolution inner
-    Syn.PStrict inner -> patternResolution inner
-    Syn.PIrrefutable inner -> patternResolution inner
-    Syn.PAs name _ -> nameResolution name
-    Syn.PTypeSig inner _ -> patternResolution inner
-    _ -> Nothing
-
-nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
-nameResolution = binderResolution
-
--- | The resolution of the name at the head of a type family declaration.
-familyHeadResolution :: Syn.Type -> Maybe ResolutionAnnotation
-familyHeadResolution ty =
-  case Syn.peelTypeHead ty of
-    Syn.TCon name _ -> Resolve.nameResolution name
-    Syn.TInfix _ name _ _ -> Resolve.nameResolution name
-    Syn.TApp function _ -> familyHeadResolution function
-    Syn.TTypeApp function _ -> familyHeadResolution function
-    _ -> Nothing
+resolvedModuleOrigin checked =
+  fromMaybe ("", fromMaybe "Main" (Syn.moduleName checked)) $
+    listToMaybe
+      [ (package, moduleName')
+      | TcModuleIdentity package moduleName' <- mapMaybe fromAnnotation (Syn.moduleAnns checked)
+      ]
