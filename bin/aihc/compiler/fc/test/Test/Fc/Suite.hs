@@ -9,6 +9,7 @@ module Test.Fc.Suite
 where
 
 import Aihc.Fc (LintError (..), Program, decodeProgram, encodeProgram, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader, writeProgramFile)
+import Aihc.Resolve (PackageId (..))
 import Control.Exception (IOException, try)
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
@@ -21,6 +22,10 @@ import System.Directory (createDirectoryIfMissing, doesDirectoryExist, getTempor
 import System.FilePath (takeExtension, takeFileName, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+
+-- | The identity of the primitive package that the lint fixtures use.
+primPackage :: PackageId
+primPackage = PackageId "aihc-prim"
 
 fixtureRoot :: FilePath
 fixtureRoot = "compiler/fc/test/Test/Fixtures/fc"
@@ -76,7 +81,7 @@ lintFileTests label expectPass dir = do
 lintFileTest :: Bool -> FilePath -> TestTree
 lintFileTest expectPass path = testCase path $ do
   program <- loadFcProgram path
-  let errors = lintProgram program
+  let errors = lintProgram primPackage program
   if expectPass
     then assertEqual (path <> " lint errors") [] errors
     else assertBool (path <> " expected lint errors") (matchesFail path errors)
@@ -90,7 +95,7 @@ mutualLintTests dir = do
         [ testCase "each file passes lint" $ do
             programs <- mapM loadFcProgram files
             mapM_
-              (assertEqual "single-file lint errors" [] . lintProgram)
+              (assertEqual "single-file lint errors" [] . lintProgram primPackage)
               programs,
           scopeLoaderTest dir
         ]
@@ -111,7 +116,7 @@ scopeLoaderTest fixtureDirectory = testCase "loadScopeClosure loads a scoped mod
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)
-  assertEqual "seed lint errors" [] (lintProgram seed)
+  assertEqual "seed lint errors" [] (lintProgram primPackage seed)
 
 ignoreMissing :: IO () -> IO ()
 ignoreMissing action = do

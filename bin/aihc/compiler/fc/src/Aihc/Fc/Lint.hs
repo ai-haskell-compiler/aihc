@@ -55,17 +55,14 @@ data LintError
 
 type ModuleLoader = PackageId -> Text -> IO (Maybe Program)
 
-lintProgram :: Program -> [LintError]
-lintProgram program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> [LintFailure "program needs a GHC.Types scope"]
-    Just primPackage ->
-      let typeEnv = typeEnvFromProgram primPackage program
-          env = typeEnv {teEvaluated = topLevelValues typeEnv program}
-       in map UnusedImport (unusedImports program)
-            <> lintImportDeclarations env (programImports program)
-            <> concatMap (lintDeclHeaders env) (programDecls program)
-            <> concatMap (lintDeclBodies env) (programDecls program)
+lintProgram :: PackageId -> Program -> [LintError]
+lintProgram primPackage program =
+  let typeEnv = typeEnvFromProgram primPackage program
+      env = typeEnv {teEvaluated = topLevelValues typeEnv program}
+   in map UnusedImport (unusedImports program)
+        <> lintImportDeclarations env (programImports program)
+        <> concatMap (lintDeclHeaders env) (programDecls program)
+        <> concatMap (lintDeclBodies env) (programDecls program)
 
 -- | The values of a program whose body is in weak-head normal form. A
 -- value that is a function or a constructor application is never a thunk.

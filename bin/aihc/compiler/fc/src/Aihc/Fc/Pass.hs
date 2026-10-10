@@ -29,6 +29,7 @@ import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram)
 import Aihc.Fc.Syntax (Program)
 import Aihc.Fc.WorkerWrapper (SplitScope (..), WorkerWrapperReport (..), workerWrapperProgram)
+import Aihc.Resolve (PackageId)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -104,36 +105,36 @@ passName pass =
 
 -- | Run one pass. The roots are the values the program must keep, or
 -- 'Nothing' to keep every public value.
-runPass :: Maybe [Name] -> Pass -> Program -> (Program, PassReport)
-runPass roots pass program =
+runPass :: PackageId -> Maybe [Name] -> Pass -> Program -> (Program, PassReport)
+runPass primPackage roots pass program =
   case pass of
     PassLiftConstants ->
-      let (lifted, constants, sites) = liftConstants program
+      let (lifted, constants, sites) = liftConstants primPackage program
        in ( lifted,
             PassReport
               { reportPass = passName pass,
-                reportBefore = programSize program,
-                reportAfter = programSize lifted,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage lifted,
                 reportDetail = count constants "constants" <> ", " <> count sites "sites"
               }
           )
     PassDemand rewrites ->
-      let (rewritten, report) = demandProgram rewrites program
+      let (rewritten, report) = demandProgram primPackage rewrites program
        in ( rewritten,
             PassReport
               { reportPass = passName pass,
-                reportBefore = programSize program,
-                reportAfter = programSize rewritten,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage rewritten,
                 reportDetail = count (reportStrictValues report) "strict values" <> ", " <> count (reportStrictLets report) "strict lets" <> ", " <> count (reportStrictArguments report) "strict arguments"
               }
           )
     PassWorkerWrapper scope ->
-      let (split, report) = workerWrapperProgram scope program
+      let (split, report) = workerWrapperProgram primPackage scope program
        in ( split,
             PassReport
               { reportPass = passName pass,
-                reportBefore = programSize program,
-                reportAfter = programSize split,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage split,
                 reportDetail = count (reportWorkers report) "workers" <> ", " <> count (reportUnboxedParameters report) "unboxed parameters" <> ", " <> count (reportConstructedResults report) "constructed results"
               }
           )
@@ -142,34 +143,34 @@ runPass roots pass program =
        in ( specialised,
             PassReport
               { reportPass = passName pass,
-                reportBefore = programSize program,
-                reportAfter = programSize specialised,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage specialised,
                 reportDetail = count (reportSpecialisedBindings report) "bindings" <> ", " <> count (reportCopies report) "copies" <> ", " <> count (reportRewrittenCalls report) "calls"
               }
           )
     PassCallPatterns phase siteLimit ->
-      let (specialised, report) = callPatternProgram phase siteLimit program
+      let (specialised, report) = callPatternProgram primPackage phase siteLimit program
        in ( specialised,
             PassReport
               { reportPass = passName pass,
-                reportBefore = programSize program,
-                reportAfter = programSize specialised,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage specialised,
                 reportDetail = count (reportCallPatternLoops report) "loops" <> ", " <> count (reportCallPatternCalls report) "calls" <> ", " <> count (reportCallPatternRounds report) "rounds"
               }
           )
     PassEtaExpand ->
-      let (expanded, report) = etaExpandProgram program
+      let (expanded, report) = etaExpandProgram primPackage program
        in ( expanded,
             PassReport
               { reportPass = passName pass,
-                reportBefore = programSize program,
-                reportAfter = programSize expanded,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage expanded,
                 reportDetail = count (reportExpandedValues report) "values" <> ", " <> count (reportExpandedLocals report) "locals" <> ", " <> count (reportAddedLambdas report) "lambdas added"
               }
           )
     PassInline policy rounds phase ->
       let config = InlineConfig {inlinePolicy = policy, inlineRoots = roots, inlineRounds = rounds, inlinePhase = phase}
-          (inlined, report) = inlineProgram config program
+          (inlined, report) = inlineProgram primPackage config program
        in ( inlined,
             PassReport
               { reportPass = passName pass,
@@ -179,7 +180,7 @@ runPass roots pass program =
               }
           )
     PassSimplify phase ->
-      let (simplified, report) = simplifyProgram phase 0 program
+      let (simplified, report) = simplifyProgram primPackage phase 0 program
        in ( simplified,
             PassReport
               { reportPass = passName pass,
@@ -192,11 +193,11 @@ runPass roots pass program =
     count n what = T.pack (show n) <> " " <> what
 
 -- | Run the passes in order, and collect the report of each.
-runPasses :: Maybe [Name] -> [Pass] -> Program -> (Program, [PassReport])
-runPasses roots passes program0 =
+runPasses :: PackageId -> Maybe [Name] -> [Pass] -> Program -> (Program, [PassReport])
+runPasses primPackage roots passes program0 =
   let (final, reports) = List.foldl' step (program0, []) passes
    in (final, reverse reports)
   where
     step (program, reports) pass =
-      let (program', report) = runPass roots pass program
+      let (program', report) = runPass primPackage roots pass program
        in (program', report : reports)

@@ -98,7 +98,8 @@ import Aihc.Fc.Size (isLiftedType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, typeEnvFromProgram, viewForAll, viewFun)
-import Aihc.Fc.Wired (primPackageFromScopes, wiredGhcTypes)
+import Aihc.Fc.Wired (wiredGhcTypes)
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, zipWithM)
@@ -136,39 +137,36 @@ data SplitScope
 -- | Split every function in the scope that has a parameter with a
 -- 'StrictProduct' demand, or a constructed product result, into a worker
 -- and a wrapper.
-workerWrapperProgram :: SplitScope -> Program -> (Program, WorkerWrapperReport)
-workerWrapperProgram scope program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, WorkerWrapperReport 0 0 0)
-    Just primPackage ->
-      let types = typeEnvFromProgram primPackage program
-          decls = programDecls program
-          signatures = topLevelSignatures types decls
-          excluded = mutuallyRecursive decls <> ruleNames decls
-          taken = Set.fromList [valName declaration | DeclVal declaration <- decls]
-          called = calledValues decls
-          step (supply, report) decl =
-            case decl of
-              DeclVal original ->
-                let ((body, local), supply') = runState (splitLocals types signatures (valBody original)) supply
-                    declaration = original {valBody = body}
-                    report' = addReports report local
-                 in case splitTopLevel supply' declaration of
-                      Just ((supply'', split), decls') -> ((supply'', addReports report' split), decls')
-                      Nothing -> ((supply', report'), [DeclVal declaration])
-              _ -> ((supply, report), [decl])
-          splitTopLevel supply declaration = do
-            guard (splitsTopLevel scope called declaration)
-            guard (Set.notMember (valName declaration) excluded)
-            signature <- Map.lookup (valName declaration) signatures
-            let workerName = (valName declaration) {nameText = "$w" <> nameText (valName declaration)}
-            guard (Set.notMember workerName taken)
-            case runState (splitValue types workerName (signatureDemands signature) declaration) supply of
-              (Just (wrapper, worker, unboxed, constructed), supply') ->
-                Just ((supply', WorkerWrapperReport 1 unboxed (if constructed then 1 else 0)), [DeclVal wrapper, DeclVal worker])
-              (Nothing, _) -> Nothing
-          ((_, final), splits) = List.mapAccumL step (maxLocalUnique program + 1, WorkerWrapperReport 0 0 0) decls
-       in (tidyProgram (pruneImports program {programDecls = concat splits}), final)
+workerWrapperProgram :: PackageId -> SplitScope -> Program -> (Program, WorkerWrapperReport)
+workerWrapperProgram primPackage scope program =
+  let types = typeEnvFromProgram primPackage program
+      decls = programDecls program
+      signatures = topLevelSignatures types decls
+      excluded = mutuallyRecursive decls <> ruleNames decls
+      taken = Set.fromList [valName declaration | DeclVal declaration <- decls]
+      called = calledValues decls
+      step (supply, report) decl =
+        case decl of
+          DeclVal original ->
+            let ((body, local), supply') = runState (splitLocals types signatures (valBody original)) supply
+                declaration = original {valBody = body}
+                report' = addReports report local
+             in case splitTopLevel supply' declaration of
+                  Just ((supply'', split), decls') -> ((supply'', addReports report' split), decls')
+                  Nothing -> ((supply', report'), [DeclVal declaration])
+          _ -> ((supply, report), [decl])
+      splitTopLevel supply declaration = do
+        guard (splitsTopLevel scope called declaration)
+        guard (Set.notMember (valName declaration) excluded)
+        signature <- Map.lookup (valName declaration) signatures
+        let workerName = (valName declaration) {nameText = "$w" <> nameText (valName declaration)}
+        guard (Set.notMember workerName taken)
+        case runState (splitValue types workerName (signatureDemands signature) declaration) supply of
+          (Just (wrapper, worker, unboxed, constructed), supply') ->
+            Just ((supply', WorkerWrapperReport 1 unboxed (if constructed then 1 else 0)), [DeclVal wrapper, DeclVal worker])
+          (Nothing, _) -> Nothing
+      ((_, final), splits) = List.mapAccumL step (maxLocalUnique program + 1, WorkerWrapperReport 0 0 0) decls
+   in (tidyProgram (pruneImports program {programDecls = concat splits}), final)
 
 addReports :: WorkerWrapperReport -> WorkerWrapperReport -> WorkerWrapperReport
 addReports a b =

@@ -324,7 +324,7 @@ checkGcFixture path = do
 loadGrinEvalEnvironment :: IO GrinEvalEnvironment
 loadGrinEvalEnvironment = do
   frontend <- EvalFixture.loadEvalEnvironment
-  case lowerProgram (EvalFixture.evalEnvironmentProgram frontend) of
+  case lowerProgram (PackageId "aihc-prim") (EvalFixture.evalEnvironmentProgram frontend) of
     Left problem -> fail ("core library GRIN lower error: " <> problem)
     Right grinProgram ->
       case lintProgram grinProgram of
@@ -381,7 +381,7 @@ evaluateGrin mode environment output name program =
         WholeProgramPointsTo -> evaluateWhole prepared unwrapResult
   where
     evaluateSeparate prepared unwrapResult =
-      case lowerProgram prepared of
+      case lowerProgram (PackageId "aihc-prim") prepared of
         Left problem -> pure (Left (EvalFixture.EvaluationError problem))
         Right fixtureProgram ->
           case lintProgram fixtureProgram of
@@ -391,12 +391,12 @@ evaluateGrin mode environment output name program =
     -- that is not whole-program. Pruning would otherwise hide an error in a
     -- declaration that the binding does not use.
     evaluateWhole prepared unwrapResult =
-      case ([Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls prepared, Fc.nameText (Fc.valName declaration) == name], lowerProgram prepared) of
+      case ([Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls prepared, Fc.nameText (Fc.valName declaration) == name], lowerProgram (PackageId "aihc-prim") prepared) of
         (_, Left problem) -> pure (Left (EvalFixture.EvaluationError problem))
         (root : _, Right _) -> do
           let merged = Fc.pruneProgram [root] (Fc.mergePrograms [EvalFixture.evalEnvironmentProgram (grinEvalFrontend environment), prepared])
-              (lifted, _) = Fc.runPasses (Just [root]) [Fc.PassLiftConstants] merged
-          case lowerProgram lifted of
+              (lifted, _) = Fc.runPasses (PackageId "aihc-prim") (Just [root]) [Fc.PassLiftConstants] merged
+          case lowerProgram (PackageId "aihc-prim") lifted of
             Left problem -> pure (Left (EvalFixture.EvaluationError problem))
             Right lowered -> do
               let binding = bindingName name lowered

@@ -38,8 +38,8 @@ moduleCorePath target root name = outputFcPath (moduleOutputPaths root target na
 --
 -- The object follows the System FC files and the backend options. A build
 -- whose inputs are the ones the object was built from reuses it.
-compileLtoProgram :: ModuleCompileConfig -> FilePath -> [FilePath] -> IO FilePath
-compileLtoProgram config buildRoot corePaths = do
+compileLtoProgram :: PackageId -> ModuleCompileConfig -> FilePath -> [FilePath] -> IO FilePath
+compileLtoProgram primPackage config buildRoot corePaths = do
   let verbose = compileVerbose config
       paths = moduleOutputPaths (buildRoot </> "lto") (compileTarget config) "program"
       object = outputObjectPath paths
@@ -70,14 +70,14 @@ compileLtoProgram config buildRoot corePaths = do
       verbose ("Merge System FC: " <> show (length programs) <> " modules, " <> show (length (Fc.programDecls merged)) <> " reachable declarations")
       -- The whole program is known here, so the inliner keeps only the
       -- entry and what it reaches.
-      optimized <- optimizeFcProgram config verbose (Just [entryName]) "program" merged
+      optimized <- optimizeFcProgram primPackage config verbose (Just [entryName]) "program" merged
       -- Inlining drops the values that its copies made dead, and with them
       -- the last reference to a type or a constructor. Prune again, so that
       -- those constructors emit no info table.
       let pruned = Fc.pruneProgram [entryName] optimized
       verbose ("Prune System FC: " <> show (length (Fc.programDecls optimized)) <> " -> " <> show (length (Fc.programDecls pruned)) <> " declarations")
       when (compileLint config) $ do
-        let errors = Fc.lintProgram pruned
+        let errors = Fc.lintProgram primPackage pruned
         unless (null errors) (ioError (userError ("FC lint failed after pruning the program:\n" <> unlines (map (("    " <>) . show) errors))))
       createDirectoryIfMissing True (takeDirectory object)
       -- The merged program is what the backend compiles, so it is the
@@ -85,7 +85,7 @@ compileLtoProgram config buildRoot corePaths = do
       when keepCore $ do
         Fc.writeProgramFile corePath pruned
         verbose "Write FC: program"
-      _ <- compileFcModules config {compileProfileUnit = compileProfileAllocations config} verbose (const paths) [FcModule "program" pruned]
+      _ <- compileFcModules primPackage config {compileProfileUnit = compileProfileAllocations config} verbose (const paths) [FcModule "program" pruned]
       writeFile stampPath current
   pure object
 

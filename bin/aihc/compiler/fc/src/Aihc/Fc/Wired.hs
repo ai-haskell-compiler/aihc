@@ -12,14 +12,12 @@ module Aihc.Fc.Wired
     unliftedRepName,
     equalityRep,
     ghcTypesModule,
-    primPackageFromScopes,
   )
 where
 
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..))
-import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 
 ghcTypesModule :: Text
@@ -65,12 +63,3 @@ liftedRepName package =
 unliftedRepName :: PackageId -> Name
 unliftedRepName package =
   wiredGhcTypes package "UnliftedRep" SortSynonym
-
--- | The package identity of the GHC.Types scope, if the table has one.
-primPackageFromScopes :: ScopeTable -> Maybe PackageId
-primPackageFromScopes table =
-  listToMaybe
-    [ package
-    | (_, package, moduleName) <- scopeEntries table,
-      moduleName == ghcTypesModule
-    ]

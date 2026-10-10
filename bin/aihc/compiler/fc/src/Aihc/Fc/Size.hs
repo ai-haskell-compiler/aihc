@@ -25,21 +25,20 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv, extendBinder, reduceType, repOf, typeEnvFromProgram)
-import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Resolve (PackageId (..))
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 
 -- | The size of a program: the sum of the sizes of its value bodies, plus
 -- one for each value.
-programSize :: Program -> Int
-programSize program =
+programSize :: PackageId -> Program -> Int
+programSize primPackage program =
   sum [1 + exprSize env (valBody declaration) | DeclVal declaration <- programDecls program]
   where
-    env = typeEnvFromProgram (fromMaybe (PackageId "aihc-prim") (primPackageFromScopes (programScopes program))) program
+    env = typeEnvFromProgram primPackage program
 
 -- | The number of nodes of an expression that reach the lowered code. A
 -- type, a coercion, and a type application have no size.

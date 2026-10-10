@@ -14,6 +14,7 @@ import Aihc.Lir.Interpret (Value (..), renderValues)
 import Aihc.Lir.Lower (defaultModuleSettings, lowerEntry, lowerModule, wasip3Target)
 import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
 import Aihc.Parser.Syntax (Extension (MagicHash, UnboxedTuples))
+import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive, runtimeSourceRoot, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
@@ -370,7 +371,7 @@ callbackSourceTest tools directory name = testCase name $ do
   fc <- case programs of
     [one] -> pure one
     _ -> assertFailure "a callback fixture requires one module"
-  program <- either assertFailure pure (Grin.lowerProgram fc)
+  program <- either assertFailure pure (Grin.lowerProgram (PackageId "aihc-prim") fc)
   let mainName = grinScopedName "" "Test" "main"
       linked = program {grinGlobals = [global {grinGlobalName = if grinGlobalName global == mainName then "main" else grinGlobalName global} | global <- grinGlobals program]}
   programTestWith tools "*" (isJust (Source.snapshotFixtureError fixture)) True (fromMaybe "" (Source.snapshotFixtureCSource fixture)) linked

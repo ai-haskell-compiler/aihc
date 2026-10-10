@@ -328,11 +328,11 @@ renderFcCase tc =
     -- them, and the passes of the fixture run on it in order with every
     -- public value as a root.
     lintAndRenderOptimized programs =
-      let inlined = fst (runPasses Nothing (casePasses tc) (mergePrograms programs))
+      let inlined = fst (runPasses (packageId primitivePackage) Nothing (casePasses tc) (mergePrograms programs))
        in case renderResult inlined of
             Left renderError -> Left renderError
             Right rendered ->
-              case (caseLint tc, lintProgram inlined) of
+              case (caseLint tc, lintProgram (packageId primitivePackage) inlined) of
                 (LintPass, []) -> Right rendered
                 (LintPass, lintErrors) -> Left (lintReport lintErrors rendered)
                 (LintXFail, []) -> Left ("System FC lint now accepts this program; drop the lint: xfail key.\nreason was: " <> caseReason tc <> "\nSystem FC output:\n" <> rendered)
@@ -341,7 +341,7 @@ renderFcCase tc =
       case renderResults fixtureResults of
         Left renderError -> Left renderError
         Right rendered ->
-          case (caseLint tc, concatMap (lintProgram . dsProgram) fixtureResults) of
+          case (caseLint tc, concatMap (lintProgram (packageId primitivePackage) . dsProgram) fixtureResults) of
             (LintPass, []) -> Right rendered
             (LintPass, lintErrors) -> Left (lintReport lintErrors rendered)
             -- The Core is pinned even though the lint rejects it. When the

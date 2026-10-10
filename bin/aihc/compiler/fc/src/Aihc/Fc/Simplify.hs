@@ -81,7 +81,8 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), caseResultType, coercionEndpoints, exprType, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, typeHead, viewForAll, viewFun)
 import Aihc.Fc.Views (Arg, castedSpine, collectSpine, exprValueNames, isConstructorName, maxLocalUnique)
-import Aihc.Fc.Wired (primPackageFromScopes, wiredGhcTypes)
+import Aihc.Fc.Wired (wiredGhcTypes)
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM)
@@ -118,51 +119,48 @@ data SimplifyReport = SimplifyReport
 -- This is the pass that runs after the eta expansion that follows the
 -- inliner, which wraps a value in a lambda that applies the old body to
 -- the new parameter, under the casts of a newtype it unfolded.
-simplifyProgram :: Int -> Int -> Program -> (Program, SimplifyReport)
-simplifyProgram phase siteLimit program =
-  case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, SimplifyReport size0 size0 0)
-    Just primPackage ->
-      let env = typeEnvFromProgram primPackage program
-          bodies = Map.fromList [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]
-          arities = Map.map functionArity bodies
-          simpl =
-            Simpl
-              { spEnv = env,
-                spInline = Map.empty,
-                spKnown = Map.filter (isKnownConstructor arities) bodies,
-                spArity = arities,
-                spLocals = Map.empty,
-                spExcluded = Map.empty,
-                spCse = Map.empty,
-                spEvaluated = Set.empty,
-                spDone = Map.empty,
-                spSiteLimit = siteLimit,
-                spRequestedSiteLimit = 0,
-                spReducingSiteLimit = 0,
-                spDiscount = 0,
-                spRules = ruleTable phase (programDecls program),
-                spSignatures = topLevelSignatures env (programDecls program),
-                spCredit = 0,
-                spInside = False,
-                spCredits = Map.empty,
-                spSpeculative = False,
-                spCaseContext = Nothing,
-                spLocalCandidates = Map.empty
-              }
-          escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
-          callArities = topCallArities escaping (Map.elems bodies)
-          simplifyDecl decl =
-            case decl of
-              DeclVal declaration ->
-                let credit = Map.findWithDefault 0 (valName declaration) callArities
-                 in (\body -> DeclVal declaration {valBody = body}) <$> simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration)
-              _ -> pure decl
-          (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
-          result = tidyProgram (pruneImports program {programDecls = decls})
-       in (result, SimplifyReport size0 (programSize result) (ssRulesFired final))
+simplifyProgram :: PackageId -> Int -> Int -> Program -> (Program, SimplifyReport)
+simplifyProgram primPackage phase siteLimit program =
+  let env = typeEnvFromProgram primPackage program
+      bodies = Map.fromList [(valName declaration, valBody declaration) | DeclVal declaration <- programDecls program]
+      arities = Map.map functionArity bodies
+      simpl =
+        Simpl
+          { spEnv = env,
+            spInline = Map.empty,
+            spKnown = Map.filter (isKnownConstructor arities) bodies,
+            spArity = arities,
+            spLocals = Map.empty,
+            spExcluded = Map.empty,
+            spCse = Map.empty,
+            spEvaluated = Set.empty,
+            spDone = Map.empty,
+            spSiteLimit = siteLimit,
+            spRequestedSiteLimit = 0,
+            spReducingSiteLimit = 0,
+            spDiscount = 0,
+            spRules = ruleTable phase (programDecls program),
+            spSignatures = topLevelSignatures env (programDecls program),
+            spCredit = 0,
+            spInside = False,
+            spCredits = Map.empty,
+            spSpeculative = False,
+            spCaseContext = Nothing,
+            spLocalCandidates = Map.empty
+          }
+      escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
+      callArities = topCallArities escaping (Map.elems bodies)
+      simplifyDecl decl =
+        case decl of
+          DeclVal declaration ->
+            let credit = Map.findWithDefault 0 (valName declaration) callArities
+             in (\body -> DeclVal declaration {valBody = body}) <$> simplifyExpr (bodyEnv simpl credit (valBody declaration)) (valBody declaration)
+          _ -> pure decl
+      (decls, final) = runState (mapM simplifyDecl (programDecls program)) (initialSimplState (maxLocalUnique program + 1) 0)
+      result = tidyProgram (pruneImports program {programDecls = decls})
+   in (result, SimplifyReport size0 (programSize primPackage result) (ssRulesFired final))
   where
-    size0 = programSize program
+    size0 = programSize primPackage program
 
 -- * Views of expressions
 
