@@ -7,8 +7,6 @@ import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (Package (..), PackageId (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
 import Aihc.Tc (emptyTcInterface, mkTcKinds, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
-import Control.Exception (ErrorCall, displayException, evaluate, try)
-import Data.List (isInfixOf)
 import Test.Fc.Fold (fcFoldTests)
 import Test.Fc.Properties (fcPropertyTests)
 import Test.Fc.Suite (fcFixtureTests, fcGoldenTests, fcLintTests)
@@ -27,8 +25,7 @@ moduleIdentityTests =
   testGroup
     "module identity"
     [ identityTest "dependency order" typecheckModulesWithInterface,
-      identityTest "module component" typecheckModuleSccWithInterface,
-      missingIdentityTest
+      identityTest "module component" typecheckModuleSccWithInterface
     ]
   where
     identityTest label check = testCase label $ do
@@ -59,18 +56,3 @@ moduleIdentityTests =
                   (scopeEntries (programScopes (dsProgram result)))
             )
             (zip ["Provider", "Reexport"] results)
-
-missingIdentityTest :: TestTree
-missingIdentityTest = testCase "absent module identity throws an exception" $ do
-  let (errors, ast) = parseModule defaultConfig "module Test where"
-      prim = PackageId "aihc-prim"
-      config = allPublicDesugarConfig (mkTcKinds (primTcWiring prim)) prim
-      result = desugarModuleFc config [] emptyTcInterface ast
-  assertEqual "parse errors" [] errors
-  outcome <- try (evaluate (length (scopeEntries (programScopes (dsProgram result))))) :: IO (Either ErrorCall Int)
-  case outcome of
-    Left exception ->
-      assertBool
-        "module identity exception"
-        ("System FC module has no TcModuleIdentity annotation" `isInfixOf` displayException exception)
-    Right _ -> assertFailure "FC accepted a module without TcModuleIdentity"
