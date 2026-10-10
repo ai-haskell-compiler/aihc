@@ -51,16 +51,25 @@
 -- under them, so the wrapper evaluates nothing before the action runs.
 --
 -- The pass does not split a top-level function in a recursive group of
--- more than one value, a function with an inline pragma, a function that a
--- rewrite rule names, or a function whose lambdas are not type lambdas
+-- more than one value, a function with an @INLINABLE@ or @NOINLINE@
+-- pragma, an @INLINE@ function in the first run (see the late run below),
+-- a function that a rewrite rule names, or a function whose lambdas are not type lambdas
 -- followed by value lambdas, with value lambdas under one cast after them.
 --
--- The pass can also split the local functions alone. The growing inliner
--- makes new local loops when it copies a fused list producer into its
--- consumer, and a second split after it removes the boxes from their
--- parameters. A local split needs no inliner, but a top-level wrapper
--- that no inliner copies is only one more call, so that run leaves the
--- top-level functions as they are.
+-- The late run after the growing inliner splits the local functions, and
+-- the top-level @INLINE@ functions that another value still calls. The
+-- growing inliner makes new local loops when it copies a fused list
+-- producer into its consumer, and the late split removes the boxes from
+-- their parameters. A local split needs no inliner. The growing inliner
+-- copies a large @INLINE@ value only where its site policy finds the copy
+-- useful, so a call of such a value can stay a call with boxed arguments.
+-- Before the growing inliner, its body often still calls the methods
+-- that take its parameters apart, so the first run finds no product
+-- demand in it. The late run splits it, and the round of the inliner in
+-- phase 0 that follows copies the wrapper at the calls. The worker keeps
+-- the pragma of the function, so the inliner decides each copy of the
+-- worker as it decided each copy of the function. The late run leaves
+-- the other top-level functions as they are.
 module Aihc.Fc.WorkerWrapper
   ( SplitScope (..),
     WorkerWrapperReport (..),
@@ -112,8 +121,9 @@ data WorkerWrapperReport = WorkerWrapperReport
 data SplitScope
   = -- | The top-level functions and the local recursive functions.
     SplitAllFunctions
-  | -- | The local recursive functions only.
-    SplitLocalFunctions
+  | -- | The local recursive functions, and the top-level functions with an
+    -- @INLINE@ pragma that another value still calls.
+    SplitLateFunctions
   deriving (Eq, Show)
 
 -- | Split every function in the scope that has a parameter with a
@@ -129,6 +139,7 @@ workerWrapperProgram scope program =
           signatures = topLevelSignatures types decls
           excluded = mutuallyRecursive decls <> ruleNames decls
           taken = Set.fromList [valName declaration | DeclVal declaration <- decls]
+          called = calledValues decls
           step (supply, report) decl =
             case decl of
               DeclVal original ->
@@ -140,8 +151,7 @@ workerWrapperProgram scope program =
                       Nothing -> ((supply', report'), [DeclVal declaration])
               _ -> ((supply, report), [decl])
           splitTopLevel supply declaration = do
-            guard (scope == SplitAllFunctions)
-            guard (valInline declaration == InlineDefault)
+            guard (splitsTopLevel scope called declaration)
             guard (Set.notMember (valName declaration) excluded)
             signature <- Map.lookup (valName declaration) signatures
             let workerName = (valName declaration) {nameText = "$w" <> nameText (valName declaration)}
@@ -256,6 +266,24 @@ mutuallyRecursive decls =
       | declaration <- declarations
       ]
 
+-- | Whether the scope splits a top-level function. The first run splits
+-- the functions without a pragma. The late run splits the functions with
+-- an @INLINE@ pragma that another value still calls: the growing inliner
+-- did not copy such a large value at those calls, and the round of the
+-- inliner that follows copies the small wrapper there. Neither run splits
+-- an @INLINABLE@ or a @NOINLINE@ function.
+splitsTopLevel :: SplitScope -> Set Name -> ValDecl -> Bool
+splitsTopLevel scope called declaration =
+  case (scope, valInline declaration) of
+    (SplitAllFunctions, InlineDefault) -> True
+    (SplitLateFunctions, InlineAlways _) -> Set.member (valName declaration) called
+    _ -> False
+
+-- | The values that the body of another value names.
+calledValues :: [Decl] -> Set Name
+calledValues decls =
+  Set.unions [Set.delete (valName declaration) (exprValueNames (valBody declaration)) | DeclVal declaration <- decls]
+
 -- | The values that a rewrite rule names.
 ruleNames :: [Decl] -> Set Name
 ruleNames decls = Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- decls]
@@ -297,7 +325,7 @@ splitValue types workerName demands declaration = do
                 valName = workerName,
                 valType = splitWorkerType split,
                 valBody = splitWorker split,
-                valInline = InlineDefault
+                valInline = valInline declaration
               }
        in Just (declaration {valBody = splitWrapper split, valInline = InlineAlways AlwaysActive}, worker, splitUnboxed split, splitConstructed split)
 

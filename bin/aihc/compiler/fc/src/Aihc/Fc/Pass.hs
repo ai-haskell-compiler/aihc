@@ -94,7 +94,7 @@ passName pass =
     PassDemand StrictLetsOnly -> "demand"
     PassDemand StrictLetsAndArguments -> "demand arguments"
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
-    PassWorkerWrapper SplitLocalFunctions -> "worker/wrapper locals"
+    PassWorkerWrapper SplitLateFunctions -> "worker/wrapper late"
     PassSpecialise -> "specialise"
     PassCallPatterns phase -> "call patterns [" <> T.pack (show phase) <> "]"
     PassEtaExpand -> "eta expand"
