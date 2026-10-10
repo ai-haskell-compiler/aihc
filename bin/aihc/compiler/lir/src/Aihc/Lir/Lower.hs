@@ -1698,6 +1698,10 @@ reserveHeap ::
 reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   context <- currentContext
   fits <- case requiredWords of
+    -- A reservation of zero words is the safepoint before a frame push. It
+    -- fails when a stack growth put the heap limit below the heap pointer.
+    GrinLitValue (GrinLitInt _ 0) ->
+      emitValue "heap_fits" I1 (Compare LeU Ptr (contextHeap context) (contextHeapLimit context))
     -- A fixed size is small, so the end of the reservation cannot wrap, and
     -- the reservation fits when that end is not above the heap limit.
     GrinLitValue (GrinLitInt _ requested) -> do
@@ -1849,36 +1853,54 @@ isFrameNode env node =
 -- is not above the stack limit. Otherwise the runtime continues the stack in
 -- the next chunk, and the stack limit becomes the end of that chunk. Neither
 -- path collects, so no root moves, and neither path reads the machine copy
--- of the context. The caller writes the header and every field.
+-- of the context. The runtime charges a new young chunk to the nursery, so
+-- the heap limit can go down on the second path. The caller writes the
+-- header and every field.
 pushFrame :: Operand -> Int -> LowerM Typed
 pushFrame machine words' = do
   context <- currentContext
-  (frame, stack, stackLimit) <- pushStackFrame machine (contextStack context) (contextStackLimit context) words'
-  setContext context {contextStack = stack, contextStackLimit = stackLimit}
+  (frame, pushed) <- pushStackFrame machine context words'
+  setContext pushed
   pure (Typed frame Ptr)
 
--- | Push a frame on a stack with the given stack pointer and stack limit.
--- Give back the frame, the new stack pointer, and the new stack limit.
-pushStackFrame :: Operand -> Operand -> Operand -> Int -> LowerM (Operand, Operand, Operand)
-pushStackFrame machine stack stackLimit words' = do
+-- | Push a frame on a stack with the stack pointer, the stack limit, and the
+-- heap limit of the given context. Give back the frame and the context after
+-- the push.
+pushStackFrame :: Operand -> Context -> Int -> LowerM (Operand, Context)
+pushStackFrame machine context words' = do
+  target <- targetM
   let bytes = 8 * toInteger words'
+      stack = contextStack context
+      stackLimit = contextStackLimit context
+      heapLimit = contextHeapLimit context
   end <- emitValue "sp" Ptr (PtrAdd stack (OperandLiteral (LitInt bytes)))
   fits <- emitValue "stack_fits" I1 (Compare LeU Ptr (typedOperand end) stackLimit)
   growLabel <- freshLabel "stack_grow"
   pushedLabel <- freshLabel "stack_pushed"
-  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit]) (Target growLabel []))
+  terminate (Branch (typedOperand fits) (Target pushedLabel [stack, typedOperand end, stackLimit, heapLimit]) (Target growLabel []))
   beginColdBlock growLabel []
   grown <- callRuntime "aihc_stack_grow" [Ptr, Ptr, I64] [Ptr] [machine, stack, OperandLiteral (LitInt (toInteger words'))]
   grownEnd <- emitValue "sp" Ptr (PtrAdd grown (OperandLiteral (LitInt bytes)))
   -- The runtime gives the first frame of a chunk, so the rest of the chunk
   -- follows the frame.
   grownLimit <- emitValue "sp_limit" Ptr (PtrAdd grown (OperandLiteral (LitInt (stackChunkBytes - stackChunkHeaderBytes))))
-  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownLimit]))
+  -- Compiled code never stores the heap limit, so the machine copy is the
+  -- current limit.
+  grownHeapLimit <- emitValue "hp_limit" Ptr (Load Ptr (byteAddress machine (machineHeapLimitOffset target)) (wordAlignment 1))
+  terminate (Jump (Target pushedLabel [grown, typedOperand grownEnd, typedOperand grownLimit, typedOperand grownHeapLimit]))
   pushed <- fresh "frame"
   pushedStack <- fresh "sp"
   pushedLimit <- fresh "sp_limit"
-  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedLimit, Ptr)]
-  pure (OperandVar pushed, OperandVar pushedStack, OperandVar pushedLimit)
+  pushedHeapLimit <- fresh "hp_limit"
+  beginBlock pushedLabel [(pushed, Ptr), (pushedStack, Ptr), (pushedLimit, Ptr), (pushedHeapLimit, Ptr)]
+  pure
+    ( OperandVar pushed,
+      context
+        { contextStack = OperandVar pushedStack,
+          contextStackLimit = OperandVar pushedLimit,
+          contextHeapLimit = OperandVar pushedHeapLimit
+        }
+    )
 
 -- | An unsaturated constructor spends field zero on its applied count, so its
 -- payload starts one slot later than every other object's.
@@ -3547,13 +3569,12 @@ applyOverSaturated machine context function continuation header supplied held = 
   let heldTypes = map (map snd) held
       heldValues = concat held
   _ <- requireHelper (HelperApplyFrame heldTypes)
-  (frame, stack, stackLimit) <- pushStackFrame machine (contextStack context) (contextStackLimit context) (2 + length heldValues)
+  (frame, pushed) <- pushStackFrame machine context (2 + length heldValues)
   storeSlot Ptr (OperandLiteral (LitSymbol (applyFrameInfoSymbol heldTypes))) frame 0
   storeSlot Ptr continuation frame 8
   forM_ (zip [0 :: Int ..] heldValues) $ \(index, (var, ty)) ->
     storeSlot ty (OperandVar var) frame (toInteger (8 * (index + 2)))
   entry <- loadInfoCode "entry" header infoBackendEntryIndex
-  let pushed = context {contextStack = stack, contextStackLimit = stackLimit}
   terminate
     ( TailCallIndirect
         (typedOperand entry)

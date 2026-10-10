@@ -253,7 +253,8 @@ struct AihcMachine {
      loads it again. See aihc_stack_push. */
   uint8_t *stack_next;
   /* The nursery: heap_start is its first byte, heap_limit its end less the
-     charge of fixed allocations since the last collection. */
+     charge of fixed allocations and new young stack chunks since the last
+     collection. */
   uint8_t *heap_start;
   /* The info table of the frame at the bottom of each forked thread. Each
      thread gets its own copy of the frame on its own stack. */
@@ -324,7 +325,8 @@ struct AihcMachine {
   uint64_t gen1_max_bytes;
   uint64_t gen2_limit_bytes;
   uint64_t gen2_factor;
-  /* The bytes of fixed allocations since the last collection. */
+  /* The bytes of fixed allocations and of new young stack chunks since the
+     last collection. */
   uint64_t fixed_since_gc;
   uint64_t gc_minor_count;
   uint64_t gc_gen1_count;

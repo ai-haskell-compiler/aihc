@@ -63,8 +63,11 @@ Both branches use the same generated continuation function.
 The ready branch passes captures directly and creates no heap frame.
 The slow branch stores captures in the normal continuation frame.
 A continuation frame is on the thread stack and not in the managed heap.
-Thus the GC pass gives the store of a frame no heap reservation, and the backend pushes the frame.
-A push never collects.
+The backend pushes the frame, and the push itself never collects.
+But the runtime charges each new stack chunk to the nursery, because a minor collection scans each young chunk.
+Thus the GC pass gives the store of a frame a heap reservation of zero words.
+The normalization merges it with the other reservations, as it merges a store.
+A recursion that does not allocate then collects after about one nursery of stack growth.
 See "Thread stacks" in `docs/native-runtime-objects.md`.
 The runtime pushes an update frame on the stack when it enters a thunk.
 It protects the value and continuation before it allocates a blackhole waiter.

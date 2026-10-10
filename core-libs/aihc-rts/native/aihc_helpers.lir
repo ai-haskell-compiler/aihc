@@ -41,32 +41,14 @@ entry:
   return %limit
 }
 
-; Push a frame of the given words on the stack of the running thread. Give
-; back the frame, the new stack pointer, and the new stack limit. The caller
-; writes the header and every field. The frame fits in the current chunk
-; when the new stack pointer is not above the stack limit. Otherwise the
-; runtime continues the stack in the next chunk. Neither path collects.
-inline func @aihc_stack_push_frame(%sp: ptr, %sp_limit: ptr, %words: i64) -> (ptr, ptr, ptr) {
-entry:
-  %bytes = mul i64 %words, 8
-  %end = ptr.add %sp, %bytes
-  %fits = le.u ptr %end, %sp_limit
-  br %fits, fits, grow
-
-fits:
-  return %sp, %end, %sp_limit
-
-; The runtime gives the first frame of a chunk, so the rest of the chunk
-; follows the frame.
-cold grow:
-  %grown = call @aihc_stack_grow(@aihc_machine, %sp, %words)
-  %grown_end = ptr.add %grown, %bytes
-  %grown_limit = ptr.add %grown, @AIHC_STACK_CHUNK_FRAME_BYTES
-  return %grown, %grown_end, %grown_limit
-}
-
-; Only blackholes require a heap reservation. A thunk pushes its update
-; frame on the stack of the thread, which never collects.
+; A blackhole requires a heap reservation. A thunk pushes its update frame
+; on the stack of the thread. The push fits in the current chunk when the
+; new stack pointer is not above the stack limit. Otherwise the runtime
+; continues the stack in the next chunk and charges that chunk to the
+; nursery. When the charge uses the nursery, the evaluation collects and
+; starts again, because each minor collection scans the young chunks. A
+; chain of thunks that only evaluate other thunks thus pushes about one
+; nursery of stack between two collections.
 export func @aihc_lir_eval(%hp: ptr, %hp_limit: ptr, %sp: ptr, %sp_limit: ptr, %value: ptr, %continuation: ptr) {
 entry:
   %roots = stack.alloc 16 align 8
@@ -88,7 +70,42 @@ inspect:
   }
 
 thunk:
-  %update, %pushed_sp, %pushed_sp_limit = call @aihc_stack_push_frame(%sp, %sp_limit, @AIHC_UPDATE_FRAME_WORDS)
+  %update_end = ptr.add %sp, @AIHC_UPDATE_FRAME_BYTES
+  %update_fits = le.u ptr %update_end, %sp_limit
+  br %update_fits, push(%sp, %update_end, %sp_limit, %hp_limit), stack_grow
+
+; The runtime gives the first frame of a chunk, so the rest of the chunk
+; follows the frame. Compiled code never stores the heap limit, so the
+; machine copy is the current limit. The charge compares the limit with the
+; machine copy of the heap pointer, so that copy is stored first.
+cold stack_grow:
+  store ptr %hp, [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
+  %grown = call @aihc_stack_grow(@aihc_machine, %sp, @AIHC_UPDATE_FRAME_WORDS)
+  %grown_end = ptr.add %grown, @AIHC_UPDATE_FRAME_BYTES
+  %grown_sp_limit = ptr.add %grown, @AIHC_STACK_CHUNK_FRAME_BYTES
+  %grown_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
+  %heap_left = le.u ptr %hp, %grown_hp_limit
+  br %heap_left, push(%grown, %grown_end, %grown_sp_limit, %grown_hp_limit), stack_collect
+
+; The new chunk stays empty above the stack pointer, and the next push uses
+; it again.
+cold stack_collect:
+  store ptr %sp, [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
+  %thunk_word = ptr.to_int %current
+  store i64 %thunk_word, [%roots] align 8
+  %thunk_continuation_word = ptr.to_int %continuation
+  store i64 %thunk_continuation_word, [%roots + 8] align 8
+  ; The value and continuation carry the required static reference tables.
+  call @aihc_heap_collect(@aihc_machine, 0, 2, %roots, null)
+  %moved_thunk_word = load i64 [%roots] align 8
+  %moved_thunk = ptr.from_int %moved_thunk_word
+  %moved_thunk_continuation_word = load i64 [%roots + 8] align 8
+  %moved_thunk_continuation = ptr.from_int %moved_thunk_continuation_word
+  %collected_hp = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
+  %collected_hp_limit = load ptr [@aihc_machine + @AIHC_MACHINE_HEAP_LIMIT_OFFSET] align 1 word
+  tailcall @aihc_lir_eval(%collected_hp, %collected_hp_limit, %sp, %sp_limit, %moved_thunk, %moved_thunk_continuation)
+
+push(%update: ptr, %pushed_sp: ptr, %pushed_sp_limit: ptr, %pushed_hp_limit: ptr):
   %update_info_word = ptr.to_int @aihc_lir_cps_update_info
   store i64 %update_info_word, [%update] align 8
   %parent_word = ptr.to_int %continuation
@@ -99,7 +116,7 @@ thunk:
   %entry = call @aihc_info_entry(%header)
   %marked = or i64 %header_word, @AIHC_HEADER_EVALUATING
   store i64 %marked, [%current] align 8
-  tailcall.indirect %entry(%hp, %hp_limit, %pushed_sp, %pushed_sp_limit, %current, %update) : (ptr, ptr, ptr, ptr, ptr, ptr)
+  tailcall.indirect %entry(%hp, %pushed_hp_limit, %pushed_sp, %pushed_sp_limit, %current, %update) : (ptr, ptr, ptr, ptr, ptr, ptr)
 
 indirection:
   %next = call @aihc_indirection_target(%current)
@@ -110,10 +127,14 @@ indirection:
 blackhole:
   store ptr %hp, [@aihc_machine + @AIHC_MACHINE_HEAP_NEXT_OFFSET] align 1 word
   store ptr %sp, [@aihc_machine + @AIHC_MACHINE_STACK_NEXT_OFFSET] align 1 word
+  ; A charge of the runtime can put the heap limit below the heap pointer,
+  ; so the room is valid only when the limit is not below the pointer.
   %heap_word = ptr.to_int %hp
   %heap_end_word = ptr.to_int %hp_limit
+  %heap_below_limit = le.u i64 %heap_word, %heap_end_word
   %heap_room = sub i64 %heap_end_word, %heap_word
-  %heap_fits = ge.u i64 %heap_room, @AIHC_EVAL_WAITER_BYTES
+  %heap_enough = ge.u i64 %heap_room, @AIHC_EVAL_WAITER_BYTES
+  %heap_fits = and i1 %heap_below_limit, %heap_enough
   br %heap_fits, block(%current, %continuation), collect
 
 cold collect:

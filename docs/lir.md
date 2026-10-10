@@ -753,7 +753,11 @@ The lowering keeps the control model of CPS-GRIN:
   above `%sp_limit`. When it is above, `aihc_stack_grow` gives the first
   frame of the next chunk, and the new limit is the end of that chunk. The
   runtime function reads neither the heap nor the machine copy of the
-  context, so the push stores nothing in the machine.
+  context, so the push stores nothing in the machine. The runtime charges
+  the new chunk to the nursery and can lower the heap limit, so the push
+  loads `%hp_limit` again after the call. The new limit can be below `%hp`,
+  and the next reservation then collects. The GC pass puts a reservation
+  of zero words before each push, so that reservation can be the next one.
 - A continue helper enters a frame: the frame becomes `%sp`, and the end of
   its chunk becomes `%sp_limit`. That pops the frame and every frame above
   it. When the new `%sp_limit` differs from the old one, the frame is in a

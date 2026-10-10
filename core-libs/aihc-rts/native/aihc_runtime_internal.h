@@ -351,8 +351,10 @@ void aihc_gc_collect_generation(AihcMachine *machine, unsigned generation,
    that changes the stack pointer of a thread, such as the scheduler, writes
    machine->stack_next, and compiled code loads it again. A new chunk
    comes from the C allocator and not from the managed heap, so a push never
-   collects. The first frame of a chunk keeps the address of its parent in
-   field zero, whichever chunk the parent is in. Thus the chain of frames
+   collects. But a growth charges the new chunk to the nursery, and a
+   reservation after it collects when the charges use the nursery. See
+   aihc_stack_grow. The first frame of a chunk keeps the address of its parent
+   in field zero, whichever chunk the parent is in. Thus the chain of frames
    needs no link frame at a chunk boundary.
 
    Frames never move. The collector finds a live frame through a pointer to
@@ -383,6 +385,9 @@ struct AihcStackChunk {
   uint64_t scanned_cycle;
   /* The number of chunks below this one in its stack. */
   uint64_t depth;
+  /* One more than the collection count when a stack growth last charged
+     the chunk to the nursery, or zero when no growth charged it. */
+  uint64_t charged_gc;
 };
 
 _Static_assert(sizeof(AihcStackChunk) <= AIHC_STACK_CHUNK_HEADER_BYTES,

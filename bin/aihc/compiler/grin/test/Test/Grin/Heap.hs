@@ -28,9 +28,9 @@ tests =
       testCase "a call ends a reservation" $ do
         reservations <- allReservations acrossCallProgram
         -- The entry reserves the first node. The continuation frame of the
-        -- call goes on the thread stack and reserves nothing. The store
-        -- after the call reserves in that continuation instead, because the
-        -- call itself can collect.
+        -- call goes on the thread stack and adds zero words to that
+        -- reservation. The store after the call reserves in that
+        -- continuation instead, because the call itself can collect.
         assertEqual
           "reservations"
           [("$entry", [2]), ("$entry_cont", [2])]
@@ -44,11 +44,20 @@ tests =
         reservations <- allReservations beforeEvalProgram
         -- The WHNF test cannot collect, so the two-word box reserves once
         -- above the test. The continuation frame of the slow branch goes on
-        -- the thread stack and reserves nothing. The continuation reserves
-        -- its own pair after the eval.
+        -- the thread stack and adds zero words to that reservation. The
+        -- continuation reserves its own pair after the eval.
         assertEqual
           "reservations"
           [("$entry", [2]), ("$entry_cont", [3])]
+          reservations,
+      testCase "a frame push without a store reserves zero words" $ do
+        reservations <- allReservations frameOnlyProgram
+        -- The push of the continuation frame can grow the stack, and the
+        -- runtime charges a new stack chunk to the nursery. Thus the push
+        -- keeps a reservation of zero words, which can collect.
+        assertEqual
+          "reservations"
+          [("$entry", [0])]
           reservations,
       testCase "a primitive that allocates ends a reservation" $ do
         reservations <- entryReservations (betweenStoresProgram "newMutVar#" 1 "(0 :: IntRep)")
@@ -152,6 +161,21 @@ beforeEvalProgram =
       "  (box%1 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))",
       "  (ready%2 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)",
       "  store (CPair (box%1 :: BoxedRep Lifted) (ready%2 :: BoxedRep Lifted))"
+    ]
+
+-- | A call that is not in tail position and no store. Only the continuation
+-- frame of the call goes into the entry.
+frameOnlyProgram :: Text
+frameOnlyProgram =
+  T.unlines
+    [ "primitive +# :: IntRep/2",
+      "",
+      "$other -> IntRep =",
+      "  constant (7 :: IntRep)",
+      "",
+      "$entry -> IntRep =",
+      "  (value%1 :: IntRep) <- call @IntRep $other",
+      "  primitive-call @IntRep +# (value%1 :: IntRep) (1 :: IntRep)"
     ]
 
 -- | A call between the two stores can collect, so it separates them into two

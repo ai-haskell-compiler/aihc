@@ -28,7 +28,9 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
   functions <- mapM renderFunctionDescriptor functionEntries
   pure . T.unlines $
     [ "#include \"aihc_snapshot.h\"",
+      "#include <inttypes.h>",
       "#include <stddef.h>",
+      "#include <stdio.h>",
       "#include <stdlib.h>",
       ""
     ]
@@ -42,6 +44,12 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
       <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, AihcMachine *machine) {",
            "#ifdef AIHC_SNAPSHOT_REQUIRE_GC",
            "  if (machine->gc_count == 0) abort();",
+           "#endif",
+           "#ifdef AIHC_SNAPSHOT_MINIMUM_COLLECTIONS",
+           "  if (machine->gc_count < AIHC_SNAPSHOT_MINIMUM_COLLECTIONS) {",
+           "    fprintf(stderr, \"aihc runtime: only %\" PRIu64 \" collections\\n\", machine->gc_count);",
+           "    exit(1);",
+           "  }",
            "#endif",
            "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
            "                     aihc_heap_allocated_bytes(machine),",

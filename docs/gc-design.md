@@ -234,11 +234,25 @@ A minor collection costs the sum of these terms:
 | --- | --- |
 | Copy of live young objects | Nursery size plus gen1 maximum |
 | Root scan | Machine roots plus remembered set plus dirty cards |
-| Stack scan | One chunk for each live thread plus young chunks |
+| Stack scan | One chunk for each live thread plus young chunks, which the nursery size bounds |
 | Mark slice | The slice cap |
 
 No term depends on the live data in gen2, on the depth of a stack, or on the
 size of a large object. The degradation mode is the one exception.
+
+A stack growth charges each new young chunk to the nursery, as a large object
+does. The charge lowers the heap limit, and the push loads the heap limit
+again. When the charges use the nursery, the limit goes below the nursery
+start. The GC pass puts a reservation of zero words before each frame push,
+and the evaluation helper checks the limit when its update frame grows the
+stack. Thus a recursion collects after about one nursery of young chunks,
+also when it does not allocate. Without this charge, a deep recursion between
+two collections made the next minor collection scan the whole stack.
+
+The charge counts a chunk once for each collection, so a push and a pop
+across one chunk boundary do not collect again and again. The first charge
+after a collection does not collect, so each collection is followed by at
+least one chunk of stack growth.
 
 ## Options and statistics
 

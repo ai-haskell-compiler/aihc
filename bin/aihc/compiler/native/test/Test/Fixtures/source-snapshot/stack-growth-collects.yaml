@@ -1,0 +1,16 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Result = Result Int#
+  depth :: Int# -> Int#
+  depth n = case n of
+    0# -> 0#
+    _ -> 1# +# depth (n -# 1#)
+  value = Result (depth 2000000#)
+return: "@0"
+heap: |
+  @0 = CResult 2000000
+minimum-collections: 6
+status: pass
+reason: A recursion that pushes frames and allocates nothing must still collect after about one nursery of stack growth, so that one minor collection scans a bounded number of young stack chunks.
