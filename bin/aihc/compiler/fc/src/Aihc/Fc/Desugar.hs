@@ -1209,7 +1209,7 @@ nameOriginPair name =
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
 resolvedModuleOrigin checked =
-  fromMaybe ("", fromMaybe "Main" (Syn.moduleName checked)) $
+  fromMaybe (error "System FC module has no TcModuleIdentity annotation") $
     listToMaybe
       [ (package, moduleName')
       | TcModuleIdentity package moduleName' <- mapMaybe fromAnnotation (Syn.moduleAnns checked)
