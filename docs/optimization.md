@@ -490,8 +490,8 @@ phase 0 only copies `INLINE` values.
 On the `snappy-roundtrip` benchmark at `-O2`, `Snappy.copyOverlap` is
 `INLINE` and has four parameters. It stayed a call with three `I#` boxes at
 each of its three calls in the decoder loop. With the late split, the calls
-give `Int#` fields to the worker. The run allocates 244.8 MB in place of
-254.6 MB (3.8% less), and runs 4.255 G instructions in place of 4.262 G.
+give `Int#` fields to the worker. The run allocates 244.2 MB in place of
+253.9 MB (3.8% less), and runs 4.192 G instructions in place of 4.196 G.
 The split costs code in one place. The late run also splits `showsPrec` of
 `Show IOException`, which the dictionary keeps as a value. Thus the
 wrapper and the worker both stay, and each example program has 468 more
