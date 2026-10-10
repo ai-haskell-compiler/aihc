@@ -39,6 +39,7 @@ module Aihc.Fc.Simplify
     CandidateSites (..),
     Guidance (..),
     candidateGuidance,
+    refreshGuidance,
     simplifyExpr,
 
     -- * Views of expressions
@@ -235,7 +236,9 @@ data Guidance = Guidance
     -- | Whether every tail of the body is a known constructor or a
     -- literal, so that a case on the result of a copy selects an
     -- alternative in each tail.
-    guidanceTailsKnown :: !Bool
+    guidanceTailsKnown :: !Bool,
+    -- | The uses of each value parameter in the body.
+    guidanceParameters :: Map Name ParameterGuidance
   }
   deriving (Eq, Show)
 
@@ -244,8 +247,63 @@ candidateGuidance :: TypeEnv -> Map Name Int -> Expr -> Guidance
 candidateGuidance env arities body =
   Guidance
     { guidanceSize = exprSize env body,
-      guidanceTailsKnown = tailsKnownIn env arities (underLambdas body)
+      guidanceTailsKnown = tailsKnownIn env arities (underLambdas body),
+      guidanceParameters = Map.fromList [(binderName binder, parameter binder) | binder <- parameters body]
     }
+  where
+    parameters expr =
+      case expr of
+        ExLam binder inner -> binder : parameters inner
+        ExTyLam _ inner -> parameters inner
+        _ -> []
+    parameter binder =
+      ParameterGuidance
+        { parameterScrutinised = scrutinises name body,
+          parameterUsedOnce = case occurrences name body of
+            Occurrences count _ -> count == 1,
+          parameterCallArities = callArgumentCounts name body
+        }
+      where
+        name = binderName binder
+
+-- | Update the guidance that depends on other bodies.
+refreshGuidance :: TypeEnv -> Map Name Int -> Expr -> Guidance -> Guidance
+refreshGuidance env arities body guidance =
+  guidance {guidanceTailsKnown = tailsKnownIn env arities (underLambdas body)}
+
+data ParameterGuidance = ParameterGuidance
+  { -- | Whether a case uses the parameter as its scrutinee.
+    parameterScrutinised :: Bool,
+    -- | Whether the body uses the parameter one time.
+    parameterUsedOnce :: Bool,
+    -- | The value argument count at each call of the parameter.
+    parameterCallArities :: [Int]
+  }
+  deriving (Eq, Show)
+
+parameterGuidance :: Candidate -> Binder -> ParameterGuidance
+parameterGuidance candidate binder = guidanceParameters (candidateGuidanceOf candidate) Map.! binderName binder
+
+-- | The value argument count at each call of the given name.
+callArgumentCounts :: Name -> Expr -> [Int]
+callArgumentCounts name = go
+  where
+    go expr =
+      case castedSpine expr of
+        (ExVar var, args)
+          | var == name -> length [() | Right _ <- args] : arguments args
+        (function, args) -> bare function <> arguments args
+    arguments args = concat [go argument | Right argument <- args]
+    bare expr =
+      case expr of
+        ExLam _ inner -> go inner
+        ExTyLam _ inner -> go inner
+        ExLet bind inner -> go (bindRhs bind) <> go inner
+        ExRec binds inner -> concatMap (go . bindRhs) binds <> go inner
+        ExCase scrutinee _ (NE.toList -> alternatives) -> go scrutinee <> concatMap (go . altRhs) alternatives
+        ExForeignCall _ _ args -> concatMap go args
+        ExAbsurd scrutinee _ -> go scrutinee
+        _ -> []
 
 -- | An expression under the lets and recursive groups around it.
 underLets :: Expr -> Expr
@@ -627,7 +685,7 @@ inlineScrutinee env name candidate args binder originalAlternatives = do
       alternatives = NE.toList remaining
   args' <- mapM (either (pure . Left) (fmap Right . simplifyExpr env)) args
   let original = rebuildSpine (ExVar name) args'
-      reduction = siteReduction env (candidateBody candidate) args'
+      reduction = siteReduction env candidate args'
       discount = resultDiscount env candidate alternatives
       growth = estimateGrowth env candidate args' reduction - discount
   verdict <- decideSite env candidate reduction growth
@@ -639,7 +697,7 @@ inlineScrutinee env name candidate args binder originalAlternatives = do
       before <- get
       inlined <- inlineCandidate env {spCaseContext = Just alternatives} name candidate args'
       paid <- gets (nestedPaid before)
-      let callGrowth = exprSize (spEnv env) inlined - exprSize (spEnv env) original - callDiscount env (candidateBody candidate) args'
+      let callGrowth = exprSize (spEnv env) inlined - exprSize (spEnv env) original - callDiscount env candidate args'
       reduced <- caseOfKnown env inlined binder alternatives
       case reduced of
         -- One alternative replaces the case and the call.
@@ -723,7 +781,7 @@ estimateGrowth env candidate args reduction =
     - length applied
     + sum (map contribution applied)
     - callSize
-    - callDiscount env body args
+    - callDiscount env candidate args
   where
     body = candidateBody candidate
     applied = valueArguments body args
@@ -735,7 +793,7 @@ estimateGrowth env candidate args reduction =
           Map.fromList
             [ (binderName binder, value)
             | (binder, argument) <- applied,
-              scrutinises (binderName binder) body,
+              parameterScrutinised (parameterGuidance candidate binder),
               Just value <- [argumentKnown env argument]
             ]
     residual
@@ -755,8 +813,9 @@ estimateGrowth env candidate args reduction =
       -- around a function float out of it, see 'floatValueLets'.
       | (arity, _) <- movableArity (spArity env) (underLets argument),
         arity > 0,
-        Occurrences 1 _ <- occurrences (binderName binder) body,
-        calls <- length [() | k <- [1 .. arity], saturatedCalls (binderName binder) k body == 1],
+        let parameter = parameterGuidance candidate binder,
+        parameterUsedOnce parameter,
+        calls <- length [() | k <- [1 .. arity], length (filter (>= k) (parameterCallArities parameter)) == 1],
         calls > 0 =
           exprSize (spEnv env) argument - 3 * calls - 1
       | otherwise = 1 + exprSize (spEnv env) argument
@@ -908,14 +967,14 @@ data Reduction
   deriving (Eq, Ord, Show)
 
 -- | The strongest reduction that a call gives its callee. See 'Reduction'.
-siteReduction :: Simpl -> Expr -> [Arg] -> Reduction
-siteReduction env body args =
+siteReduction :: Simpl -> Candidate -> [Arg] -> Reduction
+siteReduction env candidate args =
   List.foldl'
     max
     NoReduction
     [ knownArgument env argument
-    | (binder, argument) <- valueArguments body args,
-      scrutinises (binderName binder) body
+    | (binder, argument) <- valueArguments (candidateBody candidate) args,
+      parameterScrutinised (parameterGuidance candidate binder)
     ]
 
 -- | How an argument is known at a site. See 'Reduction'.
@@ -1235,7 +1294,7 @@ rebuildApp env headExpr' args' = do
       | Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args' -> do
           let original = rebuildSpine headExpr' args'
-              reduction = siteReduction env (candidateBody candidate) args'
+              reduction = siteReduction env candidate args'
               -- A site in the tail of a copy made in the scrutinee of a
               -- case: that case takes the result of this copy apart too.
               discount = maybe 0 (resultDiscount env candidate) (spCaseContext env)
@@ -1246,7 +1305,7 @@ rebuildApp env headExpr' args' = do
               before <- get
               result <- inlineCandidate env name candidate args'
               paid <- gets (nestedPaid before)
-              recordSite charge paid (exprSize (spEnv env) result - exprSize (spEnv env) original - callDiscount env (candidateBody candidate) args' - discount)
+              recordSite charge paid (exprSize (spEnv env) result - exprSize (spEnv env) original - callDiscount env candidate args' - discount)
               pure result
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
@@ -1429,14 +1488,14 @@ fireRule env headExpr args =
 -- An argument that the callee scrutinises earns no discount here. The
 -- case of a known constructor reduces while the copy is simplified, so
 -- that saving is already a smaller result.
-callDiscount :: Simpl -> Expr -> [Arg] -> Int
-callDiscount env body args =
+callDiscount :: Simpl -> Candidate -> [Arg] -> Int
+callDiscount env candidate args =
   spDiscount env
     * length
       [ ()
-      | (binder, argument) <- valueArguments body args,
+      | (binder, argument) <- valueArguments (candidateBody candidate) args,
         valueArity (spArity env) argument > 0,
-        saturatedCalls (binderName binder) 1 body > 0
+        any (>= 1) (parameterCallArities (parameterGuidance candidate binder))
       ]
 
 -- | Pair the value binders of a lambda chain with the value arguments a

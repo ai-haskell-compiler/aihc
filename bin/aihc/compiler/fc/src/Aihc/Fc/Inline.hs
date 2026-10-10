@@ -41,7 +41,7 @@ import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Rules (RuleTable, ruleActiveIn, ruleTable)
 import Aihc.Fc.Simplify
-import Aihc.Fc.Size (exprSize, programSize)
+import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv, typeEnvFromProgram)
@@ -213,8 +213,20 @@ data Inliner = Inliner
   { inEnv :: !TypeEnv,
     inDecls :: !(Map Name ValDecl),
     inBodies :: !(Map Name Expr),
+    -- | The uses of each top-level value in each body.
+    inBodyUses :: !(Map Name (Map Name Int)),
+    -- | The calls in each body use the arities at the start of the round.
+    inBodyCalls :: !(Map Name (Map Name Int)),
+    -- | The current arity of each body.
+    inBodyArities :: !(Map Name Int),
+    -- | The size and guidance of each current body.
+    inGuidance :: !(Map Name Guidance),
+    -- | The current bodies that are known constructor applications.
+    inKnown :: !(Map Name Expr),
     -- | The values each body references.
     inRefs :: !(Map Name (Set Name)),
+    -- | The bodies that reference each value.
+    inUsers :: !(Map Name (Set Name)),
     -- | The size each value may grow to in this pass: its size when the
     -- pass began, grown by the policy's percentage and slack.
     inLimits :: !(Map Name Int),
@@ -261,10 +273,16 @@ initialInliner config env decls supply =
     { inEnv = env,
       inDecls = declarations,
       inBodies = bodies,
-      inRefs = Map.map (valueReferences declarations) bodies,
-      inLimits = Map.map (valueLimit (inlinePolicy config) . exprSize env) bodies,
-      inCounts = occurrenceCounts (Map.elems bodies),
-      inCalls = callCounts arities (Map.elems bodies),
+      inBodyUses = uses,
+      inBodyCalls = calls,
+      inBodyArities = arities,
+      inGuidance = guidance,
+      inKnown = Map.filter (isKnownConstructor arities) bodies,
+      inRefs = references,
+      inUsers = Map.fromListWith Set.union [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
+      inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
+      inCounts = occurrenceCounts (Map.elems uses),
+      inCalls = callCounts (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities escaping (Map.elems bodies),
       inEscaping = escaping,
@@ -281,6 +299,10 @@ initialInliner config env decls supply =
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
     arities = Map.map functionArity bodies
+    uses = Map.map countTopUses bodies
+    calls = Map.map (countTopCalls arities) bodies
+    guidance = Map.map (candidateGuidance env arities) bodies
+    references = Map.map (valueReferences declarations) bodies
     -- A value a rule names stays, whether or not a body still calls it:
     -- the rule may put it in place later.
     roots =
@@ -345,11 +367,12 @@ runRounds config rounds st
 -- | Walk the values from the leaves of the call graph to its roots, and
 -- inline into each body the candidates that it references.
 inlineRound :: InlineConfig -> Inliner -> Inliner
-inlineRound config st0 = List.foldl' step st0 (stronglyConnComp graph)
+inlineRound config st0 = List.foldl' step st0 sccs
   where
     graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
+    sccs = stronglyConnComp graph
     known = knownValues st0
-    recursive = Set.fromList (concat [names | CyclicSCC names <- stronglyConnComp graph])
+    recursive = Set.fromList (concat [names | CyclicSCC names <- sccs])
     -- The uses that the copies of the templates add. A template is copied
     -- at every call in the phases its pragma names, so a use inside it is
     -- repeated once per call of the template.
@@ -393,7 +416,7 @@ simplifyValue config known recursive inTemplates st name
               reachable = calleesOf (inRefs st) references
               candidates =
                 Map.fromList
-                  [ (callee, Candidate calleeBody sites requested (candidateGuidance (inEnv st) arities calleeBody))
+                  [ (callee, Candidate calleeBody sites requested (inGuidance st Map.! callee))
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
@@ -401,7 +424,7 @@ simplifyValue config known recursive inTemplates st name
                     inliningAllowed (inlinePhase config) spec,
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
                     isInlinable calleeBody,
-                    let size = exprSize (inEnv st) calleeBody
+                    let size = guidanceSize (inGuidance st Map.! callee)
                         every = unconditional callee size
                         requested = inliningRequested (inlinePhase config) spec
                         withinLimit = size <= policyCalleeLimit policy
@@ -423,7 +446,7 @@ simplifyValue config known recursive inTemplates st name
            in if skip
                 then st
                 else
-                  let oldSize = exprSize (inEnv st) body
+                  let oldSize = guidanceSize (inGuidance st Map.! name)
                       simpl =
                         Simpl
                           { spEnv = inEnv st,
@@ -453,26 +476,26 @@ simplifyValue config known recursive inTemplates st name
                       allowance = max 0 (Map.findWithDefault 0 name (inLimits st) - oldSize)
                       (body', simplState) =
                         runState (simplifyExpr simpl body) (initialSimplState (inSupply st) allowance)
-                      oldUses = countTopUses body
-                      newUses = countTopUses body'
+                      changed = body' /= body
+                      updated = if changed then updateBody st name body' else st
+                      oldUses = inBodyUses st Map.! name
+                      newUses = inBodyUses updated Map.! name
                       counts' = Map.unionWith (+) (Map.unionWith (+) (inCounts st) newUses) (Map.map negate oldUses)
-                      calls' = Map.unionWith (+) (Map.unionWith (+) (inCalls st) (countTopCalls (inArities st) body')) (Map.map negate (countTopCalls (inArities st) body))
+                      calls' = Map.unionWith (+) (Map.unionWith (+) (inCalls st) (inBodyCalls updated Map.! name)) (Map.map negate (inBodyCalls st Map.! name))
                    in killDead
-                        st
-                          { inBodies = Map.insert name body' (inBodies st),
-                            inLimits = Map.adjust (+ ssExempt simplState) name (inLimits st),
-                            inRefs = Map.insert name (valueReferences (inDecls st) body') (inRefs st),
+                        updated
+                          { inLimits = Map.adjust (+ ssExempt simplState) name (inLimits st),
                             inCounts = counts',
                             inCalls = calls',
                             inSupply = ssSupply simplState,
                             inSites = inSites st + ssInlined simplState,
                             inRulesFired = inRulesFired st + ssRulesFired simplState,
-                            inChanged = inChanged st || body' /= body
+                            inChanged = inChanged st || changed
                           }
                         (Map.keys oldUses)
   where
     policy = inlinePolicy config
-    arities = Map.map functionArity (inBodies st)
+    arities = inBodyArities st
     -- A removable value whose every use is a call that inlining takes
     -- goes away once every site holds a copy. When the copies together
     -- are no larger than the value, every site takes it. A use that is
@@ -489,6 +512,51 @@ simplifyValue config known recursive inTemplates st name
             in calls >= uses && uses * (size - 1) - (size + 1) <= 0
     removable callee = callee `Set.notMember` inRoots st
 
+-- | Update a changed body and its data before the next value.
+updateBody :: Inliner -> Name -> Expr -> Inliner
+updateBody st name body =
+  List.foldl' refresh updated (Set.toList affected)
+  where
+    arity = functionArity body
+    arities = Map.insert name arity (inBodyArities st)
+    references = valueReferences (inDecls st) body
+    oldReferences = inRefs st Map.! name
+    users =
+      Set.foldl'
+        (\acc callee -> Map.insertWith Set.union callee (Set.singleton name) acc)
+        (Set.foldl' (flip (Map.adjust (Set.delete name))) (inUsers st) (oldReferences Set.\\ references))
+        (references Set.\\ oldReferences)
+    updated =
+      updateKnown
+        st
+          { inBodies = Map.insert name body (inBodies st),
+            inBodyUses = Map.insert name (countTopUses body) (inBodyUses st),
+            inBodyCalls = Map.insert name (countTopCalls (inArities st) body) (inBodyCalls st),
+            inBodyArities = arities,
+            inGuidance = Map.insert name (candidateGuidance (inEnv st) arities body) (inGuidance st),
+            inRefs = Map.insert name references (inRefs st),
+            inUsers = users
+          }
+        name
+        body
+    -- An arity change can change the guidance and known constructors of its users.
+    affected
+      | arity == inBodyArities st Map.! name = Set.empty
+      | otherwise = Set.delete name (Map.findWithDefault Set.empty name users)
+    refresh current user =
+      let userBody = inBodies current Map.! user
+       in updateKnown
+            current {inGuidance = Map.adjust (refreshGuidance (inEnv st) arities userBody) user (inGuidance current)}
+            user
+            userBody
+    updateKnown current user userBody =
+      current
+        { inKnown =
+            if isKnownConstructor arities userBody
+              then Map.insert user userBody (inKnown current)
+              else Map.delete user (inKnown current)
+        }
+
 -- | Mark the given values dead when no live body references them any
 -- more, and release their own references, which may leave further
 -- values dead.
@@ -501,10 +569,10 @@ killDead st names =
           || name `Set.member` inRoots st
           || Map.findWithDefault 0 name (inCounts st) > 0 ->
           killDead st rest
-      | Just body <- Map.lookup name (inBodies st) ->
-          let uses = countTopUses body
+      | Map.member name (inBodies st) ->
+          let uses = inBodyUses st Map.! name
               counts' = Map.unionWith (+) (inCounts st) (Map.map negate uses)
-              calls' = Map.unionWith (+) (inCalls st) (Map.map negate (countTopCalls (inArities st) body))
+              calls' = Map.unionWith (+) (inCalls st) (Map.map negate (inBodyCalls st Map.! name))
            in killDead
                 st
                   { inDead = Set.insert name (inDead st),
@@ -524,16 +592,36 @@ dropUnused :: Inliner -> Inliner
 dropUnused st =
   st
     { inBodies = live,
+      inBodyUses = uses,
+      inBodyCalls = calls,
+      inBodyArities = arities,
+      inGuidance = Map.restrictKeys (inGuidance st) reachable,
+      inKnown = Map.restrictKeys (inKnown st) reachable,
       inRefs = Map.restrictKeys (inRefs st) reachable,
-      inCounts = occurrenceCounts (Map.elems live),
-      inCalls = callCounts arities (Map.elems live),
+      inUsers = Map.map (`Set.intersection` reachable) (Map.restrictKeys (inUsers st) reachable),
+      inCounts = occurrenceCounts (Map.elems uses),
+      inCalls = callCounts (Map.elems calls),
       inArities = arities,
       inCallArities = topCallArities (inEscaping st) (Map.elems live),
       inDead = Set.empty
     }
   where
     live = Map.restrictKeys (inBodies st) reachable
-    arities = Map.map functionArity live
+    -- No live body references a removed value, so its cached data stays correct.
+    arities = Map.restrictKeys (inBodyArities st) reachable
+    uses = Map.restrictKeys (inBodyUses st) reachable
+    -- Only users of a changed arity need new call counts for the next round.
+    changedArities = Map.keysSet (Map.differenceWith changed arities (inArities st))
+    changed new old
+      | new == old = Nothing
+      | otherwise = Just new
+    affected =
+      Set.intersection reachable (Set.unions [Map.findWithDefault Set.empty name (inUsers st) | name <- Set.toList changedArities])
+    calls =
+      List.foldl'
+        (\cached caller -> Map.insert caller (countTopCalls arities (live Map.! caller)) cached)
+        (Map.restrictKeys (inBodyCalls st) reachable)
+        (Set.toList affected)
     reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inRoots st)))
     close visited pending =
       case pending of
@@ -544,11 +632,11 @@ dropUnused st =
               close (Set.insert name visited) (Set.toList (Map.findWithDefault Set.empty name (inRefs st)) <> rest)
 
 -- | How often each value occurs in the bodies.
-occurrenceCounts :: [Expr] -> Map Name Int
-occurrenceCounts = List.foldl' (\counts body -> Map.unionWith (+) counts (countTopUses body)) Map.empty
+occurrenceCounts :: [Map Name Int] -> Map Name Int
+occurrenceCounts = List.foldl' (Map.unionWith (+)) Map.empty
 
-callCounts :: Map Name Int -> [Expr] -> Map Name Int
-callCounts arities = List.foldl' (\counts body -> Map.unionWith (+) counts (countTopCalls arities body)) Map.empty
+callCounts :: [Map Name Int] -> Map Name Int
+callCounts = occurrenceCounts
 
 -- | How often each top-level value of the arity map occurs in the head
 -- of an application that gives it every parameter. A value of arity zero
@@ -603,6 +691,4 @@ countTopUses = go
 -- | The values whose body is a cheap constructor application under
 -- lambdas. A case on such a value selects a field without the case.
 knownValues :: Inliner -> Map Name Expr
-knownValues st = Map.filter (isKnownConstructor arities) (inBodies st)
-  where
-    arities = Map.map functionArity (inBodies st)
+knownValues = inKnown
