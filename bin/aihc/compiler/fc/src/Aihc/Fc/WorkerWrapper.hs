@@ -71,8 +71,7 @@
 -- copies a large @INLINE@ value only where its site policy finds the copy
 -- useful, so a call of such a value can stay a call with boxed arguments.
 -- Before the growing inliner, its body often still calls the methods
--- that take its parameters apart, so the first run finds no product
--- demand in it. The late run splits it, and the round of the inliner in
+-- that take its parameters apart. The late run splits it, and the round of the inliner in
 -- phase 0 that follows copies the wrapper at the calls. The worker keeps
 -- the pragma of the function, so the inliner decides each copy of the
 -- worker as it decided each copy of the function. The late run leaves

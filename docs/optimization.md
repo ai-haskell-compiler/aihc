@@ -494,10 +494,9 @@ it an `Int#` counter.
 The growing inliner copies a large `INLINE` value only where the site
 policy finds the copy useful (see "Inline pragmas" below). Thus a call of
 such a value can stay a call that builds a box for each argument. The first
-run does not split the value, and it often cannot: before the growing
-inliner, the body still calls the class methods that take the parameters
-apart, so the demand analysis finds no product demand. After the growing
-inliner, the body takes them apart. The late run splits the value, and the
+run does not split the value. Before the growing inliner, the body often
+still calls the class methods that take the parameters apart. After the
+growing inliner, the body takes them apart. The late run splits the value, and the
 round of the growing inliner in phase 0 copies the small wrapper at each
 call. The worker keeps the pragma of the value, so the inliner decides each
 copy of the worker as it decided each copy of the value. A small worker
@@ -510,8 +509,8 @@ phase 0 only copies `INLINE` values.
 On the `snappy-roundtrip` benchmark at `-O2`, `Snappy.copyOverlap` is
 `INLINE` and has four parameters. It stayed a call with three `I#` boxes at
 each of its three calls in the decoder loop. With the late split, the calls
-give `Int#` fields to the worker. The run allocates 244.2 MB in place of
-253.9 MB (3.8% less), and runs 4.192 G instructions in place of 4.196 G.
+give `Int#` fields to the worker. The run allocates 232.0 MB in place of
+241.8 MB (4.0% less), and runs 3.885 G instructions in place of 3.896 G.
 The split costs code in one place. The late run also splits `showsPrec` of
 `Show IOException`, which the dictionary keeps as a value. Thus the
 wrapper and the worker both stay, and each example program has 468 more
