@@ -1,0 +1,69 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (skip) where
+
+  import GHC.Prim ((+#), (>=#))
+  import GHC.Types (Int (..))
+
+  -- The loop uses the box and its field. The loop is allocated once, so
+  -- it uses the field that is in scope and does not take the box apart in
+  -- each iteration.
+  skip :: Int -> Int -> Int
+  skip (I# n) start =
+    let l = I# n
+        go (I# i) = case i >=# n of
+          1# -> l
+          _ -> go (I# (i +# 1#))
+     in go start
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    >=# = 2.v>=# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vskip :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (n : tInt#) = x;
+      let l : tInt =
+        cI# n;
+      rec {
+        go : tInt 3.→ tInt =
+          λ(x{1} : tInt).
+            let! cI# (i : tInt#) = x{1};
+            case prim >=# i n of {
+              1#cIntRep →
+                l;
+              _ →
+                let argument : tInt# =
+                  prim +# i lit (1#cIntRep) :: tInt#;
+                go (cI# argument)
+            }
+      } in
+      go y
+status: pass
+reason: A recursive binding is allocated once for its group, so its lambdas do not read the fields of a known box inside them. The loop uses the field that is in scope, and it does not take the box apart in each iteration.

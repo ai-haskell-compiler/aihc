@@ -476,7 +476,8 @@ simplifyValue config known recursive inTemplates st name
                             spSpeculative = False,
                             spCaseContext = Nothing,
                             spLocalCandidates = Map.empty,
-                            spFacts = emptyFacts
+                            spFacts = emptyFacts,
+                            spEscapes = True
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less
