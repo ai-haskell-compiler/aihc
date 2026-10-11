@@ -28,7 +28,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -41,18 +41,18 @@ expected: |-
   }
 
   pub type 1.t$Dict$Parent (a : sType) :: sType {
-    pub 1.c$Dict$Parent :: ∀(a : sType). (a → tFlag) → t$Dict$Parent a
+    pub 1.c$Dict$Parent :: ∀(a : sType). (a 2.→ tFlag) 2.→ t$Dict$Parent a
   }
 
-  pub val 1.vparent :: ∀(a : sType). t$Dict$Parent a → a → tFlag
+  pub val 1.vparent :: ∀(a : sType). t$Dict$Parent a 2.→ a 2.→ tFlag
     = Λ(a : sType). λ($dParent : t$Dict$Parent a).
-      let! c$Dict$Parent ($cparent : a → tFlag) = $dParent;
+      let! c$Dict$Parent ($cparent : a 2.→ tFlag) = $dParent;
       $cparent
 
   pub val 1.v$fParentFlag :: t$Dict$Parent tFlag
     = c$Dict$Parent @tFlag v$fParentFlag$cparent
 
-  val 1.v$fParentFlag$cparent :: tFlag → tFlag
+  val 1.v$fParentFlag$cparent :: tFlag 2.→ tFlag
     = λ(x : tFlag).
       x
   scope 1 = "" Child
@@ -67,7 +67,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -75,12 +75,12 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.t$Dict$Child (a : sType) :: sType {
-    pub 1.c$Dict$Child :: ∀(a : sType). t$Dict$Parent a → (a → tFlag) → t$Dict$Child a
+    pub 1.c$Dict$Child :: ∀(a : sType). t$Dict$Parent a 3.→ (a 3.→ tFlag) 3.→ t$Dict$Child a
   }
 
-  pub val 1.vchild :: ∀(a : sType). t$Dict$Child a → a → tFlag
+  pub val 1.vchild :: ∀(a : sType). t$Dict$Child a 3.→ a 3.→ tFlag
     = Λ(a : sType). λ($dChild : t$Dict$Child a).
-      let! c$Dict$Child (_ : t$Dict$Parent a) ($cchild : a → tFlag) = $dChild;
+      let! c$Dict$Child ($dParent : t$Dict$Parent a) ($cchild : a 3.→ tFlag) = $dChild;
       $cchild
 status: pass
 reason: Class constraints become value dictionary types and keep their checked source

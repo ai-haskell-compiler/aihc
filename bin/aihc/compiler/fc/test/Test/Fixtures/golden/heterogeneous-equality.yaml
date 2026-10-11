@@ -16,9 +16,9 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity;
-    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
     2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -26,7 +26,7 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.t:~~: (k1 : sType) (k2 : sType) (a : k1) (b : k2) :: sType {
-    pub 1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: a b))
+    pub 1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: k k2 a b))
   }
 status: pass
 reason: Heterogeneous equality permits endpoints with distinct kinds.

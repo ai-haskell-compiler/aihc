@@ -34,8 +34,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: tInt# → tInt# → tInt#;
-    -# = 2.v-# :: tInt# → tInt# → tInt#
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -45,8 +45,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -54,25 +54,21 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  val 1.vcount :: tInt → tInt
+  val 1.vcount :: tInt 3.→ tInt
     = λ(x : tInt).
       let! cI# (i : tInt#) = x;
       case i of {
-        0 →
-          cI# (1 :: tInt#);
+        0#cIntRep →
+          cI# lit (1#cIntRep) :: tInt#;
         _ →
-          vcount (cI# (prim -# i (1 :: tInt#)))
+          vcount (cI# (prim -# i lit (1#cIntRep) :: tInt#))
       }
 
-  pub val 1.vcheck :: tInt → tInt → tInt
+  pub val 1.vcheck :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (i : tInt#) = vcount x;
-      let argument : tInt# =
-        prim +# i i;
       let! cI# (i{1} : tInt#) = vcount y;
-      let argument{1} : tInt# =
-        prim +# i{1} i{1};
-      cI# (prim -# argument argument{1})
+      cI# (prim -# (prim +# i i) (prim +# i{1} i{1}))
 status: pass
 reason: >-
   The demand pass evaluates each strict argument in a case.

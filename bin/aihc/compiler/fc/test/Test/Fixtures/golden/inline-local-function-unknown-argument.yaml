@@ -29,7 +29,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cFalse :: tBool;
     2.cLifted :: tLevity;
     2.cTrue :: tBool
@@ -39,16 +39,16 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tBox :: sType {
-    pub 1.cBox :: tBool → tBox
+    pub 1.cBox :: tBool 2.→ tBox
   }
 
   type 1.tPair :: sType {
-    pub 1.cPair :: tBool → tBool → tPair
+    pub 1.cPair :: tBool 2.→ tBool 2.→ tPair
   }
 
-  pub val 1.vrun :: tBox → tBox → tPair
+  pub val 1.vrun :: tBox 2.→ tBox 2.→ tPair
     = λ(x : tBox) (y : tBox).
-      let invert : tBox → tBool =
+      let invert : tBox 2.→ tBool =
         λ(x{1} : tBox).
           let! cBox (v : tBool) = x{1};
           case v of {

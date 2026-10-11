@@ -247,12 +247,6 @@ convertType env = convertTypeWithExpectedKind env Nothing
 convertTypeWithExpectedKind :: ConvertEnv -> Maybe TcType -> TcType -> Either String Type
 convertTypeWithExpectedKind env expectedKind ty =
   case ty of
-    -- A representation and a kind in a type argument take the same forms
-    -- as in a kind: the synonyms 'LiftedRep', 'UnliftedRep' and 'Type'.
-    -- Thus one type has one form in the whole program.
-    BoxedRep Lifted -> Right (TyCon (liftedRepName (cePrimPackage env)))
-    BoxedRep Unlifted -> Right (TyCon (unliftedRepName (cePrimPackage env)))
-    KTYPE _ -> convertKind env ty
     TcTyVar tyVar -> Right (tyVarType tyVar)
     TcTyLit literal ->
       Right (TyLit (tyConNameFc env (Tc.tyLitKindTyCon (ceKinds env) literal)) (convertTyLit literal))

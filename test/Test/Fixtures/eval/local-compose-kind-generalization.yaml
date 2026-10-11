@@ -1,0 +1,52 @@
+extensions:
+  - GADTs
+  - PolyKinds
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE GADTs, PolyKinds, RankNTypes #-}
+    module Test where
+
+    import Data.Functor.Compose (Compose (..))
+
+    class Profunctor p where
+      dimap :: (a -> b) -> (c -> d) -> p b c -> p a d
+
+    type Iso s t a b = forall p f. (Profunctor p, Functor f) => p a (f b) -> p s (f t)
+
+    data Procompose p q d c where
+      Procompose :: p x c -> q d x -> Procompose p q d c
+
+    newtype Star f a b = Star (a -> f b)
+
+    stars :: Functor g => Iso (Procompose (Star f) (Star g) d c) (Procompose (Star f') (Star g') d' c') (Star (Compose g f) d c) (Star (Compose g' f') d' c')
+    stars = dimap hither (fmap yon) where
+      hither (Procompose (Star xgc) (Star dfx)) = Star (Compose . fmap xgc . dfx)
+      yon (Star dfgc) = Procompose (Star id) (Star (getCompose . dfgc))
+
+    topYon (Star dfgc) = Procompose (Star id) (Star (getCompose . dfgc))
+
+    starsTop :: Functor g => Iso (Procompose (Star f) (Star g) d c) (Procompose (Star f') (Star g') d' c') (Star (Compose g f) d c) (Star (Compose g' f') d' c')
+    starsTop = dimap hither (fmap topYon) where
+      hither (Procompose (Star xgc) (Star dfx)) = Star (Compose . fmap xgc . dfx)
+
+    instance Profunctor (->) where
+      dimap f g h = g . h . f
+
+    resultLocal :: Bool
+    resultLocal = case stars Just (Procompose (Star (\x -> [x + 1])) (Star Just)) of
+      Just (Procompose (Star f) (Star g)) -> fmap f (g (2 :: Int)) == Just [3]
+      Nothing -> False
+
+    resultTop :: Bool
+    resultTop = case starsTop Just (Procompose (Star (\x -> [x + 1])) (Star Just)) of
+      Just (Procompose (Star f) (Star g)) -> fmap f (g (2 :: Int)) == Just [3]
+      Nothing -> False
+
+    result :: Bool
+    result = resultLocal && resultTop
+expression: result
+output: |
+  True
+status: pass
+reason: local and top-level functions retain constructor kind arguments after generalization

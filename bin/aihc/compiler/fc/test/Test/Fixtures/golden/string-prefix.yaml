@@ -38,41 +38,41 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
-    4.c: :: ∀(a : sType). a → t[] a → t[] a;
+    4.c: :: ∀(a : sType). a 4.→ t[] a 4.→ t[] a;
     4.cAddrRep :: tRuntimeRep;
-    4.cBoxedRep :: tLevity → tRuntimeRep;
-    4.cC# :: tChar# → tChar;
+    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
+    4.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
     4.cLifted :: tLevity;
     4.cWordRep :: tRuntimeRep;
-    2.vunpackAppendCString# :: tAddr# → t[] tChar → t[] tChar;
-    2.vunpackAppendCStringUtf8# :: tAddr# → t[] tChar → t[] tChar;
-    2.vunpackCString# :: tAddr# → t[] tChar
+    2.vunpackAppendCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar 4.→ t[] tChar);
+    2.vunpackAppendCStringUtf8# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar 4.→ t[] tChar);
+    2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
 
   import synonyms
     4.sLiftedRep = cBoxedRep cLifted;
     4.sType = tTYPE sLiftedRep
 
-  pub val 1.vprefix :: t[] tChar → t[] tChar
+  pub val 1.vprefix :: t[] tChar 4.→ t[] tChar
     = λ(x : t[] tChar).
-      vunpackAppendCString# ("Exit" :: tAddr#) x
+      vunpackAppendCString# lit ("Exit"#cAddrRep) :: tAddr# x
 
   pub val 1.vcomplete :: t[] tChar
-    = vunpackCString# ("ab" :: tAddr#)
+    = vunpackCString# lit ("ab"#cAddrRep) :: tAddr#
 
-  pub val 1.vsingle :: t[] tChar → t[] tChar
+  pub val 1.vsingle :: t[] tChar 4.→ t[] tChar
     = λ(x : t[] tChar).
-      c: @tChar (cC# ('x' :: tChar#)) x
+      c: @tChar (cC# lit ('x'#cWordRep) :: tChar#) x
 
-  pub val 1.vnul :: t[] tChar → t[] tChar
+  pub val 1.vnul :: t[] tChar 4.→ t[] tChar
     = λ(x : t[] tChar).
-      vunpackAppendCStringUtf8# ("a\xc0\x80b" :: tAddr#) x
+      vunpackAppendCStringUtf8# lit ("a\xc0\x80b"#cAddrRep) :: tAddr# x
 
-  pub val 1.vunicode :: t[] tChar → t[] tChar
+  pub val 1.vunicode :: t[] tChar 4.→ t[] tChar
     = λ(x : t[] tChar).
-      vunpackAppendCStringUtf8# ("\xce\xbb\xe2\x86\x92" :: tAddr#) x
+      vunpackAppendCStringUtf8# lit ("\xce\xbb\xe2\x86\x92"#cAddrRep) :: tAddr# x
 
-  pub val 1.vvariable :: tChar → t[] tChar → t[] tChar
+  pub val 1.vvariable :: tChar 4.→ t[] tChar 4.→ t[] tChar
     = λ(x : tChar) (y : t[] tChar).
-      vunpackAppendCString# ("ab" :: tAddr#) (c: @tChar x (vunpackAppendCString# ("cd" :: tAddr#) y))
+      vunpackAppendCString# lit ("ab"#cAddrRep) :: tAddr# (c: @tChar x (vunpackAppendCString# lit ("cd"#cAddrRep) :: tAddr# y))
 status: pass
 reason: Constant character prefixes use compact string literals and preserve the suffix.

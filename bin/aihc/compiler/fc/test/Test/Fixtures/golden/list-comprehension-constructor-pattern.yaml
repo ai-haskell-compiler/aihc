@@ -15,8 +15,8 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.c: :: ∀(a : sType). a → t[] a → t[] a;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.c: :: ∀(a : sType). a 2.→ t[] a 2.→ t[] a;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity;
     2.c[] :: ∀(a : sType). t[] a
 
@@ -26,13 +26,13 @@ expected: |-
 
   pub type 1.tMaybe (a : sType) :: sType {
     pub 1.cNothing :: ∀(a : sType). tMaybe a;
-    pub 1.cJust :: ∀(a : sType). a → tMaybe a
+    pub 1.cJust :: ∀(a : sType). a 2.→ tMaybe a
   }
 
-  pub val 1.vselect :: ∀(a : sType). t[] (tMaybe a) → t[] a
+  pub val 1.vselect :: ∀(a : sType). t[] (tMaybe a) 2.→ t[] a
     = Λ(a : sType). λ(x : t[] (tMaybe a)).
       rec {
-        _list_comp : t[] (tMaybe a) → t[] a =
+        _list_comp : t[] (tMaybe a) 2.→ t[] a =
           λ(_list_comp_list : t[] (tMaybe a)).
             case _list_comp_list of {
               c[] →

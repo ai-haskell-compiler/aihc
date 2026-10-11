@@ -33,7 +33,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: tInt# → tInt# → tInt#
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -44,9 +44,9 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a → t[] a → t[] a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
@@ -56,25 +56,25 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tCursor :: sType {
-    pub 1.cCursor :: tInt# → tInt → tCursor
+    pub 1.cCursor :: FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ tCursor)
   }
 
-  pub val 1.vfill inline :: (tInt → tInt) → tCursor → t[] tInt → tInt
-    = λ(x : tInt → tInt) (y : tCursor) (z : t[] tInt).
+  pub val 1.vfill inline :: (tInt 3.→ tInt) 3.→ tCursor 3.→ t[] tInt 3.→ tInt
+    = λ(x : tInt 3.→ tInt) (y : tCursor) (z : t[] tInt).
       let! cCursor (y{1} : tInt#) (y{2} : tInt) = y;
       v$wfill x y{1} y{2} z
 
-  val 1.v$wfill :: (tInt → tInt) → tInt# → tInt → t[] tInt → tInt
-    = λ(x : tInt → tInt) (y : tInt#) (y{1} : tInt) (z : t[] tInt).
+  val 1.v$wfill :: FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) (tInt 3.→ tInt) (FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) (t[] tInt) tInt)))
+    = λ(x : tInt 3.→ tInt) (y : tInt#) (y{1} : tInt) (z : t[] tInt).
       rec {
-        $wgo : tInt# → tInt → t[] tInt → tInt# =
+        $wgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @cIntRep (t[] tInt) tInt#)) =
           λ(x{1} : tInt#) (x{2} : tInt) (y{2} : t[] tInt).
             case y{2} of {
               c[] →
                 x{1};
               c: (y{3} : tInt) (ys : t[] tInt) →
-                let! cI# (_ : tInt#) = x y{3};
-                $wgo (prim +# x{1} (1 :: tInt#)) x{2} ys
+                let! cI# (_pat : tInt#) = x y{3};
+                $wgo (prim +# x{1} lit (1#cIntRep) :: tInt#) x{2} ys
             }
       } in
       cI# ($wgo y y{1} z)

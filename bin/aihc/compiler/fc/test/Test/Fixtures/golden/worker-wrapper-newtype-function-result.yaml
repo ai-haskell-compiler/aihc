@@ -29,8 +29,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: tInt# → tInt# → tInt#;
-    -# = 2.v-# :: tInt# → tInt# → tInt#
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -40,8 +40,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -51,22 +51,22 @@ expected: |-
 
   type 1.tStep :: sType {}
 
-  axiom 1.$ax$Step : tStep ~R tInt → tInt
+  axiom 1.$ax$Step : tStep ~R tInt 3.→ tInt
 
-  pub val 1.vcount inline :: tInt → tStep
+  pub val 1.vcount inline :: tInt 3.→ tStep
     = λ(x : tInt).
       (λ(acc : tInt).
         let! cI# (x{1} : tInt#) = x;
         let! cI# (acc{1} : tInt#) = acc;
         v$wcount x{1} acc{1}) ▷ sym (axiom-co $ax$Step)
 
-  val 1.v$wcount :: tInt# → tInt# → tInt
+  val 1.v$wcount :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt)
     = λ(x : tInt#) (acc : tInt#).
       case x of {
-        0 →
+        0#cIntRep →
           cI# acc;
         _ →
-          v$wcount (prim -# x (1 :: tInt#)) (prim +# acc x)
+          v$wcount (prim -# x lit (1#cIntRep) :: tInt#) (prim +# acc x)
       }
 status: pass
 reason: The result of count is a newtype of a function, so its last lambda stands under a cast, as the state lambda of an IO action does. The demand analysis counts that lambda. The worker takes it too, and the case of the wrapper stands under it, so the wrapper evaluates the counter only when the function runs.

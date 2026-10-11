@@ -36,8 +36,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     3.cTrue :: tBool
@@ -46,10 +46,10 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.v== :: tInt → tInt → tBool
+  pub val 1.v== :: tInt 3.→ tInt 3.→ tBool
     = λ(x : tInt) (y : tInt).
-      let! cI# (_ : tInt#) = x;
-      let! cI# (_ : tInt#) = y;
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
       cTrue
   scope 1 = "" Main
   scope 2 = "" Types
@@ -74,29 +74,29 @@ expected: |-
     5.v$fNumInt :: t$Dict$Num tInt;
     5.v$fNumInteger :: t$Dict$Num tInteger;
     6.c() :: tUnit;
-    2.v== :: tInt → tInt → tBool;
-    7.cBoxedRep :: tLevity → tRuntimeRep;
+    2.v== :: tInt 7.→ tInt 7.→ tBool;
+    7.cBoxedRep :: tLevity 7.→ tRuntimeRep;
     7.cFalse :: tBool;
-    4.cIS :: tInt# → tInteger;
+    4.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
     7.cIntRep :: tRuntimeRep;
     7.cLifted :: tLevity;
     7.cTrue :: tBool;
-    5.vfromInteger :: ∀(a : sType). t$Dict$Num a → tInteger → a
+    5.vfromInteger :: ∀(a : sType). t$Dict$Num a 7.→ tInteger 7.→ a
 
   import synonyms
     7.sLiftedRep = cBoxedRep cLifted;
     7.sType = tTYPE sLiftedRep
 
   pub val 1.vasInt :: tInt
-    = vfromInteger @tInt v$fNumInt (cIS (1 :: tInt#))
+    = vfromInteger @tInt v$fNumInt (cIS lit (1#cIntRep) :: tInt#)
 
   pub val 1.vasInteger :: tInteger
-    = vfromInteger @tInteger v$fNumInteger (cIS (1 :: tInt#))
+    = vfromInteger @tInteger v$fNumInteger (cIS lit (1#cIntRep) :: tInt#)
 
   pub val 1.vcaseInt :: tUnit
     = let _case : tInt =
-      vfromInteger @tInt v$fNumInt (cIS (1 :: tInt#));
-    case v== _case (vfromInteger @tInt v$fNumInt (cIS (1 :: tInt#))) of {
+      vfromInteger @tInt v$fNumInt (cIS lit (1#cIntRep) :: tInt#);
+    case v== _case (vfromInteger @tInt v$fNumInt (cIS lit (1#cIntRep) :: tInt#)) of {
       cTrue →
         c();
       cFalse →

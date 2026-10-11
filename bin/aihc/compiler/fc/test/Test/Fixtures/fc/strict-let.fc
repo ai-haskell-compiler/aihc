@@ -7,27 +7,27 @@ pub type 1.tFlag :: 2.tType {
 }
 
 pub type 1.tPair :: 2.tType {
-  pub 1.cPair :: FUN @2.sLiftedRep @2.sLiftedRep tFlag (FUN @2.sLiftedRep @2.sLiftedRep tFlag tPair)
+  pub 1.cPair :: tFlag 2.→ tFlag 2.→ tPair
 }
 
-pub val 1.vfirst :: FUN @2.sLiftedRep @2.sLiftedRep tPair tFlag
+pub val 1.vfirst :: tPair 2.→ tFlag
   = λ(pair : tPair).
-    let! cPair (left : tFlag) (_ : tFlag) = pair;
+    let! cPair (left : tFlag) (right : tFlag) = pair;
     left
 
-pub val 1.vforce :: FUN @2.sLiftedRep @2.sLiftedRep tFlag tFlag
+pub val 1.vforce :: tFlag 2.→ tFlag
   = λ(flag : tFlag).
     let! _ = flag;
     cOn
 
-pub val 1.vnested :: FUN @2.sLiftedRep @2.sLiftedRep tPair tFlag
+pub val 1.vnested :: tPair 2.→ tFlag
   = λ(pair : tPair).
     let! _ as (inner : tFlag) =
-      let! cPair (_ : tFlag) (right : tFlag) = pair;
+      let! cPair (left : tFlag) (right : tFlag) = pair;
       right;
     case inner of {
       cOff →
-        let! cPair (other : tFlag) (_ : tFlag) = pair;
+        let! cPair (other : tFlag) (rest : tFlag) = pair;
         other;
       cOn →
         cOff

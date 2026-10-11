@@ -1,0 +1,65 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ArithException, evaluate, try)
+    import Foreign.Marshal.Alloc (allocaBytes)
+    import GHC.Num.BigNat
+    import GHC.Num.Integer (integerFromBigNat#, integerToBigNatClamp#)
+    import GHC.Ptr (Ptr (..))
+    import GHC.Prim
+    import GHC.Types (IO (..), Word (..))
+    import Prelude
+
+    subtractBig :: Integer -> Integer -> Integer
+    subtractBig left right = integerFromBigNat#
+      (bigNatSubUnsafe (integerToBigNatClamp# left) (integerToBigNatClamp# right))
+
+    subtractWord :: Integer -> Word -> Integer
+    subtractWord left (W# right) = integerFromBigNat#
+      (bigNatSubWordUnsafe# (integerToBigNatClamp# left) right)
+
+    arrayRoundTrip :: Integer -> IO (Word, Integer)
+    arrayRoundTrip value = IO (\state ->
+      case newByteArray# 32# state of
+        (# state1, bytes #) -> case bigNatToMutableByteArrayLE# (integerToBigNatClamp# value) bytes 2## state1 of
+          (# state2, count #) -> case unsafeFreezeByteArray# bytes state2 of
+            (# state3, frozen #) -> case bigNatFromByteArrayLE# count frozen 2## state3 of
+              (# state4, magnitude #) -> (# state4, (W# count, integerFromBigNat# magnitude) #))
+
+    addressRoundTrip :: Integer -> IO (Word, Integer)
+    addressRoundTrip value = allocaBytes 32 (\(Ptr address) -> IO (\state ->
+      case bigNatToAddrLE# (integerToBigNatClamp# value) address state of
+        (# state1, count #) -> case bigNatFromAddrLE# count address state1 of
+          (# state2, magnitude #) -> (# state2, (W# count, integerFromBigNat# magnitude) #)))
+
+    main :: IO ()
+    main = do
+      print (subtractBig 18446744073709551618 18446744073709551616)
+      print (subtractWord 18446744073709551616 1)
+      print (subtractBig 5 5, subtractWord 5 5)
+      big <- try (evaluate (subtractBig 1 2)) :: IO (Either ArithException Integer)
+      print big
+      word <- try (evaluate (subtractWord 1 2)) :: IO (Either ArithException Integer)
+      print word
+      mapM_ (\value -> arrayRoundTrip value >>= print) [0, 258, 18446744073709551618]
+      mapM_ (\value -> addressRoundTrip value >>= print) [0, 258, 18446744073709551618]
+stdout: |
+  2
+  18446744073709551615
+  (0,0)
+  Left arithmetic underflow
+  Left arithmetic underflow
+  (0,0)
+  (2,258)
+  (9,18446744073709551618)
+  (0,0)
+  (2,258)
+  (9,18446744073709551618)
+expression: main
+output: |
+  ()
+status: pass

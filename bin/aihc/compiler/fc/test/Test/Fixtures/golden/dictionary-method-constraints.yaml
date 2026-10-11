@@ -21,7 +21,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -33,21 +33,21 @@ expected: |-
   }
 
   pub type 1.t$Dict$Render (a : sType) :: sType {
-    pub 1.c$Dict$Render :: ∀(a : sType). (a → tResult) → t$Dict$Render a
+    pub 1.c$Dict$Render :: ∀(a : sType). (a 2.→ tResult) 2.→ t$Dict$Render a
   }
 
   pub type 1.t$Dict$Convert (a : sType) :: sType {
-    pub 1.c$Dict$Convert :: ∀(a : sType). (∀(b : sType). t$Dict$Render b → a → b → tResult) → t$Dict$Convert a
+    pub 1.c$Dict$Convert :: ∀(a : sType). (∀(b : sType). t$Dict$Render b 2.→ a 2.→ b 2.→ tResult) 2.→ t$Dict$Convert a
   }
 
-  pub val 1.vrender :: ∀(a : sType). t$Dict$Render a → a → tResult
+  pub val 1.vrender :: ∀(a : sType). t$Dict$Render a 2.→ a 2.→ tResult
     = Λ(a : sType). λ($dRender : t$Dict$Render a).
-      let! c$Dict$Render ($crender : a → tResult) = $dRender;
+      let! c$Dict$Render ($crender : a 2.→ tResult) = $dRender;
       $crender
 
-  pub val 1.vconvert :: ∀(a : sType) (b : sType). t$Dict$Convert a → t$Dict$Render b → a → b → tResult
+  pub val 1.vconvert :: ∀(a : sType) (b : sType). t$Dict$Convert a 2.→ t$Dict$Render b 2.→ a 2.→ b 2.→ tResult
     = Λ(a : sType) (b : sType). λ($dConvert : t$Dict$Convert a) ($dRender : t$Dict$Render b).
-      let! c$Dict$Convert ($cconvert : ∀(b{1} : sType). t$Dict$Render b{1} → a → b{1} → tResult) = $dConvert;
+      let! c$Dict$Convert ($cconvert : ∀(b{1} : sType). t$Dict$Render b{1} 2.→ a 2.→ b{1} 2.→ tResult) = $dConvert;
       $cconvert @b $dRender
 status: pass
 reason: class dictionaries store constrained polymorphic methods as ordinary function

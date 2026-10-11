@@ -1,0 +1,66 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test (both, branches) where
+
+  import GHC.Prim (Int#, (*#), (+#))
+
+  both :: Int# -> Int# -> (# Int#, Int# #)
+  both x z = (# (x +# 1#) +# z, (x +# 1#) *# z #)
+
+  branches :: Int# -> Int# -> Int#
+  branches x b =
+    case b of
+      0# -> x +# 1#
+      _ -> (x +# 1#) *# 2#
+passes:
+- cse
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vboth :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @(cTupleRep (c: tRuntimeRep cIntRep (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) tInt# (tTuple2# cIntRep cIntRep tInt# tInt#))
+    = λ(x : tInt#) (y : tInt#).
+      let shared{1} : tInt# =
+        prim +# x lit (1#cIntRep) :: tInt#;
+      cTuple2# @cIntRep @cIntRep @tInt# @tInt# (prim +# shared{1} y) (prim *# shared{1} y)
+
+  pub val 1.vbranches :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    = λ(x : tInt#) (y : tInt#).
+      case y of {
+        0#cIntRep →
+          prim +# x lit (1#cIntRep) :: tInt#;
+        _ →
+          prim *# (prim +# x lit (1#cIntRep) :: tInt#) lit (2#cIntRep) :: tInt#
+      }
+status: pass
+reason: In 'both', one path calculates 'x +# 1#' two times, so one strict let binds it. In 'branches', each alternative calculates it one time, so the code does not change.

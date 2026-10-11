@@ -20,8 +20,8 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.c: :: ∀(a : sType). a → t[] a → t[] a;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.c: :: ∀(a : sType). a 2.→ t[] a 2.→ t[] a;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity;
     2.c[] :: ∀(a : sType). t[] a
 
@@ -34,11 +34,11 @@ expected: |-
     pub 1.cTrue :: tBool
   }
 
-  pub val 1.venumFromTo :: ∀(a : sType). a → a → t[] a
+  pub val 1.venumFromTo :: ∀(a : sType). a 2.→ a 2.→ t[] a
     = Λ(a : sType). λ(x : a) (y : a).
       c: @a x (c: @a y (c[] @a))
 
-  pub val 1.vresult :: tBool → tBool → t[] tBool
+  pub val 1.vresult :: tBool 2.→ tBool 2.→ t[] tBool
     = λ(x : tBool) (y : tBool).
       venumFromTo @tBool x y
 status: pass

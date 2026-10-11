@@ -39,7 +39,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -47,47 +47,48 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.tProxy (k : sType) (t : k) :: sType {
-    pub 1.cProxy :: ∀(k : sType) (t : k). tProxy t
+    pub 1.cProxy :: ∀(k : sType) (t : k). tProxy k t
   }
 
   pub type 1.t$Dict$Truthy (a : sType) :: sType {
-    pub 1.c$Dict$Truthy :: ∀(a : sType). (a → tBool) → t$Dict$Truthy a
+    pub 1.c$Dict$Truthy :: ∀(a : sType). (a 2.→ tBool) 2.→ t$Dict$Truthy a
   }
 
-  pub type 1.t$Dict$KnownCtxt (c : sType → sType) :: sType {
-    pub 1.c$Dict$KnownCtxt :: ∀(c : sType → sType). (∀(a : sType). c a → tProxy c → a → tBool) → t$Dict$KnownCtxt c
+  pub type 1.t$Dict$KnownCtxt (c : sType 2.→ sType) :: sType {
+    pub 1.c$Dict$KnownCtxt :: ∀(c : sType 2.→ sType). (∀(a : sType). c a 2.→ tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) c 2.→ a 2.→ tBool) 2.→ t$Dict$KnownCtxt c
   }
 
-  pub type 1.tCtxt (b : tBool) :: sType → sType @N {}
+  pub type 1.tCtxt (b : tBool) :: sType 2.→ sType @N {}
 
   axiom 1.$ax$Ctxt$0 (b : tBool) : tCtxt b ~N t$Dict$Truthy
 
-  pub val 1.vtruthy :: ∀(a : sType). t$Dict$Truthy a → a → tBool
+  pub val 1.vtruthy :: ∀(a : sType). t$Dict$Truthy a 2.→ a 2.→ tBool
     = Λ(a : sType). λ($dTruthy : t$Dict$Truthy a).
-      let! c$Dict$Truthy ($ctruthy : a → tBool) = $dTruthy;
+      let! c$Dict$Truthy ($ctruthy : a 2.→ tBool) = $dTruthy;
       $ctruthy
 
-  pub val 1.vinj :: ∀(c : sType → sType) (a : sType). t$Dict$KnownCtxt c → c a → tProxy c → a → tBool
-    = Λ(c : sType → sType) (a : sType). λ($dKnownCtxt : t$Dict$KnownCtxt c) ($d : c a).
-      let! c$Dict$KnownCtxt ($cinj : ∀(a{1} : sType). c a{1} → tProxy c → a{1} → tBool) = $dKnownCtxt;
+  pub val 1.vinj :: ∀(c : sType 2.→ sType) (a : sType). t$Dict$KnownCtxt c 2.→ c a 2.→ tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) c 2.→ a 2.→ tBool
+    = Λ(c : sType 2.→ sType) (a : sType). λ($dKnownCtxt : t$Dict$KnownCtxt c) ($d : c a).
+      let! c$Dict$KnownCtxt ($cinj : ∀(a{1} : sType). c a{1} 2.→ tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) c 2.→ a{1} 2.→ tBool) =
+        $dKnownCtxt;
       $cinj @a $d
 
   pub val 1.v$fTruthyBool :: t$Dict$Truthy tBool
     = c$Dict$Truthy @tBool v$fTruthyBool$ctruthy
 
-  val 1.v$fTruthyBool$ctruthy :: tBool → tBool
+  val 1.v$fTruthyBool$ctruthy :: tBool 2.→ tBool
     = λ(x : tBool).
       x
 
   pub val 1.v$fKnownCtxtTruthy :: t$Dict$KnownCtxt t$Dict$Truthy
     = c$Dict$KnownCtxt @t$Dict$Truthy v$fKnownCtxtTruthy$cinj
 
-  val 1.v$fKnownCtxtTruthy$cinj :: ∀(a : sType). t$Dict$Truthy a → tProxy @{sType → sType} t$Dict$Truthy → a → tBool
-    = Λ(a : sType). λ($dTruthy : t$Dict$Truthy a) (_ : tProxy @{sType → sType} t$Dict$Truthy).
+  val 1.v$fKnownCtxtTruthy$cinj :: ∀(a : sType). t$Dict$Truthy a 2.→ tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) t$Dict$Truthy 2.→ a 2.→ tBool
+    = Λ(a : sType). λ($dTruthy : t$Dict$Truthy a) (x : tProxy (tTYPE (cBoxedRep cLifted) 2.→ sType) t$Dict$Truthy).
       vtruthy @a $dTruthy
 
-  pub val 1.vinjCtxt :: ∀(b : tBool) (a : sType). tCtxt b a → t$Dict$KnownCtxt (tCtxt b) → tProxy b → a → tBool
-    = Λ(b : tBool) (a : sType). λ($d : tCtxt b a) ($dKnownCtxt : t$Dict$KnownCtxt (tCtxt b)) (_ : tProxy b).
-      vinj @t$Dict$Truthy @a $dKnownCtxt $d (cProxy @{sType → sType} @t$Dict$Truthy)
+  pub val 1.vinjCtxt :: ∀(b : tBool) (a : sType). tCtxt b a 2.→ t$Dict$KnownCtxt (tCtxt b) 2.→ tProxy tBool b 2.→ a 2.→ tBool
+    = Λ(b : tBool) (a : sType). λ($d : tCtxt b a) ($dKnownCtxt : t$Dict$KnownCtxt (tCtxt b)) (x : tProxy tBool b).
+      vinj @t$Dict$Truthy @a $dKnownCtxt $d (cProxy @(tTYPE (cBoxedRep cLifted) 2.→ sType) @t$Dict$Truthy)
 status: pass
 reason: a kind argument with a constraint in it, as Proxy takes for a class variable or a constraint family, erases the constraint to Type, and the lint accepts it

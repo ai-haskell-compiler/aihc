@@ -23,7 +23,7 @@ expected: |-
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
     2.c() :: tUnit;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -31,14 +31,14 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tBox (a : sType) :: sType {
-    pub 1.cBox :: ∀(a : sType). a → tBox a
+    pub 1.cBox :: ∀(a : sType). a 3.→ tBox a
   }
 
   val 1.vshared noinline :: tBox tUnit
     = cBox @tUnit c()
 
-  pub val 1.vfirst :: tUnit → tBox tUnit
-    = λ(_ : tUnit).
+  pub val 1.vfirst :: tUnit 3.→ tBox tUnit
+    = λ(x : tUnit).
       vshared
 status: pass
 reason: A site uses the private constant of an earlier lift that has the same expression.

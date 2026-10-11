@@ -26,9 +26,9 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a → t[] a → t[] a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cC# :: tChar# → tChar;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
     3.cLifted :: tLevity;
     3.cWordRep :: tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
@@ -40,10 +40,10 @@ expected: |-
   pub type 1.tColour :: sType {
     pub 1.cRed :: tColour;
     pub 1.cGreen :: tColour;
-    pub 1.cUnknown :: t[] tChar → tColour
+    pub 1.cUnknown :: t[] tChar 3.→ tColour
   }
 
-  pub val 1.vreadColour :: t[] tChar → tColour
+  pub val 1.vreadColour :: t[] tChar 3.→ tColour
     = λ(x : t[] tChar).
       let _fail : tColour =
         cUnknown x;
@@ -51,17 +51,17 @@ expected: |-
         c: (_pat : tChar) (_pat{1} : t[] tChar) →
           let! cC# (_pat{2} : tChar#) = _pat;
           case _pat{2} of {
-            'r' →
+            'r'#cWordRep →
               case _pat{1} of {
                 c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
                   let! cC# (_pat{5} : tChar#) = _pat{3};
                   case _pat{5} of {
-                    'e' →
+                    'e'#cWordRep →
                       case _pat{4} of {
                         c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
                           let! cC# (_pat{8} : tChar#) = _pat{6};
                           case _pat{8} of {
-                            'd' →
+                            'd'#cWordRep →
                               case _pat{7} of {
                                 c[] →
                                   cRed;
@@ -80,27 +80,27 @@ expected: |-
                 _ →
                   _fail
               };
-            'g' →
+            'g'#cWordRep →
               case _pat{1} of {
                 c: (_pat{3} : tChar) (_pat{4} : t[] tChar) →
                   let! cC# (_pat{5} : tChar#) = _pat{3};
                   case _pat{5} of {
-                    'r' →
+                    'r'#cWordRep →
                       case _pat{4} of {
                         c: (_pat{6} : tChar) (_pat{7} : t[] tChar) →
                           let! cC# (_pat{8} : tChar#) = _pat{6};
                           case _pat{8} of {
-                            'e' →
+                            'e'#cWordRep →
                               case _pat{7} of {
                                 c: (_pat{9} : tChar) (_pat{10} : t[] tChar) →
                                   let! cC# (_pat{11} : tChar#) = _pat{9};
                                   case _pat{11} of {
-                                    'e' →
+                                    'e'#cWordRep →
                                       case _pat{10} of {
                                         c: (_pat{12} : tChar) (_pat{13} : t[] tChar) →
                                           let! cC# (_pat{14} : tChar#) = _pat{12};
                                           case _pat{14} of {
-                                            'n' →
+                                            'n'#cWordRep →
                                               case _pat{13} of {
                                                 c[] →
                                                   cGreen;

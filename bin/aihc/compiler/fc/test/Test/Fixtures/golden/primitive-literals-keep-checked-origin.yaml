@@ -26,7 +26,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     3.cAddrRep :: tRuntimeRep;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -35,17 +35,17 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tBoxInt :: sType {
-    pub 1.cBoxInt :: tInt# → tBoxInt
+    pub 1.cBoxInt :: FUN @cIntRep @sLiftedRep tInt# tBoxInt
   }
 
   pub type 1.tBoxAddr :: sType {
-    pub 1.cBoxAddr :: tAddr# → tBoxAddr
+    pub 1.cBoxAddr :: FUN @cAddrRep @sLiftedRep tAddr# tBoxAddr
   }
 
   pub val 1.vintValue :: tBoxInt
-    = cBoxInt (1 :: tInt#)
+    = cBoxInt lit (1#cIntRep) :: tInt#
 
   pub val 1.vaddrValue :: tBoxAddr
-    = cBoxAddr ("test" :: tAddr#)
+    = cBoxAddr lit ("test"#cAddrRep) :: tAddr#
 status: pass
 reason: keeps checked GHC.Prim identities on primitive Core literals

@@ -2,36 +2,36 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: sType;
-  2.sLiftedRep :: tRuntimeRep;
-  2.tRuntimeRep :: sType;
-  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
-  2.sType :: sType;
-  2.cBoxedRep :: tLevity → tRuntimeRep;
-  2.cLifted :: tLevity
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity
 
 import synonyms
-  2.sLiftedRep = cBoxedRep cLifted;
-  2.sType = tTYPE sLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-pub type 1.tIntRep :: tRuntimeRep {}
+pub type 1.tIntRep :: 2.tRuntimeRep {}
 
-pub type 1.tSecret# :: tTYPE tIntRep {}
+pub type 1.tSecret# :: 2.tTYPE 1.tIntRep {}
 
-val 1.vsecret :: tSecret#
-  = 1 :: tSecret#
+val 1.vsecret :: 1.tSecret#
+ = lit (1#1.tIntRep) :: 1.tSecret#
 
-val 1.vmakeSecret :: tSecret# → tSecret#
-  = λ(_ : tSecret#).
-    1 :: tSecret#
+val 1.vmakeSecret :: FUN @1.tIntRep @1.tIntRep 1.tSecret# 1.tSecret#
+ = λ(value : 1.tSecret#).
+  lit (1#1.tIntRep) :: 1.tSecret#
 
-val 1.vapplySecret :: tSecret#
-  = vmakeSecret (1 :: tSecret#)
+val 1.vapplySecret :: 1.tSecret#
+ = 1.vmakeSecret (lit (1#1.tIntRep) :: 1.tSecret#)
 
-val 1.vcaseSecret :: tSecret#
-  = case 1 :: tSecret# of {
-    1 →
-      1 :: tSecret#;
+val 1.vcaseSecret :: 1.tSecret#
+ = case lit (1#1.tIntRep) :: 1.tSecret# as (value : 1.tSecret#) of {
+    1#1.tIntRep →
+        lit (1#1.tIntRep) :: 1.tSecret#;
     _ →
-      1 :: tSecret#
-  }
+        lit (1#1.tIntRep) :: 1.tSecret#
+}

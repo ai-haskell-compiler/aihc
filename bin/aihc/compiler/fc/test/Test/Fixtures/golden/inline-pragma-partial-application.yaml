@@ -36,7 +36,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cFalse :: tBool;
     2.cLifted :: tLevity;
     2.cTrue :: tBool
@@ -45,31 +45,31 @@ expected: |-
     2.sLiftedRep = cBoxedRep cLifted;
     2.sType = tTYPE sLiftedRep
 
-  val 1.vchoose noinline :: tBool → tBool → tBool
+  val 1.vchoose noinline :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool).
       case x of {
         cTrue →
           λ(x{1} : tBool).
             x{1};
         cFalse →
-          λ(_ : tBool).
+          λ(x{1} : tBool).
             cFalse
       }
 
-  pub val 1.vboth :: tBool → tBool → tBool
+  pub val 1.vboth :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool).
-      let x{1} : tBool → tBool =
+      let x{1} : tBool 2.→ tBool =
         vchoose x;
-      let y : tBool → tBool =
+      let y : tBool 2.→ tBool =
         vchoose x;
       λ(x{2} : tBool).
         x{1} (y x{2})
 
-  pub val 1.vother :: tBool → tBool → tBool
+  pub val 1.vother :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool).
-      let x{1} : tBool → tBool =
+      let x{1} : tBool 2.→ tBool =
         vchoose x;
-      let y : tBool → tBool =
+      let y : tBool 2.→ tBool =
         vchoose cTrue;
       λ(x{2} : tBool).
         x{1} (y x{2})

@@ -20,7 +20,6 @@ expected: |-
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
-    2.tInt# :: tTYPE cIntRep;
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
     3.sLiftedRep :: tRuntimeRep;
     2.tRealWorld :: sType;
@@ -29,11 +28,9 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
-    3.cIntRep :: tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -42,12 +39,11 @@ expected: |-
 
   type 1.tEff (a : sType) :: sType {}
 
-  axiom 1.$ax$Eff (a : sType) : tEff a ~R tState# tRealWorld → a
+  axiom 1.$ax$Eff (a : sType) : tEff a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) a
 
-  pub val 1.vrun :: tEff tInt → tEff tInt
+  pub val 1.vrun :: tEff tInt 3.→ tEff tInt
     = λ(x : tEff tInt).
       (λ(t : tState# tRealWorld).
-        let! cI# (n : tInt#) = (x ▷ axiom-co $ax$Eff @tInt) t;
-        cI# n) ▷ sym (axiom-co $ax$Eff @tInt)
+        (x ▷ axiom-co $ax$Eff @tInt) t) ▷ sym (axiom-co $ax$Eff @tInt)
 status: pass
 reason: The right side is a lambda under a newtype cast. Its one use casts it back and calls it, so the lambda moves to its call and the two casts cancel.

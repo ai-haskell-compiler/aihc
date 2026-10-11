@@ -19,7 +19,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -27,22 +27,22 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.tBox (a : sType) :: sType {
-    pub 1.cBox :: ∀(a : sType). a → tBox a
+    pub 1.cBox :: ∀(a : sType). a 2.→ tBox a
   }
 
-  pub type 1.t$Dict$Map (f : sType → sType) :: sType {
-    pub 1.c$Dict$Map :: ∀(f : sType → sType). (∀(a : sType). f a → f a) → t$Dict$Map f
+  pub type 1.t$Dict$Map (f : sType 2.→ sType) :: sType {
+    pub 1.c$Dict$Map :: ∀(f : sType 2.→ sType). (∀(a : sType). f a 2.→ f a) 2.→ t$Dict$Map f
   }
 
-  pub val 1.vmapValue :: ∀(f : sType → sType) (a : sType). t$Dict$Map f → f a → f a
-    = Λ(f : sType → sType) (a : sType). λ($dMap : t$Dict$Map f).
-      let! c$Dict$Map ($cmapValue : ∀(a{1} : sType). f a{1} → f a{1}) = $dMap;
+  pub val 1.vmapValue :: ∀(f : sType 2.→ sType) (a : sType). t$Dict$Map f 2.→ f a 2.→ f a
+    = Λ(f : sType 2.→ sType) (a : sType). λ($dMap : t$Dict$Map f).
+      let! c$Dict$Map ($cmapValue : ∀(a{1} : sType). f a{1} 2.→ f a{1}) = $dMap;
       $cmapValue @a
 
   pub val 1.v$fMapBox :: t$Dict$Map tBox
     = c$Dict$Map @tBox v$fMapBox$cmapValue
 
-  val 1.v$fMapBox$cmapValue :: ∀(a : sType). tBox a → tBox a
+  val 1.v$fMapBox$cmapValue :: ∀(a : sType). tBox a 2.→ tBox a
     = Λ(a : sType). λ(x : tBox a).
       x
 status: pass

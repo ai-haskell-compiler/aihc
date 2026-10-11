@@ -23,7 +23,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -44,7 +44,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     constructors [1.cToken] 1.tToken :: sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -67,7 +67,7 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     constructors [1.cToken] 1.tToken :: sType;
     4.sType :: sType;
-    4.cBoxedRep :: tLevity → tRuntimeRep;
+    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
     4.cLifted :: tLevity
 
   import synonyms
@@ -77,7 +77,7 @@ expected: |-
   import axioms
     2.$ax$Box : tBox ~R tToken
 
-  pub val 3.vunwrap :: tBox → tToken
+  pub val 3.vunwrap :: tBox 4.→ tToken
     = λ(x : tBox).
       x ▷ axiom-co $ax$Box
 status: pass

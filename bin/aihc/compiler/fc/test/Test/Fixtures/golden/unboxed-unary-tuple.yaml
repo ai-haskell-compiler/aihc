@@ -19,22 +19,22 @@ expected: |-
     3.sLiftedRep :: tRuntimeRep;
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    constructors [3.cTuple1#] 3.tTuple1# :: ∀(r1 : tRuntimeRep) (a1 : tTYPE r1). tTYPE (cTupleRep (c: r1 (c[] tRuntimeRep)));
+    constructors [3.cTuple1#] 3.tTuple1# :: ∀(r1 : tRuntimeRep) (a1 : tTYPE r1). tTYPE (cTupleRep (c: tRuntimeRep r1 (c[] tRuntimeRep)));
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a → t[] a → t[] a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vunary :: tTuple1# tInt# → tTuple1# tInt#
-    = λ(x : tTuple1# tInt#).
+  pub val 1.vunary :: FUN @(cTupleRep (c: tRuntimeRep cIntRep (c[] tRuntimeRep))) @(cTupleRep (c: tRuntimeRep cIntRep (c[] tRuntimeRep))) (tTuple1# cIntRep tInt#) (tTuple1# cIntRep tInt#)
+    = λ(x : tTuple1# cIntRep tInt#).
       x
 status: pass
 reason: The one-element unboxed tuple travels through FC as GHC.Types.Tuple1#, taking its element's runtime representation as its first argument, exactly as the wider tuples do.

@@ -2,25 +2,25 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: sType;
-  2.sLiftedRep :: tRuntimeRep;
-  2.tRuntimeRep :: sType;
-  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
-  2.sType :: sType;
-  2.cBoxedRep :: tLevity → tRuntimeRep;
-  2.cLifted :: tLevity
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity
 
 import synonyms
-  2.sLiftedRep = cBoxedRep cLifted;
-  2.sType = tTYPE sLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-pub type 1.tInt :: sType {
-  pub 1.cI :: tInt
+pub type 1.tInt :: 2.sType {
+    pub 1.cI :: 1.tInt
 }
 
-pub type 1.tAge :: sType {}
+pub type 1.tAge :: 2.sType {}
 
-axiom 1.$ax$Age : tAge ~N tInt
+axiom 1.$ax$Age : 1.tAge ~N 1.tInt
 
-val 1.vproof :: tAge ~ tInt
-  = coercion (axiom-co $ax$Age)
+val 1.vproof :: 1.tAge ~ 1.tInt
+ = coercion (axiom-co 1.$ax$Age)

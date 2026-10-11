@@ -11,7 +11,6 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Pretty (globalReferences, reservedWords)
 import Aihc.Fc.Syntax
-import Aihc.Fc.TextInference
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -20,10 +19,11 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, local, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, isSpace, ord)
+import Data.Either (isLeft, lefts, partitionEithers)
 import Data.Functor (($>))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
@@ -37,38 +37,18 @@ data ParserEnv = ParserEnv
   { parserScopes :: ScopeTable,
     parserGlobals :: Map.Map Text Name,
     parserPrimitives :: Map.Map Name ForeignCall,
-    parserCollect :: Bool,
-    -- | The inference environment of the current position. It comes from
-    -- the program of the previous pass.
-    parserInfer :: InferEnv,
-    -- | In the last pass, a part that the inference cannot give is an
-    -- error. In the earlier passes it is a placeholder.
-    parserStrict :: Bool
+    parserCollect :: Bool
   }
 
 type Parser = ReaderT ParserEnv (Parsec Void Text)
 
 type FcParseError = ParseErrorBundle Text Void
 
--- | Parse a program. The text leaves out the parts that the inference of
--- "Aihc.Fc.TextInference" gives, and the inference needs the declarations
--- of the program. Thus the parser reads the text more than one time. The
--- first pass collects the names. Each later pass uses the program of the
--- previous pass, until the program does not change. The last pass makes a
--- part that the inference cannot give an error.
 parseProgram :: Text -> Either FcParseError Program
 parseProgram input = do
   (scopes, body) <- parseScopeHeader input
-  let run collect globals previous strict =
-        parseWith (ParserEnv scopes globals Map.empty collect (maybe emptyInferEnv inferEnvFromProgram previous) strict) (space *> program <* MP.eof) "<system-fc>" body
-  initial <- run True Map.empty Nothing False
-  let globals = globalReferences initial
-      settle :: Int -> Program -> Either FcParseError Program
-      settle remaining previous = do
-        next <- run False globals (Just previous) False
-        if next == previous || remaining <= 0 then pure next else settle (remaining - 1) next
-  settled <- settle 4 initial
-  run False globals (Just settled) True
+  initial <- parseWith (ParserEnv scopes Map.empty Map.empty True) (space *> program <* MP.eof) "<system-fc>" body
+  parseWith (ParserEnv scopes (globalReferences initial) Map.empty False) (space *> program <* MP.eof) "<system-fc>" body
 
 renderParseError :: FcParseError -> String
 renderParseError = MP.errorBundlePretty
@@ -79,7 +59,7 @@ parseWith scopes parser = MP.parse (runReaderT parser scopes)
 parseScopeHeader :: Text -> Either FcParseError (ScopeTable, Text)
 parseScopeHeader = MP.parse parser "<system-fc-scope>"
   where
-    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) (ParserEnv emptyScopeTable Map.empty Map.empty True emptyInferEnv False)) <*> MP.takeRest
+    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) (ParserEnv emptyScopeTable Map.empty Map.empty True)) <*> MP.takeRest
     toScopeTable = foldr (\(scopeId, package, moduleName) -> insertScope scopeId package moduleName) emptyScopeTable
 
 scopeDeclaration :: Parser (Int, PackageId, Text)
@@ -165,13 +145,13 @@ importedBinder sort = do
 importedAxiom :: Parser (Imports -> Imports)
 importedAxiom = do
   name <- topName SortAxiom
-  scopedTypeBinders $ \binders -> do
-    _ <- symbol ":"
-    left <- fcType
-    role <- parseAxiomRole
-    right <- fcType
-    let axiom = AxiomDecl Private name binders role left right
-    pure (\imports -> imports {importAxioms = Map.insert name axiom (importAxioms imports)})
+  binders <- MP.many openPiBinder
+  _ <- symbol ":"
+  left <- fcType
+  role <- parseAxiomRole
+  right <- fcType
+  let axiom = AxiomDecl Private name binders role left right
+  pure (\imports -> imports {importAxioms = Map.insert name axiom (importAxioms imports)})
 
 importedHeaderName :: Parser Name
 importedHeaderName = topNameWithSort
@@ -190,20 +170,20 @@ typeOrSynonym = do
   vis <- optionalPub
   _ <- keyword "type"
   name <- topName SortTypeConstructor
-  scopedTypeBinders $ \binders -> do
-    _ <- symbol "::"
-    result <- fcType
-    roles <- MP.option [] roleList
-    MP.choice
-      [ do
-          _ <- symbol "="
-          DeclSynonym
-            . SynonymDecl vis name {nameSort = SortSynonym} binders result
-            <$> fcType,
-        DeclType
-          . TypeDecl vis name binders result (defaultRoles binders roles)
-          <$> constructorBlock
-      ]
+  binders <- MP.many openPiBinder
+  _ <- symbol "::"
+  result <- fcType
+  roles <- MP.option [] roleList
+  MP.choice
+    [ do
+        _ <- symbol "="
+        DeclSynonym
+          . SynonymDecl vis name {nameSort = SortSynonym} binders result
+          <$> fcType,
+      DeclType
+        . TypeDecl vis name binders result (defaultRoles binders roles)
+        <$> constructorBlock
+    ]
 
 constructorBlock :: Parser [ConDecl]
 constructorBlock = braces (MP.many (constructorDecl <* MP.optional (symbol ";")))
@@ -236,11 +216,11 @@ axiomDeclaration = do
   vis <- optionalPub
   _ <- keyword "axiom"
   name <- topName SortAxiom
-  scopedTypeBinders $ \binders -> do
-    _ <- symbol ":"
-    left <- fcType
-    role <- parseAxiomRole
-    DeclAxiom . AxiomDecl vis name binders role left <$> fcType
+  binders <- MP.option [] (MP.try (MP.some openPiBinder))
+  _ <- symbol ":"
+  left <- fcType
+  role <- parseAxiomRole
+  DeclAxiom . AxiomDecl vis name binders role left <$> fcType
 
 -- | A foreign call: @foreign {convention deps name :: type} @ty... arg...@.
 -- Every type argument comes before the value arguments.
@@ -253,12 +233,10 @@ foreignCallExpr = do
 foreignCallArguments :: ForeignCall -> Parser Expr
 foreignCallArguments call = do
   arguments <- MP.many appArgument
-  let (types, rest) = span isTypeArgument arguments
-  resolved <- resolveArguments (termTelescope (foreignCallType call)) [(implicit, ty) | AppType implicit ty <- types]
-  case [value | AppValue value <- rest] of
-    values
-      | length values == length rest -> pure (ExForeignCall call resolved values)
-      | otherwise -> fail "a foreign call takes its type arguments before its value arguments"
+  let (types, rest) = span isLeft arguments
+  case partitionEithers rest of
+    ([], values) -> pure (ExForeignCall call (lefts types) values)
+    _ -> fail "a foreign call takes its type arguments before its value arguments"
 
 foreignCall :: Parser ForeignCall
 foreignCall = do
@@ -355,67 +333,6 @@ valDeclaration = do
   body <- expression
   pure (DeclVal (ValDecl vis name ty body spec))
 
--- | Parse type binders one by one, each in the scope of the earlier ones,
--- and then parse the rest in the scope of all of them.
-scopedTypeBinders :: ([Binder] -> Parser value) -> Parser value
-scopedTypeBinders continue = go []
-  where
-    go binders = do
-      next <- MP.optional (MP.try openPiBinder)
-      case next of
-        Just binder -> local (withInfer (withTypeBinder binder)) (go (binders <> [binder]))
-        Nothing -> continue binders
-
-withInfer :: (InferEnv -> InferEnv) -> ParserEnv -> ParserEnv
-withInfer change environment = environment {parserInfer = change (parserInfer environment)}
-
-withTermBinders :: [Binder] -> ParserEnv -> ParserEnv
-withTermBinders binders = withInfer (\env -> foldl (flip withTermBinder) env binders)
-
-withTypeBinders :: [Binder] -> ParserEnv -> ParserEnv
-withTypeBinders binders = withInfer (\env -> foldl (flip withTypeBinder) env binders)
-
--- | A type that a pass before the last has not inferred yet.
-placeholderType :: Type
-placeholderType = TyCon (Name "?" SortTypeConstructor (OriginLocal (Unique 0)))
-
--- | Use an inferred part, or report that the inference cannot give it.
-inferred :: String -> Maybe Type -> Parser Type
-inferred what value = do
-  strict <- parserStrict <$> ask
-  case value of
-    Just found -> pure found
-    Nothing
-      | strict -> fail ("the text leaves out " <> what <> ", and the inference cannot give it")
-      | otherwise -> pure placeholderType
-
--- | Put the omitted arguments of an application back. Each argument has a
--- flag that says whether the text shows it as @\@{t}@.
-resolveArguments :: [Param] -> [(Bool, Type)] -> Parser [Type]
-resolveArguments params arguments = do
-  slots <- walk (zip params (implicitFlags params)) arguments
-  env <- parserInfer <$> ask
-  let used = take (length slots) params
-      values = inferImplicit env used (take (length used) slots) <> drop (length used) slots
-  traverse (inferred "an implicit argument") values
-  where
-    -- Each parameter takes the next argument of its form. An implicit
-    -- parameter with no @\@{t}@ argument is omitted. The application stops
-    -- at the last argument, so the omitted parameters after it are not
-    -- part of it.
-    walk ((_, implicit) : rest) remaining
-      | implicit = case remaining of
-          (True, ty) : more -> (Just ty :) <$> walk rest more
-          _ -> do
-            following <- walk rest remaining
-            pure (if null following then [] else Nothing : following)
-    walk (_ : rest) ((False, ty) : more) = (Just ty :) <$> walk rest more
-    walk (_ : _) ((True, _) : _) = do
-      strict <- parserStrict <$> ask
-      if strict then fail "an @{t} argument of a parameter that is not implicit" else pure []
-    walk _ [] = pure []
-    walk [] more = pure (map (Just . snd) more)
-
 -- | @inline [2]@, @inlinable@, @noinline [~1]@, or nothing.
 inlineSpec :: Parser InlineSpec
 inlineSpec =
@@ -434,22 +351,14 @@ ruleDeclaration = do
   _ <- keyword "rule"
   name <- stringLiteral
   activation <- MP.option AlwaysActive ruleActivationParser
-  typeBinders <- ruleTypeBinderList []
-  local (withTypeBinders typeBinders) $ do
-    binders <- MP.many (MP.try (symbol "λ" *> openTermBinder SortValue <* symbol "."))
-    local (withTermBinders binders) $ do
-      lhs <- expression
-      _ <- symbol "="
-      rhs <- expression
-      _ <- symbol "::"
-      ty <- fcType
-      pure (DeclRule (RuleDecl name activation typeBinders binders ty lhs rhs))
-  where
-    ruleTypeBinderList binders = do
-      next <- MP.optional (MP.try (symbol "Λ" *> openTermBinder SortTypeVariable <* symbol "."))
-      case next of
-        Just binder -> local (withTypeBinders [binder]) (ruleTypeBinderList (binders <> [binder]))
-        Nothing -> pure binders
+  typeBinders <- MP.many (MP.try (symbol "Λ" *> openTermBinder SortTypeVariable <* symbol "."))
+  binders <- MP.many (MP.try (symbol "λ" *> openTermBinder SortValue <* symbol "."))
+  lhs <- expression
+  _ <- symbol "="
+  rhs <- expression
+  _ <- symbol "::"
+  ty <- fcType
+  pure (DeclRule (RuleDecl name activation typeBinders binders ty lhs rhs))
 
 ruleActivationParser :: Parser RuleActivation
 ruleActivationParser =
@@ -489,30 +398,24 @@ fcType = forallType
 forallType :: Parser Type
 forallType =
   MP.choice
-    [ symbol "∀" *> forallBinders,
+    [ flip (foldr TyForAll)
+        <$> (symbol "∀" *> MP.some openPiBinder <* symbol ".")
+        <*> forallType,
       funType
     ]
-  where
-    forallBinders = do
-      binder <- openPiBinder
-      local (withTypeBinders [binder]) $
-        TyForAll binder
-          <$> MP.choice
-            [ forallBinders,
-              symbol "." *> forallType
-            ]
 
--- | A function type @a → b@ has the representations of @a@ and @b@.
 funType :: Parser Type
 funType = do
   left <- eqType
   MP.option left $ do
-    _ <- symbol "→" <|> symbol "->"
-    right <- funType
-    env <- parserInfer <$> ask
-    leftRep <- inferred "the representation of a function argument" (typeRep env left)
-    rightRep <- inferred "the representation of a function result" (typeRep env right)
-    pure (TyFun leftRep rightRep left right)
+    representation <- scopedArrow
+    TyFun representation representation left <$> funType
+
+scopedArrow :: Parser Type
+scopedArrow = lexeme $ do
+  (package, moduleName) <- scopeReference
+  _ <- MPC.string "→" <|> MPC.string "->"
+  pure (TyCon (Name "LiftedRep" SortSynonym (OriginTop package moduleName)))
 
 eqType :: Parser Type
 eqType = do
@@ -531,19 +434,7 @@ axiomRoleLetter = do
     _ -> pure letter
 
 appType :: Parser Type
-appType = MP.try explicitFun <|> typeApplication
-  where
-    typeApplication = do
-      function <- typeAtom
-      arguments <- MP.many (MP.try typeArgument)
-      env <- parserInfer <$> ask
-      resolved <- resolveArguments (fromMaybe [] (typeTelescope env function)) arguments
-      pure (foldl TyApp function resolved)
-    typeArgument =
-      MP.choice
-        [ (,) True <$> MP.between (MP.try (symbol "@{")) (symbol "}") fcType,
-          (,) False <$> typeAtom
-        ]
+appType = MP.try explicitFun <|> (foldl TyApp <$> typeAtom <*> MP.many (MP.try typeAtom))
 
 explicitFun :: Parser Type
 explicitFun =
@@ -596,65 +487,34 @@ expression =
       castOrApp
     ]
 
--- | Lambda binders, each in the scope of the earlier ones, then the body.
 lambdaExpr :: Parser Expr
-lambdaExpr = symbol "λ" *> lambdaBinders False
+lambdaExpr = flip (foldr ExLam) <$> (symbol "λ" *> MP.some (openTermBinder SortValue)) <*> (symbol "." *> expression)
 
 typeLambdaExpr :: Parser Expr
-typeLambdaExpr = symbol "Λ" *> lambdaBinders True
-
--- | The binders of a lambda group, and the rest of the lambda. A group of
--- term binders can follow a group of type binders.
-lambdaBinders :: Bool -> Parser Expr
-lambdaBinders isType = do
-  binder <- openTermBinder (if isType then SortTypeVariable else SortValue)
-  local (if isType then withTypeBinders [binder] else withTermBinders [binder]) $
-    (if isType then ExTyLam else ExLam) binder
-      <$> MP.choice
-        [ lambdaBinders isType,
-          symbol "." *> expression
-        ]
+typeLambdaExpr = flip (foldr ExTyLam) <$> (symbol "Λ" *> MP.some (openTermBinder SortTypeVariable)) <*> (symbol "." *> expression)
 
 openTermBinder :: Sort -> Parser Binder
-openTermBinder sort = parens (Binder <$> binderName <*> (symbol ":" *> fcType))
-  where
-    binderName = wildcardName sort <|> localBinderName sort
-
--- | A binder that the program does not use is @_@. Each one gets the
--- offset of its text as its unique, so two of them are different names.
-wildcardName :: Sort -> Parser Name
-wildcardName sort = do
-  offset <- MP.getOffset
-  _ <- MP.try (lexeme (MPC.char '_' <* MP.notFollowedBy (MP.satisfy identContinue)))
-  pure (Name "_" sort (OriginLocal (Unique offset)))
+openTermBinder sort = parens (Binder <$> localBinderName sort <*> (symbol ":" *> fcType))
 
 letExpr :: Parser Expr
 letExpr = do
   _ <- keyword "let"
   bind <- (braces openBind <* keyword "in") <|> (openBind <* symbol ";")
-  local (withTermBinders [bindBinder bind]) (ExLet bind <$> expression)
+  ExLet bind <$> expression
 
 -- | A strict pattern binding is a case with one alternative:
 -- @let! C (x : t) as (s : u) = e; body@.
 strictLetExpr :: Parser Expr
 strictLetExpr = do
   _ <- MP.try (symbol "let!")
-  pattern' <- altPattern
+  makeAlt <- altPattern
   binder <- MP.optional (keyword "as" *> openTermBinder SortValue)
   scrutinee <- symbol "=" *> expression <* symbol ";"
-  alternative <- completeAlt scrutinee binder pattern' expression
-  pure (ExCase scrutinee binder (alternative NE.:| []))
+  body <- expression
+  pure (ExCase scrutinee binder (makeAlt body NE.:| []))
 
 recExpr :: Parser Expr
-recExpr = do
-  _ <- keyword "rec"
-  -- The binders of a group are in scope in each right-hand side, so the
-  -- parser reads the group two times: first for the binders, then in
-  -- their scope.
-  start <- MP.getParserState
-  binders <- local (\environment -> environment {parserStrict = False}) (map bindBinder <$> braces (MP.sepBy openBind (symbol ";")))
-  MP.setParserState start
-  local (withTermBinders binders) (ExRec <$> braces (MP.sepBy openBind (symbol ";")) <*> (keyword "in" *> expression))
+recExpr = ExRec <$> (keyword "rec" *> braces (MP.sepBy openBind (symbol ";"))) <*> (keyword "in" *> expression)
 
 openBind :: Parser Bind
 openBind = makeBind <$> localBinderName SortValue <*> (symbol ":" *> fcType) <*> (symbol "=" *> expression)
@@ -662,64 +522,28 @@ openBind = makeBind <$> localBinderName SortValue <*> (symbol ":" *> fcType) <*>
     makeBind name ty = Bind (Binder name ty)
 
 caseExpr :: Parser Expr
-caseExpr = do
-  scrutinee <- keyword "case" *> expression
-  binder <- MP.optional (keyword "as" *> openTermBinder SortValue)
-  let alternative = do
-        pattern' <- altPattern
-        completeAlt scrutinee binder pattern' (caseArrow *> expression)
-  alternatives <- keyword "of" *> braces ((NE.:|) <$> alternative <*> MP.many (symbol ";" *> alternative))
-  pure (ExCase scrutinee binder alternatives)
+caseExpr =
+  ExCase
+    <$> (keyword "case" *> expression)
+    <*> MP.optional (keyword "as" *> openTermBinder SortValue)
+    <*> (keyword "of" *> braces ((NE.:|) <$> caseAlt <*> MP.many (symbol ";" *> caseAlt)))
 
 absurdExpr :: Parser Expr
 absurdExpr = ExAbsurd <$> (keyword "absurd" *> expression) <*> (keyword "return" *> parens fcType)
 
--- | The pattern of an alternative, before the parser knows its scrutinee.
-data AltPattern = AltPattern
-  { patternCon :: PatternCon,
-    patternTypeBinders :: [Binder],
-    patternBinders :: [Binder]
-  }
+caseAlt :: Parser Alt
+caseAlt = altPattern <*> (caseArrow *> expression)
 
-data PatternCon
-  = PatternDefault
-  | PatternData Name
-  | -- | A literal, and its representation when the text shows it.
-    PatternLiteral (Type -> Literal) (Maybe Type)
-
--- | Give an alternative pattern its representation and its right-hand side.
--- The right-hand side is in the scope of the case binder and the pattern
--- binders.
-completeAlt :: Expr -> Maybe Binder -> AltPattern -> Parser Expr -> Parser Alt
-completeAlt scrutinee binder pattern' rhsParser = do
-  env <- parserInfer <$> ask
-  con <- case patternCon pattern' of
-    PatternDefault -> pure AltDefault
-    PatternData name -> pure (AltData name)
-    PatternLiteral makeLiteral (Just representation) -> pure (AltLit (makeLiteral representation))
-    PatternLiteral makeLiteral Nothing ->
-      AltLit . makeLiteral <$> inferred "the representation of a literal pattern" (exprType env scrutinee >>= typeRep env)
-  rhs <- local (withTermBinders (patternBinders pattern' <> foldMap pure binder) . withTypeBinders (patternTypeBinders pattern')) rhsParser
-  pure (Alt con (patternTypeBinders pattern') (patternBinders pattern') rhs)
-
--- | The head of an alternative. The binder types are in the scope of the
--- type binders before them.
-altPattern :: Parser AltPattern
+-- | The head of an alternative, which waits for its right-hand side.
+altPattern :: Parser (Expr -> Alt)
 altPattern =
   MP.choice
-    [ AltPattern PatternDefault [] [] <$ symbol "_",
-      do
-        con <- MP.try (uncurry PatternLiteral <$> patternLiteral) <|> (PatternData <$> topReference)
-        typeBinders <- typeBinderList []
-        termBinders <- local (withTypeBinders typeBinders) (MP.many (openTermBinder SortValue))
-        pure (AltPattern con typeBinders termBinders)
+    [ Alt AltDefault [] [] <$ symbol "_",
+      Alt
+        <$> (MP.try (AltLit <$> literal) <|> (AltData <$> topReference))
+        <*> MP.many (symbol "@" *> openTermBinder SortTypeVariable)
+        <*> MP.many (openTermBinder SortValue)
     ]
-  where
-    typeBinderList binders = do
-      next <- MP.optional (symbol "@" *> openTermBinder SortTypeVariable)
-      case next of
-        Just binder -> local (withTypeBinders [binder]) (typeBinderList (binders <> [binder]))
-        Nothing -> pure binders
 
 caseArrow :: Parser Text
 caseArrow = symbol "→" <|> symbol "->"
@@ -731,55 +555,22 @@ castOrApp = do
     _ <- symbol "▷"
     ExCast function <$> coercion
 
--- | A literal: @lit (0#r) :: t@ with its representation, or @0 :: t@ when
--- the representation of @t@ is the representation of the literal.
 literalExpr :: Parser Expr
-literalExpr =
-  MP.choice
-    [ ExLit <$> (keyword "lit" *> parens literal) <*> (symbol "::" *> typeAtom),
-      do
-        makeLiteral <- MP.try (literalValue <* symbol "::")
-        ty <- typeAtom
-        env <- parserInfer <$> ask
-        representation <- inferred "the representation of a literal" (typeRep env ty)
-        pure (ExLit (makeLiteral representation) ty)
-    ]
+literalExpr = ExLit <$> (keyword "lit" *> parens literal) <*> (symbol "::" *> typeAtom)
 
--- | An argument of an application.
-data AppArgument
-  = -- | A type argument, and whether the text shows it as @\@{t}@.
-    AppType Bool Type
-  | AppValue Expr
-
-isTypeArgument :: AppArgument -> Bool
-isTypeArgument argument = case argument of
-  AppType {} -> True
-  AppValue {} -> False
-
--- | An application. The type arguments that come first use the type of the
--- head to put the omitted arguments back.
 appExpr :: Parser Expr
-appExpr = primitiveCallExpr <|> foreignCallExpr <|> application
+appExpr = primitiveCallExpr <|> foreignCallExpr <|> (foldl applyArg <$> exprAtom <*> MP.many appArgument)
   where
-    application = do
-      function <- exprAtom
-      arguments <- MP.many appArgument
-      env <- parserInfer <$> ask
-      let (leading, rest) = span isTypeArgument arguments
-          params = maybe [] termTelescope (exprType env function)
-      types <- resolveArguments params [(implicit, ty) | AppType implicit ty <- leading]
-      pure (foldl applyArg (foldl ExTyApp function types) rest)
     applyArg function argument =
       case argument of
-        AppType _ ty -> ExTyApp function ty
-        AppValue expr -> ExApp function expr
+        Left ty -> ExTyApp function ty
+        Right expr -> ExApp function expr
 
-appArgument :: Parser AppArgument
+appArgument :: Parser (Either Type Expr)
 appArgument =
   MP.choice
-    [ AppType True <$> MP.between (MP.try (symbol "@{")) (symbol "}") fcType,
-      AppType False <$> (symbol "@" *> typeAtom),
-      AppValue <$> exprAtom
+    [ Left <$> (symbol "@" *> typeAtom),
+      Right <$> exprAtom
     ]
 
 exprAtom :: Parser Expr
@@ -800,30 +591,19 @@ coercion =
       CoApp <$> (keyword "app-co" *> parens coercion) <*> parens coercion,
       CoNth <$> (keyword "nth-co" *> int) <*> parens coercion,
       CoFun <$> (keyword "fun-co" *> parens coercion) <*> parens coercion,
-      do
-        binder <- keyword "forall-co" *> openPiBinder
-        CoForAll binder <$> local (withTypeBinders [binder]) (parens coercion),
+      CoForAll <$> (keyword "forall-co" *> openPiBinder) <*> parens coercion,
       CoTyConApp <$> (keyword "tycon-co" *> topReference) <*> MP.many (parens coercion),
       CoAxiom <$> (keyword "axiom-co" *> topReference) <*> MP.many (symbol "@" *> typeAtom),
       CoVar <$> referenceName SortValue
     ]
 
 literal :: Parser Literal
-literal = literalValue <*> (MPC.char '#' *> representationType)
-
--- | The value of a literal, which waits for its representation.
-literalValue :: Parser (Type -> Literal)
-literalValue =
+literal =
   MP.choice
-    [ flip LitInt <$> signedIntegerLiteral,
-      flip LitChar <$> charLiteral,
-      flip LitAddr <$> addrLiteral
+    [ flip LitInt <$> signedIntegerLiteral <*> (MPC.char '#' *> representationType),
+      flip LitChar <$> charLiteral <*> (MPC.char '#' *> representationType),
+      flip LitAddr <$> addrLiteral <*> (MPC.char '#' *> representationType)
     ]
-
--- | A literal pattern: its value, and its representation when the text
--- shows it.
-patternLiteral :: Parser (Type -> Literal, Maybe Type)
-patternLiteral = (,) <$> (literalValue <* MP.notFollowedBy (MPC.char '.')) <*> MP.optional (MPC.char '#' *> representationType)
 
 representationType :: Parser Type
 representationType = TyCon <$> referenceName SortValue

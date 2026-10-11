@@ -25,55 +25,55 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
     3.sType :: sType;
-    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub type 1.tBox (v : sType → sType) (a : sType) :: sType {
-    pub 1.cBox :: ∀(v : sType → sType) (a : sType). a → tBox v a
+  pub type 1.tBox (v : sType 3.→ sType) (a : sType) :: sType {
+    pub 1.cBox :: ∀(v : sType 3.→ sType) (a : sType). a 3.→ tBox v a
   }
 
-  pub type 1.tTag (v : sType → sType) :: sType {
-    pub 1.cTag :: ∀(v : sType → sType). tTag v
+  pub type 1.tTag (v : sType 3.→ sType) :: sType {
+    pub 1.cTag :: ∀(v : sType 3.→ sType). tTag v
   }
 
   pub type 1.tFlag :: sType {
     pub 1.cFlag :: tFlag
   }
 
-  pub val 1.vre :: ∀(u : sType → sType) (a : sType) (v : sType → sType). tBox u a → tBox v a
-    = Λ(u : sType → sType) (a : sType) (v : sType → sType). λ(x : tBox u a).
+  pub val 1.vre :: ∀(u : sType 3.→ sType) (a : sType) (v : sType 3.→ sType). tBox u a 3.→ tBox v a
+    = Λ(u : sType 3.→ sType) (a : sType) (v : sType 3.→ sType). λ(x : tBox u a).
       let! cBox (x{1} : a) = x;
       cBox @v @a x{1}
 
-  pub val 1.vuseRe :: ∀(v : sType → sType) (a : sType) (w : sType → sType). tBox v a → tBox w a
-    = Λ(v : sType → sType) (a : sType) (w : sType → sType). λ(x : tBox v a).
-      vre @(tAny (sType → sType)) @a @w (vre @v @a @(tAny (sType → sType)) x)
+  pub val 1.vuseRe :: ∀(v : sType 3.→ sType) (a : sType) (w : sType 3.→ sType). tBox v a 3.→ tBox w a
+    = Λ(v : sType 3.→ sType) (a : sType) (w : sType 3.→ sType). λ(x : tBox v a).
+      vre @(tAny (tTYPE (cBoxedRep cLifted) 3.→ tTYPE (cBoxedRep cLifted))) @a @w (vre @v @a @(tAny (tTYPE (cBoxedRep cLifted) 3.→ tTYPE (cBoxedRep cLifted))) x)
 
-  val 1.v$pat$tag$flag :: ∀(a : sType → sType). tTuple2 (tTag a) tFlag
-    = Λ(a : sType → sType).
+  val 1.v$pat$tag$flag :: ∀(a : sType 3.→ sType). tTuple2 (tTag a) tFlag
+    = Λ(a : sType 3.→ sType).
       c(,) @(tTag a) @tFlag (cTag @a) cFlag
 
-  val 1.v$patsel$tag :: ∀(a : sType → sType). tTuple2 (tTag a) tFlag → tTag a
-    = Λ(a : sType → sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
-      let! c(,) (tag : tTag a) (_ : tFlag) = _pat_rhs;
+  val 1.v$patsel$tag :: ∀(a : sType 3.→ sType). tTuple2 (tTag a) tFlag 3.→ tTag a
+    = Λ(a : sType 3.→ sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
+      let! c(,) (tag : tTag a) (flag : tFlag) = _pat_rhs;
       tag
 
-  pub val 1.vtag :: ∀(a : sType → sType). tTag a
-    = Λ(a : sType → sType).
+  pub val 1.vtag :: ∀(a : sType 3.→ sType). tTag a
+    = Λ(a : sType 3.→ sType).
       v$patsel$tag @a (v$pat$tag$flag @a)
 
-  val 1.v$patsel$flag :: ∀(a : sType → sType). tTuple2 (tTag a) tFlag → tFlag
-    = Λ(a : sType → sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
-      let! c(,) (_ : tTag a) (flag : tFlag) = _pat_rhs;
+  val 1.v$patsel$flag :: ∀(a : sType 3.→ sType). tTuple2 (tTag a) tFlag 3.→ tFlag
+    = Λ(a : sType 3.→ sType). λ(_pat_rhs : tTuple2 (tTag a) tFlag).
+      let! c(,) (tag : tTag a) (flag : tFlag) = _pat_rhs;
       flag
 
   pub val 1.vflag :: tFlag
-    = v$patsel$flag @(tAny (sType → sType)) (v$pat$tag$flag @(tAny (sType → sType)))
+    = v$patsel$flag @(tAny (tTYPE (cBoxedRep cLifted) 3.→ tTYPE (cBoxedRep cLifted))) (v$pat$tag$flag @(tAny (tTYPE (cBoxedRep cLifted) 3.→ tTYPE (cBoxedRep cLifted))))
 status: pass
 reason: A type variable of kind Type -> Type that nothing determines gets the type Any at that kind,
   in an expression and in a pattern binding, and the lint accepts it.

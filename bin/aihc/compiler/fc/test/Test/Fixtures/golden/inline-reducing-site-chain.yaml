@@ -37,7 +37,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cFalse :: tBool;
     2.cLifted :: tLevity;
     2.cTrue :: tBool
@@ -47,39 +47,40 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tState :: sType {
-    pub 1.cState :: tBool → tBool → tBool → tState
+    pub 1.cState :: tBool 2.→ tBool 2.→ tBool 2.→ tState
   }
 
-  pub val 1.vrun :: tBool → tBool → tBool → tState
+  pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tState
     = λ(x : tBool) (y : tBool) (z : tBool).
+      let _join : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool tState)) =
+        λ(a : tBool) (b : tBool) (c : tBool).
+          case y of {
+            cTrue →
+              cState b c a;
+            cFalse →
+              case a of {
+                cTrue →
+                  cState c a b;
+                cFalse →
+                  cState a c b
+              }
+          };
       let! cState (a : tBool) (b : tBool) (c : tBool) =
         case x of {
           cTrue →
-            cState y z x;
+            _join y z x;
           cFalse →
-            cState x z y
-        };
-      let! cState (a{1} : tBool) (b{1} : tBool) (c{1} : tBool) =
-        case y of {
-          cTrue →
-            cState b c a;
-          cFalse →
-            case a of {
-              cTrue →
-                cState c a b;
-              cFalse →
-                cState a c b
-            }
+            _join x z y
         };
       case z of {
         cTrue →
-          cState b{1} c{1} a{1};
+          cState b c a;
         cFalse →
-          case a{1} of {
+          case a of {
             cTrue →
-              cState c{1} a{1} b{1};
+              cState c a b;
             cFalse →
-              cState a{1} c{1} b{1}
+              cState a c b
           }
       }
 status: pass

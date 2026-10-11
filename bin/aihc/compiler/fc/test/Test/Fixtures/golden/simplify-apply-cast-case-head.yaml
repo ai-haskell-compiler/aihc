@@ -35,7 +35,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: tInt# → tInt# → tInt#
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     3.tIO :: ∀(a : sType). sType;
@@ -47,16 +47,16 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: r1 (c: r2 (c[] tRuntimeRep))));
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a → t[] a → t[] a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). a1 → a2 → tTuple2# a1 a2;
-    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -64,27 +64,27 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   import axioms
-    3.$ax$IO (a : sType) : tIO a ~R tState# tRealWorld → tTuple2# (tState# tRealWorld) a
+    3.$ax$IO (a : sType) : tIO a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a)
 
-  val 1.vreturnIO :: ∀(a : sType). a → tIO a
+  val 1.vreturnIO :: ∀(a : sType). a 3.→ tIO a
     = Λ(a : sType). λ(x : a).
       (λ(s : tState# tRealWorld).
-        cTuple2# @(tState# tRealWorld) @a s x) ▷ sym (axiom-co $ax$IO @a)
+        cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @(tState# tRealWorld) @a s x) ▷ sym (axiom-co $ax$IO @a)
 
-  pub val 1.vcountDown :: tInt → tIO tInt
+  pub val 1.vcountDown :: tInt 3.→ tIO tInt
     = λ(x : tInt).
       rec {
-        go : tInt → tIO tInt =
+        go : tInt 3.→ tIO tInt =
           λ(x{1} : tInt).
             (λ(s : tState# tRealWorld).
-              let! cTuple2# (s' : tState# tRealWorld) (_ : tInt) = ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s;
+              let! cTuple2# (s' : tState# tRealWorld) (_pat : tInt) = ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s;
               let! cI# (_pat{1} : tInt#) = x{1};
               case _pat{1} of {
-                0 →
+                0#cIntRep →
                   ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s';
                 _ →
                   let argument : tInt# =
-                    prim +# _pat{1} (-1 :: tInt#);
+                    prim +# _pat{1} lit (-1#cIntRep) :: tInt#;
                   ((go (cI# argument)) ▷ axiom-co $ax$IO @tInt) s'
               }) ▷ sym (axiom-co $ax$IO @tInt)
       } in

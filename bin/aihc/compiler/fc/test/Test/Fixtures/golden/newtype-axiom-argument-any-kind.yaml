@@ -28,7 +28,7 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -37,38 +37,38 @@ expected: |-
 
   pub type 1.tNat :: sType {
     pub 1.cZ :: tNat;
-    pub 1.cS :: tNat → tNat
+    pub 1.cS :: tNat 2.→ tNat
   }
 
   pub type 1.tListN (n : tNat) (a : sType) :: sType {}
 
   axiom 1.$ax$ListN (n : tNat) (a : sType) : tListN n a ~R t[] a
 
-  pub type 1.tTagged (v : sType → sType) (a : sType) :: sType {}
+  pub type 1.tTagged (v : sType 2.→ sType) (a : sType) :: sType {}
 
-  axiom 1.$ax$Tagged (v : sType → sType) (a : sType) : tTagged v a ~R a
+  axiom 1.$ax$Tagged (v : sType 2.→ sType) (a : sType) : tTagged v a ~R a
 
-  pub val 1.vunListN :: ∀(n : tNat) (a : sType). tListN n a → t[] a
+  pub val 1.vunListN :: ∀(n : tNat) (a : sType). tListN n a 2.→ t[] a
     = Λ(n : tNat) (a : sType). λ($record : tListN n a).
       $record ▷ axiom-co $ax$ListN @n @a
 
-  pub val 1.vunTagged :: ∀(v : sType → sType) (a : sType). tTagged v a → a
-    = Λ(v : sType → sType) (a : sType). λ($record : tTagged v a).
+  pub val 1.vunTagged :: ∀(v : sType 2.→ sType) (a : sType). tTagged v a 2.→ a
+    = Λ(v : sType 2.→ sType) (a : sType). λ($record : tTagged v a).
       $record ▷ axiom-co $ax$Tagged @v @a
 
-  pub val 1.vretag :: ∀(n : tNat) (a : sType) (m : tNat). tListN n a → tListN m a
+  pub val 1.vretag :: ∀(n : tNat) (a : sType) (m : tNat). tListN n a 2.→ tListN m a
     = Λ(n : tNat) (a : sType) (m : tNat). λ(x : tListN n a).
       (vunListN @n @a x) ▷ sym (axiom-co $ax$ListN @m @a)
 
-  pub val 1.vrewrap :: ∀(u : sType → sType) (a : sType) (v : sType → sType). tTagged u a → tTagged v a
-    = Λ(u : sType → sType) (a : sType) (v : sType → sType). λ(x : tTagged u a).
+  pub val 1.vrewrap :: ∀(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). tTagged u a 2.→ tTagged v a
+    = Λ(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). λ(x : tTagged u a).
       (x ▷ axiom-co $ax$Tagged @u @a) ▷ sym (axiom-co $ax$Tagged @v @a)
 
-  pub val 1.vuseRewrap :: ∀(u : sType → sType) (a : sType) (w : sType → sType). tTagged u a → tTagged w a
-    = Λ(u : sType → sType) (a : sType) (w : sType → sType). λ(x : tTagged u a).
-      vrewrap @(tAny (sType → sType)) @a @w (vrewrap @u @a @(tAny (sType → sType)) x)
+  pub val 1.vuseRewrap :: ∀(u : sType 2.→ sType) (a : sType) (w : sType 2.→ sType). tTagged u a 2.→ tTagged w a
+    = Λ(u : sType 2.→ sType) (a : sType) (w : sType 2.→ sType). λ(x : tTagged u a).
+      vrewrap @(tAny (tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted))) @a @w (vrewrap @u @a @(tAny (tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted))) x)
 
-  pub val 1.vinner :: ∀(n : tNat) (a : sType). tListN n a → t[] a
+  pub val 1.vinner :: ∀(n : tNat) (a : sType). tListN n a 2.→ t[] a
     = Λ(n : tNat) (a : sType). λ(x : tListN n a).
       vunListN @(tAny tNat) @a ((vunListN @n @a x) ▷ sym (axiom-co $ax$ListN @(tAny tNat) @a))
 status: pass

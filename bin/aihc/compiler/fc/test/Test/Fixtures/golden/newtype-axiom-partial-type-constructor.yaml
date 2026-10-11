@@ -24,52 +24,52 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
     2.sLiftedRep = cBoxedRep cLifted;
     2.sType = tTYPE sLiftedRep
 
-  pub type 1.tSum (f : sType → sType) (g : sType → sType) (p : sType) :: sType {
-    pub 1.cL1 :: ∀(f : sType → sType) (g : sType → sType) (p : sType). f p → tSum f g p;
-    pub 1.cR1 :: ∀(f : sType → sType) (g : sType → sType) (p : sType). g p → tSum f g p
+  pub type 1.tSum (f : sType 2.→ sType) (g : sType 2.→ sType) (p : sType) :: sType {
+    pub 1.cL1 :: ∀(f : sType 2.→ sType) (g : sType 2.→ sType) (p : sType). f p 2.→ tSum f g p;
+    pub 1.cR1 :: ∀(f : sType 2.→ sType) (g : sType 2.→ sType) (p : sType). g p 2.→ tSum f g p
   }
 
-  pub type 1.tM1 (i : sType) (c : sType) (f : sType → sType) (p : sType) :: sType {}
+  pub type 1.tM1 (i : sType) (c : sType) (f : sType 2.→ sType) (p : sType) :: sType {}
 
-  axiom 1.$ax$M1 (i : sType) (c : sType) (f : sType → sType) (p : sType) : tM1 i c f p ~R f p
+  axiom 1.$ax$M1 (i : sType) (c : sType) (f : sType 2.→ sType) (p : sType) : tM1 i c f p ~R f p
 
-  pub type 1.tTagged (s : sType → sType) (b : sType) :: sType {}
+  pub type 1.tTagged (s : sType 2.→ sType) (b : sType) :: sType {}
 
-  axiom 1.$ax$Tagged (s : sType → sType) (b : sType) : tTagged s b ~R b
+  axiom 1.$ax$Tagged (s : sType 2.→ sType) (b : sType) : tTagged s b ~R b
 
   pub type 1.tUnit :: sType {
     pub 1.cUnit :: tUnit
   }
 
-  pub type 1.t$Dict$SumSize (f : sType → sType) :: sType {
-    pub 1.c$Dict$SumSize :: ∀(f : sType → sType). tTagged f tUnit → t$Dict$SumSize f
+  pub type 1.t$Dict$SumSize (f : sType 2.→ sType) :: sType {
+    pub 1.c$Dict$SumSize :: ∀(f : sType 2.→ sType). tTagged f tUnit 2.→ t$Dict$SumSize f
   }
 
-  pub val 1.vsumSize :: ∀(f : sType → sType). t$Dict$SumSize f → tTagged f tUnit
-    = Λ(f : sType → sType). λ($dSumSize : t$Dict$SumSize f).
+  pub val 1.vsumSize :: ∀(f : sType 2.→ sType). t$Dict$SumSize f 2.→ tTagged f tUnit
+    = Λ(f : sType 2.→ sType). λ($dSumSize : t$Dict$SumSize f).
       let! c$Dict$SumSize ($csumSize : tTagged f tUnit) = $dSumSize;
       $csumSize
 
-  pub val 1.v$fSumSizeSumab :: ∀(a : sType → sType) (b : sType → sType). t$Dict$SumSize a → t$Dict$SumSize b → t$Dict$SumSize (tSum a b)
-    = Λ(a : sType → sType) (b : sType → sType). λ($dSumSize : t$Dict$SumSize a) ($dSumSize{1} : t$Dict$SumSize b).
+  pub val 1.v$fSumSizeSumab :: ∀(a : sType 2.→ sType) (b : sType 2.→ sType). t$Dict$SumSize a 2.→ t$Dict$SumSize b 2.→ t$Dict$SumSize (tSum a b)
+    = Λ(a : sType 2.→ sType) (b : sType 2.→ sType). λ($dSumSize : t$Dict$SumSize a) ($dSumSize{1} : t$Dict$SumSize b).
       c$Dict$SumSize @(tSum a b) (v$fSumSizeSumab$csumSize @a @b $dSumSize $dSumSize{1})
 
-  val 1.v$fSumSizeSumab$csumSize :: ∀(a : sType → sType) (b : sType → sType). t$Dict$SumSize a → t$Dict$SumSize b → tTagged (tSum a b) tUnit
-    = Λ(a : sType → sType) (b : sType → sType). λ(_ : t$Dict$SumSize a) (_ : t$Dict$SumSize b).
+  val 1.v$fSumSizeSumab$csumSize :: ∀(a : sType 2.→ sType) (b : sType 2.→ sType). t$Dict$SumSize a 2.→ t$Dict$SumSize b 2.→ tTagged (tSum a b) tUnit
+    = Λ(a : sType 2.→ sType) (b : sType 2.→ sType). λ($dSumSize : t$Dict$SumSize a) ($dSumSize{1} : t$Dict$SumSize b).
       cUnit ▷ sym (axiom-co $ax$Tagged @(tSum a b) @tUnit)
 
-  pub val 1.v$fSumSizeM1ica :: ∀(i : sType) (c : sType) (a : sType → sType). t$Dict$SumSize (tM1 i c a)
-    = Λ(i : sType) (c : sType) (a : sType → sType).
+  pub val 1.v$fSumSizeM1ica :: ∀(i : sType) (c : sType) (a : sType 2.→ sType). t$Dict$SumSize (tM1 i c a)
+    = Λ(i : sType) (c : sType) (a : sType 2.→ sType).
       c$Dict$SumSize @(tM1 i c a) (v$fSumSizeM1ica$csumSize @i @c @a)
 
-  val 1.v$fSumSizeM1ica$csumSize :: ∀(i : sType) (c : sType) (a : sType → sType). tTagged (tM1 i c a) tUnit
-    = Λ(i : sType) (c : sType) (a : sType → sType).
+  val 1.v$fSumSizeM1ica$csumSize :: ∀(i : sType) (c : sType) (a : sType 2.→ sType). tTagged (tM1 i c a) tUnit
+    = Λ(i : sType) (c : sType) (a : sType 2.→ sType).
       cUnit ▷ sym (axiom-co $ax$Tagged @(tM1 i c a) @tUnit)
 status: pass

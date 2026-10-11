@@ -1644,7 +1644,12 @@ inferLastDoStmt expected ambient stmt =
         _ -> pure (stmts', resultTy, cts)
     DoExpr body -> do
       (body', bodyTy, cts) <- maybe (inferExprAt ambient body) (`checkExpr` body) expected
-      pure ([DoExpr body'], bodyTy, cts)
+      case expected of
+        Nothing -> pure ([DoExpr body'], bodyTy, cts)
+        Just expectedTy -> do
+          -- The continuation must have the type that the do method requires.
+          equality <- wantedDoEq ambient expectedTy bodyTy
+          pure ([DoExpr (annotateExprCast expectedTy (ctEvVar equality) body')], expectedTy, cts <> [equality])
     _ -> do
       emitError ambient (OtherError "the last statement in a do block must be an expression")
       resultTy <- freshMetaTv

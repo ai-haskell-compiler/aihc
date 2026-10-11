@@ -20,7 +20,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -34,18 +34,18 @@ expected: |-
 
   pub type 1.tMaybe (a : sType) :: sType {
     pub 1.cNothing :: ∀(a : sType). tMaybe a;
-    pub 1.cJust :: ∀(a : sType). a → tMaybe a
+    pub 1.cJust :: ∀(a : sType). a 2.→ tMaybe a
   }
 
   pub type 1.tProxy (k : sType) (a : k) :: sType {
-    pub 1.cProxy :: ∀(k : sType) (a : k). tProxy a
+    pub 1.cProxy :: ∀(k : sType) (a : k). tProxy k a
   }
 
   pub type 1.tBox (k : sType) (a : k) :: sType {
-    pub 1.cBox :: ∀(k : sType) (a : k) (j : sType) (b : j). tProxy b → tBox a
+    pub 1.cBox :: ∀(k : sType) (a : k) (j : sType) (b : j). tProxy j b 2.→ tBox k a
   }
 
-  pub val 1.vresult :: tBox tBool
-    = cBox @tBool @{sType → sType} @tMaybe (cProxy @{sType → sType} @tMaybe)
+  pub val 1.vresult :: tBox (tTYPE (cBoxedRep cLifted)) tBool
+    = cBox @(tTYPE (cBoxedRep cLifted)) @tBool @(tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted)) @tMaybe (cProxy @(tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted)) @tMaybe)
 status: pass
 reason: Constructor calls use the same type binder order as their declarations.

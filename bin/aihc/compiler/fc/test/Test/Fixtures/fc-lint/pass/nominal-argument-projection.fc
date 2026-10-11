@@ -2,25 +2,26 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: sType;
-  2.sLiftedRep :: tRuntimeRep;
-  2.tRuntimeRep :: sType;
-  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
-  2.sType :: sType;
-  2.t[] :: ∀(a : sType). sType;
-  2.cBoxedRep :: tLevity → tRuntimeRep;
-  2.cLifted :: tLevity;
-  2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
-  2.c[] :: ∀(a : sType). t[] a
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity;
+  2.t[] :: ∀(a : 2.sType). 2.sType;
+  2.c[] :: ∀(a : 2.sType). 2.t[] a;
+  2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep
 
 import synonyms
-  2.sLiftedRep = cBoxedRep cLifted;
-  2.sType = tTYPE sLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-pub type 1.tMaybe (a : sType) :: sType {
-  pub 1.cNothing :: ∀(a : sType). tMaybe a
+pub type 1.tMaybe (a : 2.sType) :: 2.sType {
+    pub 1.cNothing :: ∀(a : 2.sType). 1.tMaybe a
 }
 
-val 1.vcast :: ∀(a : sType) (b : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tMaybe a ~ tMaybe b) (a → b)
-  = Λ(a : sType) (b : sType). λ(c : tMaybe a ~ tMaybe b) (x : a).
+val 1.vcast :: ∀(a : 2.sType). ∀(b : 2.sType). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (1.tMaybe a ~ 1.tMaybe b) (a 2.→ b)
+ = Λ(a : 2.sType). Λ(b : 2.sType).
+  λ(c : 1.tMaybe a ~ 1.tMaybe b). λ(x : a).
     x ▷ nth-co 0 (c)

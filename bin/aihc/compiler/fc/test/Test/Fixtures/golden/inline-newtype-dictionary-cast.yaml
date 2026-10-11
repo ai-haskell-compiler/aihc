@@ -33,7 +33,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -41,11 +41,11 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.t$Dict$Pick (a : sType) :: sType {
-    1.c$Dict$Pick :: ∀(a : sType). (a → tBool) → (a → tBool) → t$Dict$Pick a
+    1.c$Dict$Pick :: ∀(a : sType). (a 2.→ tBool) 2.→ (a 2.→ tBool) 2.→ t$Dict$Pick a
   }
 
   type 1.tBase :: sType {
-    pub 1.cBase :: tBool → tBase
+    pub 1.cBase :: tBool 2.→ tBase
   }
 
   type 1.tWrap :: sType {}
@@ -55,12 +55,12 @@ expected: |-
   pub val 1.v$fPickBase :: t$Dict$Pick tBase
     = c$Dict$Pick @tBase v$fPickBase$cpick v$fPickBase$cother
 
-  val 1.v$fPickBase$cpick :: tBase → tBool
+  val 1.v$fPickBase$cpick :: tBase 2.→ tBool
     = λ(x : tBase).
       let! cBase (b : tBool) = x;
       b
 
-  val 1.v$fPickBase$cother :: tBase → tBool
+  val 1.v$fPickBase$cother :: tBase 2.→ tBool
     = λ(x : tBase).
       let! cBase (b : tBool) = x;
       b
@@ -68,7 +68,7 @@ expected: |-
   pub val 1.v$fPickWrap :: t$Dict$Pick tWrap
     = v$fPickBase ▷ tycon-co t$Dict$Pick (sym (axiom-co $ax$Wrap))
 
-  pub val 1.vrun :: tWrap → tBool
+  pub val 1.vrun :: tWrap 2.→ tBool
     = λ(x : tWrap).
       let! cBase (b : tBool) = x ▷ axiom-co $ax$Wrap;
       b

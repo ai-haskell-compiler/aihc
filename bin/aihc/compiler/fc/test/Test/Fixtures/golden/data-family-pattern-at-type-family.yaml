@@ -22,7 +22,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -36,7 +36,7 @@ expected: |-
   pub type 1.tPayload (a : sType) :: sType @N {}
 
   type 1.t$R$Payload$PayloadUnit :: sType {
-    pub 1.cPayloadUnit :: tUnit → t$R$Payload$PayloadUnit
+    pub 1.cPayloadUnit :: tUnit 2.→ t$R$Payload$PayloadUnit
   }
 
   axiom 1.$ax$Payload$PayloadUnit : tPayload tUnit ~R t$R$Payload$PayloadUnit
@@ -45,12 +45,12 @@ expected: |-
 
   axiom 1.$ax$Wrap$Unit : tWrap tUnit ~N tPayload tUnit
 
-  pub val 1.vbuild :: tUnit → tWrap tUnit
+  pub val 1.vbuild :: tUnit 2.→ tWrap tUnit
     = λ(x : tUnit).
       (λ(_field : tUnit).
         (cPayloadUnit _field) ▷ sym (axiom-co $ax$Payload$PayloadUnit)) x
 
-  pub val 1.vunwrap :: tWrap tUnit → tUnit
+  pub val 1.vunwrap :: tWrap tUnit 2.→ tUnit
     = λ(x : tWrap tUnit).
       let! cPayloadUnit (value : tUnit) = x ▷ axiom-co $ax$Payload$PayloadUnit;
       value

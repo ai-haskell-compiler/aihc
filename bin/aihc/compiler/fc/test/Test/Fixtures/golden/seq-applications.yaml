@@ -36,10 +36,10 @@ expected: |-
     constructors [2.cTuple0#] 2.tTuple0# :: tTYPE (cTupleRep (c[] tRuntimeRep));
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity;
     unboxed-tuple 2.cTuple0# :: tTuple0#;
-    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
     2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -55,17 +55,17 @@ expected: |-
     pub 1.cUnit :: tUnit
   }
 
-  pub val 1.vseq0Lifted :: tUnit → tBool → tBool
+  pub val 1.vseq0Lifted :: tUnit 2.→ tBool 2.→ tBool
     = λ(seq_first : tUnit) (seq_second : tBool).
       let! _ = seq_first;
       seq_second
 
-  pub val 1.vseq1Lifted :: tBool → tBool
+  pub val 1.vseq1Lifted :: tBool 2.→ tBool
     = (λ(seq_first : tUnit) (seq_second : tBool).
       let! _ = seq_first;
       seq_second) cUnit
 
-  pub val 1.vseq1Unboxed :: tTuple0# → tTuple0#
+  pub val 1.vseq1Unboxed :: FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) tTuple0# tTuple0#
     = (λ(seq_first : tUnit) (seq_second : tTuple0#).
       let! _ = seq_first;
       seq_second) cUnit
@@ -75,7 +75,7 @@ expected: |-
       let! _ = seq_first;
       seq_second) cUnit cTrue
 
-  pub val 1.vseq2Unboxed :: tUnit → tTuple0#
+  pub val 1.vseq2Unboxed :: FUN @sLiftedRep @(cTupleRep (c[] tRuntimeRep)) tUnit tTuple0#
     = λ(x : tUnit).
       (λ(seq_first : tUnit) (seq_second : tTuple0#).
         let! _ = seq_first;

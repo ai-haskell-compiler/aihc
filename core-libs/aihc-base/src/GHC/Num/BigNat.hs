@@ -22,6 +22,8 @@ module GHC.Num.BigNat
     bigNatAddWord#,
     bigNatSub,
     bigNatSubWord#,
+    bigNatSubUnsafe,
+    bigNatSubWordUnsafe#,
     bigNatMul,
     bigNatMulWord#,
     bigNatSqr,
@@ -54,10 +56,15 @@ module GHC.Num.BigNat
     bigNatToAddr#,
     bigNatFromByteArray#,
     bigNatToMutableByteArray#,
+    bigNatFromAddrLE#,
+    bigNatToAddrLE#,
+    bigNatFromByteArrayLE#,
+    bigNatToMutableByteArrayLE#,
   )
 where
 
 import Data.Bits (bit, clearBit, complementBit, popCount, setBit, shiftL, shiftR, testBit, (.&.), (.|.))
+import GHC.Exception (ArithException (..), throw)
 import GHC.Num.Primitives (Bool#)
 import GHC.Prim
   ( Addr#,
@@ -225,6 +232,20 @@ bigNatSub left right = naturalDifference (magnitudeInteger left - magnitudeInteg
 bigNatSubWord# :: BigNat# -> Word# -> (# (# #) | BigNat# #)
 bigNatSubWord# left right = naturalDifference (magnitudeInteger left - wordInteger right)
 
+-- | Subtract two magnitudes. A negative result causes an underflow exception.
+bigNatSubUnsafe :: BigNat# -> BigNat# -> BigNat#
+bigNatSubUnsafe left right =
+  case bigNatSub left right of
+    (# | difference #) -> difference
+    (# (# #) | #) -> case throw Underflow of BN# magnitude -> magnitude
+
+-- | Subtract a word. A negative result causes an underflow exception.
+bigNatSubWordUnsafe# :: BigNat# -> Word# -> BigNat#
+bigNatSubWordUnsafe# left right =
+  case bigNatSubWord# left right of
+    (# | difference #) -> difference
+    (# (# #) | #) -> case throw Underflow of BN# magnitude -> magnitude
+
 naturalDifference :: Integer -> (# (# #) | BigNat# #)
 naturalDifference difference
   | difference < 0 = (# (# #) | #)
@@ -379,6 +400,22 @@ bigNatToAddr# magnitude address =
 bigNatToMutableByteArray# :: BigNat# -> MutableByteArray# s -> Word# -> Bool# -> State# s -> (# State# s, Word# #)
 bigNatToMutableByteArray# magnitude bytes offset =
   writeBytes (offsetWrite bytes (word2Int# offset)) (magnitudeInteger magnitude) (word2Int# (bigNatSizeInBase# (int2Word# 256#) magnitude))
+
+-- | Read a magnitude from bytes in little-endian order at an address.
+bigNatFromAddrLE# :: Word# -> Addr# -> State# s -> (# State# s, BigNat# #)
+bigNatFromAddrLE# count address = bigNatFromAddr# count address 0#
+
+-- | Read a magnitude from bytes in little-endian order at an array offset.
+bigNatFromByteArrayLE# :: Word# -> ByteArray# -> Word# -> State# s -> (# State# s, BigNat# #)
+bigNatFromByteArrayLE# count bytes offset = bigNatFromByteArray# count bytes offset 0#
+
+-- | Write a magnitude in little-endian order at an address.
+bigNatToAddrLE# :: BigNat# -> Addr# -> State# s -> (# State# s, Word# #)
+bigNatToAddrLE# magnitude address = bigNatToAddr# magnitude address 0#
+
+-- | Write a magnitude in little-endian order at an array offset.
+bigNatToMutableByteArrayLE# :: BigNat# -> MutableByteArray# s -> Word# -> State# s -> (# State# s, Word# #)
+bigNatToMutableByteArrayLE# magnitude bytes offset = bigNatToMutableByteArray# magnitude bytes offset 0#
 
 addressByte :: Addr# -> Int# -> Word#
 addressByte address index = word8ToWord# (indexWord8OffAddr# address index)

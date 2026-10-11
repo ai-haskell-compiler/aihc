@@ -31,17 +31,17 @@ expected: |-
     5.tTYPE :: ∀(rep : tRuntimeRep). sType;
     5.sType :: sType;
     constructors [5.c[], 5.c:] 5.t[] :: ∀(a : sType). sType;
-    5.c: :: ∀(a : sType). a → t[] a → t[] a;
+    5.c: :: ∀(a : sType). a 5.→ t[] a 5.→ t[] a;
     5.cAddrRep :: tRuntimeRep;
-    5.cBoxedRep :: tLevity → tRuntimeRep;
-    5.cC# :: tChar# → tChar;
+    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
+    5.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
     5.cFalse :: tBool;
     5.cLifted :: tLevity;
     5.cTrue :: tBool;
     5.cWordRep :: tRuntimeRep;
     5.c[] :: ∀(a : sType). t[] a;
-    4.veqString :: t[] tChar → t[] tChar → tBool;
-    2.vunpackCString# :: tAddr# → t[] tChar
+    4.veqString :: t[] tChar 5.→ t[] tChar 5.→ tBool;
+    2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
 
   import synonyms
     5.sLiftedRep = cBoxedRep cLifted;
@@ -51,16 +51,16 @@ expected: |-
     pub 1.cRed :: tColour;
     pub 1.cGreen :: tColour;
     pub 1.cShort :: tColour;
-    pub 1.cUnknown :: t[] tChar → tColour
+    pub 1.cUnknown :: t[] tChar 5.→ tColour
   }
 
-  pub val 1.vreadColour :: t[] tChar → tColour
+  pub val 1.vreadColour :: t[] tChar 5.→ tColour
     = λ(x : t[] tChar).
-      case veqString x (vunpackCString# ("red" :: tAddr#)) of {
+      case veqString x (vunpackCString# lit ("red"#cAddrRep) :: tAddr#) of {
         cTrue →
           cRed;
         cFalse →
-          case veqString x (vunpackCString# ("green" :: tAddr#)) of {
+          case veqString x (vunpackCString# lit ("green"#cAddrRep) :: tAddr#) of {
             cTrue →
               cGreen;
             cFalse →
@@ -70,7 +70,7 @@ expected: |-
                 c: (_pat : tChar) (_pat{1} : t[] tChar) →
                   let! cC# (_pat{2} : tChar#) = _pat;
                   case _pat{2} of {
-                    'x' →
+                    'x'#cWordRep →
                       case _pat{1} of {
                         c[] →
                           cShort;

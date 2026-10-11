@@ -4,33 +4,33 @@ scope 3 = "aihc-prim" GHC.Prim.Natural
 scope 4 = "aihc-base" GHC.TypeNats
 
 import headers
-  4.t+ :: tNatural → tNatural → tNatural;
-  4.tCmpNat :: tNatural → tNatural → tOrdering;
-  2.tLevity :: sType;
-  2.sLiftedRep :: tRuntimeRep;
-  3.tNatural :: sType;
-  2.tOrdering :: sType;
-  2.tRuntimeRep :: sType;
-  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
-  2.sType :: sType;
-  2.cBoxedRep :: tLevity → tRuntimeRep;
-  2.cLT :: tOrdering;
-  2.cLifted :: tLevity
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity;
+  2.tOrdering :: 2.sType;
+  2.cLT :: 2.tOrdering;
+  3.tNatural :: 2.sType;
+  4.tCmpNat :: 3.tNatural 2.→ 3.tNatural 2.→ 2.tOrdering;
+  4.t+ :: 3.tNatural 2.→ 3.tNatural 2.→ 3.tNatural
 
 import synonyms
-  2.sLiftedRep = cBoxedRep cLifted;
-  2.sType = tTYPE sLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-pub type 1.tOrd (o : tOrdering) :: sType {
-  pub 1.cOrd :: ∀(o : tOrdering). tOrd o
+pub type 1.tOrd (o : 2.tOrdering) :: 2.sType {
+    pub 1.cOrd :: ∀(o : 2.tOrdering). 1.tOrd o
 }
 
-pub type 1.tTagged (n : tNatural) :: sType {
-  pub 1.cTagged :: ∀(n : tNatural). tTagged n
+pub type 1.tTagged (n : 3.tNatural) :: 2.sType {
+    pub 1.cTagged :: ∀(n : 3.tNatural). 1.tTagged n
 }
 
-val 1.vless :: tOrd (tCmpNat (lit tNatural 1) (lit tNatural 2))
-  = cOrd @cLT
+val 1.vless :: 1.tOrd (4.tCmpNat (lit 3.tNatural 1) (lit 3.tNatural 2))
+ = 1.cOrd @2.cLT
 
-val 1.vsum :: tTagged (t+ (lit tNatural 2) (lit tNatural 3))
-  = cTagged @(lit tNatural 5)
+val 1.vsum :: 1.tTagged (4.t+ (lit 3.tNatural 2) (lit 3.tNatural 3))
+ = 1.cTagged @(lit 3.tNatural 5)

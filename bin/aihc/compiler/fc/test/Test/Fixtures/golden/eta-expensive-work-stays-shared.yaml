@@ -26,7 +26,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: tInt# → tInt# → tInt#
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -36,8 +36,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -47,15 +47,15 @@ expected: |-
 
   type 1.tFn :: sType {}
 
-  axiom 1.$ax$Fn : tFn ~R tInt → tInt
+  axiom 1.$ax$Fn : tFn ~R tInt 3.→ tInt
 
-  val 1.vplus :: tInt → tInt → tInt
+  val 1.vplus :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (a : tInt#) = x;
       let! cI# (b : tInt#) = y;
       cI# (prim +# a b)
 
-  val 1.vstep :: tInt → tInt → tFn
+  val 1.vstep :: tInt 3.→ tInt 3.→ tFn
     = λ(x : tInt) (y : tInt).
       let total : tInt =
         vplus x y;
@@ -63,6 +63,6 @@ expected: |-
         vplus total x{1}) ▷ sym (axiom-co $ax$Fn)
 
   pub val 1.vaction :: tFn
-    = vstep (cI# (1 :: tInt#)) (cI# (2 :: tInt#))
+    = vstep (cI# lit (1#cIntRep) :: tInt#) (cI# lit (2#cIntRep) :: tInt#)
 status: pass
 reason: The argument under the newtype is not a state token, so it is not one-shot, and eta expanding past the 'let' would recompute 'plus a b' on every call where the partial application shared it. The value stays a CAF.

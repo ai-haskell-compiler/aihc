@@ -30,14 +30,14 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: r1 (c: r2 (c[] tRuntimeRep))));
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a → t[] a → t[] a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cInt32Rep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -45,7 +45,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tInt32 :: sType {
-    pub 1.cI32# :: tInt32# → tInt32
+    pub 1.cI32# :: FUN @cInt32Rep @sLiftedRep tInt32# tInt32
   }
 
   pub type 1.tCInt :: sType {}
@@ -54,10 +54,10 @@ expected: |-
 
   pub type 1.tIO (a : sType) :: sType {}
 
-  axiom 1.$ax$IO (a : sType) : tIO a ~R tState# tRealWorld → tTuple2# (tState# tRealWorld) a
+  axiom 1.$ax$IO (a : sType) : tIO a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a)
 
-  pub val 1.vrun :: tCInt → tIO tCInt
+  pub val 1.vrun :: tCInt 3.→ tIO tCInt
     = λ(x : tCInt).
-      foreign {ccall unsafe "putchar" [Int32 → Int32; real-world] using [axiom 1.$ax$CInt, axiom 1.$ax$IO, constructor 1.cI32#] 1.vputchar :: tCInt → tIO tCInt} x
+      foreign {ccall unsafe "putchar" [Int32 → Int32; real-world] using [axiom 1.$ax$CInt, axiom 1.$ax$IO, constructor 1.cI32#] 1.vputchar :: tCInt 3.→ tIO tCInt} x
 status: pass
 reason: The real primitive modules provide Int32Rep and Tuple2# for lint.

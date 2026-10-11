@@ -29,7 +29,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -37,15 +37,15 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.tBox :: sType {
-    1.cBox :: ∀(s : sType). s → (s → tInt) → tBox
+    1.cBox :: ∀(s : sType). s 2.→ (s 2.→ tInt) 2.→ tBox
   }
 
-  val 1.vplus noinline :: tInt → tInt → tInt
-    = λ(x : tInt) (_ : tInt).
+  val 1.vplus noinline :: tInt 2.→ tInt 2.→ tInt
+    = λ(x : tInt) (y : tInt).
       x
 
-  pub val 1.vrun :: (tInt → tInt) → tInt → tInt
-    = λ(x : tInt → tInt) (y : tInt).
+  pub val 1.vrun :: (tInt 2.→ tInt) 2.→ tInt 2.→ tInt
+    = λ(x : tInt 2.→ tInt) (y : tInt).
       let s : tInt =
         x y;
       vplus (x s) (x s)

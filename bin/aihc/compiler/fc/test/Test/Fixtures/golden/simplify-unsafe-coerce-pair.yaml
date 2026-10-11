@@ -1,0 +1,56 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim
+  import GHC.Types (Int (..), Word (..))
+
+  data Box = Box Int
+
+  -- The two coercions give back the type of the argument, so the pair
+  -- goes away.
+  roundTrip :: Int -> Int
+  roundTrip x = unsafeCoerce# (unsafeCoerce# x :: Word)
+
+  -- The two coercions become one coercion from Int to Box.
+  through :: Int -> Box
+  through x = unsafeCoerce# (unsafeCoerce# x :: Word)
+passes:
+- simplify
+status: pass
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    unsafeCoerce# = 2.vunsafeCoerce# :: ∀(q : tRuntimeRep) (r : tRuntimeRep) (a : tTYPE q) (b : tTYPE r). FUN @q @r a b
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: tInt 3.→ tBox
+  }
+
+  pub val 1.vroundTrip :: tInt 3.→ tInt
+    = λ(x : tInt).
+      x
+
+  pub val 1.vthrough :: tInt 3.→ tBox
+    = λ(x : tInt).
+      prim unsafeCoerce# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @tInt @tBox x

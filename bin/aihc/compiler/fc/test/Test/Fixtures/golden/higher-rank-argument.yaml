@@ -19,7 +19,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -31,14 +31,14 @@ expected: |-
   }
 
   pub type 1.tBox (s : sType) (a : sType) :: sType {
-    pub 1.cBox :: ∀(s : sType) (a : sType). a → tBox s a
+    pub 1.cBox :: ∀(s : sType) (a : sType). a 2.→ tBox s a
   }
 
-  pub val 1.vinstantiate :: ∀(a : sType). (∀(s : sType). tBox s a) → tBox tTag a
+  pub val 1.vinstantiate :: ∀(a : sType). (∀(s : sType). tBox s a) 2.→ tBox tTag a
     = Λ(a : sType). λ(x : ∀(s : sType). tBox s a).
       x @tTag
 
-  pub val 1.vrun :: ∀(a : sType). (∀(s : sType). tBox s a) → tBox tTag a
+  pub val 1.vrun :: ∀(a : sType). (∀(s : sType). tBox s a) 2.→ tBox tTag a
     = Λ(a : sType). λ(x : ∀(s : sType). tBox s a).
       vinstantiate @a (Λ(s : sType).
         x @s)

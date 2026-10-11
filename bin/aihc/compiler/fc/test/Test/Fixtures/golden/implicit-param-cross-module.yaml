@@ -25,7 +25,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    raise# = 2.vraise# :: ∀(r{1} : tRuntimeRep) (a{1} : sType) (b : tTYPE r{1}). a{1} → b
+    raise# = 2.vraise# :: ∀(r{1} : tRuntimeRep) (a{1} : sType) (b : tTYPE r{1}). FUN @sLiftedRep @r{1} a{1} b
 
   import headers
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
@@ -33,7 +33,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -44,9 +44,9 @@ expected: |-
     pub 1.cMessage :: tMessage
   }
 
-  pub val 1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). tMessage → a
+  pub val 1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). FUN @sLiftedRep @r tMessage a
     = Λ(r : tRuntimeRep) (a : tTYPE r). λ($d : tMessage).
-      prim raise# @tMessage @a $d
+      prim raise# @r @tMessage @a $d
   scope 1 = "" Failure
   scope 2 = "" Test
   scope 3 = "aihc-prim" GHC.Types
@@ -58,17 +58,17 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity;
     1.cMessage :: tMessage;
-    1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). tMessage → a
+    1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). FUN @sLiftedRep @r tMessage a
 
   import synonyms
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 2.vuse :: ∀(b : sType). b → b
-    = Λ(b : sType). λ(_ : b).
-      vfailure @b cMessage
+  pub val 2.vuse :: ∀(b : sType). b 3.→ b
+    = Λ(b : sType). λ(x : b).
+      vfailure @(cBoxedRep cLifted) @b cMessage
 status: pass
 reason: an imported representation-polymorphic function with an implicit parameter keeps the body representation on its evidence arrow

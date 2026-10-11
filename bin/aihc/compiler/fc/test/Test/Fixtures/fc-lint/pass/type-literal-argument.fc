@@ -3,29 +3,28 @@ scope 2 = "aihc-prim" GHC.Types
 scope 3 = "aihc-prim" GHC.Prim.Natural
 
 import headers
-  2.tLevity :: sType;
-  2.sLiftedRep :: tRuntimeRep;
-  3.tNatural :: sType;
-  2.tRuntimeRep :: sType;
-  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
-  2.sType :: sType;
-  2.cBoxedRep :: tLevity → tRuntimeRep;
-  2.cLifted :: tLevity
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity;
+  3.tNatural :: 2.sType
 
 import synonyms
-  2.sLiftedRep = cBoxedRep cLifted;
-  2.sType = tTYPE sLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-pub type 1.tTagged (n : tNatural) :: sType {
-  pub 1.cTagged :: ∀(n : tNatural). tTagged n
+pub type 1.tTagged (n : 3.tNatural) :: 2.sType {
+    pub 1.cTagged :: ∀(n : 3.tNatural). 1.tTagged n
 }
 
-val 1.vsixteen :: tTagged (lit tNatural 16)
-  = cTagged @(lit tNatural 16)
+val 1.vsixteen :: 1.tTagged (lit 3.tNatural 16)
+ = 1.cTagged @(lit 3.tNatural 16)
 
-val 1.vsame :: tTagged (lit tNatural 16) → tTagged (lit tNatural 16)
-  = λ(x : tTagged (lit tNatural 16)).
-    x
+val 1.vsame :: 1.tTagged (lit 3.tNatural 16) 2.→ 1.tTagged (lit 3.tNatural 16)
+ = λ(x : 1.tTagged (lit 3.tNatural 16)). x
 
-val 1.vuse :: tTagged (lit tNatural 16)
-  = vsame vsixteen
+val 1.vuse :: 1.tTagged (lit 3.tNatural 16)
+ = 1.vsame 1.vsixteen

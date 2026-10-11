@@ -22,10 +22,10 @@ expected: |-
     4.sType :: sType;
     constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
     4.cAddrRep :: tRuntimeRep;
-    4.cBoxedRep :: tLevity → tRuntimeRep;
+    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
     4.cLifted :: tLevity;
-    3.vraise# :: ∀(r : tRuntimeRep) (a : sType) (b : tTYPE r). a → b;
-    2.vunpackCString# :: tAddr# → t[] tChar
+    3.vraise# :: ∀(r : tRuntimeRep) (a : sType) (b : tTYPE r). FUN @sLiftedRep @r a b;
+    2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
 
   import synonyms
     4.sLiftedRep = cBoxedRep cLifted;
@@ -35,8 +35,8 @@ expected: |-
     pub 1.cBox :: tBox
   }
 
-  pub val 1.vquoted :: tBox → tBox
-    = λ(_ : tBox).
-      vraise# @(t[] tChar) @tBox (vunpackCString# ("quasi-quoting is unsupported" :: tAddr#))
+  pub val 1.vquoted :: tBox 4.→ tBox
+    = λ(x : tBox).
+      vraise# @sLiftedRep @(t[] tChar) @tBox (vunpackCString# lit ("quasi-quoting is unsupported"#cAddrRep) :: tAddr#)
 status: pass
 reason: A quasi-quote expression desugars to a raise# call with a message.

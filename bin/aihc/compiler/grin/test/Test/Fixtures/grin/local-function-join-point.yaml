@@ -1,0 +1,45 @@
+extensions:
+  - MagicHash
+source: |
+  module Test where
+  import GHC.Prim
+  data B = T | F
+  data P = P Int# Int#
+  pick :: B -> Int# -> Int# -> P
+  pick b x y =
+    let j z = P (z +# x) (z *# y)
+     in case b of
+          T -> j x
+          F -> j y
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.T []
+
+  pub constructor 1.F []
+
+  pub constructor 1.P [IntRep, IntRep]
+
+  primitive *# :: IntRep/2
+
+  primitive +# :: IntRep/2
+
+  pub global 1.pick = (P1.$pick/[[BoxedRep Lifted], [IntRep], [IntRep]])
+
+  1.$pick_closure (y :: IntRep) (z :: IntRep) (x :: IntRep) -> BoxedRep Lifted =
+    argument :: IntRep <-
+      primitive-call @IntRep +# (x :: IntRep) (y :: IntRep)
+    argument%1 :: IntRep <-
+      primitive-call @IntRep *# (x :: IntRep) (z :: IntRep)
+    store (C1.P (argument :: IntRep) (argument%1 :: IntRep))
+
+  1.$pick (x :: BoxedRep Lifted) (y :: IntRep) (z :: IntRep) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
+      data 1.T ->
+        call @(BoxedRep Lifted) 1.$pick_closure (y :: IntRep) (z :: IntRep) (y :: IntRep)
+      data 1.F ->
+        call @(BoxedRep Lifted) 1.$pick_closure (y :: IntRep) (z :: IntRep) (z :: IntRep)
+status: pass
+reason: a let-bound local function that each alternative calls with all its arguments is a join point; each call is a direct call that passes the captured values, and no closure is stored

@@ -43,8 +43,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    *# = 2.v*# :: tInt# → tInt# → tInt#;
-    +# = 2.v+# :: tInt# → tInt# → tInt#
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -54,8 +54,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -63,14 +63,14 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  val 1.vcalled inline :: tInt → tInt → tInt
+  val 1.vcalled inline :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (x{1} : tInt#) = x;
       let! cI# (y{1} : tInt#) = y;
       let! _ as (field : tInt#) = v$wcalled x{1} y{1};
       cI# field
 
-  val 1.v$wcalled inline :: tInt# → tInt# → tInt#
+  val 1.v$wcalled inline :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
     = λ(x : tInt#) (y : tInt#).
       let x{1} : tInt =
         cI# x;
@@ -80,27 +80,27 @@ expected: |-
       let! cI# (b : tInt#) = y{1};
       prim +# (prim *# a b) a
 
-  pub val 1.vuncalled inline :: tInt → tInt
+  pub val 1.vuncalled inline :: tInt 3.→ tInt
     = λ(x : tInt).
       let! cI# (a : tInt#) = x;
       cI# (prim +# a a)
 
-  val 1.vkept noinline :: tInt → tInt
+  val 1.vkept noinline :: tInt 3.→ tInt
     = λ(x : tInt).
       let! cI# (a : tInt#) = x;
       cI# (prim *# a a)
 
-  val 1.vuseful inlinable :: tInt → tInt
+  val 1.vuseful inlinable :: tInt 3.→ tInt
     = λ(x : tInt).
       let! cI# (a : tInt#) = x;
-      cI# (prim *# a (3 :: tInt#))
+      cI# (prim *# a lit (3#cIntRep) :: tInt#)
 
-  val 1.vplain :: tInt → tInt
+  val 1.vplain :: tInt 3.→ tInt
     = λ(x : tInt).
       let! cI# (a : tInt#) = x;
-      cI# (prim +# a (1 :: tInt#))
+      cI# (prim +# a lit (1#cIntRep) :: tInt#)
 
-  pub val 1.vuseAll :: tInt → tInt
+  pub val 1.vuseAll :: tInt 3.→ tInt
     = λ(x : tInt).
       vcalled (vkept x) (vcalled (vuseful x) (vplain x))
 status: pass

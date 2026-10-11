@@ -35,7 +35,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cFalse :: tBool;
     2.cLifted :: tLevity;
     2.cTrue :: tBool
@@ -45,17 +45,17 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   type 1.t$Dict$MyEq (a : sType) :: sType {
-    1.c$Dict$MyEq :: ∀(a : sType). (a → a → tBool) → t$Dict$MyEq a
+    1.c$Dict$MyEq :: ∀(a : sType). (a 2.→ a 2.→ tBool) 2.→ t$Dict$MyEq a
   }
 
   type 1.tPair (a : sType) :: sType {
-    pub 1.cPair :: ∀(a : sType). a → a → tPair a
+    pub 1.cPair :: ∀(a : sType). a 2.→ a 2.→ tPair a
   }
 
   pub val 1.v$fMyEqBool :: t$Dict$MyEq tBool
     = c$Dict$MyEq @tBool v$fMyEqBool$ceq
 
-  val 1.v$fMyEqBool$ceq :: tBool → tBool → tBool
+  val 1.v$fMyEqBool$ceq :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
       case x of {
         cTrue →
@@ -74,15 +74,15 @@ expected: |-
           }
       }
 
-  pub val 1.v$fMyEqPaira :: ∀(a : sType). t$Dict$MyEq a → t$Dict$MyEq (tPair a)
+  pub val 1.v$fMyEqPaira :: ∀(a : sType). t$Dict$MyEq a 2.→ t$Dict$MyEq (tPair a)
     = Λ(a : sType). λ($dMyEq : t$Dict$MyEq a).
       c$Dict$MyEq @(tPair a) (v$fMyEqPaira$ceq @a $dMyEq)
 
-  val 1.v$fMyEqPaira$ceq :: ∀(a : sType). t$Dict$MyEq a → tPair a → tPair a → tBool
+  val 1.v$fMyEqPaira$ceq :: ∀(a : sType). t$Dict$MyEq a 2.→ tPair a 2.→ tPair a 2.→ tBool
     = Λ(a : sType). λ($dMyEq : t$Dict$MyEq a) (x : tPair a) (y : tPair a).
       let! cPair (a{1} : a) (b : a) = x;
       let! cPair (c : a) (d : a) = y;
-      let! c$Dict$MyEq ($ceq : a → a → tBool) = $dMyEq;
+      let! c$Dict$MyEq ($ceq : a 2.→ a 2.→ tBool) = $dMyEq;
       case $ceq a{1} c of {
         cTrue →
           $ceq b d;
@@ -90,7 +90,7 @@ expected: |-
           cFalse
       }
 
-  pub val 1.veqPair :: tPair tBool → tPair tBool → tBool
+  pub val 1.veqPair :: tPair tBool 2.→ tPair tBool 2.→ tBool
     = λ(x : tPair tBool) (y : tPair tBool).
       v$fMyEqPaira$ceq @tBool v$fMyEqBool x y
 status: pass

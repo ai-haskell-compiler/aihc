@@ -77,10 +77,9 @@ GRIN lowering is temporarily disabled.
     `forall` is a pi-binder.
     A later binder type may mention an earlier binder.
 
-11. Print `a → b` when the representations of `a` and `b` give the two stored representations.
-    Parse `→` and `->` as `FUN` with these representations.
-    Print `FUN @r1 @r2 a b` in the other cases.
-    The text format section gives the rules.
+11. Print `a → b` when both stored representations are lifted.
+    Parse `→` and `->` as `FUN` on `LiftedRep`.
+    Print `FUN @r1 @r2 a b` when a side is not lifted.
 
 12. Coercions stay a separate AST.
     First set: `CoVar`, `Refl`, `Sym`, `Trans`, `TyConAppCo`, `AxiomInstCo`, roles, and casts.
@@ -123,36 +122,6 @@ GRIN lowering is temporarily disabled.
     Do not add extra axioms for them.
 
 20. Scope syntax stays: `scope 1 = "pkg-id" ModuleName`.
-    The printer writes only the scopes that the text uses.
-
-## Text format
-
-There is one text format.
-The parser reads the text that the printer writes, and it gives back the same program.
-The printer leaves out each part that `Aihc.Fc.TextInference` can calculate again.
-The parser uses the same calculation to put the part back.
-The rules are general.
-They do not name a type, a constructor or a synonym, with one exception: the kind of a function type is `Type`.
-
-- The representation of a type is the argument of its kind.
-  For example, `tInt# :: tTYPE cIntRep` gives `cIntRep`.
-  The kind of a function type is `Type`, so a function type has the representation `LiftedRep`.
-- A function type is `a → b` when the representations of `a` and `b` are the stored representations.
-- A literal expression is `0 :: tInt#`, `'c' :: tChar#` or `"text" :: tAddr#` when the representation of its type is the stored representation.
-  Otherwise it is `lit (0#cIntRep) :: tInt#`.
-- A literal alternative is `0 →` when the type of the scrutinee gives the representation.
-  Otherwise it is `0#cIntRep →`.
-- A binder of a telescope is implicit when the kind of a later explicit parameter mentions it.
-  The argument of an implicit binder comes from a match of that kind against the kind of the later argument.
-  An application leaves out the argument of an implicit binder when this match gives it.
-  Otherwise the argument is `@{t}`.
-  In a run of adjacent implicit binders, all the arguments show, or none of them shows.
-  The rule applies to type applications, to term type applications and to foreign calls.
-  For example, `cTuple2# @r1 @r2 @a1 @a2` is `cTuple2# @a1 @a2`, because the kinds of `a1` and `a2` give `r1` and `r2`.
-- A lambda or pattern binder that its scope does not use is `_`, with its type.
-  The parser gives each `_` a different unique.
-- A case binder that the alternatives do not use is not in the text.
-- A name has no scope prefix when the program introduces it and its text is unique.
 
 ## Syntax
 
@@ -160,17 +129,17 @@ They do not name a type, a constructor or a synonym, with one exception: the kin
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
-pub type 1.tBool :: sType {
-  pub 1.cFalse :: tBool;
-  pub 1.cTrue :: tBool
+pub type 1.tBool :: 2.sType {
+    pub 1.cFalse :: 1.tBool
+    pub 1.cTrue :: 1.tBool
 }
 
-pub val 1.vnot :: tBool → tBool
-  = λ(x : tBool).
-    case x of {
-      cTrue → cFalse;
-      cFalse → cTrue
-    }
+pub val 1.vnot :: 1.tBool → 1.tBool
+ = λ(x : 1.tBool).
+     case x as (w{1} : 1.tBool) of {
+       1.cTrue → 1.cFalse;
+       1.cFalse → 1.cTrue
+     }
 ```
 
 Use `::` on declarations.
@@ -179,9 +148,8 @@ Use `case` with an optional case binder and `_` for default.
 The first alternative gives the result type.
 All alternatives must have the same result type.
 An alternative type variable must not occur free in the result type.
-Use `1 :: tInt#` for a literal expression.
+Use `lit (1#cIntRep) :: tInt#` for a literal expression.
 Each literal expression has its full type and runtime representation.
-The text leaves out the representation when the type gives it.
 Use `@(a : k)` before field binders to bind existential types in constructor alternatives.
 Require at least one alternative in each `case` expression.
 The printer shows a `case` with one alternative as a strict pattern binding.
@@ -221,10 +189,9 @@ It is not a scoped name.
 
 A full `TyFun r1 r2 a b` has type `Type`.
 
-Print `tFlag → tBox` when the kinds of the two types give the two representations.
-This includes an imported type and an unlifted type, for example `tInt# → tInt`.
-Print explicit `FUN` only when a kind does not give a representation.
-An example is an equality argument, because the text inference has no kind for `a ~ b`.
+Print `2.tFlag → 1.tBox` when both representations are lifted.
+This includes an imported type.
+Print explicit `FUN` only when a representation is not lifted.
 
 ## Coercions
 

@@ -30,7 +30,7 @@ expected: |-
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
     2.c() :: tUnit;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -48,22 +48,22 @@ expected: |-
   }
 
   pub type 1.t$Dict$Markable (a : sType) :: sType {
-    pub 1.c$Dict$Markable :: ∀(a : sType). (a → tMark) → t$Dict$Markable a
+    pub 1.c$Dict$Markable :: ∀(a : sType). (a 3.→ tMark) 3.→ t$Dict$Markable a
   }
 
   pub type 1.tBox :: sType {
-    pub 1.cBox :: ∀(a : sType). t$Dict$Markable a → tBool → a → tBox
+    pub 1.cBox :: ∀(a : sType). t$Dict$Markable a 3.→ tBool 3.→ a 3.→ tBox
   }
 
-  pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a → a → tMark
+  pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a 3.→ a 3.→ tMark
     = Λ(a : sType). λ($dMarkable : t$Dict$Markable a).
-      let! c$Dict$Markable ($cmark : a → tMark) = $dMarkable;
+      let! c$Dict$Markable ($cmark : a 3.→ tMark) = $dMarkable;
       $cmark
 
   pub val 1.v$fMarkableBool :: t$Dict$Markable tBool
     = c$Dict$Markable @tBool v$fMarkableBool$cmark
 
-  val 1.v$fMarkableBool$cmark :: tBool → tMark
+  val 1.v$fMarkableBool$cmark :: tBool 3.→ tMark
     = λ(x : tBool).
       case x of {
         cTrue →
@@ -72,8 +72,9 @@ expected: |-
           cPlain
       }
 
-  pub val 1.v$mTagged :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tBox → (∀(a : sType). t$Dict$Markable a → a → r) → (tUnit → r) → r
-    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tBox) (y : ∀(a : sType). t$Dict$Markable a → a → r) (z : tUnit → r).
+  pub val 1.v$mTagged :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tBox 3.→ (∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tBox) (y : ∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r)
+    (z : FUN @sLiftedRep @rep tUnit r).
       let! cBox @(a : sType) ($dMarkable : t$Dict$Markable a) (_pat : tBool) (x{1} : a) = x;
       case _pat of {
         cTrue →
@@ -82,10 +83,10 @@ expected: |-
           z c()
       }
 
-  pub val 1.vinspect :: tBox → tMark
+  pub val 1.vinspect :: tBox 3.→ tMark
     = λ(x : tBox).
-      v$mTagged @tMark x (Λ(a : sType). λ($dMarkable : t$Dict$Markable a) (x{1} : a).
-        vmark @a $dMarkable x{1}) (λ(_ : tUnit).
+      v$mTagged @sLiftedRep @tMark x (Λ(a : sType). λ($dMarkable : t$Dict$Markable a) (x{1} : a).
+        vmark @a $dMarkable x{1}) (λ(_pattern_failure : tUnit).
         cPlain)
 status: pass
 reason: The matcher of a pattern synonym over an existential constructor takes a continuation that binds the type variable and the dictionary.

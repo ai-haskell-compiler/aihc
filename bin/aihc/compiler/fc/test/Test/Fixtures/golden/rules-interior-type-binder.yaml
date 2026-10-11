@@ -35,7 +35,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -44,49 +44,49 @@ expected: |-
 
   pub type 1.tNat :: sType {
     pub 1.cZ :: tNat;
-    pub 1.cS :: tNat → tNat
+    pub 1.cS :: tNat 2.→ tNat
   }
 
   pub type 1.tId (a : sType) :: sType {
-    pub 1.cId :: ∀(a : sType). a → tId a
+    pub 1.cId :: ∀(a : sType). a 2.→ tId a
   }
 
   pub type 1.tOther (a : sType) :: sType {
-    pub 1.cOther :: ∀(a : sType). a → tOther a
+    pub 1.cOther :: ∀(a : sType). a 2.→ tOther a
   }
 
-  pub type 1.tBox (v : sType → sType) (a : sType) :: sType {
-    pub 1.cBox :: ∀(v : sType → sType) (a : sType). a → tBox v a;
-    pub 1.cWrap :: ∀(v : sType → sType) (a : sType). v a → tBox v a
+  pub type 1.tBox (v : sType 2.→ sType) (a : sType) :: sType {
+    pub 1.cBox :: ∀(v : sType 2.→ sType) (a : sType). a 2.→ tBox v a;
+    pub 1.cWrap :: ∀(v : sType 2.→ sType) (a : sType). v a 2.→ tBox v a
   }
 
   pub type 1.tTag (p : sType) (a : sType) :: sType {
-    pub 1.cTag :: ∀(p : sType) (a : sType). a → tTag p a
+    pub 1.cTag :: ∀(p : sType) (a : sType). a 2.→ tTag p a
   }
 
-  pub val 1.vre :: ∀(u : sType → sType) (a : sType) (v : sType → sType). tBox u a → tBox v a
-    = Λ(u : sType → sType) (a : sType) (v : sType → sType). λ(x : tBox u a).
+  pub val 1.vre :: ∀(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). tBox u a 2.→ tBox v a
+    = Λ(u : sType 2.→ sType) (a : sType) (v : sType 2.→ sType). λ(x : tBox u a).
       case x of {
         cBox (x{1} : a) →
           cBox @v @a x{1};
-        cWrap (_ : u a) →
+        cWrap (_pat : u a) →
           vre @u @a @v x
       }
 
-  pub val 1.vretag :: ∀(p : sType) (a : sType) (q : sType). tTag p a → tTag q a
+  pub val 1.vretag :: ∀(p : sType) (a : sType) (q : sType). tTag p a 2.→ tTag q a
     = Λ(p : sType) (a : sType) (q : sType). λ(x : tTag p a).
       let! cTag (x{1} : a) = x;
       cTag @q @a x{1}
 
-  pub val 1.vuseRe :: tBox tId tNat → tBox tId tNat
+  pub val 1.vuseRe :: tBox tId tNat 2.→ tBox tId tNat
     = λ(x : tBox tId tNat).
       x
 
-  pub val 1.vuseRetag :: tTag tNat tNat → tTag tNat tNat
+  pub val 1.vuseRetag :: tTag tNat tNat 2.→ tTag tNat tNat
     = λ(x : tTag tNat tNat).
       x
 
-  rule "re/re" Λ(a : sType → sType). Λ(b : sType). Λ(c : sType → sType). λ(s : tBox a b).
+  rule "re/re" Λ(a : sType 2.→ sType). Λ(b : sType). Λ(c : sType 2.→ sType). λ(s : tBox a b).
     vre @c @b @a (vre @a @b @c s)
    = s
    :: tBox a b

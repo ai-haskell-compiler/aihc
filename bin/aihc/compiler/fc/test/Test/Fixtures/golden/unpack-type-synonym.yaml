@@ -26,7 +26,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -34,22 +34,22 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.tPair (a : sType) :: sType {
-    pub 1.cPair :: ∀(a : sType). a → a → tPair a
+    pub 1.cPair :: ∀(a : sType). a 2.→ a 2.→ tPair a
   }
 
   pub type 1.sIntPair :: sType =
     tPair tInt
 
   pub type 1.tBoxed :: sType {
-    pub 1.cBoxed :: tInt → tInt → tBoxed
+    pub 1.cBoxed :: tInt 2.→ tInt 2.→ tBoxed
   }
 
-  pub val 1.vbuild :: tPair tInt → tBoxed
+  pub val 1.vbuild :: tPair tInt 2.→ tBoxed
     = λ(_strict_field : tPair tInt).
       let! cPair (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) = _strict_field;
       cBoxed _unpack_leaf0 _unpack_leaf1
 
-  pub val 1.vunwrap :: tBoxed → tPair tInt
+  pub val 1.vunwrap :: tBoxed 2.→ tPair tInt
     = λ(x : tBoxed).
       let! cBoxed (pair0 : tInt) (pair1 : tInt) = x;
       cPair @tInt pair0 pair1

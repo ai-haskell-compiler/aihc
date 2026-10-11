@@ -28,7 +28,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     3.cAddrRep :: tRuntimeRep;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -40,7 +40,7 @@ expected: |-
   }
 
   pub type 1.tPtr (a : sType) :: sType {
-    pub 1.cPtr :: ∀(a : sType). tAddr# → tPtr a
+    pub 1.cPtr :: ∀(a : sType). FUN @cAddrRep @sLiftedRep tAddr# (tPtr a)
   }
 
   pub val 1.vaddress :: tPtr tUnit

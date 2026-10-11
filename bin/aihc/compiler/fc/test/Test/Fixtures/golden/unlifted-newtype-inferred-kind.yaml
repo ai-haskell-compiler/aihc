@@ -19,8 +19,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    newByteArray# = 2.vnewByteArray# :: ∀(d : sType). tInt# → tState# d → tTuple2# (tState# d) (tMutableByteArray# d);
-    readIntArray# = 2.vreadIntArray# :: ∀(d : sType). tMutableByteArray# d → tInt# → tState# d → tTuple2# (tState# d) tInt#
+    newByteArray# = 2.vnewByteArray# :: ∀(d : sType). FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# d) (tMutableByteArray# d)));
+    readIntArray# = 2.vreadIntArray# :: ∀(d : sType). FUN @sUnliftedRep @sLiftedRep (tMutableByteArray# d) (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# d) tInt#)))
 
   import headers
     2.tInt# :: tTYPE cIntRep;
@@ -30,16 +30,16 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: r1 (c: r2 (c[] tRuntimeRep))));
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
     3.sType :: sType;
     3.sUnliftedRep :: tRuntimeRep;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a → t[] a → t[] a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). a1 → a2 → tTuple2# a1 a2;
-    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
     3.cUnlifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
 
@@ -52,18 +52,18 @@ expected: |-
 
   axiom 1.$ax$Counter (s : sType) : tCounter s ~R tMutableByteArray# s
 
-  pub val 1.vnew :: ∀(s : sType). tState# s → tTuple2# (tState# s) (tCounter s)
+  pub val 1.vnew :: ∀(s : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# s) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tCounter s))
     = Λ(s : sType). λ(x : tState# s).
-      let _case : tTuple2# (tState# s) (tMutableByteArray# s) =
-        prim newByteArray# @s (8 :: tInt#) x;
+      let _case : tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# s) (tMutableByteArray# s) =
+        prim newByteArray# @s lit (8#cIntRep) :: tInt# x;
       let! cTuple2# (s2 : tState# s) (arr : tMutableByteArray# s) = _case;
-      cTuple2# @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
+      cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sUnliftedRep @(tState# s) @(tCounter s) s2 (arr ▷ sym (axiom-co $ax$Counter @s))
 
-  pub val 1.vget :: ∀(s : sType). tCounter s → tState# s → tTuple2# (tState# s) tInt#
+  pub val 1.vget :: ∀(s : sType). FUN @sUnliftedRep @sLiftedRep (tCounter s) (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# s) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# s) tInt#))
     = Λ(s : sType). λ(x : tCounter s).
       let arr : tMutableByteArray# s =
         x ▷ axiom-co $ax$Counter @s;
       λ(_foreign_argument : tState# s).
-        prim readIntArray# @s arr (0 :: tInt#) _foreign_argument
+        prim readIntArray# @s arr lit (0#cIntRep) :: tInt# _foreign_argument
 status: pass
 reason: A newtype without a kind signature takes the kind of its field, so an UnliftedNewtypes axiom relates two types of one kind.

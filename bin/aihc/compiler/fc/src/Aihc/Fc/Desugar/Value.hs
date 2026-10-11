@@ -102,7 +102,6 @@ import Aihc.Tc.Types
     tyConModuleName,
     tyConName,
     tyConPackageId,
-    typeKind,
     word16Rep,
     word32Rep,
     word64Rep,
@@ -2498,8 +2497,10 @@ newtypeFieldType dataType scrutineeType child = do
 
 newtypePatternArguments :: Syn.Pattern -> ValueM [TcType]
 newtypePatternArguments pattern' = do
-  kinds <- gets (ceKinds . vsConvertEnv)
-  case constructorResultType (length (patternChildren pattern')) (fromBinderType kinds pattern') of
+  -- An as-pattern binder can have a type family type. Use the checked
+  -- constructor annotation for the newtype axiom arguments.
+  annotation <- maybe (failValue "missing checked newtype pattern type") pure (patternAnnotation pattern')
+  case constructorResultType (length (patternChildren pattern')) (tcAnnType annotation) of
     TcTyCon _ arguments -> pure arguments
     ty -> failValue ("newtype pattern has an invalid checked type: " <> show ty)
 
@@ -2846,9 +2847,6 @@ literalType literal =
 -- | The kind vocabulary of the compiler that checked this module.
 valueKinds :: ValueM TcKinds
 valueKinds = gets (ceKinds . vsConvertEnv)
-
-fromBinderType :: TcKinds -> Syn.Pattern -> TcType
-fromBinderType kinds pattern' = fromMaybe (typeKind kinds) (patternType pattern')
 
 nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =

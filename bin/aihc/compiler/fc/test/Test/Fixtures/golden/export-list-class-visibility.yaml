@@ -23,7 +23,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -31,16 +31,16 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.t$Dict$C (a : sType) :: sType {
-    pub 1.c$Dict$C :: ∀(a : sType). (a → a) → t$Dict$C a
+    pub 1.c$Dict$C :: ∀(a : sType). (a 2.→ a) 2.→ t$Dict$C a
   }
 
-  pub val 1.vmethod :: ∀(a : sType). t$Dict$C a → a → a
+  pub val 1.vmethod :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
     = Λ(a : sType). λ($dC : t$Dict$C a).
-      let! c$Dict$C ($cmethod : a → a) = $dC;
+      let! c$Dict$C ($cmethod : a 2.→ a) = $dC;
       $cmethod
 
-  pub val 1.v$dmmethod :: ∀(a : sType). t$Dict$C a → a → a
-    = Λ(a : sType). λ(_ : t$Dict$C a) (x : a).
+  pub val 1.v$dmmethod :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
+    = Λ(a : sType). λ($dC : t$Dict$C a) (x : a).
       x
   scope 1 = "" Private
   scope 2 = "" Public
@@ -53,11 +53,11 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    2.c$Dict$C :: ∀(a : sType). (a → a) → t$Dict$C a;
-    2.v$dmmethod :: ∀(a : sType). t$Dict$C a → a → a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
+    2.c$Dict$C :: ∀(a : sType). (a 3.→ a) 3.→ t$Dict$C a;
+    2.v$dmmethod :: ∀(a : sType). t$Dict$C a 3.→ a 3.→ a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
     3.cLifted :: tLevity;
-    2.vmethod :: ∀(a : sType). t$Dict$C a → a → a
+    2.vmethod :: ∀(a : sType). t$Dict$C a 3.→ a 3.→ a
 
   import synonyms
     3.sLiftedRep = cBoxedRep cLifted;
@@ -70,10 +70,10 @@ expected: |-
   pub val 1.v$fCT :: t$Dict$C tT
     = c$Dict$C @tT v$fCT$cmethod
 
-  val 1.v$fCT$cmethod :: tT → tT
+  val 1.v$fCT$cmethod :: tT 3.→ tT
     = v$dmmethod @tT v$fCT
 
-  pub val 1.vrun :: tT → tT
+  pub val 1.vrun :: tT 3.→ tT
     = vmethod @tT v$fCT
 status: pass
 reason: A dictionary type follows its class, while an instance dictionary and a default worker stay public for the importer that names them.

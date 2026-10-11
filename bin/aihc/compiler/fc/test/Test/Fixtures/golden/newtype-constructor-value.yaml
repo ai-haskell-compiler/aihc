@@ -15,7 +15,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -26,8 +26,8 @@ expected: |-
 
   axiom 1.$ax$Identity (a : sType) : tIdentity a ~R a
 
-  pub val 1.vwrap :: ∀(x : sType) (y : sType) (a : sType). x → y → a → tIdentity a
-    = Λ(x : sType) (y : sType) (a : sType). λ(_ : x) (_ : y) (_newtype : a).
+  pub val 1.vwrap :: ∀(x : sType) (y : sType) (a : sType). x 2.→ y 2.→ a 2.→ tIdentity a
+    = Λ(x : sType) (y : sType) (a : sType). λ(x{1} : x) (y{1} : y) (_newtype : a).
       _newtype ▷ sym (axiom-co $ax$Identity @a)
 status: pass
 reason: ''

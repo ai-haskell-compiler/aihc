@@ -32,7 +32,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -41,22 +41,22 @@ expected: |-
 
   type 1.tNat :: sType {
     1.cZ :: tNat;
-    1.cS :: tNat → tNat
+    1.cS :: tNat 2.→ tNat
   }
 
   type 1.tList (a : sType) :: sType {
     1.cNil :: ∀(a : sType). tList a;
-    1.cCons :: ∀(a : sType). a → tList a → tList a
+    1.cCons :: ∀(a : sType). a 2.→ tList a 2.→ tList a
   }
 
-  val 1.vbuild noinline :: ∀(a : sType). (∀(b : sType). (a → b → b) → b → b) → tList a
-    = Λ(a : sType). λ(x : ∀(b : sType). (a → b → b) → b → b).
+  val 1.vbuild noinline :: ∀(a : sType). (∀(b : sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b) 2.→ tList a
+    = Λ(a : sType). λ(x : ∀(b : sType). (a 2.→ b 2.→ b) 2.→ b 2.→ b).
       x @(tList a) (cCons @a) (cNil @a)
 
-  val 1.vfoldr noinline :: ∀(a : sType) (b : sType). (a → b → b) → b → tList a → b
-    = Λ(a : sType) (b : sType). λ(x : a → b → b) (y : b) (z : tList a).
+  val 1.vfoldr noinline :: ∀(a : sType) (b : sType). (a 2.→ b 2.→ b) 2.→ b 2.→ tList a 2.→ b
+    = Λ(a : sType) (b : sType). λ(x : a 2.→ b 2.→ b) (y : b) (z : tList a).
       rec {
-        go : tList a → b =
+        go : tList a 2.→ b =
           λ(x{1} : tList a).
             case x{1} of {
               cNil →
@@ -67,14 +67,14 @@ expected: |-
       } in
       go z
 
-  pub val 1.vcount :: tNat → tNat
+  pub val 1.vcount :: tNat 2.→ tNat
     = λ(x : tNat).
-      let c : tNat → tNat → tNat =
-        λ(_ : tNat) (r : tNat).
+      let c : tNat 2.→ tNat 2.→ tNat =
+        λ(_pat : tNat) (r : tNat).
           cS r;
       c (cS x) (c x cZ)
 
-  rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a → b → b). λ(z : b). λ(g : ∀(b{1} : sType). (a → b{1} → b{1}) → b{1} → b{1}).
+  rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a 2.→ b 2.→ b). λ(z : b). λ(g : ∀(b{1} : sType). (a 2.→ b{1} 2.→ b{1}) 2.→ b{1} 2.→ b{1}).
     vfoldr @a @b k z (vbuild @a (Λ(b{1} : sType).
       g @b{1}))
    = g @b k z

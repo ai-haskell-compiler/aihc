@@ -26,8 +26,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: tInt# → tInt# → tInt#;
-    -# = 2.v-# :: tInt# → tInt# → tInt#
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -36,16 +36,16 @@ expected: |-
     3.sLiftedRep :: tRuntimeRep;
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: r1 (c: r2 (c[] tRuntimeRep))));
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a → t[] a → t[] a;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). a1 → a2 → tTuple2# a1 a2;
-    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -53,25 +53,25 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tPair :: sType {
-    pub 1.cPair :: tInt → tInt → tPair
+    pub 1.cPair :: tInt 3.→ tInt 3.→ tPair
   }
 
-  pub val 1.varound inline :: tInt → tPair
+  pub val 1.varound inline :: tInt 3.→ tPair
     = λ(x : tInt).
       let! cI# (x{1} : tInt#) = x;
       let! cTuple2# (field : tInt) (field{1} : tInt) = v$waround x{1};
       cPair field field{1}
 
-  val 1.v$waround :: tInt# → tTuple2# tInt tInt
+  val 1.v$waround :: FUN @cIntRep @(cTupleRep (c: tRuntimeRep (cBoxedRep cLifted) (c: tRuntimeRep (cBoxedRep cLifted) (c[] tRuntimeRep)))) tInt# (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt)
     = λ(x : tInt#).
       let argument : tInt# =
-        prim -# x (1 :: tInt#);
+        prim -# x lit (1#cIntRep) :: tInt#;
       let argument{1} : tInt# =
-        prim +# x (1 :: tInt#);
-      cTuple2# @tInt @tInt (cI# argument) (cI# argument{1})
+        prim +# x lit (1#cIntRep) :: tInt#;
+      cTuple2# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @tInt @tInt (cI# argument) (cI# argument{1})
 
-  pub val 1.vboth :: tInt → tTuple2# tInt tInt
+  pub val 1.vboth :: FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt (tTuple2# sLiftedRep sLiftedRep tInt tInt)
     = λ(x : tInt).
-      cTuple2# @tInt @tInt x x
+      cTuple2# @sLiftedRep @sLiftedRep @tInt @tInt x x
 status: pass
 reason: A result with two fields comes back from the worker in an unboxed pair, because the program already has the unboxed pair type.

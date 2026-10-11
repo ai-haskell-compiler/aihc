@@ -45,9 +45,9 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: tInt# → tInt# → tInt#;
-    -# = 2.v-# :: tInt# → tInt# → tInt#;
-    quotInt# = 2.vquotInt# :: tInt# → tInt# → tInt#
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    quotInt# = 2.vquotInt# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -57,8 +57,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity → tRuntimeRep;
-    3.cI# :: tInt# → tInt;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -66,51 +66,51 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vloop :: tInt# → tInt# → tInt
+  pub val 1.vloop :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
     = λ(x : tInt#) (y : tInt#).
       let argument : tInt# =
-        prim -# x (8 :: tInt#);
+        prim -# x lit (8#cIntRep) :: tInt#;
       rec {
-        go : tInt# → tInt =
+        go : FUN @cIntRep @sLiftedRep tInt# tInt =
           λ(x{1} : tInt#).
             case x{1} of {
-              0 →
-                cI# (0 :: tInt#);
+              0#cIntRep →
+                cI# lit (0#cIntRep) :: tInt#;
               _ →
-                let! cI# (rest : tInt#) = go (prim -# x{1} (1 :: tInt#));
+                let! cI# (rest : tInt#) = go (prim -# x{1} lit (1#cIntRep) :: tInt#);
                 cI# (prim +# argument rest)
             }
       } in
       go y
 
-  pub val 1.vlazyLoop :: tInt# → tInt# → tInt
+  pub val 1.vlazyLoop :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
     = λ(x : tInt#) (y : tInt#).
       let step : tInt =
-        cI# (prim quotInt# (8 :: tInt#) x);
+        cI# (prim quotInt# lit (8#cIntRep) :: tInt# x);
       rec {
-        go : tInt# → tInt =
+        go : FUN @cIntRep @sLiftedRep tInt# tInt =
           λ(x{1} : tInt#).
             case x{1} of {
-              0 →
-                cI# (0 :: tInt#);
+              0#cIntRep →
+                cI# lit (0#cIntRep) :: tInt#;
               _ →
                 let! cI# (delta : tInt#) = step;
-                let! cI# (rest : tInt#) = go (prim -# x{1} (1 :: tInt#));
+                let! cI# (rest : tInt#) = go (prim -# x{1} lit (1#cIntRep) :: tInt#);
                 cI# (prim +# delta rest)
             }
       } in
       go y
 
-  pub val 1.vunusedField :: tInt# → tInt# → tInt
-    = λ(_ : tInt#) (y : tInt#).
+  pub val 1.vunusedField :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
+    = λ(x : tInt#) (y : tInt#).
       rec {
-        go : tInt# → tInt =
+        go : FUN @cIntRep @sLiftedRep tInt# tInt =
           λ(x{1} : tInt#).
             case x{1} of {
-              0 →
-                cI# (0 :: tInt#);
+              0#cIntRep →
+                cI# lit (0#cIntRep) :: tInt#;
               _ →
-                go (prim -# x{1} (1 :: tInt#))
+                go (prim -# x{1} lit (1#cIntRep) :: tInt#)
             }
       } in
       go y

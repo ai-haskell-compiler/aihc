@@ -1,0 +1,45 @@
+extensions:
+- TypeFamilies
+- ScopedTypeVariables
+- FlexibleContexts
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, ScopedTypeVariables, FlexibleContexts #-}
+  module Test where
+  import Prelude
+  data Flag = Off | On
+  class Monad m => PrimMonad m where
+    type PrimState m
+  data MutVar s a = MutVar a
+  newMutVar :: PrimMonad m => a -> m (MutVar (PrimState m) a)
+  newMutVar x = return (MutVar x)
+  modifyMutVar :: PrimMonad m => MutVar (PrimState m) a -> (a -> a) -> m ()
+  modifyMutVar _ _ = return ()
+  run :: forall m s. (PrimMonad m, s ~ PrimState m) => m ()
+  run = do
+    var <- newMutVar On
+    let update :: (PrimMonad n, s ~ PrimState n) => Flag -> n ()
+        update flag = modifyMutVar var (\_ -> flag)
+        reset :: (PrimMonad n, s ~ PrimState n) => n ()
+        reset = modifyMutVar var (\_ -> Off)
+    reset >> update Off
+  data ST s a = ST a
+  instance Functor (ST s) where
+    fmap f (ST x) = ST (f x)
+  instance Applicative (ST s) where
+    pure = ST
+    ST f <*> ST x = ST (f x)
+  instance Monad (ST s) where
+    ST x >>= f = f x
+  instance PrimMonad (ST s) where
+    type PrimState (ST s) = s
+  result :: ()
+  result = case run :: ST () () of
+    ST x -> x
+expression: result
+output: |
+  ()
+status: pass
+reason: Deferred local signature constraints supply valid System FC evidence.
+evaluators:
+- grin
