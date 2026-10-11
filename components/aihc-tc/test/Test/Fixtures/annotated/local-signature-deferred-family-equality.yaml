@@ -1,0 +1,33 @@
+extensions:
+- TypeFamilies
+- ScopedTypeVariables
+- FlexibleContexts
+modules:
+- |
+  module GHC.Base where
+  class Monad m where
+    (>>=) :: m a -> (a -> m b) -> m b
+    (>>) :: m a -> m b -> m b
+    return :: a -> m a
+- |
+  {-# LANGUAGE TypeFamilies, ScopedTypeVariables, FlexibleContexts #-}
+  module Test where
+  import GHC.Base (Monad (..))
+  data Flag = Off | On
+  class Monad m => PrimMonad m where
+    type PrimState m
+  data MutVar s a = MutVar a
+  newMutVar :: PrimMonad m => a -> m (MutVar (PrimState m) a)
+  newMutVar x = return (MutVar x)
+  modifyMutVar :: PrimMonad m => MutVar (PrimState m) a -> (a -> a) -> m ()
+  modifyMutVar _ _ = return ()
+  run :: forall m s. (PrimMonad m, s ~ PrimState m) => m ()
+  run = do
+    var <- newMutVar On
+    let update :: (PrimMonad n, s ~ PrimState n) => Flag -> n ()
+        update flag = modifyMutVar var (\_ -> flag)
+        reset :: (PrimMonad n, s ~ PrimState n) => n ()
+        reset = modifyMutVar var (\_ -> Off)
+    reset >> update Off
+status: pass
+reason: A deferred equality retains the context of its local signature.
