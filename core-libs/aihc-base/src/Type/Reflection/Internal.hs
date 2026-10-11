@@ -13,7 +13,7 @@
 
 module Type.Reflection.Internal
   ( Typeable (..),
-    TypeRep,
+    TypeRep (..),
     withTypeable,
     (:~~:) (..),
     pattern Con,

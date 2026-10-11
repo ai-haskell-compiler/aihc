@@ -2307,14 +2307,37 @@ overloadedLiteralValue overloadedString literal =
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
 desugarDataPatterns resultType fallback argument arguments argumentTypes works = do
   (scrutineeType, _) <- requiredArgumentTypes argumentTypes
-  refinement <- scrutineeRefinement scrutineeType
-  case refinement of
+  case listToMaybe [cast | (match, _) <- works, pattern' : _ <- [Syn.matchPats match], Just cast <- [patternScrutineeCast pattern']] of
+    Just (target, proof) -> withCoercion proof (matchRefined target)
     Nothing -> do
-      caseBinder <- freshBinderFromType "_scrut" (binderType argument)
-      desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
-    Just (refinedType, coercion) -> do
+      refinement <- scrutineeRefinement scrutineeType
+      case refinement of
+        Nothing -> do
+          caseBinder <- freshBinderFromType "_scrut" (binderType argument)
+          desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+        Just (refinedType, coercion) -> matchRefined refinedType coercion
+  where
+    matchRefined refinedType coercion = do
       caseBinder <- freshBinder "_scrut" refinedType
       desugarScrutineePatterns resultType fallback (ExCast (ExVar (binderName argument)) coercion) caseBinder argument arguments argumentTypes works
+
+-- | The type checker supplies the cast before a constructor pattern match.
+patternScrutineeCast :: Syn.Pattern -> Maybe (TcType, Ev.Coercion)
+patternScrutineeCast pattern' = case pattern' of
+  Syn.PAnn annotation inner -> case Syn.fromAnnotation annotation of
+    Just (TcCastAnnotation (Just proof) target) -> Just (target, proof)
+    _ -> patternScrutineeCast inner
+  Syn.PParen inner -> patternScrutineeCast inner
+  Syn.PStrict inner -> patternScrutineeCast inner
+  Syn.PAs _ inner -> patternScrutineeCast inner
+  Syn.PTypeSig inner _ -> patternScrutineeCast inner
+  _ -> Nothing
+
+castPatternScrutinee :: Syn.Pattern -> Expr -> ValueM Expr
+castPatternScrutinee pattern' expression =
+  case patternScrutineeCast pattern' of
+    Just (_, proof) -> withCoercion proof (pure . ExCast expression)
+    Nothing -> pure expression
 
 -- | The type that a given equality refines the scrutinee to, with the proof.
 --
@@ -2412,8 +2435,8 @@ desugarFamilyPatterns resultType fallback argument remaining argumentTypes works
   instanceType <- requiredPatternType representative
   instanceArguments <- familyInstanceArguments info instanceType
   axiomArguments <- familyAxiomArguments info instanceArguments
+  scrutinee <- castPatternScrutinee representative (ExVar (binderName argument))
   let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
-      scrutinee = ExVar (binderName argument)
   if dfiiIsNewtype info
     then do
       child <-
@@ -2468,9 +2491,10 @@ desugarNewtypePatterns resultType fallback argument remaining argumentTypes work
   convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
   rooted <- mapM (extendMatchWork argument scrutineeType) works
   expanded <- mapMaybeM (specializeMatchWork (patternKey representative) 1 [field] [childType]) rooted
+  scrutinee <- castPatternScrutinee representative (ExVar (binderName argument))
   let tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-      unwrapped = ExCast (ExVar (binderName argument)) (CoAxiom axiom convertedArguments)
+      unwrapped = ExCast scrutinee (CoAxiom axiom convertedArguments)
   body <- desugarMatchArguments resultType fallback (field : remaining) (childType : restTypes) expanded
   pure (ExLet (Bind field unwrapped) body)
 
@@ -2818,11 +2842,15 @@ stringLiteralListPattern patternTy literal =
 
 requiredPatternType :: Syn.Pattern -> ValueM TcType
 requiredPatternType pattern' =
-  case patternType pattern' of
+  case checkedType of
     Just ty
       | not (patternIsDefault pattern') -> pure (constructorResultType (length (patternChildren pattern')) ty)
       | otherwise -> pure ty
     Nothing -> failValue ("missing checked pattern type: " <> take 80 (show pattern'))
+  where
+    checkedType
+      | patternIsDefault pattern' = patternType pattern'
+      | otherwise = (tcAnnType <$> patternAnnotation pattern') <|> patternType pattern'
 
 patternType :: Syn.Pattern -> Maybe TcType
 patternType pattern' =
@@ -5116,6 +5144,7 @@ desugarEvidence evidence =
       expression <- desugarEvidence inner
       withCoercion coercion (pure . ExCast expression)
     Ev.EvTypeable origin ty constructor kindArguments arguments -> desugarTypeableEvidence origin ty constructor kindArguments arguments
+    Ev.EvTypeableLiteral origin ty helper singleton -> desugarTypeableLiteral origin ty helper singleton
     Ev.EvTypeLit origin ty literal -> desugarTypeLitEvidence origin ty literal
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
@@ -5336,6 +5365,17 @@ desugarTypeLitEvidence origin ty literal = do
   typeArguments <-
     convertTyConApplicationArguments (mkTyConWithOrigin package moduleName' className 1) [ty]
   pure (ExApp (foldl ExTyApp (ExVar (named ("$Dict$" <> className) SortDataConstructor)) typeArguments) value)
+
+desugarTypeableLiteral :: Maybe (Text, Text) -> TcType -> Text -> Ev.EvTerm -> ValueM Expr
+desugarTypeableLiteral origin ty helper evidence = do
+  singleton <- desugarEvidence evidence
+  function <- typeableName origin "Type.Reflection.Literal" helper SortValue
+  argument <- convertCheckedType ty
+  dictionaryConstructor <- typeableName origin "Type.Reflection" "$Dict$Typeable" SortDataConstructor
+  className <- typeableName origin "Type.Reflection" "Typeable" SortTypeConstructor
+  typeArguments <- typeableTypeArguments className ty
+  let representation = ExApp (ExTyApp (ExVar function) argument) singleton
+  pure (ExApp (foldl ExTyApp (ExVar dictionaryConstructor) typeArguments) representation)
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [(TcType, Ev.EvTerm)] -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = do
@@ -5600,7 +5640,19 @@ convertCoercionWithExpectedKind expectedKind coercion =
             if length kindProofs == length kinds
               then mapM convertCoercion kindProofs
               else failValue ("kind argument proofs do not match the kind arguments of " <> T.unpack (tyConName tyCon))
-      pure (CoTyConApp (tyConNameFc env tyCon) (map fst kindConverted <> map fst converted), concatMap snd kindConverted <> concatMap snd converted)
+      typeEnv <- gets vsTypeEnv
+      let name = tyConNameFc env tyCon
+          proofs = map fst kindConverted <> map fst converted
+          headerArity header = case TypeOf.viewForAll typeEnv header of
+            Just (_, body) -> 1 + headerArity body
+            Nothing -> case TypeOf.viewFun typeEnv header of
+              Just (_, _, _, result) -> 1 + headerArity result
+              Nothing -> 0
+          arity = maybe (length proofs) headerArity (TypeOf.lookupHeaderType typeEnv name)
+          proof
+            | length types < Tc.tyConArity tyCon || length proofs < arity = foldl CoApp (CoRefl (TyCon name)) proofs
+            | otherwise = CoTyConApp name proofs
+      pure (proof, concatMap snd kindConverted <> concatMap snd converted)
     Ev.AxiomInstCo key arguments -> do
       let name = lookupAxiomName key
       newtypes <- gets vsNewtypeConstructors

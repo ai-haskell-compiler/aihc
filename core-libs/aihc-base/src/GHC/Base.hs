@@ -23,6 +23,7 @@ module GHC.Base
     geInt,
     quotInt,
     remInt,
+    modInt,
     build,
     augment,
     unpackCString#,
@@ -79,6 +80,21 @@ geInt (I# left) (I# right) = isTrue# (left >=# right)
 quotInt, remInt :: Int -> Int -> Int
 quotInt (I# numerator) (I# denominator) = I# (quotInt# numerator denominator)
 remInt (I# numerator) (I# denominator) = I# (remInt# numerator denominator)
+
+-- | The remainder has the sign of the denominator.
+modInt :: Int -> Int -> Int
+modInt (I# numerator) (I# denominator) =
+  case denominator ==# negateInt# 1# of
+    1# -> I# 0#
+    _ ->
+      case remInt# numerator denominator of
+        remainder ->
+          case remainder ==# 0# of
+            1# -> I# 0#
+            _ ->
+              case (remainder <# 0#) ==# (denominator <# 0#) of
+                1# -> I# remainder
+                _ -> I# (remainder +# denominator)
 
 -- List fusion follows GHC: a good producer is written with 'build', a
 -- good consumer with 'foldr', and the rules below remove the list between

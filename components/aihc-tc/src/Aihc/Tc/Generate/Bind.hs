@@ -43,7 +43,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), nameResolution)
 import Aihc.Resolve.Traverse (Collect, Walk (..), collected, idWalk, runCollect, walk)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateRhsCast, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
@@ -472,7 +472,7 @@ inferGuardedRhs inferExpr checkBody resultTy guardedRhs = do
       (body', bodyTy, bodyCts) <- checkBody (guardedRhsBody guardedRhs)
       ev <- freshEvVar
       let bodyCt = mkWantedCt (EqPred bodyTy resultTy) ev (AppOrigin sp) sp
-      pure (body', bodyCts ++ [bodyCt])
+      pure (annotateFunCast resultTy ev body', bodyCts ++ [bodyCt])
   pure (guardedRhs {guardedRhsGuards = qualifiers', guardedRhsBody = body'}, cts)
 
 -- | Infer guard qualifiers from left to right. A pattern guard and a let

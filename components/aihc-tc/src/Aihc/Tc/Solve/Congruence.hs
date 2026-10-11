@@ -11,6 +11,7 @@ import Aihc.Tc.Env (ClassInfo (..), TyConInfo (..), classFieldTypes)
 import Aihc.Tc.Evidence
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
+import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.Class (lift)
@@ -52,7 +53,17 @@ proveFromEqualities equalities left right
       projections <- traverse projection pairs
       kinds <- getKinds
       kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
-      pure (findProof graph left right <|> findProof (closeGraph (KindContext kinds kindEnv) pairs (concat projections) graph) left right)
+      let context = KindContext kinds kindEnv
+          closed = closeGraph context pairs (concat projections) graph
+      case findProof closed left right of
+        Just proof -> pure (Just proof)
+        Nothing -> do
+          reductions <- concat <$> traverse (reduceRewritten equalities) vertices
+          let expanded = List.foldl' addGiven closed reductions
+              expandedVertices = Map.elems (Map.unions (map subterms (vertices <> concat [[a, b] | (a, b, _) <- reductions])))
+              expandedPairs = [(a, b) | a : rest <- List.tails expandedVertices, b <- rest]
+          expandedProjections <- traverse projection expandedPairs
+          pure (findProof (closeGraph context expandedPairs (concat expandedProjections) expanded) left right)
     projection (a, b) = case (a, b) of
       (TcTyCon {}, TcTyCon {}) -> project a b
       (TcFunTy {}, TcFunTy {}) -> project a b
@@ -61,6 +72,37 @@ proveFromEqualities equalities left right
       children <- decomposeNominalEquality a b
       pure [(a, b, index, x, y) | pairs <- maybe [] pure children, (index, (x, y)) <- zip [0 ..] (reverse pairs)]
     addGiven graph (a, b, proof) = addProof a b proof graph
+
+-- | A given can expose a family equation inside a larger type.
+reduceRewritten :: [(TcType, TcType, Coercion)] -> TcType -> TcM [(TcType, TcType, Coercion)]
+reduceRewritten equalities ty =
+  concat <$> traverse reduceOne (equalities <> [(b, a, Sym proof) | (a, b, proof) <- equalities])
+  where
+    reduceOne rule = do
+      let (rewritten, proof) = rewrite rule ty
+      reduced <- reduceTypeFamilies rewritten
+      pure [(ty, reduced, proof) | not (sameType rewritten ty), not (sameType reduced rewritten)]
+    rewrite rule@(from, to, proof) current
+      | sameType from current = (to, proof)
+      | otherwise = case current of
+          TcTyCon constructor arguments ->
+            let (rewritten, proofs) = unzip (map (rewrite rule) arguments)
+             in if and (zipWith sameType rewritten arguments)
+                  then (current, Refl current)
+                  else (TcTyCon constructor rewritten, TyConAppCo constructor arguments proofs [])
+          TcFunTy argument result ->
+            let (argument', argumentProof) = rewrite rule argument
+                (result', resultProof) = rewrite rule result
+             in if sameType argument' argument && sameType result' result
+                  then (current, Refl current)
+                  else (TcFunTy argument' result', FunCo argumentProof resultProof)
+          TcAppTy function argument ->
+            let (function', functionProof) = rewrite rule function
+                (argument', argumentProof) = rewrite rule argument
+             in if sameType function' function && sameType argument' argument
+                  then (current, Refl current)
+                  else (mkAppTy function' argument', AppCo functionProof argumentProof)
+          _ -> (current, Refl current)
 
 -- | Preserve the dictionary path of each equality superclass.
 givenEqualities :: [TyCon] -> (Pred, EvTerm) -> TcM [(TcType, TcType, Coercion)]

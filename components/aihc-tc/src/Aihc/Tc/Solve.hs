@@ -286,12 +286,8 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
           p ->
             emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
         pure []
-  ClassPred className arguments -> do
-    kinds <- getKinds
-    arguments' <- mapM zonkType arguments
-    let rewritten = ClassPred className (map (applyGivenSubst givenEqualities) arguments')
-        rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
-    result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
+  ClassPred {} -> do
+    result <- solveDictWithGivens givenPredicates ct
     case result of
       DictSolved -> pure []
       DictStuck stuck -> deferOrReport skolems givenPredicates stuck
