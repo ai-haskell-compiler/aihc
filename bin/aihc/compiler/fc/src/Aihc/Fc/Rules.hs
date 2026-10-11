@@ -27,8 +27,11 @@ where
 
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
-import Aihc.Fc.TypeOf (TypeEnv, typesEqual)
+import Aihc.Fc.TypeOf (TypeEnv (..), typesEqual)
+import Aihc.Fc.Wired (wiredGhcTypes)
+import Aihc.Resolve (PackageId)
 import Control.Monad (foldM, guard)
+import Data.ByteString qualified as BS
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -134,6 +137,23 @@ matchExpr matcher scope subst template target
   -- @λx. g x@ where the source said @g@. The binder stands for the whole
   -- argument, so the template is matched eta-reduced.
   | Just reduced <- etaReduced template = matchExpr matcher scope subst reduced target
+-- A literal of at most one character is a spelled-out list, as in GHC,
+-- and a longer literal is @unpackCString# "..."#@. A rule that names
+-- @unpackCString# s@, such as @packChars (unpackCString# s)@ in the
+-- @bytestring@ package, matches a list of such characters too, with the
+-- address literal of its bytes for @s@. Otherwise @""@ and @" "@ miss the
+-- rule, and each gets a copy of the @packChars@ loop.
+matchExpr matcher _ subst (ExApp (ExVar unpack) (ExVar name)) target
+  | nameText unpack == "unpackCString#",
+    nameOrigin unpack == OriginTop (tePrimPackage (mEnv matcher)) "GHC.CString",
+    name `Set.member` mValueVars matcher,
+    Map.notMember name (substValues subst),
+    Just characters <- characterList (tePrimPackage (mEnv matcher)) target =
+      let primPackage = tePrimPackage (mEnv matcher)
+          addrType = TyCon (Name "Addr#" SortTypeConstructor (OriginTop primPackage "GHC.Prim"))
+          representation = TyCon (wiredGhcTypes primPackage "AddrRep" SortDataConstructor)
+          bytes = BS.pack (map (fromIntegral . fromEnum) characters)
+       in pure subst {substValues = Map.insert name (ExLit (LitAddr representation bytes) addrType) (substValues subst)}
 matchExpr matcher scope subst template target =
   case (template, target) of
     (ExVar name, _)
@@ -190,6 +210,20 @@ matchExpr matcher scope subst template target =
       guard (length types == length targetTypes && length arguments == length targetArguments)
       subst' <- foldM (\current (ty, targetTy) -> matchType matcher scope current ty targetTy) subst (zip types targetTypes)
       foldM (\current (argument, targetArgument) -> matchExpr matcher scope current argument targetArgument) subst' (zip arguments targetArguments)
+    _ -> Nothing
+
+-- | The characters of a list of character literals, when each of them is
+-- between @\\1@ and @\\127@, which is how 'unpackCString#' stores them.
+characterList :: PackageId -> Expr -> Maybe [Char]
+characterList primPackage expr =
+  case expr of
+    ExTyApp (ExVar nil) _
+      | nil == wiredGhcTypes primPackage "[]" SortDataConstructor -> Just []
+    ExApp (ExApp (ExTyApp (ExVar cons) _) (ExApp (ExVar box) (ExLit (LitChar _ character) _))) rest
+      | cons == wiredGhcTypes primPackage ":" SortDataConstructor,
+        box == wiredGhcTypes primPackage "C#" SortDataConstructor,
+        character >= '\1' && character <= '\127' ->
+          (character :) <$> characterList primPackage rest
     _ -> Nothing
 
 matchAlternative :: Matcher -> Scope -> Subst -> (Alt, Alt) -> Maybe Subst

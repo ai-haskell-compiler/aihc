@@ -406,14 +406,19 @@ topLevelRounds = 3
 -- A key is static when its types have no free type variable and each
 -- dictionary is a top-level value under type applications of such
 -- types. A function gets copies when its body starts with the prefix of
--- 'staticPrefix', it has no @NOINLINE@ pragma, no rule names it, its body
--- is within 'topLevelSizeLimit', and its calls give at most
--- 'specialisationLimit' distinct keys. A copy is private and keeps the
--- pragma of the function.
+-- 'staticPrefix', it has no @NOINLINE@ or @INLINE@ pragma, the left-hand
+-- side of no rule names it, its body is within 'topLevelSizeLimit', and
+-- its calls give at most 'specialisationLimit' distinct keys. Its body
+-- must also be larger than 'topLevelInlineSize' or bind a local loop: the
+-- inliner copies a small function without a loop at a site that gives it
+-- a known dictionary, and a call of a copy would only stand in the way.
+-- A copy is private and keeps the pragma of the function.
 specialiseTopLevel :: Program -> (Program, SpecialiseReport)
 specialiseTopLevel program0 = go topLevelRounds Map.empty program0 mempty
   where
-    ruleNames = Set.unions [exprValueNames (ruleLhs rule) <> exprValueNames (ruleRhs rule) | DeclRule rule <- programDecls program0]
+    -- A call that a rule matches must keep its form. A name on the
+    -- right-hand side of a rule only gets calls, which a copy can take.
+    ruleNames = Set.unions [exprValueNames (ruleLhs rule) | DeclRule rule <- programDecls program0]
     go :: Int -> Map.Map (Name, [Arg]) Name -> Program -> SpecialiseReport -> (Program, SpecialiseReport)
     go rounds done program report
       | rounds <= 0 || null wanted = (program, report)
@@ -431,21 +436,21 @@ specialiseTopLevel program0 = go topLevelRounds Map.empty program0 mempty
             | DeclVal declaration <- decls,
               not (neverInlined (valInline declaration)),
               valName declaration `Set.notMember` ruleNames,
-              Just (prefix, inner) <- [staticPrefix (valBody declaration)],
               not (alwaysInlined (valInline declaration)),
               let size = nodeCount (valBody declaration),
-              size > topLevelInlineSize,
-              size <= topLevelSizeLimit
+              size > topLevelInlineSize || bindsLoop (valBody declaration),
+              size <= topLevelSizeLimit,
+              Just (prefix, inner) <- [staticPrefix (valBody declaration)]
             ]
         lengths = Map.map (\(_, prefix, _) -> prefixLength prefix) candidates
         calls = Map.fromListWith (flip (<>)) [(name, [key]) | DeclVal declaration <- decls, (name, key) <- staticCalls lengths (valBody declaration)]
         wanted =
           [ (name, key)
           | (name, keys) <- Map.toList calls,
-            Just (declaration, prefix, _) <- [Map.lookup name candidates],
             let distinct = List.nub keys
                 earlier = [key | (name', key) <- Map.keys done, name' == name],
             length (List.nub (distinct <> earlier)) <= specialisationLimit,
+            Just (declaration, prefix, _) <- [Map.lookup name candidates],
             key <- distinct,
             Map.notMember (name, key) done,
             isJust (instantiate (valType declaration) (lefts key) (length (prefixDictionaries prefix)))
@@ -608,3 +613,19 @@ nodeCount expr =
       ExCast body _ -> nodeCount body
       ExForeignCall _ _ arguments -> sum (map nodeCount arguments)
       _ -> 0
+
+-- | Whether an expression binds a recursive group.
+bindsLoop :: Expr -> Bool
+bindsLoop expr =
+  case expr of
+    ExRec {} -> True
+    ExApp function argument -> bindsLoop function || bindsLoop argument
+    ExTyApp function _ -> bindsLoop function
+    ExLam _ body -> bindsLoop body
+    ExTyLam _ body -> bindsLoop body
+    ExLet (Bind _ rhs) body -> bindsLoop rhs || bindsLoop body
+    ExCase scrutinee _ alternatives -> bindsLoop scrutinee || any (bindsLoop . altRhs) alternatives
+    ExAbsurd scrutinee _ -> bindsLoop scrutinee
+    ExCast body _ -> bindsLoop body
+    ExForeignCall _ _ arguments -> any bindsLoop arguments
+    _ -> False

@@ -1,0 +1,122 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (count, countInts) where
+
+  import GHC.Types (Bool (..), Int (..))
+
+  class Same a where
+    same :: a -> a -> Bool
+
+  instance Same Int where
+    same (I# _) (I# _) = True
+
+  data List a = Nil | Cons a (List a)
+
+  count :: Same a => a -> List a -> Int
+  count x = go (I# 0#)
+    where
+      go n Nil = n
+      go (I# n) (Cons y ys) = case same x y of
+        True -> go (I# 1#) ys
+        False -> go (I# n) ys
+
+  countInts :: Int -> List Int -> Int
+  countInts x xs = count x xs
+passes:
+- specialise
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.t$Dict$Same (a : sType) :: sType {
+    1.c$Dict$Same :: ∀(a : sType). (a 3.→ a 3.→ tBool) 3.→ t$Dict$Same a
+  }
+
+  type 1.tList (a : sType) :: sType {
+    1.cNil :: ∀(a : sType). tList a;
+    1.cCons :: ∀(a : sType). a 3.→ tList a 3.→ tList a
+  }
+
+  val 1.vsame :: ∀(a : sType). t$Dict$Same a 3.→ a 3.→ a 3.→ tBool
+    = Λ(a : sType). λ($dSame : t$Dict$Same a).
+      let! c$Dict$Same ($csame : a 3.→ a 3.→ tBool) = $dSame;
+      $csame
+
+  pub val 1.v$fSameInt :: t$Dict$Same tInt
+    = c$Dict$Same @tInt v$fSameInt$csame
+
+  val 1.v$fSameInt$csame :: tInt 3.→ tInt 3.→ tBool
+    = λ(x : tInt) (y : tInt).
+      let! cI# (_pat : tInt#) = x;
+      let! cI# (_pat{1} : tInt#) = y;
+      cTrue
+
+  pub val 1.vcount :: ∀(a : sType). t$Dict$Same a 3.→ a 3.→ tList a 3.→ tInt
+    = Λ(a : sType). λ($dSame : t$Dict$Same a) (x : a).
+      rec {
+        go : tInt 3.→ tList a 3.→ tInt =
+          λ(x{1} : tInt) (y : tList a).
+            let! cI# (n : tInt#) as (_scrut : tInt) = x{1};
+            case y of {
+              cNil →
+                _scrut;
+              cCons (y{1} : a) (ys : tList a) →
+                case vsame @a $dSame x y{1} of {
+                  cTrue →
+                    go (cI# lit (1#cIntRep) :: tInt#) ys;
+                  cFalse →
+                    go (cI# n) ys
+                }
+            }
+      } in
+      go (cI# lit (0#cIntRep) :: tInt#)
+
+  pub val 1.vcountInts :: tInt 3.→ tList tInt 3.→ tInt
+    = λ(x : tInt) (y : tList tInt).
+      v$scount x y
+
+  val 1.v$scount :: tInt 3.→ tList tInt 3.→ tInt
+    = λ(x : tInt).
+      rec {
+        go : tInt 3.→ tList tInt 3.→ tInt =
+          λ(x{1} : tInt) (y : tList tInt).
+            let! cI# (n : tInt#) as (_scrut : tInt) = x{1};
+            case y of {
+              cNil →
+                _scrut;
+              cCons (y{1} : tInt) (ys : tList tInt) →
+                case vsame @tInt v$fSameInt x y{1} of {
+                  cTrue →
+                    go (cI# lit (1#cIntRep) :: tInt#) ys;
+                  cFalse →
+                    go (cI# n) ys
+                }
+            }
+      } in
+      go (cI# lit (0#cIntRep) :: tInt#)
+status: pass
+reason: The call of 'count' gives a constant global dictionary. The pass makes a copy of 'count' with the type and the dictionary in place, and the call names the copy.
