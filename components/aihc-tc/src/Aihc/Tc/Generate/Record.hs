@@ -28,7 +28,7 @@ import Aihc.Parser.Syntax
     nameText,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), globalTerm)
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), RecordHead (..), dataConRecordHead, patSynRecordHead)
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), RecordHead (..), TyConFlavor (..), dataConRecordHead, patSynRecordHead)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.List (nub)
@@ -51,10 +51,10 @@ lookupRecordHead conSyntax = do
       let conName = globalNameText global
           origin = (globalNamePackage global, globalNameModule global)
       dataTypes <- getDataTypes
+      familyInstances <- getDataFamilyInstances
       let matches =
             [ con
-            | dataType <- dataTypes,
-              con <- dtiConstructors dataType,
+            | con <- concatMap dtiConstructors dataTypes <> concatMap dfiiConstructors familyInstances,
               dciName con == conName,
               dciOrigin con == origin
             ]
@@ -102,7 +102,14 @@ duplicateLabels labels = nub [label | (index, label) <- zip [0 :: Int ..] labels
 -- scrutinee type cannot select it.
 recordUpdateHeads :: Maybe SourceSpan -> Maybe TcType -> [RecordField a] -> TcM [RecordHead]
 recordUpdateHeads sp scrutineeType fields = do
-  dataTypes <- getDataTypes
+  ordinaryTypes <- getDataTypes
+  familyInstances <- getDataFamilyInstances
+  kinds <- getKinds
+  let familyTypes =
+        [ DataTypeInfo (dfiiFamilyName info) (dfiiRepresentationTyCon info) (dfiiTyVars info) (typeKind kinds) DataTyCon (dfiiConstructors info) [] Nothing
+        | info <- familyInstances
+        ]
+      dataTypes = ordinaryTypes <> familyTypes
   let byLabel = filter (\dataType -> any hasAllLabels (dtiConstructors dataType) && ownsSelectors dataType) dataTypes
   candidates <-
     case scrutineeType of

@@ -1,0 +1,23 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Family where
+    data family Array a
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+    import Family
+    data instance Array Int = Array { size :: Int, element :: Int }
+    update :: Array Int -> Array Int
+    update arr = arr { element = 7 }
+    result = case update (Array { size = 2, element = 3 }) of
+      Array { size = n, element = e } -> (n, e)
+    main = print result
+expression: main
+stdout: |
+  (2,7)
+output: ()
+status: pass
+reason: Data family records support construction, patterns, and updates across modules.

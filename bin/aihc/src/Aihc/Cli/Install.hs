@@ -2928,7 +2928,7 @@ wiredDerivingModules =
 -- | Every module whose type interface a compilation needs without an
 -- import.
 wiredInterfaceModules :: [Text]
-wiredInterfaceModules = wiredTypeModules <> ["GHC.IsList"] <> wiredDerivingModules
+wiredInterfaceModules = wiredTypeModules <> ["GHC.IsList", "Type.Reflection.Literal"] <> wiredDerivingModules
 
 -- | The scope of the functions that desugaring reaches without an import.
 -- The argument is everything the unit can see, as 'resolveUnit' takes it.
@@ -4141,17 +4141,20 @@ addReferencedFacts extraRoots extraTerms complete = go
             <> Set.unions (map (typeSchemeTyCons . snd) callStackSupportTerms)
             <> Set.fromList callStackSupportTyCons
             <> Set.fromList extraRoots
-        reachable = closeTyCons Set.empty (Set.toList referenced)
+        ordinaryReachable = closeTyCons Set.empty (Set.toList referenced)
+        reachable = closeTyCons ordinaryReachable (Set.toList (Set.unions (map (typeSchemeTyCons . snd) typeableSupportTerms)))
         -- Typeable evidence for an applied type desugars to a call of the
         -- class's @typeRep@ selector on the evidence of each argument. The
         -- class reaches a module as the superclass of one it names, so the
         -- module may hold the class without ever importing the selector.
         typeableSupportTerms =
           [ (key, scheme)
-          | tyCon <- Set.toList reachable,
+          | tyCon <- Set.toList ordinaryReachable,
             tyConName tyCon == "Typeable",
             tyConModuleName tyCon `elem` ["Type.Reflection", "Type.Reflection.Internal"],
-            let key = GlobalTerm (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
+            name <- ["typeRep", "typeRepNat", "typeRepSymbol", "typeRepChar"],
+            let moduleName' = if name == "typeRep" then tyConModuleName tyCon else "Type.Reflection.Literal",
+            let key = GlobalTerm (tyConPackageId tyCon) moduleName' name,
             key `Map.notMember` tcInterfaceTermMap interface,
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
           ]
