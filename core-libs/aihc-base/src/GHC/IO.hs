@@ -50,11 +50,22 @@ unIO (IO action) = action
 ioToST :: IO a -> ST RealWorld a
 ioToST (IO action) = ST action
 
+-- The two conversions coerce the state tokens and not the state function.
+-- When one conversion is inside the other, the two coercions of a token
+-- then meet after inlining, and the simplifier removes the pair.
 unsafeIOToST :: IO a -> ST s a
-unsafeIOToST (IO action) = ST (unsafeCoerce# action)
+unsafeIOToST (IO action) =
+  ST
+    ( \state -> case action (unsafeCoerce# state) of
+        (# next, value #) -> (# unsafeCoerce# next, value #)
+    )
 
 unsafeSTToIO :: ST s a -> IO a
-unsafeSTToIO (ST action) = IO (unsafeCoerce# action)
+unsafeSTToIO (ST action) =
+  IO
+    ( \state -> case action (unsafeCoerce# state) of
+        (# next, value #) -> (# unsafeCoerce# next, value #)
+    )
 
 -- | Thunks are never entered twice in this runtime.
 noDuplicate :: IO ()

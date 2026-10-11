@@ -1,0 +1,62 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  import GHC.Prim
+  import GHC.Types (Word (..))
+
+  -- The quotient and the remainder of two literals are a pair of literals,
+  -- so the match on the pair reduces.
+  wordDigits :: Word
+  wordDigits = case quotRemWord# 47## 10## of
+    (# q, r #) -> W# (plusWord# q r)
+
+  -- A division by zero stays a call.
+  byZero :: Word
+  byZero = case quotRemWord# 47## 0## of
+    (# q, _ #) -> W# q
+passes:
+- simplify
+status: pass
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    quotRemWord# = 2.vquotRemWord# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cWordRep @(cTupleRep (c: tRuntimeRep cWordRep (c: tRuntimeRep cWordRep (c[] tRuntimeRep)))) tWord# (tTuple2# cWordRep cWordRep tWord# tWord#))
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    constructors [3.cW#] 3.tWord :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
+    3.cWordRep :: tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vwordDigits :: tWord
+    = cW# lit (11#cWordRep) :: tWord#
+
+  pub val 1.vbyZero :: tWord
+    = let! cTuple2# (q : tWord#) (_pat : tWord#) =
+      prim quotRemWord# lit (47#cWordRep) :: tWord# lit (0#cWordRep) :: tWord#;
+    cW# q
