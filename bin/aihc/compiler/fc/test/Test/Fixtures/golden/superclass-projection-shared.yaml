@@ -44,25 +44,25 @@ expected: |-
   }
 
   pub val 1.vparent :: ∀(a : sType). t$Dict$Parent a 2.→ a 2.→ tFlag
-    = Λ(a : sType). λ($d0 : t$Dict$Parent a).
-      let! c$Dict$Parent ($method0 : a 2.→ tFlag) = $d0;
-      $method0
+    = Λ(a : sType). λ($dParent : t$Dict$Parent a).
+      let! c$Dict$Parent ($cparent : a 2.→ tFlag) = $dParent;
+      $cparent
 
   pub val 1.vchild :: ∀(a : sType). t$Dict$Child a 2.→ a 2.→ tFlag
-    = Λ(a : sType). λ($d0 : t$Dict$Child a).
-      let! c$Dict$Child ($method0 : t$Dict$Parent a) ($method1 : a 2.→ tFlag) = $d0;
-      $method1
+    = Λ(a : sType). λ($dChild : t$Dict$Child a).
+      let! c$Dict$Child ($dParent : t$Dict$Parent a) ($cchild : a 2.→ tFlag) = $dChild;
+      $cchild
 
   pub val 1.vboth :: ∀(a : sType). t$Dict$Child a 2.→ a 2.→ a 2.→ tFlag
-    = Λ(a : sType). λ($d0 : t$Dict$Child a) (x : a) (y : a).
-      let $super : t$Dict$Parent a =
-        let! c$Dict$Child ($super_field0 : t$Dict$Parent a) ($super_field1 : a 2.→ tFlag) = $d0;
-        $super_field0;
-      case vparent @a $super x of {
+    = Λ(a : sType). λ($dChild : t$Dict$Child a) (x : a) (y : a).
+      let $dParent : t$Dict$Parent a =
+        let! c$Dict$Child ($dParent{1} : t$Dict$Parent a) ($cchild : a 2.→ tFlag) = $dChild;
+        $dParent{1};
+      case vparent @a $dParent x of {
         cOff →
-          vparent @a $super y;
+          vparent @a $dParent y;
         cOn →
-          vchild @a $d0 x
+          vchild @a $dChild x
       }
 status: pass
 reason: One binding selects the parent dictionary once for both uses.

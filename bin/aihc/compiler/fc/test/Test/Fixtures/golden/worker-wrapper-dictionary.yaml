@@ -33,12 +33,12 @@ expected: |-
   }
 
   val 1.vstep :: ∀(a : sType). t$Dict$Step a 2.→ a 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$Step a).
-      let! c$Dict$Step ($method0 : a 2.→ a) = $d0;
-      $method0
+    = Λ(a : sType). λ($dStep : t$Dict$Step a).
+      let! c$Dict$Step ($cstep : a 2.→ a) = $dStep;
+      $cstep
 
   pub val 1.vtwice :: ∀(a : sType). t$Dict$Step a 2.→ a 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$Step a) (x : a).
-      vstep @a $d0 (vstep @a $d0 x)
+    = Λ(a : sType). λ($dStep : t$Dict$Step a) (x : a).
+      vstep @a $dStep (vstep @a $dStep x)
 status: pass
 reason: A class dictionary is not taken apart, although it has one constructor and the function selects from it. The worker would take every method as a parameter.

@@ -1,0 +1,92 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Types (Int (..))
+
+  data Pair = Pair {-# UNPACK #-} !Int {-# UNPACK #-} !Int
+
+  data Box = Box {inner :: {-# UNPACK #-} !Pair, size :: !Int}
+
+  build :: Pair -> Int -> Box
+  build p n = Box p n
+
+  sizeOf :: Box -> Int
+  sizeOf (Box whole n) = n
+
+  resize :: Box -> Int -> Box
+  resize box n = box {size = n}
+
+  nested :: (Int -> Int -> Int) -> Int -> Int
+  nested f x = let y = (let y = f x x in f y y) in f y y
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tPair :: sType {
+    pub 1.cPair :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tPair)
+  }
+
+  pub type 1.tBox :: sType {
+    pub strict [2] 1.cBox :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ tBox))
+  }
+
+  pub val 1.vinner :: tBox 3.→ tPair
+    = λ($record : tBox).
+      let! cBox (inner0 : tInt#) (inner1 : tInt#) (size : tInt) = $record;
+      cPair inner0 inner1
+
+  pub val 1.vsize :: tBox 3.→ tInt
+    = λ($record : tBox).
+      let! cBox (inner0 : tInt#) (inner1 : tInt#) (size : tInt) = $record;
+      size
+
+  pub val 1.vbuild :: tPair 3.→ tInt 3.→ tBox
+    = λ(x : tPair) (y : tInt).
+      (λ(inner : tPair) (size : tInt).
+        let! cPair (inner0 : tInt#) (inner1 : tInt#) = inner;
+        let! _ = size;
+        cBox inner0 inner1 size) x y
+
+  pub val 1.vsizeOf :: tBox 3.→ tInt
+    = λ(x : tBox).
+      let! cBox (whole0 : tInt#) (whole1 : tInt#) (n : tInt) = x;
+      n
+
+  pub val 1.vresize :: tBox 3.→ tInt 3.→ tBox
+    = λ(x : tBox) (y : tInt).
+      let! cBox (inner0 : tInt#) (inner1 : tInt#) (size : tInt) = x;
+      (λ(inner : tPair) (size{1} : tInt).
+        let! cPair (inner0{1} : tInt#) (inner1{1} : tInt#) = inner;
+        let! _ = size{1};
+        cBox inner0{1} inner1{1} size{1}) (cPair inner0 inner1) y
+
+  pub val 1.vnested :: (tInt 3.→ tInt 3.→ tInt) 3.→ tInt 3.→ tInt
+    = λ(x : tInt 3.→ tInt 3.→ tInt) (y : tInt).
+      let y{1} : tInt =
+        let y{2} : tInt =
+          x y y;
+        x y{2} y{2};
+      x y{1} y{1}
+status: pass
+reason: A representation leaf takes the name of its pattern variable or record label. Other leaves share one index. A record update binds each field under its label. A let in the right-hand side of a let with the same name gets a different number.

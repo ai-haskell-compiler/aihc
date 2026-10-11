@@ -167,7 +167,7 @@ specialiseRec scope binding@(Bind binder rhs) body =
       pure (prefix, inner, calls, zip keys types)
     makeCopy prefix inner (key, copyType) = do
       let typeSubst = Map.fromList (zip (map binderName (prefixTypes prefix)) (lefts key))
-      copyName <- fresh name {nameText = "$s" <> nameText name}
+      copyName <- fresh name {nameText = derivedLocalText "$s" (nameText name)}
       bound <- mapM bindDictionary (zip (prefixDictionaries prefix) (rights key))
       let valueSubst = Map.fromList [(binderName dictionary, replacement) | (dictionary, replacement, _) <- bound]
           lets = [Bind (Binder bindName (substTypes typeSubst (binderType dictionary))) argument | (dictionary, ExVar bindName, Just argument) <- bound]

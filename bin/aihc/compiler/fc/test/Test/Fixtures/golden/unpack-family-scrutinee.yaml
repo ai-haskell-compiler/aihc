@@ -58,9 +58,9 @@ expected: |-
   }
 
   pub val 1.vfreeze :: ∀(v : sType 2.→ sType) (a : sType) (s : sType). t$Dict$Vec v a 2.→ tMutable v s a 2.→ v a
-    = Λ(v : sType 2.→ sType) (a : sType) (s : sType). λ($d0 : t$Dict$Vec v a).
-      let! c$Dict$Vec ($method0 : ∀(s{1} : sType). tMutable v s{1} a 2.→ v a) = $d0;
-      $method0 @s
+    = Λ(v : sType 2.→ sType) (a : sType) (s : sType). λ($dVec : t$Dict$Vec v a).
+      let! c$Dict$Vec ($cfreeze : ∀(s{1} : sType). tMutable v s{1} a 2.→ v a) = $dVec;
+      $cfreeze @s
 
   pub val 1.v$fVecVectora :: ∀(a : sType). t$Dict$Vec tVector a
     = Λ(a : sType).
