@@ -341,15 +341,16 @@ expected: |-
         };
       let x{19} : tInt =
         cI# lit (20#cIntRep) :: tInt#;
-      case v$wpick lit (20#cIntRep) :: tInt# of {
-        cFileHandle (h : tInt) →
+      let _join : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt tInt =
+        λ(h : tInt).
           let! cI# (x{20} : tInt#) = h;
           let! cTuple2# (s'{19} : tInt) (_pat{19} : tInt) = v$wwrite x{20} x{19} s'{18};
           s'{19};
+      case v$wpick lit (20#cIntRep) :: tInt# of {
+        cFileHandle (h : tInt) →
+          _join h;
         cDuplexHandle (_pat{19} : tInt) (h : tInt) →
-          let! cI# (x{20} : tInt#) = h;
-          let! cTuple2# (s'{19} : tInt) (_pat{20} : tInt) = v$wwrite x{20} x{19} s'{18};
-          s'{19}
+          _join h
       }
 status: pass
 reason: The inliner binds each argument of an inlined andThen to a let, and the tidied program gives the lets of sibling copies the same name. The move of such a let counts only the copies of its own walk, so the count of a sibling does not make it look copied twice, and the let moves to its use.
