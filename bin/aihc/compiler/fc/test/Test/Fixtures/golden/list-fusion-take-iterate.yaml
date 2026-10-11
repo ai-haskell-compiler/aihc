@@ -83,8 +83,7 @@ expected: |-
 
   import prims
     -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -160,7 +159,7 @@ expected: |-
         cNil →
           cNil @a;
         cCons (y{1} : a) (ys : tList a) →
-          cCons @a y{1} (case prim ==# x lit (1#cIntRep) :: tInt# of {
+          cCons @a y{1} (case x of {
             1#cIntRep →
               cNil @a;
             _ →
@@ -171,7 +170,7 @@ expected: |-
   val 1.vtakeFB inline [1] :: ∀(a : sType) (b : sType). (a 3.→ b 3.→ b) 3.→ b 3.→ a 3.→ (tInt 3.→ b) 3.→ tInt 3.→ b
     = Λ(a : sType) (b : sType). λ(x : a 3.→ b 3.→ b) (y : b) (z : a) (x1 : tInt 3.→ b) (x2 : tInt).
       let! cI# (k : tInt#) = x2;
-      case prim ==# k lit (1#cIntRep) :: tInt# of {
+      case k of {
         1#cIntRep →
           x z y;
         _ →
@@ -207,8 +206,8 @@ expected: |-
               cS r;
           rec {
             go : tNat 3.→ tInt 3.→ tNat =
-              λ(x{2} : tNat) (eta : tInt).
-                let! cI# (k{1} : tInt#) = eta;
+              λ(x{2} : tNat) (x2 : tInt).
+                let! cI# (k{1} : tInt#) = x2;
                 case k{1} of {
                   1#cIntRep →
                     x{1} x{2} cZ;

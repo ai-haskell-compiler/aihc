@@ -1,0 +1,60 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (sign) where
+
+  import GHC.Prim ((<#), Int#)
+  import GHC.Types (Int (..))
+
+  sign :: Int# -> Int# -> Int
+  sign x y = case x of
+    1# -> case y <# 0# of
+      1# -> I# 0#
+      _ -> case x of
+        1# -> I# y
+        _ -> I# 2#
+    _ -> I# 3#
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vsign :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
+    = λ(x : tInt#) (y : tInt#).
+      case x of {
+        1#cIntRep →
+          case prim <# y lit (0#cIntRep) :: tInt# of {
+            1#cIntRep →
+              cI# lit (0#cIntRep) :: tInt#;
+            _ →
+              cI# y
+          };
+        _ →
+          cI# lit (3#cIntRep) :: tInt#
+      }
+status: pass
+reason: The outer case gives the value of the variable. The inner case on the same variable selects its alternative.

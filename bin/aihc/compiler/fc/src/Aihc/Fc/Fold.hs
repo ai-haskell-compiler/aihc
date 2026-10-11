@@ -6,7 +6,9 @@
 -- 'foldForeignCall' also removes two kinds of call that give back an
 -- operand: a conversion of a value that the inverse conversion made, and
 -- an operation whose other operand is its identity, such as
--- @plusAddr# a 0#@.
+-- @plusAddr# a 0#@. It also makes some calls simpler: two
+-- @unsafeCoerce#@ calls become one, @0# -# x@ becomes @negateInt# x@, and
+-- the length of a C string literal becomes a literal.
 --
 -- The inliner substitutes trivial bindings and reduces known cases, which
 -- leaves primitive calls whose every operand is a literal: @int2Word# 0#@
@@ -41,11 +43,14 @@ import Aihc.Fc.Name (nameText)
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf (TypeEnv, reduceType)
 import Control.Applicative ((<|>))
+import Control.Monad (guard)
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, setBit, shiftL, shiftR, testBit, xor, (.&.), (.|.))
+import Data.ByteString qualified as ByteString
 import Data.Char qualified as Char
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Word (Word64)
 
@@ -325,10 +330,49 @@ normalize rep value =
 foldForeignCall :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
 foldForeignCall env call types arguments =
   cancelConversion call types arguments
+    <|> cancelCoercionPair env call types arguments
     <|> dropNarrowingMask call types arguments
     <|> dropWideningNarrow call types arguments
     <|> dropIdentityOperand call types arguments
     <|> foldLiteralCall env call types arguments
+    <|> foldStringLength env call types arguments
+    <|> negateBySubtraction env call types arguments
+    <|> combineLiteralOffsets call types arguments
+
+-- | Combine two additions or subtractions of literals into one:
+-- @(z +# 1#) +# 1#@ is @z +# 2#@, and @(z -# 1#) +# 3#@ is @z +# 2#@.
+-- The arithmetic wraps, so the combined literal is the sum modulo the word
+-- size, and the result is the same for every value of @z@. The same holds
+-- for @plusWord#@ and @minusWord#@.
+combineLiteralOffsets :: ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+combineLiteralOffsets call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  [] <- Just types
+  [ExForeignCall inner [] [value, ExLit (LitInt _ innerAmount) _], ExLit (LitInt literalRep outerAmount) literalType] <- Just arguments
+  Prim <- Just (foreignCallConvention inner)
+  (plus, minus, rep) <- lookup (nameText (foreignCallName call)) families
+  innerSign <- sign plus minus (nameText (foreignCallName inner))
+  outerSign <- sign plus minus (nameText (foreignCallName call))
+  let total = normalize rep (innerSign * innerAmount + outerSign * outerAmount)
+      offset amount name = ExForeignCall call {foreignCallName = (foreignCallName call) {nameText = name}} [] [value, ExLit (LitInt literalRep amount) literalType]
+  Just $
+    if total == 0
+      then value
+      else
+        if total < 0 && total /= negate (shiftL 1 63)
+          then offset (negate total) minus
+          else offset total plus
+  where
+    families =
+      [ ("+#", ("+#", "-#", intRep)),
+        ("-#", ("+#", "-#", intRep)),
+        ("plusWord#", ("plusWord#", "minusWord#", wordRep)),
+        ("minusWord#", ("plusWord#", "minusWord#", wordRep))
+      ]
+    sign plus minus name
+      | name == plus = Just 1
+      | name == minus = Just (-1)
+      | otherwise = Nothing
 
 -- | Remove a conversion that undoes the conversion of its argument:
 -- @int2Word# (word2Int# x)@ is @x@. Each pair keeps every bit of @x@, so
@@ -427,9 +471,14 @@ dropIdentityOperand call types arguments = do
   [left, right] <- Just arguments
   (rightIdentity, leftIdentity) <- Map.lookup (nameText (foreignCallName call)) identityOperands
   case (left, right) of
-    (_, ExLit (LitInt _ value) _) | Just value == rightIdentity -> Just left
-    (ExLit (LitInt _ value) _, _) | Just value == leftIdentity -> Just right
+    (_, ExLit (LitInt _ value) _) | sameBits rightIdentity value -> Just left
+    (ExLit (LitInt _ value) _, _) | sameBits leftIdentity value -> Just right
     _ -> Nothing
+  where
+    -- The literals are 64-bit patterns, so an all-ones word can be written
+    -- as -1 or as 2^64 - 1.
+    sameBits identity value = fmap low64 identity == Just (low64 value)
+    low64 value = value .&. (shiftL 1 64 - 1)
 
 -- | The operations that 'dropIdentityOperand' removes, with the literal
 -- that leaves the left operand unchanged when it is on the right, and the
@@ -440,13 +489,82 @@ identityOperands =
     [ ("plusAddr#", (Just 0, Nothing)),
       ("+#", (Just 0, Just 0)),
       ("-#", (Just 0, Nothing)),
+      ("*#", (Just 1, Just 1)),
       ("plusWord#", (Just 0, Just 0)),
       ("minusWord#", (Just 0, Nothing)),
+      ("timesWord#", (Just 1, Just 1)),
       ("or#", (Just 0, Just 0)),
       ("xor#", (Just 0, Just 0)),
       ("orI#", (Just 0, Just 0)),
-      ("xorI#", (Just 0, Just 0))
+      ("xorI#", (Just 0, Just 0)),
+      ("and#", (Just allOnes, Just allOnes)),
+      ("andI#", (Just allOnes, Just allOnes)),
+      ("and64#", (Just allOnes, Just allOnes)),
+      ("or64#", (Just 0, Just 0)),
+      ("xor64#", (Just 0, Just 0))
     ]
+  where
+    allOnes = shiftL 1 64 - 1
+
+-- | Remove a pair of 'unsafeCoerce#' calls: @unsafeCoerce# (unsafeCoerce# x)@
+-- is one 'unsafeCoerce#' from the type of @x@ to the result type. When the
+-- two types are the same, the pair is @x@.
+cancelCoercionPair :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+cancelCoercionPair env call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  "unsafeCoerce#" <- Just (nameText (foreignCallName call))
+  [ExForeignCall inner innerTypes [value]] <- Just arguments
+  Prim <- Just (foreignCallConvention inner)
+  "unsafeCoerce#" <- Just (nameText (foreignCallName inner))
+  [middleRep', resultRep, _, resultType] <- Just types
+  [sourceRep, middleRep, sourceType, _] <- Just innerTypes
+  -- Only a pair that keeps one runtime representation is removed, so the
+  -- rewrite never changes how the value is stored.
+  guard (all ((== reduceType env sourceRep) . reduceType env) [middleRep, middleRep', resultRep])
+  if reduceType env sourceType == reduceType env resultType
+    then Just value
+    else Just (ExForeignCall call [sourceRep, resultRep, sourceType, resultType] [value])
+
+-- | Fold the length of a C string literal: @cstringLength# "abc"#@ is
+-- @3#@. The length counts the bytes before the first zero byte, as the C
+-- function @strlen@ does.
+foldStringLength :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+foldStringLength env call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  "cstringLength#" <- Just (nameText (foreignCallName call))
+  [] <- Just types
+  [ExLit (LitAddr _ bytes) _] <- Just arguments
+  (resultRep, literalType) <- resultRepresentation 1 (foreignCallType call)
+  TyCon rep <- Just (reduceType env resultRep)
+  if nameText rep == intRep
+    then Just (ExLit (LitInt resultRep (toInteger (ByteString.length (ByteString.takeWhile (/= 0) bytes)))) literalType)
+    else Nothing
+
+-- | Write a subtraction from zero as a negation: @0# -# x@ is
+-- @negateInt# x@, and @minusWord# 0## (int2Word# x)@ is
+-- @int2Word# (negateInt# x)@. Both forms give the same bits for every
+-- value, since the arithmetic wraps. The type of @negateInt#@ comes from
+-- the call that the rewrite replaces, so the rewrite needs no lookup.
+negateBySubtraction :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Maybe Expr
+negateBySubtraction env call types arguments = do
+  Prim <- Just (foreignCallConvention call)
+  [] <- Just types
+  [ExLit (LitInt _ 0) _, operand] <- Just arguments
+  case nameText (foreignCallName call) of
+    "-#" -> do
+      TyFun _ _ _ unaryType <- Just (foreignCallType call)
+      Just (negateInt unaryType operand)
+    "minusWord#" -> do
+      ExForeignCall conversion [] [value] <- Just operand
+      Prim <- Just (foreignCallConvention conversion)
+      "int2Word#" <- Just (nameText (foreignCallName conversion))
+      TyFun intRepType _ intType _ <- Just (foreignCallType conversion)
+      Just (ExForeignCall conversion [] [negateInt (TyFun intRepType intRepType intType intType) value])
+    _ -> Nothing
+  where
+    negateInt unaryType value =
+      let negation = call {foreignCallName = (foreignCallName call) {nameText = "negateInt#"}, foreignCallType = unaryType}
+       in fromMaybe (ExForeignCall negation [] [value]) (foldForeignCall env negation [] [value])
 
 -- | Each conversion, with the conversion whose result it takes back to the
 -- original value.
@@ -466,7 +584,10 @@ inverseConversions =
       ("wordToWord32#", "word32ToWord#"),
       ("intToInt8#", "int8ToInt#"),
       ("intToInt16#", "int16ToInt#"),
-      ("intToInt32#", "int32ToInt#")
+      ("intToInt32#", "int32ToInt#"),
+      ("ord#", "chr#"),
+      ("chr#", "ord#"),
+      ("negateInt#", "negateInt#")
     ]
 
 -- | Fold a System FC primitive call whose arguments are literals. The

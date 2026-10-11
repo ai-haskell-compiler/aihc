@@ -52,34 +52,35 @@ expected: |-
 
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tState
     = λ(x : tBool) (y : tBool) (z : tBool).
+      let _join : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool tState)) =
+        λ(a : tBool) (b : tBool) (c : tBool).
+          case y of {
+            cTrue →
+              cState b c a;
+            cFalse →
+              case a of {
+                cTrue →
+                  cState c a b;
+                cFalse →
+                  cState a c b
+              }
+          };
       let! cState (a : tBool) (b : tBool) (c : tBool) =
         case x of {
           cTrue →
-            cState y z x;
+            _join y z x;
           cFalse →
-            cState x z y
-        };
-      let! cState (a{1} : tBool) (b{1} : tBool) (c{1} : tBool) =
-        case y of {
-          cTrue →
-            cState b c a;
-          cFalse →
-            case a of {
-              cTrue →
-                cState c a b;
-              cFalse →
-                cState a c b
-            }
+            _join x z y
         };
       case z of {
         cTrue →
-          cState b{1} c{1} a{1};
+          cState b c a;
         cFalse →
-          case a{1} of {
+          case a of {
             cTrue →
-              cState c{1} a{1} b{1};
+              cState c a b;
             cFalse →
-              cState a{1} c{1} b{1}
+              cState a c b
           }
       }
 status: pass

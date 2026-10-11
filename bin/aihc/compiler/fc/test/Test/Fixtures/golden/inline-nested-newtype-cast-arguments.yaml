@@ -67,11 +67,11 @@ expected: |-
     = v$fPickBase ▷ tycon-co t$Dict$Pick (sym (axiom-co $ax$Inner))
 
   pub val 1.v$fPickOuter :: t$Dict$Pick tOuter
-    = (v$fPickBase ▷ tycon-co t$Dict$Pick (sym (axiom-co $ax$Inner))) ▷ tycon-co t$Dict$Pick (sym (axiom-co $ax$Outer))
+    = v$fPickBase ▷ trans (tycon-co t$Dict$Pick (sym (axiom-co $ax$Inner))) (tycon-co t$Dict$Pick (sym (axiom-co $ax$Outer)))
 
   pub val 1.vrun :: tOuter 2.→ tOuter 2.→ tBool
     = λ(x : tOuter) (y : tOuter).
-      let! cBase (b : tBool) = (x ▷ axiom-co $ax$Outer) ▷ axiom-co $ax$Inner;
+      let! cBase (b : tBool) = x ▷ trans (axiom-co $ax$Outer) (axiom-co $ax$Inner);
       b
 status: pass
 reason: |-
