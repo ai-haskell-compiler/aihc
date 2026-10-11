@@ -279,7 +279,7 @@ initialInliner config env decls supply =
       inBodyCalls = calls,
       inBodyArities = arities,
       inGuidance = guidance,
-      inKnown = Map.filter (isKnownConstructor arities) bodies,
+      inKnown = Map.filter isConstructorValue bodies,
       inRefs = references,
       inUsers = Map.fromListWith Set.union [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
@@ -559,7 +559,7 @@ updateBody st name body =
     updateKnown current user userBody =
       current
         { inKnown =
-            if isKnownConstructor arities userBody
+            if isConstructorValue userBody
               then Map.insert user userBody (inKnown current)
               else Map.delete user (inKnown current)
         }
@@ -695,7 +695,8 @@ countTopUses = go
         OriginTop {} -> True
         OriginLocal {} -> False
 
--- | The values whose body is a cheap constructor application under
--- lambdas. A case on such a value selects a field without the case.
+-- | The values whose body is a constructor application under lambdas. A
+-- case on such a value selects a field without the case, when the field
+-- is a cheap value or the alternative does not use it.
 knownValues :: Inliner -> Map Name Expr
 knownValues = inKnown
