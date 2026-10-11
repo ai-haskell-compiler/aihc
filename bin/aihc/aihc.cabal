@@ -173,6 +173,7 @@ library
     Aihc.Fc.Cse
     Aihc.Fc.Demand
     Aihc.Fc.Desugar
+    Aihc.Fc.Equivalence
     Aihc.Fc.Facts
     Aihc.Fc.Fold
     Aihc.Fc.Imports

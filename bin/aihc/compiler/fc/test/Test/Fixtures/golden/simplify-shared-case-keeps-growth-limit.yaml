@@ -17,7 +17,10 @@ modules:
     in case x of
       A -> shared
       B -> shared
-      C -> shared
+      C -> keep shared
+  keep :: Box -> Box
+  keep x = x
+  {-# NOINLINE keep #-}
 passes:
 - simplify
 expected: |-
@@ -62,12 +65,14 @@ expected: |-
             cBox (vopaque (vopaque y)) (vopaque (vopaque y)) (vopaque (vopaque y)) (vopaque (vopaque y))
         };
       case x of {
-        cA →
-          shared;
-        cB →
-          shared;
         cC →
+          vkeep shared;
+        _ →
           shared
       }
+
+  val 1.vkeep noinline :: tBox 2.→ tBox
+    = λ(x : tBox).
+      x
 status: pass
 reason: The simplifier keeps the shared case when a copy can increase cost.
