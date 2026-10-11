@@ -8,6 +8,9 @@ module GHC.Internal.TypeNats
   ( Natural,
     Nat,
     KnownNat,
+    SomeNat (..),
+    someNatVal,
+    sameNat,
     natSing,
     natVal,
     natVal',
@@ -20,4 +23,4 @@ module GHC.Internal.TypeNats
   )
 where
 
-import GHC.TypeNats (KnownNat, Nat, Natural, SNat, fromSNat, natSing, natVal, natVal', withKnownNat, withSomeSNat, type (<=), type (<=?))
+import GHC.TypeNats (KnownNat, Nat, Natural, SNat, SomeNat (..), fromSNat, natSing, natVal, natVal', sameNat, someNatVal, withKnownNat, withSomeSNat, type (<=), type (<=?))
