@@ -57,7 +57,9 @@ expected: |-
   pub val 1.vnext :: tStrict 3.→ tBox
     = λ(x : tStrict).
       let! cStrict (x{1} : tCount) = x;
-      cBox (let! cCount (a : tInt#) = x{1};
-      cCount (prim +# a lit (1#cIntRep) :: tInt#))
+      let! cCount (a : tInt#) = x{1};
+      let argument : tInt# =
+        prim +# a lit (1#cIntRep) :: tInt#;
+      cBox (cCount argument)
 status: pass
-reason: The case on the evaluated field binder stays inside the lazy constructor argument. A case around a constructor application is not a value, and a binding of the application can already count as evaluated.
+reason: The strict field binder is evaluated, and its type has one constructor. The match on it only reads a field, so it moves out of the lazy constructor argument. The addition is safe to run early, so a strict let binds it, and the argument is a constructor of a trivial field.

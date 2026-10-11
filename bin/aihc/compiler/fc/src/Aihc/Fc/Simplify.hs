@@ -498,12 +498,27 @@ simplifyExpr env expr =
     ExCoercion {} -> pure expr
     ExApp {}
       | Just pushed <- pushHeadCasts expr -> simplifyExpr env pushed
+      -- An argument that takes an evaluated variable apart takes it apart
+      -- in front of the application. See 'evaluatedMatch'.
+      | (headExpr, args) <- collectSpine expr,
+        (before, Right argument : after) <- break (either (const False) (isJust . evaluatedMatch env)) args,
+        Just match <- evaluatedMatch env argument -> do
+          (scrutinee, caseBinder, alternative) <- freshMatch match
+          let application = rebuildSpine headExpr (before <> (Right (altRhs alternative) : after))
+          simplifyExpr env (ExCase scrutinee caseBinder (alternative {altRhs = application} NE.:| []))
       | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
     ExLam binder body -> do
       body' <- simplifyExpr (markUnlifted [binder] (passLambda (shadowNames [binderName binder] env))) body
       ExLam binder <$> readFieldsInside env body'
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
+    -- A lazy let whose right-hand side takes an evaluated variable apart
+    -- takes it apart in front of the let. See 'evaluatedMatch'.
+    ExLet bind body
+      | isLiftedBinder (spEnv env) (bindBinder bind),
+        Just match <- evaluatedMatch env (bindRhs bind) -> do
+          (scrutinee, caseBinder, alternative) <- freshMatch match
+          simplifyExpr env (ExCase scrutinee caseBinder (alternative {altRhs = ExLet bind {bindRhs = altRhs alternative} body} NE.:| []))
     ExLet bind body -> do
       let binder = bindBinder bind
       rhs <- simplifyExpr (rhsEnv env (binderName binder)) (bindRhs bind)
@@ -1956,6 +1971,35 @@ simplifyApp env headExpr args =
         _ -> simplifyExpr (noOneShot env) headExpr
       args' <- simplifyArgs (noOneShot env) args
       rebuildApp env headExpr' args'
+
+-- | A match of one alternative on a variable that is evaluated in this
+-- scope, such as a case binder or a strict field, whose type has one
+-- constructor. In a lazy position, such a match only reads fields: it
+-- cannot fail and it evaluates nothing. Thus it can move out of a lazy
+-- argument or a lazy let, to the point where the argument or the let
+-- stands. There, a later match of the same variable selects the fields,
+-- so the program takes the variable apart once.
+evaluatedMatch :: Simpl -> Expr -> Maybe (Expr, Maybe Binder, Alt)
+evaluatedMatch env expr = do
+  ExCase scrutinee caseBinder (alternative@(Alt (AltData con) [] _ _) NE.:| []) <- Just expr
+  ExVar variable <- Just scrutinee
+  guard (Set.member variable (spEvaluated env))
+  conType <- lookupHeaderType types con
+  let (_, _, result) = splitConstructorType types conType
+  tyCon <- typeHead (reduceType types result)
+  guard (Map.lookup tyCon (teDataCons types) == Just [con])
+  Just (scrutinee, caseBinder, alternative)
+  where
+    types = spEnv env
+
+-- | A match from 'evaluatedMatch' with fresh binders. The match moves
+-- over other expressions, so its binders must not capture their names.
+freshMatch :: (Expr, Maybe Binder, Alt) -> SimplM (Expr, Maybe Binder, Alt)
+freshMatch (scrutinee, caseBinder, alternative) = do
+  fresh <- freshenExpr (ExCase scrutinee caseBinder (alternative NE.:| []))
+  case fresh of
+    ExCase scrutinee' caseBinder' (alternative' NE.:| []) -> pure (scrutinee', caseBinder', alternative')
+    _ -> pure (scrutinee, caseBinder, alternative)
 
 simplifyArgs :: Simpl -> [Arg] -> SimplM [Arg]
 simplifyArgs env = mapM (either (pure . Left) (fmap Right . simplifyExpr env))
