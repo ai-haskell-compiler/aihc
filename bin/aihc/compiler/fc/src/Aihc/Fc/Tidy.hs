@@ -275,7 +275,11 @@ tidyExpr env expr =
        in rebuild2 ExTyLam binder binder' body (tidyExpr bodyEnv body)
     ExLet bind body ->
       let (binder', bodyEnv) = tidyBinder env (bindBinder bind)
-          bind' = rebuild2 Bind (bindBinder bind) binder' (bindRhs bind) (tidyExpr env (bindRhs bind))
+          -- The binder is not in scope in its right-hand side. But a binder
+          -- there with the same name prints as if it shadows this one, so
+          -- the right-hand side does not use the number of this binder.
+          rhsEnv = reserveNames env [tidyBinderName env (binderName (bindBinder bind))]
+          bind' = rebuild2 Bind (bindBinder bind) binder' (bindRhs bind) (tidyExpr rhsEnv (bindRhs bind))
        in rebuild2 ExLet bind bind' body (tidyExpr bodyEnv body)
     ExRec binds body ->
       let (binders, bodyEnv) = tidyEachBinder env (map bindBinder binds)
@@ -287,10 +291,18 @@ tidyExpr env expr =
             Just named
               | all (\alternative -> binderName named `Set.notMember` (exprFreeNames (altRhs alternative) `Set.difference` Set.fromList (map binderName (altBinders alternative)))) alternatives -> (Changed Nothing, env)
               | otherwise -> let (named', inner) = tidyBinder env named in (rebuild1 Just named named', inner)
+          -- The binders of the case print after its scrutinee, as the binders
+          -- of a let print after their right-hand side. Thus the scrutinee
+          -- does not use their numbers either.
+          scrutineeEnv = reserveNames env (caseBinderNames ++ concatMap (alternativeNames caseEnv) (NE.toList alternatives))
+          caseBinderNames = case (binder, binder') of
+            (Just named, Same) -> [tidyBinderName env (binderName named)]
+            (Just named, Changed (Just _)) -> [tidyBinderName env (binderName named)]
+            _ -> []
        in rebuild3
             ExCase
             scrutinee
-            (tidyExpr env scrutinee)
+            (tidyExpr scrutineeEnv scrutinee)
             binder
             binder'
             alternatives
@@ -299,6 +311,32 @@ tidyExpr env expr =
     ExCoercion proof -> rebuild1 ExCoercion proof (tidyCoercion env proof)
     ExCast body coercion ->
       rebuild2 ExCast body (tidyExpr env body) coercion (tidyCoercion env coercion)
+
+-- | The new names of the binders of an alternative.
+alternativeNames :: TidyEnv -> Alt -> [Name]
+alternativeNames env alternative =
+  newNames env (map binderName (altTypeBinders alternative) ++ map binderName (altBinders alternative))
+
+-- | The new names of a sequence of binders, each in the scope of the
+-- binders before it.
+newNames :: TidyEnv -> [Name] -> [Name]
+newNames env names =
+  case names of
+    [] -> []
+    name : rest ->
+      let name' = tidyBinderName env name
+       in name' : newNames (bindName env name name') rest
+
+-- | Make the numbers of the names unavailable to the binders in a scope,
+-- but do not bind the names there.
+reserveNames :: TidyEnv -> [Name] -> TidyEnv
+reserveNames = foldl' reserve
+  where
+    reserve env name =
+      case nameOrigin name of
+        OriginLocal (Unique unique) ->
+          env {tidyUsed = Map.insertWith Set.union (nameText name) (Set.singleton unique) (tidyUsed env)}
+        OriginTop {} -> env
 
 tidyRecBind :: TidyEnv -> Tidied Binder -> Bind -> Tidied Bind
 tidyRecBind env binder bind =

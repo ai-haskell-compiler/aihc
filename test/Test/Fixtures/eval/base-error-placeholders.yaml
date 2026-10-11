@@ -1,0 +1,52 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ArithException, ErrorCall, catch, evaluate, try)
+    import Data.Bits (shiftL)
+    import Data.Foldable (foldl1, foldr1)
+    import Data.List.NonEmpty (fromList)
+    import Data.Ratio ((%))
+    import Prelude
+
+    -- Each error gives a message of GHC instead of a loop.
+    report :: Int -> IO ()
+    report value =
+      (evaluate value >>= print) `catch` \exception -> putStrLn (show (exception :: ErrorCall))
+
+    arithmetic :: Int -> IO ()
+    arithmetic value = do
+      result <- try (evaluate value) :: IO (Either ArithException Int)
+      print result
+
+    main :: IO ()
+    main = do
+      report (foldr1 (+) (Nothing :: Maybe Int))
+      report (foldl1 (+) (Nothing :: Maybe Int))
+      report (length (fromList ([] :: [Int])))
+      report (fromEnum (succ True))
+      report (fromEnum (pred LT))
+      report (fromEnum (toEnum 7 :: Bool))
+      report (2 ^ (-1 :: Int))
+      arithmetic (truncate (1 % (0 :: Integer)))
+      arithmetic (shiftL 1 (-1))
+      print [max (3 :: Int) 4, min 3 4, max 4 3, min 4 3]
+      print [max 'a' 'b', min 'a' 'b', max 'b' 'a', min 'b' 'a']
+stdout: |
+  foldr1: empty structure
+  foldl1: empty structure
+  NonEmpty.fromList: empty list
+  Prelude.Enum.Bool.succ: bad argument
+  Prelude.Enum.Ordering.pred: bad argument
+  Enum.toEnum{Bool}: tag (7) is outside of bounds
+  Negative exponent
+  Left Ratio has zero denominator
+  Left arithmetic overflow
+  [4,3,4,3]
+  "baba"
+output: |
+  ()
+expression: main
+status: pass
+reason: the aihc-base error values raise exceptions with messages instead of a loop, and min and max on Int and Char use one comparison

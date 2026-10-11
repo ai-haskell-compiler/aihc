@@ -50,9 +50,9 @@ expected: |-
   }
 
   pub val 1.vop :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$C a).
-      let! c$Dict$C ($method0 : a 2.→ a) = $d0;
-      $method0
+    = Λ(a : sType). λ($dC : t$Dict$C a).
+      let! c$Dict$C ($cop : a 2.→ a) = $dC;
+      $cop
 
   pub val 1.vmap :: ∀(a : sType) (b : sType). (a 2.→ b) 2.→ tList a 2.→ tList b
     = Λ(a : sType) (b : sType). λ(x : a 2.→ b) (y : tList a).
@@ -77,9 +77,9 @@ expected: |-
    = xs
    :: tList a
 
-  rule "op/op" [~1] Λ(a : sType). λ($rd0 : t$Dict$C a). λ(x : a).
-    vop @a $rd0 (vop @a $rd0 x)
-   = vop @a $rd0 x
+  rule "op/op" [~1] Λ(a : sType). λ($dC : t$Dict$C a). λ(x : a).
+    vop @a $dC (vop @a $dC x)
+   = vop @a $dC x
    :: a
 status: pass
 reason: Desugars the rules of a RULES pragma into System FC rule declarations.

@@ -28,7 +28,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub val 1.vresult :: ∀(a : sType). t$Dict$Enum a 3.→ a 3.→ t[] a
-    = Λ(a : sType). λ($d0 : t$Dict$Enum a) (x : a).
-      venumFrom @a $d0 x
+    = Λ(a : sType). λ($dEnum : t$Dict$Enum a) (x : a).
+      venumFrom @a $dEnum x
 status: pass
 reason: Desugars an open arithmetic sequence through the resolved enumFrom function.

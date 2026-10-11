@@ -85,9 +85,9 @@ expected: |-
   }
 
   pub val 1.vlen :: ∀(v : sType 3.→ sType 3.→ sType) (a : sType) (s : sType). t$Dict$Len v a 3.→ v s a 3.→ tInt
-    = Λ(v : sType 3.→ sType 3.→ sType) (a : sType) (s : sType). λ($d0 : t$Dict$Len v a).
-      let! c$Dict$Len ($method0 : ∀(s{1} : sType). v s{1} a 3.→ tInt) = $d0;
-      $method0 @s
+    = Λ(v : sType 3.→ sType 3.→ sType) (a : sType) (s : sType). λ($dLen : t$Dict$Len v a).
+      let! c$Dict$Len ($clen : ∀(s{1} : sType). v s{1} a 3.→ tInt) = $dLen;
+      $clen @s
 
   pub val 1.v$fLenVeca :: ∀(a : sType). t$Dict$Len tVec a
     = Λ(a : sType).
@@ -106,7 +106,7 @@ expected: |-
       vcoerce @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt) (c$Dict$Coercible @(tTYPE (cBoxedRep cLifted)) @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt)) (vlen @tVec @a @s (v$fLenVeca @a))
 
   pub val 1.vcoerce :: ∀(a : sType) (b : sType). t$Dict$Coercible (tTYPE (cBoxedRep cLifted)) a b 3.→ a 3.→ b
-    = Λ(a : sType) (b : sType). λ($d0 : t$Dict$Coercible (tTYPE (cBoxedRep cLifted)) a b) (_foreign_argument : a).
+    = Λ(a : sType) (b : sType). λ($dCoercible : t$Dict$Coercible (tTYPE (cBoxedRep cLifted)) a b) (_foreign_argument : a).
       prim unsafeCoerce# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @a @b _foreign_argument
 
   pub val 1.vtoF :: tInt 3.→ tF tBool

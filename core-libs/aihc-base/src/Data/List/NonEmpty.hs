@@ -77,6 +77,7 @@ import Control.Applicative (Alternative (many))
 import Control.Monad.Fix (MonadFix (..), fix)
 import Data.Foldable (Foldable (..))
 import Data.Semigroup (Semigroup (..))
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import Prelude
   ( Applicative (..),
@@ -255,7 +256,7 @@ fromList [] = emptyNonEmpty
 fromList (value : values) = value :| values
 
 emptyNonEmpty :: NonEmpty a
-emptyNonEmpty = emptyNonEmpty
+emptyNonEmpty = errorWithoutStackTrace "NonEmpty.fromList: empty list"
 
 toList :: NonEmpty a -> [a]
 toList ((:|) value values) = value : values
@@ -600,7 +601,7 @@ indexList values index =
             False -> indexList rest (index - 1)
 
 indexError :: a
-indexError = indexError
+indexError = errorWithoutStackTrace "NonEmpty.!! index too large"
 
 zipWithList :: (a -> b -> c) -> [a] -> [b] -> [c]
 zipWithList _ [] _ = []

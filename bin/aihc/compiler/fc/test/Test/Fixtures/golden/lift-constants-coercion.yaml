@@ -43,8 +43,8 @@ expected: |-
 
   pub val 1.vlocal :: ∀(a : sType). tEqual a tUnit 3.→ tUnit 3.→ tBox a
     = Λ(a : sType). λ(x : tEqual a tUnit) (y : tUnit).
-      let! cRefl ($pattern_d0 : tUnit ~ a) = x;
-      vlocal$constant$0 ▷ sym (tycon-co tBox (sym ($pattern_d0)))
+      let! cRefl ($co : tUnit ~ a) = x;
+      vlocal$constant$0 ▷ sym (tycon-co tBox (sym ($co)))
 
   val 1.vlocal$constant$0 noinline :: tBox tUnit
     = cBox @tUnit c()
