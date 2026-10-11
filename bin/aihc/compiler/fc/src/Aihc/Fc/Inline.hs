@@ -37,6 +37,7 @@ module Aihc.Fc.Inline
 where
 
 import Aihc.Fc.Demand (Signatures, topLevelSignatures)
+import Aihc.Fc.Facts (emptyFacts)
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
@@ -474,7 +475,8 @@ simplifyValue config known recursive inTemplates st name
                             spCredits = snd (callArityAnalysis credit False body),
                             spSpeculative = False,
                             spCaseContext = Nothing,
-                            spLocalCandidates = Map.empty
+                            spLocalCandidates = Map.empty,
+                            spFacts = emptyFacts
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less

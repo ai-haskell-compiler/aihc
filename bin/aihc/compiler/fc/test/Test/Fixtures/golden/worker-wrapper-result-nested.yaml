@@ -86,8 +86,6 @@ expected: |-
   pub val 1.vtotal :: FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#))
     = λ(x : tInt#) (y : tState# tRealWorld).
       let! cTuple2# (component : tState# tRealWorld) (field : tInt#) = v$wsumTo x lit (0#cIntRep) :: tInt# y;
-      let _pat : tInt =
-        cI# field;
       cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# component (prim +# field x)
 status: pass
 reason: The result of sumTo is an unboxed pair with a boxed Int in its second component. Every tail gives that component as the constructor or as a recursive call, so the worker returns the field in a pair of State# and Int#. The recursive call in the worker stays a tail call. offset returns its unboxed parameter in one tail, which the worker builds from its field. At the calls in total, the wrapper meets the match on I# and no box is left.
