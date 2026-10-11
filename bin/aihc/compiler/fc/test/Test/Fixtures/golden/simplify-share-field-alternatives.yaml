@@ -87,10 +87,10 @@ expected: |-
         _ →
           let magnitude : tByteArray# =
             case x of {
-              cPositive (magnitude : tByteArray#) →
-                magnitude;
-              cNegative (magnitude : tByteArray#) →
-                magnitude
+              cPositive (magnitude{1} : tByteArray#) →
+                magnitude{1};
+              cNegative (magnitude{1} : tByteArray#) →
+                magnitude{1}
             };
           prim *# (prim *# (prim +# (prim sizeofByteArray# magnitude) lit (1#cIntRep) :: tInt#) (prim +# (prim sizeofByteArray# magnitude) lit (2#cIntRep) :: tInt#)) (prim +# (prim sizeofByteArray# magnitude) lit (3#cIntRep) :: tInt#)
       }
@@ -100,10 +100,10 @@ expected: |-
       let! _ = x;
       let! _ as (state : tRef) =
         case x of {
-          cFile (_pat : tRef) (state : tRef) →
-            state;
-          cDuplex (_pat : tRef) (_pat{1} : tRef) (state : tRef) →
-            state
+          cFile (_pat : tRef) (state{1} : tRef) →
+            state{1};
+          cDuplex (_pat : tRef) (_pat{1} : tRef) (state{1} : tRef) →
+            state{1}
         };
       cFour state state y (vseqFour (cFour y state y state) y)
 
