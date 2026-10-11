@@ -73,8 +73,10 @@ compileLtoProgram primPackage config buildRoot corePaths = do
       optimized <- optimizeFcProgram primPackage config verbose (Just [entryName]) "program" merged
       -- Inlining drops the values that its copies made dead, and with them
       -- the last reference to a type or a constructor. Prune again, so that
-      -- those constructors emit no info table.
-      let pruned = Fc.pruneProgram [entryName] optimized
+      -- those constructors emit no info table. No pass comes after this
+      -- point, so no rule can fire. Remove the rules before the prune,
+      -- because a rule keeps the values of its right-hand side.
+      let pruned = Fc.pruneProgram [entryName] (Fc.dropRules optimized)
       verbose ("Prune System FC: " <> show (length (Fc.programDecls optimized)) <> " -> " <> show (length (Fc.programDecls pruned)) <> " declarations")
       when (compileLint config) $ do
         let errors = Fc.lintProgram primPackage pruned

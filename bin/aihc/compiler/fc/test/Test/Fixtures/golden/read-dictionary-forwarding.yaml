@@ -37,12 +37,12 @@ expected: |-
   }
 
   pub val 1.vreads :: ∀(a : sType). t$Dict$Read a 2.→ tResult 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$Read a).
-      let! c$Dict$Read ($method0 : tResult 2.→ a) = $d0;
-      $method0
+    = Λ(a : sType). λ($dRead : t$Dict$Read a).
+      let! c$Dict$Read ($creads : tResult 2.→ a) = $dRead;
+      $creads
 
   pub val 1.vparse :: ∀(a : sType). t$Dict$Read a 2.→ tResult 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$Read a).
-      vreads @a $d0
+    = Λ(a : sType). λ($dRead : t$Dict$Read a).
+      vreads @a $dRead
 status: pass
 reason: The function forwards a supplied Read dictionary.

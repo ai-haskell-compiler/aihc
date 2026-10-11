@@ -302,6 +302,26 @@ their evaluated results for longer.
 The report gives the number of new constants and the number of replaced
 sites. The constants have private names and a `NOINLINE` annotation.
 
+A box of one integer or character literal gets a name from its value:
+`I# 3#` becomes `$int_3`, `I# -1#` becomes `$int_minus1`, `C# '-'#` becomes
+`$char_minus`, and `IS 0#` becomes `$integer_0`. Many unrelated sites use
+the same small value, so a name from its first site is not correct. Other
+constants get the name of the value that has the first site, and
+`$constant$` with a number.
+
+A program can get the pass more than one time: each module gets it, and
+then the whole program gets it. A new site uses a private `NOINLINE`
+constant that is already in the program and has the same expression.
+
+## The end of a whole program
+
+After the last pass, `aihc build` removes the rewrite rules of a whole
+program and prunes it again (`Aihc.Fc.dropRules` in `Aihc.Cli.Lto`). No pass
+can fire a rule after this point, but a rule keeps the values of its
+right-hand side, for example `build`, `augment` and the `Foldable []`
+dictionary. A module keeps its rules, because the modules that import it can
+fire them.
+
 ## Demand analysis
 
 `PassDemand` is `Aihc.Fc.Demand`. It finds, for every function, which

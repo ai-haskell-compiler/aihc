@@ -52,9 +52,9 @@ expected: |-
   }
 
   pub val 1.visZero :: ∀(a : sType). t$Dict$Describe a 3.→ a 3.→ tBool
-    = Λ(a : sType). λ($d0 : t$Dict$Describe a).
-      let! c$Dict$Describe ($method0 : a 3.→ tBool) = $d0;
-      $method0
+    = Λ(a : sType). λ($dDescribe : t$Dict$Describe a).
+      let! c$Dict$Describe ($cisZero : a 3.→ tBool) = $dDescribe;
+      $cisZero
 
   pub val 1.v$fDescribeBool :: t$Dict$Describe tBool
     = c$Dict$Describe @tBool v$fDescribeBool$cisZero
@@ -69,9 +69,9 @@ expected: |-
       }
 
   pub val 1.v$mIsZero :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). t$Dict$Describe a 3.→ a 3.→ (FUN @sLiftedRep @rep tUnit r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
-    = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ($d0 : t$Dict$Describe a) (x : a)
+    = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ($dDescribe : t$Dict$Describe a) (x : a)
     (y : FUN @sLiftedRep @rep tUnit r) (z : FUN @sLiftedRep @rep tUnit r).
-      case visZero @a $d0 x of {
+      case visZero @a $dDescribe x of {
         cTrue →
           y c();
         _ →
@@ -79,8 +79,8 @@ expected: |-
       }
 
   pub val 1.vlabel :: ∀(a : sType). t$Dict$Describe a 3.→ a 3.→ tLabel
-    = Λ(a : sType). λ($d0 : t$Dict$Describe a) (x : a).
-      v$mIsZero @a @sLiftedRep @tLabel $d0 x (λ(_pattern_success : tUnit).
+    = Λ(a : sType). λ($dDescribe : t$Dict$Describe a) (x : a).
+      v$mIsZero @a @sLiftedRep @tLabel $dDescribe x (λ(_pattern_success : tUnit).
         cZero) (λ(_pattern_failure : tUnit).
         cOther)
 status: pass

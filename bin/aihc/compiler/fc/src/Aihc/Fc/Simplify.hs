@@ -1797,10 +1797,20 @@ betaReduce env expr args =
       betaReduce env (substTypeExpr (Map.singleton (binderName binder) ty) body) rest
     (ExLam binder body, Right argument : rest)
       | isTrivial argument -> betaReduce env (substExpr (Map.singleton (binderName binder) argument) body) rest
+      | binderName binder `nameTextIs` "eta" -> do
+          -- An eta binder names a lambda that eta expansion made. A let
+          -- is not such a lambda, so the binding gets the argument name.
+          name <- freshLocal (binderName binder) {nameText = "argument"}
+          let binder' = binder {binderName = name}
+          betaReduce env (ExLam binder' (substExpr (Map.singleton (binderName binder) (ExVar name)) body)) (Right argument : rest)
       | otherwise -> do
           body' <- betaReduce (bindingEnv env binder argument) body rest
           mkLet env (Bind binder argument) body'
     _ -> simplifyExpr env (rebuildSpine expr args)
+
+-- | Whether a name has the text.
+nameTextIs :: Name -> Text -> Bool
+nameTextIs name text = nameText name == text
 
 -- | Build a cast on a simplified body.
 --

@@ -68,8 +68,8 @@ expected: |-
       let! cSomeTypeRep @(k{1} : sType) @(a{1} : k{1}) (rep : tTypeRep k{1} a{1}) = y;
       case veqTypeRep @k{1} @k @a{1} @a rep x of {
         cJust (_pat : t:~~: k{1} k a{1} a) →
-          let! cHRefl ($pattern_d0 : k ~ k{1}) ($pattern_d1 : a ~ a{1}) = _pat;
-          (cJust @(tTypeRep k a{1}) rep) ▷ sym (tycon-co tMaybe (tycon-co tTypeRep (refl k) ($pattern_d1)));
+          let! cHRefl ($co : k ~ k{1}) ($co{1} : a ~ a{1}) = _pat;
+          (cJust @(tTypeRep k a{1}) rep) ▷ sym (tycon-co tMaybe (tycon-co tTypeRep (refl k) ($co{1})));
         cNothing →
           cNothing @(tTypeRep k a)
       }
