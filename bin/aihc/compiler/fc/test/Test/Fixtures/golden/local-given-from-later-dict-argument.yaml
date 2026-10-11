@@ -95,14 +95,14 @@ expected: |-
   }
 
   pub val 1.vevidence :: ∀(c : sType) (e : sType). t$Dict$HasDict c e 2.→ e 2.→ tDict c
-    = Λ(c : sType) (e : sType). λ($d0 : t$Dict$HasDict c e).
-      let! c$Dict$HasDict ($method0 : e 2.→ tDict c) = $d0;
-      $method0
+    = Λ(c : sType) (e : sType). λ($dHasDict : t$Dict$HasDict c e).
+      let! c$Dict$HasDict ($cevidence : e 2.→ tDict c) = $dHasDict;
+      $cevidence
 
   pub val 1.vunit :: ∀(m : sType 2.→ sType) (a : sType). t$Dict$Monad' m 2.→ a 2.→ m a
-    = Λ(m : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$Monad' m).
-      let! c$Dict$Monad' ($method0 : ∀(a{1} : sType). a{1} 2.→ m a{1}) = $d0;
-      $method0 @a
+    = Λ(m : sType 2.→ sType) (a : sType). λ($dMonad' : t$Dict$Monad' m).
+      let! c$Dict$Monad' ($cunit : ∀(a{1} : sType). a{1} 2.→ m a{1}) = $dMonad';
+      $cunit @a
 
   pub val 1.v$fHasDictaDicta :: ∀(a : sType). t$Dict$HasDict a (tDict a)
     = Λ(a : sType).
@@ -113,75 +113,75 @@ expected: |-
       x
 
   pub val 1.v$fHasDictb:-ab :: ∀(a : sType) (b : sType). a 2.→ t$Dict$HasDict b (t:- a b)
-    = Λ(a : sType) (b : sType). λ($d0 : a).
-      c$Dict$HasDict @b @(t:- a b) (v$fHasDictb:-ab$cevidence @a @b $d0)
+    = Λ(a : sType) (b : sType). λ($d : a).
+      c$Dict$HasDict @b @(t:- a b) (v$fHasDictb:-ab$cevidence @a @b $d)
 
   val 1.v$fHasDictb:-ab$cevidence :: ∀(a : sType) (b : sType). a 2.→ t:- a b 2.→ tDict b
-    = Λ(a : sType) (b : sType). λ($d0 : a) (x : t:- a b).
-      (x ▷ axiom-co $ax$:- @a @b) $d0
+    = Λ(a : sType) (b : sType). λ($d : a) (x : t:- a b).
+      (x ▷ axiom-co $ax$:- @a @b) $d
 
   pub val 1.v$fPurema :: ∀(m : sType 2.→ sType) (a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tStM m a ~ a) (t$Dict$Pure m a)
-    = Λ(m : sType 2.→ sType) (a : sType). λ($d0 : tStM m a ~ a).
-      c$Dict$Pure @m @a (coercion ($d0))
+    = Λ(m : sType 2.→ sType) (a : sType). λ($co : tStM m a ~ a).
+      c$Dict$Pure @m @a (coercion ($co))
 
   pub val 1.vwithDict :: ∀(c : sType) (e : sType) (r : sType). t$Dict$HasDict c e 2.→ e 2.→ (c 2.→ r) 2.→ r
-    = Λ(c : sType) (e : sType) (r : sType). λ($d0 : t$Dict$HasDict c e) (x : e) (y : c 2.→ r).
-      let! cDict ($pattern_d0 : c) = vevidence @c @e $d0 x;
-      y $pattern_d0
+    = Λ(c : sType) (e : sType) (r : sType). λ($dHasDict : t$Dict$HasDict c e) (x : e) (y : c 2.→ r).
+      let! cDict ($d : c) = vevidence @c @e $dHasDict x;
+      y $d
 
   pub val 1.v\\ :: ∀(c : sType) (e : sType) (r : sType). t$Dict$HasDict c e 2.→ (c 2.→ r) 2.→ e 2.→ r
-    = Λ(c : sType) (e : sType) (r : sType). λ($d0 : t$Dict$HasDict c e) (x : c 2.→ r) (y : e).
-      vwithDict @c @e @r $d0 y (λ($higher_rank_d0 : c).
-        x $higher_rank_d0)
+    = Λ(c : sType) (e : sType) (r : sType). λ($dHasDict : t$Dict$HasDict c e) (x : c 2.→ r) (y : e).
+      vwithDict @c @e @r $dHasDict y (λ($d : c).
+        x $d)
 
   pub val 1.vviaOperator :: ∀(m : sType 2.→ sType) (a : sType). tDict (t$Dict$Pure m a) 2.→ m (tStM m a) 2.→ m a
     = Λ(m : sType 2.→ sType) (a : sType). λ(x : tDict (t$Dict$Pure m a)) (y : m (tStM m a)).
-      v\\ @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(m a) (v$fHasDictaDicta @(t$Dict$Pure m a)) (λ($higher_rank_d0 : t$Dict$Pure m a).
-        let $co0 : tStM m a ~ a =
-          let! c$Dict$Pure ($super_field0 : tStM m a ~ a) = $higher_rank_d0;
-          $super_field0;
-        y ▷ sym (app-co (refl m) (sym ($co0)))) x
+      v\\ @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(m a) (v$fHasDictaDicta @(t$Dict$Pure m a)) (λ($dPure : t$Dict$Pure m a).
+        let $co : tStM m a ~ a =
+          let! c$Dict$Pure ($co{1} : tStM m a ~ a) = $dPure;
+          $co{1};
+        y ▷ sym (app-co (refl m) (sym ($co)))) x
 
   pub val 1.vviaWithDict :: ∀(m : sType 2.→ sType) (a : sType). tDict (t$Dict$Pure m a) 2.→ m (tStM m a) 2.→ m a
     = Λ(m : sType 2.→ sType) (a : sType). λ(x : tDict (t$Dict$Pure m a)) (y : m (tStM m a)).
-      vwithDict @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(m a) (v$fHasDictaDicta @(t$Dict$Pure m a)) x (λ($higher_rank_d0 : t$Dict$Pure m a).
-        let $co0 : tStM m a ~ a =
-          let! c$Dict$Pure ($super_field0 : tStM m a ~ a) = $higher_rank_d0;
-          $super_field0;
-        y ▷ sym (app-co (refl m) (sym ($co0))))
+      vwithDict @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(m a) (v$fHasDictaDicta @(t$Dict$Pure m a)) x (λ($dPure : t$Dict$Pure m a).
+        let $co : tStM m a ~ a =
+          let! c$Dict$Pure ($co{1} : tStM m a ~ a) = $dPure;
+          $co{1};
+        y ▷ sym (app-co (refl m) (sym ($co))))
 
   pub val 1.vviaCase :: ∀(m : sType 2.→ sType) (a : sType). tDict (t$Dict$Pure m a) 2.→ m (tStM m a) 2.→ m a
     = Λ(m : sType 2.→ sType) (a : sType). λ(x : tDict (t$Dict$Pure m a)) (y : m (tStM m a)).
-      let! cDict ($pattern_d0 : t$Dict$Pure m a) = x;
-      let $co0 : tStM m a ~ a =
-        let! c$Dict$Pure ($super_field0 : tStM m a ~ a) = $pattern_d0;
-        $super_field0;
-      y ▷ sym (app-co (refl m) (sym ($co0)))
+      let! cDict ($dPure : t$Dict$Pure m a) = x;
+      let $co : tStM m a ~ a =
+        let! c$Dict$Pure ($co{1} : tStM m a ~ a) = $dPure;
+        $co{1};
+      y ▷ sym (app-co (refl m) (sym ($co)))
 
   pub val 1.vboxed :: ∀(m : sType 2.→ sType) (a : sType). t$Dict$Monad' m 2.→ m a 2.→ m (tBox (tStM m a))
-    = Λ(m : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$Monad' m) (x : m a).
-      vboxed @m @a $d0 x
+    = Λ(m : sType 2.→ sType) (a : sType). λ($dMonad' : t$Dict$Monad' m) (x : m a).
+      vboxed @m @a $dMonad' x
 
   pub val 1.vpointFree :: ∀(m : sType 2.→ sType) (a : sType). t$Dict$Monad' m 2.→ tDict (t$Dict$Pure m a) 2.→ m a 2.→ m (tBox a)
-    = Λ(m : sType 2.→ sType) (a : sType). λ($d0 : t$Dict$Monad' m) (x : tDict (t$Dict$Pure m a)).
-      v\\ @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(m a 2.→ m (tBox a)) (v$fHasDictaDicta @(t$Dict$Pure m a)) (λ($higher_rank_d0 : t$Dict$Pure m a).
-        let $co0 : tStM m a ~ a =
-          let! c$Dict$Pure ($super_field0 : tStM m a ~ a) = $higher_rank_d0;
-          $super_field0;
-        (vboxed @m @a $d0) ▷ sym (fun-co (refl (m a)) (app-co (refl m) (tycon-co tBox (sym ($co0)))))) x
+    = Λ(m : sType 2.→ sType) (a : sType). λ($dMonad' : t$Dict$Monad' m) (x : tDict (t$Dict$Pure m a)).
+      v\\ @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(m a 2.→ m (tBox a)) (v$fHasDictaDicta @(t$Dict$Pure m a)) (λ($dPure : t$Dict$Pure m a).
+        let $co : tStM m a ~ a =
+          let! c$Dict$Pure ($co{1} : tStM m a ~ a) = $dPure;
+          $co{1};
+        (vboxed @m @a $dMonad') ▷ sym (fun-co (refl (m a)) (app-co (refl m) (tycon-co tBox (sym ($co)))))) x
 
   pub val 1.vpair :: ∀(b : sType 2.→ sType) (a : sType) (c : sType) (r : sType) (m : sType 2.→ sType). (b a 2.→ b c 2.→ r) 2.→ (∀(x : sType). m x 2.→ b (tStM m x)) 2.→ tDict (t$Dict$Pure m a) 2.→ tDict (t$Dict$Pure m c) 2.→ m a 2.→ m c 2.→ r
     = Λ(b : sType 2.→ sType) (a : sType) (c : sType) (r : sType) (m : sType 2.→ sType). λ(x : b a 2.→ b c 2.→ r)
     (y : ∀(x{1} : sType). m x{1} 2.→ b (tStM m x{1})) (z : tDict (t$Dict$Pure m a)) (x1 : tDict (t$Dict$Pure m c))
     (x2 : m a) (x3 : m c).
-      x (v\\ @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(b a) (v$fHasDictaDicta @(t$Dict$Pure m a)) (λ($higher_rank_d0 : t$Dict$Pure m a).
-        let $co0 : tStM m a ~ a =
-          let! c$Dict$Pure ($super_field0 : tStM m a ~ a) = $higher_rank_d0;
-          $super_field0;
-        (y @a x2) ▷ sym (app-co (refl b) (sym ($co0)))) z) (v\\ @(t$Dict$Pure m c) @(tDict (t$Dict$Pure m c)) @(b c) (v$fHasDictaDicta @(t$Dict$Pure m c)) (λ($higher_rank_d0 : t$Dict$Pure m c).
-        let $co0 : tStM m c ~ c =
-          let! c$Dict$Pure ($super_field0 : tStM m c ~ c) = $higher_rank_d0;
-          $super_field0;
-        (y @c x3) ▷ sym (app-co (refl b) (sym ($co0)))) x1)
+      x (v\\ @(t$Dict$Pure m a) @(tDict (t$Dict$Pure m a)) @(b a) (v$fHasDictaDicta @(t$Dict$Pure m a)) (λ($dPure : t$Dict$Pure m a).
+        let $co : tStM m a ~ a =
+          let! c$Dict$Pure ($co{1} : tStM m a ~ a) = $dPure;
+          $co{1};
+        (y @a x2) ▷ sym (app-co (refl b) (sym ($co)))) z) (v\\ @(t$Dict$Pure m c) @(tDict (t$Dict$Pure m c)) @(b c) (v$fHasDictaDicta @(t$Dict$Pure m c)) (λ($dPure : t$Dict$Pure m c).
+        let $co : tStM m c ~ c =
+          let! c$Dict$Pure ($co{1} : tStM m c ~ c) = $dPure;
+          $co{1};
+        (y @c x3) ▷ sym (app-co (refl b) (sym ($co)))) x1)
 status: pass
 reason: The given c of a (c => r) argument is Pure m a only after the HasDict fundep fixes c, and the superclass StM m a ~ a of that given then proves the argument type.

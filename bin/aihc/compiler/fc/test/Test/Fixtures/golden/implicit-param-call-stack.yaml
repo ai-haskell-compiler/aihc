@@ -77,7 +77,7 @@ expected: |-
       cPushCallStack name location y
 
   pub val 1.vfailure :: tCallStack 5.→ tBool 5.→ tBool
-    = λ($d0 : tCallStack) (x : tBool).
+    = λ($d : tCallStack) (x : tBool).
       x
 
   pub val 1.vnoStack :: tBool

@@ -75,17 +75,17 @@ expected: |-
       }
 
   pub val 1.v$fMyEqPaira :: ∀(a : sType). t$Dict$MyEq a 2.→ t$Dict$MyEq (tPair a)
-    = Λ(a : sType). λ($d0 : t$Dict$MyEq a).
-      c$Dict$MyEq @(tPair a) (v$fMyEqPaira$ceq @a $d0)
+    = Λ(a : sType). λ($dMyEq : t$Dict$MyEq a).
+      c$Dict$MyEq @(tPair a) (v$fMyEqPaira$ceq @a $dMyEq)
 
   val 1.v$fMyEqPaira$ceq :: ∀(a : sType). t$Dict$MyEq a 2.→ tPair a 2.→ tPair a 2.→ tBool
-    = Λ(a : sType). λ($d0 : t$Dict$MyEq a) (x : tPair a) (y : tPair a).
+    = Λ(a : sType). λ($dMyEq : t$Dict$MyEq a) (x : tPair a) (y : tPair a).
       let! cPair (a{1} : a) (b : a) = x;
       let! cPair (c : a) (d : a) = y;
-      let! c$Dict$MyEq ($method0 : a 2.→ a 2.→ tBool) = $d0;
-      case $method0 a{1} c of {
+      let! c$Dict$MyEq ($ceq : a 2.→ a 2.→ tBool) = $dMyEq;
+      case $ceq a{1} c of {
         cTrue →
-          $method0 b d;
+          $ceq b d;
         cFalse →
           cFalse
       }

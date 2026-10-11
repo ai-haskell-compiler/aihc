@@ -54,9 +54,9 @@ expected: |-
   }
 
   pub val 1.vinspect :: ∀(a : sType). t$Dict$Inspect a 2.→ a 2.→ tBool
-    = Λ(a : sType). λ($d0 : t$Dict$Inspect a).
-      let! c$Dict$Inspect ($method0 : a 2.→ tBool) = $d0;
-      $method0
+    = Λ(a : sType). λ($dInspect : t$Dict$Inspect a).
+      let! c$Dict$Inspect ($cinspect : a 2.→ tBool) = $dInspect;
+      $cinspect
 
   pub val 1.v$fInspectRepa :: ∀(k : sType) (a : k). t$Dict$Inspect (tRep k a)
     = Λ(k : sType) (a : k).
