@@ -27,14 +27,14 @@ where
 
 import Data.Bool (Bool (..), not, (&&))
 import GHC.Enum (Enum (..))
-import GHC.Exception.Type (divZeroException, overflowException)
+import GHC.Err (errorWithoutStackTrace)
+import GHC.Exception.Type (divZeroException, overflowException, ratioZeroDenomException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
-import GHC.Internal.Integer (Integer (..), integerFromWord#, integerQuotRem, integerToInt#)
+import GHC.Internal.Integer (Integer (..), integerQuotRem, wordToInteger)
 import GHC.Num (Num (..))
 import GHC.Prim
-  ( Word#,
-    int16ToInt#,
+  ( int16ToInt#,
     int32ToInt#,
     int64ToInt#,
     int8ToInt#,
@@ -57,7 +57,6 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
-    (<#),
     (==#),
   )
 import GHC.Prim.Real (Fractional (..), Ratio (..), Rational)
@@ -101,12 +100,12 @@ instance Integral Int where
   toInteger (I# value) = IS value
 
 instance Integral Integer where
-  quot numerator denominator = firstOfPair (integerQuotRemBoxed numerator denominator)
-  rem numerator denominator = secondOfPair (integerQuotRemBoxed numerator denominator)
-  div numerator denominator = firstOfPair (integralDivMod numerator denominator)
-  mod numerator denominator = secondOfPair (integralDivMod numerator denominator)
-  quotRem = integerQuotRemBoxed
-  divMod = integralDivMod
+  quot numerator denominator = firstOfPair (integerQuotRemChecked numerator denominator)
+  rem numerator denominator = secondOfPair (integerQuotRemChecked numerator denominator)
+  div numerator denominator = firstOfPair (integerDivModChecked numerator denominator)
+  mod numerator denominator = secondOfPair (integerDivModChecked numerator denominator)
+  quotRem = integerQuotRemChecked
+  divMod = integerDivModChecked
 
   toInteger value = value
 
@@ -169,25 +168,6 @@ instance Integral Word where
   quotRem left right = (quot left right, rem left right)
   divMod left right = (quot left right, rem left right)
   toInteger (W# value) = wordToInteger value
-
--- Keep the small-value path separate from the large Integer allocation.
--- This lets fromIntegral eliminate the intermediate IS constructor.
-wordToInteger :: Word# -> Integer
-wordToInteger value =
-  case word2Int# value of
-    intValue ->
-      case (<#) intValue 0# of
-        0# -> IS intValue
-        _ -> integerFromWord# 1# value
--- The rule is GHC's "Word# -> Integer -> Int#" rule. It removes the large
--- Integer branch from a conversion such as fromIntegral :: Word64 -> Word8.
--- The rule cannot match after the inliner copies the body, thus the inliner
--- must keep the call until phase 1.
-{-# NOINLINE [0] wordToInteger #-}
-
-{-# RULES
-"integerToInt#/wordToInteger" forall x. integerToInt# (wordToInteger x) = word2Int# x
-  #-}
 
 instance Real Int8 where
   toRational value = Ratio (toInteger value) 1
@@ -287,8 +267,32 @@ divZeroError = raise# divZeroException
 overflowError :: a
 overflowError = raise# overflowException
 
-integerQuotRemBoxed :: Integer -> Integer -> (Integer, Integer)
-integerQuotRemBoxed = integerQuotRem
+-- | 'quotRem' on 'Integer'. A zero divisor raises 'DivideByZero'. Two small
+-- values use the primops, and other values use the magnitude division. The
+-- body is large, thus each use stays a call.
+integerQuotRemChecked :: Integer -> Integer -> (Integer, Integer)
+integerQuotRemChecked (IS numerator) (IS denominator) =
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      case (==#) denominator (negateInt# 1#) of
+        -- The quotient of the minimum Int and -1 is not an 'IS' value.
+        1# -> integerQuotRem (IS numerator) (IS denominator)
+        _ -> (IS (quotInt# numerator denominator), IS (remInt# numerator denominator))
+integerQuotRemChecked _ (IS 0#) = divZeroError
+integerQuotRemChecked numerator denominator = integerQuotRem numerator denominator
+{-# NOINLINE integerQuotRemChecked #-}
+
+-- | 'divMod' on 'Integer'. The remainder has the sign of the divisor. The
+-- body is large, thus each use stays a call.
+integerDivModChecked :: Integer -> Integer -> (Integer, Integer)
+integerDivModChecked numerator denominator =
+  case integerQuotRemChecked numerator denominator of
+    (quotient, divisionRemainder) ->
+      case signum divisionRemainder == negate (signum denominator) of
+        True -> (quotient - 1, divisionRemainder + denominator)
+        False -> (quotient, divisionRemainder)
+{-# NOINLINE integerDivModChecked #-}
 
 integralDivMod :: (Integral a) => a -> a -> (a, a)
 integralDivMod numerator denominator =
@@ -496,7 +500,7 @@ denominator :: Ratio a -> a
 denominator (Ratio _ value) = value
 
 ratioZeroDenominatorError :: a
-ratioZeroDenominatorError = ratioZeroDenominatorError
+ratioZeroDenominatorError = raise# ratioZeroDenomException
 
 fromIntegral :: (Integral a, Num b) => a -> b
 fromIntegral value = fromInteger (toInteger value)
@@ -550,7 +554,7 @@ base ^^ exponent =
     False -> base ^ exponent
 
 negativeExponentError :: a
-negativeExponentError = negativeExponentError
+negativeExponentError = errorWithoutStackTrace "Negative exponent"
 
 -- | The list of every value from the given value, in steps of one.
 numericEnumFrom :: (Fractional a) => a -> [a]

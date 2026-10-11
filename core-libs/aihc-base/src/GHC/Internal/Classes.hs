@@ -144,8 +144,8 @@ instance Ord Int where
   I# left <= I# right = isTrue# ((<=#) left right)
   I# left > I# right = isTrue# ((>#) left right)
   I# left >= I# right = isTrue# ((>=#) left right)
-  max = classesMaxBy compareInt
-  min = classesMinBy compareInt
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Integer where
   compare = compareInteger
@@ -171,8 +171,8 @@ instance Ord Word where
   W# left <= W# right = isTrue# (leWord# left right)
   W# left > W# right = isTrue# (gtWord# left right)
   W# left >= W# right = isTrue# (geWord# left right)
-  max = classesMaxBy compareWord
-  min = classesMinBy compareWord
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Word8 where
   compare = compareWord8
@@ -180,8 +180,8 @@ instance Ord Word8 where
   W8# left <= W8# right = isTrue# (leWord8# left right)
   W8# left > W8# right = isTrue# (gtWord8# left right)
   W8# left >= W8# right = isTrue# (geWord8# left right)
-  max = classesMaxBy compareWord8
-  min = classesMinBy compareWord8
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Word16 where
   compare = compareWord16
@@ -189,8 +189,8 @@ instance Ord Word16 where
   W16# left <= W16# right = isTrue# (leWord16# left right)
   W16# left > W16# right = isTrue# (gtWord16# left right)
   W16# left >= W16# right = isTrue# (geWord16# left right)
-  max = classesMaxBy compareWord16
-  min = classesMinBy compareWord16
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Word32 where
   compare = compareWord32
@@ -198,8 +198,8 @@ instance Ord Word32 where
   W32# left <= W32# right = isTrue# (leWord32# left right)
   W32# left > W32# right = isTrue# (gtWord32# left right)
   W32# left >= W32# right = isTrue# (geWord32# left right)
-  max = classesMaxBy compareWord32
-  min = classesMinBy compareWord32
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Word64 where
   compare = compareWord64
@@ -207,8 +207,8 @@ instance Ord Word64 where
   W64# left <= W64# right = isTrue# (leWord64# left right)
   W64# left > W64# right = isTrue# (gtWord64# left right)
   W64# left >= W64# right = isTrue# (geWord64# left right)
-  max = classesMaxBy compareWord64
-  min = classesMinBy compareWord64
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Int8 where
   compare = compareInt8
@@ -216,8 +216,8 @@ instance Ord Int8 where
   I8# left <= I8# right = isTrue# ((<=#) (int8ToInt# left) (int8ToInt# right))
   I8# left > I8# right = isTrue# ((>#) (int8ToInt# left) (int8ToInt# right))
   I8# left >= I8# right = isTrue# ((>=#) (int8ToInt# left) (int8ToInt# right))
-  max = classesMaxBy compareInt8
-  min = classesMinBy compareInt8
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Int16 where
   compare = compareInt16
@@ -225,8 +225,8 @@ instance Ord Int16 where
   I16# left <= I16# right = isTrue# ((<=#) (int16ToInt# left) (int16ToInt# right))
   I16# left > I16# right = isTrue# ((>#) (int16ToInt# left) (int16ToInt# right))
   I16# left >= I16# right = isTrue# ((>=#) (int16ToInt# left) (int16ToInt# right))
-  max = classesMaxBy compareInt16
-  min = classesMinBy compareInt16
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Int32 where
   compare = compareInt32
@@ -234,8 +234,8 @@ instance Ord Int32 where
   I32# left <= I32# right = isTrue# ((<=#) (int32ToInt# left) (int32ToInt# right))
   I32# left > I32# right = isTrue# ((>#) (int32ToInt# left) (int32ToInt# right))
   I32# left >= I32# right = isTrue# ((>=#) (int32ToInt# left) (int32ToInt# right))
-  max = classesMaxBy compareInt32
-  min = classesMinBy compareInt32
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 instance Ord Int64 where
   compare = compareInt64
@@ -243,8 +243,8 @@ instance Ord Int64 where
   I64# left <= I64# right = isTrue# ((<=#) (int64ToInt# left) (int64ToInt# right))
   I64# left > I64# right = isTrue# ((>#) (int64ToInt# left) (int64ToInt# right))
   I64# left >= I64# right = isTrue# ((>=#) (int64ToInt# left) (int64ToInt# right))
-  max = classesMaxBy compareInt64
-  min = classesMinBy compareInt64
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 compareBool :: Bool -> Bool -> Ordering
 compareBool False False = EQ
@@ -396,8 +396,8 @@ instance Ord Char where
   C# left <= C# right = isTrue# ((<=#) (ord# left) (ord# right))
   C# left > C# right = isTrue# ((>#) (ord# left) (ord# right))
   C# left >= C# right = isTrue# ((>=#) (ord# left) (ord# right))
-  max = classesMaxBy compareChar
-  min = classesMinBy compareChar
+  max left right = if left <= right then right else left
+  min left right = if left <= right then left else right
 
 compareChar :: Char -> Char -> Ordering
 compareChar (C# x) (C# y) = orderingFromInt# (compareInt# (ord# x) (ord# y))
