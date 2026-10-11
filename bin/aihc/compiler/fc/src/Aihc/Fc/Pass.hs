@@ -21,12 +21,14 @@ where
 import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.CallPattern (CallPatternReport (..), callPatternProgram)
 import Aihc.Fc.ConstantLift (liftConstants)
+import Aihc.Fc.Cse (CseReport (..), cseProgram)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), inlineProgram)
 import Aihc.Fc.Name (Name)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram)
+import Aihc.Fc.StateToken (StateTokenReport (..), stateTokenProgram)
 import Aihc.Fc.Syntax (Program)
 import Aihc.Fc.WorkerWrapper (SplitScope (..), WorkerWrapperReport (..), workerWrapperProgram)
 import Aihc.Resolve (PackageId)
@@ -46,6 +48,13 @@ data Pass
     PassSimplify !Int
   | -- | Share closed constructor expressions through private constants.
     PassLiftConstants
+  | -- | Remove a read of a 'MutVar#' that an earlier read makes redundant,
+    -- and a @touch#@ that a later @touch#@ of the same object makes
+    -- redundant. @Aihc.Fc.StateToken@.
+    PassStateTokens
+  | -- | Use a let in scope for an equal pure expression, and share a safe
+    -- primitive call that occurs more than once. @Aihc.Fc.Cse@.
+    PassCse
   | -- | Demand analysis, then a case for every strict let, and with
     -- 'StrictLetsAndArguments' for every strict argument of a saturated
     -- call. @Aihc.Fc.Demand@.
@@ -71,6 +80,8 @@ passPhase :: Pass -> Maybe Int
 passPhase pass =
   case pass of
     PassLiftConstants -> Nothing
+    PassStateTokens -> Nothing
+    PassCse -> Nothing
     PassEtaExpand -> Nothing
     PassDemand _ -> Nothing
     PassWorkerWrapper _ -> Nothing
@@ -93,6 +104,8 @@ passName :: Pass -> Text
 passName pass =
   case pass of
     PassLiftConstants -> "lift constants"
+    PassStateTokens -> "state tokens"
+    PassCse -> "cse"
     PassDemand StrictLetsOnly -> "demand"
     PassDemand StrictLetsAndArguments -> "demand arguments"
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
@@ -116,6 +129,26 @@ runPass primPackage roots pass program =
                 reportBefore = programSize primPackage program,
                 reportAfter = programSize primPackage lifted,
                 reportDetail = count constants "constants" <> ", " <> count sites "sites"
+              }
+          )
+    PassStateTokens ->
+      let (rewritten, report) = stateTokenProgram primPackage program
+       in ( rewritten,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage rewritten,
+                reportDetail = count (reportReusedReads report) "reads reused" <> ", " <> count (reportMergedTouches report) "touches merged"
+              }
+          )
+    PassCse ->
+      let (rewritten, report) = cseProgram primPackage program
+       in ( rewritten,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage rewritten,
+                reportDetail = count (reportReusedExpressions report) "expressions reused" <> ", " <> count (reportSharedCalls report) "calls shared"
               }
           )
     PassDemand rewrites ->

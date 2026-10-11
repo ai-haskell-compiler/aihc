@@ -51,7 +51,7 @@ expected: |-
 
   pub val 1.vunwrap :: tBoxed 2.→ tPair tInt
     = λ(x : tBoxed).
-      let! cBoxed (_unpack_leaf0 : tInt) (_unpack_leaf1 : tInt) = x;
-      cPair @tInt _unpack_leaf0 _unpack_leaf1
+      let! cBoxed (pair0 : tInt) (pair1 : tInt) = x;
+      cPair @tInt pair0 pair1
 status: pass
 reason: UNPACK looks through a type synonym and rebuilds the product with its type arguments.

@@ -10,6 +10,8 @@ module GHC.Bits
   )
 where
 
+import GHC.Err (errorWithoutStackTrace)
+import GHC.Exception.Type (overflowException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Integer
   ( Integer,
@@ -67,6 +69,7 @@ import GHC.Prim
     orWord32#,
     orWord8#,
     popCnt#,
+    raise#,
     uncheckedIShiftL#,
     uncheckedIShiftRA#,
     uncheckedShiftL#,
@@ -287,10 +290,10 @@ toIntegralSized value =
         _ -> Nothing
 
 undefinedBitSize :: a -> Int
-undefinedBitSize = undefinedBitSize
+undefinedBitSize _ = errorWithoutStackTrace "Data.Bits.bitSize: the type has no fixed size"
 
 invalidShift :: a -> Int -> a
-invalidShift = invalidShift
+invalidShift _ _ = raise# overflowException
 
 instance Bits Bool where
   (.&.) = (&&)

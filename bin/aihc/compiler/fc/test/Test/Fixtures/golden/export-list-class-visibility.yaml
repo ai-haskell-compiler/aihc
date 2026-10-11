@@ -35,12 +35,12 @@ expected: |-
   }
 
   pub val 1.vmethod :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$C a).
-      let! c$Dict$C ($method0 : a 2.→ a) = $d0;
-      $method0
+    = Λ(a : sType). λ($dC : t$Dict$C a).
+      let! c$Dict$C ($cmethod : a 2.→ a) = $dC;
+      $cmethod
 
   pub val 1.v$dmmethod :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$C a) (x : a).
+    = Λ(a : sType). λ($dC : t$Dict$C a) (x : a).
       x
   scope 1 = "" Private
   scope 2 = "" Public

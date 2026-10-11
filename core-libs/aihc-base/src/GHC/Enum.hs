@@ -13,7 +13,8 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
-import GHC.Base (build)
+import GHC.Base (build, (++))
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
@@ -50,6 +51,7 @@ import GHC.Prim
     (>#),
   )
 import GHC.Prim.Enum (Bounded (..), Enum (..))
+import GHC.Show (Show (..))
 import GHC.Tuple (Solo (..))
 import GHC.Types (Ordering (..), VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
@@ -63,17 +65,23 @@ boundedEnumFromThen first second =
     True -> enumFromThenTo first second maxBound
     False -> enumFromThenTo first second minBound
 
+-- | The error of 'toEnum' for a tag outside the bounds of a type.
 toEnumError :: [Char] -> Int -> (a, a) -> b
-toEnumError = toEnumError
+toEnumError typeName tag _ =
+  errorWithoutStackTrace ("Enum.toEnum{" ++ typeName ++ "}: tag (" ++ show tag ++ ") is outside of bounds")
 
+-- | The error of 'fromEnum' for a value outside the bounds of 'Int'.
 fromEnumError :: [Char] -> a -> b
-fromEnumError = fromEnumError
+fromEnumError typeName _ =
+  errorWithoutStackTrace ("Enum.fromEnum{" ++ typeName ++ "}: value is outside of Int's bounds")
 
+-- | The error of 'succ' on the last value of a type.
 succError :: [Char] -> a
-succError = succError
+succError function = errorWithoutStackTrace (function ++ ": bad argument")
 
+-- | The error of 'pred' on the first value of a type.
 predError :: [Char] -> a
-predError = predError
+predError function = errorWithoutStackTrace (function ++ ": bad argument")
 
 instance Bounded () where
   minBound = ()

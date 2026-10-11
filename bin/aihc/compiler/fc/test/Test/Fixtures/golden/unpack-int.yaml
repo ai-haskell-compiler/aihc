@@ -56,7 +56,7 @@ expected: |-
 
   pub val 1.vrebuilt :: tT 3.→ tInt
     = λ(x : tT).
-      let! cMkT (_unpack_leaf0 : tInt#) = x;
-      cI# _unpack_leaf0
+      let! cMkT (n : tInt#) = x;
+      cI# n
 status: pass
 reason: UNPACK on a strict Int stores one unboxed field. A nested pattern binds that field. A variable pattern rebuilds the Int.

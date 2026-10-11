@@ -1,4 +1,5 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Num.Natural
   ( Natural (..),
@@ -9,8 +10,8 @@ where
 import Data.Bits (Bits (..))
 import GHC.Exception (ArithException (..), throw)
 import GHC.Num.BigNat (BigNat#)
-import GHC.Prim (Word#, eqWord#, indexWordArray#, int2Word#, ltWord#, sizeofByteArray#, (<#), (==#))
-import GHC.Prim.Integer (Integer (..), integerFromWord#)
+import GHC.Prim (Word#, addWordC#, eqWord#, int2Word#, ltWord#, minusWord#, timesWord2#, (<#))
+import GHC.Prim.Integer (Integer (..), integerFromWord#, wordToInteger)
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
 import GHC.Read ()
 import GHC.Types (isTrue#)
@@ -18,10 +19,11 @@ import Text.ParserCombinators.ReadPrec (ReadPrec, pfail)
 import Prelude
 
 -- The type itself is declared in @GHC.Prim.Natural@, because the compiler
--- names it as the kind of a type-level natural literal. The arithmetic
--- below goes through 'Integer' rather than working on the limbs directly:
--- only the representation has to match GHC, and the operations are free to
--- reuse the magnitude code that already backs 'Integer'.
+-- names it as the kind of a type-level natural literal. Addition,
+-- subtraction and multiplication of two 'NS' values use word primops. The
+-- other operations go through 'Integer' rather than working on the limbs
+-- directly: only the representation has to match GHC, and the operations
+-- are free to reuse the magnitude code that already backs 'Integer'.
 
 underflow :: a
 underflow = throw Underflow
@@ -47,6 +49,15 @@ naturalFromInteger (IS value)
   | isTrue# ((<#) value 0#) = underflow
 naturalFromInteger (IN _) = underflow
 naturalFromInteger value = naturalFromInteger# value
+-- The rule below cannot match after the inliner copies the body, thus the
+-- inliner must keep the call until phase 1.
+{-# NOINLINE [0] naturalFromInteger #-}
+
+-- A word is never negative, thus its conversion needs no sign check and
+-- no 'Integer'. This is the path of @fromIntegral :: Word -> Natural@.
+{-# RULES
+"naturalFromInteger/wordToInteger" forall x. naturalFromInteger (wordToInteger x) = NS x
+  #-}
 
 instance Eq Natural where
   NS left == NS right = isTrue# (eqWord# left right)
@@ -69,12 +80,23 @@ instance Show Natural where
   showsPrec precedence value = showsPrec precedence (naturalToInteger value)
 
 instance Num Natural where
-  left + right = naturalFromInteger (naturalToInteger left + naturalToInteger right)
-  left - right =
-    case left < right of
-      True -> underflow
-      False -> naturalFromInteger (naturalToInteger left - naturalToInteger right)
-  left * right = naturalFromInteger (naturalToInteger left * naturalToInteger right)
+  NS left + NS right =
+    case addWordC# left right of
+      (# result, 0# #) -> NS result
+      _ -> naturalAddLarge (NS left) (NS right)
+  left + right = naturalAddLarge left right
+  NS left - NS right =
+    case ltWord# left right of
+      0# -> NS (minusWord# left right)
+      _ -> underflow
+  left - right = naturalSubLarge left right
+  NS left * NS right =
+    case timesWord2# left right of
+      (# high, low #) ->
+        case eqWord# high (int2Word# 0#) of
+          1# -> NS low
+          _ -> naturalMulLarge (NS left) (NS right)
+  left * right = naturalMulLarge left right
   negate value =
     case value == naturalZero of
       True -> naturalZero
@@ -82,6 +104,25 @@ instance Num Natural where
   abs value = value
   signum value = naturalFromInteger (signum (naturalToInteger value))
   fromInteger = naturalFromInteger
+
+-- | The sum of two naturals is never negative, thus the conversion back
+-- needs no sign check.
+naturalAddLarge :: Natural -> Natural -> Natural
+naturalAddLarge left right = naturalFromInteger# (naturalToInteger left + naturalToInteger right)
+{-# NOINLINE naturalAddLarge #-}
+
+naturalSubLarge :: Natural -> Natural -> Natural
+naturalSubLarge left right =
+  case left < right of
+    True -> underflow
+    False -> naturalFromInteger# (naturalToInteger left - naturalToInteger right)
+{-# NOINLINE naturalSubLarge #-}
+
+-- | The product of two naturals is never negative, thus the conversion back
+-- needs no sign check.
+naturalMulLarge :: Natural -> Natural -> Natural
+naturalMulLarge left right = naturalFromInteger# (naturalToInteger left * naturalToInteger right)
+{-# NOINLINE naturalMulLarge #-}
 
 instance Real Natural where
   toRational value = toRational (naturalToInteger value)
