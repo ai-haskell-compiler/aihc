@@ -206,7 +206,7 @@ specialiseLoop env (Bind binder rhs) body =
   case shape of
     Nothing -> pure Nothing
     Just (tyBinders, valueBinders, inner, arrows, result, candidates) -> do
-      copyName <- freshLocal ("$s" <> nameText name)
+      copyName <- freshLocal (derivedLocalText "$s" (nameText name))
       positions <- traverse (\(index, (param, con, arguments, fields)) -> (index,) <$> position param con arguments fields) candidates
       let loopWith selected =
             Loop

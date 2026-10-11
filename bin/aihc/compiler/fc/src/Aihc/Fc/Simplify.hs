@@ -89,7 +89,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM)
 import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
 import Data.Bifunctor (first)
-import Data.Either (lefts, rights)
+import Data.Either (isLeft, lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -178,12 +178,13 @@ isKnownConstructor arities expr =
         _ -> False
 
 -- | A body that can be inlined: a function, which is inlined at a call
--- that gives it an argument, or a trivial value. A constructor
+-- that gives it an argument, a function under a cast, which is inlined
+-- at a call that casts it back, or a trivial value. A constructor
 -- application is not inlined as a value: a case on it selects a field
 -- through 'knownConstructor' instead, and a copy at any other site only
 -- allocates what the shared value already holds.
 isInlinable :: Expr -> Bool
-isInlinable body = functionArity body > 0 || isTrivial body
+isInlinable body = functionArity body > 0 || isTrivial body || isCastedFunction body
 
 -- | An expression that does no work when it is evaluated: a literal, a
 -- variable, a lambda, or a constructor or partial application of cheap
@@ -531,6 +532,15 @@ simplifyExpr env expr =
       floated <- floatPrimitiveArgument env call types arguments'
       case floated of
         Just result -> pure result
+        -- @runRW#@ applies its function to the state token. A function
+        -- that does not use the token runs no effect of its own, so the
+        -- call is its body.
+        Nothing
+          | foreignCallConvention call == Prim,
+            nameText (foreignCallName call) == "runRW#",
+            [ExLam token body] <- arguments',
+            unused (binderName token) body ->
+              pure body
         Nothing -> do
           let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
           pure (maybe call' ExVar (Map.lookup call' (spCse env)))
@@ -1392,8 +1402,12 @@ tailsKnownIn env arities expr =
 -- this rule admits.
 takesArgument :: Simpl -> Candidate -> [Arg] -> Bool
 takesArgument env candidate args =
-  count >= functionArity (candidateBody candidate)
-    || (count > 0 && any interesting valueArgs)
+  -- A function under a cast is copied only where a use casts it back,
+  -- see 'castedFunction': a copy of the value elsewhere is a closure.
+  not (isCastedFunction (candidateBody candidate))
+    && ( count >= functionArity (candidateBody candidate)
+           || (count > 0 && any interesting valueArgs)
+       )
   where
     valueArgs = rights args
     count = length valueArgs
@@ -1713,46 +1727,70 @@ rebuildCall env headExpr' args' = do
     _ | Just rewritten <- fired -> simplifyExpr env rewritten
     ExVar name
       | Just candidate <- Map.lookup name (spInline env),
-        takesArgument env candidate args' -> do
-          let original = rebuildSpine headExpr' args'
-              reduction = siteReduction env candidate args'
-              -- A site in the tail of a copy made in the scrutinee of a
-              -- case: that case takes the result of this copy apart too.
-              discount = maybe 0 (resultDiscount env candidate) (spCaseContext env)
-          verdict <- decideSite env candidate reduction (estimateGrowth env candidate args' reduction - discount)
-          case verdict of
-            Nothing -> pure original
-            Just charge -> do
-              before <- get
-              result <- inlineCandidate env name candidate args'
-              paid <- gets (nestedPaid before)
-              recordSite charge paid (exprSize (spEnv env) result - exprSize (spEnv env) original - callDiscount env candidate args' - discount)
-              pure result
+        takesArgument env candidate args' ->
+          inlineSite env name candidate (rebuildSpine headExpr' args') args'
+    -- A candidate whose body is a function under a cast, such as an @IO@
+    -- action, is called under the symmetric cast:
+    -- @(stdoutHandle ▷ co) s@. The two casts cancel, and the function
+    -- under the cast is the candidate at this site.
+    ExCast castHead coercion
+      | not (null args'),
+        (ExVar name, typeArgs) <- collectSpine castHead,
+        all isLeft typeArgs,
+        Just candidate <- Map.lookup name (spInline env),
+        Just function <- castedFunction (lefts typeArgs) coercion (candidateBody candidate),
+        let candidate' = candidate {candidateBody = function, candidateGuidanceOf = candidateGuidance (spEnv env) (spArity env) function},
+        takesArgument env candidate' args' ->
+          inlineSite env name candidate' (rebuildSpine headExpr' args') args'
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
+    -- A let, a case or a recursive group in the head of an application
+    -- takes the arguments into its body: @(let x = e in λy. b) a@ is
+    -- @let x = e in b[y := a]@. An argument that is not trivial is bound
+    -- once in front of the head first, so that the arguments that move are
+    -- variables. See 'bindHeadArguments'.
+    ExLet {}
+      | not (null args'),
+        not (all (either (const True) (copiable env)) args') ->
+          bindHeadArguments env headExpr' args'
+    ExCase {}
+      | not (null args'),
+        not (all (either (const True) (copiable env)) args') ->
+          bindHeadArguments env headExpr' args'
+    ExRec {}
+      | not (null args'),
+        not (all (either (const True) (copiable env)) args') ->
+          bindHeadArguments env headExpr' args'
     -- A let in the head of an application is a let around the
     -- application: the binding is evaluated as often as before, and the
     -- arguments move under it once each. Rebuilding the let with 'mkLet'
     -- gives the binding a fresh chance to move to its use, because the
     -- application may have taken it out of a lambda.
     ExLet bind body
-      | not (null args'),
-        all (either (const True) (unused (binderName (bindBinder bind)))) args' -> do
-          inner <- simplifyApp env body args'
-          mkLet env bind inner
+      | not (null args') ->
+          if all (either (const True) (unused (binderName (bindBinder bind)))) args'
+            then do
+              inner <- simplifyApp env body args'
+              mkLet env bind inner
+            else do
+              fresh <- freshenExpr headExpr'
+              rebuildCall env fresh args'
     ExCase scrutinee binder alternatives
-      | not (null args'),
-        all (either (const True) (copiable env)) args' -> do
+      | not (null args') -> do
           -- The arguments are trivial, so a copy in each alternative costs
           -- no work. The alternative binders are distinct from every name
           -- in scope, so the copies capture nothing.
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp (alternativeEnv env scrutinee binder (NE.toList alternatives) alternative) (altRhs alternative) args') alternatives
           pure (mkCase (spEnv env) scrutinee binder alternatives')
     ExRec binds body
-      | not (null args'),
-        all (either (const True) (\argument -> all ((`unused` argument) . binderName . bindBinder) binds)) args' -> do
-          inner <- simplifyApp env body args'
-          pure (ExRec binds inner)
+      | not (null args') ->
+          if all (either (const True) (\argument -> all ((`unused` argument) . binderName . bindBinder) binds)) args'
+            then do
+              inner <- simplifyApp env body args'
+              pure (ExRec binds inner)
+            else do
+              fresh <- freshenExpr headExpr'
+              rebuildCall env fresh args'
     -- A cast on a case, a let or a recursive group in the head of an
     -- application moves into the branches, and the application follows
     -- it there. The lowered code erases the cast, and a call in a branch
@@ -1764,11 +1802,91 @@ rebuildCall env headExpr' args' = do
         Just pushed <- castIntoBranches (spEnv env) inner coercion -> do
           pushed' <- pushed
           rebuildApp env pushed' args'
-    _ -> do
-      speculated <- speculateArguments env headExpr' args'
-      case speculated of
-        Just result -> pure result
-        Nothing -> bindApplication env headExpr' args'
+    _ -> rebuildOther env headExpr' args'
+
+-- | Rebuild an application whose head no rewrite takes: speculate its
+-- cheap cases, and bind its lazy primitive arguments.
+rebuildOther :: Simpl -> Expr -> [Arg] -> SimplM Expr
+rebuildOther env headExpr' args' = do
+  speculated <- speculateArguments env headExpr' args'
+  case speculated of
+    Just result -> pure result
+    Nothing -> bindApplication env headExpr' args'
+
+-- | Decide a site of a candidate, and put a copy in place when the site
+-- is taken. The original is the application as it stands.
+inlineSite :: Simpl -> Name -> Candidate -> Expr -> [Arg] -> SimplM Expr
+inlineSite env name candidate original args' = do
+  let reduction = siteReduction env candidate args'
+      -- A site in the tail of a copy made in the scrutinee of a
+      -- case: that case takes the result of this copy apart too.
+      discount = maybe 0 (resultDiscount env candidate) (spCaseContext env)
+  verdict <- decideSite env candidate reduction (estimateGrowth env candidate args' reduction - discount)
+  case verdict of
+    Nothing -> pure original
+    Just charge -> do
+      before <- get
+      result <- inlineCandidate env name candidate args'
+      paid <- gets (nestedPaid before)
+      recordSite charge paid (exprSize (spEnv env) result - exprSize (spEnv env) original - callDiscount env candidate args' - discount)
+      pure result
+
+-- | The function under the cast of a body, at the given type arguments,
+-- when the given coercion undoes that cast. A body such as
+-- @Λa. (λs. e) ▷ sym co@ is a function that wears a cast, and a use
+-- @(f \@t ▷ co[t]) s@ calls the function itself.
+castedFunction :: [Type] -> Coercion -> Expr -> Maybe Expr
+castedFunction types coercion body =
+  case (body, types) of
+    (ExTyLam binder inner, ty : rest) -> castedFunction rest coercion (substTypeExpr (Map.singleton (binderName binder) ty) inner)
+    (ExCast function bodyCoercion, [])
+      | cancelsCoercion bodyCoercion coercion,
+        functionArity function > 0 ->
+          Just function
+    _ -> Nothing
+
+-- | Whether a body is a function under a cast, under its type lambdas.
+-- See 'castedFunction'.
+isCastedFunction :: Expr -> Bool
+isCastedFunction body =
+  case body of
+    ExTyLam _ inner -> isCastedFunction inner
+    ExCast function _ -> functionArity function > 0
+    _ -> False
+
+-- | Bind each argument of an application that is not trivial by a let in
+-- front of the head, and rebuild the application with the binders.
+-- 'rebuildCall' then takes the variables into the body of a let, a case
+-- or a recursive group in the head, where a lambda receives them.
+--
+-- A lifted argument is a thunk in both forms. An unlifted argument is
+-- evaluated before the call; a strict let evaluates it before the head,
+-- which is the same when the argument is a primitive call that cannot
+-- fail and has no effect. Any other unlifted argument keeps the
+-- application as it is.
+bindHeadArguments :: Simpl -> Expr -> [Arg] -> SimplM Expr
+bindHeadArguments env headExpr args = do
+  bound <- mapM bindArgument args
+  case sequence bound of
+    Nothing -> rebuildOther env headExpr args
+    Just pairs -> do
+      let binds = concatMap fst pairs
+          inner = List.foldl' (\scope bind -> bindingEnv scope (bindBinder bind) (bindRhs bind)) env binds
+      body <- rebuildCall inner headExpr (map snd pairs)
+      foldM (flip (mkLet env)) body (reverse binds)
+  where
+    bindArgument arg =
+      case arg of
+        Right value
+          | not (copiable env value),
+            Just ty <- exprType (spEnv env) value ->
+              if isLiftedType (spEnv env) ty || isJust (safePrimitiveCall (spEnv env) value)
+                then do
+                  name <- freshLocal (Name "argument" SortValue (OriginLocal (Unique 0)))
+                  pure (Just ([Bind (Binder name ty) value], Right (ExVar name)))
+                else pure Nothing
+          | not (copiable env value) -> pure Nothing
+        _ -> pure (Just ([], arg))
 
 -- | Move the chain of an argument that the call evaluates out of the
 -- call: @f (let! K x = s; e)@ is @let! K x = s; f e@. This is the strict
@@ -1858,10 +1976,13 @@ castIntoBranches env inner coercion =
 -- | Whether an argument can stand in several alternatives at no cost: a
 -- trivial expression that is not a binder whose one use takes a copy of
 -- its right-hand side, because each occurrence of such a binder becomes
--- a copy of that right-hand side.
+-- a copy of that right-hand side, or the state token.
 copiable :: Simpl -> Expr -> Bool
 copiable env argument =
-  isTrivial argument && not (any (`Map.member` spDone env) (Set.toList (exprValueNames argument)))
+  (isTrivial argument && not (any (`Map.member` spDone env) (Set.toList (exprValueNames argument))))
+    -- Every call of @realWorld#@ gives the same token, so a copy costs
+    -- nothing.
+    || isStateToken argument
 
 -- | An application whose head is not copied, with the safe primitive calls
 -- in its lazy constructor arguments bound by strict lets first.
@@ -2009,10 +2130,20 @@ betaReduce env expr args =
       betaReduce env (substTypeExpr (Map.singleton (binderName binder) ty) body) rest
     (ExLam binder body, Right argument : rest)
       | isTrivial argument -> betaReduce env (substExpr (Map.singleton (binderName binder) argument) body) rest
+      | binderName binder `nameTextIs` "eta" -> do
+          -- An eta binder names a lambda that eta expansion made. A let
+          -- is not such a lambda, so the binding gets the argument name.
+          name <- freshLocal (binderName binder) {nameText = "argument"}
+          let binder' = binder {binderName = name}
+          betaReduce env (ExLam binder' (substExpr (Map.singleton (binderName binder) (ExVar name)) body)) (Right argument : rest)
       | otherwise -> do
           body' <- betaReduce (bindingEnv env binder argument) body rest
           mkLet env (Bind binder argument) body'
     _ -> simplifyExpr env (rebuildSpine expr args)
+
+-- | Whether a name has the text.
+nameTextIs :: Name -> Text -> Bool
+nameTextIs name text = nameText name == text
 
 -- | Build a cast on a simplified body.
 --

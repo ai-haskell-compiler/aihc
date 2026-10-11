@@ -34,8 +34,8 @@ expected: |-
 
   val 1.vunwrap :: tWrapped 3.→ tWrapped
     = λ($record : tWrapped).
-      let! cWrapped ($field0 : tWrapped) = $record;
-      $field0
+      let! cWrapped (unwrap : tWrapped) = $record;
+      unwrap
 
   pub val 1.v$mShown :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tWrapped 3.→ (FUN @sLiftedRep @rep tWrapped r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tWrapped) (y : FUN @sLiftedRep @rep tWrapped r)

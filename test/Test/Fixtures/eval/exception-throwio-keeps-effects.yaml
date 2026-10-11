@@ -1,0 +1,36 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import Control.Exception (Exception, catch, throwIO)
+    import Control.Concurrent.MVar (newMVar, putMVar, takeMVar, tryReadMVar)
+    import GHC.IO (IO (..))
+    import GHC.Prim (State#, RealWorld, realWorld#)
+
+    data Restored = Restored
+
+    instance Show Restored where
+      show Restored = "Restored"
+
+    instance Exception Restored
+
+    restoreThenThrow :: IO Bool
+    restoreThenThrow = do
+      box <- newMVar (1 :: Int)
+      value <- takeMVar box
+      (putMVar box (value + 1) >> throwIO Restored)
+        `catch` \Restored -> pure ()
+      contents <- tryReadMVar box
+      pure (contents == Just 2)
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+expression: |
+  case runIO restoreThenThrow realWorld# of
+    (# _, result #) -> result
+output: |
+  True
+status: pass
+reason: throwIO raises with raiseIO#, so the state token keeps the putMVar before the raise.

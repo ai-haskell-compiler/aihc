@@ -42,13 +42,13 @@ expected: |-
 
   pub val 1.vboxed :: FUN @cIntRep @sLiftedRep tInt# tInt
     = λ(x : tInt#).
-      vboxed$constant$0
+      v$int_7
 
   pub val 1.vunboxed :: FUN @cIntRep @(cTupleRep (c: tRuntimeRep cIntRep (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) tInt# (tTuple2# cIntRep cIntRep tInt# tInt#)
     = λ(x : tInt#).
       cTuple2# @cIntRep @cIntRep @tInt# @tInt# lit (1#cIntRep) :: tInt# lit (2#cIntRep) :: tInt#
 
-  val 1.vboxed$constant$0 noinline :: tInt
+  val 1.v$int_7 noinline :: tInt
     = cI# lit (7#cIntRep) :: tInt#
 status: pass
 reason: An unboxed tuple cannot become a top-level lazy constant.

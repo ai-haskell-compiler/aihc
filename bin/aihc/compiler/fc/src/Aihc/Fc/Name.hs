@@ -14,6 +14,7 @@ module Aihc.Fc.Name
     insertScope,
     scopeEntries,
     Vis (..),
+    derivedLocalText,
   )
 where
 
@@ -23,6 +24,7 @@ import Control.DeepSeq (NFData (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 
 -- | The sort of one name in the single namespace.
@@ -106,3 +108,20 @@ data Vis
   | Private
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
+
+-- | The text of a local function that a pass makes from another local
+-- function, such as a worker (@$w@) or a specialised copy (@$s@). The new
+-- text has only the prefix of the last pass. Thus a worker of the
+-- specialised copy of @go@ is @$wgo@, and not @$w$sgo@.
+derivedLocalText :: Text -> Text -> Text
+derivedLocalText prefix text = prefix <> base text
+  where
+    base current =
+      case [rest | derived <- ["$w", "$s"], Just rest <- [T.stripPrefix derived current], isDerivedBase rest] of
+        rest : _ -> base rest
+        [] -> current
+    -- Some names that the compiler makes also start with @$s@ or @$w@.
+    -- Such a name is not the result of an earlier pass.
+    isDerivedBase rest =
+      not (T.null rest)
+        && not (any (`T.isPrefixOf` rest) ["crutinee", "ith_dict"])

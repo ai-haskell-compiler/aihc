@@ -17,12 +17,12 @@ expected: |-
 
   global 1."$fArrow(->)$csecond" = (P1."$$fArrow(->)$csecond"/2)
 
-  1.$second ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$second ($dArrow :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    $method0 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($dArrow :: BoxedRep Lifted)
+    $csecond :: BoxedRep Lifted <-
       fetch (C1.$Dict$Arrow) (case_value :: BoxedRep Lifted)
-    eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($csecond :: BoxedRep Lifted)
 
   1."$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-

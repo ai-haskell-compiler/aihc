@@ -56,9 +56,9 @@ expected: |-
   }
 
   pub val 1.vmark :: ∀(a : sType). t$Dict$Markable a 3.→ a 3.→ tMark
-    = Λ(a : sType). λ($d0 : t$Dict$Markable a).
-      let! c$Dict$Markable ($method0 : a 3.→ tMark) = $d0;
-      $method0
+    = Λ(a : sType). λ($dMarkable : t$Dict$Markable a).
+      let! c$Dict$Markable ($cmark : a 3.→ tMark) = $dMarkable;
+      $cmark
 
   pub val 1.v$fMarkableBool :: t$Dict$Markable tBool
     = c$Dict$Markable @tBool v$fMarkableBool$cmark
@@ -75,18 +75,18 @@ expected: |-
   pub val 1.v$mTagged :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tBox 3.→ (∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tBox) (y : ∀(a : sType). t$Dict$Markable a 3.→ FUN @sLiftedRep @rep a r)
     (z : FUN @sLiftedRep @rep tUnit r).
-      let! cBox @(a : sType) ($pattern_d0 : t$Dict$Markable a) (_pat : tBool) (x{1} : a) = x;
+      let! cBox @(a : sType) ($dMarkable : t$Dict$Markable a) (_pat : tBool) (x{1} : a) = x;
       case _pat of {
         cTrue →
-          y @a $pattern_d0 x{1};
+          y @a $dMarkable x{1};
         _ →
           z c()
       }
 
   pub val 1.vinspect :: tBox 3.→ tMark
     = λ(x : tBox).
-      v$mTagged @sLiftedRep @tMark x (Λ(a : sType). λ($pattern_d0 : t$Dict$Markable a) (x{1} : a).
-        vmark @a $pattern_d0 x{1}) (λ(_pattern_failure : tUnit).
+      v$mTagged @sLiftedRep @tMark x (Λ(a : sType). λ($dMarkable : t$Dict$Markable a) (x{1} : a).
+        vmark @a $dMarkable x{1}) (λ(_pattern_failure : tUnit).
         cPlain)
 status: pass
 reason: The matcher of a pattern synonym over an existential constructor takes a continuation that binds the type variable and the dictionary.

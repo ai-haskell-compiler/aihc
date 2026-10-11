@@ -1,6 +1,7 @@
 -- | Drop the declarations of a System FC program that nothing reaches.
 module Aihc.Fc.Prune
   ( pruneProgram,
+    dropRules,
   )
 where
 
@@ -101,6 +102,20 @@ pruneProgram roots program =
           axiomRole declaration == Nominal,
           Just family <- [typeHead (axiomLeft declaration)]
         ]
+
+-- | Remove every rewrite rule from a program.
+--
+-- Use this function only on a whole program after its last pass. Then no
+-- pass can fire a rule, but each rule that stays keeps the values of its
+-- right-hand side, and 'pruneProgram' cannot remove them. A module must
+-- keep its rules, because the modules that import it can fire them.
+dropRules :: Program -> Program
+dropRules program = program {programDecls = filter (not . isRule) (programDecls program)}
+  where
+    isRule decl =
+      case decl of
+        DeclRule {} -> True
+        _ -> False
 
 binderReferences :: Binder -> Set Name
 binderReferences = typeReferences . binderType
