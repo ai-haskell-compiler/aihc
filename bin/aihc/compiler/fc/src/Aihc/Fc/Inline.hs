@@ -37,6 +37,7 @@ module Aihc.Fc.Inline
 where
 
 import Aihc.Fc.Demand (Signatures, topLevelSignatures)
+import Aihc.Fc.Diverge (Diverging, divergingValues)
 import Aihc.Fc.Facts (emptyFacts)
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (pruneImports)
@@ -376,6 +377,7 @@ inlineRound config st0 = List.foldl' step st0 sccs
     graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
     sccs = stronglyConnComp graph
     known = knownValues st0
+    diverging = divergingValues (inEnv st0) (Map.toList (inBodies st0))
     recursive = Set.fromList (concat [names | CyclicSCC names <- sccs])
     -- The uses that the copies of the templates add. A template is copied
     -- at every call in the phases its pragma names, so a use inside it is
@@ -391,8 +393,8 @@ inlineRound config st0 = List.foldl' step st0 sccs
         ]
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config known recursive inTemplates st name
-        CyclicSCC names -> List.foldl' (simplifyValue config known recursive inTemplates) st names
+        AcyclicSCC name -> simplifyValue config known diverging recursive inTemplates st name
+        CyclicSCC names -> List.foldl' (simplifyValue config known diverging recursive inTemplates) st names
 
 -- | Whether a value is a template: its @INLINE@ pragma asks for a copy at
 -- every call in the phases it names, so its body is what every call gets.
@@ -403,8 +405,8 @@ isTemplate st name =
     _ -> False
 
 -- | Simplify one body with the candidates it references.
-simplifyValue :: InlineConfig -> Map Name Expr -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
-simplifyValue config known recursive inTemplates st name
+simplifyValue :: InlineConfig -> Map Name Expr -> Diverging -> Set Name -> Map Name Int -> Inliner -> Name -> Inliner
+simplifyValue config known diverging recursive inTemplates st name
   | name `Set.member` inDead st = st
   | otherwise =
       case Map.lookup name (inBodies st) of
@@ -424,6 +426,9 @@ simplifyValue config known recursive inTemplates st name
                   | callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
+                    -- A copy of a value that diverges only brings the code
+                    -- of its error into the caller.
+                    callee `Map.notMember` diverging,
                     let spec = Map.findWithDefault InlineDefault callee (inSpecs st),
                     inliningAllowed (inlinePhase config) spec,
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
@@ -476,7 +481,8 @@ simplifyValue config known recursive inTemplates st name
                             spSpeculative = False,
                             spCaseContext = Nothing,
                             spLocalCandidates = Map.empty,
-                            spFacts = emptyFacts
+                            spFacts = emptyFacts,
+                            spDiverging = diverging
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less

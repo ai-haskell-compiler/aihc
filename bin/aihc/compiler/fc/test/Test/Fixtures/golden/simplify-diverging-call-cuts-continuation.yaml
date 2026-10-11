@@ -1,0 +1,108 @@
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (pick, check) where
+
+  import GHC.Prim (Int#, raise#, (+#))
+  import GHC.Types (Int (..))
+
+  data Pair = Pair Int Int
+
+  data Message = Message Int Int Int Int
+
+  boom :: a
+  boom = raise# (I# 0#)
+  {-# NOINLINE boom #-}
+
+  failWith :: Message -> a
+  failWith message = raise# message
+
+  plus :: Int -> Int -> Int
+  plus (I# x) (I# y) = I# (x +# y)
+  {-# NOINLINE plus #-}
+
+  pick :: Int# -> Int
+  pick x = case x of
+    0# -> case (boom :: Pair) of
+      Pair _ (I# y) -> I# (y +# 1#)
+    _ -> I# x
+
+  check :: Int -> Int -> Int
+  check a b = case a of
+    I# 0# -> failWith (Message a b (plus a b) (plus b (plus a b)))
+    _ -> b
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    raise# = 2.vraise# :: ∀(r : tRuntimeRep) (a{1} : sType) (b : tTYPE r). FUN @sLiftedRep @r a{1} b
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  type 1.tPair :: sType {
+    pub 1.cPair :: tInt 3.→ tInt 3.→ tPair
+  }
+
+  type 1.tMessage :: sType {
+    pub 1.cMessage :: tInt 3.→ tInt 3.→ tInt 3.→ tInt 3.→ tMessage
+  }
+
+  val 1.vboom noinline :: ∀(a : sType). a
+    = Λ(a : sType).
+      prim raise# @(cBoxedRep cLifted) @tInt @a (cI# lit (0#cIntRep) :: tInt#)
+
+  val 1.vfailWith :: ∀(a : sType). tMessage 3.→ a
+    = Λ(a : sType). λ(x : tMessage).
+      prim raise# @(cBoxedRep cLifted) @tMessage @a x
+
+  val 1.vplus noinline :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      let! cI# (y{1} : tInt#) = y;
+      cI# (prim +# x{1} y{1})
+
+  pub val 1.vpick :: FUN @cIntRep @sLiftedRep tInt# tInt
+    = λ(x : tInt#).
+      case x of {
+        0#cIntRep →
+          vboom @tInt;
+        _ →
+          cI# x
+      }
+
+  pub val 1.vcheck :: tInt 3.→ tInt 3.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (_pat : tInt#) = x;
+      case _pat of {
+        0#cIntRep →
+          vcheck$error$0 @tInt x y;
+        _ →
+          y
+      }
+
+  val 1.vcheck$error$0 noinline :: ∀(error_result : tTYPE (cBoxedRep cLifted)). FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt error_result)
+    = Λ(error_result : tTYPE (cBoxedRep cLifted)). λ(x : tInt) (y : tInt).
+      vfailWith @error_result (cMessage x y (vplus x y) (vplus y (vplus x y)))
+status: pass
+reason: A case of a call that always raises is the call at the type of the case. A large call that always raises moves into a private top-level function.
