@@ -48,19 +48,19 @@ expected: |-
     = λ(x : tInt) (y : tInt).
       let! cI# (n : tInt#) = x;
       let! cI# (m : tInt#) = y;
-      let field : tInt# =
+      let argument : tInt# =
         prim quotInt# n lit (6#cIntRep) :: tInt#;
       case prim <# m lit (0#cIntRep) :: tInt# of {
         1#cIntRep →
-          cI# (prim <# field lit (1#cIntRep) :: tInt#);
+          cI# (prim <# argument lit (1#cIntRep) :: tInt#);
         _ →
           case prim <# m lit (5#cIntRep) :: tInt# of {
             1#cIntRep →
-              cI# field;
+              cI# argument;
             _ →
-              cI# (prim <# field lit (2#cIntRep) :: tInt#)
+              cI# (prim <# argument lit (2#cIntRep) :: tInt#)
           }
       }
 status: pass
 lint: pass
-reason: A lazy box of a division by a literal is read in every branch. The walk that checks that the body evaluates the box first must know the types of the lets in front of a case, so it binds the division and the case of a known constructor removes the box.
+reason: A lazy box of a division by a literal is read in every branch. The divisor is not zero and not minus one, so the division cannot fail. A strict let binds the division in front of the box, and the case of a known constructor removes the box.
