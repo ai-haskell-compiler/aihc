@@ -2,6 +2,7 @@ modules:
   - |
     module Test where
 
+    import Control.Exception (ArithException, evaluate, try)
     import Data.Bits (popCount, shiftL, shiftR, (.&.))
     import Numeric.Natural (Natural, minusNaturalMaybe)
     import Prelude
@@ -25,6 +26,15 @@ modules:
       print (shiftL (1 :: Natural) 64)
       print (18446744073709551616 .&. (18446744073709551615 :: Natural))
       print ([1 .. 5] :: [Natural])
+      -- Two small values add, subtract and multiply with word primops.
+      print (fromIntegral (maxBound :: Word) :: Natural, fromIntegral (7 :: Word) :: Natural)
+      print (3 * 4 + 5 - 2 :: Natural, 18446744073709551615 * 18446744073709551615 :: Natural)
+      print (18446744073709551616 + 18446744073709551616 :: Natural, 18446744073709551616 * 2 :: Natural)
+      print (36893488147419103232 - 18446744073709551616 :: Natural, 18446744073709551617 - 2 :: Natural)
+      small <- try (evaluate (3 - 5 :: Natural)) :: IO (Either ArithException Natural)
+      print small
+      large <- try (evaluate (5 - 18446744073709551616 :: Natural)) :: IO (Either ArithException Natural)
+      print large
 stdout: |
   18446744073709551616
   18446744073709551615
@@ -40,6 +50,12 @@ stdout: |
   18446744073709551616
   0
   [1,2,3,4,5]
+  (18446744073709551615,7)
+  (15,340282366920938463426481119284349108225)
+  (36893488147419103232,36893488147419103232)
+  (18446744073709551616,18446744073709551615)
+  Left arithmetic underflow
+  Left arithmetic underflow
 output: |
   ()
 expression: main
