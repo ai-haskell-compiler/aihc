@@ -67,12 +67,8 @@ expected: |-
   pub val 1.vcheck :: tInt 3.→ tInt 3.→ tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (i : tInt#) = vcount x;
-      let argument : tInt# =
-        prim +# i i;
       let! cI# (i{1} : tInt#) = vcount y;
-      let argument{1} : tInt# =
-        prim +# i{1} i{1};
-      cI# (prim -# argument argument{1})
+      cI# (prim -# (prim +# i i) (prim +# i{1} i{1}))
 status: pass
 reason: >-
   The demand pass evaluates each strict argument in a case.

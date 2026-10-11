@@ -1,0 +1,123 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test (make) where
+  import GHC.Prim (State#, RealWorld, MutVar#, newMutVar#)
+  import GHC.Types (Bool (..), Int (..))
+
+  data Mode = Line | Block | None
+  data Ref = Ref (MutVar# RealWorld Int)
+  data H = H Ref Mode Ref Ref Ref
+
+  newIntRef :: Int -> State# RealWorld -> (# State# RealWorld, Ref #)
+  newIntRef v s = case newMutVar# v s of
+    (# s1, r #) -> (# s1, Ref r #)
+
+  getBuf :: Bool -> State# RealWorld -> (# State# RealWorld, Ref, Mode #)
+  getBuf t s = case newIntRef (I# 1#) s of
+    (# s1, r #) -> case t of
+      True -> (# s1, r, Line #)
+      False -> (# s1, r, Block #)
+
+  unBuf :: State# RealWorld -> (# State# RealWorld, Ref, Mode #)
+  unBuf s = case newIntRef (I# 2#) s of
+    (# s1, r #) -> (# s1, r, None #)
+
+  make :: Bool -> Bool -> State# RealWorld -> (# State# RealWorld, H #)
+  make buffered t s0 = case newIntRef (I# 0#) s0 of
+    (# s1, byteRef #) -> case (case buffered of
+        True -> getBuf t s1
+        False -> unBuf s1) of
+      (# s2, charRef, mode #) -> case newIntRef (I# 3#) s2 of
+        (# s3, spares #) -> case newIntRef (I# 4#) s3 of
+          (# s4, other #) -> (# s4, H byteRef mode charRef spares other #)
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    newMutVar# = 2.vnewMutVar# :: ∀(a : sType) (d : sType). a 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# d) (tMutVar# d a))
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tMutVar# :: ∀(d : sType) (a : sType). tTYPE sUnliftedRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    constructors [3.cTuple3#] 3.tTuple3# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (r3 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2) (a3 : tTYPE r3). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c: tRuntimeRep r3 (c[] tRuntimeRep)))));
+    3.sType :: sType;
+    3.sUnliftedRep :: tRuntimeRep;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    unboxed-tuple 3.cTuple3# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (r3 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2) (a3 : tTYPE r3). FUN @r1 @sLiftedRep a1 (FUN @r2 @sLiftedRep a2 (FUN @r3 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c: tRuntimeRep r3 (c[] tRuntimeRep))))) a3 (tTuple3# r1 r2 r3 a1 a2 a3)));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cUnlifted :: tLevity;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep;
+    3.sUnliftedRep = cBoxedRep cUnlifted
+
+  type 1.tMode :: sType {
+    1.cLine :: tMode;
+    1.cBlock :: tMode;
+    1.cNone :: tMode
+  }
+
+  type 1.tRef :: sType {
+    pub 1.cRef :: FUN @sUnliftedRep @sLiftedRep (tMutVar# tRealWorld tInt) tRef
+  }
+
+  type 1.tH :: sType {
+    pub 1.cH :: tRef 3.→ tMode 3.→ tRef 3.→ tRef 3.→ tRef 3.→ tH
+  }
+
+  pub val 1.vmake :: tBool 3.→ tBool 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tH)
+    = λ(x : tBool) (y : tBool) (z : tState# tRealWorld).
+      let! cTuple2# (s1 : tState# tRealWorld) (r : tMutVar# tRealWorld tInt) =
+        prim newMutVar# @tInt @tRealWorld (cI# lit (0#cIntRep) :: tInt#) z;
+      let! cTuple3# (s2 : tState# tRealWorld) (charRef : tRef) (mode : tMode) =
+        case x of {
+          cTrue →
+            let! cTuple2# (s1{1} : tState# tRealWorld) (r{1} : tMutVar# tRealWorld tInt) =
+              prim newMutVar# @tInt @tRealWorld (cI# lit (1#cIntRep) :: tInt#) s1;
+            let r{2} : tRef =
+              cRef r{1};
+            case y of {
+              cTrue →
+                cTuple3# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @sLiftedRep @(tState# tRealWorld) @tRef @tMode s1{1} r{2} cLine;
+              cFalse →
+                cTuple3# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @sLiftedRep @(tState# tRealWorld) @tRef @tMode s1{1} r{2} cBlock
+            };
+          cFalse →
+            let! cTuple2# (s1{1} : tState# tRealWorld) (r{1} : tMutVar# tRealWorld tInt) =
+              prim newMutVar# @tInt @tRealWorld (cI# lit (2#cIntRep) :: tInt#) s1;
+            cTuple3# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @sLiftedRep @(tState# tRealWorld) @tRef @tMode s1{1} (cRef r{1}) cNone
+        };
+      let! cTuple2# (s1{1} : tState# tRealWorld) (r{1} : tMutVar# tRealWorld tInt) =
+        prim newMutVar# @tInt @tRealWorld (cI# lit (3#cIntRep) :: tInt#) s2;
+      let! cTuple2# (s1{2} : tState# tRealWorld) (r{2} : tMutVar# tRealWorld tInt) =
+        prim newMutVar# @tInt @tRealWorld (cI# lit (4#cIntRep) :: tInt#) s1{1};
+      cTuple2# @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep @(tState# tRealWorld) @tH s1{2} (cH (cRef r) mode charRef (cRef r{1}) (cRef r{2}))
+status: pass
+reason: A case of a case whose inner tails select no outer alternative stays a strict let. The continuation of the let is not copied into the inner branches.

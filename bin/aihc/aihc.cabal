@@ -173,6 +173,8 @@ library
     Aihc.Fc.Cse
     Aihc.Fc.Demand
     Aihc.Fc.Desugar
+    Aihc.Fc.Equivalence
+    Aihc.Fc.Facts
     Aihc.Fc.Fold
     Aihc.Fc.Imports
     Aihc.Fc.Inline
@@ -193,6 +195,7 @@ library
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf
+    Aihc.Fc.Unroll
     Aihc.Fc.Views
     Aihc.Fc.Wired
     Aihc.Fc.WorkerWrapper

@@ -1,0 +1,156 @@
+---
+extensions:
+- MagicHash
+- BangPatterns
+modules:
+- |
+  module Test (pick, force, forceCall, mkPair, use, Pair (..), D (..)) where
+
+  import GHC.Prim ((*#), (+#), (<#), quotInt#)
+  import GHC.Types (Int (..))
+
+  data Pair = Pair !Int !Int
+
+  data D = D Int (Int -> Int)
+
+  -- A lazy box of a division by a literal, read inside a lambda.
+  pick :: Int -> Int -> Int -> Int
+  pick (I# n) (I# m) =
+    let quotient = I# (quotInt# n 6#)
+     in case m of
+          0# -> \(I# k) -> case quotient of I# y -> I# (y +# k)
+          _ -> \_ -> quotient
+
+  -- A forced variable that the body takes apart later.
+  force :: Int -> Int -> Int
+  force !x (I# b) = case b <# 0# of
+    1# -> I# b
+    _ -> case x of I# a -> I# (a +# b)
+
+  -- A forced call result that the body takes apart later.
+  forceCall :: Int -> Int -> Int
+  forceCall x (I# b) = case expensive x of
+    !y -> case b <# 0# of
+      1# -> I# b
+      _ -> case y of I# a -> I# (a +# b)
+
+  -- A strict field of a constructor application.
+  mkPair :: Int -> Pair
+  mkPair n = Pair (I# 3#) n
+
+  expensive :: Int -> Int
+  expensive (I# x) = I# (x *# x)
+  {-# NOINLINE expensive #-}
+
+  table :: D
+  table = D (expensive 3) (\(I# x) -> I# (x +# 1#))
+
+  -- A top-level constructor with a field that is not a cheap value.
+  use :: Int -> Int
+  use x = case table of D _ f -> f x
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Prim.Integer
+  scope 4 = "aihc-prim" GHC.Prim.Num
+  scope 5 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    quotInt# = 2.vquotInt# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [4.c$Dict$Num] 4.t$Dict$Num :: ∀(a : sType). sType;
+    constructors [5.cI#] 5.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cIS, 3.cIP, 3.cIN] 3.tInteger :: sType;
+    constructors [5.cLifted, 5.cUnlifted] 5.tLevity :: sType;
+    5.sLiftedRep :: tRuntimeRep;
+    constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: sType;
+    5.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    5.sType :: sType;
+    4.v$fNumInt :: t$Dict$Num tInt;
+    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
+    5.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
+    5.cIntRep :: tRuntimeRep;
+    5.cLifted :: tLevity;
+    4.vfromInteger :: ∀(a : sType). t$Dict$Num a 5.→ tInteger 5.→ a
+
+  import synonyms
+    5.sLiftedRep = cBoxedRep cLifted;
+    5.sType = tTYPE sLiftedRep
+
+  pub type 1.tPair :: sType {
+    pub strict [0, 1] 1.cPair :: tInt 5.→ tInt 5.→ tPair
+  }
+
+  pub type 1.tD :: sType {
+    pub 1.cD :: tInt 5.→ (tInt 5.→ tInt) 5.→ tD
+  }
+
+  pub val 1.vpick :: tInt 5.→ tInt 5.→ tInt 5.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (n : tInt#) = x;
+      let! cI# (m : tInt#) = y;
+      let argument : tInt# =
+        prim quotInt# n lit (6#cIntRep) :: tInt#;
+      case m of {
+        0#cIntRep →
+          λ(x{1} : tInt).
+            let! cI# (k : tInt#) = x{1};
+            cI# (prim +# argument k);
+        _ →
+          let quotient : tInt =
+            cI# argument;
+          λ(_pat : tInt).
+            quotient
+      }
+
+  pub val 1.vforce :: tInt 5.→ tInt 5.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      case prim <# b lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cI# b;
+        _ →
+          cI# (prim +# a b)
+      }
+
+  pub val 1.vforceCall :: tInt 5.→ tInt 5.→ tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (b : tInt#) = y;
+      let! cI# (a : tInt#) = vexpensive x;
+      case prim <# b lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cI# b;
+        _ →
+          cI# (prim +# a b)
+      }
+
+  pub val 1.vmkPair :: tInt 5.→ tPair
+    = λ(x : tInt).
+      let! _ = x;
+      cPair (cI# lit (3#cIntRep) :: tInt#) x
+
+  val 1.vexpensive noinline :: tInt 5.→ tInt
+    = λ(x : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      cI# (prim *# x{1} x{1})
+
+  val 1.vtable :: tD
+    = cD (vexpensive (vfromInteger @tInt v$fNumInt (cIS lit (3#cIntRep) :: tInt#))) (λ(x : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      cI# (prim +# x{1} lit (1#cIntRep) :: tInt#))
+
+  pub val 1.vuse :: tInt 5.→ tInt
+    = λ(x : tInt).
+      let! cI# (x{1} : tInt#) = x;
+      cI# (prim +# x{1} lit (1#cIntRep) :: tInt#)
+status: pass
+reason: The simplifier knows the constructor behind a lazy box of a safe division, behind a forced variable or call, and behind a top-level value whose unused field is not a cheap value. A case that only evaluates a constructor application is a let.

@@ -1,0 +1,36 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ArithException, evaluate, try)
+    import GHC.Natural (Natural (..), BigNat (..), powModNatural)
+    import GHC.Num.BigNat (bigNatFromWord2#, bigNatSize#)
+    import GHC.Types (Int (..), Word (..))
+    import Prelude
+
+    classify :: Natural -> Int
+    classify NatS#{} = 0
+    classify (NatJ# (BN# magnitude)) = I# (bigNatSize# magnitude)
+
+    main :: IO ()
+    main = do
+      print (NatS# 7##, NatJ# (BN# (bigNatFromWord2# 1## 2##)))
+      print (map classify [0, 7, 18446744073709551616])
+      print (powModNatural 4 13 497)
+      print (powModNatural 18446744073709551616 2 18446744073709551617)
+      print (powModNatural 7 0 13, powModNatural 7 0 1, powModNatural 0 3 13)
+      result <- try (evaluate (powModNatural 2 10 0)) :: IO (Either ArithException Natural)
+      print result
+stdout: |
+  (7,18446744073709551618)
+  [0,0,2]
+  445
+  1
+  (1,0,0)
+  Left divide by zero
+expression: main
+output: |
+  ()
+status: pass
