@@ -91,8 +91,6 @@ expected: |-
   pub val 1.vtotal :: FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#))
     = λ(x : tInt#) (y : tState# tRealWorld).
       let! cTuple2# (component : tState# tRealWorld) (field : tInt#) = v$wsumTo x lit (0#cIntRep) :: tInt# y;
-      let _pat : tInt =
-        cI# field;
       case x of {
         0#cIntRep →
           cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# component field;

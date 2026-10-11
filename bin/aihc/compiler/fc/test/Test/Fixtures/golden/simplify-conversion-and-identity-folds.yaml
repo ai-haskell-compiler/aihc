@@ -92,8 +92,7 @@ expected: |-
 
   pub val 1.vroundTrip :: tWord 3.→ tWord
     = λ(x : tWord).
-      let! cW# (w : tWord#) = x;
-      cW# w
+      x
 
   pub val 1.vnarrowWidened :: tWord 3.→ tWord
     = λ(x : tWord).
