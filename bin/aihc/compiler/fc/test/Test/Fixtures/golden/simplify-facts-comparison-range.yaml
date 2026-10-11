@@ -1,0 +1,127 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (size, range, index, equal) where
+
+  import GHC.Prim ((<#), (==#), (>=#), compareInt#, Int#)
+  import GHC.Types (Int (..))
+
+  size :: Int# -> Int
+  size n = case n <# 0# of
+    1# -> I# 0#
+    _ -> case 0# <# n of
+      1# -> I# 1#
+      _ -> case n of
+        0# -> I# 2#
+        1# -> I# 3#
+        _ -> I# 4#
+
+  range :: Int# -> Int
+  range x = case x >=# 194# of
+    1# -> I# 0#
+    _ -> case x >=# 224# of
+      1# -> I# 1#
+      _ -> I# x
+
+  index :: Int# -> Int# -> Int
+  index i len = case i <# 0# of
+    1# -> I# 0#
+    _ -> case i >=# len of
+      1# -> I# 0#
+      _ -> case i <# 0# of
+        1# -> I# 1#
+        _ -> case i >=# len of
+          1# -> I# 1#
+          _ -> I# i
+
+  equal :: Int# -> Int# -> Int
+  equal x y = case x ==# y of
+    1# -> case x of
+      0# -> case y of
+        0# -> I# 0#
+        _ -> I# 1#
+      _ -> I# (compareInt# x y)
+    _ -> I# 2#
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    >=# = 2.v>=# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vsize :: FUN @cIntRep @sLiftedRep tInt# tInt
+    = λ(x : tInt#).
+      case prim <# x lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cI# lit (0#cIntRep) :: tInt#;
+        _ →
+          case prim <# lit (0#cIntRep) :: tInt# x of {
+            1#cIntRep →
+              cI# lit (1#cIntRep) :: tInt#;
+            _ →
+              cI# lit (2#cIntRep) :: tInt#
+          }
+      }
+
+  pub val 1.vrange :: FUN @cIntRep @sLiftedRep tInt# tInt
+    = λ(x : tInt#).
+      case prim >=# x lit (194#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cI# lit (0#cIntRep) :: tInt#;
+        _ →
+          cI# x
+      }
+
+  pub val 1.vindex :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
+    = λ(x : tInt#) (y : tInt#).
+      case prim <# x lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          cI# lit (0#cIntRep) :: tInt#;
+        _ →
+          case prim >=# x y of {
+            1#cIntRep →
+              cI# lit (0#cIntRep) :: tInt#;
+            _ →
+              cI# x
+          }
+      }
+
+  pub val 1.vequal :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
+    = λ(x : tInt#) (y : tInt#).
+      case prim ==# x y of {
+        1#cIntRep →
+          case x of {
+            0#cIntRep →
+              cI# lit (0#cIntRep) :: tInt#;
+            _ →
+              cI# lit (0#cIntRep) :: tInt#
+          };
+        _ →
+          cI# lit (2#cIntRep) :: tInt#
+      }
+status: pass
+reason: Each comparison gives a fact about its operands in each alternative. A later comparison of the same operands is decided, and a case on the variable keeps only the alternatives that the facts permit.

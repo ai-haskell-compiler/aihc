@@ -63,12 +63,7 @@ expected: |-
       let! cI# (x{1} : tInt#) = x;
       case x{1} of {
         0#cIntRep →
-          cI# (case x{1} of {
-            0#cIntRep →
-              x{1};
-            _ →
-              prim +# x{1} x{1}
-          });
+          cI# x{1};
         _ →
           cI# (prim +# x{1} (prim +# x{1} x{1}))
       }
