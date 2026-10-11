@@ -59,7 +59,7 @@ design.
 | Write barrier | Unchanged. The arena is one address range. | A generation test through the block descriptor. |
 | Safepoints for GC | The block refill, the scheduler calls, and idle capabilities. | `HpLim` in memory. A remote store forces the next heap check to fail. |
 | Context switch | At `aihc_lir_eval` on a thunk, at scheduler calls, and at `yield#`. A ticker sets a flag. | At every heap check, through `HpLim`. |
-| Garbage collection | STW. One capability collects. The other capabilities park. Parallel copy later. | STW parallel copy by default. |
+| Garbage collection | STW parallel copy. Every worker collects. A sequential instance without atomics serves one capability. | STW parallel copy by default. |
 | Old generation | Incremental marking in STW slices, as today. | Optional concurrent non-moving collector. |
 | Blackholing | Eager, with a plain store. No owner in the thunk. Waiters go to a global table. | Lazy by default. The owner is in the thunk. |
 | Thunk layout | Unchanged. No padding word. | One padding word in each thunk. |
@@ -328,16 +328,22 @@ allocates.
 
 ## Garbage collection
 
+The pause bound of [gc-design.md](gc-design.md) is a hard requirement. No
+term of a pause may depend on the live data. With many capabilities, no term
+may grow with the number of capabilities either.
+
 ### Options
 
 1. **STW, one collector.** The requester collects alone. The other
    capabilities park. The collector keeps its property that it uses no
-   atomic operations. A collection copies the live objects of every
+   atomic operations. A collection copies the live young objects of every
    capability, so the pause grows with the number of busy capabilities.
-2. **STW, parallel copy.** Each worker copies the roots of its capability
-   and the blocks it allocated. The workers steal scan work. Forwarding a
-   copied object needs a compare-and-swap on its header. This is the GHC
-   default.
+   This breaks the pause bound. We rejected it.
+2. **STW, parallel copy.** Every worker takes part in the collection. Each
+   worker copies the roots of its capability and the objects it reaches.
+   The workers steal scan work from each other. The work of a collection
+   grows with the number of busy capabilities, and the number of workers
+   grows with it, so the pause does not. This is the GHC default.
 3. **Thread-local collection.** Each capability collects its own nursery
    without a stop. This needs a promotion of each object at the point where
    another thread can see it. It changes the GRIN safepoint model and the
@@ -345,52 +351,116 @@ allocates.
 
 ### Decision
 
-We use option 1 first and option 2 later, after a measurement. A single
-Haskell thread on `-N8` produces the same live data as on `-N1`, so the pause
-of option 1 does not grow for it. The idle capabilities cost one lock
-acquisition each.
+We use option 2 from the first version with more than one capability. The
+collector keeps a sequential path for one worker. The copy loop is one
+function that a macro parameter instantiates twice. The sequential instance
+uses no atomic operation, so a program with `-N1` pays nothing. The RTS
+option `-qn<k>` limits the number of workers of a collection, and `-qg`
+selects the sequential instance.
 
-Option 2 gets a sequential fast path. The collector copies without atomic
-operations when one worker collects. The copy loop is one function that a
-macro parameter instantiates twice, so the sequential path pays nothing.
+### Work distribution
 
-### Roots
+Each worker owns its allocation and its scan work:
 
-The roots of a collection are the roots of every capability and the global
-roots:
+- **To-space blocks.** Each worker fills gen1 blocks of its own and one gen2
+  segment for each size class of its own. No two workers write the same
+  block. A worker scans the blocks it filled with a Cheney cursor, one
+  block at a time.
+- **Stealing.** A full block that its owner has not scanned yet is a unit
+  of work. Each worker keeps its full unscanned blocks on a list with a
+  lock. A worker without local work takes a block from another worker.
+  Thus the work balances to within one block.
+- **Roots.** A worker scans the roots of its own capability: the current
+  thread, the run queue, the inbox, the selected resumption, the foreign
+  frames, the callback frames, the spilled roots of its parked safepoint,
+  the remembered set, and the mark buffer. The global roots are divided
+  among the workers in fixed shares.
+- **Stacks.** A stack is reached through its thread record. The worker that
+  claims the thread record scans the stack and sets the ages of its chunks.
+  Thus one worker scans each stack.
+- **Termination.** A worker without local work and without a block to
+  steal increments the idle count and waits. The collection ends when every
+  worker is idle. A worker that frees work wakes the idle workers.
 
-- For each capability: the current thread, the run queue, the inbox, the
-  selected resumption, the foreign frames, the callback frames, and the
-  spilled roots of its parked safepoint.
-- Global: the globals, the blackhole table, the stable names, the pinned
-  list, the timers, the callback slots, and the RTS roots.
+### Forwarding
+
+A copied object keeps its new address in its old header with the low two
+bits set to two, as today. With several workers, the install of this
+forwarding header is a compare-and-swap:
+
+- An immutable object is copied first. Then the worker installs the
+  forwarding header with a compare-and-swap against the header it loaded.
+  When the swap fails, another worker copied the object first. The loser
+  takes the address from the winner and leaves its copy as slop. The slop
+  reads as zero words, which no header is, as the slop of an update does
+  today.
+- A mutable object, a thread record, a stack frame reference, and every
+  runtime record is claimed first. The worker swaps the header with a
+  claim pattern, copies the object, and installs the forwarding header with
+  a release store. A worker that reads the claim pattern waits for the
+  forwarding header. Two copies of a mutable object cannot exist.
+- A large object and a pinned block keep their mark in their block header.
+  The mark is set with an atomic or. The worker whose atomic or set the
+  mark sets the generation and moves the charge.
+- A static object is marked in an address set, as today. The set becomes a
+  table with compare-and-swap insert. A collection only inserts, and the
+  table is resized between collections.
+- A gen2 object is marked in the segment bitmap with an atomic or on its
+  word. The worker whose atomic or set the bit queues the object for a
+  scan.
 
 ### Remembered set and mark buffer
 
 The write barrier appends to the remembered set of the capability. The
 deletion barrier appends to the mark buffer of the capability. Neither needs
-an atomic operation. A collection takes the lists of every capability.
+an atomic operation. The worker of the capability scans the lists of its
+capability. An object that goes back to the remembered set goes to the list
+of the worker that scanned it.
 
 A card of a large boxed array is one byte. Two capabilities can set the same
 card at the same time. Both write the same value, so the race is benign.
+A dirty card is a unit of scan work. The worker that clears a card with an
+atomic exchange scans its run.
 
 ### Incremental marking of gen2
 
 The marking slices run in STW steps, at the end of each collection, as
 today. A full mark buffer requests a STW step that runs one slice and does
-not copy. A slice runs on one worker, so the marker keeps its property that
-it uses no atomic operations.
+not copy. The slice is parallel in the same way as the copy. The mark stack
+is a set of segments, and a full segment is a unit of work that a worker
+can steal. Each worker marks at most the slice cap. The mark debt of a
+collection is the sum of the promotions of every worker, so the pacing
+keeps its meaning.
 
 We considered slices on a mutator worker while the other workers run. The
 snapshot-at-the-beginning invariant holds under concurrency, but the marker
 then reads frames that another worker pops. We keep this as a later option.
 
+### Pause bound
+
+A collection costs the sum of these terms for the busiest worker:
+
+| Term | Bound |
+| --- | --- |
+| Copy of live young objects | The `-A` budget of its capability plus the blocks it steals |
+| Copy of gen1 | Its share of the gen1 maximum, balanced by stealing |
+| Root scan | The roots of its capability plus its share of the global roots |
+| Stack scan | One chunk for each thread it claims plus the young chunks, which the `-A` budget bounds |
+| Mark slice | The slice cap |
+| Stop latency | One nursery block of allocation on each running capability |
+| Imbalance | One block or one segment of work |
+
+No term depends on the live data in gen2, on the depth of a stack, on the
+size of a large object, or on the number of capabilities. The degradation
+mode of [gc-design.md](gc-design.md) stays the one exception.
+
 ### Shared allocators
 
 The region table, the gen1 blocks, the gen2 segments, the large object
-allocator, the pinned list, and the stack regions get one lock each. The
-collector runs in STW and takes none of them. The mutator reaches them only
-for a large or pinned allocation and for a stack region, which are rare.
+allocator, the pinned list, and the stack regions get one lock each. A
+collection worker takes the region lock only when it needs a new gen1 block
+or gen2 segment. The mutator reaches these locks only for a large or pinned
+allocation and for a stack region, which are rare.
 
 The fixed charges, the `-M` limit test, and the allocation statistics use
 one atomic add for each large or pinned allocation. The movable allocation
@@ -745,7 +815,8 @@ the scheduler hands the capability to it.
 | `-N<n>` | The number of capabilities. `-N` alone is the number of cores. | 1 |
 | `-n<size>` | The nursery block size. | 32 KiB |
 | `-C<time>` | The context switch interval. | 20 ms |
-| `-qg` | Sequential collection also with many capabilities. Applies once parallel collection exists. | Off |
+| `-qn<k>` | The maximum number of workers in a collection. | `-N` |
+| `-qg` | The sequential collector instance also with many capabilities. | Off |
 
 `getNumCapabilities` returns `n`. `threadCapability#` returns the capability
 that last ran the thread and whether it is pinned. `forkOn#` pins the thread
@@ -766,8 +837,8 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | `MVar` lock | One compare-and-swap pair for each `MVar` operation | Below 1 percent of such programs |
 | STM commit lock | One mutex for each transaction | Small |
 | Atomic primitives | Real atomic operations for `casMutVar#` and the array atomics | Program dependent, as in GHC |
-| Collection with `-N1` | No change | Zero |
-| Collection with idle capabilities | One lock for each idle capability for each collection | Near zero |
+| Collection with `-N1` | The sequential instance, no change | Zero |
+| Collection with idle capabilities | One lock and one worker wake-up for each idle capability for each collection | Near zero |
 | Idle workers | `n - 1` parked OS threads | Zero CPU |
 
 The sum of the estimates is below 5 percent. The gate is 10 percent against
@@ -790,7 +861,7 @@ code has no such switch. Its hot paths need no atomic operation by design.
 | Ticker | Timer thread or signal, 20 ms. | Timer thread, 20 ms, started at the second Haskell thread. |
 | Nursery | A block list for each capability, `-n` chunks optional. | One arena, 32 KiB blocks, `-A` budget for each capability. |
 | Write barrier | Generation test through the block descriptor, `mut_list` for each capability. | One range test, remembered set for each capability. |
-| Minor collection | STW, parallel copy, work stealing. | STW, one worker first, parallel copy later. |
+| Minor collection | STW, parallel copy, work stealing. | STW, parallel copy, work stealing, sequential instance for one worker. |
 | Old generation | Copying by default, concurrent non-moving optional. | Incremental mark and sweep in STW slices. |
 | Thunk header | Two words. | One word. |
 | Blackholing | Lazy by default, eager optional, owner in the thunk. | Eager, no owner, filter byte and global table. |
@@ -810,9 +881,10 @@ code has no such switch. Its hot paths need no atomic operation by design.
 | Non-allocating loops | Not preemptible without `-fno-omit-yields`. | Not preemptible. Loops that allocate but do not evaluate are not preemptible either. |
 
 The GHC threaded RTS costs a few percent on single-threaded programs. The
-parallel collector can cost much more on them, so users set `-qg` or `-qn`.
-This design keeps the sequential collector and the per-capability `-A`
-budget to avoid that effect.
+parallel collector can cost much more on them, because its idle workers
+spin, so users set `-qg` or `-qn`. This design uses the sequential instance
+for `-N1`, parks idle workers without a spin, and keeps the per-capability
+`-A` budget, so that effect stays small.
 
 ## Build order
 
@@ -824,16 +896,14 @@ budget to avoid that effect.
 2. **Workers and stop-the-world.** Add the workers, the capability locks,
    the sync protocol, `-N`, and `setNumCapabilities`. Add the inboxes, the
    push of threads, the idle wait, the wake-up descriptors, and the ticker.
-   Add the locks of the shared allocators. The collector runs on one worker.
+   Add the locks of the shared allocators. Add the parallel copy with the
+   sequential instance, the work stealing, and the parallel mark slice.
 3. **Synchronisation primitives.** Add the `MVar` lock. Add the blackhole
    table protocol with the process barrier and `noDuplicate#`. Add the
    optimistic STM with the commit lock. Add the real atomic primitives.
 4. **FFI.** Add `safe` calls that release the capability, the worker pool,
    and callbacks from foreign OS threads.
-5. **Parallel copy.** Measure the pause with busy capabilities. Add the
-   parallel copy with the sequential fast path when the measurement asks
-   for it.
-6. **Later.** Bound threads, blocking callbacks, sparks, and concurrent
+5. **Later.** Bound threads, blocking callbacks, sparks, and concurrent
    marking slices.
 
 Each step leaves the compiler shippable and is its own PR series.
@@ -860,6 +930,8 @@ Each step leaves the compiler shippable and is its own PR series.
 - The context switch at the thunk branch. If the measurements show that
   programs need a finer switch, the outlined reservation continuation is
   the fallback.
-- The parallel copy. Step 5 decides it from the pause measurement.
+- The number of collection workers when few capabilities are busy. An idle
+  worker that joins a collection costs a wake-up and finds little work. A
+  measurement decides whether `-qn` gets a default below `-N`.
 - The process barrier on hosts without `membarrier`. The signal fallback
   needs a measurement of its latency with many workers.
