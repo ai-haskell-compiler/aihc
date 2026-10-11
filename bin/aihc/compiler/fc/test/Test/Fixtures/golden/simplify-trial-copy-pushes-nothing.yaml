@@ -111,9 +111,7 @@ expected: |-
         0#cIntRep →
           cFileHandle (cI# lit (0#cIntRep) :: tInt#);
         _ →
-          let argument : tInt# =
-            prim -# n lit (1#cIntRep) :: tInt#;
-          vpick (cI# argument)
+          vpick (cI# (prim -# n lit (1#cIntRep) :: tInt#))
       }
 
   val 1.vwrite :: tInt 3.→ tInt 3.→ FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt (tTuple2# sLiftedRep sLiftedRep tInt tInt)
@@ -123,9 +121,7 @@ expected: |-
         0#cIntRep →
           cTuple2# @sLiftedRep @sLiftedRep @tInt @tInt z y;
         _ →
-          let argument : tInt# =
-            prim -# h lit (1#cIntRep) :: tInt#;
-          vwrite (cI# argument) y z
+          vwrite (cI# (prim -# h lit (1#cIntRep) :: tInt#)) y z
       }
 
   pub val 1.vrun :: tInt 3.→ tInt

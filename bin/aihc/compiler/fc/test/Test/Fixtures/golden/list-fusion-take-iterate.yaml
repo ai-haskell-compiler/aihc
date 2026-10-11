@@ -180,9 +180,7 @@ expected: |-
         1#cIntRep →
           x z y;
         _ →
-          x z (let argument : tInt# =
-            prim -# k lit (1#cIntRep) :: tInt#;
-          x1 (cI# argument))
+          x z (x1 (cI# (prim -# k lit (1#cIntRep) :: tInt#)))
       }
 
   val 1.vtakeEnd inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ b
@@ -218,9 +216,7 @@ expected: |-
                   1#cIntRep →
                     x{1} x{2} cZ;
                   _ →
-                    x{1} x{2} (let argument : tInt# =
-                      prim -# k{1} lit (1#cIntRep) :: tInt#;
-                    go (cS x{2}) (cI# argument))
+                    x{1} x{2} (go (cS x{2}) (cI# (prim -# k{1} lit (1#cIntRep) :: tInt#)))
                 }
           } in
           go y x
@@ -245,9 +241,7 @@ expected: |-
                       1#cIntRep →
                         cCons @tNat y{1} (cNil @tNat);
                       _ →
-                        cCons @tNat y{1} (let argument : tInt# =
-                          prim -# k{1} lit (1#cIntRep) :: tInt#;
-                        go ys (cI# argument))
+                        cCons @tNat y{1} (go ys (cI# (prim -# k{1} lit (1#cIntRep) :: tInt#)))
                     }
                 }
           } in
