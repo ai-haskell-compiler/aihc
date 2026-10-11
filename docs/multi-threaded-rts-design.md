@@ -57,7 +57,7 @@ design.
 | Capability pointer | Loaded from the header of the stack chunk of `%sp`. No new register. | `BaseReg` is a pinned register. |
 | Nursery | One arena for all capabilities. A capability takes 32 KiB blocks from it. | One nursery for each capability, optional `-n` chunks. |
 | Write barrier | Unchanged. The arena is one address range. | A generation test through the block descriptor. |
-| Safepoints for GC | The block refill, the scheduler calls, and idle capabilities. | `HpLim` in memory. A remote store forces the next heap check to fail. |
+| Safepoints for GC | The block refill, the write barrier cold path, the scheduler calls, and idle capabilities. | `HpLim` in memory. A remote store forces the next heap check to fail. |
 | Context switch | At `aihc_lir_eval` on a thunk, at scheduler calls, and at `yield#`. A ticker sets a flag. | At every heap check, through `HpLim`. |
 | Garbage collection | STW parallel copy. Every worker collects. A sequential instance without atomics serves one capability. The work has a hard bound, the time has a stated assumption. | STW parallel copy by default. |
 | Old generation | Incremental marking in STW slices, as today. | Optional concurrent non-moving collector. |
@@ -181,7 +181,6 @@ compare in registers. The slow path, `aihc_heap_collect`, first refills the
 block of the capability from the arena. It collects only when:
 
 - the capability has taken `-A` bytes since the last collection, or
-- the capability has passed its barrier budget, or
 - the arena has no free block, or
 - another capability requested a stop.
 
@@ -230,20 +229,36 @@ to fail, as GHC does when it sets `HpLim` to zero.
 We use option 2. The safepoints of a capability are:
 
 - The block refill in `aihc_heap_collect`.
+- The cold path of the write barrier. The lowering spills the live roots
+  at that call as it does at a reservation. Refer to the write barrier
+  section.
 - Each scheduler primitive: `yield#`, `fork#`, the blocking `MVar`
-  operations, `awaitIO#`, the blackhole wait, and the STM wait.
+  operations, `awaitIO#`, the blackhole wait, the STM wait, and
+  `noDuplicate#`.
 - The idle wait of a capability without runnable threads.
 - The release of the capability by a `safe` foreign call.
 
-A loop that neither allocates nor evaluates a thunk reaches no safepoint.
-A stop request then waits for it. GHC has the same limit for a loop that
-does not allocate.
+A loop that neither allocates, nor evaluates a thunk, nor stores a pointer
+into an old object reaches no safepoint. A stop request then waits for it.
+GHC has the same limit for a loop that does not allocate.
 
 ### Context switches
 
 A stop request parks the worker inside the runtime call. The Haskell thread
 keeps its roots in the spilled root array of the slow path. No continuation
 is necessary. The block refill therefore serves the collector.
+
+The pause before a collection can decide that the thread must not continue
+its computation: the thread is a duplicate, or a duplicate finished first.
+Refer to the pause transition of the blackholing section. The refill call
+then cannot return into the interrupted code. The refill contract has two
+results. `aihc_heap_collect` returns zero when the computation continues,
+and the slow block loads its roots and its context again. It returns a
+resumption when the computation is given up. The slow block then
+tail-calls `aihc_lir_resume` with it, as the code after a scheduler
+primitive does. The spilled roots of the given-up computation are dropped.
+The cost is one test of the result on the slow path. The same contract
+applies to the cold path of the write barrier.
 
 A context switch between two Haskell threads needs a continuation. The block
 refill has none. The thunk branch of `aihc_lir_eval` has one. The thunk and
@@ -511,9 +526,11 @@ its own result. Refer to the blackholing section for the thunk states.
 A claimed thunk has a thread record or a blackhole queue in field zero. The
 collector copies such a thunk whole, with its free variables, and traces
 field zero as a pointer. Every thread pauses before a collection, and the
-pause claims the thunks of its update frames. Thus every update frame names
-a claimed thunk or an evaluated thunk when the collection runs. No frame
-names a thunk in the state Thunk.
+pause claims the thunks of its update frames. The rule above does not
+depend on that: an update frame can name a thunk in any state, and the
+collector keeps the object that the frame names in every state. A thunk in
+the state Thunk is an ordinary object. A claimed thunk is copied whole. An
+evaluated thunk is copied as a two-word indirection.
 
 ### Remembered set and mark buffer
 
@@ -534,10 +551,19 @@ for a card that it turns dirty. The card store is an exchange, so the
 barrier sees whether the card was clean. A hot object that enters the
 remembered set again does not count, because the compaction removes it.
 The budget is the RTS option `-R<size>`, with the nursery size as the
-default. When the count of a capability passes the budget, the capability
-requests a collection at its next safepoint. Thus the budget bounds the
-scan work of the remembered set and the dirty cards at a collection. The
-size of the arrays and of the old heap does not change that bound.
+default. The cold path of the write barrier is a safepoint. The lowering
+spills the live roots of the store site before the call, as it does at a
+reservation. The call gives the capability its context. When the count of
+a capability passes the budget, the barrier call runs a collection at once.
+When another capability leads a stop, the call parks in it. A loop that stores
+into an old array without an allocation therefore collects after one
+budget of barrier work. Thus the budget bounds the scan work of the
+remembered set and the dirty cards at a collection. The size of the arrays
+and of the old heap does not change that bound.
+
+The barrier fast path does not change: the nursery range test. The cold
+path gains one counter add and one compare. The spill code at each store
+site costs code size and no time, because it is outside the fast path.
 
 ### Incremental marking of gen2
 
@@ -577,8 +603,8 @@ object and every dirty card at a minor collection. A program can dirty
 every card of a large old array without one more nursery of allocation.
 That work depends on the size of the array and on the mutation, not on
 `-A`. The budget bounds it: each capability counts the barrier work it
-adds since the last collection, and a capability above the budget requests
-a collection at its next safepoint. Refer to the write barrier section.
+adds since the last collection, and the barrier call of a capability above
+the budget runs a collection at once. Refer to the write barrier section.
 
 No term depends on the live data in gen2, on the depth of a stack, or on
 the size of a large object. The sum grows with `-N`. A user who needs a
@@ -692,7 +718,10 @@ first pause after it, as in GHC. A loop grows the stack, and a stack growth
 charges the nursery, so the first collection safepoint detects it.
 
 Step 1 measures the owner word on the thunk-heavy workloads against the
-current layout, with the entry store removed.
+current layout, with the entry store removed. The ownerless alternative is
+rejected, not deferred: its claim is a plain store, which the review of
+option 1 showed unsafe. A corrected alternative needs a new design review
+before it can replace this decision.
 
 ### Thunk layout
 
@@ -732,14 +761,23 @@ record.
 
 The inline evaluation check changes in one place. Today a thunk info table
 sends an object to the slow path, and an indirection info table sends it to
-the follow path. Now a thunk info table with bit zero clear goes to the
-slow path. A thunk info table with bit zero set loads field zero with a
-dependent load and loads the header of that object. A thread record or a
-blackhole queue goes to the slow path. Any other object is the value, and
-the check continues with it. The cost is one test of the header bit and
-one compare of the kind byte on the follow path. The collector still makes
-two-word indirections with the indirection info table, which keep their
-follow path.
+the follow path. Now the check tests the two low bits of the header of a
+thunk together. Bits `00` are the state Thunk, and the object goes to the
+slow path. Bits `11` are the state Claiming, and the object goes to the
+slow path too. Bits `01` are the states Claimed and Evaluated. The check
+then loads field zero with a dependent load and loads the header of that
+object. A thread record or a blackhole queue goes to the slow path. Any
+other object is the value, and the check continues with it. The cost is
+one compare of the two bits and one compare of the kind byte on the follow
+path. The collector still makes two-word indirections with the indirection
+info table, which keep their follow path.
+
+Every reader and every updater handles the state Claiming in one way: it
+loads the header again until the bits change. The state lasts two stores
+of the claiming thread, the owner store and the header store, so the wait
+is short. No reader dereferences field zero in the state Claiming, so no
+reader sees the unused word. The slow path of the inline check,
+`aihc_lir_eval`, does this wait. The claim itself never waits for a reader.
 
 ### States
 
@@ -760,35 +798,70 @@ The transitions are:
   it evaluates it too.
 - **Pause.** A thread pauses before a collection, at a context switch, when
   a scheduler call suspends it, and at `noDuplicate#`. The pause walks the
-  update frames of its stack from the top. For each frame it loads the
-  header of the thunk:
+  update frames of its stack from the top. An update frame has a processed
+  mark: bit one of its header word. A push writes the header without the
+  mark, and the walk sets the mark when it has processed the frame. The
+  mark is not a pointer store, so it needs no collector barrier, and a
+  frame reader masks the bit as every header reader does. The walk stops at
+  the first frame with the mark. The walk that set the mark processed
+  every frame below it too, by this rule. The walk does not stop for any
+  other reason. For each frame without the mark it loads the header of
+  the thunk and takes one case, then sets the mark:
   - Thunk: it claims. The claim is a compare-and-swap of the header from
     the thunk info to the thunk info with bits zero and one. On success it
     stores the current thread into field zero and stores the header with
     bit zero alone, with release order. On failure it loads the header
     again and takes the case that it finds.
   - Claiming: another thread is between its swap and its header store. The
-    pause spins until the header changes, which takes two stores.
-  - Claimed by this thread, or a queue of this thread: an earlier pause
-    claimed this frame and every frame below it. The walk stops.
+    walk loads the header again until it changes.
+  - Claimed by this thread, or a queue of this thread: the thread has two
+    update frames for one thunk, because the frame has no mark. This is a
+    loop. The walk records the loop and continues, and after the walk the
+    thread raises the loop exception.
   - Claimed by another thread, or a queue of another thread: this thread
-    is a duplicate. It abandons the frames above this one as below and
-    drops this frame. Then it sends a blackhole message for the thunk with
-    the parent continuation of the frame, and it parks.
-  - Evaluated: a duplicate finished first. The thread abandons the frames
-    above this one, drops this frame, and continues with the value in the
-    parent continuation of the frame.
+    is a duplicate. The walk records the frame as a duplicate frame and
+    continues.
+  - Evaluated: a duplicate finished first. The walk records the frame as
+    an evaluated frame and continues.
+
+  After the walk, the thread acts on the lowest recorded frame, because
+  the frames above it belong to evaluations that it gives up. For a
+  duplicate frame, it abandons every frame above it as below and drops the
+  frame. Then it sends a blackhole message for the thunk with the parent
+  continuation of the frame, and it parks. For an evaluated frame, it
+  abandons every frame above it, drops the frame, and continues with the
+  value in the parent continuation of the frame. The frames below the
+  lowest recorded frame keep their claims and their marks. Thus the walk
+  completes for every live frame before the thread parks or continues
+  elsewhere.
 - **Attach.** The capability of the owner attaches the first waiter. It
   allocates a blackhole queue with the owner thread, the thunk, and the
   waiter. It links the queue into the queue list of the owner thread and
   stores the queue into field zero with a release store. A later waiter is
   appended to the queue by the same capability.
-- **Update.** The updater loads the header. When bit zero is clear, it
-  stores the value into field zero and the header with bit zero, both with
-  release order. When bit zero is set, it loads field zero and stores the
-  value with a release store. A queue of the updater is woken. A thread
-  record or a queue of another thread means a duplicate: the value stands,
-  and the owner recovers its queue as below.
+- **Update.** The updater loads the header. In the state Claiming, it
+  loads the header again until the state changes. In the state Thunk, it
+  stores the value into field zero and then the header with bit zero, both
+  with release order. In the states Claimed and Evaluated, it loads field
+  zero and stores the value with a release store. A queue of the updater
+  is woken. A thread record or a queue of another thread means a
+  duplicate: the value stands, and the owner recovers its queue as below.
+
+  An update in the state Thunk can interleave with a claim of a duplicate.
+  The claim cannot exclude the update, because the update loaded the
+  header before the swap. Every interleaving ends in a valid state:
+
+  | Order | Final state | Reason |
+  | --- | --- | --- |
+  | Update stores the value and the header, then the swap | Evaluated | The swap fails. The duplicate loads the header again and finds the value. |
+  | Update stores the value, the swap, the owner store, the header stores in any order | Claimed by the duplicate | The owner store replaced the value. The duplicate evaluates again, and its update writes an equal value. |
+  | The swap, the owner store, update stores the value, the header stores in any order | Evaluated | The value replaced the owner. The duplicate finds the value at its update. |
+  | The swap, update stores the value and the header, the owner store, the header store | Claimed by the duplicate | The header store of the update ends the state Claiming early. Field zero holds the value at that instant, so a reader takes it as evaluated, which is correct. |
+
+  The release order of the update puts the value into field zero before
+  its header store, so a reader never finds the unused word under bits
+  `01`. The claim puts the owner into field zero before its header store
+  for the same reason.
 - **Recovery.** Each thread keeps the list of the queues it owns. At each
   pause, at each update, and at each abandon, the thread walks the list.
   A queue whose thunk is evaluated is unlinked. A queue that field zero of
@@ -872,6 +945,18 @@ interleavings, with real OS workers and with a model of the states above:
   with an asynchronous exception.
 - A loop through one thread and a loop through two threads. The first must
   be reported at the first pause. The second stays a deadlock, as in GHC.
+- A reader and an updater that find the state Claiming. Both must wait for
+  the two stores and then act on the claimed state.
+- Each row of the interleaving table of the update transition.
+- A recursion with two update frames for one thunk, with a pause between
+  the two entries and with a pause after both. The lower frames must be
+  claimed in both cases.
+- A duplicate frame found at a collection safepoint. The refill must
+  return a resumption, and the dropped computation must not run.
+- A duplicate frame with claimed frames below it. The lower frames must
+  stay claimed and marked after the thread parks.
+- A loop that stores into an old array without an allocation. The barrier
+  must collect after one budget.
 - The `noDuplicate#` sequences of the next section.
 
 ### `noDuplicate#`
@@ -882,12 +967,13 @@ effect. Its guarantee is the one of GHC: the thunks under evaluation by
 the current thread are claimed, and a thread that finds one of them
 claimed by another thread does not continue its evaluation.
 
-`noDuplicate#` is a pause. It walks the update frames of the current stack
-and claims each thunk with the compare-and-swap of the pause transition.
-The walk stops at the first frame that an earlier pause claimed. A frame
-whose thunk another thread claimed makes the current thread a duplicate,
-and it parks as the pause transition gives. A frame whose thunk is
-evaluated makes the current thread continue with the value.
+`noDuplicate#` is a pause. It is a CPS primitive with a continuation, as
+`yield#` is, so the thread can park in it. It walks the update frames of
+the current stack and claims each thunk with the compare-and-swap of the
+pause transition. The walk stops at the first frame with the processed
+mark. A frame whose thunk another thread claimed makes the current thread
+a duplicate, and it parks as the pause transition gives. A frame whose
+thunk is evaluated makes the current thread continue with the value.
 
 The guarantee holds across calls that are not inlined and across separate
 compilation, because the walk reads the stack and not the code. It holds
@@ -921,7 +1007,9 @@ Without this change the primitive protects nothing.
 
 ### Alternative: ownerless blackholes
 
-This section keeps option 4 for the comparison of step 1. Its states are:
+This section keeps option 4 as a record of the review. It is rejected. Its
+claim is an eager plain store, so it has the claim problem of option 1. Its
+states are:
 
 | State | Header | Field zero | Table entry |
 | --- | --- | --- | --- |
@@ -1286,7 +1374,7 @@ Haskell thread. The measurements of build step 1 replace the estimates.
 | Capability load | One load next to each C call that took the machine | Near zero |
 | Owner word | One word in each thunk with free variables | 2 to 4 percent on lazy code |
 | Entry | The bit store of today disappears | A gain |
-| Claim walk | One compare-and-swap and two barriers for each update frame that is live at a pause, once for each frame | Below 1 percent |
+| Claim walk | One compare-and-swap, two barriers, and one mark store for each update frame that is live at a pause, once for each frame | Below 1 percent |
 | Release stores | `stlr` on ARM64 at update, nothing on AMD64 | Below 1 percent |
 | Inline check of an evaluated thunk | One header bit test and one kind compare on the follow path | Below 1 percent |
 | Context switch flag | Two loads and one branch for each thunk evaluation | Below 1 percent |
@@ -1424,9 +1512,8 @@ Haskell threads in parallel without the protocols that they need.
 - The context switch at the thunk branch. If the measurements show that
   programs need a finer switch, the outlined reservation continuation is
   the fallback.
-- The blackhole protocol. Step 1 measures the owner word against the
-  budget. The ownerless alternative replaces it only above three percent
-  and only with its race tests.
+- The owner word. Step 1 measures it against the budget. There is no
+  fallback: a cheaper protocol needs a new design review.
 - The number of collection workers when few capabilities are busy. The
   frequent collection test decides whether `-qn` gets a default below
   `-N`, and the pause measurements decide whether `-A` shrinks with `-N`.
