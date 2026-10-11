@@ -136,6 +136,13 @@ listLengthFrom :: [a] -> Int# -> Int#
 listLengthFrom [] count = count
 listLengthFrom (_ : values) count = listLengthFrom values (count +# 1#)
 
+-- The loop is recursive, so the inliner does not copy it. The rule gives
+-- the length of an empty list, for example of the literal "", at compile
+-- time.
+{-# RULES
+"listLengthFrom/[]" forall count. listLengthFrom [] count = count
+  #-}
+
 instance Foldable [] where
   -- The list fold is the one the fusion rules know, so that a consumer
   -- written with the class method fuses with a producer.

@@ -1414,7 +1414,7 @@ alternativeEnv env0 scrutinee binder alternatives alternative =
 peelCasts :: Expr -> (Expr, [Coercion])
 peelCasts expr =
   case expr of
-    ExCast body coercion -> let (core, casts) = peelCasts body in (core, casts <> [coercion])
+    ExCast body coercion -> let (core, casts) = peelCasts body in (core, casts <> castChain coercion)
     _ -> (expr, [])
 
 -- | The constructor application that an alternative matches: the
@@ -1940,22 +1940,62 @@ nameTextIs name text = nameText name == text
 -- cast of a let is a cast of its body, which brings the two casts of a
 -- newtype wrapper together once the binding of the wrapper stands between
 -- them.
+--
+-- A cast of a cast is one cast by the composed coercion. The composition
+-- removes each coercion that stands next to its symmetry, and each
+-- reflexive coercion. When nothing is left, the two casts are the body.
 mkCast :: Expr -> Coercion -> SimplM Expr
-mkCast body coercion =
-  case coercion of
-    CoRefl _ -> pure body
-    _ ->
+mkCast body coercion
+  | isReflexiveCoercion coercion = pure body
+  | otherwise =
       case body of
-        ExCast inner innerCoercion
-          | cancels innerCoercion coercion -> pure inner
+        ExCast inner innerCoercion -> pure (castByChain inner (reduceCasts (castChain innerCoercion <> castChain coercion)))
         ExLet bind inner -> ExLet bind <$> mkCast inner coercion
-        _ -> pure (ExCast body coercion)
-  where
-    cancels = cancelsCoercion
+        -- A strict let is a case with one alternative. The cast goes to
+        -- its body as it goes to the body of a lazy let.
+        ExCase scrutinee binder (alternative NE.:| []) -> do
+          rhs <- mkCast (altRhs alternative) coercion
+          pure (ExCase scrutinee binder (alternative {altRhs = rhs} NE.:| []))
+        _ -> pure (castByChain body (reduceCasts [coercion]))
+
+-- | Cast an expression by the composition of a chain of coercions, the
+-- first coercion first.
+castByChain :: Expr -> [Coercion] -> Expr
+castByChain body chain =
+  case chain of
+    [] -> body
+    _ -> ExCast body (foldr1 CoTrans chain)
+
+-- | The coercions that a coercion composes, the first coercion first. The
+-- symmetry of a composition is the composition of the symmetries in the
+-- opposite order.
+castChain :: Coercion -> [Coercion]
+castChain coercion =
+  case coercion of
+    CoTrans left right -> castChain left <> castChain right
+    CoSym (CoTrans left right) -> castChain (CoSym right) <> castChain (CoSym left)
+    CoSym (CoSym inner) -> castChain inner
+    _ -> [coercion]
+
+-- | Whether a coercion relates a type to the same type, from its form
+-- alone: reflexivity, and each form whose parts are all reflexive.
+isReflexiveCoercion :: Coercion -> Bool
+isReflexiveCoercion coercion =
+  case coercion of
+    CoRefl _ -> True
+    CoSym inner -> isReflexiveCoercion inner
+    CoTrans left right -> isReflexiveCoercion left && isReflexiveCoercion right
+    CoApp function argument -> isReflexiveCoercion function && isReflexiveCoercion argument
+    CoFun argument result -> isReflexiveCoercion argument && isReflexiveCoercion result
+    CoForAll _ body -> isReflexiveCoercion body
+    CoNth _ inner -> isReflexiveCoercion inner
+    CoTyConApp _ arguments -> all isReflexiveCoercion arguments
+    CoVar _ -> False
+    CoAxiom _ _ -> False
 
 -- | Whether a cast by one coercion undoes a cast by the other.
 cancelsCoercion :: Coercion -> Coercion -> Bool
-cancelsCoercion left right = left == CoSym right || right == CoSym left
+cancelsCoercion left right = null (reduceCasts (castChain left <> castChain right))
 
 -- | Whether the name occurs nowhere in the expression.
 unused :: Name -> Expr -> Bool
@@ -2678,12 +2718,11 @@ knownConstructor env expr = do
 -- | Reduce a stack of casts, innermost first: a reflexive coercion casts
 -- nothing, and a coercion next to its symmetry cancels it.
 reduceCasts :: [Coercion] -> [Coercion]
-reduceCasts = reverse . List.foldl' step []
+reduceCasts = reverse . List.foldl' step [] . concatMap castChain
   where
-    step stack coercion =
-      case coercion of
-        CoRefl _ -> stack
-        _ ->
+    step stack coercion
+      | isReflexiveCoercion coercion = stack
+      | otherwise =
           case stack of
             top : rest | cancels top coercion -> rest
             _ -> coercion : stack
@@ -2867,6 +2906,13 @@ pushHeadCasts expr =
         (Just (argCo, resultCo), Right argument : rest) ->
           let applied = ExApp body (mkCoercionCast argument (coSym argCo))
            in Just (fromMaybe (rebuildSpine (mkCoercionCast applied resultCo) rest) (push applied resultCo rest))
+        -- A composed coercion whose last part is a function coercion
+        -- moves the argument under that part, and the earlier parts stay
+        -- on the head.
+        (Nothing, Right _ : _)
+          | chain@(_ : _ : _) <- castChain coercion,
+            Just _ <- funCoercion (last chain) ->
+              push (castByChain body (init chain)) (last chain) args
         _ -> Nothing
 
 -- | View a coercion between two function types as the coercion of its
@@ -2877,23 +2923,29 @@ funCoercion coercion =
   case coercion of
     CoFun argCo resultCo -> Just (argCo, resultCo)
     CoSym (CoFun argCo resultCo) -> Just (coSym argCo, coSym resultCo)
+    CoTrans left right -> do
+      (leftArg, leftResult) <- funCoercion left
+      (rightArg, rightResult) <- funCoercion right
+      Just (CoTrans leftArg rightArg, CoTrans leftResult rightResult)
+    CoSym (CoTrans left right) -> funCoercion (CoTrans (coSym right) (coSym left))
     _ -> Nothing
 
 -- | The symmetric coercion. Two symmetries cancel, and reflexivity is its
--- own symmetry.
+-- own symmetry. The symmetry of a composition is the composition of the
+-- symmetries in the opposite order.
 coSym :: Coercion -> Coercion
 coSym coercion =
   case coercion of
     CoSym inner -> inner
     CoRefl ty -> CoRefl ty
+    CoTrans left right -> CoTrans (coSym right) (coSym left)
     _ -> CoSym coercion
 
 -- | Cast an unsimplified expression. A reflexive coercion casts nothing.
 mkCoercionCast :: Expr -> Coercion -> Expr
-mkCoercionCast body coercion =
-  case coercion of
-    CoRefl _ -> body
-    _ -> ExCast body coercion
+mkCoercionCast body coercion
+  | isReflexiveCoercion coercion = body
+  | otherwise = ExCast body coercion
 
 rebuildSpine :: Expr -> [Arg] -> Expr
 rebuildSpine = List.foldl' apply
@@ -2911,7 +2963,50 @@ rebuildSpine = List.foldl' apply
 -- The case binder holds the evaluated value even when the scrutinee is a call.
 -- Remove inner alternatives that the outer case already covers.
 mkCase :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> Expr
-mkCase env scrutinee binder originalAlternatives =
+mkCase env scrutinee binder originalAlternatives
+  | rebuildsScrutinee env scrutinee binder alternatives = scrutinee
+  | otherwise = mkCaseAlternatives env scrutinee binder originalAlternatives alternatives
+  where
+    alternatives = normalizeCaseAlternatives env binder (NE.toList originalAlternatives)
+
+-- | Whether each alternative of a case gives back the value that it
+-- matched: the case binder, or the constructor of the alternative applied
+-- to the fields that it binds. Such a case is its scrutinee, for example
+-- @case z of {False -> False; True -> True}@. Both are undefined when the
+-- scrutinee is, and both are the same value otherwise.
+--
+-- The type arguments of a rebuilt constructor must be the type arguments
+-- of the scrutinee type, because a constructor with a phantom parameter
+-- can change the type. An alternative that binds an existential type
+-- keeps the case.
+rebuildsScrutinee :: TypeEnv -> Expr -> Maybe Binder -> [Alt] -> Bool
+rebuildsScrutinee env scrutinee binder alternatives =
+  not (null alternatives) && all rebuilds alternatives
+  where
+    returnsBinder rhs = case (rhs, binder) of
+      (ExVar returned, Just named) -> returned == binderName named
+      _ -> False
+    scrutineeArguments =
+      snd . typeSpine . reduceType env
+        <$> case (binder, scrutinee) of
+          (Just named, _) -> Just (binderType named)
+          (Nothing, ExVar name) -> Map.lookup name (teBinders env)
+          _ -> Nothing
+    rebuilds alternative
+      | returnsBinder (altRhs alternative) = null (altTypeBinders alternative)
+      | otherwise =
+          case altCon alternative of
+            AltData con
+              | null (altTypeBinders alternative),
+                (ExVar rebuilt, spine) <- collectSpine (altRhs alternative),
+                rebuilt == con,
+                rights spine == map (ExVar . binderName) (altBinders alternative) ->
+                  null (lefts spine) || (map (reduceType env) <$> scrutineeArguments) == Just (map (reduceType env) (lefts spine))
+            _ -> False
+
+-- | 'mkCase' for a case that is not its scrutinee.
+mkCaseAlternatives :: TypeEnv -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> [Alt] -> Expr
+mkCaseAlternatives env scrutinee binder originalAlternatives alternatives =
   case List.partition ((== AltDefault) . altCon) alternatives of
     -- A case that returns its own binder is its scrutinee: both are
     -- undefined when the scrutinee is, and both are its value otherwise. A
@@ -2954,8 +3049,6 @@ mkCase env scrutinee binder originalAlternatives =
               (innerDefaults, innerOthers) = List.partition ((== AltDefault) . altCon) continued
            in rebuildCase env scrutinee binder originalAlternatives (normalizeCaseAlternatives env binder (others <> innerOthers <> innerDefaults))
     _ -> rebuildCase env scrutinee binder originalAlternatives alternatives
-  where
-    alternatives = normalizeCaseAlternatives env binder (NE.toList originalAlternatives)
 
 -- | Recover a result type only when no alternative remains.
 -- If recovery fails, preserve the original case for the lint pass.

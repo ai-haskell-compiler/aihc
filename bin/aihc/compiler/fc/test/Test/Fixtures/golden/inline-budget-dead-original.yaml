@@ -62,24 +62,14 @@ expected: |-
               cTrue
           };
         cFalse →
-          case y of {
-            cTrue →
-              cTrue;
-            cFalse →
-              cFalse
-          }
+          y
       }
 
   pub val 1.vsecond :: tBool 2.→ tBool 2.→ tBool
     = λ(x : tBool) (y : tBool).
       case x of {
         cTrue →
-          case y of {
-            cTrue →
-              cTrue;
-            cFalse →
-              cFalse
-          };
+          y;
         cFalse →
           case y of {
             cTrue →
