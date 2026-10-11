@@ -47,7 +47,7 @@ module Aihc.Fc.Simplify
     -- * Views of expressions
     isConstructorName,
     isKnownConstructor,
-    isConstructorValue,
+    isKnownValue,
     isCheapValue,
     isInlinable,
     isTrivial,
@@ -131,7 +131,7 @@ simplifyProgram primPackage phase siteLimit program =
         Simpl
           { spEnv = env,
             spInline = Map.empty,
-            spKnown = Map.filter isConstructorValue bodies,
+            spKnown = Map.filter (isKnownValue arities) bodies,
             spArity = arities,
             spLocals = Map.empty,
             spExcluded = Map.empty,
@@ -178,6 +178,15 @@ isKnownConstructor arities expr =
         ExLam _ inner -> underBinders inner
         ExCast inner _ -> underBinders inner
         _ -> body
+
+-- | A top-level body that a case on the value can select from: a known
+-- constructor of cheap fields under lambdas, or a constructor
+-- application of any fields under type lambdas and casts. A value of the
+-- second form is not a function, so each use shares its fields, and a
+-- case takes only its cheap fields. See 'knownConstructor'.
+isKnownValue :: Map Name Int -> Expr -> Bool
+isKnownValue arities body =
+  isKnownConstructor arities body || (functionArity body == 0 && isConstructorValue body)
 
 -- | A body that is a constructor application under lambdas and casts,
 -- with any arguments. A case on a top-level value of this form selects
@@ -3439,12 +3448,11 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
     -- must not use it, and the case binder takes the value itself.
     let shared = sharedValue scrutinee
         usesExpensiveField =
-          shared
-            && or
-              [ not (unused (binderName field) (altRhs alternative))
-              | (field, value) <- zip (altBinders alternative) fields,
-                not (isCheapValue (spArity env) value)
-              ]
+          or
+            [ not (unused (binderName field) (altRhs alternative))
+            | (field, value) <- zip (altBinders alternative) fields,
+              value == expensiveField
+            ]
     guard (not usesExpensiveField)
     let rhs = altRhs alternative
         -- The case evaluated the scrutinee, so the binder held a value.
@@ -3507,7 +3515,7 @@ knownConstructor env expr = do
       (ExVar name, args)
         | isConstructorName name -> pure (Just ([], name, lefts args, rights args, []))
         | Just body <- Map.lookup name (spLocals env) -> unfold body args
-        | Just body <- Map.lookup name (spKnown env) -> unfold body args
+        | Just body <- Map.lookup name (spKnown env) -> unfoldShared body args
       _ -> pure Nothing
   pure $ do
     (binds, con, types, fields, innerCasts) <- known
@@ -3517,6 +3525,19 @@ knownConstructor env expr = do
     unfold body args = do
       copy <- freshenExpr body
       pure (peel [] copy args)
+    -- A top-level value shares its fields that are not cheap. Each such
+    -- field becomes 'expensiveField' before the copy, so the copy does
+    -- not hold the field, and no alternative takes it.
+    unfoldShared body args
+      | isKnownConstructor (spArity env) body = unfold body args
+      | otherwise = unfold (cheapFieldsOnly body) args
+    cheapFieldsOnly body =
+      case body of
+        ExTyLam binder inner -> ExTyLam binder (cheapFieldsOnly inner)
+        ExCast inner coercion -> ExCast (cheapFieldsOnly inner) coercion
+        _ ->
+          let (headExpr, conArgs) = collectSpine body
+           in rebuildSpine headExpr (map (fmap (\value -> if isCheapValue (spArity env) value then value else expensiveField)) conArgs)
     peel binds body args =
       case (body, args) of
         (ExTyLam binder inner, Left ty : rest) -> peel binds (substTypeExpr (Map.singleton (binderName binder) ty) inner) rest
@@ -3535,6 +3556,12 @@ knownConstructor env expr = do
                 null args ->
                   Just (reverse binds, con, lefts conArgs, rights conArgs, [])
             _ -> Nothing
+
+-- | The field that 'knownConstructor' gives in place of a field of a
+-- top-level value that is not a cheap value. An alternative that uses it
+-- is not selected, and a binding of it has no use.
+expensiveField :: Expr
+expensiveField = ExVar (Name "$expensive" SortValue (OriginLocal (Unique (-1))))
 
 -- | Reduce a stack of casts, innermost first: a reflexive coercion casts
 -- nothing, and a coercion next to its symmetry cancels it.

@@ -2374,7 +2374,14 @@ resolveTypeConstructorUse promotion name =
     Unpromoted -> do
       sp <- currentSpan
       scope <- currentScope
-      resolveNameTo sp ResolutionNamespaceType (resolveTypeName scope name) name
+      info <- currentModuleInfo
+      case resolveTypeName scope name of
+        unresolved@(Unresolved _)
+          | DataKinds `elem` moduleInfoExtensions info ->
+              case resolveTermName scope name of
+                Unresolved _ -> resolveNameTo sp ResolutionNamespaceType unresolved name
+                resolved -> resolveNameTo sp ResolutionNamespaceTerm resolved name
+        resolved -> resolveNameTo sp ResolutionNamespaceType resolved name
     Promoted -> do
       sp <- currentSpan
       scope <- currentScope

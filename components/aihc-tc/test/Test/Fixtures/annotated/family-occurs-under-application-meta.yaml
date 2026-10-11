@@ -107,7 +107,7 @@ annotated:
     ││         │     ││││    └─ type: Done
     ││         │     ││└─ type: Box (PrimState (ST s))
     ││         │     │└─ type: (Box s, Done)
-    ││         │     │└─ type: (Box s, Done)
+    ││         │     │└─ type: (Box (PrimState (ST s)), Done)
     ││         │     └─ type: (Box s, Done) → ST (PrimState (ST s)) Done
     ││         └─ type: ((Box s, Done) → ST (PrimState (ST s)) Done) → List (Box s, Done) → ST (PrimState (ST s)) (List Done); type-args: ST (PrimState (ST s)), (Box s, Done), Done; evidence: $fMonadSTs @s
     └─ type: ST s (List Done) → (List Done → ST s (List Done)) → ST s (List Done); type-args: ST s, List Done, List Done; evidence: $fMonadSTs @s
