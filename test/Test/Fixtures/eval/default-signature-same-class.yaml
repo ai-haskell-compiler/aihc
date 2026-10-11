@@ -1,0 +1,33 @@
+extensions:
+  - DefaultSignatures
+  - FlexibleContexts
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DefaultSignatures, FlexibleContexts, TypeFamilies #-}
+    module Class where
+    type family Lower a
+    class Count a where
+      lower :: a -> Lower a
+      count :: a -> Int
+      default count :: Count (Lower a) => a -> Int
+      count x = count (lower x)
+  - |
+    {-# LANGUAGE DefaultSignatures, FlexibleContexts, TypeFamilies #-}
+    module Test where
+    import Class
+    type instance Lower Int = Int
+    type instance Lower Bool = Int
+    instance Count Int where
+      lower = id
+      count = id
+    instance Count Bool where
+      lower b = if b then 7 else 3
+    result = (count True, count False)
+    main = print result
+expression: main
+stdout: |
+  (7,3)
+output: ()
+status: pass
+reason: A default signature keeps constraints for another type in the same class.

@@ -1,0 +1,40 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - KindSignatures
+  - TypeFamilies
+  - TypeOperators
+  - FlexibleContexts
+  - TypeApplications
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, KindSignatures, TypeFamilies, TypeOperators, FlexibleContexts, TypeApplications #-}
+    module Test where
+    import GHC.TypeLits
+    data Index (n :: Nat) = Index
+    data Proxy a = Proxy
+    type family Ix (n :: Nat) where
+      Ix 0 = Int
+      Ix n = Index n
+    type family Lower a where
+      Lower (Index n) = Ix (n - 1)
+    cast :: (Index n ~ Ix n) => Proxy (Lower (Ix n)) -> Proxy (Ix (n - 1))
+    cast x = x
+    accept :: Proxy (Index 2) -> Bool
+    accept _ = True
+    peel :: (Index n ~ Ix n) => Proxy (Index n) -> Ix n -> Bool
+    peel _ value@Index = value `seq` True
+    tuple :: (Index n ~ Ix n) => (Proxy (Lower (Ix n)), Bool) -> (Proxy (Ix (n - 1)), Bool)
+    tuple (p, b) = (p, b)
+    guarded :: (Index n ~ Ix n) => Bool -> Proxy (Lower (Ix n)) -> Proxy (Ix (n - 1))
+    guarded flag p
+      | flag = p
+      | otherwise = Proxy
+    checkTuple = case tuple @3 (Proxy, True) of
+      (p, b) -> accept p && b
+    result = accept (cast @3 (Proxy :: Proxy (Lower (Ix 3)))) && peel @3 (Proxy :: Proxy (Index 3)) Index && checkTuple && accept (guarded @3 True Proxy)
+expression: result
+output: |
+  True
+status: pass
+reason: A given equality can expose a type family equation.

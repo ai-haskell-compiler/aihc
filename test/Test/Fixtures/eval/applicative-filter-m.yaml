@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    import Control.Monad (filterM)
+    data Box a = Box a deriving Show
+    instance Functor Box where
+      fmap f (Box x) = Box (f x)
+    instance Applicative Box where
+      pure = Box
+      Box f <*> Box x = Box (f x)
+    result = filterM (\x -> Box (x > (2 :: Int))) [1,2,3,4]
+    main = print result
+expression: main
+stdout: |
+  Box [3,4]
+output: ()
+status: pass
+reason: filterM accepts an Applicative instance without a Monad instance.
