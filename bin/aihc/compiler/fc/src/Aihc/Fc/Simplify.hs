@@ -7,7 +7,7 @@
 -- copy of a callee, or that the inliner asks for with a copy in hand: a
 -- lambda applied to an argument, a let in the head of an application, the
 -- case of a known constructor or literal, a case on a comparison with a
--- literal, a strict pure primitive call bound twice, a case whose
+-- literal, a comparison that the comparisons around it decide, a strict pure primitive call bound twice, a case whose
 -- default alternative is a case on the same value, a case of a case with
 -- join points, a match on an unboxed tuple that takes a component apart
 -- at once, a cast against its symmetry, a case that only evaluates a
@@ -71,6 +71,7 @@ module Aihc.Fc.Simplify
 where
 
 import Aihc.Fc.Demand (Signature (..), Signatures, isStrict, topLevelSignatures)
+import Aihc.Fc.Facts (Facts, decideComparison, emptyFacts, finiteValues, forgetNames, knownValue, learnAlternative, learnBinding, possibleLiteral)
 import Aihc.Fc.Fold (foldForeignCall)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
@@ -146,7 +147,8 @@ simplifyProgram primPackage phase siteLimit program =
             spCredits = Map.empty,
             spSpeculative = False,
             spCaseContext = Nothing,
-            spLocalCandidates = Map.empty
+            spLocalCandidates = Map.empty,
+            spFacts = emptyFacts
           }
       escaping = Set.fromList [valName declaration | DeclVal declaration <- programDecls program, valVis declaration == Pub] <> ruleValueNames (programDecls program)
       callArities = topCallArities escaping (Map.elems bodies)
@@ -415,7 +417,12 @@ data Simpl = Simpl
     -- its body. A binder that binds one of those names again removes the
     -- candidate, because a copy under that binder would capture the name.
     -- See 'localCandidateEnv'.
-    spLocalCandidates :: !(Map Name (Set Name))
+    spLocalCandidates :: !(Map Name (Set Name)),
+    -- | The results of the comparisons around the expression under
+    -- simplification. They decide a later comparison of the same operands
+    -- and remove alternatives that a case on a variable cannot select.
+    -- See "Aihc.Fc.Facts".
+    spFacts :: !Facts
   }
 
 data SimplState = SimplState
@@ -532,7 +539,7 @@ simplifyExpr env expr =
         Just result -> pure result
         Nothing -> do
           let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
-          pure (maybe call' ExVar (Map.lookup call' (spCse env)))
+          pure (fromMaybe call' (decidedComparison env call' <|> (ExVar <$> Map.lookup call' (spCse env))))
 
 -- | Read the fields of a known constructor inside a lambda that uses both
 -- the constructor and its fields: @λx. f b v@ where @b@ is @K v@ is
@@ -659,7 +666,24 @@ tailType env expr =
 -- The alternatives are simplified once, where they end up: inside the
 -- inner case when the scrutinee is a case, or in place otherwise.
 simplifyCase :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM Expr
-simplifyCase env scrutinee binder originalAlternatives =
+simplifyCase env scrutinee binder originalAlternatives
+  -- A variable whose value the comparisons around the case fix is that
+  -- literal: the case selects its alternative.
+  | ExVar name <- scrutinee,
+    Just value <- knownValue (spFacts env) name,
+    Just literal <- List.find (matchesLiteral' value) [lit | Alt (AltLit lit) _ _ _ <- NE.toList originalAlternatives],
+    Just ty <- exprType (spEnv env) scrutinee =
+      simplifyCase env (ExLit literal ty) binder originalAlternatives
+  | otherwise = simplifyCaseOf env scrutinee binder originalAlternatives
+  where
+    matchesLiteral' value literal =
+      case literal of
+        LitInt _ other -> other == value
+        LitChar _ other -> toInteger (fromEnum other) == value
+        LitAddr {} -> False
+
+simplifyCaseOf :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM Expr
+simplifyCaseOf env scrutinee binder originalAlternatives =
   case NE.nonEmpty alternatives of
     Nothing -> pure (rebuildCase (spEnv env) scrutinee binder originalAlternatives [])
     Just remaining
@@ -690,8 +714,24 @@ simplifyCase env scrutinee binder originalAlternatives =
         binder
         [ alternative
         | alternative <- NE.toList originalAlternatives,
-          altCon alternative `Set.notMember` Map.findWithDefault Set.empty scrutinee (spExcluded env)
+          altCon alternative `Set.notMember` Map.findWithDefault Set.empty scrutinee (spExcluded env),
+          possible (altCon alternative)
         ]
+    -- The comparisons around the case can rule out an alternative of a
+    -- case on a variable. The default alternative is ruled out when the
+    -- other alternatives cover every value the variable can have.
+    possible con =
+      case (scrutinee, con) of
+        (ExVar name, AltLit literal) -> possibleLiteral (spFacts env) name literal
+        (ExVar name, AltDefault)
+          | Just values <- finiteValues (spFacts env) name ->
+              not (all (\value -> any (covers value) (NE.toList originalAlternatives)) values)
+        _ -> True
+    covers value alternative =
+      case altCon alternative of
+        AltLit (LitInt _ other) -> other == value
+        AltLit (LitChar _ other) -> toInteger (fromEnum other) == value
+        _ -> False
 
 -- | A strict match on an unboxed tuple whose alternative first takes a
 -- component apart, as the bind of an @IO Int@ action does:
@@ -1214,6 +1254,7 @@ bindingEnv env0 binder rhs
     env = shadowNames [binderName binder] env0
     evaluatedEnv
       | isValue env rhs = markEvaluated [binderName binder] (extendTypeBinder env binder)
+      | isStrictBinder (spEnv env) binder = (markUnlifted [binder] env) {spFacts = learnBinding (binderName binder) rhs (spFacts env)}
       | otherwise = markUnlifted [binder] env
 
 -- | The environment of the body of a local function binding, with the
@@ -1287,7 +1328,8 @@ shadowNames names env
           spCse = Map.filter (`Set.notMember` shadowed) (spCse env),
           spExcluded = List.foldl' (\excluded name -> Map.delete (ExVar name) excluded) (spExcluded env) names,
           spInline = List.foldl' (flip Map.delete) (spInline env) captured,
-          spLocalCandidates = List.foldl' (flip Map.delete) (spLocalCandidates env) captured
+          spLocalCandidates = List.foldl' (flip Map.delete) (spLocalCandidates env) captured,
+          spFacts = forgetNames shadowed (spFacts env)
         }
   where
     shadowed = Set.fromList names
@@ -1369,7 +1411,16 @@ alternativeEnv env0 scrutinee binder alternatives alternative =
     Nothing -> typeEnv
   where
     env = shadowNames (map binderName (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative)) env0
-    typeEnv = (List.foldl' extendTypeBinder env (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative)) {spExcluded = exclusions}
+    typeEnv =
+      (List.foldl' extendTypeBinder env (foldr (:) [] binder <> altTypeBinders alternative <> altBinders alternative))
+        { spExcluded = exclusions,
+          spFacts = facts
+        }
+    -- A fact about the scrutinee holds inside the alternative only when
+    -- no binder of the alternative binds a name of the scrutinee again.
+    facts
+      | any ((`Set.member` exprValueNames scrutinee) . binderName) (foldr (:) [] binder <> altBinders alternative) = spFacts env
+      | otherwise = learnAlternative scrutinee (binderName <$> binder) (map altCon alternatives) (altCon alternative) (spFacts env)
     exclusions
       | AltDefault <- altCon alternative,
         Just _ <- scrutineeName =
@@ -2881,6 +2932,18 @@ literalEqualities =
     ("eqWord#", False),
     ("neWord#", True)
   ]
+
+-- | A comparison call whose result the comparisons around it decide, as
+-- that result. See "Aihc.Fc.Facts".
+decidedComparison :: Simpl -> Expr -> Maybe Expr
+decidedComparison env expr =
+  case expr of
+    ExForeignCall call _ _ -> do
+      value <- decideComparison (spFacts env) expr
+      (_, resultType) <- foreignSignature (spEnv env) (foreignCallType call)
+      resultRep <- reduceType (spEnv env) <$> repOf (spEnv env) resultType
+      Just (ExLit (LitInt resultRep value) resultType)
+    _ -> Nothing
 
 matchesLiteral :: Literal -> AltCon -> Bool
 matchesLiteral literal con =
