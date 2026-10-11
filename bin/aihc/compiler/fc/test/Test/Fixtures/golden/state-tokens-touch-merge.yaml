@@ -1,0 +1,76 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test (word16) where
+
+  import GHC.Prim (Addr#, or#, readWord8OffAddr#, realWorld#, touch#, uncheckedShiftL#, word8ToWord#)
+  import GHC.Types (Word (..))
+
+  word16 :: Word -> Addr# -> Word
+  word16 owner address =
+    case readWord8OffAddr# address 0# realWorld# of
+      (# s0, high #) -> case touch# owner s0 of
+        _ -> case readWord8OffAddr# address 1# realWorld# of
+          (# s1, low #) -> case touch# owner s1 of
+            _ -> W# (or# (uncheckedShiftL# (word8ToWord# high) 8#) (word8ToWord# low))
+passes:
+- simplify
+- state-tokens
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    or# = 2.vor# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cWordRep @cWordRep tWord# tWord#);
+    readWord8OffAddr# = 2.vreadWord8OffAddr# :: ∀(d : sType). FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cWord8Rep (c[] tRuntimeRep)))) (tState# d) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cWord8Rep (tState# d) tWord8#)));
+    realWorld# = 2.vrealWorld# :: tState# tRealWorld;
+    touch# = 2.vtouch# :: ∀(r : tRuntimeRep) (a : tTYPE r) (d : sType). FUN @r @sLiftedRep a (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# d) (tState# d));
+    uncheckedShiftL# = 2.vuncheckedShiftL# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cIntRep @cWordRep tInt# tWord#);
+    word8ToWord# = 2.vword8ToWord# :: FUN @cWord8Rep @cWordRep tWord8# tWord#
+
+  import headers
+    2.tAddr# :: tTYPE cAddrRep;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tRealWorld :: sType;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    constructors [3.cW#] 3.tWord :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    2.tWord8# :: tTYPE cWord8Rep;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
+    3.cAddrRep :: tRuntimeRep;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
+    3.cWord8Rep :: tRuntimeRep;
+    3.cWordRep :: tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vword16 :: tWord 3.→ FUN @cAddrRep @sLiftedRep tAddr# tWord
+    = λ(x : tWord) (y : tAddr#).
+      let! cTuple2# (s0 : tState# tRealWorld) (high : tWord8#) =
+        prim readWord8OffAddr# @tRealWorld y lit (0#cIntRep) :: tInt# (prim realWorld#);
+      let! cTuple2# (s1 : tState# tRealWorld) (low : tWord8#) =
+        prim readWord8OffAddr# @tRealWorld y lit (1#cIntRep) :: tInt# s0;
+      let _case{1} : tState# tRealWorld =
+        prim touch# @(cBoxedRep cLifted) @tWord @tRealWorld x s1;
+      cW# (prim or# (prim uncheckedShiftL# (prim word8ToWord# high) lit (8#cIntRep) :: tInt#) (prim word8ToWord# low))
+status: pass
+reason: Each byte read starts a state thread from 'realWorld#'. The second read now takes the token of the first read. Thus one touch# after the last read keeps the owner alive for the two reads.
