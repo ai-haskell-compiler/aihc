@@ -105,11 +105,11 @@ expected: |-
     = v$fEqInt32 ▷ tycon-co t$Dict$Eq (sym (axiom-co $ax$CInt))
 
   pub val 1.v$fEqErrno :: t$Dict$Eq tErrno
-    = (v$fEqInt32 ▷ tycon-co t$Dict$Eq (sym (axiom-co $ax$CInt))) ▷ tycon-co t$Dict$Eq (sym (axiom-co $ax$Errno))
+    = v$fEqInt32 ▷ trans (tycon-co t$Dict$Eq (sym (axiom-co $ax$CInt))) (tycon-co t$Dict$Eq (sym (axiom-co $ax$Errno)))
 
   pub val 1.vclassify :: tErrno 3.→ tInt
     = λ(x : tErrno).
-      let! cI32# (left : tInt32#) = (x ▷ axiom-co $ax$Errno) ▷ axiom-co $ax$CInt;
+      let! cI32# (left : tInt32#) = x ▷ trans (axiom-co $ax$Errno) (axiom-co $ax$CInt);
       case prim int32ToInt# left of {
         1#cIntRep →
           cI# lit (10#cIntRep) :: tInt#;
