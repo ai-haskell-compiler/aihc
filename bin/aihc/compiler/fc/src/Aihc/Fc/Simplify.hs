@@ -47,6 +47,7 @@ module Aihc.Fc.Simplify
     -- * Views of expressions
     isConstructorName,
     isKnownConstructor,
+    isConstructorValue,
     isCheapValue,
     isInlinable,
     isTrivial,
@@ -85,7 +86,7 @@ import Aihc.Fc.Wired (wiredGhcTypes)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, guard, mapAndUnzipM)
+import Control.Monad (foldM, guard, mapAndUnzipM, zipWithM)
 import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
 import Data.Bifunctor (first)
 import Data.Either (isLeft, lefts, rights)
@@ -128,7 +129,7 @@ simplifyProgram primPackage phase siteLimit program =
         Simpl
           { spEnv = env,
             spInline = Map.empty,
-            spKnown = Map.filter (isKnownConstructor arities) bodies,
+            spKnown = Map.filter isConstructorValue bodies,
             spArity = arities,
             spLocals = Map.empty,
             spExcluded = Map.empty,
@@ -166,14 +167,28 @@ simplifyProgram primPackage phase siteLimit program =
 
 isKnownConstructor :: Map Name Int -> Expr -> Bool
 isKnownConstructor arities expr =
+  isConstructorValue expr && all (either (const True) (isCheapValue arities)) (snd (collectSpine (underBinders expr)))
+  where
+    underBinders body =
+      case body of
+        ExTyLam _ inner -> underBinders inner
+        ExLam _ inner -> underBinders inner
+        ExCast inner _ -> underBinders inner
+        _ -> body
+
+-- | A body that is a constructor application under lambdas and casts,
+-- with any arguments. A case on a top-level value of this form selects
+-- its alternative, and takes the fields that are cheap values. See
+-- 'knownConstructor'.
+isConstructorValue :: Expr -> Bool
+isConstructorValue expr =
   case expr of
-    ExTyLam _ body -> isKnownConstructor arities body
-    ExLam _ body -> isKnownConstructor arities body
-    ExCast body _ -> isKnownConstructor arities body
+    ExTyLam _ body -> isConstructorValue body
+    ExLam _ body -> isConstructorValue body
+    ExCast body _ -> isConstructorValue body
     _ ->
       case collectSpine expr of
-        (ExVar name, args)
-          | isConstructorName name -> all (either (const True) (isCheapValue arities)) args
+        (ExVar name, _) -> isConstructorName name
         _ -> False
 
 -- | A body that can be inlined: a function, which is inlined at a call
@@ -195,6 +210,8 @@ isCheapValue arities expr =
     ExVar {} -> True
     ExCoercion {} -> True
     ExLam {} -> True
+    -- A primitive without arguments is a constant, such as @nullAddr#@.
+    ExForeignCall call _ [] -> foreignCallConvention call == Prim
     ExTyLam _ body -> isCheapValue arities body
     ExCast body _ -> isCheapValue arities body
     ExTyApp body _ -> isCheapValue arities body
@@ -564,7 +581,7 @@ readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
         Just fields <- mapM fieldVariable (rights args),
         any (`Set.member` used) fields,
         name `notElem` fields,
-        Just (fieldTypes, conResult) <- constructorFields (lefts args) con,
+        Just (fieldTypes, conResult) <- constructorFields (spEnv env) con (lefts args),
         length fieldTypes == length fields,
         isLiftedType (spEnv env) conResult = do
           fresh <- mapM freshLocal fields
@@ -579,26 +596,29 @@ readFieldsInside env body0 = foldM readFields body0 (Map.toList (spLocals env))
       case argument of
         ExVar var -> Just var
         _ -> Nothing
-    -- The field types and the result type of a constructor at its type
-    -- arguments. A constructor with an existential type takes more type
-    -- arguments than its result type has, and gives nothing: the
-    -- alternative would have to bind the existential types.
-    constructorFields types con = do
-      conType <- lookupHeaderType (spEnv env) con
-      instantiated <- foldM instantiate conType types
-      (fieldTypes, result) <- split instantiated
-      let (_, resultArgs) = typeSpine (reduceType (spEnv env) result)
-      if length resultArgs == length types then Just (fieldTypes, result) else Nothing
+
+-- | The field types and the result type of a constructor at its type
+-- arguments. A constructor with an existential type takes more type
+-- arguments than its result type has, and gives nothing: the
+-- alternative would have to bind the existential types.
+constructorFields :: TypeEnv -> Name -> [Type] -> Maybe ([Type], Type)
+constructorFields env con types = do
+  conType <- lookupHeaderType env con
+  instantiated <- foldM instantiate conType types
+  (fieldTypes, result) <- split instantiated
+  let (_, resultArgs) = typeSpine (reduceType env result)
+  if length resultArgs == length types then Just (fieldTypes, result) else Nothing
+  where
     instantiate ty argument = do
-      (binder, inner) <- viewForAll (spEnv env) ty
+      (binder, inner) <- viewForAll env ty
       Just (substType (binderName binder) argument inner)
     split ty =
-      case viewFun (spEnv env) ty of
+      case viewFun env ty of
         Just (_, _, argument, result) -> do
           (arguments, final) <- split result
           Just (argument : arguments, final)
         Nothing
-          | Just _ <- viewForAll (spEnv env) ty -> Nothing
+          | Just _ <- viewForAll env ty -> Nothing
           | otherwise -> Just ([], ty)
 
 -- | Whether an expression starts a chain: a let, or a case of one
@@ -676,6 +696,24 @@ simplifyCase env scrutinee binder originalAlternatives =
       | [Alt AltDefault [] [] rhs] <- alternatives,
         isEvaluated env scrutinee ->
           simplifyExpr env (substExpr (foldMap (\named -> Map.singleton (binderName named) scrutinee) binder) rhs)
+      -- A case that only evaluates a constructor application or a lambda
+      -- evaluates nothing: it is a let of that value.
+      | [Alt AltDefault [] [] rhs] <- alternatives,
+        isHeadNormal scrutinee,
+        maybe True (isLiftedBinder (spEnv env)) binder ->
+          case binder of
+            Nothing -> simplifyExpr env rhs
+            Just named -> do
+              body <- simplifyExpr (bindingEnv env named scrutinee) rhs
+              mkLet env (Bind named scrutinee) body
+      -- A case that only evaluates a value of a type with one
+      -- constructor, whose body takes the value apart, takes it apart
+      -- at once. The case in the body then selects the fields.
+      | [Alt AltDefault [] [] rhs] <- alternatives,
+        Just named <- binder,
+        Just (con, fieldTypes, hints) <- forcedConstructor env scrutinee named rhs -> do
+          fields <- zipWithM (\ty hint -> (`Binder` ty) <$> freshLocal hint) fieldTypes hints
+          simplifyCase env scrutinee binder (Alt (AltData con) [] fields rhs NE.:| [])
       | Just rewritten <- literalEqualityCase (spEnv env) scrutinee binder remaining -> simplifyExpr env rewritten
       | otherwise -> do
           reduced <- caseOfKnown env scrutinee binder alternatives
@@ -702,6 +740,63 @@ simplifyCase env scrutinee binder originalAlternatives =
         | alternative <- NE.toList originalAlternatives,
           altCon alternative `Set.notMember` Map.findWithDefault Set.empty scrutinee (spExcluded env)
         ]
+
+-- | Whether an expression is a constructor application or a lambda,
+-- under casts and type applications. Such an expression is a value, and
+-- it is not a variable.
+isHeadNormal :: Expr -> Bool
+isHeadNormal expr =
+  case fst (peelCasts expr) of
+    ExLam {} -> True
+    ExTyLam {} -> True
+    core ->
+      case collectSpine core of
+        (ExVar name, _ : _) -> isConstructorName name
+        _ -> False
+
+-- | The constructor, the field types and the field names of a case that
+-- only evaluates its scrutinee, when the body of the case takes the
+-- case binder or a variable scrutinee apart. The type of the variable has one
+-- constructor, which binds no existential type. Such a case can take
+-- the value apart at once: it evaluates the value at the same
+-- point, and the case in the body then selects the fields. The names
+-- come from the first case in the body that takes the value apart.
+forcedConstructor :: Simpl -> Expr -> Binder -> Expr -> Maybe (Name, [Type], [Name])
+forcedConstructor env scrutinee named rhs = do
+  let names = binderName named : [variable | ExVar variable <- [scrutinee]]
+      types = spEnv env
+  guard (isLiftedBinder types named)
+  (TyCon tyCon, typeArgs) <- Just (typeSpine (reduceType types (binderType named)))
+  [con] <- Map.lookup tyCon (teDataCons types)
+  guard (Map.lookup con (teConRepresentations types) /= Just UnboxedTupleConstructor)
+  (fieldTypes, _) <- constructorFields types con typeArgs
+  hints <- firstMatch con names rhs
+  guard (length hints == length fieldTypes)
+  Just (con, fieldTypes, hints)
+  where
+    -- The binder names of the first case that takes one of the names
+    -- apart with the constructor, in the order of a walk of the body.
+    firstMatch con names = go
+      where
+        go expr =
+          case expr of
+            ExCase inner _ (NE.toList -> alternatives)
+              | ExVar var <- fst (peelCasts inner),
+                var `elem` names,
+                Alt (AltData matched) [] fields _ : _ <- alternatives,
+                matched == con ->
+                  Just (map binderName fields)
+              | otherwise -> go inner <|> List.foldr ((<|>) . go . altRhs) Nothing alternatives
+            ExLam _ inner -> go inner
+            ExTyLam _ inner -> go inner
+            ExLet bind inner -> go (bindRhs bind) <|> go inner
+            ExRec binds inner -> List.foldr ((<|>) . go . bindRhs) Nothing binds <|> go inner
+            ExApp function argument -> go function <|> go argument
+            ExTyApp function _ -> go function
+            ExCast inner _ -> go inner
+            ExForeignCall _ _ arguments -> List.foldr ((<|>) . go) Nothing arguments
+            ExAbsurd inner _ -> go inner
+            _ -> Nothing
 
 -- | A strict match on an unboxed tuple whose alternative first takes a
 -- component apart, as the bind of an @IO Int@ action does:
@@ -983,7 +1078,7 @@ argumentKnown env = go (4 :: Int)
       case fst (peelCasts argument) of
         ExVar name
           | isConstructorName name -> Just (Known (AltData name) [])
-          | depth > 0, Just body <- Map.lookup name (spKnown env), functionArity body == 0 -> go (depth - 1) body
+          | depth > 0, Just body <- Map.lookup name (spKnown env), functionArity body == 0, isKnownConstructor (spArity env) body -> go (depth - 1) body
           | depth > 0, Just rhs <- Map.lookup name (spLocals env) -> go (depth - 1) rhs
           | otherwise -> Nothing
         core ->
@@ -1131,7 +1226,7 @@ knownArgument env argument =
   case fst (peelCasts argument) of
     ExVar name
       | isConstructorName name -> StrongReduction
-      | Map.member name (spKnown env) -> StrongReduction
+      | Just body <- Map.lookup name (spKnown env), isKnownConstructor (spArity env) body -> StrongReduction
       | Map.member name (spLocals env) || maybe False (not . Set.null) (Map.lookup argument (spExcluded env)) -> WeakReduction
       | otherwise -> NoReduction
     core
@@ -2598,6 +2693,18 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
   pure $ do
     (binds, con, types, fields) <- known
     alternative <- List.find ((== AltData con) . altCon) alternatives <|> List.find ((== AltDefault) . altCon) alternatives
+    -- A top-level value can hold a field that is not a cheap value. A
+    -- copy of such a field would do its work again, so the alternative
+    -- must not use it, and the case binder takes the value itself.
+    let shared = sharedValue scrutinee
+        usesExpensiveField =
+          shared
+            && or
+              [ not (unused (binderName field) (altRhs alternative))
+              | (field, value) <- zip (altBinders alternative) fields,
+                not (isCheapValue (spArity env) value)
+              ]
+    guard (not usesExpensiveField)
     let rhs = altRhs alternative
         -- The case evaluated the scrutinee, so the binder held a value.
         -- A scrutinee that is a value binds the binder as it is. A call
@@ -2611,7 +2718,7 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
           Just named
             | Occurrences 0 _ <- occurrences (binderName named) rhs -> Just []
             | not (isLiftedBinder (spEnv env) named) -> Nothing
-            | isValue env scrutinee -> Just [Bind named scrutinee]
+            | isValue env scrutinee || shared -> Just [Bind named scrutinee]
             | null (snd (peelCasts scrutinee)) -> Just [Bind named application]
             | otherwise -> Nothing
     caseBinds <- caseBinderBind
@@ -2628,6 +2735,19 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
                 fieldBinds = zipWith (\field -> Bind field {binderType = substTypes typeSubst (binderType field)}) (altBinders alternative) fields
             Just (foldr ExLet (substTypeExpr typeSubst rhs) fieldBinds)
     Just (foldr ExLet body (binds <> caseBinds))
+
+-- | Whether a scrutinee names a top-level value, under casts and type
+-- arguments. Each use of such a value shares its fields.
+sharedValue :: Expr -> Bool
+sharedValue expr =
+  case collectSpine (fst (peelCasts expr)) of
+    (ExVar name, args) -> all (either (const True) (const False)) args && not (isConstructorName name) && isTopName name
+    _ -> False
+  where
+    isTopName name =
+      case nameOrigin name of
+        OriginTop {} -> True
+        OriginLocal {} -> False
 
 -- | View a simplified expression as a constructor application. A variable
 -- that a known value or a known local binds is unfolded first. The
@@ -3270,10 +3390,10 @@ unliftedValue evaluation env expr =
   case expr of
     ExForeignCall call [] arguments
       | foreignCallConvention call == Prim,
-        evaluation == Forced || isSafePrimitive (nameText (foreignCallName call)),
+        evaluation == Forced || isSafePrimitive (nameText (foreignCallName call)) || isSafeDivision (nameText (foreignCallName call)) arguments,
         all operand arguments,
         Just (argumentTypes, resultType) <- foreignSignature env (foreignCallType call),
-        not (any mentionsEffect (resultType : argumentTypes)) ->
+        nameText (foreignCallName call) `elem` safeAddressPrimitives || not (any mentionsEffect (resultType : argumentTypes)) ->
           primitiveResult resultType
     ExCase scrutinee binder alternatives
       | unliftedOperand scrutinee,
@@ -3310,14 +3430,16 @@ mentionsStateToken env ty =
     (TyCon name, args) -> nameText name == "State#" || any (mentionsStateToken env) args
     (_, args) -> any (mentionsStateToken env) args
 
--- | The primitives that cannot fail and read no memory.
+-- | The primitives that cannot fail and read no memory. The arithmetic
+-- and the comparisons of addresses read no memory either.
 isSafePrimitive :: Text -> Bool
 isSafePrimitive name =
-  not (any (`T.isInfixOf` name) ["quot", "rem", "div", "mod", "index", "read", "write", "Addr", "Array"])
-    && ( T.all (`elem` ("+-*=/<>#" :: String)) name
-           || any (`T.isPrefixOf` name) safePrefixes
-           || "To" `T.isInfixOf` name
-       )
+  name `elem` safeAddressPrimitives
+    || not (any (`T.isInfixOf` name) ["quot", "rem", "div", "mod", "index", "read", "write", "Addr", "Array"])
+      && ( T.all (`elem` ("+-*=/<>#" :: String)) name
+             || any (`T.isPrefixOf` name) safePrefixes
+             || "To" `T.isInfixOf` name
+         )
   where
     safePrefixes =
       [ "plus",
@@ -3343,6 +3465,25 @@ isSafePrimitive name =
         "chr#",
         "ord#"
       ]
+
+-- | The primitives on addresses that only compute with the address. They
+-- read no memory, so they are safe to run early, though an address can
+-- point to memory that changes.
+safeAddressPrimitives :: [Text]
+safeAddressPrimitives =
+  ["plusAddr#", "minusAddr#", "eqAddr#", "neAddr#", "ltAddr#", "leAddr#", "gtAddr#", "geAddr#"]
+
+-- | Whether a call is a division by a literal that cannot fail: a
+-- quotient or a remainder of a machine integer by a literal that is not
+-- zero. The quotient of the smallest @Int#@ by minus one overflows, so a
+-- divisor of minus one is not safe.
+isSafeDivision :: Text -> [Expr] -> Bool
+isSafeDivision name arguments =
+  case arguments of
+    [_, ExLit (LitInt _ divisor) _]
+      | name `elem` ["quotInt#", "remInt#"] -> divisor /= 0 && divisor /= -1
+      | name `elem` ["quotWord#", "remWord#"] -> divisor /= 0
+    _ -> False
 
 -- * Occurrences
 
