@@ -28,6 +28,7 @@ import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)
 import Aihc.Fc.Specialise (SpecialiseReport (..), specialiseProgram)
 import Aihc.Fc.Syntax (Program)
+import Aihc.Fc.Unroll (UnrollReport (..), unrollProgram)
 import Aihc.Fc.WorkerWrapper (SplitScope (..), WorkerWrapperReport (..), workerWrapperProgram)
 import Aihc.Resolve (PackageId)
 import Data.List qualified as List
@@ -46,6 +47,10 @@ data Pass
     PassSimplify !Int
   | -- | Share closed constructor expressions through private constants.
     PassLiftConstants
+  | -- | Copy the body of a small local loop at each call whose literal
+    -- arguments decide its recursion, until no call is left.
+    -- @Aihc.Fc.Unroll@.
+    PassUnroll
   | -- | Demand analysis, then a case for every strict let, and with
     -- 'StrictLetsAndArguments' for every strict argument of a saturated
     -- call. @Aihc.Fc.Demand@.
@@ -71,6 +76,7 @@ passPhase :: Pass -> Maybe Int
 passPhase pass =
   case pass of
     PassLiftConstants -> Nothing
+    PassUnroll -> Nothing
     PassEtaExpand -> Nothing
     PassDemand _ -> Nothing
     PassWorkerWrapper _ -> Nothing
@@ -93,6 +99,7 @@ passName :: Pass -> Text
 passName pass =
   case pass of
     PassLiftConstants -> "lift constants"
+    PassUnroll -> "unroll"
     PassDemand StrictLetsOnly -> "demand"
     PassDemand StrictLetsAndArguments -> "demand arguments"
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
@@ -116,6 +123,16 @@ runPass primPackage roots pass program =
                 reportBefore = programSize primPackage program,
                 reportAfter = programSize primPackage lifted,
                 reportDetail = count constants "constants" <> ", " <> count sites "sites"
+              }
+          )
+    PassUnroll ->
+      let (unrolled, report) = unrollProgram primPackage program
+       in ( unrolled,
+            PassReport
+              { reportPass = passName pass,
+                reportBefore = programSize primPackage program,
+                reportAfter = programSize primPackage unrolled,
+                reportDetail = count (reportUnrolledLoops report) "loops" <> ", " <> count (reportUnrollCopies report) "copies"
               }
           )
     PassDemand rewrites ->
