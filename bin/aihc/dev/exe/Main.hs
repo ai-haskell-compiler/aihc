@@ -47,7 +47,7 @@ data Command
   | Fuzz FuzzCLI.Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
-  | FcPrint FilePath
+  | FcPrint Fc.RenderStyle FilePath
   | FcPasses PackageId [FilePath] OptimizationLevel [String]
   | Explore FilePath OptimizationLevel (Maybe NativeTarget)
 
@@ -121,8 +121,8 @@ commandParser =
         <> command
           "fc-print"
           ( info
-              (FcPrint <$> strArgument (metavar "FILE" <> help "A core file of the store or of a build root") <**> helper)
-              (progDesc "Print a binary System FC file in the System FC text format")
+              (fcPrintParser <**> helper)
+              (progDesc "Print a binary System FC file in the readable System FC text format, or in the canonical format that the System FC parser reads")
           )
         <> command
           "fc-passes"
@@ -137,6 +137,12 @@ commandParser =
               (progDesc "Build a program at each optimization level and show its Haskell source next to its System FC and GRIN in a terminal explorer")
           )
     )
+
+fcPrintParser :: Parser Command
+fcPrintParser =
+  FcPrint
+    <$> flag Fc.RenderReadable Fc.RenderCanonical (long "canonical" <> help "Print the canonical format that the System FC parser reads, with all scopes, representations and binder names")
+    <*> strArgument (metavar "FILE" <> help "A core file of the store or of a build root")
 
 fcPassesParser :: Parser Command
 fcPassesParser =
@@ -308,7 +314,7 @@ runCommand (FcPasses primPackage paths level shown) = do
       showDecls label next =
         mapM_
           (\(name, text) -> when (maybe False ((`elem` map T.pack shown) . Fc.nameText) name) (TIO.putStrLn ("-- " <> label) >> TIO.putStrLn text))
-          (Fc.renderProgramSections next)
+          (Fc.renderProgramSections Fc.RenderReadable next)
       check label next = do
         showDecls label next
         -- An unused import is not a defect of the program: the merge keeps
@@ -323,7 +329,7 @@ runCommand (FcPasses primPackage paths level shown) = do
           let failing = [T.pack (takeWhile (/= ':') context) | Fc.UnevaluatedStrictField context _ _ <- errors]
           mapM_
             (\(name, text) -> when (maybe False ((`elem` failing) . Fc.nameText) name) (TIO.putStrLn text))
-            (Fc.renderProgramSections next)
+            (Fc.renderProgramSections Fc.RenderReadable next)
       step current pass = do
         let (next, report) = Fc.runPass primPackage roots pass current
         TIO.hPutStrLn stderr (Fc.reportPass report <> ": size " <> T.pack (show (Fc.reportBefore report)) <> " -> " <> T.pack (show (Fc.reportAfter report)))
@@ -331,10 +337,10 @@ runCommand (FcPasses primPackage paths level shown) = do
         pure next
   check "before the passes" program
   foldM_ step program passes
-runCommand (FcPrint path) = do
+runCommand (FcPrint renderStyle path) = do
   loaded <- Fc.readProgramFile path
   case loaded of
     Left message -> do
       TIO.hPutStrLn stderr message
       exitFailure
-    Right program -> TIO.putStrLn (Fc.renderProgram program)
+    Right program -> TIO.putStrLn (Fc.renderProgramWith renderStyle program)

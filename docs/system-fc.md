@@ -266,6 +266,16 @@ format, use `aihc-dev fc-print`:
 
 Example: `Demo/A/core.fc`.
 
+`aihc-dev fc-print` writes the readable style of the text format.
+The readable style is for people, and the parser does not read it.
+It shows only the scopes that the text uses.
+It shows literals in the GHC form, for example `0#`, `0##` and `3#Word8`.
+It shows a string literal as a Haskell string.
+It shows unboxed tuples as `(# a, b #)` and function types as `a → b`.
+It shows a pattern binder that the declaration does not use as `_`.
+To get the canonical format that the parser reads, use `aihc-dev fc-print --canonical`.
+The fixtures and the golden tests use the canonical format.
+
 If Fc desugar fails, the install fails.
 If Fc lint fails, the install fails.
 Keep the `core.fc` file at its normal path when Fc lint fails.

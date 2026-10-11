@@ -8,11 +8,12 @@ where
 import Aihc.Fc
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
+import Hedgehog (Gen, Property, annotate, failure, forAll, property, withTests, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
@@ -26,8 +27,135 @@ fcPropertyTests =
       testProperty "tidyProgram is idempotent" prop_tidyIdempotent,
       testProperty "tidyProgram output round trips" prop_tidyRoundTrip,
       testProperty "t prefix stores Bool" prop_prefixStrip,
-      testProperty "uses have no type suffix" prop_noUseTypes
+      testProperty "uses have no type suffix" prop_noUseTypes,
+      testProperty "readable style is short" prop_readableStyle
     ]
+
+prop_readableStyle :: Property
+prop_readableStyle = withTests 1 $ property $ do
+  let printed = renderProgramWith RenderReadable readableProgram
+  annotate (T.unpack printed)
+  T.lines printed === readableExpected
+
+-- | The readable text of 'readableProgram'. Only the used scopes show, the
+-- literals and the unboxed tuples are short, the arrows have no
+-- representations, the representation synonym folds, and the unused
+-- pattern binders show as @_@.
+readableExpected :: [Text]
+readableExpected =
+  [ "scope 1 = \"\" Test",
+    "scope 2 = \"aihc-prim\" GHC.Types",
+    "scope 4 = \"aihc-prim\" GHC.Prim",
+    "",
+    "pub type 2.sLiftedRep :: 2.tRuntimeRep =",
+    "  2.cBoxedRep 2.cLifted",
+    "",
+    "pub type 2.tTuple2# (r1 : 2.tRuntimeRep) (r2 : 2.tRuntimeRep) (a1 : 2.tTYPE r1) (a2 : 2.tTYPE r2) :: 2.tTYPE (2.cTupleRep '[r1, r2]) {",
+    "  pub unboxed-tuple 2.cTuple2# :: ∀(r1 : 2.tRuntimeRep) (r2 : 2.tRuntimeRep) (a1 : 2.tTYPE r1) (a2 : 2.tTYPE r2). a1 → a2 → (# a1, a2 #)",
+    "}",
+    "",
+    "val 1.vpair :: 4.tInt# → 4.tInt# → (# 4.tInt#, 4.tInt# #)",
+    "  = λ(x : 4.tInt#) (_ : 4.tInt#).",
+    "    (# 1#, x #)",
+    "",
+    "val 1.vsecond :: (# 4.tInt#, 4.tInt# #) → 4.tInt#",
+    "  = λ(p : (# 4.tInt#, 4.tInt# #)).",
+    "    let! (# _, b : 4.tInt# #) = p;",
+    "    case b of {",
+    "      -1# →",
+    "        3#Word8;",
+    "      _ →",
+    "        2##",
+    "    }",
+    "",
+    "val 1.vgreeting :: 2.t[] 2.tChar",
+    "  = \"hi\\n\""
+  ]
+
+-- | A program that uses each short form of the readable style.
+readableProgram :: Program
+readableProgram =
+  Program
+    { programScopes = insertScope 4 primPackage "GHC.Prim" (insertScope 3 testPackage "Unused" (insertScope 5 primPackage "GHC.CString" scopes)),
+      programImports = Imports mempty mempty mempty mempty mempty mempty mempty,
+      programDecls =
+        [ DeclSynonym (SynonymDecl Pub liftedRep [] (TyCon (wiredType "RuntimeRep")) boxedLifted),
+          DeclType
+            TypeDecl
+              { typeVis = Pub,
+                typeName = tupleType,
+                typeBinders = tupleBinders,
+                typeResult = TyApp (TyCon (wiredType "TYPE")) (TyApp (TyCon (wiredCon "TupleRep")) (promoted [TyVar r1, TyVar r2])),
+                typeRoles = [],
+                typeCons = [ConDecl Pub tupleCon (foldr (TyForAll . uncurry Binder) (lifted (TyVar a1) (TyFun (TyVar r2) (TyApp (TyCon (wiredCon "TupleRep")) (promoted [TyVar r1, TyVar r2])) (TyVar a2) (tuple (TyVar r1) (TyVar r2) (TyVar a1) (TyVar a2)))) [(name, binderType binder) | binder@(Binder name _) <- tupleBinders]) UnboxedTupleConstructor []]
+              },
+          DeclVal
+            ValDecl
+              { valVis = Private,
+                valInline = InlineDefault,
+                valName = valueNameTop "pair",
+                valType = lifted intType (lifted intType intPair),
+                valBody =
+                  ExLam
+                    (Binder (localValue "x") intType)
+                    ( ExLam
+                        (Binder (localValueWith 3 "_pat") intType)
+                        (ExApp (ExApp (foldl ExTyApp (ExVar tupleCon) [intRep, intRep, intType, intType]) (intLiteral 1)) (ExVar (localValue "x")))
+                    )
+              },
+          DeclVal
+            ValDecl
+              { valVis = Private,
+                valInline = InlineDefault,
+                valName = valueNameTop "second",
+                valType = lifted intPair intType,
+                valBody =
+                  ExLam
+                    (Binder (localValue "p") intPair)
+                    ( ExCase
+                        (ExVar (localValue "p"))
+                        (Just (Binder (localValue "_scrut") intPair))
+                        ( Alt (AltData tupleCon) [] [Binder (localValueWith 9 "_pat") intType, Binder (localValue "b") intType] (ExCase (ExVar (localValue "b")) Nothing (Alt (AltLit (LitInt intRepCon (-1))) [] [] (ExLit (LitInt (TyCon (wiredCon "Word8Rep")) 3) (TyCon (primType "Word8#"))) NE.:| [Alt AltDefault [] [] (ExLit (LitInt (TyCon (wiredCon "WordRep")) 2) (TyCon (primType "Word#")))]))
+                            NE.:| []
+                        )
+                    )
+              },
+          DeclVal
+            ValDecl
+              { valVis = Private,
+                valInline = InlineDefault,
+                valName = valueNameTop "greeting",
+                valType = TyApp (TyCon (wiredType "[]")) (TyCon (wiredType "Char")),
+                valBody = ExApp (ExApp (ExVar (Name "unpackLatin1From" SortValue (OriginTop primPackage "GHC.CString"))) (ExLit (LitAddr (TyCon (wiredCon "AddrRep")) "hi\n") (TyCon (primType "Addr#")))) (intLiteral 0)
+              }
+        ]
+    }
+  where
+    liftedRep = Name "LiftedRep" SortSynonym (OriginTop primPackage "GHC.Types")
+    boxedLifted = TyApp (TyCon (wiredCon "BoxedRep")) (TyCon (wiredCon "Lifted"))
+    lifted = TyFun boxedLifted boxedLifted
+    tupleType = wiredType "Tuple2#"
+    tupleCon = wiredCon "Tuple2#"
+    r1 = localType "r1"
+    r2 = localType "r2"
+    a1 = localType "a1"
+    a2 = localType "a2"
+    tupleBinders =
+      [ Binder r1 (TyCon (wiredType "RuntimeRep")),
+        Binder r2 (TyCon (wiredType "RuntimeRep")),
+        Binder a1 (TyApp (TyCon (wiredType "TYPE")) (TyVar r1)),
+        Binder a2 (TyApp (TyCon (wiredType "TYPE")) (TyVar r2))
+      ]
+    tuple w x y z = foldl TyApp (TyCon tupleType) [w, x, y, z]
+    promoted = foldr (\element rest -> foldl TyApp (TyCon (wiredCon ":")) [TyCon (wiredType "RuntimeRep"), element, rest]) (TyApp (TyCon (wiredCon "[]")) (TyCon (wiredType "RuntimeRep")))
+    intRepCon = TyCon (wiredCon "IntRep")
+    intRep = intRepCon
+    intType = TyCon (primType "Int#")
+    intPair = tuple intRep intRep intType intType
+    intLiteral value = ExLit (LitInt intRepCon value) intType
+    wiredType text = Name text SortTypeConstructor (OriginTop primPackage "GHC.Types")
+    wiredCon text = Name text SortDataConstructor (OriginTop primPackage "GHC.Types")
+    primType text = Name text SortTypeConstructor (OriginTop primPackage "GHC.Prim")
 
 prop_programRoundTrip :: Property
 prop_programRoundTrip = property $ do

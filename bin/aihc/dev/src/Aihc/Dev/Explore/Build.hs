@@ -163,7 +163,7 @@ phaseDocuments target output =
 fcSections :: Fc.Program -> [Section]
 fcSections program =
   [ Section (fmap definitionOf name) (T.lines text)
-  | (name, text) <- Fc.renderProgramSections program
+  | (name, text) <- Fc.renderProgramSections Fc.RenderReadable program
   ]
   where
     definitionOf name =
