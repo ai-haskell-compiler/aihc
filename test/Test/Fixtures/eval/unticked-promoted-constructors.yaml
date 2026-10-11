@@ -1,0 +1,34 @@
+extensions:
+  - DataKinds
+  - TypeFamilies
+  - TypeOperators
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE DataKinds, TypeFamilies, TypeOperators, KindSignatures #-}
+    module Flags (Flag (..), Pair (..)) where
+    data Flag = Off | On
+    data Pair = Flag :*: Flag
+  - |
+    {-# LANGUAGE DataKinds, TypeFamilies, TypeOperators, KindSignatures #-}
+    module Test where
+    import Flags
+    import qualified Flags as F
+    data Proxy (a :: Flag) = Proxy
+    type family First (p :: Pair) :: Flag where
+      First (a :*: b) = a
+    type family Choose (a :: Flag) :: Flag where
+      Choose Off = On
+      Choose On = Off
+    value :: Proxy (Choose F.Off)
+    value = Proxy
+    first :: Proxy (First (On F.:*: Off))
+    first = Proxy
+    accept :: Proxy 'On -> Bool
+    accept _ = True
+    result = (accept value, accept first)
+expression: result
+output: |
+  (True,True)
+status: pass
+reason: Name resolution accepts unticked promoted constructors with DataKinds.

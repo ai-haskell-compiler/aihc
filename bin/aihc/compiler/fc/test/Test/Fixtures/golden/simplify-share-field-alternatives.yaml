@@ -1,0 +1,114 @@
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (size, path) where
+
+  import GHC.Prim (ByteArray#, Int#, sizeofByteArray#, (*#), (+#))
+
+  data Number = Small Int# | Positive ByteArray# | Negative ByteArray#
+
+  data Ref = Ref Int#
+
+  data Handle = File Ref !Ref | Duplex Ref !Ref !Ref
+
+  data Four = Four Ref Ref Ref Ref
+
+  size :: Number -> Int#
+  size number = case number of
+    Small value -> value
+    Positive magnitude -> (sizeofByteArray# magnitude +# 1#) *# (sizeofByteArray# magnitude +# 2#) *# (sizeofByteArray# magnitude +# 3#)
+    Negative magnitude -> (sizeofByteArray# magnitude +# 1#) *# (sizeofByteArray# magnitude +# 2#) *# (sizeofByteArray# magnitude +# 3#)
+
+  path :: Handle -> Ref -> Four
+  path handle name = case handle of
+    File _ state -> Four state state name (Four name state name state `seqFour` name)
+    Duplex _ _ state -> Four state state name (Four name state name state `seqFour` name)
+
+  seqFour :: Four -> Ref -> Ref
+  seqFour _ ref = ref
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    sizeofByteArray# = 2.vsizeofByteArray# :: FUN @sUnliftedRep @cIntRep tByteArray# tInt#
+
+  import headers
+    2.tByteArray# :: sUnliftedType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.sUnliftedRep :: tRuntimeRep;
+    3.sUnliftedType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cUnlifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep;
+    3.sUnliftedRep = cBoxedRep cUnlifted;
+    3.sUnliftedType = tTYPE sUnliftedRep
+
+  type 1.tNumber :: sType {
+    1.cSmall :: FUN @cIntRep @sLiftedRep tInt# tNumber;
+    1.cPositive :: FUN @sUnliftedRep @sLiftedRep tByteArray# tNumber;
+    1.cNegative :: FUN @sUnliftedRep @sLiftedRep tByteArray# tNumber
+  }
+
+  type 1.tRef :: sType {
+    pub 1.cRef :: FUN @cIntRep @sLiftedRep tInt# tRef
+  }
+
+  type 1.tHandle :: sType {
+    strict [1] 1.cFile :: tRef 3.→ tRef 3.→ tHandle;
+    strict [1, 2] 1.cDuplex :: tRef 3.→ tRef 3.→ tRef 3.→ tHandle
+  }
+
+  type 1.tFour :: sType {
+    pub 1.cFour :: tRef 3.→ tRef 3.→ tRef 3.→ tRef 3.→ tFour
+  }
+
+  pub val 1.vsize :: FUN @sLiftedRep @cIntRep tNumber tInt#
+    = λ(x : tNumber).
+      case x of {
+        cSmall (value : tInt#) →
+          value;
+        _ →
+          let magnitude : tByteArray# =
+            case x of {
+              cPositive (magnitude{1} : tByteArray#) →
+                magnitude{1};
+              cNegative (magnitude{1} : tByteArray#) →
+                magnitude{1}
+            };
+          prim *# (prim *# (prim +# (prim sizeofByteArray# magnitude) lit (1#cIntRep) :: tInt#) (prim +# (prim sizeofByteArray# magnitude) lit (2#cIntRep) :: tInt#)) (prim +# (prim sizeofByteArray# magnitude) lit (3#cIntRep) :: tInt#)
+      }
+
+  pub val 1.vpath :: tHandle 3.→ tRef 3.→ tFour
+    = λ(x : tHandle) (y : tRef).
+      let! _ = x;
+      let! _ as (state : tRef) =
+        case x of {
+          cFile (_ : tRef) (state{1} : tRef) →
+            state{1};
+          cDuplex (_ : tRef) (_ : tRef) (state{1} : tRef) →
+            state{1}
+        };
+      cFour state state y (vseqFour (cFour y state y state) y)
+
+  val 1.vseqFour :: tFour 3.→ tRef 3.→ tRef
+    = λ(_ : tFour) (y : tRef).
+      y
+status: pass
+reason: Constructor alternatives that differ only in the fields they use share one default alternative. A case on the case binder reads each used field, which is unlifted or strict, so the read evaluates nothing.

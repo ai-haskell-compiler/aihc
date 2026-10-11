@@ -140,8 +140,6 @@ expected: |-
       (λ(_ : tState# tRealWorld).
         let! cI# (_pat : tInt#) = x;
         case _pat of {
-          0#cIntRep →
-            x;
           1#cIntRep →
             vmessage x;
           _ →
