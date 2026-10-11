@@ -73,24 +73,24 @@ expected: |-
   pub val 2.vdecompose :: ∀(o : (sType 3.→ sType) 3.→ (sType 3.→ sType) 3.→ sType 3.→ sType) (f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType). t$Dict$Composition o 3.→ o f g x 3.→ f (g x)
     = Λ(o : (sType 3.→ sType) 3.→ (sType 3.→ sType) 3.→ sType 3.→ sType) (f : sType 3.→ sType) (g : sType 3.→ sType)
     (x : sType). λ($dComposition : t$Dict$Composition o).
-      let! c$Dict$Composition ($cdecompose : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). o f{1} g{1} x{1} 3.→ f{1} (g{1} x{1})) ($ccompose : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). f{1} (g{1} x{1}) 3.→ o f{1} g{1} x{1}) =
+      let! c$Dict$Composition ($cdecompose : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). o f{1} g{1} x{1} 3.→ f{1} (g{1} x{1})) (_ : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). f{1} (g{1} x{1}) 3.→ o f{1} g{1} x{1}) =
         $dComposition;
       $cdecompose @f @g @x
 
   pub val 2.vcompose :: ∀(o : (sType 3.→ sType) 3.→ (sType 3.→ sType) 3.→ sType 3.→ sType) (f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType). t$Dict$Composition o 3.→ f (g x) 3.→ o f g x
     = Λ(o : (sType 3.→ sType) 3.→ (sType 3.→ sType) 3.→ sType 3.→ sType) (f : sType 3.→ sType) (g : sType 3.→ sType)
     (x : sType). λ($dComposition : t$Dict$Composition o).
-      let! c$Dict$Composition ($cdecompose : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). o f{1} g{1} x{1} 3.→ f{1} (g{1} x{1})) ($ccompose : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). f{1} (g{1} x{1}) 3.→ o f{1} g{1} x{1}) =
+      let! c$Dict$Composition (_ : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). o f{1} g{1} x{1} 3.→ f{1} (g{1} x{1})) ($ccompose : ∀(f{1} : sType 3.→ sType) (g{1} : sType 3.→ sType) (x{1} : sType). f{1} (g{1} x{1}) 3.→ o f{1} g{1} x{1}) =
         $dComposition;
       $ccompose @f @g @x
 
-  pub val 2.v$fCompositionCompose :: t$Dict$Composition (tCompose (tTYPE (cBoxedRep cLifted)) (tTYPE (cBoxedRep cLifted)))
-    = c$Dict$Composition @(tCompose (tTYPE (cBoxedRep cLifted)) (tTYPE (cBoxedRep cLifted))) v$fCompositionCompose$cdecompose v$fCompositionCompose$ccompose
+  pub val 2.v$fCompositionCompose :: t$Dict$Composition (tCompose sType sType)
+    = c$Dict$Composition @(tCompose sType sType) v$fCompositionCompose$cdecompose v$fCompositionCompose$ccompose
 
-  val 2.v$fCompositionCompose$cdecompose :: ∀(f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType). tCompose (tTYPE (cBoxedRep cLifted)) (tTYPE (cBoxedRep cLifted)) f g x 3.→ f (g x)
+  val 2.v$fCompositionCompose$cdecompose :: ∀(f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType). tCompose sType sType f g x 3.→ f (g x)
     = Λ(f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType).
-      vgetCompose @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted)) @f @g @x
+      vgetCompose @sType @sType @f @g @x
 
-  val 2.v$fCompositionCompose$ccompose :: ∀(f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType). f (g x) 3.→ tCompose (tTYPE (cBoxedRep cLifted)) (tTYPE (cBoxedRep cLifted)) f g x
+  val 2.v$fCompositionCompose$ccompose :: ∀(f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType). f (g x) 3.→ tCompose sType sType f g x
     = Λ(f : sType 3.→ sType) (g : sType 3.→ sType) (x : sType). λ(_newtype : f (g x)).
-      _newtype ▷ sym (axiom-co $ax$Compose @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted)) @f @g @x)
+      _newtype ▷ sym (axiom-co $ax$Compose @sType @sType @f @g @x)

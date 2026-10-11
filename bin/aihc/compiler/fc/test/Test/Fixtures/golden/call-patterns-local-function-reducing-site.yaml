@@ -60,7 +60,7 @@ expected: |-
     = λ(x : tInt).
       let! cI# (s0 : tInt#) = x;
       rec {
-        $sgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# (tList tBool)) =
+        $sgo : FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# (tList tBool)) =
           λ(x{1} : tInt#) (y : tInt#).
             case y of {
               1#cIntRep →

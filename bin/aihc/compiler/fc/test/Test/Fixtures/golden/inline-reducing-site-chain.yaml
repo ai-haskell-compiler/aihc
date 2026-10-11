@@ -52,7 +52,7 @@ expected: |-
 
   pub val 1.vrun :: tBool 2.→ tBool 2.→ tBool 2.→ tState
     = λ(x : tBool) (y : tBool) (z : tBool).
-      let _join : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool tState)) =
+      let _join : tBool 2.→ tBool 2.→ tBool 2.→ tState =
         λ(a : tBool) (b : tBool) (c : tBool).
           case y of {
             cTrue →

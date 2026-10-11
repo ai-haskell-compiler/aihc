@@ -102,7 +102,7 @@ expected: |-
     = λ(x : tBool) (y : tBool) (z : tState# tRealWorld).
       let! cTuple2# (s1 : tState# tRealWorld) (r : tMutVar# tRealWorld tInt) =
         prim newMutVar# @tInt @tRealWorld (cI# lit (0#cIntRep) :: tInt#) z;
-      let _join : FUN @(cTupleRep (c[] tRuntimeRep)) @(cBoxedRep cLifted) (tState# tRealWorld) (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tRef (FUN @(cBoxedRep cLifted) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep (cBoxedRep cLifted) (c[] tRuntimeRep)))) tMode (tTuple2# (cTupleRep (c[] tRuntimeRep)) (cBoxedRep cLifted) (tState# tRealWorld) tH))) =
+      let _join : FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) (tRef 3.→ FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep (cBoxedRep cLifted) (c[] tRuntimeRep)))) tMode (tTuple2# (cTupleRep (c[] tRuntimeRep)) (cBoxedRep cLifted) (tState# tRealWorld) tH)) =
         λ(s2 : tState# tRealWorld) (charRef : tRef) (mode : tMode).
           let! cTuple2# (s1{1} : tState# tRealWorld) (r{1} : tMutVar# tRealWorld tInt) =
             prim newMutVar# @tInt @tRealWorld (cI# lit (3#cIntRep) :: tInt#) s2;

@@ -96,7 +96,7 @@ expected: |-
       case x of {
         c[] →
           cI# lit (0#cIntRep) :: tInt#;
-        c: (y : a) (_pat : t[] a) →
+        c: (y : a) (_ : t[] a) →
           vweight @a $dWeight y
       }
 

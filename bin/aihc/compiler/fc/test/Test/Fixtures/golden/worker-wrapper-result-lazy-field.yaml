@@ -50,7 +50,7 @@ expected: |-
       let! cI# (x{1} : tInt#) = x;
       v$wbox x{1}
 
-  val 1.v$wbox :: FUN @cIntRep @(cBoxedRep cLifted) tInt# tBox
+  val 1.v$wbox :: FUN @cIntRep @sLiftedRep tInt# tBox
     = λ(x : tInt#).
       let argument : tInt# =
         prim +# x lit (1#cIntRep) :: tInt#;

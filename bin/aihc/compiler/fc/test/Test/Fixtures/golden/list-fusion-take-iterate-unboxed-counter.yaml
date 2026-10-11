@@ -185,7 +185,7 @@ expected: |-
 
   val 1.vtakeEnd inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ b
     = Λ(b : sType). λ(x : b) (y : tInt).
-      let! cI# (_pat : tInt#) = y;
+      let! cI# (_ : tInt#) = y;
       x
 
   val 1.vtakeWith inline [1] :: ∀(b : sType). b 3.→ tInt 3.→ (tInt 3.→ b) 3.→ b
@@ -206,10 +206,10 @@ expected: |-
           cZ;
         _ →
           let x{1} : tNat 3.→ tNat 3.→ tNat =
-            λ(_pat : tNat) (r : tNat).
+            λ(_ : tNat) (r : tNat).
               cS r;
           rec {
-            $wgo : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tNat (FUN @cIntRep @(cBoxedRep cLifted) tInt# tNat) =
+            $wgo : tNat 3.→ FUN @cIntRep @sLiftedRep tInt# tNat =
               λ(x{2} : tNat) (x2 : tInt#).
                 case x2 of {
                   1#cIntRep →
@@ -229,7 +229,7 @@ expected: |-
 
   rule "iterate" [~1] Λ(a : sType). λ(f : a 3.→ a). λ(x : a).
     viterate @a f x
-   = vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (_n : b).
+   = vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (_ : b).
     viterateFB @a @b c f x)
    :: tList a
 
@@ -239,7 +239,7 @@ expected: |-
    :: (a 3.→ a) 3.→ a 3.→ tList a
 
   rule "iterate/build" [1] Λ(a : sType). λ(f : a 3.→ a). λ(x : a).
-    vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (n : b).
+    vbuild @a (Λ(b : sType). λ(c : a 3.→ b 3.→ b) (_ : b).
       viterateFB @a @b c f x)
    = viterate @a f x
    :: tList a

@@ -102,7 +102,7 @@ expected: |-
       }
 
   pub val 1.vignore noinline :: tBig 3.→ FUN @cIntRep @cIntRep tInt# tInt#
-    = λ(x : tBig) (y : tInt#).
+    = λ(_ : tBig) (y : tInt#).
       y
 
   pub val 1.vconsume noinline :: FUN @cIntRep @sLiftedRep tInt# tInt

@@ -57,8 +57,8 @@ expected: |-
     = Λ(k0 : sType) (a : sType) (b : k0). λ(x : tPayload (tConst k0 a b)).
       x ▷ trans (axiom-co $ax$Payload$PayloadConst @k0 @a @b) (axiom-co $ax$R$Payload$PayloadConst @k0 @a @b)
 
-  pub val 1.vuseAtUnit :: tPayload (tConst (tTYPE (cBoxedRep cLifted)) tUnit tUnit) 2.→ tUnit
-    = λ(x : tPayload (tConst (tTYPE (cBoxedRep cLifted)) tUnit tUnit)).
-      vunwrap @(tTYPE (cBoxedRep cLifted)) @tUnit @tUnit x
+  pub val 1.vuseAtUnit :: tPayload (tConst sType tUnit tUnit) 2.→ tUnit
+    = λ(x : tPayload (tConst sType tUnit tUnit)).
+      vunwrap @sType @tUnit @tUnit x
 status: pass
 reason: A newtype instance whose head leaves a kind open quantifies that kind. Its representation type, both axioms, and each use of the axioms take the kind as the first argument.

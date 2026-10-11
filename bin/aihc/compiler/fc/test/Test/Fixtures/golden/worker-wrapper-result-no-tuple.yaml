@@ -51,7 +51,7 @@ expected: |-
       let! cI# (x{1} : tInt#) = x;
       v$waround x{1}
 
-  val 1.v$waround :: FUN @cIntRep @(cBoxedRep cLifted) tInt# tPair
+  val 1.v$waround :: FUN @cIntRep @sLiftedRep tInt# tPair
     = λ(x : tInt#).
       let argument : tInt# =
         prim -# x lit (1#cIntRep) :: tInt#;

@@ -77,7 +77,7 @@ expected: |-
         go : tInt 3.→ tIO tInt =
           λ(x{1} : tInt).
             (λ(s : tState# tRealWorld).
-              let! cTuple2# (s' : tState# tRealWorld) (_pat : tInt) = ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s;
+              let! cTuple2# (s' : tState# tRealWorld) (_ : tInt) = ((vreturnIO @tInt x{1}) ▷ axiom-co $ax$IO @tInt) s;
               let! cI# (_pat{1} : tInt#) = x{1};
               case _pat{1} of {
                 0#cIntRep →

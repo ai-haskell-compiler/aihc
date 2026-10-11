@@ -107,7 +107,7 @@ expected: |-
         _ →
           let quotient : tInt =
             cI# argument;
-          λ(_pat : tInt).
+          λ(_ : tInt).
             quotient
       }
 

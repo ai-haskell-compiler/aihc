@@ -41,11 +41,11 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub val 1.vboxed :: FUN @cIntRep @sLiftedRep tInt# tInt
-    = λ(x : tInt#).
+    = λ(_ : tInt#).
       v$int_7
 
   pub val 1.vunboxed :: FUN @cIntRep @(cTupleRep (c: tRuntimeRep cIntRep (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) tInt# (tTuple2# cIntRep cIntRep tInt# tInt#)
-    = λ(x : tInt#).
+    = λ(_ : tInt#).
       cTuple2# @cIntRep @cIntRep @tInt# @tInt# lit (1#cIntRep) :: tInt# lit (2#cIntRep) :: tInt#
 
   val 1.v$int_7 noinline :: tInt

@@ -41,6 +41,6 @@ expected: |-
 
   pub val 1.vinvoke :: (∀(k : sType) (a : k). tProxy k a 2.→ tBool) 2.→ tBool
     = λ(x : ∀(k : sType) (a : k). tProxy k a 2.→ tBool).
-      x @(tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted)) @tMaybe (cProxy @(tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted)) @tMaybe)
+      x @(sType 2.→ sType) @tMaybe (cProxy @(sType 2.→ sType) @tMaybe)
 status: pass
 reason: A higher-rank call instantiates each type variable at its declared kind.

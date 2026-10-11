@@ -70,7 +70,7 @@ expected: |-
       let! cTuple2# (s1 : tState# tRealWorld) (low : tWord8#) =
         prim readWord8OffAddr# @tRealWorld y lit (1#cIntRep) :: tInt# s0;
       let _case{1} : tState# tRealWorld =
-        prim touch# @(cBoxedRep cLifted) @tWord @tRealWorld x s1;
+        prim touch# @sLiftedRep @tWord @tRealWorld x s1;
       cW# (prim or# (prim uncheckedShiftL# (prim word8ToWord# high) lit (8#cIntRep) :: tInt#) (prim word8ToWord# low))
 status: pass
 reason: Each byte read starts a state thread from 'realWorld#'. The second read now takes the token of the first read. Thus one touch# after the last read keeps the owner alive for the two reads.

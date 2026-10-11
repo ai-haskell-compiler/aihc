@@ -60,7 +60,7 @@ expected: |-
   }
 
   pub val 1.veqTypeRep :: ∀(k1 : sType) (k2 : sType) (a : k1) (b : k2). tTypeRep k1 a 2.→ tTypeRep k2 b 2.→ tMaybe (t:~~: k1 k2 a b)
-    = Λ(k1 : sType) (k2 : sType) (a : k1) (b : k2). λ(x : tTypeRep k1 a) (y : tTypeRep k2 b).
+    = Λ(k1 : sType) (k2 : sType) (a : k1) (b : k2). λ(_ : tTypeRep k1 a) (_ : tTypeRep k2 b).
       cNothing @(t:~~: k1 k2 a b)
 
   pub val 1.vpick :: ∀(k : sType) (a : k). tTypeRep k a 2.→ tSomeTypeRep 2.→ tMaybe (tTypeRep k a)
@@ -68,7 +68,7 @@ expected: |-
       let! cSomeTypeRep @(k{1} : sType) @(a{1} : k{1}) (rep : tTypeRep k{1} a{1}) = y;
       case veqTypeRep @k{1} @k @a{1} @a rep x of {
         cJust (_pat : t:~~: k{1} k a{1} a) →
-          let! cHRefl ($co : k ~ k{1}) ($co{1} : a ~ a{1}) = _pat;
+          let! cHRefl (_ : k ~ k{1}) ($co{1} : a ~ a{1}) = _pat;
           (cJust @(tTypeRep k a{1}) rep) ▷ sym (tycon-co tMaybe (tycon-co tTypeRep (refl k) ($co{1})));
         cNothing →
           cNothing @(tTypeRep k a)

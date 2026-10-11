@@ -33,6 +33,6 @@ expected: |-
 
   pub val 1.valias :: ∀(a : sType) (b : sType). a 2.→ b
     = Λ(a : sType) (b : sType). λ(_foreign_argument : a).
-      prim raise# @(cBoxedRep cLifted) @a @b _foreign_argument
+      prim raise# @sLiftedRep @a @b _foreign_argument
 status: pass
 reason: A use of a foreign import prim without arguments is a lambda around a foreign call.

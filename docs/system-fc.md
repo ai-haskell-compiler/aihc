@@ -122,6 +122,9 @@ GRIN lowering is temporarily disabled.
     Do not add extra axioms for them.
 
 20. Scope syntax stays: `scope 1 = "pkg-id" ModuleName`.
+    The printer writes only the scopes that the text uses.
+    A lambda or pattern binder that its scope does not use prints as `_`, with its type.
+    A case binder that the alternatives do not use is not printed.
 
 ## Syntax
 

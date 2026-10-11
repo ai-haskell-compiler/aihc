@@ -36,7 +36,7 @@ expected: |-
     = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tL a) (y : FUN @sLiftedRep @rep a r)
     (z : FUN @sLiftedRep @rep tUnit r).
       case x of {
-        cC (x{1} : a) (_pat : tL a) →
+        cC (x{1} : a) (_ : tL a) →
           y x{1};
         _ →
           z c()
@@ -45,7 +45,7 @@ expected: |-
   pub val 1.vfirst :: ∀(a : sType). tL a 3.→ a
     = Λ(a : sType). λ(x : tL a).
       v$mHead @a @sLiftedRep @a x (λ(x{1} : a).
-        x{1}) (λ(_pattern_failure : tUnit).
+        x{1}) (λ(_ : tUnit).
         absurd x return (a))
 status: pass
 reason: A unidirectional pattern synonym gives a matcher only.

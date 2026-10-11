@@ -32,6 +32,6 @@ expected: |-
 
   pub val 1.vboom :: ∀(a : sType) (b : sType). a 2.→ b
     = Λ(a : sType) (b : sType). λ(x : a).
-      prim raise# @(cBoxedRep cLifted) @a @b x
+      prim raise# @sLiftedRep @a @b x
 status: pass
 reason: A use of a foreign import prim stays an ordinary application.

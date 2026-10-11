@@ -53,4 +53,4 @@ expected: |-
 
   pub val 1.vthrough :: tInt 3.→ tBox
     = λ(x : tInt).
-      prim unsafeCoerce# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @tInt @tBox x
+      prim unsafeCoerce# @sLiftedRep @sLiftedRep @tInt @tBox x

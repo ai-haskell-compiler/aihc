@@ -40,7 +40,7 @@ expected: |-
       $cmethod
 
   pub val 1.v$dmmethod :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
-    = Λ(a : sType). λ($dC : t$Dict$C a) (x : a).
+    = Λ(a : sType). λ(_ : t$Dict$C a) (x : a).
       x
   scope 1 = "" Private
   scope 2 = "" Public

@@ -94,7 +94,7 @@ expected: |-
       c$Dict$Len @tVec @a (v$fLenVeca$clen @a)
 
   val 1.v$fLenVeca$clen :: ∀(a : sType) (s : sType). tVec s a 3.→ tInt
-    = Λ(a : sType) (s : sType). λ(x : tVec s a).
+    = Λ(a : sType) (s : sType). λ(_ : tVec s a).
       cI# lit (0#cIntRep) :: tInt#
 
   pub val 1.v$fLenMVWrapa :: ∀(a : sType). t$Dict$Len tMV (tWrap a)
@@ -103,18 +103,18 @@ expected: |-
 
   val 1.v$fLenMVWrapa$clen :: ∀(a : sType) (s : sType). tMV s (tWrap a) 3.→ tInt
     = Λ(a : sType) (s : sType).
-      vcoerce @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt) (c$Dict$Coercible @(tTYPE (cBoxedRep cLifted)) @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt)) (vlen @tVec @a @s (v$fLenVeca @a))
+      vcoerce @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt) (c$Dict$Coercible @sType @(tVec s a 3.→ tInt) @(tMV s (tWrap a) 3.→ tInt)) (vlen @tVec @a @s (v$fLenVeca @a))
 
-  pub val 1.vcoerce :: ∀(a : sType) (b : sType). t$Dict$Coercible (tTYPE (cBoxedRep cLifted)) a b 3.→ a 3.→ b
-    = Λ(a : sType) (b : sType). λ($dCoercible : t$Dict$Coercible (tTYPE (cBoxedRep cLifted)) a b) (_foreign_argument : a).
-      prim unsafeCoerce# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @a @b _foreign_argument
+  pub val 1.vcoerce :: ∀(a : sType) (b : sType). t$Dict$Coercible sType a b 3.→ a 3.→ b
+    = Λ(a : sType) (b : sType). λ(_ : t$Dict$Coercible sType a b) (_foreign_argument : a).
+      prim unsafeCoerce# @sLiftedRep @sLiftedRep @a @b _foreign_argument
 
   pub val 1.vtoF :: tInt 3.→ tF tBool
-    = vcoerce @tInt @(tF tBool) (c$Dict$Coercible @(tTYPE (cBoxedRep cLifted)) @tInt @(tF tBool))
+    = vcoerce @tInt @(tF tBool) (c$Dict$Coercible @sType @tInt @(tF tBool))
 
   pub val 1.vmapF :: (tInt 3.→ tInt) 3.→ tF tBool 3.→ tF tBool
     = λ(x : tInt 3.→ tInt).
-      vcoerce @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool) (c$Dict$Coercible @(tTYPE (cBoxedRep cLifted)) @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool)) x
+      vcoerce @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool) (c$Dict$Coercible @sType @(tInt 3.→ tInt) @(tF tBool 3.→ tF tBool)) x
 status: pass
 reason: Coercible evidence through a newtype instance of a data family passes the
   System FC lint

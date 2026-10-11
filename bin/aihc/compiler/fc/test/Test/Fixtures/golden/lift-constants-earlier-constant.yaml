@@ -38,7 +38,7 @@ expected: |-
     = cBox @tUnit c()
 
   pub val 1.vfirst :: tUnit 3.→ tBox tUnit
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       vshared
 status: pass
 reason: A site uses the private constant of an earlier lift that has the same expression.

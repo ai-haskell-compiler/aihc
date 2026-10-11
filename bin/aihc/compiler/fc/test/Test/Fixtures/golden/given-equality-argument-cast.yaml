@@ -40,12 +40,12 @@ expected: |-
 
   pub val 1.vwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ (tSt m 2.→ tSt m) 2.→ m
     = Λ(m : sType). λ($dAssoc : t$Dict$Assoc m).
-      let! c$Dict$Assoc ($cwrap : (tSt m 2.→ tSt m) 2.→ m) ($cunwrap : m 2.→ tSt m 2.→ tSt m) = $dAssoc;
+      let! c$Dict$Assoc ($cwrap : (tSt m 2.→ tSt m) 2.→ m) (_ : m 2.→ tSt m 2.→ tSt m) = $dAssoc;
       $cwrap
 
   pub val 1.vunwrap :: ∀(m : sType). t$Dict$Assoc m 2.→ m 2.→ tSt m 2.→ tSt m
     = Λ(m : sType). λ($dAssoc : t$Dict$Assoc m).
-      let! c$Dict$Assoc ($cwrap : (tSt m 2.→ tSt m) 2.→ m) ($cunwrap : m 2.→ tSt m 2.→ tSt m) = $dAssoc;
+      let! c$Dict$Assoc (_ : (tSt m 2.→ tSt m) 2.→ m) ($cunwrap : m 2.→ tSt m 2.→ tSt m) = $dAssoc;
       $cunwrap
 
   pub val 1.vconvert :: ∀(m1 : sType) (m2 : sType). t$Dict$Assoc m1 2.→ t$Dict$Assoc m2 2.→ FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tSt m1 ~ tSt m2) (m1 2.→ m2)

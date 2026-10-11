@@ -64,16 +64,16 @@ expected: |-
       let! cCursor (y{1} : tInt#) (y{2} : tInt) = y;
       v$wfill x y{1} y{2} z
 
-  val 1.v$wfill :: FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) (tInt 3.→ tInt) (FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) (t[] tInt) tInt)))
+  val 1.v$wfill :: (tInt 3.→ tInt) 3.→ FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ t[] tInt 3.→ tInt)
     = λ(x : tInt 3.→ tInt) (y : tInt#) (y{1} : tInt) (z : t[] tInt).
       rec {
-        $wgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @cIntRep (t[] tInt) tInt#)) =
+        $wgo : FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ FUN @sLiftedRep @cIntRep (t[] tInt) tInt#) =
           λ(x{1} : tInt#) (x{2} : tInt) (y{2} : t[] tInt).
             case y{2} of {
               c[] →
                 x{1};
               c: (y{3} : tInt) (ys : t[] tInt) →
-                let! cI# (_pat : tInt#) = x y{3};
+                let! cI# (_ : tInt#) = x y{3};
                 $wgo (prim +# x{1} lit (1#cIntRep) :: tInt#) x{2} ys
             }
       } in

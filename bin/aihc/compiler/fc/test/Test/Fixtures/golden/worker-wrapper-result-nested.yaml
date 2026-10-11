@@ -67,7 +67,7 @@ expected: |-
       let! cTuple2# (component : tState# tRealWorld) (field : tInt#) = v$wsumTo x y z;
       cTuple2# @(cTupleRep (c[] tRuntimeRep)) @(cBoxedRep cLifted) @(tState# tRealWorld) @tInt component (cI# field)
 
-  val 1.v$wsumTo :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#)))
+  val 1.v$wsumTo :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#)))
     = λ(x : tInt#) (y : tInt#) (z : tState# tRealWorld).
       case x of {
         0#cIntRep →

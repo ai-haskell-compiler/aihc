@@ -82,7 +82,7 @@ expected: |-
       y (x ▷ axiom-co $ax$ST @s @a)
 
   val 1.vwrite :: ∀(s : sType) (a : sType). tRef s 3.→ a 3.→ tST s 1.tUnit
-    = Λ(s : sType) (a : sType). λ(x : tRef s) (y : a).
+    = Λ(s : sType) (a : sType). λ(_ : tRef s) (_ : a).
       cUnit ▷ sym (axiom-co $ax$ST @s @1.tUnit)
 
   pub val 1.vrun :: tInt 3.→ 1.tUnit

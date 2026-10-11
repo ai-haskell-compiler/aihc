@@ -71,7 +71,7 @@ expected: |-
 
   pub val 1.vrun :: tState 2.→ tBool 2.→ tState
     = λ(x : tState) (y : tBool).
-      let! cState (_pat : tBool) (_pat{1} : tBool) (_pat{2} : tBool) = x;
+      let! cState (_ : tBool) (_ : tBool) (_ : tBool) = x;
       vstep x y
 
   pub val 1.vagain :: tState 2.→ tBool 2.→ tState

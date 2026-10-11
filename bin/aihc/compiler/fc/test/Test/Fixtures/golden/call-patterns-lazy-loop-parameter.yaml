@@ -55,7 +55,7 @@ expected: |-
     = λ(x : tInt 3.→ tInt) (y : tInt).
       let! cI# (s0 : tInt#) = y;
       rec {
-        $sgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# (tList tInt)) =
+        $sgo : FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# (tList tInt)) =
           λ(x{1} : tInt#) (y{1} : tInt#).
             let x{2} : tInt =
               cI# x{1};

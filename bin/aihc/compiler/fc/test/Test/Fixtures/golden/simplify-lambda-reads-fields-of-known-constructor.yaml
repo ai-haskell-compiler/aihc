@@ -90,7 +90,7 @@ expected: |-
 
   pub val 1.vuseSome noinline :: tSome 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
     = λ(x : tSome) (y : tInt#).
-      let! cSome @(a : sType) (_pat : a) (a{1} : tInt#) = x;
+      let! cSome @(a : sType) (_ : a) (a{1} : tInt#) = x;
       cI# (prim +# a{1} y)
 
   pub val 1.vmakeSome :: FUN @cIntRep @sLiftedRep tInt# (tInt 4.→ tInt)

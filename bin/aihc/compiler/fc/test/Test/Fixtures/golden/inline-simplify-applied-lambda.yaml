@@ -54,7 +54,7 @@ expected: |-
         (x ▷ axiom-co $ax$Eff @tInt) s) ▷ sym (axiom-co $ax$Eff @tInt)
 
   pub val 1.vrun :: tEff tInt
-    = vwrap ((λ(s : tState# tRealWorld).
+    = vwrap ((λ(_ : tState# tRealWorld).
       cI# lit (2#cIntRep) :: tInt#) ▷ sym (axiom-co $ax$Eff @tInt))
 status: pass
 reason: The simplifying mode inlines nothing, so the call of wrap stays, but it still reduces a lambda applied to an argument and drops the unused let in its head.

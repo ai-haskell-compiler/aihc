@@ -62,13 +62,13 @@ expected: |-
       let! cTuple2# (field : tInt) (field{1} : tInt) = v$waround x{1};
       cPair field field{1}
 
-  val 1.v$waround :: FUN @cIntRep @(cTupleRep (c: tRuntimeRep (cBoxedRep cLifted) (c: tRuntimeRep (cBoxedRep cLifted) (c[] tRuntimeRep)))) tInt# (tTuple2# (cBoxedRep cLifted) (cBoxedRep cLifted) tInt tInt)
+  val 1.v$waround :: FUN @cIntRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt# (tTuple2# sLiftedRep sLiftedRep tInt tInt)
     = λ(x : tInt#).
       let argument : tInt# =
         prim -# x lit (1#cIntRep) :: tInt#;
       let argument{1} : tInt# =
         prim +# x lit (1#cIntRep) :: tInt#;
-      cTuple2# @(cBoxedRep cLifted) @(cBoxedRep cLifted) @tInt @tInt (cI# argument) (cI# argument{1})
+      cTuple2# @sLiftedRep @sLiftedRep @tInt @tInt (cI# argument) (cI# argument{1})
 
   pub val 1.vboth :: FUN @sLiftedRep @(cTupleRep (c: tRuntimeRep sLiftedRep (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) tInt (tTuple2# sLiftedRep sLiftedRep tInt tInt)
     = λ(x : tInt).

@@ -53,6 +53,6 @@ expected: |-
       prim raise# @r @tMessage @a $d
 
   pub val 1.vuse :: tBool
-    = vfailure @(cBoxedRep cLifted) @tBool cMessage
+    = vfailure @sLiftedRep @tBool cMessage
 status: pass
 reason: the evidence arrow of an implicit parameter returns a representation-polymorphic body

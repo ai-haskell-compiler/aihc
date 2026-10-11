@@ -45,23 +45,23 @@ expected: |-
     4.sType = tTYPE sLiftedRep
 
   pub val 1.vthree :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       v$int_3
 
   pub val 1.valsoThree :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       v$int_3
 
   pub val 1.vnegative :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       v$int_minus1
 
   pub val 1.vminus :: tUnit 4.→ tChar
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       v$char_minus
 
   pub val 1.vletter :: tUnit 4.→ tChar
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       v$char_a
 
   val 1.v$int_3 noinline :: tInt

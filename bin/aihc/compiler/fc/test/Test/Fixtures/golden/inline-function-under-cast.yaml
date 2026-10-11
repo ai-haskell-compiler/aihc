@@ -55,7 +55,7 @@ expected: |-
   axiom 1.$ax$Eff (a : sType) : tEff a ~R FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a)
 
   pub val 1.vrun :: FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tState# tRealWorld) tInt
-    = λ(x : tState# tRealWorld).
+    = λ(_ : tState# tRealWorld).
       cI# lit (1#cIntRep) :: tInt#
 status: pass
 reason: The body of 'tick' is a function under the cast of the newtype. The use casts it back and applies it, so the two casts cancel and the copy of the function takes the state token.

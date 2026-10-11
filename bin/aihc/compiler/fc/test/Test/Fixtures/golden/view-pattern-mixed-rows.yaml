@@ -60,7 +60,7 @@ expected: |-
   pub val 1.visRound :: tShape 2.→ tBool
     = λ(x : tShape).
       case x of {
-        cCircle (_pat : tBool) →
+        cCircle (_ : tBool) →
           cTrue;
         _ →
           cFalse

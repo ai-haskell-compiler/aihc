@@ -32,7 +32,7 @@ expected: |-
 
   pub val 1.v$mPoint :: ∀(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). tPair a 3.→ (a 3.→ FUN @sLiftedRep @rep a r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
     = Λ(a : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tPair a) (y : a 3.→ FUN @sLiftedRep @rep a r)
-    (z : FUN @sLiftedRep @rep tUnit r).
+    (_ : FUN @sLiftedRep @rep tUnit r).
       let! cPair (px : a) (py : a) = x;
       y px py
 
@@ -42,12 +42,12 @@ expected: |-
 
   pub val 1.vpx :: ∀(a : sType). tPair a 3.→ a
     = Λ(a : sType). λ(x : tPair a).
-      let! cPair (px : a) (py : a) = x;
+      let! cPair (px : a) (_ : a) = x;
       px
 
   pub val 1.vpy :: ∀(a : sType). tPair a 3.→ a
     = Λ(a : sType). λ(x : tPair a).
-      let! cPair (px : a) (py : a) = x;
+      let! cPair (_ : a) (py : a) = x;
       py
 
   pub val 1.vfirst :: ∀(a : sType). tPair a 3.→ a

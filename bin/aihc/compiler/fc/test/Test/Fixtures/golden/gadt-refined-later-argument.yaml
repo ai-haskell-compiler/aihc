@@ -64,7 +64,7 @@ expected: |-
   pub val 1.vpick :: ∀(a : sType). tShape a 3.→ a 3.→ tFlag
     = Λ(a : sType). λ(x : tShape a) (y : a).
       case x of {
-        cSingle ($co : a ~ tUnit) (f : tFlag) →
+        cSingle (_ : a ~ tUnit) (f : tFlag) →
           f;
         cBoth @(a{1} : sType) @(b : sType) ($co : a ~ tTuple2 a{1} b) (left : tShape a{1}) (right : tShape b) →
           let! c(,) (x{1} : a{1}) (y{1} : b) = y ▷ $co;

@@ -42,6 +42,6 @@ expected: |-
       cTrue
 
   pub val 1.vresult :: tBool
-    = vignore @(tTYPE (cBoxedRep cLifted)) @tUnit
+    = vignore @sType @tUnit
 status: pass
 reason: Annotation defaulting resolves an argument kind before its type.

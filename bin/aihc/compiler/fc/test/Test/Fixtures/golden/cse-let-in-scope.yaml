@@ -49,11 +49,11 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   val 1.vreplacement :: tInt 3.→ t[] tInt 3.→ t[] tInt
-    = λ(x : tInt) (y : t[] tInt).
+    = λ(_ : tInt) (y : t[] tInt).
       y
 
   val 1.vappend :: t[] tInt 3.→ t[] tInt 3.→ t[] tInt
-    = λ(x : t[] tInt) (y : t[] tInt).
+    = λ(x : t[] tInt) (_ : t[] tInt).
       x
 
   pub val 1.vdecode :: tInt 3.→ t[] tInt 3.→ t[] tInt
@@ -63,7 +63,7 @@ expected: |-
       case y of {
         c[] →
           vappend fallback fallback;
-        c: (z : tInt) (_pat : t[] tInt) →
+        c: (z : tInt) (_ : t[] tInt) →
           let! cI# (_pat{1} : tInt#) = z;
           case _pat{1} of {
             0#cIntRep →

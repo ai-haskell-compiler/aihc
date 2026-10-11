@@ -50,7 +50,7 @@ expected: |-
       x
 
   rule "k/const" λ(x : tNat).
-    vk (λ(y : tNat).
+    vk (λ(_ : tNat).
       x)
    = x
    :: tNat

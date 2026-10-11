@@ -56,7 +56,7 @@ expected: |-
   }
 
   pub val 1.vpair :: tInt 3.→ tPair
-    = λ(x : tInt).
+    = λ(_ : tInt).
       let size : tInt =
         cI# lit (3#cIntRep) :: tInt#;
       cPair size (cBox size)

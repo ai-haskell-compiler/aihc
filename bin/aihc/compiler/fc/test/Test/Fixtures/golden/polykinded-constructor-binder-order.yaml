@@ -45,7 +45,7 @@ expected: |-
     pub 1.cBox :: ∀(k : sType) (a : k) (j : sType) (b : j). tProxy j b 2.→ tBox k a
   }
 
-  pub val 1.vresult :: tBox (tTYPE (cBoxedRep cLifted)) tBool
-    = cBox @(tTYPE (cBoxedRep cLifted)) @tBool @(tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted)) @tMaybe (cProxy @(tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted)) @tMaybe)
+  pub val 1.vresult :: tBox sType tBool
+    = cBox @sType @tBool @(sType 2.→ sType) @tMaybe (cProxy @(sType 2.→ sType) @tMaybe)
 status: pass
 reason: Constructor calls use the same type binder order as their declarations.

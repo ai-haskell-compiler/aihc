@@ -68,7 +68,7 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub val 2.vuse :: ∀(b : sType). b 3.→ b
-    = Λ(b : sType). λ(x : b).
-      vfailure @(cBoxedRep cLifted) @b cMessage
+    = Λ(b : sType). λ(_ : b).
+      vfailure @sLiftedRep @b cMessage
 status: pass
 reason: an imported representation-polymorphic function with an implicit parameter keeps the body representation on its evidence arrow

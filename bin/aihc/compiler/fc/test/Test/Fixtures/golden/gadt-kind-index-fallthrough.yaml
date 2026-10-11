@@ -105,25 +105,25 @@ expected: |-
       cTypeRep @k @a
 
   pub val 1.veqTypeRep :: ∀(k1 : sType) (k2 : sType) (a : k1) (b : k2). tTypeRep k1 a 3.→ tTypeRep k2 b 3.→ tMaybe (t:~~: k1 k2 a b)
-    = Λ(k1 : sType) (k2 : sType) (a : k1) (b : k2). λ(x : tTypeRep k1 a) (y : tTypeRep k2 b).
+    = Λ(k1 : sType) (k2 : sType) (a : k1) (b : k2). λ(_ : tTypeRep k1 a) (_ : tTypeRep k2 b).
       cNothing @(t:~~: k1 k2 a b)
 
   pub val 1.vsplitApp :: ∀(k : sType) (a : k). tTypeRep k a 3.→ tAppView k a
-    = Λ(k : sType) (a : k). λ(x : tTypeRep k a).
+    = Λ(k : sType) (a : k). λ(_ : tTypeRep k a).
       cIsCon @k @a cUnit
 
   pub val 1.vputTypeRep :: ∀(k : sType) (a : k). tTypeRep k a 3.→ 1.tUnit
     = Λ(k : sType) (a : k). λ(x : tTypeRep k a).
-      case veqTypeRep @k @(tTYPE (cBoxedRep cLifted)) @a @(tTYPE (cBoxedRep cLifted)) x (vtypeRep @(tTYPE (cBoxedRep cLifted)) @(tTYPE (cBoxedRep cLifted))) of {
-        cJust (_pat : t:~~: k (tTYPE (cBoxedRep cLifted)) a (tTYPE (cBoxedRep cLifted))) →
-          let! cHRefl ($co : tTYPE (cBoxedRep cLifted) ~ k) ($co{1} : tTYPE (cBoxedRep cLifted) ~ a) = _pat;
+      case veqTypeRep @k @sType @a @sType x (vtypeRep @sType @sType) of {
+        cJust (_pat : t:~~: k sType a sType) →
+          let! cHRefl (_ : sType ~ k) (_ : sType ~ a) = _pat;
           cUnit;
         _ →
           v$mCon' @k @a @sLiftedRep @1.tUnit x (λ(con : 1.tUnit).
-            con) (λ(_pattern_failure : 2.tUnit).
-            v$mApp @k @a @sLiftedRep @1.tUnit x (Λ(k1 : sType) (f : k1 3.→ k) (x{1} : k1). λ($co : a ~ f x{1})
-            (f{1} : tTypeRep (k1 3.→ k) f) (x{2} : tTypeRep k1 x{1}).
-              vputTypeRep @(k1 3.→ k) @f f{1}) (λ(_pattern_failure{1} : 2.tUnit).
+            con) (λ(_ : 2.tUnit).
+            v$mApp @k @a @sLiftedRep @1.tUnit x (Λ(k1 : sType) (f : k1 3.→ k) (x{1} : k1). λ(_ : a ~ f x{1})
+            (f{1} : tTypeRep (k1 3.→ k) f) (_ : tTypeRep k1 x{1}).
+              vputTypeRep @(k1 3.→ k) @f f{1}) (λ(_ : 2.tUnit).
               absurd x return (1.tUnit)))
       }
 status: pass

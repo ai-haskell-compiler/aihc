@@ -66,7 +66,7 @@ expected: |-
 
   pub val 1.vuseRewrap :: ∀(u : sType 2.→ sType) (a : sType) (w : sType 2.→ sType). tTagged u a 2.→ tTagged w a
     = Λ(u : sType 2.→ sType) (a : sType) (w : sType 2.→ sType). λ(x : tTagged u a).
-      vrewrap @(tAny (tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted))) @a @w (vrewrap @u @a @(tAny (tTYPE (cBoxedRep cLifted) 2.→ tTYPE (cBoxedRep cLifted))) x)
+      vrewrap @(tAny (sType 2.→ sType)) @a @w (vrewrap @u @a @(tAny (sType 2.→ sType)) x)
 
   pub val 1.vinner :: ∀(n : tNat) (a : sType). tListN n a 2.→ t[] a
     = Λ(n : tNat) (a : sType). λ(x : tListN n a).

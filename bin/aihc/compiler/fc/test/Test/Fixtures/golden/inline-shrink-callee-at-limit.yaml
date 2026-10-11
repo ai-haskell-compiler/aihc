@@ -42,7 +42,7 @@ expected: |-
       vopaque x
 
   pub val 1.vhelper :: tBool 2.→ tBool 2.→ tBool 2.→ tBool
-    = λ(x : tBool) (y : tBool) (z : tBool).
+    = λ(x : tBool) (y : tBool) (_ : tBool).
       case x of {
         cTrue →
           vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque (vopaque y)))))))))))))))))))))))))))))))))));

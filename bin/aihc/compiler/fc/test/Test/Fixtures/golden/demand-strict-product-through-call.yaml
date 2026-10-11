@@ -53,7 +53,7 @@ expected: |-
         v$wplus x{1} y{1};
       cI# field
 
-  val 1.v$wplus :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+  val 1.v$wplus :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
     = λ(x : tInt#) (y : tInt#).
       prim +# x y
 
@@ -63,7 +63,7 @@ expected: |-
       let! cI# (y{1} : tInt#) = y;
       v$wlit x{1} y{1}
 
-  val 1.v$wlit :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# tInt)
+  val 1.v$wlit :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
     = λ(x : tInt#) (y : tInt#).
       let y{1} : tInt =
         cI# y;

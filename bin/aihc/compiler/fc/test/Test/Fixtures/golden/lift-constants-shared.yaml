@@ -34,11 +34,11 @@ expected: |-
   }
 
   pub val 1.vfirst :: tUnit 3.→ tBox tUnit
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       vfirst$constant$0
 
   pub val 1.vsecond :: tUnit 3.→ tBox tUnit
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       vfirst$constant$0
 
   val 1.vfirst$constant$0 noinline :: tBox tUnit

@@ -80,8 +80,8 @@ expected: |-
 
   pub val 1.vlabel :: ∀(a : sType). t$Dict$Describe a 3.→ a 3.→ tLabel
     = Λ(a : sType). λ($dDescribe : t$Dict$Describe a) (x : a).
-      v$mIsZero @a @sLiftedRep @tLabel $dDescribe x (λ(_pattern_success : tUnit).
-        cZero) (λ(_pattern_failure : tUnit).
+      v$mIsZero @a @sLiftedRep @tLabel $dDescribe x (λ(_ : tUnit).
+        cZero) (λ(_ : tUnit).
         cOther)
 status: pass
 reason: The matcher of a pattern synonym with a required context takes the dictionary, and a match passes it.

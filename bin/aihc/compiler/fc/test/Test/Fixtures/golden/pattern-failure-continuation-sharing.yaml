@@ -50,7 +50,7 @@ expected: |-
   }
 
   pub val 1.vunused :: tBool 2.→ tBool
-    = λ(x : tBool).
+    = λ(_ : tBool).
       cTrue
 
   pub val 1.vsingle :: t[] tBool 2.→ tBool

@@ -69,7 +69,7 @@ expected: |-
       case x of {
         cBox (x{1} : a) →
           cBox @v @a x{1};
-        cWrap (_pat : u a) →
+        cWrap (_ : u a) →
           vre @u @a @v x
       }
 

@@ -44,11 +44,11 @@ expected: |-
     = c$Dict$Eq @tBool v$fEqBool$c== v$fEqBool$c/=
 
   val 1.v$fEqBool$c== :: tBool 3.→ tBool 3.→ tBool
-    = λ(x : tBool) (y : tBool).
+    = λ(_ : tBool) (_ : tBool).
       cTrue
 
   val 1.v$fEqBool$c/= :: tBool 3.→ tBool 3.→ tBool
-    = λ(x : tBool) (y : tBool).
+    = λ(_ : tBool) (_ : tBool).
       cFalse
   scope 1 = "" Test
   scope 2 = "" Types

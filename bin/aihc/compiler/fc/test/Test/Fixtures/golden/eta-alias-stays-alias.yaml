@@ -33,7 +33,7 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub val 1.vadd :: tInt 2.→ tInt 2.→ tInt
-    = λ(x : tInt) (y : tInt).
+    = λ(_ : tInt) (y : tInt).
       y
 
   pub val 1.vplus :: tInt 2.→ tInt 2.→ tInt

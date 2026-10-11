@@ -48,7 +48,7 @@ expected: |-
     let n# : tInt# =
       let! cI# (n#{1} : tInt#) = _pat_rhs;
       n#{1};
-    let! cI# (n#{1} : tInt#) = _pat_rhs;
+    let! cI# (_ : tInt#) = _pat_rhs;
     c()
 status: pass
 reason: a strict local constructor pattern binding lowers its bound field

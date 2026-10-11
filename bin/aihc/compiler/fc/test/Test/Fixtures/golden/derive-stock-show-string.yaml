@@ -50,7 +50,7 @@ expected: |-
     = c$Dict$Show @tCode v$fShowCode$cshowsPrec v$fShowCode$cshow v$fShowCode$cshowList
 
   val 1.v$fShowCode$cshowsPrec :: tInt 5.→ tCode 5.→ t[] tChar 5.→ t[] tChar
-    = λ(x : tInt) (y : tCode).
+    = λ(_ : tInt) (y : tCode).
       case y of {
         cExitSuccess →
           λ(s : t[] tChar).

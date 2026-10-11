@@ -32,7 +32,7 @@ expected: |-
   }
 
   pub val 1.vpartial :: tUnit 3.→ tUnit 3.→ tPair tUnit tUnit
-    = λ(x : tUnit).
+    = λ(_ : tUnit).
       cPair @tUnit @tUnit c()
 status: pass
 reason: A partial constructor is not a constant-lifting candidate.

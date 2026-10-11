@@ -46,7 +46,7 @@ expected: |-
       let! _ as (field : tInt#) = v$wadd x{1} y{1};
       cI# field
 
-  val 1.v$wadd :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+  val 1.v$wadd :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
     = λ(x : tInt#) (y : tInt#).
       let x{1} : tInt =
         cI# x;

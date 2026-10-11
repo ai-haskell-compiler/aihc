@@ -41,7 +41,7 @@ expected: |-
       cBox @a x
 
   pub val 1.vpoly :: ∀(a : sType). a 2.→ tMaybe (tMaybe a)
-    = Λ(a : sType). λ(x : a).
+    = Λ(a : sType). λ(_ : a).
       cJust @(tMaybe a) (cNothing @a)
 status: pass
 reason: Local term and type references prevent constant lifting.

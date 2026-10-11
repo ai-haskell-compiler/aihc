@@ -14,5 +14,5 @@ pub val 1.vtoggle :: tFlag 2.→ tFlag
       cOff →
         cOn;
       cOn →
-        cOff
+        cases
     }
