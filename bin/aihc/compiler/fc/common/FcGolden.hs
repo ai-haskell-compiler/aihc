@@ -206,7 +206,7 @@ parseFcFixture path value = do
         casePasses = passes
       }
 
--- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@ (or @worker-wrapper: late@ for the run after the growing inliner), @specialise@, @call-patterns@, @simplify@, @lift-constants@, @state-tokens@, @cse@, or @inline@ with a
+-- | A @passes@ entry: @eta@, @demand@ (or @demand: lets@ for the strict lets alone), @worker-wrapper@ (or @worker-wrapper: late@ for the run after the growing inliner), @specialise@, @call-patterns@, @simplify@, @lift-constants@, @unroll@, @state-tokens@, @cse@, or @inline@ with a
 -- policy. The policy is @shrink@, @grow@, or an object that names one of
 -- the two under @policy@ and overrides its knobs: @callee-limit@,
 -- @site-limit@, @discount@, @value-growth@, @value-slack@,
@@ -216,6 +216,7 @@ parsePass :: Y.Value -> Y.Parser Pass
 parsePass value =
   case value of
     Y.String "lift-constants" -> pure PassLiftConstants
+    Y.String "unroll" -> pure PassUnroll
     Y.String "state-tokens" -> pure PassStateTokens
     Y.String "cse" -> pure PassCse
     Y.String "eta" -> pure PassEtaExpand
