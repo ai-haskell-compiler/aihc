@@ -29,7 +29,7 @@ annotated:
     └─ type: ∀ a. (a ~ Flag) ⇒ Tag a
   use :: Tag a -> Holder (Small a => a -> Answer) -> Answer
   use FlagTag holder = render holder
-  │   │       │        └─ type: Holder ((Small a) ⇒ a → Answer) → Answer; type-args: Holder ((Small a) ⇒ a → Answer); evidence: $fRenderHolderT
+  │   │       │        └─ type: Holder ((Small a) ⇒ a → Answer) → Answer; type-args: Holder ((Small a) ⇒ a → Answer); evidence: cast($fRenderHolderT, sym (Render Holder fun (Small given a ~ Flag) (fun (given a ~ Flag) (refl Answer))))
   │   │       └─ type: Holder ((Small a) ⇒ a → Answer)
   │   └─ type: Tag a; type-args: a; evidence: given a ~ Flag
   └─ type: ∀ a. Tag a → Holder ((Small a) ⇒ a → Answer) → Answer

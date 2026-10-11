@@ -392,20 +392,24 @@ reduceTypeWith families env ty =
 -- check, a type variable or a stuck family application in the
 -- application unifies with any pattern.
 applyFamilyEquations :: TypeEnv -> [AxiomDecl] -> Type -> Maybe Type
-applyFamilyEquations env equations source =
-  case equations of
-    [] -> Nothing
-    equation : rest
-      | Just result <- applyNominalAxiom env equation source -> Just result
+applyFamilyEquations env equations source = snd <$> select equations
+  where
+    select [] = Nothing
+    select (equation : rest)
+      | Just result <- applyNominalAxiom env equation source = Just (equation, result)
       | axiomRole equation == Nominal,
         (patternHead, patternArguments) <- spine [] (reduceSynonyms env (axiomLeft equation)),
         (sourceHead, sourceArguments) <- spine [] source,
         patternHead == sourceHead,
         length patternArguments == length sourceArguments,
-        and (zipWith couldUnify patternArguments sourceArguments) ->
-          Nothing
-      | otherwise -> applyFamilyEquations env rest source
-  where
+        and (zipWith couldUnify patternArguments sourceArguments) = do
+          selected@(later, _) <- select rest
+          -- A later equation can pass an earlier equation when both give
+          -- the same result throughout the earlier equation's domain.
+          overlap <- applyNominalAxiom env later (axiomLeft equation)
+          guard (typesEqual env overlap (axiomRight equation))
+          pure selected
+      | otherwise = select rest
     spine arguments (TyApp function argument) = spine (argument : arguments) function
     spine arguments headType = (headType, arguments)
     couldUnify patternType target =

@@ -16,15 +16,32 @@ import Control.Monad (when)
 import Data.Text (Text)
 import qualified ResolverGolden as RG
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)
+import Test.Tasty.HUnit (Assertion, assertEqual, assertFailure, testCase, testCaseInfo)
 
 resolverUnitTests :: TestTree
 resolverUnitTests =
   testGroup
     "resolver-unit"
     [ testCase "dependency-backed GHC.Num supplies built-in fromInteger" testDependencyBackedGhcNum,
-      testCase "infix operators have the spans of their tokens" testInfixOperatorSpans
+      testCase "infix operators have the spans of their tokens" testInfixOperatorSpans,
+      testCase "unticked promoted constructors require DataKinds" testUntickedPromotion
     ]
+
+testUntickedPromotion :: Assertion
+testUntickedPromotion = do
+  check False ""
+  check True "{-# LANGUAGE DataKinds #-}\n"
+  where
+    check expected pragma =
+      case parseModule defaultConfig (pragma <> source) of
+        ([], modu) -> do
+          let unit = ModuleUnit unnamedPackage (fixtureExtensions Haskell2010Edition modu) modu
+              exports = collectModuleExportsWithDeps mempty [unit]
+              result = resolveUnit (builtins unnamedPackage exports []) exports [unit]
+          assertEqual "constructor resolution" expected (either (const False) (const True) result)
+        (errors, _) -> assertFailure ("parse failure: " <> show errors)
+    source :: Text
+    source = "module M where\ndata Flag = Off\ntype Selected = Off\n"
 
 -- | The golden fixtures place each label at the node it annotates, so they
 -- do not show the span that a resolution records. This test reads the
