@@ -52,6 +52,8 @@ data EvTerm
     EvCast !EvTerm !Coercion
   | -- | Compiler-synthesized structural runtime type representation.
     EvTypeable !(Maybe (Text, Text)) !TcType !TypeableTyCon ![(TcType, EvTerm)] ![EvTerm]
+  | -- | A runtime type literal representation from its checked singleton dictionary.
+    EvTypeableLiteral !(Maybe (Text, Text)) !TcType !Text !EvTerm
   | -- | Compiler-synthesized evidence that a type-level literal is known:
     -- the class origin, the literal type, and the literal itself. The
     -- dictionary carries the literal's value, so the solver supplies the

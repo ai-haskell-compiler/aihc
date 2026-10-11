@@ -129,7 +129,11 @@ solveNormalizedDict visited givens ct
                       bindEvidence (ctEvVar ct) (EvCoercible className left right)
                       pure DictSolved
                     else pure (DictStuck ct)
-                ("Typeable", [ty]) -> tryTypeable className ty
+                ("Typeable", [ty]) -> do
+                  result <- solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
+                  case result of
+                    DictSolved -> pure DictSolved
+                    DictStuck _ -> tryTypeable className ty
                 ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
                 ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
                 ("KnownChar", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownChar" isCharLiteral ty
@@ -479,7 +483,29 @@ solveNormalizedDict visited givens ct
               pure DictSolved
         _ -> pure (DictStuck ct)
 
-    tryTypeable typeableTyCon ty =
+    tryTypeable typeableTyCon ty = do
+      kinds <- getKinds
+      kind <- tcTypeKind ty >>= zonkKind
+      let literalClasses =
+            [ (kindsNaturalTyCon kinds, "KnownNat", "typeRepNat"),
+              (kindsSymbolTyCon kinds, "KnownSymbol", "typeRepSymbol"),
+              (kindsCharTyCon kinds, "KnownChar", "typeRepChar")
+            ]
+      case [(className, helper) | (constructor, className, helper) <- literalClasses, sameType kind (TcTyCon constructor [])] of
+        (className, helper) : _ -> do
+          info <- lookupClassByName className
+          evidence <- case info of
+            Just classInfo -> solveSubPred [ctPred ct] (ClassPred (ciTyCon classInfo) [ty])
+            Nothing -> pure Nothing
+          case evidence of
+            Just singleton -> do
+              origin <- maybe Nothing ciOrigin <$> lookupClassByName "Typeable"
+              bindEvidence (ctEvVar ct) (EvTypeableLiteral origin ty helper singleton)
+              pure DictSolved
+            Nothing -> pure (DictStuck ct)
+        [] -> tryStructuralTypeable typeableTyCon ty
+
+    tryStructuralTypeable typeableTyCon ty =
       case typeableArguments ty of
         Nothing -> pure (DictStuck ct)
         Just arguments -> do
@@ -643,6 +669,7 @@ mentionsGiven predicate evidence =
     EvSuperClass inner _ _ _ _ -> mentionsGiven predicate inner
     EvCast inner _ -> mentionsGiven predicate inner
     EvTypeable _ _ _ kindArguments arguments -> any (mentionsGiven predicate . snd) kindArguments || any (mentionsGiven predicate) arguments
+    EvTypeableLiteral _ _ _ inner -> mentionsGiven predicate inner
     EvTypeLam _ body -> mentionsGiven predicate body
     EvDictLam _ _ body -> mentionsGiven predicate body
     EvTypeApp function _ -> mentionsGiven predicate function
@@ -804,7 +831,23 @@ rewriteWithRules rules = go
                in if sameType domain' domain && sameType range' range
                     then (ty, Refl ty)
                     else (TcFunTy domain' range', FunCo domainProof rangeProof)
+            TcForAllTy variable body ->
+              let (body', proof) = go body
+               in if sameType body' body
+                    then (ty, Refl ty)
+                    else (TcForAllTy variable body', ForAllCo variable proof)
+            TcQualTy predicates body
+              | Just rewrittenPredicates <- traverse rewritePredicate predicates ->
+                  let (body', bodyProof) = go body
+                      (predicates', proofs) = unzip rewrittenPredicates
+                   in if predicates' == predicates && sameType body' body
+                        then (ty, Refl ty)
+                        else (TcQualTy predicates' body', foldr FunCo bodyProof proofs)
             _ -> (ty, Refl ty)
+    rewritePredicate (ClassPred constructor arguments) =
+      let (arguments', proofs) = unzip (map go arguments)
+       in Just (ClassPred constructor arguments', TyConAppCo constructor arguments proofs [])
+    rewritePredicate _ = Nothing
 
 -- | The evidence for a wanted implicit parameter from the evidence of its binding.
 --

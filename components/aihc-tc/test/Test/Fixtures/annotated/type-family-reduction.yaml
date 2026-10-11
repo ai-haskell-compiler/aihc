@@ -66,7 +66,7 @@ annotated:
   └─ type: Twice Bag → Nat
   bagFirst :: Nat
   bagFirst = S (firstElem (fromElems [Z] :: Bag))
-  └─ type: Nat  │          │         └─ type: [Nat]; type-args: Nat
+  └─ type: Nat  │          │         └─ type: [Elem Bag]; type-args: Elem Bag
                 │          └─ type: [Elem Bag] → Bag; type-args: Bag; evidence: $fContainerBag
                 └─ type: Bag → Elem Bag; type-args: Bag; evidence: $fContainerBag
 extensions:
