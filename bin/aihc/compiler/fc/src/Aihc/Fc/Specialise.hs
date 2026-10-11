@@ -380,6 +380,13 @@ freshen expr = state (\(supply, report) -> let (copy, supply') = freshenExprFrom
 topLevelSizeLimit :: Int
 topLevelSizeLimit = 600
 
+-- | The largest body, in nodes, that gets no copy: the inliner copies
+-- such a body at a site that gives it a known dictionary, because the
+-- site reduces it, and a specialised copy would only stand in the way.
+-- It is the callee limit of the inliner policies.
+topLevelInlineSize :: Int
+topLevelInlineSize = 80
+
 -- | How many times the top-level specialisation runs. A copy can call
 -- another function with a dictionary that is static only in the copy.
 topLevelRounds :: Int
@@ -425,7 +432,10 @@ specialiseTopLevel program0 = go topLevelRounds Map.empty program0 mempty
               not (neverInlined (valInline declaration)),
               valName declaration `Set.notMember` ruleNames,
               Just (prefix, inner) <- [staticPrefix (valBody declaration)],
-              nodeCount (valBody declaration) <= topLevelSizeLimit
+              not (alwaysInlined (valInline declaration)),
+              let size = nodeCount (valBody declaration),
+              size > topLevelInlineSize,
+              size <= topLevelSizeLimit
             ]
         lengths = Map.map (\(_, prefix, _) -> prefixLength prefix) candidates
         calls = Map.fromListWith (flip (<>)) [(name, [key]) | DeclVal declaration <- decls, (name, key) <- staticCalls lengths (valBody declaration)]
@@ -443,9 +453,10 @@ specialiseTopLevel program0 = go topLevelRounds Map.empty program0 mempty
         named = snd (List.mapAccumL nameCopy (Set.fromList [valName declaration | DeclVal declaration <- decls]) wanted)
         done' = Map.union done (Map.fromList [((name, key), copy) | (name, key, copy) <- named])
         copies =
-          [ DeclVal (makeTopCopy declaration prefix inner key copy)
+          [ DeclVal made
           | (name, key, copy) <- named,
-            Just (declaration, prefix, inner) <- [Map.lookup name candidates]
+            Just (declaration, prefix, inner) <- [Map.lookup name candidates],
+            made <- makeTopCopy declaration prefix inner key copy
           ]
         allLengths = Map.union lengths (Map.fromList [(name, length key) | (name, key) <- Map.keys done'])
         rewrite = rewriteStaticCalls allLengths done'
@@ -460,13 +471,20 @@ specialiseTopLevel program0 = go topLevelRounds Map.empty program0 mempty
       case spec of
         InlineNever _ -> True
         _ -> False
+    alwaysInlined spec =
+      case spec of
+        InlineAlways _ -> True
+        _ -> False
     rewriteDecl rewrite decl =
       case decl of
         DeclVal declaration -> DeclVal declaration {valBody = rewrite (valBody declaration)}
         _ -> decl
 
--- | The copy of a function at a static key.
-makeTopCopy :: ValDecl -> Prefix -> Expr -> [Arg] -> Name -> ValDecl
+-- | The copy of a function at a static key. A dictionary of the key that
+-- is an application, such as @$fOrdList \@Char $fOrdChar@, becomes a
+-- private top-level value beside the copy, so that the copy builds it
+-- once for the program and not once for each use.
+makeTopCopy :: ValDecl -> Prefix -> Expr -> [Arg] -> Name -> [ValDecl]
 makeTopCopy declaration prefix inner key copy =
   declaration
     { valVis = Private,
@@ -474,9 +492,25 @@ makeTopCopy declaration prefix inner key copy =
       valType = fromMaybe (valType declaration) (instantiate (valType declaration) (lefts key) (length (prefixDictionaries prefix))),
       valBody = substExpr valueSubst (substTypeExpr typeSubst inner)
     }
+    : dictionaries
   where
     typeSubst = Map.fromList (zip (map binderName (prefixTypes prefix)) (lefts key))
-    valueSubst = Map.fromList (zip (map binderName (prefixDictionaries prefix)) (rights key))
+    bound =
+      [ (binder, argument, copy {nameText = nameText copy <> "$d" <> T.pack (show index)})
+      | (index, binder, argument) <- zip3 [(0 :: Int) ..] (prefixDictionaries prefix) (rights key)
+      ]
+    valueSubst = Map.fromList [(binderName binder, if isTrivial argument then argument else ExVar name) | (binder, argument, name) <- bound]
+    dictionaries =
+      [ ValDecl
+          { valVis = Private,
+            valName = name,
+            valType = substTypes typeSubst (binderType binder),
+            valBody = argument,
+            valInline = InlineDefault
+          }
+      | (binder, argument, name) <- bound,
+        not (isTrivial argument)
+      ]
 
 -- | The static keys of the calls of the candidates in an expression, by
 -- the prefix length of each candidate.
@@ -509,7 +543,9 @@ staticCalls lengths = go
             _ -> go function <> inArguments
 
 -- | Whether every type of a key is closed and every dictionary is a
--- top-level value under type applications of closed types.
+-- closed application: top-level values and literals under applications
+-- and type applications of closed types. A @Typeable@ dictionary is a
+-- constructor application of this form.
 staticGlobalKey :: [Arg] -> Bool
 staticGlobalKey = all static
   where
@@ -522,6 +558,8 @@ staticGlobalKey = all static
         ExVar name
           | OriginTop {} <- nameOrigin name -> True
         ExTyApp function ty -> dictionary function && Set.null (typeVariables ty)
+        ExApp function argument -> dictionary function && dictionary argument
+        ExLit {} -> True
         _ -> False
 
 -- | Replace each call whose key has a copy by a call of the copy.
