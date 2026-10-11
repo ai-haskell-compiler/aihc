@@ -37,6 +37,7 @@ module Aihc.Fc.Inline
 where
 
 import Aihc.Fc.Demand (Signatures, topLevelSignatures)
+import Aihc.Fc.Facts (emptyFacts)
 import Aihc.Fc.Fold (hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (pruneImports)
 import Aihc.Fc.Name
@@ -279,7 +280,7 @@ initialInliner config env decls supply =
       inBodyCalls = calls,
       inBodyArities = arities,
       inGuidance = guidance,
-      inKnown = Map.filter isConstructorValue bodies,
+      inKnown = Map.filter (isKnownValue arities) bodies,
       inRefs = references,
       inUsers = Map.fromListWith Set.union [(callee, Set.singleton name) | (name, callees) <- Map.toList references, callee <- Set.toList callees],
       inLimits = Map.map (valueLimit (inlinePolicy config) . guidanceSize) guidance,
@@ -474,7 +475,8 @@ simplifyValue config known recursive inTemplates st name
                             spCredits = snd (callArityAnalysis credit False body),
                             spSpeculative = False,
                             spCaseContext = Nothing,
-                            spLocalCandidates = Map.empty
+                            spLocalCandidates = Map.empty,
+                            spFacts = emptyFacts
                           }
                       credit = Map.findWithDefault 0 name (inCallArities st)
                       -- What this value may still grow by: its limit less
@@ -559,7 +561,7 @@ updateBody st name body =
     updateKnown current user userBody =
       current
         { inKnown =
-            if isConstructorValue userBody
+            if isKnownValue arities userBody
               then Map.insert user userBody (inKnown current)
               else Map.delete user (inKnown current)
         }

@@ -1,0 +1,105 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (decode) where
+  import GHC.Prim ((>=#), (<=#))
+  import GHC.Types (Bool (..), Int (..))
+
+  both :: Bool -> Bool -> Bool
+  both a b = case a of
+    True -> b
+    False -> False
+
+  atLeast :: Int -> Int -> Bool
+  atLeast (I# a) (I# b) = case a >=# b of
+    1# -> True
+    _ -> False
+
+  atMost :: Int -> Int -> Bool
+  atMost (I# a) (I# b) = case a <=# b of
+    1# -> True
+    _ -> False
+
+  decode :: (Int -> r) -> (Int -> r) -> (Int -> r) -> r -> Int -> r
+  decode two three four bad first =
+    case both (atLeast first (I# 194#)) (atMost first (I# 223#)) of
+      True -> two first
+      False -> case both (atLeast first (I# 224#)) (atMost first (I# 239#)) of
+        True -> three first
+        False -> case both (atLeast first (I# 240#)) (atMost first (I# 244#)) of
+          True -> four first
+          False -> bad
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    <=# = 2.v<=# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    >=# = 2.v>=# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vdecode :: ∀(r : sType). (tInt 3.→ r) 3.→ (tInt 3.→ r) 3.→ (tInt 3.→ r) 3.→ r 3.→ tInt 3.→ r
+    = Λ(r : sType). λ(x : tInt 3.→ r) (y : tInt 3.→ r) (z : tInt 3.→ r) (x1 : r) (x2 : tInt).
+      let! cI# (a : tInt#) = x2;
+      let _join : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool r =
+        λ(_scrut : tBool).
+          let _join{1} : FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tBool r =
+            λ(_scrut{1} : tBool).
+              case prim >=# a lit (240#cIntRep) :: tInt# of {
+                1#cIntRep →
+                  case prim <=# a lit (244#cIntRep) :: tInt# of {
+                    1#cIntRep →
+                      z x2;
+                    _ →
+                      x1
+                  };
+                _ →
+                  x1
+              };
+          case prim >=# a lit (224#cIntRep) :: tInt# of {
+            1#cIntRep →
+              case prim <=# a lit (239#cIntRep) :: tInt# of {
+                1#cIntRep →
+                  y x2;
+                _ →
+                  _join{1} cFalse
+              };
+            _ →
+              _join{1} cFalse
+          };
+      case prim >=# a lit (194#cIntRep) :: tInt# of {
+        1#cIntRep →
+          case prim <=# a lit (223#cIntRep) :: tInt# of {
+            1#cIntRep →
+              x x2;
+            _ →
+              _join cFalse
+          };
+        _ →
+          _join cFalse
+      }
+status: pass
+reason: A guard chain of && tests keeps the rest of the chain as a join point. Each failed test calls the join point, and the rest of the chain is not copied.
