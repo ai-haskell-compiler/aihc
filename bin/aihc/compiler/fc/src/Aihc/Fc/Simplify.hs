@@ -1066,9 +1066,8 @@ tailConstructors env = go . underLambdas
 -- candidate that every site takes, because its copies replace it, is
 -- always taken.
 --
--- This rule keeps such functions as @Data.Map.fromList@, the retry loop
--- of @throwErrnoIfMinus1Retry@ and the loop of @++@ as calls, where
--- earlier each site had a copy of the loop.
+-- This rule keeps such functions as @Data.Map.fromList@ and the loop of
+-- @++@ as calls, where earlier each site had a copy of the loop.
 --
 -- The rule does not apply inside a template. A loop in a template makes
 -- the template large, and the sites of the template then keep it as a
@@ -1091,7 +1090,8 @@ givesCalledFunction env candidate args =
   or
     [ True
     | (binder, argument) <- valueArguments (candidateBody candidate) args,
-      valueArity (spArity env) argument > 0,
+      -- A let around a function floats out of it, see 'floatValueLets'.
+      valueArity (spArity env) (underLets argument) > 0,
       any (>= 1) (parameterCallArities (parameterGuidance candidate binder))
     ]
 

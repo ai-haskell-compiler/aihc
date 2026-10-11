@@ -1,0 +1,103 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (both, mapped, twice) where
+
+  import GHC.Types (Int (..))
+
+  data List a = Nil | Cons a (List a)
+
+  append :: List a -> List a -> List a
+  append xs ys = go xs
+    where
+      go Nil = ys
+      go (Cons z zs) = Cons z (go zs)
+
+  both :: List Int -> List Int -> List Int -> List Int
+  both a b c = append a (append b c)
+
+  apply :: (a -> b) -> List a -> List b
+  apply f = go
+    where
+      go Nil = Nil
+      go (Cons z zs) = Cons (f z) (go zs)
+
+  mapped :: List Int -> List (List Int)
+  mapped xs = apply (\x -> Cons x Nil) xs
+
+  twice :: List Int -> List (List Int)
+  twice xs = apply (\x -> Cons x (Cons x Nil)) xs
+passes:
+- inline: grow
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cI#] 2.tInt :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tList (a : sType) :: sType {
+    1.cNil :: ∀(a : sType). tList a;
+    1.cCons :: ∀(a : sType). a 2.→ tList a 2.→ tList a
+  }
+
+  val 1.vappend :: ∀(a : sType). tList a 2.→ tList a 2.→ tList a
+    = Λ(a : sType). λ(x : tList a) (y : tList a).
+      rec {
+        go : tList a 2.→ tList a =
+          λ(x{1} : tList a).
+            case x{1} of {
+              cNil →
+                y;
+              cCons (z : a) (zs : tList a) →
+                cCons @a z (go zs)
+            }
+      } in
+      go x
+
+  pub val 1.vboth :: tList tInt 2.→ tList tInt 2.→ tList tInt 2.→ tList tInt
+    = λ(x : tList tInt) (y : tList tInt) (z : tList tInt).
+      vappend @tInt x (vappend @tInt y z)
+
+  pub val 1.vmapped :: tList tInt 2.→ tList (tList tInt)
+    = λ(x : tList tInt).
+      rec {
+        go : tList tInt 2.→ tList (tList tInt) =
+          λ(x{1} : tList tInt).
+            case x{1} of {
+              cNil →
+                cNil @(tList tInt);
+              cCons (z : tInt) (zs : tList tInt) →
+                cCons @(tList tInt) (cCons @tInt z (cNil @tInt)) (go zs)
+            }
+      } in
+      go x
+
+  pub val 1.vtwice :: tList tInt 2.→ tList (tList tInt)
+    = λ(x : tList tInt).
+      rec {
+        go : tList tInt 2.→ tList (tList tInt) =
+          λ(x{1} : tList tInt).
+            case x{1} of {
+              cNil →
+                cNil @(tList tInt);
+              cCons (z : tInt) (zs : tList tInt) →
+                cCons @(tList tInt) (cCons @tInt z (cCons @tInt z (cNil @tInt))) (go zs)
+            }
+      } in
+      go x
+status: pass
+reason: A function that binds a local loop stays a call at a site that gives no known constructor and no function to it, because a copy is a second loop of the same size. A site that gives a function to a parameter that the loop calls takes a copy, where the call in the loop is direct.
