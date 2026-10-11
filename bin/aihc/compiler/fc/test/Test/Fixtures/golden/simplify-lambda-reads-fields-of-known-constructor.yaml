@@ -45,7 +45,7 @@ expected: |-
   scope 4 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [4.cI#] 4.tInt :: sType;
@@ -57,8 +57,8 @@ expected: |-
     4.sType :: sType;
     constructors [3.c()] 3.tUnit :: sType;
     3.c() :: tUnit;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
-    4.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
+    4.cI# :: tInt# → tInt;
     4.cIntRep :: tRuntimeRep;
     4.cLifted :: tLevity
 
@@ -67,19 +67,19 @@ expected: |-
     4.sType = tTYPE sLiftedRep
 
   pub type 1.tBox :: sType {
-    pub 1.cBox :: FUN @cIntRep @sLiftedRep tInt# tBox
+    pub 1.cBox :: tInt# → tBox
   }
 
   pub type 1.tSome :: sType {
-    pub 1.cSome :: ∀(a : sType). a 4.→ FUN @cIntRep @sLiftedRep tInt# tSome
+    pub 1.cSome :: ∀(a : sType). a → tInt# → tSome
   }
 
-  pub val 1.vuse noinline :: tBox 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
+  pub val 1.vuse noinline :: tBox → tInt# → tInt
     = λ(x : tBox) (y : tInt#).
       let! cBox (a : tInt#) = x;
       cI# (prim +# a y)
 
-  pub val 1.vmake :: FUN @cIntRep @sLiftedRep tInt# (tInt 4.→ tInt)
+  pub val 1.vmake :: tInt# → tInt → tInt
     = λ(x : tInt#).
       let b : tBox =
         cBox x;
@@ -88,12 +88,12 @@ expected: |-
         let! cI# (y : tInt#) = x{1};
         vuse b (prim +# x{2} y)
 
-  pub val 1.vuseSome noinline :: tSome 4.→ FUN @cIntRep @sLiftedRep tInt# tInt
+  pub val 1.vuseSome noinline :: tSome → tInt# → tInt
     = λ(x : tSome) (y : tInt#).
-      let! cSome @(a : sType) (_pat : a) (a{1} : tInt#) = x;
+      let! cSome @(a : sType) (_ : a) (a{1} : tInt#) = x;
       cI# (prim +# a{1} y)
 
-  pub val 1.vmakeSome :: FUN @cIntRep @sLiftedRep tInt# (tInt 4.→ tInt)
+  pub val 1.vmakeSome :: tInt# → tInt → tInt
     = λ(x : tInt#).
       let s : tSome =
         cSome @tUnit c() x;

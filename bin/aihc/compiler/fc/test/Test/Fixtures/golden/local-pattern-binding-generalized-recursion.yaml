@@ -36,8 +36,8 @@ expected: |-
     constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
-    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cFalse :: tBool;
     3.cLifted :: tLevity;
     3.cTrue :: tBool
@@ -50,14 +50,14 @@ expected: |-
 
   axiom 1.$ax$Doc (ann : sType) : tDoc ann ~R tBool
 
-  pub val 1.vwrap :: ∀(ann : sType). tDoc ann 3.→ tDoc ann
+  pub val 1.vwrap :: ∀(ann : sType). tDoc ann → tDoc ann
     = Λ(ann : sType). λ(x : tDoc ann).
       x
 
-  pub val 1.vrender :: ∀(ann : sType). tBool 3.→ tDoc ann
+  pub val 1.vrender :: ∀(ann : sType). tBool → tDoc ann
     = Λ(ann : sType).
       rec {
-        go : ∀(ann{1} : sType). tBool 3.→ tDoc ann{1} =
+        go : ∀(ann{1} : sType). tBool → tDoc ann{1} =
           Λ(ann{1} : sType). λ(x : tBool).
             let _pat_rhs : ∀(a : sType). tTuple2 tBool (tDoc a) =
               Λ(a : sType).
@@ -70,10 +70,10 @@ expected: |-
             let document : ∀(a : sType). tDoc a =
               Λ(a : sType).
                 (Λ(a{1} : sType). λ(_pat_rhs{1} : tTuple2 tBool (tDoc a{1})).
-                  let! c(,) (again : tBool) (document{1} : tDoc a{1}) = _pat_rhs{1};
+                  let! c(,) (_ : tBool) (document{1} : tDoc a{1}) = _pat_rhs{1};
                   document{1}) @a (_pat_rhs @a);
             case (Λ(a : sType). λ(_pat_rhs{1} : tTuple2 tBool (tDoc a)).
-              let! c(,) (again : tBool) (document{1} : tDoc a) = _pat_rhs{1};
+              let! c(,) (again : tBool) (_ : tDoc a) = _pat_rhs{1};
               again) @tUnit (_pat_rhs @tUnit) of {
               cTrue →
                 vwrap @ann{1} (document @ann{1});

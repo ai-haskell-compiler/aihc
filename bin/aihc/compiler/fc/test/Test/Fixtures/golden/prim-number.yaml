@@ -22,18 +22,18 @@ expected: |-
     constructors [5.cAddrRep, 5.cBoxedRep, 5.cDoubleRep, 5.cFloatRep, 5.cInt16Rep, 5.cInt32Rep, 5.cInt64Rep, 5.cInt8Rep, 5.cIntRep, 5.cSumRep, 5.cTupleRep, 5.cVecRep, 5.cWord16Rep, 5.cWord32Rep, 5.cWord64Rep, 5.cWord8Rep, 5.cWordRep] 5.tRuntimeRep :: sType;
     5.tTYPE :: ∀(rep : tRuntimeRep). sType;
     5.sType :: sType;
-    5.cBoxedRep :: tLevity 5.→ tRuntimeRep;
-    3.cIS :: FUN @cIntRep @sLiftedRep tInt# tInteger;
+    5.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cIS :: tInt# → tInteger;
     5.cIntRep :: tRuntimeRep;
     5.cLifted :: tLevity;
-    4.vfromInteger :: ∀(a : sType). t$Dict$Num a 5.→ tInteger 5.→ a
+    4.vfromInteger :: ∀(a : sType). t$Dict$Num a → tInteger → a
 
   import synonyms
     5.sLiftedRep = cBoxedRep cLifted;
     5.sType = tTYPE sLiftedRep
 
-  pub val 1.vone :: ∀(a : sType). t$Dict$Num a 5.→ a
+  pub val 1.vone :: ∀(a : sType). t$Dict$Num a → a
     = Λ(a : sType). λ($dNum : t$Dict$Num a).
-      vfromInteger @a $dNum (cIS lit (1#cIntRep) :: tInt#)
+      vfromInteger @a $dNum (cIS (1 :: tInt#))
 status: pass
 reason: type-checks and desugars a number with only aihc-prim built-ins

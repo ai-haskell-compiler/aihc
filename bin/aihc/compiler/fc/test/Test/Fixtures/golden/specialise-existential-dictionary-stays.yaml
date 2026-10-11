@@ -35,7 +35,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -46,9 +46,9 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
@@ -58,46 +58,46 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.t$Dict$Weight (a : sType) :: sType {
-    1.c$Dict$Weight :: ∀(a : sType). (a 3.→ tInt) 3.→ t$Dict$Weight a
+    1.c$Dict$Weight :: ∀(a : sType). (a → tInt) → t$Dict$Weight a
   }
 
   type 1.tSome :: sType {
-    1.cSome :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tSome
+    1.cSome :: ∀(a : sType). t$Dict$Weight a → a → tSome
   }
 
-  val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
+  val 1.vweight :: ∀(a : sType). t$Dict$Weight a → a → tInt
     = Λ(a : sType). λ($dWeight : t$Dict$Weight a).
-      let! c$Dict$Weight ($cweight : a 3.→ tInt) = $dWeight;
+      let! c$Dict$Weight ($cweight : a → tInt) = $dWeight;
       $cweight
 
-  val 1.vplus :: tInt 3.→ tInt 3.→ tInt
+  val 1.vplus :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (a : tInt#) = x;
       let! cI# (b : tInt#) = y;
       cI# (prim +# a b)
 
-  pub val 1.vtotal :: t[] tSome 3.→ tInt
+  pub val 1.vtotal :: t[] tSome → tInt
     = λ(x : t[] tSome).
       rec {
-        go : ∀(a : sType). t$Dict$Weight a 3.→ tInt 3.→ a 3.→ tInt 3.→ tInt =
+        go : ∀(a : sType). t$Dict$Weight a → tInt → a → tInt → tInt =
           Λ(a : sType). λ($dWeight : t$Dict$Weight a) (x{1} : tInt) (y : a) (z : tInt).
             let! cI# (_pat : tInt#) = x{1};
             case _pat of {
-              0#cIntRep →
+              0 →
                 z;
               _ →
-                go @a $dWeight (cI# (prim +# _pat lit (-1#cIntRep) :: tInt#)) y (vplus z (vweight @a $dWeight y))
+                go @a $dWeight (cI# (prim +# _pat (-1 :: tInt#))) y (vplus z (vweight @a $dWeight y))
             }
       } in
       rec {
-        walk : t[] tSome 3.→ tInt =
+        walk : t[] tSome → tInt =
           λ(x{1} : t[] tSome).
             case x{1} of {
               c[] →
-                cI# lit (0#cIntRep) :: tInt#;
+                cI# (0 :: tInt#);
               c: (_pat : tSome) (rest : t[] tSome) →
                 let! cSome @(a : sType) ($dWeight : t$Dict$Weight a) (v : a) = _pat;
-                go @a $dWeight (cI# lit (3#cIntRep) :: tInt#) v (walk rest)
+                go @a $dWeight (cI# (3 :: tInt#)) v (walk rest)
             }
       } in
       walk x

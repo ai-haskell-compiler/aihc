@@ -24,8 +24,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    quotInt# = 2.vquotInt# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#;
+    quotInt# = 2.vquotInt# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -36,36 +36,35 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: r1 (c: r2 (c[] tRuntimeRep))));
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). a1 → a2 → tTuple2# a1 a2;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vpick :: (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt)) 3.→ FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# tRealWorld) tInt#)))
-    = λ(x : FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) tInt))
-    (y : tInt#) (z : tInt#) (x1 : tState# tRealWorld).
+  pub val 1.vpick :: (tState# tRealWorld → tTuple2# (tState# tRealWorld) tInt) → tInt# → tInt# → tState# tRealWorld → tTuple2# (tState# tRealWorld) tInt#
+    = λ(x : tState# tRealWorld → tTuple2# (tState# tRealWorld) tInt) (y : tInt#) (z : tInt#) (x1 : tState# tRealWorld).
       let! cTuple2# (s' : tState# tRealWorld) (r : tInt#) =
         case y of {
-          0#cIntRep →
-            cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# x1 z;
-          1#cIntRep →
-            cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# x1 (prim quotInt# z y);
+          0 →
+            cTuple2# @(tState# tRealWorld) @tInt# x1 z;
+          1 →
+            cTuple2# @(tState# tRealWorld) @tInt# x1 (prim quotInt# z y);
           _ →
             let! cTuple2# (s'{1} : tState# tRealWorld) (_pat : tInt) = x x1;
             let! cI# (r{1} : tInt#) = _pat;
-            cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# s'{1} r{1}
+            cTuple2# @(tState# tRealWorld) @tInt# s'{1} r{1}
         };
-      cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# s' (prim +# r y)
+      cTuple2# @(tState# tRealWorld) @tInt# s' (prim +# r y)
 status: pass
 reason: The match on the pair takes the Int component apart at once. Each tail of the scrutinee gives the field in place of the box, so no tail builds an I# and the body is not copied. The tail that calls an unknown action is taken apart by a case on its pair.

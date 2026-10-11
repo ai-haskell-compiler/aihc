@@ -46,11 +46,11 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    *# = 2.v*# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    *# = 2.v*# :: tInt# → tInt# → tInt#;
+    +# = 2.v+# :: tInt# → tInt# → tInt#;
+    -# = 2.v-# :: tInt# → tInt# → tInt#;
+    <# = 2.v<# :: tInt# → tInt# → tInt#;
+    ==# = 2.v==# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -60,8 +60,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -69,31 +69,31 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  val 1.v$wmix inline :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#))
+  val 1.v$wmix inline :: tInt# → tInt# → tInt# → tInt#
     = λ(x : tInt#) (y : tInt#) (z : tInt#).
       case prim <# x y of {
-        1#cIntRep →
+        1 →
           case prim ==# y z of {
-            1#cIntRep →
-              prim +# (prim *# x lit (3#cIntRep) :: tInt#) (prim *# y lit (5#cIntRep) :: tInt#);
+            1 →
+              prim +# (prim *# x (3 :: tInt#)) (prim *# y (5 :: tInt#));
             _ →
-              prim -# (prim *# x lit (7#cIntRep) :: tInt#) (prim *# z lit (11#cIntRep) :: tInt#)
+              prim -# (prim *# x (7 :: tInt#)) (prim *# z (11 :: tInt#))
           };
         _ →
           case prim ==# x z of {
-            1#cIntRep →
-              prim +# (prim *# y lit (13#cIntRep) :: tInt#) (prim *# z lit (17#cIntRep) :: tInt#);
+            1 →
+              prim +# (prim *# y (13 :: tInt#)) (prim *# z (17 :: tInt#));
             _ →
-              prim -# (prim *# x lit (19#cIntRep) :: tInt#) (prim +# (prim *# y lit (23#cIntRep) :: tInt#) (prim *# z lit (29#cIntRep) :: tInt#))
+              prim -# (prim *# x (19 :: tInt#)) (prim +# (prim *# y (23 :: tInt#)) (prim *# z (29 :: tInt#)))
           }
       }
 
-  pub val 1.vstep :: tInt 3.→ tInt 3.→ tInt
+  pub val 1.vstep :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (i : tInt#) = x;
       let! cI# (j : tInt#) = y;
       let r : tInt# =
-        v$wmix (prim +# i lit (1#cIntRep) :: tInt#) (prim +# j lit (2#cIntRep) :: tInt#) (prim -# i j);
+        v$wmix (prim +# i (1 :: tInt#)) (prim +# j (2 :: tInt#)) (prim -# i j);
       cI# (prim +# r (v$wmix r i j))
 status: pass
 reason: The site limits are zero, so the growing inliner does not copy the INLINE function at its calls, and each call builds three boxes. This is the result for a large INLINE function under the usual limits. The late split splits the function, and the round of the inliner in phase 0 copies the wrapper at each call. The calls then give the fields to the worker, and the worker returns an Int#.

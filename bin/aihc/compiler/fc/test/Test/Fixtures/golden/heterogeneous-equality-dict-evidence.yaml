@@ -35,9 +35,9 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
-    2.cTupleRep :: t[] tRuntimeRep 2.→ tRuntimeRep;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     2.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -45,7 +45,7 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.t:~~: (k1 : sType) (k2 : sType) (a : k1) (b : k2) :: sType {
-    pub 1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: k k2 a b))
+    pub 1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: a b))
   }
   scope 1 = "" Equality
   scope 2 = "" Test
@@ -60,11 +60,11 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c$Dict$~~ :: ∀(k1 : sType) (k2 : sType) (a : k1) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ b) (t$Dict$~~ k1 k2 a b);
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: k k2 a b));
+    3.c$Dict$~~ :: ∀(k1 : sType) (k2 : sType) (a : k1) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ b) (t$Dict$~~ a b);
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    1.cHRefl :: ∀(k : sType) (a : k) (k2 : sType) (b : k2). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (k2 ~ k) (FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (b ~ a) (t:~~: a b));
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -72,25 +72,25 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 2.tDict (c : sType) :: sType {
-    pub 2.cDict :: ∀(c : sType). c 3.→ tDict c
+    pub 2.cDict :: ∀(c : sType). c → tDict c
   }
 
   pub type 2.t$Dict$HasDict (c : sType) (e : sType) :: sType {
-    pub 2.c$Dict$HasDict :: ∀(c : sType) (e : sType). (e 3.→ tDict c) 3.→ t$Dict$HasDict c e
+    pub 2.c$Dict$HasDict :: ∀(c : sType) (e : sType). (e → tDict c) → t$Dict$HasDict c e
   }
 
-  pub val 2.vevidence :: ∀(c : sType) (e : sType). t$Dict$HasDict c e 3.→ e 3.→ tDict c
+  pub val 2.vevidence :: ∀(c : sType) (e : sType). t$Dict$HasDict c e → e → tDict c
     = Λ(c : sType) (e : sType). λ($dHasDict : t$Dict$HasDict c e).
-      let! c$Dict$HasDict ($cevidence : e 3.→ tDict c) = $dHasDict;
+      let! c$Dict$HasDict ($cevidence : e → tDict c) = $dHasDict;
       $cevidence
 
-  pub val 2.v$fHasDict~~ab:~~:ab :: ∀(k0 : sType) (k1 : sType) (a : k0) (b : k1). t$Dict$HasDict (t$Dict$~~ k0 k1 a b) (t:~~: k0 k1 a b)
+  pub val 2.v$fHasDict~~ab:~~:ab :: ∀(k0 : sType) (k1 : sType) (a : k0) (b : k1). t$Dict$HasDict (t$Dict$~~ a b) (t:~~: a b)
     = Λ(k0 : sType) (k1 : sType) (a : k0) (b : k1).
-      c$Dict$HasDict @(t$Dict$~~ k0 k1 a b) @(t:~~: k0 k1 a b) (v$fHasDict~~ab:~~:ab$cevidence @k0 @k1 @a @b)
+      c$Dict$HasDict @(t$Dict$~~ a b) @(t:~~: a b) (v$fHasDict~~ab:~~:ab$cevidence @a @b)
 
-  val 2.v$fHasDict~~ab:~~:ab$cevidence :: ∀(k0 : sType) (k1 : sType) (a : k0) (b : k1). t:~~: k0 k1 a b 3.→ tDict (t$Dict$~~ k0 k1 a b)
-    = Λ(k0 : sType) (k1 : sType) (a : k0) (b : k1). λ(x : t:~~: k0 k1 a b).
+  val 2.v$fHasDict~~ab:~~:ab$cevidence :: ∀(k0 : sType) (k1 : sType) (a : k0) (b : k1). t:~~: a b → tDict (t$Dict$~~ a b)
+    = Λ(k0 : sType) (k1 : sType) (a : k0) (b : k1). λ(x : t:~~: a b).
       let! cHRefl ($co : k1 ~ k0) ($co{1} : b ~ a) = x;
-      (cDict @(t$Dict$~~ k0 k0 a a) (c$Dict$~~ @k0 @k0 @a @a (coercion (refl a)))) ▷ tycon-co tDict (tycon-co t$Dict$~~ (refl k0) (sym ($co)) (refl a) (sym ($co{1})))
+      (cDict @(t$Dict$~~ a a) (c$Dict$~~ @a @a (coercion (refl a)))) ▷ tycon-co tDict (tycon-co t$Dict$~~ (refl k0) (sym ($co)) (refl a) (sym ($co{1})))
 status: pass
 reason: The HRefl match gives a kind equality and an index equality, and the Dict for a ~~ b uses both.

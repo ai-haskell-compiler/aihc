@@ -32,10 +32,10 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    and# = 2.vand# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cWordRep @cWordRep tWord# tWord#);
-    uncheckedShiftRL# = 2.vuncheckedShiftRL# :: FUN @cWordRep @sLiftedRep tWord# (FUN @cIntRep @cWordRep tInt# tWord#);
-    word8ToWord# = 2.vword8ToWord# :: FUN @cWord8Rep @cWordRep tWord8# tWord#;
-    wordToWord8# = 2.vwordToWord8# :: FUN @cWordRep @cWord8Rep tWord# tWord8#
+    and# = 2.vand# :: tWord# → tWord# → tWord#;
+    uncheckedShiftRL# = 2.vuncheckedShiftRL# :: tWord# → tInt# → tWord#;
+    word8ToWord# = 2.vword8ToWord# :: tWord8# → tWord#;
+    wordToWord8# = 2.vwordToWord8# :: tWord# → tWord8#
 
   import headers
     2.tInt# :: tTYPE cIntRep;
@@ -47,10 +47,10 @@ expected: |-
     constructors [3.cW#] 3.tWord :: sType;
     2.tWord# :: tTYPE cWordRep;
     2.tWord8# :: tTYPE cWord8Rep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cW# :: FUN @cWordRep @sLiftedRep tWord# tWord;
+    3.cW# :: tWord# → tWord;
     3.cWord8Rep :: tRuntimeRep;
     3.cWordRep :: tRuntimeRep
 
@@ -58,22 +58,22 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vnarrowMasked :: tWord 3.→ tWord
+  pub val 1.vnarrowMasked :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
       cW# (prim word8ToWord# (prim wordToWord8# w))
 
-  pub val 1.vwidenFits :: tWord 3.→ tWord
+  pub val 1.vwidenFits :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
-      cW# (prim and# w lit (127#cWordRep) :: tWord#)
+      cW# (prim and# w (127 :: tWord#))
 
-  pub val 1.vshiftFits :: tWord 3.→ tWord
+  pub val 1.vshiftFits :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
-      cW# (prim uncheckedShiftRL# w lit (48#cIntRep) :: tInt#)
+      cW# (prim uncheckedShiftRL# w (48 :: tInt#))
 
-  pub val 1.vmaskedFits :: tWord 3.→ tWord
+  pub val 1.vmaskedFits :: tWord → tWord
     = λ(x : tWord).
       let! cW# (w : tWord#) = x;
-      cW# (prim and# w lit (15#cWordRep) :: tWord#)
+      cW# (prim and# w (15 :: tWord#))

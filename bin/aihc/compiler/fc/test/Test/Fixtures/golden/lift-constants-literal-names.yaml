@@ -33,9 +33,9 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     constructors [3.c()] 3.tUnit :: sType;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
-    4.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
-    4.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
+    4.cC# :: tChar# → tChar;
+    4.cI# :: tInt# → tInt;
     4.cIntRep :: tRuntimeRep;
     4.cLifted :: tLevity;
     4.cWordRep :: tRuntimeRep
@@ -44,36 +44,36 @@ expected: |-
     4.sLiftedRep = cBoxedRep cLifted;
     4.sType = tTYPE sLiftedRep
 
-  pub val 1.vthree :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+  pub val 1.vthree :: tUnit → tInt
+    = λ(_ : tUnit).
       v$int_3
 
-  pub val 1.valsoThree :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+  pub val 1.valsoThree :: tUnit → tInt
+    = λ(_ : tUnit).
       v$int_3
 
-  pub val 1.vnegative :: tUnit 4.→ tInt
-    = λ(x : tUnit).
+  pub val 1.vnegative :: tUnit → tInt
+    = λ(_ : tUnit).
       v$int_minus1
 
-  pub val 1.vminus :: tUnit 4.→ tChar
-    = λ(x : tUnit).
+  pub val 1.vminus :: tUnit → tChar
+    = λ(_ : tUnit).
       v$char_minus
 
-  pub val 1.vletter :: tUnit 4.→ tChar
-    = λ(x : tUnit).
+  pub val 1.vletter :: tUnit → tChar
+    = λ(_ : tUnit).
       v$char_a
 
   val 1.v$int_3 noinline :: tInt
-    = cI# lit (3#cIntRep) :: tInt#
+    = cI# (3 :: tInt#)
 
   val 1.v$int_minus1 noinline :: tInt
-    = cI# lit (-1#cIntRep) :: tInt#
+    = cI# (-1 :: tInt#)
 
   val 1.v$char_minus noinline :: tChar
-    = cC# lit ('-'#cWordRep) :: tChar#
+    = cC# ('-' :: tChar#)
 
   val 1.v$char_a noinline :: tChar
-    = cC# lit ('a'#cWordRep) :: tChar#
+    = cC# ('a' :: tChar#)
 status: pass
 reason: A box of one literal gets a name from its value, and all its sites share it.

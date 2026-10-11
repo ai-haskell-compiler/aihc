@@ -1,21 +1,22 @@
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
+import prims
+  raise# = 1.vraise# :: ∀(a : sType) (b : sType). a → b
+
 import headers
-  2.tLevity :: 2.sType;
-  2.sLiftedRep :: 2.tRuntimeRep;
-  2.tRuntimeRep :: 2.sType;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-  2.sType :: 2.sType;
-  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.cLifted :: 2.tLevity
+  2.tLevity :: sType;
+  2.sLiftedRep :: tRuntimeRep;
+  2.tRuntimeRep :: sType;
+  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+  2.sType :: sType;
+  2.cBoxedRep :: tLevity → tRuntimeRep;
+  2.cLifted :: tLevity
 
 import synonyms
-  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-  2.sType = 2.tTYPE 2.sLiftedRep
+  2.sLiftedRep = cBoxedRep cLifted;
+  2.sType = tTYPE sLiftedRep
 
-val 1.vboom :: ∀(a : 2.sType) (b : 2.sType). a 2.→ b
- = Λ(a : 2.sType).
-  Λ(b : 2.sType).
-    λ(x : a).
-      foreign {prim 1.vraise# :: ∀(a : 2.sType) (b : 2.sType). a 2.→ b} @a @b x
+val 1.vboom :: ∀(a : sType) (b : sType). a → b
+  = Λ(a : sType) (b : sType). λ(x : a).
+    prim raise# @a @b x

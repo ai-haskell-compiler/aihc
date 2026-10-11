@@ -26,8 +26,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    fork# = 1.vfork# :: ∀(a{1} : sType). (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a{1})) 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# tRealWorld) tThreadId#);
-    yield# = 1.vyield# :: FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# tRealWorld) (tState# tRealWorld)
+    fork# = 1.vfork# :: ∀(a{1} : sType). (tState# tRealWorld → tTuple2# (tState# tRealWorld) a{1}) → tState# tRealWorld → tTuple2# (tState# tRealWorld) tThreadId#;
+    yield# = 1.vyield# :: tState# tRealWorld → tState# tRealWorld
 
   import headers
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
@@ -37,15 +37,15 @@ expected: |-
     2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.tThreadId# :: sUnliftedType;
-    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: r1 (c: r2 (c[] tRuntimeRep))));
     3.sType :: sType;
     3.sUnliftedRep :: tRuntimeRep;
     3.sUnliftedType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.cUnlifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
 
@@ -55,13 +55,11 @@ expected: |-
     3.sUnliftedRep = cBoxedRep cUnlifted;
     3.sUnliftedType = tTYPE sUnliftedRep
 
-  pub val 1.vspawn :: ∀(a : sType). (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a)) 3.→ FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sUnliftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sUnliftedRep (tState# tRealWorld) tThreadId#)
-    = Λ(a : sType).
-    λ(x : FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep sLiftedRep (c[] tRuntimeRep)))) (tState# tRealWorld) (tTuple2# (cTupleRep (c[] tRuntimeRep)) sLiftedRep (tState# tRealWorld) a))
-    (y : tState# tRealWorld).
+  pub val 1.vspawn :: ∀(a : sType). (tState# tRealWorld → tTuple2# (tState# tRealWorld) a) → tState# tRealWorld → tTuple2# (tState# tRealWorld) tThreadId#
+    = Λ(a : sType). λ(x : tState# tRealWorld → tTuple2# (tState# tRealWorld) a) (y : tState# tRealWorld).
       prim fork# @a x y
 
-  pub val 1.vreschedule :: FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c[] tRuntimeRep)) (tState# tRealWorld) (tState# tRealWorld)
+  pub val 1.vreschedule :: tState# tRealWorld → tState# tRealWorld
     = λ(x : tState# tRealWorld).
       prim yield# x
 status: pass

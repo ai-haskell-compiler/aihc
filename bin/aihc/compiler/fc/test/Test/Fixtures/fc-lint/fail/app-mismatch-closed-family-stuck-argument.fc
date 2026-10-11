@@ -3,37 +3,38 @@ scope 2 = "aihc-prim" GHC.Types
 scope 3 = "aihc-prim" GHC.Classes
 
 import headers
-  2.tLevity :: 2.sType;
-  2.sLiftedRep :: 2.tRuntimeRep;
-  2.tRuntimeRep :: 2.sType;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-  2.sType :: 2.sType;
-  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.cLifted :: 2.tLevity;
-  2.tBool :: 2.sType;
-  2.cTrue :: 2.tBool;
-  2.cFalse :: 2.tBool;
-  3.t$Dict$CTuple0 :: 2.sType
+  3.t$Dict$CTuple0 :: sType;
+  2.tBool :: sType;
+  2.tLevity :: sType;
+  2.sLiftedRep :: tRuntimeRep;
+  2.tRuntimeRep :: sType;
+  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+  2.sType :: sType;
+  2.cBoxedRep :: tLevity → tRuntimeRep;
+  2.cFalse :: tBool;
+  2.cLifted :: tLevity;
+  2.cTrue :: tBool
 
 import synonyms
-  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-  2.sType = 2.tTYPE 2.sLiftedRep
+  2.sLiftedRep = cBoxedRep cLifted;
+  2.sType = tTYPE sLiftedRep
 
-pub type 1.tCon (c : 2.sType) :: 2.sType {
-    pub 1.cCon :: ∀(c : 2.sType). 1.tCon c
+pub type 1.tCon (c : sType) :: sType {
+  pub 1.cCon :: ∀(c : sType). tCon c
 }
 
-pub type 1.tAssert (check : 2.tBool) (message : 2.sType) :: 2.sType {}
+pub type 1.tAssert (check : tBool) (message : sType) :: sType {}
 
-axiom 1.$ax$Assert$0 (_ : 2.sType) : 1.tAssert 2.cTrue _ ~N 3.t$Dict$CTuple0
-axiom 1.$ax$Assert$1 (message : 2.sType) (_ : 2.tBool) : 1.tAssert _ message ~N message
+axiom 1.$ax$Assert$0 (_ : sType) : tAssert cTrue _ ~N t$Dict$CTuple0
 
-pub type 1.tInt :: 2.sType {}
+axiom 1.$ax$Assert$1 (message : sType) (_ : tBool) : tAssert _ message ~N message
 
-pub type 1.tCheck (g : 2.sType) :: 2.tBool {}
+pub type 1.tInt :: sType {}
 
-axiom 1.$ax$Check$Int : 1.tCheck 1.tInt ~N 2.cTrue
+pub type 1.tCheck (g : sType) :: tBool {}
 
-val 1.vbad :: ∀(g : 2.sType). 1.tCon (1.tAssert (1.tCheck g) 2.tBool)
- = Λ(g : 2.sType).
-  1.cCon @2.tBool
+axiom 1.$ax$Check$Int : tCheck tInt ~N cTrue
+
+val 1.vbad :: ∀(g : sType). tCon (tAssert (tCheck g) tBool)
+  = Λ(g : sType).
+    cCon @tBool

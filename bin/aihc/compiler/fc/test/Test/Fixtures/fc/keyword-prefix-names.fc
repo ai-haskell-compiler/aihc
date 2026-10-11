@@ -6,11 +6,11 @@ pub type 1.tFlag :: 2.tType {
   pub 1.cOn :: tFlag
 }
 
-pub val 1.vtoggle :: tFlag 2.→ tFlag
+pub val 1.vtoggle :: FUN @2.sLiftedRep @2.sLiftedRep tFlag tFlag
   = λ(letter : tFlag).
     let recent : tFlag =
       letter;
-    case recent as (cases : tFlag) of {
+    case recent of {
       cOff →
         cOn;
       cOn →

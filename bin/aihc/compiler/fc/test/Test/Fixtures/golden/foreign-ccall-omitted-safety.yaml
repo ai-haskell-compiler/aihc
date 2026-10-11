@@ -29,7 +29,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     3.cAddrRep :: tRuntimeRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cInt32Rep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -38,15 +38,15 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tInt32 :: sType {
-    pub 1.cI32# :: FUN @cInt32Rep @sLiftedRep tInt32# tInt32
+    pub 1.cI32# :: tInt32# → tInt32
   }
 
   pub type 1.tCInt :: sType {}
 
   axiom 1.$ax$CInt : tCInt ~R tInt32
 
-  pub val 1.vrun :: FUN @cAddrRep @sLiftedRep tAddr# tCInt
+  pub val 1.vrun :: tAddr# → tCInt
     = λ(x : tAddr#).
-      foreign {ccall safe "puts" [Addr → Int32; pure] using [axiom 1.$ax$CInt, constructor 1.cI32#] 1.vputs :: FUN @cAddrRep @sLiftedRep tAddr# tCInt} x
+      foreign {ccall safe "puts" [Addr → Int32; pure] using [axiom 1.$ax$CInt, constructor 1.cI32#] 1.vputs :: tAddr# → tCInt} x
 status: pass
 reason: an omitted safety mark means safe

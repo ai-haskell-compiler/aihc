@@ -25,8 +25,8 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
@@ -36,17 +36,17 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tInt :: sType {
-    pub 1.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt
+    pub 1.cI# :: tInt# → tInt
   }
 
   pub type 1.tWrap :: sType {}
 
   axiom 1.$ax$Wrap : tWrap ~R tInt
 
-  pub val 1.vunwrapAll :: t[] tWrap 3.→ t[] tInt
+  pub val 1.vunwrapAll :: t[] tWrap → t[] tInt
     = λ(x : t[] tWrap).
       rec {
-        _list_comp : t[] tWrap 3.→ t[] tInt =
+        _list_comp : t[] tWrap → t[] tInt =
           λ(_list_comp_list : t[] tWrap).
             case _list_comp_list of {
               c[] →

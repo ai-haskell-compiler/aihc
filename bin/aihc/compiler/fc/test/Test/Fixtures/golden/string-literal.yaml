@@ -37,33 +37,33 @@ expected: |-
     4.tTYPE :: ∀(rep : tRuntimeRep). sType;
     4.sType :: sType;
     constructors [4.c[], 4.c:] 4.t[] :: ∀(a : sType). sType;
-    4.c: :: ∀(a : sType). a 4.→ t[] a 4.→ t[] a;
+    4.c: :: ∀(a : sType). a → t[] a → t[] a;
     4.cAddrRep :: tRuntimeRep;
-    4.cBoxedRep :: tLevity 4.→ tRuntimeRep;
-    4.cC# :: FUN @cWordRep @sLiftedRep tChar# tChar;
+    4.cBoxedRep :: tLevity → tRuntimeRep;
+    4.cC# :: tChar# → tChar;
     4.cLifted :: tLevity;
     4.cWordRep :: tRuntimeRep;
     4.c[] :: ∀(a : sType). t[] a;
-    2.vunpackCString# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar);
-    2.vunpackCStringUtf8# :: FUN @cAddrRep @sLiftedRep tAddr# (t[] tChar)
+    2.vunpackCString# :: tAddr# → t[] tChar;
+    2.vunpackCStringUtf8# :: tAddr# → t[] tChar
 
   import synonyms
     4.sLiftedRep = cBoxedRep cLifted;
     4.sType = tTYPE sLiftedRep
 
   pub val 1.vtext :: t[] tChar
-    = vunpackCString# lit ("ab"#cAddrRep) :: tAddr#
+    = vunpackCString# ("ab" :: tAddr#)
 
   pub val 1.vempty :: t[] tChar
     = c[] @tChar
 
   pub val 1.vsingle :: t[] tChar
-    = c: @tChar (cC# lit ('x'#cWordRep) :: tChar#) (c[] @tChar)
+    = c: @tChar (cC# ('x' :: tChar#)) (c[] @tChar)
 
   pub val 1.vnul :: t[] tChar
-    = vunpackCStringUtf8# lit ("a\xc0\x80b"#cAddrRep) :: tAddr#
+    = vunpackCStringUtf8# ("a\xc0\x80b" :: tAddr#)
 
   pub val 1.vunicode :: t[] tChar
-    = vunpackCStringUtf8# lit ("\xce\xbb\xe2\x86\x92"#cAddrRep) :: tAddr#
+    = vunpackCStringUtf8# ("\xce\xbb\xe2\x86\x92" :: tAddr#)
 status: pass
 reason: A string literal of at most one character is a spelled-out list; a longer one unpacks an Addr# literal, stored as Latin-1 when every character is between 1 and 127 and as modified UTF-8 with NUL encoded as C0 80 otherwise.

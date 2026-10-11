@@ -3,17 +3,17 @@ scope 2 = "aihc-prim" GHC.Types
 scope 3 = "dependency" Dependency
 
 import headers
-  3.tExternal :: 2.sType;
-  2.tLevity :: 2.sType;
-  2.sLiftedRep :: 2.tRuntimeRep;
-  2.tRuntimeRep :: 2.sType;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-  2.sType :: 2.sType;
-  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.cLifted :: 2.tLevity
+  3.tExternal :: sType;
+  2.tLevity :: sType;
+  2.sLiftedRep :: tRuntimeRep;
+  2.tRuntimeRep :: sType;
+  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+  2.sType :: sType;
+  2.cBoxedRep :: tLevity → tRuntimeRep;
+  2.cLifted :: tLevity
 
 import synonyms
-  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-  2.sType = 2.tTYPE 2.sLiftedRep
+  2.sLiftedRep = cBoxedRep cLifted;
+  2.sType = tTYPE sLiftedRep
 
-pub type 1.tLocal :: 2.sType {}
+pub type 1.tLocal :: sType {}

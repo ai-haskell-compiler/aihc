@@ -32,10 +32,10 @@ expected: |-
     constructors [2.c()] 2.tUnit :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
     2.c() :: tUnit;
-    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity;
-    3.cTupleRep :: t[] tRuntimeRep 3.→ tRuntimeRep;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
     3.c[] :: ∀(a : sType). t[] a
 
   import synonyms
@@ -48,11 +48,11 @@ expected: |-
   }
 
   pub type 1.tShape (a : sType) :: sType {
-    pub 1.cSingle :: ∀(a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tUnit) (tFlag 3.→ tShape a);
-    pub 1.cBoth :: ∀(a : sType) (a{1} : sType) (b : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tTuple2 a{1} b) (tShape a{1} 3.→ tShape b 3.→ tShape a)
+    pub 1.cSingle :: ∀(a : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tUnit) (tFlag → tShape a);
+    pub 1.cBoth :: ∀(a : sType) (a{1} : sType) (b : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (a ~ tTuple2 a{1} b) (tShape a{1} → tShape b → tShape a)
   }
 
-  pub val 1.vboth :: tFlag 3.→ tFlag 3.→ tFlag
+  pub val 1.vboth :: tFlag → tFlag → tFlag
     = λ(x : tFlag) (y : tFlag).
       case x of {
         cOff →
@@ -61,10 +61,10 @@ expected: |-
           y
       }
 
-  pub val 1.vpick :: ∀(a : sType). tShape a 3.→ a 3.→ tFlag
+  pub val 1.vpick :: ∀(a : sType). tShape a → a → tFlag
     = Λ(a : sType). λ(x : tShape a) (y : a).
       case x of {
-        cSingle ($co : a ~ tUnit) (f : tFlag) →
+        cSingle (_ : a ~ tUnit) (f : tFlag) →
           f;
         cBoth @(a{1} : sType) @(b : sType) ($co : a ~ tTuple2 a{1} b) (left : tShape a{1}) (right : tShape b) →
           let! c(,) (x{1} : a{1}) (y{1} : b) = y ▷ $co;

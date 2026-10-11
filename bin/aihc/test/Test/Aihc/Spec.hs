@@ -1263,7 +1263,7 @@ test_installArchSourceDirs getStore = do
       result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False target Nothing defaultPlanOptions)
       core <- T.unpack . Fc.renderProgram <$> readCoreFile (installStorePath result </> "Payload" </> "core.fc")
       let expected = archSourceDirPayload target
-          unexpected = if expected == "32#" then "64#" else "32#"
+          unexpected = if expected == "32 :: " then "64 :: " else "32 :: "
       assertBool
         ("Core for " <> show target <> " contains " <> expected)
         (expected `isInfixOf` core)
@@ -1274,8 +1274,8 @@ test_installArchSourceDirs getStore = do
 archSourceDirPayload :: NativeTarget -> String
 archSourceDirPayload target =
   case target of
-    Wasm32Wasip3 -> "32#"
-    _ -> "64#"
+    Wasm32Wasip3 -> "32 :: "
+    _ -> "64 :: "
 
 -- A file that guards code on @MIN_VERSION_base@ must see the version of
 -- the aihc-base it is compiled against, not an unconditional yes. The wrong

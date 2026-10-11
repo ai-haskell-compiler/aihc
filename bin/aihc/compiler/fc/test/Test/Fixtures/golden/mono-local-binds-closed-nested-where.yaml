@@ -46,7 +46,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -65,11 +65,11 @@ expected: |-
     pub 1.cUnit :: 1.tUnit
   }
 
-  val 1.vunST :: ∀(s : sType) (a : sType). tST s a 3.→ a
+  val 1.vunST :: ∀(s : sType) (a : sType). tST s a → a
     = Λ(s : sType) (a : sType). λ(x : tST s a).
       x ▷ axiom-co $ax$ST @s @a
 
-  val 1.vrunST :: ∀(a : sType). (∀(s : sType). tST s a) 3.→ a
+  val 1.vrunST :: ∀(a : sType). (∀(s : sType). tST s a) → a
     = Λ(a : sType). λ(x : ∀(s : sType). tST s a).
       vunST @2.tUnit @a (x @2.tUnit)
 
@@ -77,17 +77,17 @@ expected: |-
     = Λ(s : sType).
       (cRef @s) ▷ sym (axiom-co $ax$ST @s @(tRef s))
 
-  val 1.vbind :: ∀(s : sType) (a : sType) (b : sType). tST s a 3.→ (a 3.→ tST s b) 3.→ tST s b
-    = Λ(s : sType) (a : sType) (b : sType). λ(x : tST s a) (y : a 3.→ tST s b).
+  val 1.vbind :: ∀(s : sType) (a : sType) (b : sType). tST s a → (a → tST s b) → tST s b
+    = Λ(s : sType) (a : sType) (b : sType). λ(x : tST s a) (y : a → tST s b).
       y (x ▷ axiom-co $ax$ST @s @a)
 
-  val 1.vwrite :: ∀(s : sType) (a : sType). tRef s 3.→ a 3.→ tST s 1.tUnit
-    = Λ(s : sType) (a : sType). λ(x : tRef s) (y : a).
+  val 1.vwrite :: ∀(s : sType) (a : sType). tRef s → a → tST s 1.tUnit
+    = Λ(s : sType) (a : sType). λ(_ : tRef s) (_ : a).
       cUnit ▷ sym (axiom-co $ax$ST @s @1.tUnit)
 
-  pub val 1.vrun :: tInt 3.→ 1.tUnit
+  pub val 1.vrun :: tInt → 1.tUnit
     = λ(x : tInt).
-      let go : ∀(a : sType) (b : sType). tRef a 3.→ b 3.→ tST a 1.tUnit =
+      let go : ∀(a : sType) (b : sType). tRef a → b → tST a 1.tUnit =
         Λ(a : sType) (b : sType). λ(x{1} : tRef a) (x{2} : b).
           vwrite @a @b x{1} x{2};
       vrunST @1.tUnit (Λ(s : sType).

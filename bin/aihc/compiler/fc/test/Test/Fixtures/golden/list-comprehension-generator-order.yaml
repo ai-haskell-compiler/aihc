@@ -16,9 +16,9 @@ expected: |-
     constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 3.→ a2 3.→ tTuple2 a1 a2;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
 
@@ -26,17 +26,17 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vselect :: ∀(a : sType) (b : sType). t[] a 3.→ t[] b 3.→ t[] (tTuple2 a b)
+  pub val 1.vselect :: ∀(a : sType) (b : sType). t[] a → t[] b → t[] (tTuple2 a b)
     = Λ(a : sType) (b : sType). λ(x : t[] a) (y : t[] b).
       rec {
-        _list_comp : t[] a 3.→ t[] (tTuple2 a b) =
+        _list_comp : t[] a → t[] (tTuple2 a b) =
           λ(_list_comp_list : t[] a).
             case _list_comp_list of {
               c[] →
                 c[] @(tTuple2 a b);
               c: (x{1} : a) (_list_comp_tail : t[] a) →
                 rec {
-                  _list_comp{1} : t[] b 3.→ t[] (tTuple2 a b) =
+                  _list_comp{1} : t[] b → t[] (tTuple2 a b) =
                     λ(_list_comp_list{1} : t[] b).
                       case _list_comp_list{1} of {
                         c[] →

@@ -22,7 +22,7 @@ expected: |-
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
     2.sUnliftedRep :: tRuntimeRep;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity;
     2.cUnlifted :: tLevity
 

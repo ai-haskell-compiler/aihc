@@ -24,7 +24,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    raise# = 2.vraise# :: ∀(r{1} : tRuntimeRep) (a{1} : sType) (b : tTYPE r{1}). FUN @sLiftedRep @r{1} a{1} b
+    raise# = 2.vraise# :: ∀(r{1} : tRuntimeRep) (a{1} : sType) (b : tTYPE r{1}). a{1} → b
 
   import headers
     constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
@@ -32,7 +32,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -48,11 +48,11 @@ expected: |-
     pub 1.cFalse :: tBool
   }
 
-  pub val 1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). FUN @sLiftedRep @r tMessage a
+  pub val 1.vfailure :: ∀(r : tRuntimeRep) (a : tTYPE r). tMessage → a
     = Λ(r : tRuntimeRep) (a : tTYPE r). λ($d : tMessage).
-      prim raise# @r @tMessage @a $d
+      prim raise# @tMessage @a $d
 
   pub val 1.vuse :: tBool
-    = vfailure @(cBoxedRep cLifted) @tBool cMessage
+    = vfailure @tBool cMessage
 status: pass
 reason: the evidence arrow of an implicit parameter returns a representation-polymorphic body

@@ -28,8 +28,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#;
+    -# = 2.v-# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -39,8 +39,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -48,26 +48,26 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  val 1.vadd :: tInt 3.→ tInt 3.→ tInt
+  val 1.vadd :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (a : tInt#) = x;
       let! cI# (b : tInt#) = y;
       cI# (prim +# a b)
 
-  pub val 1.vsumTo :: tInt 3.→ tInt
+  pub val 1.vsumTo :: tInt → tInt
     = λ(x : tInt).
       rec {
-        go : tInt 3.→ tInt 3.→ tInt =
+        go : tInt → tInt → tInt =
           λ(x{1} : tInt) (y : tInt).
             let! cI# (i : tInt#) = x{1};
             case i of {
-              0#cIntRep →
+              0 →
                 y;
               _ →
                 let! _ as (argument : tInt) = vadd y x{1};
-                go (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
+                go (cI# (prim -# i (1 :: tInt#))) argument
             }
       } in
-      go x (cI# lit (0#cIntRep) :: tInt#)
+      go x (cI# (0 :: tInt#))
 status: pass
 reason: A local recursive function gets a signature from the same fixpoint as a top-level value. 'go' is strict in its accumulator, so the call 'add acc m' inside 'go' is evaluated before the recursive call.

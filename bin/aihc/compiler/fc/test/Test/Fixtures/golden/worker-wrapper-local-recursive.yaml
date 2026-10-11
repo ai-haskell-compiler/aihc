@@ -26,7 +26,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -37,9 +37,9 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
-    3.c: :: ∀(a : sType). a 3.→ t[] a 3.→ t[] a;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity;
     3.c[] :: ∀(a : sType). t[] a
@@ -49,21 +49,21 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tCursor :: sType {
-    pub 1.cCursor :: FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ tCursor)
+    pub 1.cCursor :: tInt# → tInt → tCursor
   }
 
-  pub val 1.vcount :: (tInt 3.→ tInt) 3.→ t[] tInt 3.→ tInt
-    = λ(x : tInt 3.→ tInt) (y : t[] tInt).
+  pub val 1.vcount :: (tInt → tInt) → t[] tInt → tInt
+    = λ(x : tInt → tInt) (y : t[] tInt).
       rec {
-        $wgo : FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @(cBoxedRep cLifted) @(cBoxedRep cLifted) tInt (FUN @(cBoxedRep cLifted) @cIntRep (t[] tInt) tInt#)) =
-          λ(x{1} : tInt#) (x{2} : tInt) (y{1} : t[] tInt).
+        $wgo : tInt# → tInt → t[] tInt → tInt# =
+          λ(x{1} : tInt#) (_ : tInt) (y{1} : t[] tInt).
             case y{1} of {
               c[] →
                 x{1};
               c: (y{2} : tInt) (ys : t[] tInt) →
-                $wgo (prim +# x{1} lit (1#cIntRep) :: tInt#) (x y{2}) ys
+                $wgo (prim +# x{1} (1 :: tInt#)) (x y{2}) ys
             }
       } in
-      cI# ($wgo lit (0#cIntRep) :: tInt# (cI# lit (0#cIntRep) :: tInt#) y)
+      cI# ($wgo (0 :: tInt#) (cI# (0 :: tInt#)) y)
 status: pass
 reason: The local loop has a free variable, so it stays local. Its worker takes the fields of the cursor, and the recursive call builds no cursor.

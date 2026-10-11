@@ -26,8 +26,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#;
+    <# = 2.v<# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -37,8 +37,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -48,23 +48,23 @@ expected: |-
 
   type 1.tList :: sType {
     1.cNil :: tList;
-    1.cCons :: tInt 3.→ tList 3.→ tList
+    1.cCons :: tInt → tList → tList
   }
 
-  pub val 1.vfill :: tInt 3.→ tInt 3.→ tList
+  pub val 1.vfill :: tInt → tInt → tList
     = λ(x : tInt) (y : tInt).
       let! cI# (n : tInt#) = x;
       let! cI# (k : tInt#) = y;
-      case prim <# k lit (0#cIntRep) :: tInt# of {
-        1#cIntRep →
+      case prim <# k (0 :: tInt#) of {
+        1 →
           cNil;
         _ →
           rec {
-            go : FUN @cIntRep @sLiftedRep tInt# tList =
+            go : tInt# → tList =
               λ(x{1} : tInt#).
                 case prim <# x{1} n of {
-                  1#cIntRep →
-                    cCons (cI# x{1}) (go (prim +# x{1} lit (1#cIntRep) :: tInt#));
+                  1 →
+                    cCons (cI# x{1}) (go (prim +# x{1} (1 :: tInt#)));
                   _ →
                     cNil
                 }

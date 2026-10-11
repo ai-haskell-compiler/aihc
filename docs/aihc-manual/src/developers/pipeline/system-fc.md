@@ -13,7 +13,9 @@ The design document is [docs/system-fc.md](https://github.com/ai-haskell-compile
 System FC is similar to Haskell, but it has no syntactic sugar and no ambiguity.
 
 - Each binder has a type. A use of a binder has no type.
-- Each type argument is explicit, for example `f @tInt`.
+- Each type argument is in the program, for example `f @tInt`.
+  The text leaves out an argument that the kind of a later argument gives.
+  For example, the text `cTuple2# @(tState# tRealWorld) @tInt` leaves out the two representations.
 - Each class constraint is an explicit dictionary argument.
   A class becomes a data type with the name `$Dict$Class`.
 - A `case` expression has an optional case binder and at least one alternative.
@@ -21,14 +23,14 @@ System FC is similar to Haskell, but it has no syntactic sugar and no ambiguity.
   All alternatives must have the same result type.
   An alternative type variable must not occur free in the result type.
 - A literal expression has its full type and runtime representation.
-  For example, `lit (1#cIntRep) :: tInt#`.
+  The text leaves out the representation when the type gives it, for example `1 :: tInt#`.
 - An empty case becomes `absurd e return (T)`.
   This expression evaluates `e` and reports a match failure if evaluation returns.
   Its result type is `T`.
 - A newtype becomes a type and an axiom.
   A cast `e ▷ γ` changes the type of an expression with a coercion `γ`.
 - Types and kinds are one language.
-  The function arrow `→` is `FUN` on lifted types.
+  The function arrow `→` is `FUN` with the representations of its two types.
 - The FC lint checks the types of a program again.
   Use `--lint` to run it.
 

@@ -6,6 +6,6 @@ pub type 1.tBool :: 2.tType {
   pub 1.cTrue :: tBool
 }
 
-val 1.vid :: ∀(a : 2.tType). a 2.→ a
+val 1.vid :: ∀(a : 2.tType). FUN @2.sLiftedRep @2.sLiftedRep a a
   = Λ(a : 2.tType). λ(x : a).
     x

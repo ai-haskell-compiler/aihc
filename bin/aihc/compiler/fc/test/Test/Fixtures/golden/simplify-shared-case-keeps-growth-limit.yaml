@@ -31,7 +31,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -45,14 +45,14 @@ expected: |-
   }
 
   type 1.tBox :: sType {
-    pub 1.cBox :: tBool 2.→ tBool 2.→ tBool 2.→ tBool 2.→ tBox
+    pub 1.cBox :: tBool → tBool → tBool → tBool → tBox
   }
 
-  val 1.vopaque noinline :: tBool 2.→ tBool
+  val 1.vopaque noinline :: tBool → tBool
     = λ(x : tBool).
       x
 
-  pub val 1.vpick :: tChoice 2.→ tBool 2.→ tBox
+  pub val 1.vpick :: tChoice → tBool → tBox
     = λ(x : tChoice) (y : tBool).
       let shared : tBox =
         case x of {

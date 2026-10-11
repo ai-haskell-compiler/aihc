@@ -21,7 +21,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -31,8 +31,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -41,12 +41,12 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   type 1.tBox :: sType {
-    pub 1.cBox :: tInt 3.→ tBox
+    pub 1.cBox :: tInt → tBox
   }
 
-  pub val 1.vnext :: tInt 3.→ tBox
+  pub val 1.vnext :: tInt → tBox
     = λ(x : tInt).
       cBox (let! cI# (a : tInt#) = x;
-      cI# (prim +# a lit (1#cIntRep) :: tInt#))
+      cI# (prim +# a (1 :: tInt#)))
 status: pass
 reason: The parameter can be a thunk, so the case must evaluate it. It stays in the lazy constructor argument.

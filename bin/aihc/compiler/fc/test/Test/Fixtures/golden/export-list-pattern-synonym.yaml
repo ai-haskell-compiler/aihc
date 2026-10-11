@@ -21,7 +21,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     constructors [2.c()] 2.tUnit :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -29,31 +29,29 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tWrapped :: sType {
-    pub 1.cWrapped :: tWrapped 3.→ tWrapped
+    pub 1.cWrapped :: tWrapped → tWrapped
   }
 
-  val 1.vunwrap :: tWrapped 3.→ tWrapped
+  val 1.vunwrap :: tWrapped → tWrapped
     = λ($record : tWrapped).
       let! cWrapped (unwrap : tWrapped) = $record;
       unwrap
 
-  pub val 1.v$mShown :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tWrapped 3.→ (FUN @sLiftedRep @rep tWrapped r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
-    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tWrapped) (y : FUN @sLiftedRep @rep tWrapped r)
-    (z : FUN @sLiftedRep @rep tUnit r).
+  pub val 1.v$mShown :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tWrapped → (tWrapped → r) → (tUnit → r) → r
+    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tWrapped) (y : tWrapped → r) (_ : tUnit → r).
       let! cWrapped (x{1} : tWrapped) = x;
       y x{1}
 
-  pub val 1.v$bShown :: tWrapped 3.→ tWrapped
+  pub val 1.v$bShown :: tWrapped → tWrapped
     = λ(x : tWrapped).
       cWrapped x
 
-  val 1.v$mHidden :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tWrapped 3.→ (FUN @sLiftedRep @rep tWrapped r) 3.→ FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
-    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tWrapped) (y : FUN @sLiftedRep @rep tWrapped r)
-    (z : FUN @sLiftedRep @rep tUnit r).
+  val 1.v$mHidden :: ∀(rep : tRuntimeRep) (r : tTYPE rep). tWrapped → (tWrapped → r) → (tUnit → r) → r
+    = Λ(rep : tRuntimeRep) (r : tTYPE rep). λ(x : tWrapped) (y : tWrapped → r) (_ : tUnit → r).
       let! cWrapped (x{1} : tWrapped) = x;
       y x{1}
 
-  val 1.v$bHidden :: tWrapped 3.→ tWrapped
+  val 1.v$bHidden :: tWrapped → tWrapped
     = λ(x : tWrapped).
       cWrapped x
 status: pass

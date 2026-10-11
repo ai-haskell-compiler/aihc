@@ -32,8 +32,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -43,22 +43,22 @@ expected: |-
 
   type 1.tNat :: sType {
     1.cZ :: tNat;
-    1.cS :: tNat 3.→ tNat
+    1.cS :: tNat → tNat
   }
 
-  pub val 1.vrun :: tNat 3.→ tInt 3.→ tNat
+  pub val 1.vrun :: tNat → tInt → tNat
     = λ(x : tNat).
-      let step : tNat 3.→ (tInt 3.→ tNat) 3.→ tInt 3.→ tNat =
-        λ(x{1} : tNat) (y : tInt 3.→ tNat) (z : tInt).
-          let! cI# (_pat : tInt#) = z;
+      let step : tNat → (tInt → tNat) → tInt → tNat =
+        λ(x{1} : tNat) (y : tInt → tNat) (z : tInt).
+          let! cI# (_ : tInt#) = z;
           case x{1} of {
             cZ →
               y z;
-            cS (_pat{1} : tNat) →
+            cS (_ : tNat) →
               x{1}
           };
       rec {
-        go : tNat 3.→ tInt 3.→ tNat =
+        go : tNat → tInt → tNat =
           λ(x{1} : tNat) (eta{2} : tInt).
             step x{1} (go (cS x{1})) eta{2}
       } in

@@ -2,37 +2,34 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: 2.sType;
-  2.sLiftedRep :: 2.tRuntimeRep;
-  2.tRuntimeRep :: 2.sType;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-  2.sType :: 2.sType;
-  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.cLifted :: 2.tLevity
+  2.tLevity :: sType;
+  2.sLiftedRep :: tRuntimeRep;
+  2.tRuntimeRep :: sType;
+  2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+  2.sType :: sType;
+  2.cBoxedRep :: tLevity → tRuntimeRep;
+  2.cLifted :: tLevity
 
 import synonyms
-  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-  2.sType = 2.tTYPE 2.sLiftedRep
+  2.sLiftedRep = cBoxedRep cLifted;
+  2.sType = tTYPE sLiftedRep
 
-pub type 1.tSum (f : 2.sType 2.→ 2.sType) (g : 2.sType 2.→ 2.sType) (p : 2.sType) :: 2.sType {
-    pub 1.cL1 :: ∀(f : 2.sType 2.→ 2.sType) (g : 2.sType 2.→ 2.sType) (p : 2.sType). f p 2.→ 1.tSum f g p
+pub type 1.tSum (f : sType → sType) (g : sType → sType) (p : sType) :: sType {
+  pub 1.cL1 :: ∀(f : sType → sType) (g : sType → sType) (p : sType). f p → tSum f g p
 }
 
-pub type 1.tTagged (s : 2.sType 2.→ 2.sType) (b : 2.sType) :: 2.sType {}
+pub type 1.tTagged (s : sType → sType) (b : sType) :: sType {}
 
-axiom 1.$ax$Tagged (s : 2.sType 2.→ 2.sType) (b : 2.sType) : 1.tTagged s b ~R b
+axiom 1.$ax$Tagged (s : sType → sType) (b : sType) : tTagged s b ~R b
 
-pub type 1.tUnit :: 2.sType {
-    pub 1.cUnit :: 1.tUnit
+pub type 1.tUnit :: sType {
+  pub 1.cUnit :: tUnit
 }
 
-val 1.vtagged :: ∀(a : 2.sType 2.→ 2.sType) (b : 2.sType 2.→ 2.sType). 1.tTagged (1.tSum a b) 1.tUnit
- = Λ(a : 2.sType 2.→ 2.sType).
-  Λ(b : 2.sType 2.→ 2.sType).
-    1.cUnit ▷ sym (axiom-co 1.$ax$Tagged @(1.tSum a b) @1.tUnit)
+val 1.vtagged :: ∀(a : sType → sType) (b : sType → sType). tTagged (tSum a b) tUnit
+  = Λ(a : sType → sType) (b : sType → sType).
+    cUnit ▷ sym (axiom-co $ax$Tagged @(tSum a b) @tUnit)
 
-val 1.vretagged :: ∀(a : 2.sType 2.→ 2.sType) (b : 2.sType 2.→ 2.sType). 1.tTagged (1.tSum a b) 1.tUnit 2.→ 1.tTagged (1.tSum a b) 1.tUnit
- = Λ(a : 2.sType 2.→ 2.sType).
-  Λ(b : 2.sType 2.→ 2.sType).
-    λ(x : 1.tTagged (1.tSum a b) 1.tUnit).
-      x ▷ tycon-co 1.tTagged (refl (1.tSum a b)) (refl 1.tUnit)
+val 1.vretagged :: ∀(a : sType → sType) (b : sType → sType). tTagged (tSum a b) tUnit → tTagged (tSum a b) tUnit
+  = Λ(a : sType → sType) (b : sType → sType). λ(x : tTagged (tSum a b) tUnit).
+    x ▷ tycon-co tTagged (refl (tSum a b)) (refl tUnit)

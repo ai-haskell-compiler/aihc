@@ -24,8 +24,8 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import prims
-    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
-    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+    +# = 2.v+# :: tInt# → tInt# → tInt#;
+    -# = 2.v-# :: tInt# → tInt# → tInt#
 
   import headers
     constructors [3.cI#] 3.tInt :: sType;
@@ -35,8 +35,8 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
-    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: tInt# → tInt;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -44,7 +44,7 @@ expected: |-
     3.sLiftedRep = cBoxedRep cLifted;
     3.sType = tTYPE sLiftedRep
 
-  pub val 1.vloop inline :: tInt 3.→ tInt 3.→ tInt
+  pub val 1.vloop inline :: tInt → tInt → tInt
     = λ(x : tInt) (y : tInt).
       let! cI# (x{1} : tInt#) = x;
       let! cI# (y{1} : tInt#) = y;
@@ -52,13 +52,13 @@ expected: |-
         v$wloop x{1} y{1};
       cI# field
 
-  val 1.v$wloop :: FUN @cIntRep @(cBoxedRep cLifted) tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+  val 1.v$wloop :: tInt# → tInt# → tInt#
     = λ(x : tInt#) (y : tInt#).
       case x of {
-        0#cIntRep →
+        0 →
           y;
         _ →
-          v$wloop (prim -# x lit (1#cIntRep) :: tInt#) (prim +# y x)
+          v$wloop (prim -# x (1 :: tInt#)) (prim +# y x)
       }
 status: pass
 reason: The recursive call in the worker goes through a copy of the wrapper, so the worker calls itself with the fields and the loop allocates no box.

@@ -35,7 +35,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -44,45 +44,45 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tPair :: sType {
-    pub 1.cPair :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tPair)
+    pub 1.cPair :: tInt# → tInt# → tPair
   }
 
   pub type 1.tBox :: sType {
-    pub strict [2] 1.cBox :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# (tInt 3.→ tBox))
+    pub strict [2] 1.cBox :: tInt# → tInt# → tInt → tBox
   }
 
-  pub val 1.vinner :: tBox 3.→ tPair
+  pub val 1.vinner :: tBox → tPair
     = λ($record : tBox).
-      let! cBox (inner0 : tInt#) (inner1 : tInt#) (size : tInt) = $record;
+      let! cBox (inner0 : tInt#) (inner1 : tInt#) (_ : tInt) = $record;
       cPair inner0 inner1
 
-  pub val 1.vsize :: tBox 3.→ tInt
+  pub val 1.vsize :: tBox → tInt
     = λ($record : tBox).
-      let! cBox (inner0 : tInt#) (inner1 : tInt#) (size : tInt) = $record;
+      let! cBox (_ : tInt#) (_ : tInt#) (size : tInt) = $record;
       size
 
-  pub val 1.vbuild :: tPair 3.→ tInt 3.→ tBox
+  pub val 1.vbuild :: tPair → tInt → tBox
     = λ(x : tPair) (y : tInt).
       (λ(inner : tPair) (size : tInt).
         let! cPair (inner0 : tInt#) (inner1 : tInt#) = inner;
         let! _ = size;
         cBox inner0 inner1 size) x y
 
-  pub val 1.vsizeOf :: tBox 3.→ tInt
+  pub val 1.vsizeOf :: tBox → tInt
     = λ(x : tBox).
-      let! cBox (whole0 : tInt#) (whole1 : tInt#) (n : tInt) = x;
+      let! cBox (_ : tInt#) (_ : tInt#) (n : tInt) = x;
       n
 
-  pub val 1.vresize :: tBox 3.→ tInt 3.→ tBox
+  pub val 1.vresize :: tBox → tInt → tBox
     = λ(x : tBox) (y : tInt).
-      let! cBox (inner0 : tInt#) (inner1 : tInt#) (size : tInt) = x;
+      let! cBox (inner0 : tInt#) (inner1 : tInt#) (_ : tInt) = x;
       (λ(inner : tPair) (size{1} : tInt).
         let! cPair (inner0{1} : tInt#) (inner1{1} : tInt#) = inner;
         let! _ = size{1};
         cBox inner0{1} inner1{1} size{1}) (cPair inner0 inner1) y
 
-  pub val 1.vnested :: (tInt 3.→ tInt 3.→ tInt) 3.→ tInt 3.→ tInt
-    = λ(x : tInt 3.→ tInt 3.→ tInt) (y : tInt).
+  pub val 1.vnested :: (tInt → tInt → tInt) → tInt → tInt
+    = λ(x : tInt → tInt → tInt) (y : tInt).
       let y{1} : tInt =
         let y{2} : tInt =
           x y y;

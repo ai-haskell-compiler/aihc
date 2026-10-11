@@ -26,7 +26,7 @@ expected: |-
     constructors [3.cAddrRep, 3.cBoxedRep, 3.cDoubleRep, 3.cFloatRep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cInt8Rep, 3.cIntRep, 3.cSumRep, 3.cTupleRep, 3.cVecRep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cWord8Rep, 3.cWordRep] 3.tRuntimeRep :: sType;
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cIntRep :: tRuntimeRep;
     3.cLifted :: tLevity
 
@@ -35,11 +35,11 @@ expected: |-
     3.sType = tTYPE sLiftedRep
 
   pub type 1.tInt :: sType {
-    pub 1.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt
+    pub 1.cI# :: tInt# → tInt
   }
 
-  pub val 1.vrun :: tInt 3.→ tInt
+  pub val 1.vrun :: tInt → tInt
     = λ(x : tInt).
-      foreign {ccall safe "identity" [Int → Int; pure] using [constructor 1.cI#] 1.videntityInt :: tInt 3.→ tInt} x
+      foreign {ccall safe "identity" [Int → Int; pure] using [constructor 1.cI#] 1.videntityInt :: tInt → tInt} x
 status: pass
 reason: a safe ccall lowers like an unsafe ccall

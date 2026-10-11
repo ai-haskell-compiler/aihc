@@ -3,25 +3,21 @@
 
 -- | Human-readable System FC text.
 --
--- The text has two styles. The canonical style is the format that
--- "Aihc.Fc.Parser" reads, and the parser gives back the same program. The
--- readable style is for people. It removes information that the parser
--- needs but that a reader can find from the types:
+-- The text leaves out each part of the program that "Aihc.Fc.TextInference"
+-- can calculate again, and the parser puts these parts back:
 --
--- * It shows only the scopes that the text uses.
--- * It shows primitive literals in the GHC form, for example @0#@, @0##@,
---   @3#Word8@ and @"abc"#@, and a string literal as a Haskell string.
--- * It shows unboxed tuples as @(# a, b #)@, with no representation
---   arguments.
--- * It shows each function type as @a → b@, with no representations.
--- * It shows the representation and kind synonyms (@LiftedRep@, @Type@ and
---   the unlifted forms) as the synonym.
--- * It shows a promoted list as @'[a, b]@.
--- * It shows a pattern binder that the declaration does not use as @_@.
+-- * A function type is @a → b@ when its representations are the
+--   representations of @a@ and @b@. Otherwise it is @FUN \@r1 \@r2 a b@.
+-- * A literal is @0 :: t@ when its representation is the representation of
+--   @t@. A case alternative is @0@ when the scrutinee type gives it.
+-- * An application does not show the argument of an implicit binder when
+--   the kind of a later argument gives it. When the kind does not give it,
+--   the argument shows as @\@{t}@.
+-- * A pattern or lambda binder that its scope does not use shows as @_@.
+-- * A case binder that the alternatives do not use is not shown.
+-- * The header shows only the scopes that the text uses.
 module Aihc.Fc.Pretty
-  ( RenderStyle (..),
-    renderProgram,
-    renderProgramWith,
+  ( renderProgram,
     renderProgramSections,
     reservedWords,
     globalReferences,
@@ -31,6 +27,7 @@ where
 import Aihc.Fc.Imports (declReferences, referencesFromImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
+import Aihc.Fc.TextInference
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
@@ -38,6 +35,7 @@ import Data.Char (chr, isAscii, isPrint, ord)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -54,176 +52,47 @@ data Prec
   | PrecForAll
   deriving (Eq, Ord)
 
--- | The style of the text.
-data RenderStyle
-  = -- | The format that the parser reads back.
-    RenderCanonical
-  | -- | A shorter format for people. The parser does not read it.
-    RenderReadable
-  deriving (Eq, Show)
-
 -- | The annotation of a scope prefix in a document: the scope id that the
--- prefix uses. The readable style keeps only the scopes that a prefix uses.
+-- prefix uses. The header shows only the scopes that a prefix uses.
 newtype ScopeUse = ScopeUse Int
 
 type FcDoc = Doc ScopeUse
 
 -- | Reverse lookup from a scope's identity to its printed scope id, built
 -- once per program instead of re-scanning the scope table for every name.
--- It also holds the facts that the readable style uses.
+-- It also holds the inference environment of the current position.
 data ScopeIndex = ScopeIndex
   { scopeIds :: Map.Map (PackageId, Text) Int,
     shortNames :: Map.Map Text Name,
     primitiveNames :: Map.Map ForeignCall Name,
-    renderStyle :: RenderStyle,
-    -- | The number of fields of each unboxed tuple type and constructor.
-    unboxedTupleArities :: Map.Map Name Int,
-    -- | The nullary synonyms that the readable style shows, by their
-    -- expanded bodies.
-    synonymFolds :: Map.Map Type Name,
-    -- | The bodies of the synonyms in 'synonymFolds'.
-    synonymBodies :: Map.Map Name Type,
-    -- | False in the body of a synonym declaration, so that the body does
-    -- not show as the synonym itself.
-    foldSynonyms :: Bool,
-    -- | The names that the current declaration uses. A pattern binder that
-    -- is not in this set shows as @_@ in the readable style.
+    inferEnv :: InferEnv,
+    -- | The names that the current declaration uses. A binder that is not
+    -- in this set has no use. A binder in this set can still have no use
+    -- in its own scope, so the printer then examines the scope.
     usedNames :: Set.Set Name
   }
 
-scopeIndexFromProgram :: RenderStyle -> Program -> ScopeIndex
-scopeIndexFromProgram style program =
+scopeIndexFromProgram :: Program -> ScopeIndex
+scopeIndexFromProgram program =
   ScopeIndex
     { scopeIds = Map.fromList [((entryPackage, entryModule), scopeId) | (scopeId, entryPackage, entryModule) <- scopeEntries (programScopes program)],
       shortNames = globalReferences program,
       primitiveNames = primitiveAliases program,
-      renderStyle = style,
-      unboxedTupleArities = tupleArities program,
-      synonymFolds = Map.fromList [(expandSynonyms bodies body, name) | (name, body) <- Map.toList bodies],
-      synonymBodies = bodies,
-      foldSynonyms = True,
+      inferEnv = inferEnvFromProgram program,
       usedNames = mempty
     }
-  where
-    bodies = foldedSynonyms program
 
-isReadable :: ScopeIndex -> Bool
-isReadable scopes = renderStyle scopes == RenderReadable
+withTypeBinderScope :: Binder -> ScopeIndex -> ScopeIndex
+withTypeBinderScope binder scopes = scopes {inferEnv = withTypeBinder binder (inferEnv scopes)}
 
--- | The number of fields of each unboxed tuple type and constructor of a
--- program. The type of an unboxed tuple with @n@ fields has @2n@ arguments:
--- first the @n@ representations, then the @n@ field types.
-tupleArities :: Program -> Map.Map Name Int
-tupleArities program =
-  Map.fromList (concatMap declaredTuples (programDecls program) <> importedTuples)
-  where
-    imports = programImports program
-    declaredTuples declaration = case declaration of
-      DeclType value
-        | [constructor] <- typeCons value,
-          conRepresentation constructor == UnboxedTupleConstructor,
-          even (length (typeBinders value)) ->
-            let arity = length (typeBinders value) `div` 2
-             in [(typeName value, arity), (conName constructor, arity)]
-      _ -> []
-    importedTuples =
-      [ entry
-      | (typeName', [constructor]) <- Map.toList (importDataCons imports),
-        Map.lookup constructor (importConRepresentations imports) == Just UnboxedTupleConstructor,
-        Just header <- [Map.lookup typeName' (importHeaders imports)],
-        let arity = length (fst (splitKindArrows header)) `div` 2,
-        entry <- [(typeName', arity), (constructor, arity)]
-      ]
+withTypeBinderScopes :: [Binder] -> ScopeIndex -> ScopeIndex
+withTypeBinderScopes binders scopes = foldl (flip withTypeBinderScope) scopes binders
 
--- | The arguments of a kind: the binders of the foralls and the arguments of
--- the arrows.
-splitKindArrows :: Type -> ([Type], Type)
-splitKindArrows ty = case ty of
-  TyForAll binder body -> let (arguments, result) = splitKindArrows body in (binderType binder : arguments, result)
-  TyFun _ _ argument body -> let (arguments, result) = splitKindArrows body in (argument : arguments, result)
-  _ -> ([], ty)
+withTermBinderScope :: Binder -> ScopeIndex -> ScopeIndex
+withTermBinderScope binder scopes = scopes {inferEnv = withTermBinder binder (inferEnv scopes)}
 
--- | The nullary synonyms that the readable style shows in place of their
--- bodies. Only the representation and kind synonyms are in this set: a
--- general synonym such as @FilePath@ would show at sites that do not use it.
-foldedSynonyms :: Program -> Map.Map Name Type
-foldedSynonyms program =
-  Map.fromList
-    ( [ (synName value, synBody value)
-      | DeclSynonym value <- programDecls program,
-        null (synBinders value),
-        isFolded (synName value)
-      ]
-        <> [(name, body) | (name, body) <- Map.toList (importSynonyms (programImports program)), isFolded name]
-    )
-  where
-    isFolded name = nameText name `elem` ["Type", "UnliftedType", "LiftedRep", "UnliftedRep"]
-
--- | Replace each synonym of the map with its expanded body.
-expandSynonyms :: Map.Map Name Type -> Type -> Type
-expandSynonyms bodies = go (Map.size bodies)
-  where
-    go fuel ty = case ty of
-      TyCon name
-        | fuel > 0,
-          Just body <- Map.lookup name bodies ->
-            go (fuel - 1) body
-      TyApp function argument -> TyApp (go fuel function) (go fuel argument)
-      _ -> ty
-
--- | The names that the expressions, types and coercions of a declaration
--- use. A binder can have the same name as a binder in a different scope, so
--- the set can contain a name of a binder that has no use. It never omits a
--- name that has a use.
-declarationUses :: Decl -> Set.Set Name
-declarationUses declaration = case declaration of
-  DeclVal value -> typeUses (valType value) <> expressionUses (valBody value)
-  DeclRule value -> typeUses (ruleType value) <> expressionUses (ruleLhs value) <> expressionUses (ruleRhs value)
-  _ -> mempty
-
-expressionUses :: Expr -> Set.Set Name
-expressionUses expression = case expression of
-  ExVar name -> Set.singleton name
-  ExLit _ ty -> typeUses ty
-  ExApp function argument -> expressionUses function <> expressionUses argument
-  ExTyApp function argument -> expressionUses function <> typeUses argument
-  ExLam binder body -> binderUses binder <> expressionUses body
-  ExTyLam binder body -> binderUses binder <> expressionUses body
-  ExLet binding body -> bindingUses binding <> expressionUses body
-  ExRec bindings body -> foldMap bindingUses bindings <> expressionUses body
-  ExCase scrutinee binder (NE.toList -> alternatives) -> expressionUses scrutinee <> foldMap binderUses binder <> foldMap alternativeUses alternatives
-  ExAbsurd scrutinee resultType -> expressionUses scrutinee <> typeUses resultType
-  ExCast body proof -> expressionUses body <> coercionUses proof
-  ExCoercion proof -> coercionUses proof
-  ExForeignCall call types arguments -> typeUses (foreignCallType call) <> foldMap typeUses types <> foldMap expressionUses arguments
-  where
-    bindingUses binding = binderUses (bindBinder binding) <> expressionUses (bindRhs binding)
-    alternativeUses alternative = foldMap binderUses (altTypeBinders alternative <> altBinders alternative) <> expressionUses (altRhs alternative)
-
-binderUses :: Binder -> Set.Set Name
-binderUses = typeUses . binderType
-
-typeUses :: Type -> Set.Set Name
-typeUses ty = case ty of
-  TyVar name -> Set.singleton name
-  TyApp function argument -> typeUses function <> typeUses argument
-  TyFun r1 r2 argument result -> foldMap typeUses [r1, r2, argument, result]
-  TyForAll binder body -> binderUses binder <> typeUses body
-  TyEq left right -> typeUses left <> typeUses right
-  _ -> mempty
-
-coercionUses :: Coercion -> Set.Set Name
-coercionUses proof = case proof of
-  CoVar name -> Set.singleton name
-  CoRefl ty -> typeUses ty
-  CoSym inner -> coercionUses inner
-  CoTrans left right -> coercionUses left <> coercionUses right
-  CoApp function argument -> coercionUses function <> coercionUses argument
-  CoNth _ inner -> coercionUses inner
-  CoFun argument result -> coercionUses argument <> coercionUses result
-  CoForAll binder body -> binderUses binder <> coercionUses body
-  CoTyConApp _ arguments -> foldMap coercionUses arguments
-  CoAxiom _ arguments -> foldMap typeUses arguments
+withTermBinderScopes :: [Binder] -> ScopeIndex -> ScopeIndex
+withTermBinderScopes binders scopes = foldl (flip withTermBinderScope) scopes binders
 
 -- | Give each primitive signature a separate text alias.
 --
@@ -365,12 +234,8 @@ coercionLocals proof = case proof of
   CoAxiom _ arguments -> foldMap typeLocals arguments
   _ -> mempty
 
--- | The canonical text of a program. The parser reads it back.
 renderProgram :: Program -> Text
-renderProgram = renderProgramWith RenderCanonical
-
-renderProgramWith :: RenderStyle -> Program -> Text
-renderProgramWith style = renderDoc . prettyProgram style
+renderProgram = renderDoc . prettyProgram
 
 renderDoc :: FcDoc -> Text
 renderDoc = renderStrict . layoutPretty (LayoutOptions (AvailablePerLine 120 1))
@@ -379,13 +244,13 @@ renderDoc = renderStrict . layoutPretty (LayoutOptions (AvailablePerLine 120 1))
 -- the imports, then one section for each declaration. A declaration section
 -- has the name of the declaration, and a rule section has no name. The
 -- sections, with a blank line between each two, are the text of
--- 'renderProgramWith'.
-renderProgramSections :: RenderStyle -> Program -> [(Maybe Name, Text)]
-renderProgramSections style program =
+-- 'renderProgram'.
+renderProgramSections :: Program -> [(Maybe Name, Text)]
+renderProgramSections program =
   [(Nothing, renderDoc (vsep (punctuate hardline header))) | not (null header)]
     <> [(declName decl, renderDoc document) | (decl, document) <- declarations]
   where
-    (header, declarations) = programDocuments style program
+    (header, declarations) = programDocuments program
     declName decl = case decl of
       DeclType declaration -> Just (typeName declaration)
       DeclSynonym declaration -> Just (synName declaration)
@@ -393,27 +258,24 @@ renderProgramSections style program =
       DeclVal declaration -> Just (valName declaration)
       DeclRule _ -> Nothing
 
-prettyProgram :: RenderStyle -> Program -> FcDoc
-prettyProgram style program =
+prettyProgram :: Program -> FcDoc
+prettyProgram program =
   vsep (punctuate hardline (header <> map snd declarations))
   where
-    (header, declarations) = programDocuments style program
+    (header, declarations) = programDocuments program
 
 -- | The header documents of a program, and the document of each
 -- declaration.
-programDocuments :: RenderStyle -> Program -> ([FcDoc], [(Decl, FcDoc)])
-programDocuments style program =
+programDocuments :: Program -> ([FcDoc], [(Decl, FcDoc)])
+programDocuments program =
   (scopeDocuments <> primitiveDocuments <> importDocuments, declarations)
   where
     scopes = programScopes program
-    scopeIndex = scopeIndexFromProgram style program
+    scopeIndex = scopeIndexFromProgram program
     declarations = [(decl, prettyDecl scopeIndex decl) | decl <- programDecls program]
-    shownEntries = case style of
-      RenderCanonical -> scopeEntries scopes
-      RenderReadable -> [entry | entry@(scopeId, _, _) <- scopeEntries scopes, scopeId `Set.member` usedScopes]
     usedScopes = foldMap documentScopeUses (primitiveDocuments <> importDocuments <> map snd declarations)
     scopeDocuments =
-      case shownEntries of
+      case [entry | entry@(scopeId, _, _) <- scopeEntries scopes, scopeId `Set.member` usedScopes] of
         [] -> []
         entries -> [prettyScopes entries]
     importDocuments = prettyImports scopeIndex (programImports program)
@@ -434,7 +296,7 @@ prettyImports scopes imports =
     synonymEntries =
       map (\(name, ty) -> prettyTopName scopes name <+> "=" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importSynonyms imports))
     axiomEntries =
-      map (\(name, axiom) -> prettyTopName scopes name <> prettyForAllBinders scopes (axiomBinders axiom) <+> ":" <+> prettyTypeWith scopes PrecEq (axiomLeft axiom) <+> prettyAxiomRole (axiomRole axiom) <+> prettyTypeWith scopes PrecEq (axiomRight axiom)) (importEntries (importAxioms imports))
+      map (\(name, axiom) -> let inner = withTypeBinderScopes (axiomBinders axiom) scopes in prettyTopName scopes name <> prettyForAllBinders scopes (axiomBinders axiom) <+> ":" <+> prettyTypeWith inner PrecEq (axiomLeft axiom) <+> prettyAxiomRole (axiomRole axiom) <+> prettyTypeWith inner PrecEq (axiomRight axiom)) (importEntries (importAxioms imports))
     typeBinderEntries = map prettyBinderEntry (filter ((== SortTypeVariable) . nameSort . fst) binderEntries)
     valueBinderEntries = map prettyBinderEntry (filter ((/= SortTypeVariable) . nameSort . fst) binderEntries)
     binderEntries = importEntries (importBinders imports)
@@ -493,9 +355,7 @@ prettyDecl outer decl =
     DeclVal declaration -> prettyValDecl scopes declaration
     DeclRule declaration -> prettyRuleDecl scopes declaration
   where
-    scopes
-      | isReadable outer = outer {usedNames = declarationUses decl}
-      | otherwise = outer
+    scopes = outer {usedNames = declarationUses decl}
 
 prettyVis :: Vis -> FcDoc
 prettyVis Pub = "pub "
@@ -508,13 +368,15 @@ prettyTypeDecl scopes declaration =
     <> prettyTopName scopes (typeName declaration)
     <> prettyHeaderBinders scopes (typeBinders declaration)
     <> " :: "
-    <> prettyTypeWith scopes PrecForAll (typeResult declaration)
+    <> prettyTypeWith inner PrecForAll (typeResult declaration)
     <> prettyRoleList (typeRoles declaration)
-    <> prettyConstructors scopes (typeCons declaration)
+    <> prettyConstructors inner (typeCons declaration)
+  where
+    inner = withTypeBinderScopes (typeBinders declaration) scopes
 
 prettyHeaderBinders :: ScopeIndex -> [Binder] -> FcDoc
-prettyHeaderBinders scopes =
-  foldMap ((space <>) . prettyPiBinder scopes)
+prettyHeaderBinders scopes binders =
+  foldMap (\(binder, before) -> space <> prettyPiBinder (withTypeBinderScopes before scopes) binder) (zip binders (List.inits binders))
 
 prettyConstructors :: ScopeIndex -> [ConDecl] -> FcDoc
 prettyConstructors _ [] = " {}"
@@ -552,10 +414,12 @@ prettySynonymDecl scopes declaration =
     <> prettyTopName scopes (synName declaration)
     <> prettyHeaderBinders scopes (synBinders declaration)
     <> " :: "
-    <> prettyTypeWith scopes PrecForAll (synResult declaration)
+    <> prettyTypeWith inner PrecForAll (synResult declaration)
     <> " ="
     <> hardline
-    <> indent 2 (prettyTypeWith scopes {foldSynonyms = False} PrecForAll (synBody declaration))
+    <> indent 2 (prettyTypeWith inner PrecForAll (synBody declaration))
+  where
+    inner = withTypeBinderScopes (synBinders declaration) scopes
 
 prettyAxiomDecl :: ScopeIndex -> AxiomDecl -> FcDoc
 prettyAxiomDecl scopes declaration =
@@ -564,14 +428,16 @@ prettyAxiomDecl scopes declaration =
     <> prettyTopName scopes (axiomName declaration)
     <> prettyForAllBinders scopes (axiomBinders declaration)
     <> " : "
-    <> prettyTypeWith scopes PrecForAll (axiomLeft declaration)
+    <> prettyTypeWith inner PrecForAll (axiomLeft declaration)
     <+> prettyAxiomRole (axiomRole declaration)
-    <+> prettyTypeWith scopes PrecForAll (axiomRight declaration)
+    <+> prettyTypeWith inner PrecForAll (axiomRight declaration)
+  where
+    inner = withTypeBinderScopes (axiomBinders declaration) scopes
 
 prettyForAllBinders :: ScopeIndex -> [Binder] -> FcDoc
 prettyForAllBinders _ [] = mempty
 prettyForAllBinders scopes binders =
-  space <> hsep (map (prettyPiBinder scopes) binders)
+  space <> hsep [prettyPiBinder (withTypeBinderScopes before scopes) binder | (binder, before) <- zip binders (List.inits binders)]
 
 prettyAxiomRole :: Role -> FcDoc
 prettyAxiomRole Nominal = "~N"
@@ -605,16 +471,20 @@ prettyRuleDecl scopes declaration =
   "rule "
     <> pretty (show (T.unpack (ruleName declaration)))
     <> prettyActivation (ruleActivation declaration)
-    <> foldMap (\binder -> " Λ" <> prettyPiBinder scopes binder <> ".") (ruleTypeBinders declaration)
-    <> foldMap (\binder -> " λ" <> prettyPiBinder scopes binder <> ".") (ruleBinders declaration)
+    <> foldMap (\(binder, before) -> " Λ" <> prettyPiBinder (withTypeBinderScopes before scopes) binder <> ".") (zip typeBinders (List.inits typeBinders))
+    <> foldMap (\binder -> " λ" <> prettyPiBinder typeScope binder <> ".") (ruleBinders declaration)
     <> hardline
-    <> indent 2 (prettyExprWith scopes (ruleLhs declaration))
+    <> indent 2 (prettyExprWith inner (ruleLhs declaration))
     <> hardline
     <> " = "
-    <> prettyExprWith scopes (ruleRhs declaration)
+    <> prettyExprWith inner (ruleRhs declaration)
     <> hardline
     <> " :: "
-    <> prettyTypeWith scopes PrecForAll (ruleType declaration)
+    <> prettyTypeWith inner PrecForAll (ruleType declaration)
+  where
+    typeBinders = ruleTypeBinders declaration
+    typeScope = withTypeBinderScopes typeBinders scopes
+    inner = withTermBinderScopes (ruleBinders declaration) typeScope
 
 -- | The inline pragma of a value: @inline [2]@, @noinline@, @inlinable@.
 prettyInlineSpec :: InlineSpec -> FcDoc
@@ -722,72 +592,22 @@ prettyForeignEffect effect =
     ForeignRealWorld -> "real-world"
 
 prettyTypeWith :: ScopeIndex -> Prec -> Type -> FcDoc
-prettyTypeWith scopes prec ty
-  | isReadable scopes = prettyReadableType scopes prec ty
-  | otherwise = prettyCanonicalType scopes prec ty
-
--- | A type in the readable style. A type that has no short form shows as in
--- the canonical style, and its parts show in the readable style.
-prettyReadableType :: ScopeIndex -> Prec -> Type -> FcDoc
-prettyReadableType scopes prec ty
-  | foldSynonyms scopes,
-    TyApp {} <- ty,
-    Just synonym <- Map.lookup (expandSynonyms (synonymBodies scopes) ty) (synonymFolds scopes) =
-      prettyName scopes synonym
-  | Just fields <- unboxedTupleType scopes ty =
-      prettyUnboxedTuple (map (prettyTypeWith scopes PrecForAll) fields)
-  | Just elements <- promotedList ty =
-      "'[" <> hsep (punctuate "," (map (prettyTypeWith scopes PrecForAll) elements)) <> "]"
-  | TyFun _ _ argument result <- ty =
-      parenthesize
-        (prec < PrecFun)
-        (prettyTypeWith scopes PrecApp argument <+> "→" <+> prettyTypeWith scopes PrecFun result)
-  | otherwise = prettyCanonicalType scopes prec ty
-
--- | The field types of a saturated unboxed tuple type.
-unboxedTupleType :: ScopeIndex -> Type -> Maybe [Type]
-unboxedTupleType scopes ty = do
-  let (function, arguments) = typeSpine ty
-  TyCon name <- Just function
-  arity <- Map.lookup name (unboxedTupleArities scopes)
-  if length arguments == 2 * arity then Just (drop arity arguments) else Nothing
-
-typeSpine :: Type -> (Type, [Type])
-typeSpine = go []
-  where
-    go arguments ty = case ty of
-      TyApp function argument -> go (argument : arguments) function
-      _ -> (ty, arguments)
-
--- | The elements of a promoted list: @': k x xs@ ends in @'[] k@.
-promotedList :: Type -> Maybe [Type]
-promotedList ty = case typeSpine ty of
-  (TyCon name, [_, element, rest])
-    | isListConstructor ":" name -> (element :) <$> promotedList rest
-  (TyCon name, [_])
-    | isListConstructor "[]" name -> Just []
-  _ -> Nothing
-  where
-    isListConstructor text name = nameText name == text && nameSort name == SortDataConstructor
-
-prettyUnboxedTuple :: [FcDoc] -> FcDoc
-prettyUnboxedTuple [] = "(# #)"
-prettyUnboxedTuple fields = "(#" <+> hsep (punctuate "," fields) <+> "#)"
-
-prettyCanonicalType :: ScopeIndex -> Prec -> Type -> FcDoc
-prettyCanonicalType scopes prec ty =
+prettyTypeWith scopes prec ty =
   case ty of
     TyVar name -> prettyName scopes name
     TyCon name -> prettyName scopes name
     TyLit kindName literal ->
       parenthesize (prec < PrecApp) ("lit" <+> prettyName scopes kindName <+> prettyTyLit literal)
-    TyApp function argument ->
-      parenthesize (prec < PrecApp) (prettyTypeWith scopes PrecApp function <+> prettyTypeWith scopes PrecAtom argument)
+    TyApp {} ->
+      let (function, arguments) = typeSpine ty
+          params = fromMaybe [] (typeTelescope (inferEnv scopes) function)
+       in parenthesize (prec < PrecApp) (hsep (prettyTypeWith scopes PrecAtom function : prettyArguments scopes params arguments))
     TyFun r1 r2 argument result
-      | Just scopeId <- liftedArrowScope scopes r1 r2 ->
+      | typeRep env argument == Just r1,
+        typeRep env result == Just r2 ->
           parenthesize
             (prec < PrecFun)
-            (prettyTypeWith scopes PrecApp argument <+> (pretty scopeId <> ".→") <+> prettyTypeWith scopes PrecFun result)
+            (prettyTypeWith scopes PrecApp argument <+> "→" <+> prettyTypeWith scopes PrecFun result)
       | otherwise ->
           parenthesize
             (prec < PrecFun)
@@ -805,30 +625,87 @@ prettyCanonicalType scopes prec ty =
         (prec < PrecForAll)
         ( "∀"
             <> prettyPiBinder scopes binder
-            <> prettyForallTail scopes body
+            <> prettyForallTail (withTypeBinderScope binder scopes) body
         )
     TyEq left right ->
       parenthesize (prec < PrecEq) (prettyTypeWith scopes PrecApp left <+> "~" <+> prettyTypeWith scopes PrecApp right)
+  where
+    env = inferEnv scopes
 
-liftedArrowScope :: ScopeIndex -> Type -> Type -> Maybe Int
-liftedArrowScope scopes left right =
-  case (left, right) of
-    (TyCon leftName, TyCon rightName)
-      | leftName == rightName,
-        nameText leftName == "LiftedRep",
-        OriginTop package moduleName <- nameOrigin leftName ->
-          lookupScopeId scopes package moduleName
-    _ -> Nothing
+typeSpine :: Type -> (Type, [Type])
+typeSpine = go []
+  where
+    go arguments ty = case ty of
+      TyApp function argument -> go (argument : arguments) function
+      _ -> (ty, arguments)
+
+-- | The arguments of a type application. An argument that the inference
+-- gives is not shown, and an implicit argument that the inference does not
+-- give shows as @\@{t}@.
+prettyArguments :: ScopeIndex -> [Param] -> [Type] -> [FcDoc]
+prettyArguments scopes params arguments =
+  [ case shown of
+      ArgumentOmitted -> mempty
+      ArgumentImplicit -> "@{" <> prettyTypeWith scopes PrecForAll argument <> "}"
+      ArgumentExplicit -> prettyTypeWith scopes PrecAtom argument
+  | (shown, argument) <- zip (argumentForms (inferEnv scopes) params arguments) arguments,
+    shown /= ArgumentOmitted
+  ]
+
+-- | The type arguments of a term application, with their @\@@.
+prettyTypeArguments :: ScopeIndex -> [Param] -> [Type] -> [FcDoc]
+prettyTypeArguments scopes params arguments =
+  [ case shown of
+      ArgumentImplicit -> "@{" <> prettyTypeWith scopes PrecForAll argument <> "}"
+      _ -> "@" <> prettyTypeWith scopes PrecAtom argument
+  | (shown, argument) <- zip (argumentForms (inferEnv scopes) params arguments) arguments,
+    shown /= ArgumentOmitted
+  ]
+
+data ArgumentForm
+  = ArgumentOmitted
+  | ArgumentImplicit
+  | ArgumentExplicit
+  deriving (Eq)
+
+-- | The form of each argument of an application. The printer omits an
+-- implicit argument only when the inference gives the same value from the
+-- arguments that it shows.
+argumentForms :: InferEnv -> [Param] -> [Type] -> [ArgumentForm]
+argumentForms env params arguments = zipWith form [0 ..] flags
+  where
+    count = length arguments
+    used = take count params
+    flags = take count (implicitFlags params <> repeat False)
+    candidates = [index | (index, True) <- zip [0 :: Int ..] flags, index < length used]
+    settle omitted =
+      let given = [if index `elem` omitted then Nothing else Just argument | (index, argument) <- zip [0 ..] arguments]
+          inferred = inferImplicit env used (take (length used) given)
+          kept = [index | index <- omitted, (inferred !! index) == Just (arguments !! index)]
+       in if kept == omitted then omitted else settle kept
+    -- The parser gives the @\@{t}@ arguments to the implicit parameters in
+    -- order. Thus in a run of adjacent implicit parameters, all of the
+    -- arguments show or none of them shows.
+    runs = foldr addToRun [] candidates
+    addToRun index groups = case groups of
+      (group'@(next : _)) : rest | next == index + 1 -> (index : group') : rest
+      _ -> [index] : groups
+    whole omitted =
+      let mixed = [index | run <- runs, any (`notElem` omitted) run, index <- run]
+          reduced = [index | index <- omitted, index `notElem` mixed]
+       in if reduced == omitted then omitted else whole (settle reduced)
+    final = whole (settle candidates)
+    form index implicit
+      | index `elem` final = ArgumentOmitted
+      | implicit = ArgumentImplicit
+      | otherwise = ArgumentExplicit
 
 prettyForallTail :: ScopeIndex -> Type -> FcDoc
 prettyForallTail scopes ty =
   case ty of
     TyForAll binder body ->
-      space <> prettyPiBinder scopes binder <> prettyForallTail scopes body
+      space <> prettyPiBinder scopes binder <> prettyForallTail (withTypeBinderScope binder scopes) body
     _ -> ". " <> prettyTypeWith scopes PrecForAll ty
-
-prettyBinderName :: Name -> FcDoc
-prettyBinderName name = pretty (nameText name) <> prettyUniqueSuffix name
 
 prettyPiBinder :: ScopeIndex -> Binder -> FcDoc
 prettyPiBinder scopes binder =
@@ -838,149 +715,69 @@ prettyPiBinder scopes binder =
         <> prettyTypeWith scopes PrecForAll (binderType binder)
     )
 
--- | An expression that has a short atomic form in the readable style.
-prettyReadableAtom :: ScopeIndex -> Expr -> Maybe FcDoc
-prettyReadableAtom scopes expr
-  | not (isReadable scopes) = Nothing
-  | otherwise = case expr of
-      ExLit literal ty -> prettyShortLiteral literal ty
-      ExApp (ExApp (ExVar function) (ExLit (LitAddr _ bytes) _)) (ExLit (LitInt _ 0) _)
-        | isStringUnpacker function ->
-            Just ("\"" <> pretty (concatMap (encodeStringCharacter . chr . fromIntegral) (BS.unpack bytes)) <> "\"")
-      _ -> unboxedTupleExpr
+prettyBinderName :: Name -> FcDoc
+prettyBinderName name = pretty (nameText name) <> prettyUniqueSuffix name
+
+-- | A binder that its scope does not use shows as @_@, with its type.
+prettyUnusedBinder :: ScopeIndex -> Set.Set Name -> Binder -> FcDoc
+prettyUnusedBinder scopes scope binder
+  | isUnused scopes scope binder = parens ("_ : " <> prettyTypeWith scopes PrecForAll (binderType binder))
+  | otherwise = prettyPiBinder scopes binder
+
+-- | True when the scope of the binder does not use it. The scope is the set
+-- of free names of the code where the binder is visible. The
+-- declaration-wide set is a fast test, and the scope set is calculated only
+-- for a name that the declaration uses.
+isUnused :: ScopeIndex -> Set.Set Name -> Binder -> Bool
+isUnused scopes scope binder =
+  name `Set.notMember` usedNames scopes || name `Set.notMember` scope
   where
-    unboxedTupleExpr = do
-      let (function, types, arguments) = expressionSpine expr
-      ExVar name <- Just function
-      arity <- Map.lookup name (unboxedTupleArities scopes)
-      if length types == 2 * arity && length arguments == arity
-        then Just (prettyUnboxedTuple (map (prettyExprWith scopes) arguments))
-        else Nothing
-
--- | A negative literal needs parentheses as an argument, so that it does
--- not look like a subtraction.
-isNegativeLiteral :: Expr -> Bool
-isNegativeLiteral expr = case expr of
-  ExLit (LitInt _ value) _ -> value < 0
-  _ -> False
-
--- | The function that unpacks a string literal: a Haskell string literal
--- becomes a call of it on the bytes of the literal and the offset 0. The
--- bytes are Latin-1, so each byte is one character of the string.
-isStringUnpacker :: Name -> Bool
-isStringUnpacker name =
-  nameText name == "unpackLatin1From"
-    && nameSort name == SortValue
-    && case nameOrigin name of
-      OriginTop _ moduleName -> moduleName == "GHC.CString"
-      OriginLocal {} -> False
-
--- | The head of an application, its type arguments and its value
--- arguments, when the type arguments come first.
-expressionSpine :: Expr -> (Expr, [Type], [Expr])
-expressionSpine = go []
-  where
-    go arguments expression = case expression of
-      ExApp function argument -> go (argument : arguments) function
-      _ ->
-        let (function, types) = typeArguments [] expression
-         in (function, types, arguments)
-    typeArguments types expression = case expression of
-      ExTyApp function argument -> typeArguments (argument : types) function
-      _ -> (expression, types)
-
--- | A primitive literal in the GHC form, when its type is the type that its
--- representation gives: @1#@ for @Int#@, @1##@ for @Word#@, @1#Word8@ for
--- @Word8#@, @'c'#@ for @Char#@ and @"text"#@ for @Addr#@.
-prettyShortLiteral :: Literal -> Type -> Maybe FcDoc
-prettyShortLiteral literal ty = do
-  TyCon typeName' <- Just ty
-  let typeText = nameText typeName'
-  case literal of
-    LitInt (TyCon representation) _
-      | Just (expected, _) <- lookup (nameText representation) integerRepresentations,
-        typeText == expected ->
-          prettyShortAltLiteral literal
-    LitChar _ _
-      | typeText == "Char#" -> prettyShortAltLiteral literal
-    LitAddr _ _
-      | typeText == "Addr#" -> prettyShortAltLiteral literal
-    _ -> Nothing
-
--- | A primitive literal in the GHC form, with the suffix that its
--- representation gives. A case alternative has no literal type.
-prettyShortAltLiteral :: Literal -> Maybe FcDoc
-prettyShortAltLiteral literal = case literal of
-  LitInt (TyCon representation) value
-    | Just (_, suffix) <- lookup (nameText representation) integerRepresentations ->
-        Just (pretty value <> suffix)
-  LitInt {} -> Nothing
-  LitChar _ value -> Just ("'" <> pretty (encodeCharLiteral value) <> "'#")
-  LitAddr _ value -> Just ("\"" <> pretty (concatMap encodeByte (BS.unpack value)) <> "\"#")
-
--- | The representations of the integer literals, with the type of the
--- literal and the suffix of its GHC form.
-integerRepresentations :: [(Text, (Text, FcDoc))]
-integerRepresentations =
-  [ ("IntRep", ("Int#", "#")),
-    ("WordRep", ("Word#", "##")),
-    ("Int8Rep", ("Int8#", "#Int8")),
-    ("Int16Rep", ("Int16#", "#Int16")),
-    ("Int32Rep", ("Int32#", "#Int32")),
-    ("Int64Rep", ("Int64#", "#Int64")),
-    ("Word8Rep", ("Word8#", "#Word8")),
-    ("Word16Rep", ("Word16#", "#Word16")),
-    ("Word32Rep", ("Word32#", "#Word32")),
-    ("Word64Rep", ("Word64#", "#Word64")),
-    ("AddrRep", ("Addr#", "#Addr"))
-  ]
+    name = binderName binder
 
 prettyExprWith :: ScopeIndex -> Expr -> FcDoc
-prettyExprWith scopes expr
-  | Just document <- prettyReadableAtom scopes expr = document
-  | otherwise = prettyExprBody scopes expr
-
-prettyExprBody :: ScopeIndex -> Expr -> FcDoc
-prettyExprBody scopes expr =
+prettyExprWith scopes expr =
   case expr of
     ExVar name -> prettyName scopes name
-    ExLit literal ty -> "lit" <+> parens (prettyLiteral scopes literal) <+> "::" <+> prettyTypeWith scopes PrecAtom ty
-    ExApp function argument ->
-      prettyApp scopes function <+> prettyExprAtom scopes argument
-    ExTyApp function argument ->
-      prettyApp scopes function <+> ("@" <> prettyTypeWith scopes PrecAtom argument)
+    ExLit literal ty
+      | typeRep (inferEnv scopes) ty == Just (literalRep literal) -> prettyLiteralValue literal <+> "::" <+> prettyTypeWith scopes PrecAtom ty
+      | otherwise -> "lit" <+> parens (prettyLiteral scopes literal) <+> "::" <+> prettyTypeWith scopes PrecAtom ty
+    ExApp {} -> prettySpine scopes expr
+    ExTyApp {} -> prettySpine scopes expr
     ExLam {} -> prettyLambda scopes expr
     ExTyLam {} -> prettyLambda scopes expr
     ExLet bind body ->
-      "let " <> prettyBind scopes bind <> ";" <> hardline <> prettyExprWith scopes body
+      "let " <> prettyBind scopes bind <> ";" <> hardline <> prettyExprWith (withTermBinderScope (bindBinder bind) scopes) body
     ExRec binds body ->
-      "rec {"
-        <> hardline
-        <> prettyIndentedItems 2 (map (prettyBind scopes) binds)
-        <> hardline
-        <> "} in"
-        <> hardline
-        <> prettyExprWith scopes body
+      let inner = withTermBinderScopes (map bindBinder binds) scopes
+       in "rec {"
+            <> hardline
+            <> prettyIndentedItems 2 (map (prettyBind inner) binds)
+            <> hardline
+            <> "} in"
+            <> hardline
+            <> prettyExprWith inner body
     -- A case with one alternative prints as a strict pattern binding,
     -- so that its body keeps the indentation of the case.
     ExCase scrutinee binder (alternative NE.:| []) ->
-      "let! "
-        <> prettyAltHead scopes alternative
-        <> prettyCaseBinder scopes (expressionFree (altRhs alternative)) binder
-        <> " ="
-        <> group (nest 2 (line <> prettyExprWith scopes scrutinee))
-        <> ";"
-        <> hardline
-        <> prettyExprWith scopes (altRhs alternative)
+      let inner = caseScope binder
+       in "let! "
+            <> prettyAltHead inner (scrutineeRep scrutinee) alternative
+            <> prettyCaseBinder scopes (alternativeFree alternative) binder
+            <> " ="
+            <> group (nest 2 (line <> prettyExprWith scopes scrutinee))
+            <> ";"
+            <> hardline
+            <> prettyExprWith (alternativeScope inner alternative) (altRhs alternative)
     ExCase scrutinee binder (NE.toList -> alts) ->
-      "case "
-        <> prettyExprWith scopes scrutinee
-        <> prettyCaseBinder scopes (foldMap alternativeFree alts) binder
-        <> " of {"
-        <> hardline
-        <> prettyIndentedItems 2 (map (prettyAlt scopes) alts)
-        <> hardline
-        <> "}"
+      let inner = caseScope binder
+       in "case "
+            <> prettyExprWith scopes scrutinee
+            <> prettyCaseBinder scopes (foldMap alternativeFree alts) binder
+            <> " of {"
+            <> hardline
+            <> prettyIndentedItems 2 (map (prettyAlt inner (scrutineeRep scrutinee)) alts)
+            <> hardline
+            <> "}"
     ExAbsurd scrutinee resultType -> "absurd " <> prettyExprWith scopes scrutinee <> " return " <> parens (prettyTypeWith scopes PrecForAll resultType)
     ExCoercion proof -> "coercion " <> parens (prettyCoercion scopes proof)
     ExCast body coercion ->
@@ -988,18 +785,63 @@ prettyExprBody scopes expr =
     ExForeignCall call types arguments ->
       hsep
         ( prettyForeignCall scopes call
-            : map (\ty -> "@" <> prettyTypeWith scopes PrecAtom ty) types
+            : prettyTypeArguments scopes (termTelescope (foreignCallType call)) types
               <> map (prettyExprAtom scopes) arguments
         )
+  where
+    caseScope binder = maybe scopes (`withTermBinderScope` scopes) binder
+    scrutineeRep scrutinee = exprType (inferEnv scopes) scrutinee >>= typeRep (inferEnv scopes)
+
+-- | The scope of the right-hand side of an alternative.
+alternativeScope :: ScopeIndex -> Alt -> ScopeIndex
+alternativeScope scopes alternative =
+  withTermBinderScopes (altBinders alternative) (withTypeBinderScopes (altTypeBinders alternative) scopes)
+
+-- | The case binder. A binder that the alternatives do not use is not
+-- shown.
+prettyCaseBinder :: ScopeIndex -> Set.Set Name -> Maybe Binder -> FcDoc
+prettyCaseBinder scopes scope binder = case binder of
+  Just named
+    | not (isUnused scopes scope named) -> " as " <> prettyPiBinder scopes named
+  _ -> mempty
+
+-- | An application: its head, then its arguments. The type arguments that
+-- come first use the type of the head.
+prettySpine :: ScopeIndex -> Expr -> FcDoc
+prettySpine scopes expr =
+  hsep (prettyExprAtom scopes function : prettyTypeArguments scopes params leading <> map prettyArgument rest)
+  where
+    (function, arguments) = expressionSpine expr
+    leading = [ty | Left ty <- takeWhile isTypeArgument arguments]
+    rest = dropWhile isTypeArgument arguments
+    params = maybe [] termTelescope (exprType (inferEnv scopes) function)
+    isTypeArgument argument = case argument of
+      Left _ -> True
+      Right _ -> False
+    prettyArgument argument = case argument of
+      Left ty -> "@" <> prettyTypeWith scopes PrecAtom ty
+      Right value -> prettyExprAtom scopes value
+
+expressionSpine :: Expr -> (Expr, [Either Type Expr])
+expressionSpine = go []
+  where
+    go arguments expression = case expression of
+      ExApp function argument -> go (Right argument : arguments) function
+      ExTyApp function argument -> go (Left argument : arguments) function
+      _ -> (expression, arguments)
 
 -- | Put consecutive lambda binders on one line when they fit.
 prettyLambda :: ScopeIndex -> Expr -> FcDoc
 prettyLambda scopes expression =
-  fillSep (concatMap prettyGroup groups) <> hardline <> indent 2 (prettyExprWith scopes body)
+  fillSep (concatMap prettyGroup groups) <> hardline <> indent 2 (prettyExprWith bodyScope body)
   where
     (binders, body) = collect expression
-    lambdaFree = expressionFree body <> foldMap (typeFree . binderType . snd) binders
-    groups = List.groupBy (\(kind, _) (other, _) -> kind == other) binders
+    -- Each binder with the scope that its type uses.
+    scoped = zip binders (scanl (flip extend) scopes binders)
+    bodyScope = foldl (flip extend) scopes binders
+    extend (kind, binder) = if kind then withTypeBinderScope binder else withTermBinderScope binder
+    lambdaFree = expressionFree body
+    groups = List.groupBy (\((kind, _), _) ((other, _), _) -> kind == other) scoped
     collect expr = case expr of
       ExLam binder rest -> prepend False binder rest
       ExTyLam binder rest -> prepend True binder rest
@@ -1008,109 +850,139 @@ prettyLambda scopes expression =
       let (following, result) = collect rest
        in ((kind, binder) : following, result)
     prettyGroup [] = []
-    prettyGroup ((kind, binder) : rest) =
-      finish ((if kind then "Λ" else "λ") <> prettyLambdaBinder binder : map (prettyLambdaBinder . snd) rest)
-    -- A lambda binder keeps its type, because the type of the lambda
-    -- needs it.
-    prettyLambdaBinder binder
-      | isUnused scopes lambdaFree binder = parens ("_ : " <> prettyTypeWith scopes PrecForAll (binderType binder))
-      | otherwise = prettyPiBinder scopes binder
+    prettyGroup (((kind, binder), scope) : rest) =
+      finish ((if kind then "Λ" else "λ") <> prettyLambdaBinder kind scope binder : map (\((other, laterBinder), laterScope) -> prettyLambdaBinder other laterScope laterBinder) rest)
+    prettyLambdaBinder kind scope binder
+      | kind = prettyPiBinder scope binder
+      | otherwise = prettyUnusedBinder scope lambdaFree binder
     finish [] = []
     finish [document] = [document <> "."]
     finish (document : rest) = document : finish rest
 
-prettyApp :: ScopeIndex -> Expr -> FcDoc
-prettyApp scopes expr =
-  case expr of
-    ExApp {} -> prettyExprWith scopes expr
-    ExTyApp {} -> prettyExprWith scopes expr
-    _ -> prettyExprAtom scopes expr
-
 prettyExprAtom :: ScopeIndex -> Expr -> FcDoc
 prettyExprAtom scopes expr =
   case expr of
-    _ | Just document <- prettyReadableAtom scopes expr -> parenthesize (isNegativeLiteral expr) document
     ExVar {} -> prettyExprWith scopes expr
-    ExLit {} -> prettyExprWith scopes expr
+    ExLit {} -> parens (prettyExprWith scopes expr)
     _ -> parens (prettyExprWith scopes expr)
 
 prettyBind :: ScopeIndex -> Bind -> FcDoc
 prettyBind scopes bind =
-  (pretty (nameText (binderName (bindBinder bind))) <> prettyUniqueSuffix (binderName (bindBinder bind)))
+  prettyBinderName (binderName (bindBinder bind))
     <> " : "
     <> prettyTypeWith scopes PrecForAll (binderType (bindBinder bind))
     <> " ="
     <> hardline
     <> indent 2 (prettyExprWith scopes (bindRhs bind))
 
-prettyAlt :: ScopeIndex -> Alt -> FcDoc
-prettyAlt scopes alternative =
-  prettyAltHead scopes alternative
+prettyAlt :: ScopeIndex -> Maybe Type -> Alt -> FcDoc
+prettyAlt scopes scrutineeRep alternative =
+  prettyAltHead scopes scrutineeRep alternative
     <> " →"
     <> hardline
-    <> indent 2 (prettyExprWith scopes (altRhs alternative))
+    <> indent 2 (prettyExprWith (alternativeScope scopes alternative) (altRhs alternative))
 
-prettyAltHead :: ScopeIndex -> Alt -> FcDoc
-prettyAltHead scopes alternative =
+-- | The pattern of an alternative. A literal has no representation when
+-- the type of the scrutinee gives it.
+prettyAltHead :: ScopeIndex -> Maybe Type -> Alt -> FcDoc
+prettyAltHead scopes scrutineeRep alternative =
   case altCon alternative of
     AltDefault -> "_"
-    AltLit literal -> prettyAltLiteral literal <> prettyTypeBinders (altTypeBinders alternative) <> prettyTermBinders (altBinders alternative)
-    AltData name
-      | isReadable scopes,
-        Just arity <- Map.lookup name (unboxedTupleArities scopes),
-        null (altTypeBinders alternative),
-        length (altBinders alternative) == arity ->
-          prettyUnboxedTuple (map prettyTupleField (altBinders alternative))
-      | otherwise -> prettyName scopes name <> prettyTypeBinders (altTypeBinders alternative) <> prettyTermBinders (altBinders alternative)
+    AltLit literal
+      | scrutineeRep == Just (literalRep literal) -> prettyLiteralValue literal <> binders
+      | otherwise -> prettyLiteral scopes literal <> binders
+    AltData name -> prettyName scopes name <> binders
   where
-    alternativeScope = expressionFree (altRhs alternative) <> foldMap (typeFree . binderType) (altBinders alternative)
-    prettyTupleField binder
-      | isUnused scopes alternativeScope binder = "_"
-      | otherwise = prettyBinderName (binderName binder) <> " : " <> prettyTypeWith scopes PrecForAll (binderType binder)
-    prettyAltLiteral literal
-      | isReadable scopes, Just document <- prettyShortAltLiteral literal = document
-      | otherwise = prettyLiteral scopes literal
-    prettyTypeBinders binders =
-      case binders of
+    binders = prettyTypeBinders scopes (altTypeBinders alternative) <> prettyTermBinders (withTypeBinderScopes (altTypeBinders alternative) scopes) (altBinders alternative)
+    rhsFree = expressionFree (altRhs alternative)
+    prettyTypeBinders scope typeBinders =
+      case typeBinders of
         [] -> mempty
         binder : rest ->
           space
             <> "@"
-            <> prettyPatternBinder scopes alternativeScope binder
-            <> prettyTypeBinders rest
-    prettyTermBinders binders =
-      case binders of
+            <> prettyPiBinder scope binder
+            <> prettyTypeBinders (withTypeBinderScope binder scope) rest
+    prettyTermBinders scope termBinders =
+      case termBinders of
         [] -> mempty
         binder : rest ->
           space
-            <> prettyPatternBinder scopes alternativeScope binder
-            <> prettyTermBinders rest
+            <> prettyUnusedBinder scope rhsFree binder
+            <> prettyTermBinders scope rest
 
--- | The @as@ binder of a case. The readable style omits a binder that the
--- declaration does not use.
-prettyCaseBinder :: ScopeIndex -> Set.Set Name -> Maybe Binder -> FcDoc
-prettyCaseBinder scopes scope binder = case binder of
-  Just named
-    | not (isUnused scopes scope named) -> " as " <> prettyPiBinder scopes named
-  Just _ -> mempty
-  Nothing -> mempty
+prettyIndentedItems :: Int -> [FcDoc] -> FcDoc
+prettyIndentedItems _ [] = mempty
+prettyIndentedItems amount documents = indent amount (vsep (punctuate ";" documents))
 
--- | A binder of a pattern. The readable style shows a binder that the
--- declaration does not use as @_@, with no type.
-prettyPatternBinder :: ScopeIndex -> Set.Set Name -> Binder -> FcDoc
-prettyPatternBinder scopes scope binder
-  | isUnused scopes scope binder = "_"
-  | otherwise = prettyPiBinder scopes binder
+literalRep :: Literal -> Type
+literalRep literal = case literal of
+  LitInt representation _ -> representation
+  LitChar representation _ -> representation
+  LitAddr representation _ -> representation
 
--- | True when the style is readable and the scope of the binder does not
--- use it. The scope is the set of free names of the code where the binder
--- is visible. The declaration-wide set is a fast test, and the scope set is
--- calculated only for a name that the declaration uses.
-isUnused :: ScopeIndex -> Set.Set Name -> Binder -> Bool
-isUnused scopes scope binder =
-  isReadable scopes && (name `Set.notMember` usedNames scopes || name `Set.notMember` scope)
+-- | The value of a literal with no representation: @-3@, @'c'@ or
+-- @"text"@.
+prettyLiteralValue :: Literal -> FcDoc
+prettyLiteralValue literal =
+  case literal of
+    LitInt _ value -> pretty value
+    LitChar _ value -> "'" <> pretty (encodeCharLiteral value) <> "'"
+    LitAddr _ value -> "\"" <> pretty (concatMap encodeByte (BS.unpack value)) <> "\""
+
+-- | The names that the expressions, types and coercions of a declaration
+-- use. The set can contain a name of a binder that has no use, because a
+-- binder can have the same name as a binder in a different scope. It never
+-- omits a name that has a use.
+declarationUses :: Decl -> Set.Set Name
+declarationUses declaration = case declaration of
+  DeclVal value -> typeUses (valType value) <> expressionUses (valBody value)
+  DeclRule value -> typeUses (ruleType value) <> expressionUses (ruleLhs value) <> expressionUses (ruleRhs value)
+  _ -> mempty
+
+expressionUses :: Expr -> Set.Set Name
+expressionUses expression = case expression of
+  ExVar name -> Set.singleton name
+  ExLit _ ty -> typeUses ty
+  ExApp function argument -> expressionUses function <> expressionUses argument
+  ExTyApp function argument -> expressionUses function <> typeUses argument
+  ExLam binder body -> binderUses binder <> expressionUses body
+  ExTyLam binder body -> binderUses binder <> expressionUses body
+  ExLet binding body -> bindingUses binding <> expressionUses body
+  ExRec bindings body -> foldMap bindingUses bindings <> expressionUses body
+  ExCase scrutinee binder (NE.toList -> alternatives) -> expressionUses scrutinee <> foldMap binderUses binder <> foldMap alternativeUses alternatives
+  ExAbsurd scrutinee resultType -> expressionUses scrutinee <> typeUses resultType
+  ExCast body proof -> expressionUses body <> coercionUses proof
+  ExCoercion proof -> coercionUses proof
+  ExForeignCall call types arguments -> typeUses (foreignCallType call) <> foldMap typeUses types <> foldMap expressionUses arguments
   where
-    name = binderName binder
+    bindingUses binding = binderUses (bindBinder binding) <> expressionUses (bindRhs binding)
+    alternativeUses alternative = foldMap binderUses (altTypeBinders alternative <> altBinders alternative) <> expressionUses (altRhs alternative)
+
+binderUses :: Binder -> Set.Set Name
+binderUses = typeUses . binderType
+
+typeUses :: Type -> Set.Set Name
+typeUses ty = case ty of
+  TyVar name -> Set.singleton name
+  TyApp function argument -> typeUses function <> typeUses argument
+  TyFun r1 r2 argument result -> foldMap typeUses [r1, r2, argument, result]
+  TyForAll binder body -> binderUses binder <> typeUses body
+  TyEq left right -> typeUses left <> typeUses right
+  _ -> mempty
+
+coercionUses :: Coercion -> Set.Set Name
+coercionUses proof = case proof of
+  CoVar name -> Set.singleton name
+  CoRefl ty -> typeUses ty
+  CoSym inner -> coercionUses inner
+  CoTrans left right -> coercionUses left <> coercionUses right
+  CoApp function argument -> coercionUses function <> coercionUses argument
+  CoNth _ inner -> coercionUses inner
+  CoFun argument result -> coercionUses argument <> coercionUses result
+  CoForAll binder body -> binderUses binder <> coercionUses body
+  CoTyConApp _ arguments -> foldMap coercionUses arguments
+  CoAxiom _ arguments -> foldMap typeUses arguments
 
 -- | The free names of an expression: its free term, type and coercion
 -- variables.
@@ -1163,10 +1035,6 @@ coercionFree proof = case proof of
   CoTyConApp _ arguments -> foldMap coercionFree arguments
   CoAxiom _ arguments -> foldMap typeFree arguments
 
-prettyIndentedItems :: Int -> [FcDoc] -> FcDoc
-prettyIndentedItems _ [] = mempty
-prettyIndentedItems amount documents = indent amount (vsep (punctuate ";" documents))
-
 prettyCoercion :: ScopeIndex -> Coercion -> FcDoc
 prettyCoercion scopes coercion =
   case coercion of
@@ -1177,7 +1045,7 @@ prettyCoercion scopes coercion =
     CoApp function argument -> "app-co " <> parens (prettyCoercion scopes function) <+> parens (prettyCoercion scopes argument)
     CoNth index proof -> "nth-co " <> pretty index <+> parens (prettyCoercion scopes proof)
     CoFun domain range -> "fun-co " <> parens (prettyCoercion scopes domain) <+> parens (prettyCoercion scopes range)
-    CoForAll binder body -> "forall-co " <> prettyPiBinder scopes binder <+> parens (prettyCoercion scopes body)
+    CoForAll binder body -> "forall-co " <> prettyPiBinder scopes binder <+> parens (prettyCoercion (withTypeBinderScope binder scopes) body)
     CoTyConApp name arguments ->
       hsep ("tycon-co" : prettyName scopes name : map (parens . prettyCoercion scopes) arguments)
     CoAxiom name arguments ->

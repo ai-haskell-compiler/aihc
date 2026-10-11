@@ -23,7 +23,7 @@ expected: |-
     constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
     2.tTYPE :: ∀(rep : tRuntimeRep). sType;
     2.sType :: sType;
-    2.cBoxedRep :: tLevity 2.→ tRuntimeRep;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
     2.cLifted :: tLevity
 
   import synonyms
@@ -31,31 +31,31 @@ expected: |-
     2.sType = tTYPE sLiftedRep
 
   pub type 1.t$Dict$Shape (a : sType) :: sType {
-    pub 1.c$Dict$Shape :: ∀(a : sType). (a 2.→ a) 2.→ (a 2.→ a) 2.→ t$Dict$Shape a
+    pub 1.c$Dict$Shape :: ∀(a : sType). (a → a) → (a → a) → t$Dict$Shape a
   }
 
   pub type 1.t$Dict$Solid (a : sType) :: sType {
-    pub 1.c$Dict$Solid :: ∀(a : sType). t$Dict$Shape a 2.→ (a 2.→ a) 2.→ t$Dict$Solid a
+    pub 1.c$Dict$Solid :: ∀(a : sType). t$Dict$Shape a → (a → a) → t$Dict$Solid a
   }
 
-  pub val 1.varea :: ∀(a : sType). t$Dict$Shape a 2.→ a 2.→ a
+  pub val 1.varea :: ∀(a : sType). t$Dict$Shape a → a → a
     = Λ(a : sType). λ($dShape : t$Dict$Shape a).
-      let! c$Dict$Shape ($carea : a 2.→ a) ($cperimeter : a 2.→ a) = $dShape;
+      let! c$Dict$Shape ($carea : a → a) (_ : a → a) = $dShape;
       $carea
 
-  pub val 1.vperimeter :: ∀(a : sType). t$Dict$Shape a 2.→ a 2.→ a
+  pub val 1.vperimeter :: ∀(a : sType). t$Dict$Shape a → a → a
     = Λ(a : sType). λ($dShape : t$Dict$Shape a).
-      let! c$Dict$Shape ($carea : a 2.→ a) ($cperimeter : a 2.→ a) = $dShape;
+      let! c$Dict$Shape (_ : a → a) ($cperimeter : a → a) = $dShape;
       $cperimeter
 
-  pub val 1.vvolume :: ∀(a : sType). t$Dict$Solid a 2.→ a 2.→ a
+  pub val 1.vvolume :: ∀(a : sType). t$Dict$Solid a → a → a
     = Λ(a : sType). λ($dSolid : t$Dict$Solid a).
-      let! c$Dict$Solid ($dShape : t$Dict$Shape a) ($cvolume : a 2.→ a) = $dSolid;
+      let! c$Dict$Solid (_ : t$Dict$Shape a) ($cvolume : a → a) = $dSolid;
       $cvolume
 
-  pub val 1.vtwice :: ∀(a : sType). t$Dict$Solid a 2.→ a 2.→ a
+  pub val 1.vtwice :: ∀(a : sType). t$Dict$Solid a → a → a
     = Λ(a : sType). λ($dSolid : t$Dict$Solid a) (x : a).
-      vvolume @a $dSolid (varea @a (let! c$Dict$Solid ($dShape : t$Dict$Shape a) ($cvolume : a 2.→ a) = $dSolid;
+      vvolume @a $dSolid (varea @a (let! c$Dict$Solid ($dShape : t$Dict$Shape a) (_ : a → a) = $dSolid;
       $dShape) x)
 status: pass
 reason: A dictionary binder is $d and the class name. A method field of a dictionary match is $c and the method name. A superclass field is a dictionary binder.

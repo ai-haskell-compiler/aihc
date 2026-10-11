@@ -189,6 +189,7 @@ library
     Aihc.Fc.Size
     Aihc.Fc.Specialise
     Aihc.Fc.Syntax
+    Aihc.Fc.TextInference
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf
     Aihc.Fc.Views

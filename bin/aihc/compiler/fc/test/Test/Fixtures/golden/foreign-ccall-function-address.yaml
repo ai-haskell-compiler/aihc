@@ -29,7 +29,7 @@ expected: |-
     3.tTYPE :: ∀(rep : tRuntimeRep). sType;
     3.sType :: sType;
     3.cAddrRep :: tRuntimeRep;
-    3.cBoxedRep :: tLevity 3.→ tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
     3.cLifted :: tLevity
 
   import synonyms
@@ -41,14 +41,14 @@ expected: |-
   }
 
   pub type 1.tPtr (a : sType) :: sType {
-    pub 1.cPtr :: ∀(a : sType). FUN @cAddrRep @sLiftedRep tAddr# (tPtr a)
+    pub 1.cPtr :: ∀(a : sType). tAddr# → tPtr a
   }
 
   pub type 1.tFunPtr (a : sType) :: sType {
-    pub 1.cFunPtr :: ∀(a : sType). FUN @cAddrRep @sLiftedRep tAddr# (tFunPtr a)
+    pub 1.cFunPtr :: ∀(a : sType). tAddr# → tFunPtr a
   }
 
-  pub val 1.vaddress :: tFunPtr (tPtr tUnit 3.→ tPtr tUnit)
-    = foreign {ccall function-address safe "identity" [Addr → Addr; pure] using [constructor 1.cFunPtr, constructor 1.cPtr] 1.videntityAddress :: tFunPtr (tPtr tUnit 3.→ tPtr tUnit)}
+  pub val 1.vaddress :: tFunPtr (tPtr tUnit → tPtr tUnit)
+    = foreign {ccall function-address safe "identity" [Addr → Addr; pure] using [constructor 1.cFunPtr, constructor 1.cPtr] 1.videntityAddress :: tFunPtr (tPtr tUnit → tPtr tUnit)}
 status: pass
 reason: an address import of a function pointer keeps the signature of the function it points at
