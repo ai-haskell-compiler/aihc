@@ -90,12 +90,12 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard, mapAndUnzipM, zipWithM)
 import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
 import Data.Bifunctor (first)
-import Data.Either (isLeft, lefts, rights)
+import Data.Either (isLeft, isRight, lefts, rights)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -512,7 +512,7 @@ simplifyExpr env expr =
               forcedFirst (spEnv env') (binderName binder) body =
                 bindForcedFields env' rhs' >>= fields env'
             | otherwise = do
-                body' <- simplifyExpr (localCandidateEnv (bindingEnv env' binder rhs') binder rhs') body
+                body' <- simplifyExpr (localCandidateEnv (bindingEnv env' binder rhs') binder rhs' body) body
                 mkLet env' (Bind binder rhs') body'
           fields env' (binds, value) = do
             let fieldsEnv = List.foldl' (\scope field -> bindingEnv scope (bindBinder field) (bindRhs field)) env' binds
@@ -544,7 +544,7 @@ simplifyExpr env expr =
           if isChain scrutinee'
             then do
               chain <- freshenExpr scrutinee'
-              floatChain env chain (\env' tailExpr -> simplifyCase env' tailExpr binder alternatives)
+              floatChainWith True env chain (\env' tailExpr -> simplifyCase env' tailExpr binder alternatives)
             else simplifyCase env scrutinee' binder alternatives
     ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> simplifyExpr (noOneShot env) scrutinee
     ExCast body coercion -> do
@@ -656,19 +656,29 @@ isChain expr =
 -- The caller gives the chain fresh binders, so that they capture no
 -- name of the alternatives.
 floatChain :: Simpl -> Expr -> (Simpl -> Expr -> SimplM Expr) -> SimplM Expr
-floatChain env expr continue =
+floatChain = floatChainWith False
+
+-- | 'floatChain' that can stop at a join point. The chain of a scrutinee
+-- keeps a let of a join point and the rest of the chain in the tail, so
+-- that a case of a case moves into the body of the join point and the
+-- calls of the join point stay in tail position. See 'pushSmall'.
+floatChainWith :: Bool -> Simpl -> Expr -> (Simpl -> Expr -> SimplM Expr) -> SimplM Expr
+floatChainWith keepJoins env expr continue =
   case expr of
     ExLet bind inner
+      | keepJoins,
+        isJust (joinParameters bind inner) ->
+          continue env expr
       | isStrictBinder (spEnv env) binder,
         isChain (bindRhs bind) ->
           floatChain env (bindRhs bind) $ \env' rhs ->
-            ExLet bind {bindRhs = rhs} <$> floatChain (bindingEnv env' binder rhs) inner continue
+            ExLet bind {bindRhs = rhs} <$> floatChainWith keepJoins (bindingEnv env' binder rhs) inner continue
       | otherwise ->
-          floatChain (bindingEnv env binder (bindRhs bind)) inner continue >>= mkLet env bind
+          floatChainWith keepJoins (bindingEnv env binder (bindRhs bind)) inner continue >>= mkLet env bind
       where
         binder = bindBinder bind
     ExCase scrutinee binder (NE.toList -> [alternative]) -> do
-      rhs <- floatChain (alternativeEnv env scrutinee binder [alternative] alternative) (altRhs alternative) continue
+      rhs <- floatChainWith keepJoins (alternativeEnv env scrutinee binder [alternative] alternative) (altRhs alternative) continue
       pure (mkCase (spEnv env) scrutinee binder (alternative {altRhs = rhs} NE.:| []))
     _ -> continue env expr
 
@@ -746,15 +756,20 @@ simplifyCaseOf env scrutinee binder originalAlternatives =
             (Just result, _) -> simplifyExpr env result
             (Nothing, Just (scrutinee', alternative')) -> simplifyCase env scrutinee' Nothing (alternative' NE.:| [])
             (Nothing, Nothing) -> do
-              pushed <- caseOfCaseRaw env scrutinee binder remaining
-              accepted <- case pushed of
-                Just pushed' -> acceptGrowth env (pushedGrowth env pushed')
-                Nothing -> pure False
+              pushed <- caseOfCase env scrutinee binder remaining (pure ())
               case pushed of
-                Just pushed' | accepted -> expandJoins env (pushedJoins pushed') (pushedSmall pushed')
-                _ -> do
-                  alternatives' <- mapM (simplifyAlt env scrutinee binder alternatives) remaining
-                  pure (mkCase (spEnv env) scrutinee binder alternatives')
+                Just result -> pure result
+                Nothing
+                  -- A join point that the chain of the scrutinee kept
+                  -- moves out of the scrutinee with the rest of the
+                  -- chain. See 'floatChainWith'.
+                  | (_ : _, _) <- peelJoinLets scrutinee ->
+                      floatChain env scrutinee $ \env' tailExpr -> do
+                        alternatives' <- mapM (simplifyAlt env' tailExpr binder alternatives) remaining
+                        pure (mkCase (spEnv env') tailExpr binder alternatives')
+                  | otherwise -> do
+                      alternatives' <- mapM (simplifyAlt env scrutinee binder alternatives) remaining
+                      pure (mkCase (spEnv env) scrutinee binder alternatives')
   where
     alternatives =
       normalizeCaseAlternatives
@@ -987,15 +1002,10 @@ inlineScrutinee env name candidate args binder originalAlternatives = do
           recordSite charge paid (callGrowth - discount)
           simplifyExpr env result
         Nothing -> do
-          pushed <- caseOfCaseRaw env inlined binder remaining
-          accepted <- case pushed of
-            Just pushed' -> acceptGrowth env (pushedGrowth env pushed')
-            Nothing -> pure False
+          pushed <- caseOfCase env inlined binder remaining (recordSite charge paid callGrowth)
           case pushed of
-            Just pushed' | accepted -> do
-              recordSite charge paid callGrowth
-              expandJoins env (pushedJoins pushed') (pushedSmall pushed')
-            _ -> do
+            Just result -> pure result
+            Nothing -> do
               recordSite charge paid callGrowth
               alternatives' <- mapM (simplifyAlt env inlined binder alternatives) remaining
               pure (mkCase (spEnv env) inlined binder alternatives')
@@ -1376,13 +1386,19 @@ bindingEnv env0 binder rhs
 -- parameter, so the constructor is not taken apart at run time, and a
 -- call that builds the constructor no longer allocates it. A copy of a
 -- lambda at a saturated call does no work twice.
-localCandidateEnv :: Simpl -> Binder -> Expr -> Simpl
-localCandidateEnv env binder rhs
+--
+-- A large join point is not a candidate: a function that the body only
+-- calls with all its arguments in tail position. Such a function shares
+-- a continuation, as the case of a case makes it, and a copy at each call
+-- would copy the continuation again. See 'caseOfCase'.
+localCandidateEnv :: Simpl -> Binder -> Expr -> Expr -> Simpl
+localCandidateEnv env binder rhs body
   | isLiftedBinder (spEnv env) binder,
     not (isStrictBinder (spEnv env) binder),
     functionArity rhs > 0,
     Set.notMember name mentioned,
-    any parameterScrutinised (guidanceParameters guidance) =
+    any parameterScrutinised (guidanceParameters guidance),
+    not (largeJoinPoint (spEnv env) name rhs body) =
       env
         { spInline = Map.insert name (Candidate rhs SitesReducing False guidance) (spInline env),
           spLocalCandidates = Map.insert name mentioned (spLocalCandidates env)
@@ -1392,6 +1408,85 @@ localCandidateEnv env binder rhs
     name = binderName binder
     mentioned = exprFreeNames rhs
     guidance = candidateGuidance (spEnv env) (spArity env) rhs
+
+-- | Whether a let binds a join point whose copies would be large: a
+-- function that the body calls more than once, always with all its
+-- arguments and in tail position, and whose body is larger than
+-- 'joinSmallSize'.
+largeJoinPoint :: TypeEnv -> Name -> Expr -> Expr -> Bool
+largeJoinPoint env name rhs body =
+  case occurrences name body of
+    Occurrences uses _ ->
+      uses > 1
+        && size > joinSmallSize
+        && (uses - 1) * size > joinCopyLimit
+        && onlyTailCalls name (functionArity rhs) body
+  where
+    size = exprSize env (lambdaBody rhs)
+    lambdaBody expr =
+      case expr of
+        ExLam _ inner -> lambdaBody inner
+        ExTyLam _ inner -> lambdaBody inner
+        _ -> expr
+
+-- | Whether every occurrence of the name in the expression is a call in a
+-- tail of the expression with at least the given number of value
+-- arguments. A cast around the call, or around its head, does not change
+-- its position: lowering erases it.
+onlyTailCalls :: Name -> Int -> Expr -> Bool
+onlyTailCalls name arity = go
+  where
+    go expr =
+      case expr of
+        ExLet bind body -> unused name (bindRhs bind) && go body
+        ExRec binds body -> all (unused name . bindRhs) binds && go body
+        ExCase scrutinee _ alternatives -> unused name scrutinee && all (go . altRhs) alternatives
+        ExCast inner _ -> go inner
+        _ ->
+          case castedSpine expr of
+            (ExVar head', args)
+              | head' == name -> length (rights args) >= arity && all (either (const True) (unused name)) args
+            _ -> unused name expr
+
+-- | The parameters of a let-bound join point: a lambda whose every use in
+-- the body is a call in tail position with exactly as many arguments as
+-- the lambda has parameters. A case around the body can then move into
+-- the lambda, and each call returns what the case returns.
+--
+-- A call under a cast does not count: the case would take apart a value
+-- of the type before the cast.
+joinParameters :: Bind -> Expr -> Maybe [Binder]
+joinParameters bind body
+  | not (null parameters),
+    tailCalls body =
+      Just parameters
+  | otherwise = Nothing
+  where
+    name = binderName (bindBinder bind)
+    parameters = lambdas (bindRhs bind)
+    lambdas expr =
+      case expr of
+        ExLam named inner -> named : lambdas inner
+        _ -> []
+    tailCalls expr =
+      case expr of
+        ExLet inner rest -> unused name (bindRhs inner) && tailCalls rest
+        ExRec binds rest -> all (unused name . bindRhs) binds && tailCalls rest
+        ExCase scrutinee _ alternatives -> unused name scrutinee && all (tailCalls . altRhs) alternatives
+        _ ->
+          case collectSpine expr of
+            (ExVar head', args)
+              | head' == name ->
+                  all isRight args && length args == length parameters && all (either (const True) (unused name)) args
+            _ -> unused name expr
+
+-- | The lets of join points at the head of an expression, and the rest.
+peelJoinLets :: Expr -> ([Bind], Expr)
+peelJoinLets expr =
+  case expr of
+    ExLet bind inner
+      | isJust (joinParameters bind inner) -> first (bind :) (peelJoinLets inner)
+    _ -> ([], expr)
 
 -- | Whether an expression binds a local function with a let that
 -- 'localCandidateEnv' can make a candidate: a lambda that scrutinises a
@@ -2590,19 +2685,245 @@ data Pushed = Pushed
     pushedFallback :: !Expr,
     -- | The join points, each abstracted over the binders of its
     -- alternative.
-    pushedJoins :: !(Map Name Expr)
+    pushedJoins :: !(Map Name Expr),
+    -- | The number of inner tails that select an outer alternative.
+    pushedSelected :: !Int
   }
+
+-- | Move a case into the tails of its scrutinee, a case, with join
+-- points. 'Nothing' when the scrutinee has no case in its tail or the
+-- rules below reject the push. The action runs when the result is
+-- taken, before the join points are simplified.
+--
+-- A join point that the inner tails use once, or whose copies are small,
+-- is put in its uses. Any other join point can stay: it becomes a
+-- let-bound function around the result, and each use is a saturated call
+-- of it in a tail. Thus a large continuation is not copied into each
+-- inner tail. The calls of such a function are in tail position and the
+-- function does not escape, so GRIN lowering compiles each call to a
+-- direct call with no closure on the heap.
+--
+-- The forms are tried in this sequence:
+--
+-- 1. The shared form, in which the large join points stay and the join
+--    points that give a known result are copied ('planJoins'). It must
+--    select at least one outer alternative in a way that removes work,
+--    and it must not be larger than the case of a case.
+--
+-- 2. The copied form, in which every join point is put in its uses, when
+--    the size rule accepts the copies. A push that selects nothing only
+--    moves the case into the tails, so it copies no large join point:
+--    the case of a case shares its alternatives as it is.
+--
+-- 3. The shared form in which the join points that give a known result
+--    stay too.
+--
+-- A join point that binds nothing must still be a function: a lazy let
+-- would make a thunk that each run of the code allocates. Such a join
+-- point takes the case binder. When the case has none, the shared form
+-- is made again with a fresh case binder.
+caseOfCase :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM () -> SimplM (Maybe Expr)
+caseOfCase env scrutinee binder alternatives onTaken = do
+  pushed <- caseOfCaseRaw env scrutinee binder alternatives
+  case pushed of
+    Nothing -> pure Nothing
+    Just copied -> do
+      shared <- sharedForm True copied
+      case shared of
+        Just (pushed', typed) -> Just <$> takePushed pushed' typed
+        Nothing -> do
+          -- A push that selects nothing only moves the case into the
+          -- tails. It copies no large join point: the case of a case
+          -- shares its alternatives as it is.
+          accepted <-
+            if pushedSelected copied > 0 || Map.null (snd (planJoins False env copied))
+              then acceptGrowth env (pushedGrowth env (pushedJoins copied) copied)
+              else pure False
+          if accepted
+            then Just <$> takePushed copied Map.empty
+            else do
+              -- The copies are too large. The join points that give a
+              -- known result stay as well: the case of a case would
+              -- build that result too.
+              lastResort <- sharedForm False copied
+              traverse (uncurry takePushed) lastResort
+  where
+    -- The push with the join points that stay, and the type of each one,
+    -- when it does not grow.
+    sharedForm copyKnown pushed
+      | Map.null kept = pure Nothing
+      | isNothing binder,
+        any ((== 0) . functionArity) (Map.elems kept),
+        Just scrutineeType <- exprType (spEnv env) scrutinee = do
+          name <- freshLocal (Name "_scrut" SortValue (OriginLocal (Unique 0)))
+          repushed <- caseOfCaseRaw env scrutinee (Just (Binder name scrutineeType)) alternatives
+          pure (repushed >>= typedJoins copyKnown)
+      | otherwise = pure (typedJoins copyKnown pushed)
+      where
+        kept = snd (planJoins copyKnown env pushed)
+    typedJoins copyKnown pushed
+      | not (Map.null typed),
+        pushedSelected pushed > 0,
+        pushedGrowth env (Map.difference (pushedJoins pushed) typed) pushed <= 0 =
+          Just (pushed, typed)
+      | otherwise = Nothing
+      where
+        -- A join point that binds nothing, or whose type is not known, is
+        -- copied after all.
+        typed = Map.mapMaybe (\rhs -> if functionArity rhs > 0 then exprType (spEnv env) rhs else Nothing) (snd (planJoins copyKnown env pushed))
+    takePushed pushed typed = do
+      onTaken
+      let kept = Map.intersection (pushedJoins pushed) typed
+          mentioned = foldMap exprFreeNames (Map.elems kept)
+          free name = Set.notMember name mentioned
+      expanded <- expandJoins env (Map.difference (pushedJoins pushed) typed) (pushedSmall pushed)
+      placeJoins free env (Map.toList typed) kept expanded
+    -- The join points stay after the chain of the result: the lets and
+    -- the cases of one alternative that run before the first branch. The
+    -- body of a join point then sees what the chain knows, such as the
+    -- fields of a value that the chain takes apart. A join point does not
+    -- move under a binder of the chain that has the name of one of its
+    -- free variables.
+    placeJoins free env' typed kept expr =
+      case expr of
+        ExLet bind body
+          | not (null typed),
+            free (binderName (bindBinder bind)),
+            not (any ((`Set.member` exprFreeNames (bindRhs bind)) . fst) typed) ->
+              ExLet bind <$> placeJoins free (bindingEnv env' (bindBinder bind) (bindRhs bind)) typed kept body
+        ExCase inner caseBinder (alternative NE.:| [])
+          | not (null typed),
+            all (free . binderName) (foldr (:) [] caseBinder <> altBinders alternative),
+            null (altTypeBinders alternative) -> do
+              rhs <- placeJoins free (alternativeEnv env' inner caseBinder [alternative] alternative) typed kept (altRhs alternative)
+              pure (ExCase inner caseBinder (alternative {altRhs = rhs} NE.:| []))
+        _ -> do
+          binds <- mapM (\(name, ty) -> Bind (Binder name ty) <$> simplifyJoin env' (kept Map.! name)) typed
+          pure (foldr ExLet expr binds)
+    -- The body of a join point is in the position of the case, so it is
+    -- simplified with the credit of that position.
+    --
+    -- In the alternative, the case binder and the binders of strict
+    -- fields held values, and the body can give one of them to a strict
+    -- field. A parameter is not known to hold a value, so the body
+    -- evaluates such a parameter first. The parameter gets a value, and
+    -- this evaluation only reads its tag.
+    simplifyJoin env' rhs = do
+      let (parameters, body) = lambdaParameters rhs
+          parameterEnv = markUnlifted parameters (shadowNames (map binderName parameters) env')
+      body' <- simplifyExpr parameterEnv body
+      let strict = strictFieldVariables (spEnv env) body'
+      evaluated <- foldM (evaluateParameter strict) body' (reverse parameters)
+      pure (foldr ExLam evaluated parameters)
+    lambdaParameters expr =
+      case expr of
+        ExLam named body -> first (named :) (lambdaParameters body)
+        _ -> ([], expr)
+    evaluateParameter strict body parameter
+      | Set.member (binderName parameter) strict,
+        isLiftedBinder (spEnv env) parameter = do
+          name <- freshLocal (binderName parameter)
+          let value = Binder name (binderType parameter)
+              body' = substExpr (Map.singleton (binderName parameter) (ExVar name)) body
+          pure (ExCase (ExVar (binderName parameter)) (Just value) (Alt AltDefault [] [] body' NE.:| []))
+      | otherwise = pure body
+
+-- | The variables that an expression gives directly to a lifted strict
+-- field of a constructor application.
+strictFieldVariables :: TypeEnv -> Expr -> Set Name
+strictFieldVariables env = go
+  where
+    go expr =
+      case expr of
+        ExApp {} ->
+          let (function, args) = collectSpine expr
+              values = rights args
+              direct =
+                case function of
+                  ExVar con
+                    | Just strict <- Map.lookup con (teConStrictFields env) ->
+                        Set.fromList [name | (position, value) <- zip [0 ..] values, position `elem` strict, ExVar name <- [peelCast value]]
+                  _ -> Set.empty
+           in direct <> go function <> foldMap go values
+        ExTyApp function _ -> go function
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) <> go body
+        ExRec binds body -> foldMap (go . bindRhs) binds <> go body
+        ExCase scrutinee _ alternatives -> go scrutinee <> foldMap (go . altRhs) alternatives
+        ExAbsurd scrutinee _ -> go scrutinee
+        ExCast body _ -> go body
+        ExForeignCall _ _ arguments -> foldMap go arguments
+        _ -> Set.empty
+    peelCast value =
+      case value of
+        ExCast inner _ -> peelCast inner
+        _ -> value
+
+-- | The join points of a pushed case that are copied into their uses, and
+-- the ones that stay. A join point stays when the inner tails use it more
+-- than once, its body is larger than 'joinSmallSize', and its copies
+-- would add more than 'joinCopyLimit'. A small body, such as a boxed
+-- result, is copied: a copy costs little, and a case around a call can
+-- select its constructor. With the flag, a join point that gives a known
+-- result is copied too ('knownResult').
+planJoins :: Bool -> Simpl -> Pushed -> (Map Name Expr, Map Name Expr)
+planJoins copyKnown env pushed = Map.partitionWithKey copied (pushedJoins pushed)
+  where
+    copied name rhs =
+      case occurrences name (pushedSmall pushed) of
+        Occurrences uses _ ->
+          let body = snd (lambdaBody rhs)
+              size = expandedSize env body
+           in uses <= 1 || size <= joinSmallSize || (uses - 1) * size <= joinCopyLimit || (copyKnown && knownResult env body)
+    lambdaBody expr =
+      case expr of
+        ExLam named body -> first (named :) (lambdaBody body)
+        _ -> ([], expr)
+
+-- | Whether every tail of the body of a join point builds a known heap
+-- constructor or a literal. A context around a call cannot take such a
+-- result apart, but it can take apart each copy. Such a join point is
+-- copied, as the case of a case copied every join point before. An
+-- unboxed tuple, the result of an @IO@ action, is not a heap object, and
+-- its join point can stay.
+knownResult :: Simpl -> Expr -> Bool
+knownResult env body = tailsKnownIn types (spArity env) body && not (any unboxed (tails body))
+  where
+    types = spEnv env
+    tails expr =
+      case expr of
+        ExCase _ _ alternatives -> concatMap (tails . altRhs) alternatives
+        ExLet _ inner -> tails inner
+        ExRec _ inner -> tails inner
+        ExCast inner _ -> tails inner
+        ExTyLam _ inner -> tails inner
+        _ -> [expr]
+    unboxed expr =
+      case collectSpine expr of
+        (ExVar con, _) -> maybe False (/= HeapConstructor) (Map.lookup con (teConRepresentations types))
+        _ -> False
+
+-- | The largest body of a join point that is always copied.
+joinSmallSize :: Int
+joinSmallSize = 10
+
+-- | The largest growth that the copies of one join point may add. A
+-- larger join point stays a function.
+joinCopyLimit :: Int
+joinCopyLimit = 20
 
 -- | The growth of taking a pushed case: the small forms compared, plus
 -- the copies of a join point that the inner tails use more than once,
--- minus one that they do not use at all.
-pushedGrowth :: Simpl -> Pushed -> Int
-pushedGrowth env pushed =
+-- minus one that they do not use at all. Only the given join points are
+-- copied. Each other join point stays once, as it was in the alternative.
+pushedGrowth :: Simpl -> Map Name Expr -> Pushed -> Int
+pushedGrowth env copied pushed =
   expandedSize env (pushedSmall pushed)
     - expandedSize env (pushedFallback pushed)
     + sum
       [ (uses - 1) * expandedSize env rhs
-      | (name, rhs) <- Map.toList (pushedJoins pushed),
+      | (name, rhs) <- Map.toList copied,
         Occurrences uses _ <- [occurrences name (pushedSmall pushed)],
         uses /= 1
       ]
@@ -2632,18 +2953,34 @@ expandJoins env joins = go env
       case expr of
         ExLet bind body
           | isTrivial (bindRhs bind) -> go env' (substExpr (Map.singleton (binderName (bindBinder bind)) (bindRhs bind)) body)
+          -- A join point of the scrutinee took the small case into its
+          -- body, so its tails call the join points too.
+          | any (`Map.member` joins) (Set.toList (exprFreeNames (bindRhs bind))) -> do
+              rhs <- lambdaBody env' (bindRhs bind)
+              ExLet bind {bindRhs = rhs} <$> go (bindingEnv env' (bindBinder bind) rhs) body
           | otherwise -> ExLet bind <$> go (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
         ExRec binds body -> ExRec binds <$> go env' body
         ExCase scrutinee binder alternatives -> do
-          alternatives' <-
-            mapM
-              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee binder (NE.toList alternatives) alternative) (altRhs alternative))
-              alternatives
-          pure (ExCase scrutinee binder alternatives')
+          -- A small alternative that takes a binder apart before its
+          -- call selects the fields when the binder is known. See
+          -- 'caseOfCaseRaw'.
+          known <- caseOfKnown env' scrutinee binder (NE.toList alternatives)
+          case known of
+            Just selected -> go env' selected
+            Nothing -> do
+              alternatives' <-
+                mapM
+                  (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee binder (NE.toList alternatives) alternative) (altRhs alternative))
+                  alternatives
+              pure (ExCase scrutinee binder alternatives')
         _ ->
           case collectSpine expr of
             (ExVar name, _) | Map.member name joins -> simplifyExpr env' (substExpr joins expr)
             _ -> pure expr
+    lambdaBody env' expr =
+      case expr of
+        ExLam named inner -> ExLam named <$> lambdaBody (markUnlifted [named] (shadowNames [binderName named] env')) inner
+        _ -> go env' expr
 
 -- | 'Nothing' when the scrutinee has no case in its tail.
 caseOfCaseRaw :: Simpl -> Expr -> Maybe Binder -> NE.NonEmpty Alt -> SimplM (Maybe Pushed)
@@ -2653,8 +2990,11 @@ caseOfCaseRaw env scrutinee binder alternatives
       joined <- mapM joinPoint alternatives
       let joins = Map.fromList [(name, rhs) | (Just (name, rhs), _) <- NE.toList joined]
           small = fmap snd joined
-      pushed <- pushSmall env binder small scrutinee
-      pure (Just (Pushed pushed (ExCase scrutinee binder small) joins))
+          -- The types of the join points, so that the type of a join
+          -- point of the scrutinee that takes the small case is known.
+          typedEnv = List.foldl' extendTypeBinder env [Binder name ty | (name, rhs) <- Map.toList joins, Just ty <- [exprType (spEnv env) rhs]]
+      (pushed, selected) <- pushSmall typedEnv binder small scrutinee
+      pure (Just (Pushed pushed (ExCase scrutinee binder small) joins selected))
   where
     hasCaseTail expr =
       case expr of
@@ -2673,14 +3013,52 @@ caseOfCaseRaw env scrutinee binder alternatives
     -- tidied program. The environment is keyed by name and assumes that
     -- no binder shadows another, so a parameter under the old name would
     -- take the value that the inner binder holds.
+    --
+    -- A join point that does not use the case binder does not take it,
+    -- unless the alternative binds nothing else: a join point that the
+    -- simplifier keeps must be a function, so that its body is not a
+    -- thunk that each run of the code allocates.
+    --
+    -- An alternative that first takes one of its binders apart, as the
+    -- bind of a pair in a @do@ block does, gives the fields to the join
+    -- point in place of the binder. The small alternative takes the
+    -- binder apart before the call. A tail that builds the constructor
+    -- then selects the fields, and the call allocates nothing.
     joinPoint alternative
       | isTrivial (altRhs alternative) || not (null (altTypeBinders alternative)) = pure (Nothing, alternative)
       | otherwise = do
-          name <- freshLocal (maybe (Name "_join" SortValue (OriginLocal (Unique 0))) binderName binder)
-          let binders = foldr (:) [] binder <> altBinders alternative
-              call = rebuildSpine (ExVar name) (map (Right . ExVar . binderName) binders)
-          body <- freshenExpr (foldr ExLam (altRhs alternative) binders)
-          pure (Just (name, body), alternative {altRhs = call})
+          name <- freshLocal (Name "_join" SortValue (OriginLocal (Unique 0)))
+          let caseBinder =
+                [ named
+                | Just named <- [binder],
+                  null (altBinders alternative) || not (unused (binderName named) (altRhs alternative))
+                ]
+          case takenApart alternative of
+            Just (before, field, con, fields, after, rest) -> do
+              fresh <- mapM (\named -> (`Binder` binderType named) <$> freshLocal (binderName named)) fields
+              let binders = caseBinder <> before <> fields <> after
+                  arguments = caseBinder <> before <> fresh <> after
+                  call = rebuildSpine (ExVar name) (map (Right . ExVar . binderName) arguments)
+                  match = ExCase (ExVar (binderName field)) Nothing (Alt (AltData con) [] fresh call NE.:| [])
+              body <- freshenExpr (foldr ExLam rest binders)
+              pure (Just (name, body), alternative {altRhs = match})
+            Nothing -> do
+              let binders = caseBinder <> altBinders alternative
+                  call = rebuildSpine (ExVar name) (map (Right . ExVar . binderName) binders)
+              body <- freshenExpr (foldr ExLam (altRhs alternative) binders)
+              pure (Just (name, body), alternative {altRhs = call})
+    -- The binder that the right-hand side of an alternative takes apart
+    -- first, with the binders before and after it, the constructor, its
+    -- fields, and the rest of the right-hand side. The binder and the
+    -- inner case binder have no other use.
+    takenApart alternative =
+      case altRhs alternative of
+        ExCase (ExVar taken) innerBinder (Alt (AltData con) [] fields rest NE.:| [])
+          | isNothing innerBinder,
+            (before, field : after) <- List.break ((== taken) . binderName) (altBinders alternative),
+            unused taken rest ->
+              Just (before, field, con, fields, after, rest)
+        _ -> Nothing
 
 -- | Push a small case, whose alternatives call join points, into the
 -- tails of a simplified expression. A tail that is a case takes the
@@ -2688,24 +3066,82 @@ caseOfCaseRaw env scrutinee binder alternatives
 -- under it, a known constructor or literal selects an alternative, and
 -- any other tail is scrutinised by a copy of the small case. Nothing
 -- that was simplified is simplified again.
-pushSmall :: Simpl -> Maybe Binder -> NE.NonEmpty Alt -> Expr -> SimplM Expr
-pushSmall env binder small = go env
+pushSmall :: Simpl -> Maybe Binder -> NE.NonEmpty Alt -> Expr -> SimplM (Expr, Int)
+pushSmall env binder small = go Set.empty env
   where
-    go env' expr =
+    go joins env' expr =
       case expr of
-        ExLet bind body -> ExLet bind <$> go (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
-        ExRec binds body -> ExRec binds <$> go env' body
+        -- The small case moves into the body of a join point of the
+        -- scrutinee, and the calls of the join point stay as they are.
+        -- The calls stay in tail position, and a tail of the join point
+        -- that builds a known constructor selects an alternative.
+        ExLet bind body
+          | Just parameters <- joinParameters bind body -> do
+              let named = bindBinder bind
+                  parameterEnv = markUnlifted parameters (shadowNames (map binderName parameters) env')
+              (joinBody, selectedInJoin) <- go joins parameterEnv (lambdaResult (length parameters) (bindRhs bind))
+              let rhs = foldr ExLam joinBody parameters
+              case exprType (spEnv env') rhs of
+                Just ty -> do
+                  let named' = named {binderType = ty}
+                  (body', selectedInBody) <- go (Set.insert (binderName named) joins) (bindingEnv env' named' rhs) body
+                  pure (ExLet (Bind named' rhs) body', selectedInJoin + selectedInBody)
+                Nothing -> first (ExLet bind) <$> go joins (bindingEnv env' named (bindRhs bind)) body
+        ExLet bind body -> first (ExLet bind) <$> go joins (bindingEnv env' (bindBinder bind) (bindRhs bind)) body
+        ExRec binds body -> first (ExRec binds) <$> go joins env' body
         ExCase scrutinee innerBinder alternatives -> do
           alternatives' <-
             mapM
-              (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> go (alternativeEnv env' scrutinee innerBinder (NE.toList alternatives) alternative) (altRhs alternative))
+              (\alternative -> first (\rhs -> alternative {altRhs = rhs}) <$> go joins (alternativeEnv env' scrutinee innerBinder (NE.toList alternatives) alternative) (altRhs alternative))
               alternatives
-          pure (mkCase (spEnv env') scrutinee innerBinder alternatives')
-        _ -> do
-          copy <- freshenExpr (ExCase expr binder small)
-          case copy of
-            ExCase leaf binder' (NE.toList -> small') -> fromMaybe copy <$> caseOfKnown env' leaf binder' small'
-            _ -> pure copy
+          pure (mkCase (spEnv env') scrutinee innerBinder (fmap fst alternatives'), sum (fmap snd alternatives'))
+        _
+          | (ExVar head', _) <- castedSpine expr,
+            Set.member head' joins ->
+              pure (expr, 0)
+          | otherwise -> do
+              copy <- freshenExpr (ExCase expr binder small)
+              case copy of
+                ExCase leaf binder' (NE.toList -> small') -> do
+                  selected <- caseOfKnown env' leaf binder' small'
+                  case selected of
+                    Just rhs -> do
+                      rhs' <- selectFields env' rhs
+                      pure (rhs', if gains small' leaf rhs rhs' then 1 else 0)
+                    Nothing -> pure (copy, 0)
+                _ -> pure (copy, 0)
+    -- Whether a selection removes work: a test between alternatives, the
+    -- allocation of the selected constructor, or the allocation that the
+    -- call no longer takes apart. A match on an unboxed tuple of one
+    -- alternative costs nothing, and its selection gains nothing.
+    gains small' leaf rhs rhs' =
+      length small' > 1
+        || heapConstructor leaf
+        || exprSize (spEnv env) rhs' < exprSize (spEnv env) rhs
+    heapConstructor leaf =
+      case collectSpine leaf of
+        (ExVar con, _) -> isConstructorName con && Map.notMember con (teConRepresentations (spEnv env))
+        _ -> False
+    lambdaResult count expr =
+      case expr of
+        ExLam _ inner | count > 0 -> lambdaResult (count - 1) inner
+        _ -> expr
+    -- A selected alternative that takes a known constructor apart before
+    -- its call gives the fields to the call. See 'caseOfCaseRaw'.
+    --
+    -- The selection binds the fields of the selected constructor with
+    -- lets, and a lazy let that the call no longer uses goes.
+    selectFields env' expr =
+      case expr of
+        ExLet bind inner -> do
+          inner' <- selectFields (bindingEnv env' (bindBinder bind) (bindRhs bind)) inner
+          pure $
+            if unused (binderName (bindBinder bind)) inner' && (isLiftedBinder (spEnv env') (bindBinder bind) || isTrivial (bindRhs bind))
+              then inner'
+              else ExLet bind inner'
+        ExCase scrutinee innerBinder (NE.toList -> [alternative@(Alt AltData {} [] _ _)]) ->
+          fromMaybe expr <$> caseOfKnown env' scrutinee innerBinder [alternative]
+        _ -> pure expr
 
 -- | A local name that no binder in the program uses.
 freshLocal :: Name -> SimplM Name
