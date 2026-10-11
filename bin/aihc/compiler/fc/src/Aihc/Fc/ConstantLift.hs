@@ -12,6 +12,7 @@ import Aihc.Fc.TypeOf (TypeEnv (..), lookupHeaderType, substType, typeEnvFromPro
 import Aihc.Resolve (PackageId)
 import Control.Monad (foldM, guard)
 import Control.Monad.Trans.State.Strict (State, get, modify', put, runState)
+import Data.Char (isAlphaNum, isAscii, ord)
 import Data.Either (rights)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -19,6 +20,7 @@ import Data.Maybe (isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Numeric (showHex)
 
 data LiftState = LiftState
   { liftNext :: !Int,
@@ -37,7 +39,7 @@ liftConstants primPackage program =
       -- The top-level values that are in weak-head normal form by
       -- their syntax: a strict field of a constant can hold one.
       env = types {teEvaluated = staticTopLevelValues types program}
-      initial = LiftState 0 (Map.keysSet (teHeaders env)) Map.empty [] 0
+      initial = LiftState 0 (Map.keysSet (teHeaders env)) (earlierConstants env program) [] 0
       (decls, final) = runState (mapM (liftDecl env) (programDecls program)) initial
    in ( program {programDecls = decls <> reverse (liftDecls final)},
         length (liftDecls final),
@@ -70,7 +72,7 @@ liftExpr env owner expression =
       case Map.lookup expression (liftKnown state) of
         Just name -> pure (ExVar name)
         Nothing -> do
-          name <- freshConstant owner
+          name <- freshConstant (constantBaseName owner expression)
           let declaration = DeclVal (ValDecl Private name ty expression (InlineNever NeverActive))
           modify' (\current -> current {liftKnown = Map.insert expression name (liftKnown current), liftDecls = declaration : liftDecls current})
           pure (ExVar name)
@@ -172,14 +174,144 @@ isStaticValue env expression =
         _ -> False
     _ -> False
 
+-- | The constants of an earlier lift. A program can get this pass more
+-- than one time: each module gets it, and then the whole program gets it.
+-- A new site of the same expression uses the constant that is there.
+earlierConstants :: TypeEnv -> Program -> Map Expr Name
+earlierConstants env program =
+  Map.fromListWith
+    (\_ first -> first)
+    [ (valBody declaration, valName declaration)
+    | DeclVal declaration <- programDecls program,
+      valVis declaration == Private,
+      valInline declaration == InlineNever NeverActive,
+      Just _ <- [constantType env (valBody declaration)]
+    ]
+
+-- | The name of a new constant, before the pass adds a number.
+--
+-- A box of one literal, such as @I# 3#@ or @C# '-'#@, gets a name from its
+-- value, such as @$int_3@ or @$char_minus@. Many unrelated sites use the
+-- same small value, so a name from the first site is not correct for the
+-- other sites. Other constants get the name of the value that has the
+-- first site, and @$constant$@.
+constantBaseName :: Name -> Expr -> Name
+constantBaseName owner expression =
+  case literalBoxName expression of
+    Just text -> owner {nameText = text, nameSort = SortValue}
+    Nothing -> owner {nameText = nameText owner <> constantInfix, nameSort = SortValue}
+
+constantInfix :: T.Text
+constantInfix = "$constant$"
+
+-- | The name of a box of one integer or character literal, from the
+-- constructor and the value.
+literalBoxName :: Expr -> Maybe T.Text
+literalBoxName expression = do
+  (ExVar constructor, arguments) <- pure (collectSpine expression)
+  [ExLit literal _] <- pure (rights arguments)
+  kind <- boxKind (nameText constructor)
+  value <- case literal of
+    LitInt _ number
+      | number < 0 -> Just ("minus" <> T.pack (show (negate number)))
+      | otherwise -> Just (T.pack (show number))
+    LitChar _ character -> Just (characterName character)
+    LitAddr {} -> Nothing
+  pure ("$" <> kind <> "_" <> value)
+  where
+    boxKind text =
+      case lookup text boxKinds of
+        Just kind -> Just kind
+        Nothing
+          | not (T.null stripped) && T.all (\character -> isAscii character && isAlphaNum character) stripped -> Just (T.toLower stripped)
+          | otherwise -> Nothing
+      where
+        stripped = T.dropWhileEnd (== '#') text
+    boxKinds =
+      [ ("I#", "int"),
+        ("W#", "word"),
+        ("C#", "char"),
+        ("I8#", "int8"),
+        ("I16#", "int16"),
+        ("I32#", "int32"),
+        ("I64#", "int64"),
+        ("W8#", "word8"),
+        ("W16#", "word16"),
+        ("W32#", "word32"),
+        ("W64#", "word64"),
+        ("IS", "integer"),
+        ("NS", "natural")
+      ]
+
+-- | A name part for a character. An ASCII letter or digit is the
+-- character itself.
+characterName :: Char -> T.Text
+characterName character
+  | isAscii character && isAlphaNum character = T.singleton character
+  | otherwise =
+      case lookup character punctuation of
+        Just name -> name
+        Nothing -> "u" <> T.pack (showHex (ord character) "")
+  where
+    punctuation =
+      [ (' ', "space"),
+        ('-', "minus"),
+        ('+', "plus"),
+        ('.', "dot"),
+        (',', "comma"),
+        (':', "colon"),
+        (';', "semicolon"),
+        ('\n', "newline"),
+        ('\t', "tab"),
+        ('\r', "return"),
+        ('\0', "nul"),
+        ('(', "lparen"),
+        (')', "rparen"),
+        ('[', "lbracket"),
+        (']', "rbracket"),
+        ('{', "lbrace"),
+        ('}', "rbrace"),
+        ('"', "quote"),
+        ('\'', "apostrophe"),
+        ('_', "underscore"),
+        ('=', "equals"),
+        ('<', "less"),
+        ('>', "greater"),
+        ('/', "slash"),
+        ('\\', "backslash"),
+        ('#', "hash"),
+        ('*', "star"),
+        ('!', "bang"),
+        ('?', "question"),
+        ('@', "at"),
+        ('%', "percent"),
+        ('&', "ampersand"),
+        ('|', "bar"),
+        ('^', "caret"),
+        ('~', "tilde"),
+        ('$', "dollar"),
+        ('`', "backquote")
+      ]
+
+-- | A name that no other declaration has. A literal box uses its name
+-- with no number when it can. Other constants always get a number.
 freshConstant :: Name -> State LiftState Name
-freshConstant owner = do
+freshConstant base = do
   state <- get
-  let index = liftNext state
-      name = owner {nameText = nameText owner <> "$constant$" <> T.pack (show index), nameSort = SortValue}
-  put state {liftNext = index + 1}
-  if Set.member name (liftNames state)
-    then freshConstant owner
-    else do
+  if numberedBase || Set.member base (liftNames state)
+    then numbered
+    else claim base
+  where
+    numberedBase = constantInfix `T.isSuffixOf` nameText base
+    separator = if numberedBase then "" else "$"
+    numbered = do
+      state <- get
+      let index = liftNext state
+          name = base {nameText = nameText base <> separator <> T.pack (show index)}
+      put state {liftNext = index + 1}
+      if Set.member name (liftNames state)
+        then numbered
+        else claim name
+    claim name = do
       modify' (\current -> current {liftNames = Set.insert name (liftNames current)})
       pure name
