@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 29
-- Supported: 29
+- Total Extensions: 30
+- Supported: 30
 - In Progress: 0
 
 ## Extension Status
@@ -27,6 +27,7 @@
 | OverloadedStrings         |   🟢    | 1/1           |
 | PackageImports            |   🟢    | 2/2           |
 | PatternSynonyms           |   🟢    | 11/11         |
+| QuasiQuotes               |   🟢    | 1/1           |
 | RebindableSyntax          |   🟢    | 2/2           |
 | RecordWildCards           |   🟢    | 5/5           |
 | RoleAnnotations           |   🟢    | 1/1           |
