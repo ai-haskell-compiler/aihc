@@ -1,6 +1,10 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
+-- wordToInteger keeps its argument: the arity pass reads the arity from the
+-- body, and an eta-reduced alias is not inlined after phase 1.
+{-# HLINT ignore "Eta reduce" #-}
+
 module GHC.Prim.Integer
   ( Integer (..),
     compareInteger#,
@@ -29,6 +33,7 @@ module GHC.Prim.Integer
     integerToInt#,
     integerXor,
     wordLog2#,
+    wordToInteger,
   )
 where
 
@@ -158,12 +163,31 @@ multiplyWordLoop# magnitude factor mutable count index carry state =
                 state1 -> multiplyWordLoop# magnitude factor mutable count (index +# 1#) (plusWord# high (int2Word# overflow)) state1
 
 integerNegate :: Integer -> Integer
-integerNegate (IP magnitude) = IN magnitude
+integerNegate (IP magnitude) = negatePositiveMagnitude# magnitude
 integerNegate (IN magnitude) = IP magnitude
 integerNegate (IS value) =
   case subIntC# 0# value of
     (# result, 0# #) -> IS result
-    _ -> integerFromWord# 1# (int2Word# value)
+    _ -> negatedMinimumInt
+
+-- | The negation of an 'IP' magnitude. The magnitude 2^63 becomes the
+-- minimum 'Int#', because the canonical form of that value is 'IS'.
+negatePositiveMagnitude# :: ByteArray# -> Integer
+negatePositiveMagnitude# magnitude =
+  case wordCount# magnitude of
+    1# ->
+      let word = indexWordArray# magnitude 0#
+       in case eqWord# word (uncheckedShiftL# (int2Word# 1#) 63#) of
+            1# -> IS (word2Int# word)
+            _ -> IN magnitude
+    _ -> IN magnitude
+{-# NOINLINE negatePositiveMagnitude# #-}
+
+-- | The negation of the minimum 'Int#'. It is the only 'IS' value whose
+-- negation is not an 'IS' value. A constant keeps the inlined negation small.
+negatedMinimumInt :: Integer
+negatedMinimumInt = allocateWordInteger# 1# (uncheckedShiftL# (int2Word# 1#) 63#)
+{-# NOINLINE negatedMinimumInt #-}
 
 integerAbs :: Integer -> Integer
 integerAbs (IN magnitude) = IP magnitude
@@ -450,13 +474,44 @@ integerToInt# (IS value) = value
 integerToInt# (IP magnitude) = word2Int# (indexWordArray# magnitude 0#)
 integerToInt# (IN magnitude) = 0# -# word2Int# (indexWordArray# magnitude 0#)
 -- GHC keeps integerToInt# as a call, thus the conversion rules can match it.
--- For example, the rule for GHC.Real.wordToInteger removes the large Integer
+-- For example, the rule for wordToInteger removes the large Integer
 -- branch from fromIntegral :: Word64 -> Word8. The rule below is GHC's
 -- "Int# -> Integer -> Int#" rule. It removes a small Integer before phase 1.
 {-# NOINLINE [0] integerToInt# #-}
 
 {-# RULES
 "integerToInt#/IS" forall x. integerToInt# (IS x) = x
+  #-}
+
+-- The low word of an 'Integer' that a sign and a magnitude make. A large
+-- literal is such an 'Integer', thus @fromInteger@ of a large literal at a
+-- word type needs no allocation.
+{-# RULES
+"integerToInt#/integerFromWord#" forall sign word. integerToInt# (integerFromWord# sign word) = signedWordToInt# sign word
+"integerToInt#/integerFromLargeWord#" forall sign word. integerToInt# (integerFromLargeWord# sign word) = signedWordToInt# sign word
+  #-}
+
+-- | The low word of the 'Integer' with a sign and a magnitude. The sign 1
+-- is positive, and each other sign is negative.
+signedWordToInt# :: Int# -> Word# -> Int#
+signedWordToInt# sign word =
+  case sign of
+    1# -> word2Int# word
+    _ -> 0# -# word2Int# word
+
+-- | The 'Integer' of a word. The small-value path is inline, and the large
+-- Integer allocation is a call.
+wordToInteger :: Word# -> Integer
+wordToInteger value = integerFromWord# 1# value
+-- The rule is GHC's "Word# -> Integer -> Int#" rule. It removes the large
+-- Integer branch from a conversion such as fromIntegral :: Word64 -> Word8.
+-- The rule cannot match after the inliner copies the body, thus the inliner
+-- must keep the call until phase 1. GHC.Num.Natural has a rule for the
+-- conversion to 'Natural' too.
+{-# NOINLINE [0] wordToInteger #-}
+
+{-# RULES
+"integerToInt#/wordToInteger" forall x. integerToInt# (wordToInteger x) = word2Int# x
   #-}
 
 -- | The base 2 logarithm of a 'Word#', rounded down.  @wordLog2# 0##@ is
@@ -585,8 +640,23 @@ compareInteger# left right =
                 1# -> compareMagnitudes# left right
                 _ -> 0# -# compareMagnitudes# left right
 
+-- | Equality without an ordering. The representation is canonical, thus
+-- values with different constructors are not equal. A test against a small
+-- literal becomes one comparison of the 'IS' field.
 eqInteger# :: Integer -> Integer -> Int#
-eqInteger# left right = compareInteger# left right ==# 0#
+eqInteger# (IS left) (IS right) = left ==# right
+eqInteger# (IP left) (IP right) = eqMagnitudes# left right
+eqInteger# (IN left) (IN right) = eqMagnitudes# left right
+eqInteger# _ _ = 0#
+
+-- | Equality of two canonical magnitudes.
+eqMagnitudes# :: ByteArray# -> ByteArray# -> Int#
+eqMagnitudes# left right =
+  let count = wordCount# left
+   in case count ==# wordCount# right of
+        1# -> compareMagnitudeWords# left right (count -# 1#) ==# 0#
+        _ -> 0#
+{-# NOINLINE eqMagnitudes# #-}
 
 addMagnitudesWithSigns :: Integer -> Integer -> Integer
 addMagnitudesWithSigns left right =
@@ -880,42 +950,57 @@ integerFromMagnitude# sign magnitude =
       case sign of
         1# -> IP magnitude
         _ -> IN magnitude
+-- Each caller has just allocated the magnitude, thus a call costs little.
+-- An inlined copy adds about 20 lines to each large Integer operation.
+{-# NOINLINE integerFromMagnitude# #-}
 
 integerFromTwoWords# :: Int# -> Word# -> Word# -> Integer
 integerFromTwoWords# sign high low =
   case eqWord# high (int2Word# 0#) of
     1# -> integerFromWord# sign low
-    _ ->
-      case newByteArray# 16# realWorld# of
-        (# state0, mutable #) ->
-          case writeWordArray# mutable 0# low state0 of
-            state1 ->
-              case writeWordArray# mutable 1# high state1 of
-                state2 ->
-                  case unsafeFreezeByteArray# mutable state2 of
-                    (# _, magnitude #) ->
-                      case sign of
-                        1# -> IP magnitude
-                        _ -> IN magnitude
+    _ -> allocateTwoWordInteger# sign high low
 
+-- | The 'Integer' of two limbs. The high limb is not zero.
+allocateTwoWordInteger# :: Int# -> Word# -> Word# -> Integer
+allocateTwoWordInteger# sign high low =
+  case newByteArray# 16# realWorld# of
+    (# state0, mutable #) ->
+      case writeWordArray# mutable 0# low state0 of
+        state1 ->
+          case writeWordArray# mutable 1# high state1 of
+            state2 ->
+              case unsafeFreezeByteArray# mutable state2 of
+                (# _, magnitude #) ->
+                  case sign of
+                    1# -> IP magnitude
+                    _ -> IN magnitude
+{-# NOINLINE allocateTwoWordInteger# #-}
+
+-- | The 'Integer' with a sign and a magnitude. The sign 1 is positive, and
+-- each other sign is negative. A magnitude below 2^63 is the inlined fast
+-- path. The larger magnitudes go to a call.
 integerFromWord# :: Int# -> Word# -> Integer
 integerFromWord# sign word =
-  case eqWord# word (int2Word# 0#) of
-    1# -> IS 0#
+  let intValue = word2Int# word
+   in case intValue <# 0# of
+        0# ->
+          case sign of
+            1# -> IS intValue
+            _ -> IS (0# -# intValue)
+        _ -> integerFromLargeWord# sign word
+
+-- | The 'Integer' with a sign and a magnitude of 2^63 or more. Only the
+-- negative magnitude 2^63 fits in 'IS'.
+integerFromLargeWord# :: Int# -> Word# -> Integer
+integerFromLargeWord# sign word =
+  case sign of
+    1# -> allocateWordInteger# sign word
     _ ->
       let intValue = word2Int# word
-       in case sign of
-            1# ->
-              case intValue <# 0# of
-                0# -> IS intValue
-                _ -> allocateWordInteger# sign word
-            _ ->
-              case intValue <# 0# of
-                0# -> IS (0# -# intValue)
-                _ ->
-                  case intValue ==# (0# -# intValue) of
-                    1# -> IS intValue
-                    _ -> allocateWordInteger# sign word
+       in case intValue ==# (0# -# intValue) of
+            1# -> IS intValue
+            _ -> allocateWordInteger# sign word
+{-# NOINLINE integerFromLargeWord# #-}
 
 allocateWordInteger# :: Int# -> Word# -> Integer
 allocateWordInteger# sign word =
@@ -928,6 +1013,9 @@ allocateWordInteger# sign word =
               case sign of
                 1# -> IP magnitude
                 _ -> IN magnitude
+-- The allocation is the slow path of each conversion from a word. A call
+-- keeps the inlined conversions small.
+{-# NOINLINE allocateWordInteger# #-}
 
 maxInt# :: Int# -> Int# -> Int#
 maxInt# left right =

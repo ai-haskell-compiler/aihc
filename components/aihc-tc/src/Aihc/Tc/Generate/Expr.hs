@@ -59,8 +59,9 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (when)
+import Control.Monad (mfilter, when, zipWithM)
 import Data.Bifunctor qualified as Bifunctor
+import Data.Char (isLower)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -667,7 +668,10 @@ inferRecordUpdate sp record fields = do
     updateAlternative :: RecordHead -> TcM (CaseAlt Expr)
     updateAlternative head' = do
       let labels = rhFields head'
-      binders <- mapM (\index -> synthesizedRecordLocal ("$field" <> T.pack (show index))) [1 .. length labels]
+      -- A binder takes the label of its field, so the code is easier to read.
+      -- The binder is resolved by its unique, so it does not hide a variable
+      -- with the same name in an updated value.
+      binders <- zipWithM (\index label -> synthesizedRecordLocal (fromMaybe ("$field" <> T.pack (show index)) (mfilter isVariableLabel label))) [1 :: Int ..] labels
       let conSyntax = recordHeadNameSyntax head'
           argument label binder =
             case [recordFieldValue occurrence | occurrence <- fields, Just (recordFieldLabel occurrence) == label] of
@@ -675,6 +679,13 @@ inferRecordUpdate sp record fields = do
               [] -> EVar (Name Nothing (unqualifiedNameType binder) (unqualifiedNameText binder) (unqualifiedNameAnns binder))
           body = foldl EApp (EVar conSyntax) (zipWith argument labels binders)
       pure (CaseAlt [] (PCon conSyntax [] (map PVar binders)) (UnguardedRhs [] body Nothing))
+
+-- | Whether a record label is a variable identifier, and not an operator.
+isVariableLabel :: Text -> Bool
+isVariableLabel label =
+  case T.uncons label of
+    Just (first, _) -> isLower first || first == '_'
+    Nothing -> False
 
 inferLambdaCases :: Maybe SourceSpan -> [LambdaCaseAlt] -> TcM (Expr, TcType, [Ct])
 inferLambdaCases sp alts = do
@@ -1633,7 +1644,12 @@ inferLastDoStmt expected ambient stmt =
         _ -> pure (stmts', resultTy, cts)
     DoExpr body -> do
       (body', bodyTy, cts) <- maybe (inferExprAt ambient body) (`checkExpr` body) expected
-      pure ([DoExpr body'], bodyTy, cts)
+      case expected of
+        Nothing -> pure ([DoExpr body'], bodyTy, cts)
+        Just expectedTy -> do
+          -- The continuation must have the type that the do method requires.
+          equality <- wantedDoEq ambient expectedTy bodyTy
+          pure ([DoExpr (annotateExprCast expectedTy (ctEvVar equality) body')], expectedTy, cts <> [equality])
     _ -> do
       emitError ambient (OtherError "the last statement in a do block must be an expression")
       resultTy <- freshMetaTv

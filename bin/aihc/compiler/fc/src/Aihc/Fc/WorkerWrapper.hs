@@ -251,7 +251,7 @@ splitLocals = go
     splitMember env signatures (Bind binder rhs)
       | isFunction rhs,
         Just signature <- Map.lookup (binderName binder) signatures = do
-          workerName <- freshLocal ("$w" <> nameText (binderName binder))
+          workerName <- freshLocal (derivedLocalText "$w" (nameText (binderName binder)))
           split <- splitFunction env (binderName binder) (binderType binder) workerName (signatureDemands signature) rhs
           pure ((,) workerName <$> split)
       | otherwise = pure Nothing

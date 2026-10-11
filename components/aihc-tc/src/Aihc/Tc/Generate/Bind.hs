@@ -763,8 +763,17 @@ solveWithSigGivens (ForAll _ predicates _) cts
       let (equalityCts, dictionaryCts) = partition isEqualityCt cts
       residualEqualities <- concat <$> mapM solveEqualityCt equalityCts
       residualDictionaries <- concat <$> mapM solveDictionaryCt dictionaryCts
-      pure (residualEqualities <> residualDictionaries)
+      givenCts <- mapM makeGiven predicates
+      -- A deferred constraint must retain the context of its signature.
+      -- An outer constraint can supply a meta variable solution later.
+      let withSignatureGivens ct = ct {ctBranchGivens = givenCts <> ctBranchGivens ct}
+      pure (map withSignatureGivens (residualEqualities <> residualDictionaries))
   where
+    makeGiven predicate = do
+      evidence <- freshEvVar
+      bindEvidence evidence (EvGiven predicate)
+      pure ((mkWantedCt predicate evidence (LetOrigin Nothing) Nothing) {ctFlavor = Given})
+
     isEqualityCt ct =
       case ctPred ct of
         EqPred {} -> True

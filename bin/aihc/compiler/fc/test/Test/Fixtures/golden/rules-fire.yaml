@@ -62,9 +62,9 @@ expected: |-
   }
 
   pub val 1.vop :: ∀(a : sType). t$Dict$C a 2.→ a 2.→ a
-    = Λ(a : sType). λ($d0 : t$Dict$C a).
-      let! c$Dict$C ($method0 : a 2.→ a) = $d0;
-      $method0
+    = Λ(a : sType). λ($dC : t$Dict$C a).
+      let! c$Dict$C ($cop : a 2.→ a) = $dC;
+      $cop
 
   pub val 1.v$fCNat :: t$Dict$C tNat
     = c$Dict$C @tNat v$fCNat$cop
@@ -106,9 +106,9 @@ expected: |-
    = xs
    :: tList a
 
-  rule "op/op" Λ(a : sType). λ($rd0 : t$Dict$C a). λ(x : a).
-    vop @a $rd0 (vop @a $rd0 x)
-   = vop @a $rd0 x
+  rule "op/op" Λ(a : sType). λ($dC : t$Dict$C a). λ(x : a).
+    vop @a $dC (vop @a $dC x)
+   = vop @a $dC x
    :: a
 
   rule "compose/id" Λ(a : sType). Λ(b : sType). λ(f : a 2.→ b).

@@ -62,9 +62,9 @@ expected: |-
           1#cIntRep →
             cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# x1 (prim quotInt# z y);
           _ →
-            let! cTuple2# (s' : tState# tRealWorld) (_pat : tInt) = x x1;
-            let! cI# (r : tInt#) = _pat;
-            cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# s' r
+            let! cTuple2# (s'{1} : tState# tRealWorld) (_pat : tInt) = x x1;
+            let! cI# (r{1} : tInt#) = _pat;
+            cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# s'{1} r{1}
         };
       cTuple2# @(cTupleRep (c[] tRuntimeRep)) @cIntRep @(tState# tRealWorld) @tInt# s' (prim +# r y)
 status: pass

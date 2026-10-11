@@ -1,0 +1,14 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Test where
+  data Unit = Unit
+  newtype Gen s = Gen s
+  type family MutableGen seed m
+  type instance MutableGen Unit m = Gen m
+  unwrap :: MutableGen Unit m -> m
+  unwrap gen@(Gen value) = value
+status: pass
+reason: The newtype axiom uses the constructor arguments when an as-pattern has a type family type.

@@ -80,9 +80,9 @@ expected: |-
   }
 
   pub val 2.vevidence :: ∀(c : sType) (e : sType). t$Dict$HasDict c e 3.→ e 3.→ tDict c
-    = Λ(c : sType) (e : sType). λ($d0 : t$Dict$HasDict c e).
-      let! c$Dict$HasDict ($method0 : e 3.→ tDict c) = $d0;
-      $method0
+    = Λ(c : sType) (e : sType). λ($dHasDict : t$Dict$HasDict c e).
+      let! c$Dict$HasDict ($cevidence : e 3.→ tDict c) = $dHasDict;
+      $cevidence
 
   pub val 2.v$fHasDict~~ab:~~:ab :: ∀(k0 : sType) (k1 : sType) (a : k0) (b : k1). t$Dict$HasDict (t$Dict$~~ k0 k1 a b) (t:~~: k0 k1 a b)
     = Λ(k0 : sType) (k1 : sType) (a : k0) (b : k1).
@@ -90,7 +90,7 @@ expected: |-
 
   val 2.v$fHasDict~~ab:~~:ab$cevidence :: ∀(k0 : sType) (k1 : sType) (a : k0) (b : k1). t:~~: k0 k1 a b 3.→ tDict (t$Dict$~~ k0 k1 a b)
     = Λ(k0 : sType) (k1 : sType) (a : k0) (b : k1). λ(x : t:~~: k0 k1 a b).
-      let! cHRefl ($pattern_d0 : k1 ~ k0) ($pattern_d1 : b ~ a) = x;
-      (cDict @(t$Dict$~~ k0 k0 a a) (c$Dict$~~ @k0 @k0 @a @a (coercion (refl a)))) ▷ tycon-co tDict (tycon-co t$Dict$~~ (refl k0) (sym ($pattern_d0)) (refl a) (sym ($pattern_d1)))
+      let! cHRefl ($co : k1 ~ k0) ($co{1} : b ~ a) = x;
+      (cDict @(t$Dict$~~ k0 k0 a a) (c$Dict$~~ @k0 @k0 @a @a (coercion (refl a)))) ▷ tycon-co tDict (tycon-co t$Dict$~~ (refl k0) (sym ($co)) (refl a) (sym ($co{1})))
 status: pass
 reason: The HRefl match gives a kind equality and an index equality, and the Dict for a ~~ b uses both.

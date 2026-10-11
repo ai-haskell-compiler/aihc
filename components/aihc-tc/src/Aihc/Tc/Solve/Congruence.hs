@@ -153,10 +153,15 @@ congruence context graph left right =
     (TcTyCon leftCon leftArgs, TcTyCon rightCon rightArgs)
       | leftCon == rightCon,
         length leftArgs == length rightArgs ->
-          TyConAppCo leftCon leftArgs
-            <$> traverse (uncurry (findProof graph)) (zip leftArgs rightArgs)
-            <*> pure (kindArgumentProofs context graph leftCon leftArgs rightArgs)
-    _ -> do
+          ( TyConAppCo leftCon leftArgs
+              <$> traverse (uncurry (findProof graph)) (zip leftArgs rightArgs)
+              <*> pure (kindArgumentProofs context graph leftCon leftArgs rightArgs)
+          )
+            <|> applicationCongruence
+    _ -> applicationCongruence
+  where
+    -- A given can equate partial family applications even when their arguments differ.
+    applicationCongruence = do
       (leftFunction, leftArgument) <- application left
       (rightFunction, rightArgument) <- application right
       AppCo <$> findProof graph leftFunction rightFunction <*> findProof graph leftArgument rightArgument

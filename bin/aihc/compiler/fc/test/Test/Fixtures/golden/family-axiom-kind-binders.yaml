@@ -93,9 +93,9 @@ expected: |-
       x
 
   pub val 1.vapplied :: ∀(k0 : sType) (f : sType 2.→ k0) (g : sType 2.→ k0). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (f ~ g) (tProxy k0 (tParam (tTYPE (cBoxedRep cLifted) 2.→ k0) cZ f tInt) 2.→ tProxy k0 (tParam (tTYPE (cBoxedRep cLifted) 2.→ k0) cZ g tInt))
-    = Λ(k0 : sType) (f : sType 2.→ k0) (g : sType 2.→ k0). λ($d0 : f ~ g)
+    = Λ(k0 : sType) (f : sType 2.→ k0) (g : sType 2.→ k0). λ($co : f ~ g)
     (x : tProxy k0 (tParam (tTYPE (cBoxedRep cLifted) 2.→ k0) cZ f tInt)).
-      x ▷ tycon-co tProxy (refl k0) (tycon-co tParam (refl (tTYPE (cBoxedRep cLifted) 2.→ k0)) (refl cZ) ($d0) (refl tInt))
+      x ▷ tycon-co tProxy (refl k0) (tycon-co tParam (refl (tTYPE (cBoxedRep cLifted) 2.→ k0)) (refl cZ) ($co) (refl tInt))
 
   pub val 1.vboxed :: ∀(k0 : sType) (f : k0 2.→ sType). tProxy (tTYPE (cBoxedRep cLifted)) (tIndexed (tTYPE (cBoxedRep cLifted)) (tBox k0 f) cZ) 2.→ tProxy (tTYPE (cBoxedRep cLifted)) (tBox k0 (tParam (k0 2.→ tTYPE (cBoxedRep cLifted)) cZ f))
     = Λ(k0 : sType) (f : k0 2.→ sType).

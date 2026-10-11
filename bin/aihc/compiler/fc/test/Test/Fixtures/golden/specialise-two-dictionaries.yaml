@@ -67,9 +67,9 @@ expected: |-
   }
 
   val 1.vweight :: ∀(a : sType). t$Dict$Weight a 3.→ a 3.→ tInt
-    = Λ(a : sType). λ($d0 : t$Dict$Weight a).
-      let! c$Dict$Weight ($method0 : a 3.→ tInt) = $d0;
-      $method0
+    = Λ(a : sType). λ($dWeight : t$Dict$Weight a).
+      let! c$Dict$Weight ($cweight : a 3.→ tInt) = $dWeight;
+      $cweight
 
   pub val 1.v$fWeightBool :: t$Dict$Weight tBool
     = c$Dict$Weight @tBool v$fWeightBool$cweight
