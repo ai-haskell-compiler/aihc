@@ -590,36 +590,84 @@ gives the reserve. The next reservation of the thread then takes the slow
 path and collects. This is one load on the cold path.
 
 **Runtime operations.** A runtime operation never collects while it holds
-a lock. It obtains its barrier capacity before it takes a lock, as it
-obtains its heap:
+a lock. It obtains its barrier capacity before it takes a lock, through a
+reservation that the compiler emits and keeps, as it does for heap:
 
-- Each primitive declares a bound on the barrier work it does under a
-  lock, next to its heap bound in the GRIN primitive description. The
-  bound is a constant for the `MVar` operations, the thread handoffs, the
-  blackhole attach, and the timer list. The largest constant is the
-  reserve. The reserve is small, eight entries at most.
-- The reservation before a primitive is the heap reservation of today.
-  Every primitive is preceded by one. A barrier that leaves less than the
-  reserve sets `heap_limit` to zero, so the reservation before the next
-  primitive collects first. Thus every primitive finds at least the
-  reserve when it starts, and its work under a lock fits the reserve.
-- A primitive whose barrier work depends on data gets a dynamic bound, as
-  a dynamic heap reservation does. The commit of a transaction declares
-  the length of its write log, which a helper computes before the
-  reservation. `copyArray#` declares its element count. The reservation
-  collects when the remaining budget does not cover the bound.
+- The GRIN primitive description gives each primitive a barrier bound next
+  to its heap bound. The bound counts the entries and card runs the
+  primitive records while it holds a lock. The bound is a constant for the
+  `MVar` operations, the thread handoffs, the blackhole attach, and the
+  timer list. The largest constant is the reserve, eight entries at most.
+  A primitive without a heap bound, such as `tryPutMVar#`, has a barrier
+  bound all the same.
+- The GC-GRIN pass gives `ensure-heap` a second operand, the barrier
+  bound. It emits the node before every primitive with a barrier bound,
+  also before a primitive without heap words, with zero heap words then.
+  The normalization sums the static barrier bounds of a region as it sums
+  the heap words. It places the sum at the top of the region. A
+  dynamic barrier bound is a reservation of its own, as a dynamic heap
+  reservation is. The merge is sound because the budget decreases only
+  through barrier work, which the bounds count, and a collection inside
+  the region only increases it.
+- The fast path of a reservation does not change for a static barrier
+  bound. The cold path of the write barrier sets `heap_limit` of the
+  capability to zero when the remaining budget falls below the reserve.
+  The next reservation of the thread then takes the slow path, also a
+  reservation of zero words. The slow path tests the barrier bound against
+  the remaining budget and collects when it is short. A dynamic
+  barrier bound adds one load and one compare to its fast path, because
+  the bound can be above the reserve. Thus every primitive starts with at
+  least its bound, and its work under a lock fits.
+- A barrier safepoint at a store site lies inside a reservation that
+  spans it, because a pointer store is not a reservation boundary. The
+  collection at the safepoint must not invalidate the rest of that
+  reservation. The GC-GRIN pass therefore gives each barrier call the
+  words that the stores after the site still need from the spanning
+  reservation. This is a constant of the site. The collection ensures
+  these words before it returns, as `aihc_heap_collect` ensures the words
+  of its reservation today. A barrier safepoint keeps the reservation
+  intact in this way. The normalization needs no new boundary at a store
+  site.
+- A primitive whose barrier work depends on data gets a dynamic bound. The
+  commit of a transaction declares the length of its write log, which a
+  helper computes before the reservation. The reservation collects when
+  the remaining budget does not cover the bound.
 - An operation that wakes a data-dependent number of threads does the
   wakes outside its lock. It takes the lock, moves the waiters to a
   private list, and releases the lock. Then it wakes them one by one under
   a host root frame, where it can collect at a host safepoint when the
   budget is exhausted. `putMVar#` wakes all blocked readers this way, and
-  a commit wakes the watchers of its written variables this way.
+  a commit wakes the watchers of its written variables this way. The
+  scheduler reads the messages of its inbox one at a time in the same way.
+  Each message has the reserve, and the scheduler can collect between two
+  messages.
+
+**Oversized operations.** An operation whose work exceeds the whole budget
+cannot get its capacity from one collection. Two operations can be that
+large, and each has a rule that keeps its excess out of the bound:
+
+- `copyArray#` and `copySmallArray#` dirty one card run for each 128
+  elements of the target. The copy helper in `aihc_array.lir` copies in
+  pieces of at most half the budget of card runs. Before each piece it
+  calls the range barrier with the spilled roots of the copy: the source,
+  the target, the offsets, and the count. The barrier call is a safepoint.
+  It collects when the budget is short, and it records the cards of the
+  piece after the collection, as a store site does. Thus a copy of any size
+  exceeds the budget by nothing.
+- A transaction whose write log is longer than the whole budget commits in
+  a stop-the-world step. The commit reservation finds that no budget can
+  cover the bound, so it requests a stop as the collection safepoint does.
+  When every capability is parked, the thread commits without the commit
+  lock, and the leader runs a collection directly after the commit. The
+  entries of the commit are consumed by that collection, so no later
+  collection sees them. Such a transaction writes more variables than the
+  budget holds entries. With the default budget, that is several hundred
+  thousand writes in one transaction. The stop is the cost of its size.
 
 **Permitted excess.** A collection can find the count of a capability
-above the budget by at most the reserve. The last primitive can have
-started with exactly the reserve. A transaction whose write log is longer
-than the whole budget exceeds it by the length of its log. Its writes are
-under the commit lock. The work bound names both.
+above the budget by two amounts. One is the reserve. The other is the
+allowance of the pause walk, which the blackholing section gives. Nothing
+else exceeds the budget. The work bound names both.
 
 Thus the budget bounds the scan work of the remembered set and the dirty
 cards at a collection. The size of the arrays and of the old heap does not
@@ -661,7 +709,7 @@ defaults.
 | Copy of gen1 | The gen1 maximum, `-B` |
 | Root scan | The runnable threads and messages of every capability, plus the global roots |
 | Stack scan | One chunk for each live thread plus the young chunks, which the `-A` budgets bound |
-| Remembered set and dirty cards | `-N` times the barrier budget, plus the reserve of the runtime operations for each capability, plus the write log of one transaction above the budget |
+| Remembered set and dirty cards | `-N` times the barrier budget, plus the reserve of the runtime operations and the pause walk allowance for each capability. The allowance is the number of update frames in the young stack chunks, which the `-A` budget bounds. |
 | Mark slice | `-N` times the slice cap |
 
 The barrier budget is new. The current collector scans every remembered
@@ -994,6 +1042,22 @@ the entry path. The barrier fast path is the nursery range test, and a
 thunk in the nursery pays nothing more. The update barrier is the one of
 today.
 
+The pause walk claims one thunk for each unmarked update frame, and each
+claim of a thunk outside the nursery records one remembered set entry. The
+walk cannot collect in the middle, because a collection starts with a
+pause. Its capacity comes from an allowance instead of a reservation. An
+unmarked frame is in a young stack chunk: every frame in a chunk that a
+collection scanned was marked by the pause before that collection, because
+a walk marks every frame below the first marked one. A stack growth
+charges each young chunk to the `-A` budget of the capability. Thus the
+young chunks hold at most the `-A` budget of frames, and an update frame
+has three words. The walk therefore records at most that many entries
+above the barrier budget. The work bound of the collection names this
+allowance. The walk does not count against the budget, and the barrier
+that it takes never collects. After the walk, the usual rule applies: a
+remaining budget below the reserve sets `heap_limit` to zero, and the next
+reservation collects.
+
 ### Race tests
 
 The collector fuzz driver and the scheduler stress suite cover these
@@ -1033,7 +1097,17 @@ interleavings, with real OS workers and with a model of the states above:
   barrier of the pending store must shade the old value.
 - A commit with a write log longer than the remaining budget, and one
   longer than the whole budget. The first must collect before the lock,
-  and the second must record every write.
+  and the second must commit in a stop-the-world step with a collection
+  directly after it.
+- A `copyArray#` with more card runs than the whole budget. The copy must
+  proceed in pieces. A collection inside a piece must keep the cards of
+  the earlier pieces and record the cards of the piece after it.
+- A pause walk through more unmarked frames than the remaining budget.
+  The walk must claim every frame, and the next reservation must collect.
+- A store site inside a reservation that spans it, where the barrier call
+  collects. The stores after the site must find their words.
+- `tryPutMVar#` after barriers that left less than the reserve. The
+  reservation of zero words before it must collect first.
 - `putMVar#` with more blocked readers than the remaining budget. The
   wake must collect outside the lock and wake every reader.
 - A reader that sees the owner of a claim under the header of an update.
@@ -1261,8 +1335,10 @@ lock, so it reserves its barrier work first. A helper computes the length
 of the write log before the reservation of the commit primitive. The
 reservation declares that length as a dynamic barrier bound. When the
 remaining budget of the capability does not cover it, the reservation
-collects first. The wake of the watchers happens after the lock is
-released, under a host root frame. Refer to the write barrier section.
+collects first. When the whole budget does not cover it, the commit runs
+in a stop-the-world step with a collection directly after it. The wake of
+the watchers happens after the lock is released, under a host root frame.
+Refer to the write barrier section.
 
 ### Tests
 
@@ -1555,8 +1631,9 @@ for `-N1`, parks idle workers without a spin, and keeps the per-capability
    Move the per-worker fields. Add the arena and the block refill. Add the
    Lir atomic instructions and the access rules. Add the owner word, the
    lazy claims with the pause walk, the queue list of a thread, and the new
-   update. Add the barrier budget. Add the update frame rule to the
-   collector. Still
+   update. Add the barrier budget, the barrier bound of `ensure-heap` in
+   GC-GRIN, and the remaining words of a barrier safepoint. Add the update
+   frame rule to the collector. Still
    one OS thread and `-N1` only. Measure the cost budget and the three
    entries. This step carries most fixed costs.
 2. **Workers and stop-the-world.** Add the workers, the capability locks,
