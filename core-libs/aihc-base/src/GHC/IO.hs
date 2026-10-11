@@ -39,7 +39,7 @@ where
 import GHC.Base (Maybe (..), Monad (..), String, id)
 import GHC.Exception.Type (Exception (..), SomeException (..))
 import GHC.IO.Unsafe (unsafeDupableInterleaveIO, unsafeDupablePerformIO, unsafeInterleaveIO, unsafePerformIO)
-import GHC.Prim (RealWorld, State#, catch#, raise#, seq, unsafeCoerce#)
+import GHC.Prim (RealWorld, State#, catch#, raiseIO#, seq, unsafeCoerce#)
 import GHC.Prim.IO
 
 type FilePath = String
@@ -60,8 +60,10 @@ unsafeSTToIO (ST action) = IO (unsafeCoerce# action)
 noDuplicate :: IO ()
 noDuplicate = return ()
 
+-- | Raise an exception in the @IO@ thread. 'raiseIO#' takes the state
+-- token, so each effect before the raise stays before it.
 throwIO :: (Exception e) => e -> IO a
-throwIO exception = IO (\_state -> raise# (toException exception))
+throwIO exception = IO (raiseIO# (toException exception))
 
 -- | Catch the exceptions of one type. Other exceptions continue upward.
 catchException :: (Exception e) => IO a -> (e -> IO a) -> IO a
@@ -71,7 +73,7 @@ catchException (IO action) handler =
     handler' exception =
       case fromException exception of
         Just selected -> unIO (handler selected)
-        Nothing -> raise# exception
+        Nothing -> raiseIO# exception
 
 catch :: (Exception e) => IO a -> (e -> IO a) -> IO a
 catch = catchException
