@@ -247,6 +247,7 @@ library
     Text.Show
     Text.Show.Functions
     Type.Reflection
+    Type.Reflection.Literal
     Type.Reflection.Unsafe
     Unsafe.Coerce
 

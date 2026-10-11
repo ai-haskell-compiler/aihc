@@ -16,7 +16,7 @@ modules:
           _ -> opaque (opaque y)
     in case x of
       A -> Pair shared shared
-      _ -> Pair shared shared
+      _ -> Pair shared (opaque shared)
 passes:
 - simplify
 expected: |-
@@ -64,7 +64,7 @@ expected: |-
         cA →
           cPair shared shared;
         _ →
-          cPair shared shared
+          cPair shared (vopaque shared)
       }
 status: pass
 reason: The simplifier keeps the shared case when a copy can increase cost.
