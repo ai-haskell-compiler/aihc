@@ -28,7 +28,8 @@ fcPropertyTests =
       testProperty "tidyProgram output round trips" prop_tidyRoundTrip,
       testProperty "t prefix stores Bool" prop_prefixStrip,
       testProperty "uses have no type suffix" prop_noUseTypes,
-      testProperty "readable style is short" prop_readableStyle
+      testProperty "readable style is short" prop_readableStyle,
+      testProperty "alpha-equivalent primitive types share one alias" prop_primitiveAliasUpToBinders
     ]
 
 prop_readableStyle :: Property
@@ -156,6 +157,39 @@ readableProgram =
     wiredType text = Name text SortTypeConstructor (OriginTop primPackage "GHC.Types")
     wiredCon text = Name text SortDataConstructor (OriginTop primPackage "GHC.Types")
     primType text = Name text SortTypeConstructor (OriginTop primPackage "GHC.Prim")
+
+-- | Two calls of one primitive whose types differ only in the names of
+-- their binders print as one import and use the same alias.
+prop_primitiveAliasUpToBinders :: Property
+prop_primitiveAliasUpToBinders = property $ do
+  let printed = renderProgram primitiveProgram
+      importLines = filter (T.isInfixOf "= 1.vraise# ::") (T.lines printed)
+  annotate (T.unpack printed)
+  length importLines === 1
+  T.count "prim raise#" printed === 2
+  T.isInfixOf "raise#{1}" printed === False
+  where
+    call variable =
+      ForeignCall
+        { foreignCallName = valueNameTop "raise#",
+          foreignCallConvention = Prim,
+          foreignCallDependencies = [],
+          foreignCallType = TyForAll (Binder (localType variable) (TyCon (typeWired "Type"))) (TyVar (localType variable))
+        }
+    primitiveProgram =
+      identityProgram
+        { programDecls =
+            programDecls identityProgram
+              <> [ DeclVal
+                     ValDecl
+                       { valVis = Private,
+                         valInline = InlineDefault,
+                         valName = valueNameTop "uses",
+                         valType = TyCon (typeNameTop "Bool"),
+                         valBody = ExApp (ExForeignCall (call "a") [] []) (ExForeignCall (call "b") [] [])
+                       }
+                 ]
+        }
 
 prop_programRoundTrip :: Property
 prop_programRoundTrip = property $ do

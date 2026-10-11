@@ -226,13 +226,27 @@ coercionUses proof = case proof of
   CoAxiom _ arguments -> foldMap typeUses arguments
 
 -- | Give each primitive signature a separate text alias.
+--
+-- The passes give the binders of a foreign type new names at each copy, so
+-- the same primitive can have types that are equal except for the names of
+-- their binders. These calls get one alias, and the import list shows the
+-- first of them. Thus a primitive has one alias for each type that is
+-- really different.
 primitiveAliases :: Program -> Map.Map ForeignCall Name
 primitiveAliases program = Map.fromList (concatMap aliases (Map.elems grouped))
   where
     calls = Set.toAscList (foldMap declarationCalls (programDecls program))
     grouped = Map.fromListWith (<>) [(nameText (foreignCallName call), [call]) | call <- calls]
     aliases variants =
-      [(call, Name (nameText (foreignCallName call)) SortValue (OriginLocal (Unique unique))) | (unique, call) <- zip [0 ..] (List.sort variants)]
+      [ (call, Name (nameText (foreignCallName representative)) SortValue (OriginLocal (Unique unique)))
+      | (unique, classCalls@(representative : _)) <- zip [0 ..] (alphaClasses variants),
+        call <- classCalls
+      ]
+    -- The calls in groups that are equal up to the names of the binders,
+    -- in the order of the first call of each group. Each group is sorted.
+    alphaClasses variants =
+      map (List.sort . snd) (List.sortOn (minimum . snd) (Map.toList (Map.fromListWith (<>) [(canonicalCall call, [call]) | call <- variants])))
+    canonicalCall call = call {foreignCallType = canonicalType 0 Map.empty (foreignCallType call)}
     declarationCalls declaration = case declaration of
       DeclVal value -> expressionCalls (valBody value)
       DeclRule value -> expressionCalls (ruleLhs value) <> expressionCalls (ruleRhs value)
@@ -249,6 +263,25 @@ primitiveAliases program = Map.fromList (concatMap aliases (Map.elems grouped))
       ExCast body _ -> expressionCalls body
       ExForeignCall call _ arguments -> (if foreignCallConvention call == Prim then Set.singleton call else mempty) <> foldMap expressionCalls arguments
       _ -> mempty
+
+-- | A type with each binder renamed to its depth. Two types are equal up
+-- to the names of their binders when their canonical types are equal.
+canonicalType :: Int -> Map.Map Name Name -> Type -> Type
+canonicalType depth renaming ty =
+  case ty of
+    TyVar name -> TyVar (Map.findWithDefault name name renaming)
+    TyCon {} -> ty
+    TyLit {} -> ty
+    TyApp function argument -> TyApp (canonical function) (canonical argument)
+    TyFun r1 r2 argument result -> TyFun (canonical r1) (canonical r2) (canonical argument) (canonical result)
+    TyEq left right -> TyEq (canonical left) (canonical right)
+    TyForAll (Binder name kind) body ->
+      -- The empty text is not the text of a source name, so a canonical
+      -- binder cannot capture a free variable.
+      let name' = Name "" (nameSort name) (OriginLocal (Unique depth))
+       in TyForAll (Binder name' (canonical kind)) (canonicalType (depth + 1) (Map.insert name name' renaming) body)
+  where
+    canonical = canonicalType depth renaming
 
 -- | Short references require one global origin and no local binder conflict.
 globalReferences :: Program -> Map.Map Text Name
@@ -384,7 +417,9 @@ programDocuments style program =
         [] -> []
         entries -> [prettyScopes entries]
     importDocuments = prettyImports scopeIndex (programImports program)
-    primitiveDocuments = prettyImportGroup "prims" [prettyPrimitiveAlias alias <+> "=" <+> prettyForeignImportDependencies scopeIndex (foreignCallDependencies call) <> prettyTopName scopeIndex (foreignCallName call) <+> "::" <+> prettyTypeWith scopeIndex PrecForAll (foreignCallType call) | (call, alias) <- Map.toAscList (primitiveNames scopeIndex)]
+    primitiveDocuments = prettyImportGroup "prims" [prettyPrimitiveAlias alias <+> "=" <+> prettyForeignImportDependencies scopeIndex (foreignCallDependencies call) <> prettyTopName scopeIndex (foreignCallName call) <+> "::" <+> prettyTypeWith scopeIndex PrecForAll (foreignCallType call) | (call, alias) <- primitiveImports (primitiveNames scopeIndex)]
+    -- One import for each alias: the first call that has the alias.
+    primitiveImports names = List.sort [(call, alias) | (alias, call) <- Map.toList (Map.fromListWith min [(alias, call) | (call, alias) <- Map.toList names])]
 
 prettyImports :: ScopeIndex -> Imports -> [FcDoc]
 prettyImports scopes imports =
