@@ -35,8 +35,8 @@ expected: |-
   }
 
   pub val 1.vuseParam :: tBool 2.→ tBool
-    = λ($d0 : tBool).
-      $d0
+    = λ($d : tBool).
+      $d
 
   pub val 1.vcallUse :: tBool
     = vuseParam cTrue

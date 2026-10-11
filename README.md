@@ -13,12 +13,12 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | --- | --- | --- |
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
-| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `122/122` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `376/381` (`98.68%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `866/917` (`94.43%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `237/237` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
-| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `785/5013` (`15.66%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2173/10061` (`21.60%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `123/123` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `393/398` (`98.74%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `977/1015` (`96.25%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `248/248` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `817/5013` (`16.30%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2255/10061` (`22.41%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
 | Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●● `77/77` (`100.00%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Getting started

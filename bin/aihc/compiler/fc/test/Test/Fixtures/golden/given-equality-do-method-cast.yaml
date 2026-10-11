@@ -78,9 +78,9 @@ expected: |-
   }
 
   pub val 1.vbracket :: ∀(m : sType 3.→ sType) (a : sType) (c : sType). t$Dict$Mask m 3.→ m a 3.→ (a 3.→ m c) 3.→ m c
-    = Λ(m : sType 3.→ sType) (a : sType) (c : sType). λ($d0 : t$Dict$Mask m).
-      let! c$Dict$Mask ($method0 : ∀(a{1} : sType) (c{1} : sType). m a{1} 3.→ (a{1} 3.→ m c{1}) 3.→ m c{1}) = $d0;
-      $method0 @a @c
+    = Λ(m : sType 3.→ sType) (a : sType) (c : sType). λ($dMask : t$Dict$Mask m).
+      let! c$Dict$Mask ($cbracket : ∀(a{1} : sType) (c{1} : sType). m a{1} 3.→ (a{1} 3.→ m c{1}) 3.→ m c{1}) = $dMask;
+      $cbracket @a @c
 
   pub val 1.v$fFunctorEithere :: ∀(e : sType). t$Dict$Functor (tEither e)
     = Λ(e : sType).
@@ -150,13 +150,13 @@ expected: |-
       v$dmreturn @(tEither e) @a (v$fMonadEithere @e)
 
   pub val 1.v$fMaskEithere :: ∀(e : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (e ~ tEx) (t$Dict$Mask (tEither e))
-    = Λ(e : sType). λ($d0 : e ~ tEx).
-      c$Dict$Mask @(tEither e) (v$fMaskEithere$cbracket @e $d0)
+    = Λ(e : sType). λ($co : e ~ tEx).
+      c$Dict$Mask @(tEither e) (v$fMaskEithere$cbracket @e $co)
 
   val 1.v$fMaskEithere$cbracket :: ∀(e : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (e ~ tEx) (∀(a : sType) (c : sType). tEither e a 3.→ (a 3.→ tEither e c) 3.→ tEither e c)
-    = Λ(e : sType). λ($d0 : e ~ tEx). Λ(a : sType) (c : sType). λ(x : tEither e a) (y : a 3.→ tEither e c).
-      ((v>>= @(tEither tEx) @a @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($d0) (refl a)) (fun-co (refl (a 3.→ tEither tEx c)) (tycon-co tEither ($d0) (refl c))))) x (λ(resource : a).
-        ((v>>= @(tEither tEx) @c @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($d0) (refl c)) (refl ((c 3.→ tEither tEx c) 3.→ tEither tEx c)))) (y resource) (λ(c{1} : c).
+    = Λ(e : sType). λ($co : e ~ tEx). Λ(a : sType) (c : sType). λ(x : tEither e a) (y : a 3.→ tEither e c).
+      ((v>>= @(tEither tEx) @a @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($co) (refl a)) (fun-co (refl (a 3.→ tEither tEx c)) (tycon-co tEither ($co) (refl c))))) x (λ(resource : a).
+        ((v>>= @(tEither tEx) @c @c (v$fMonadEithere @tEx)) ▷ sym (fun-co (tycon-co tEither ($co) (refl c)) (refl ((c 3.→ tEither tEx c) 3.→ tEither tEx c)))) (y resource) (λ(c{1} : c).
           vreturn @(tEither tEx) @c (v$fMonadEithere @tEx) c{1}))
 status: pass
 reason: a given equality of the instance context rewrites the monad of a do

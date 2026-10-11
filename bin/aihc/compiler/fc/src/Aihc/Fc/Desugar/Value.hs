@@ -29,7 +29,8 @@ import Aihc.Resolve
     termResolution,
   )
 import Aihc.Tc
-  ( DataConFieldInfo (..),
+  ( ClassInfo (..),
+    DataConFieldInfo (..),
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
@@ -43,6 +44,7 @@ import Aihc.Tc
     defaultMethodName,
     patSynKey,
     repLeaves,
+    tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
     tcInterfaceForeignImports,
@@ -100,7 +102,6 @@ import Aihc.Tc.Types
     tyConModuleName,
     tyConName,
     tyConPackageId,
-    typeKind,
     word16Rep,
     word32Rep,
     word64Rep,
@@ -109,12 +110,12 @@ import Aihc.Tc.Types
   )
 import Aihc.Tc.Types qualified as Tc
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, mapAndUnzipM, unless, when, zipWithM)
+import Control.Monad (foldM, mapAndUnzipM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
-import Data.Char (isAsciiUpper, isDigit)
+import Data.Char (isAlpha, isAlphaNum, isAsciiUpper, isDigit)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -152,7 +153,11 @@ data ValueState = ValueState
     vsForeignImports :: !(Map Entity TcForeignImportInfo),
     -- | The enumeration data types in scope, by the package, module and
     -- name of their type constructor. @tagToEnum#@ reads this.
-    vsEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo)
+    vsEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo),
+    -- | The method names of each class in scope, in the order of the
+    -- fields of its dictionary. A dictionary match names its binders
+    -- after them.
+    vsClassMethods :: !(Map GlobalName [Text])
   }
 
 data PreparedValueInterface = PreparedValueInterface
@@ -163,7 +168,9 @@ data PreparedValueInterface = PreparedValueInterface
     preparedPatSyns :: !(Map Entity PatSynInfo),
     preparedForeignImports :: !(Map Entity TcForeignImportInfo),
     -- | Enumeration data types by type-constructor identity.
-    preparedEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo)
+    preparedEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo),
+    -- | Class method names by class type-constructor identity.
+    preparedClassMethods :: !(Map GlobalName [Text])
   }
 
 type ValueM = StateT ValueState (Either String)
@@ -248,7 +255,12 @@ prepareValueInterface interface =
       preparedFamilyConstructors = familyConstructors,
       preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
       preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface),
-      preparedEnumerations = enumerations
+      preparedEnumerations = enumerations,
+      preparedClassMethods =
+        Map.fromList
+          [ (Tc.tyConKey (ciTyCon info), map fst (ciMethods info))
+          | info <- tcInterfaceClasses interface
+          ]
     }
   where
     termTypes =
@@ -331,7 +343,8 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsFamilyConstructors = preparedFamilyConstructors interface,
             vsPatSyns = preparedPatSyns interface,
             vsForeignImports = preparedForeignImports interface,
-            vsEnumerations = preparedEnumerations interface
+            vsEnumerations = preparedEnumerations interface,
+            vsClassMethods = preparedClassMethods interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 
@@ -371,7 +384,7 @@ desugarRule rule =
           (binderTypes, resultType) = peelFunctions (length (Syn.ruleBinders rule)) bodyType
       typeBinders <- convertTypeBinders typeVariables
       withTypeVariables typeVariables $ do
-        dictionaries <- zipWithM (freshDictionaryBinder "$rd") [0 :: Int ..] predicates
+        dictionaries <- mapM freshDictionaryBinder predicates
         binders <- zipWithM ruleBinder (Syn.ruleBinders rule) binderTypes
         ty <- convertCheckedType resultType
         let side expression =
@@ -586,7 +599,7 @@ desugarPatSynCall info annotation resultType scrutinee pattern' failureExpressio
     typeBinders <- convertTypeBinders typeVariables
     fieldTypes <- mapM requiredPatternType children
     fields <- zipWithM freshPatternBinder children fieldTypes
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] providedPredicates
+    dictionaries <- mapM freshDictionaryBinder providedPredicates
     requiredArguments <- mapM desugarEvidence requiredTerms
     matcher <- patSynMatcherReference info annotation resultType
     body' <- withAlternativeScope (not (null typeBinders)) (zipWith Dictionary providedPredicates dictionaries) (body fields fieldTypes)
@@ -682,7 +695,7 @@ desugarRecordSelector constructors label = do
       TcFunTy argument result -> pure (argument, result)
       _ -> failValue ("record selector does not have a function type: " <> T.unpack label)
   withTypeVariables typeVariables $ do
-    dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
+    dictionaries <- mapM freshDictionaryBinder predicates
     argument <- freshBinder "$record" scrutineeType
     selection <- desugarRecordSelection label scrutineeType fieldType argument constructors
     typeBinders <- convertTypeBinders typeVariables
@@ -751,8 +764,8 @@ recordSelectorAlternative label scrutineeType fieldType constructor =
           reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields constructor]
       typeBinders <- convertTypeBinders existentials
       withTypeVariables existentials $ do
-        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] (dciTheta constructor)
-        leafGroups <- mapM representationBinders reps
+        dictionaries <- mapM freshDictionaryBinder (dciTheta constructor)
+        leafGroups <- freshLeafBinders "$field" (zip (map dcfiLabel (dciFields constructor)) reps)
         let leaves = concat leafGroups
             before = sum (map length (take index leafGroups))
             selectedLeaves = take (length (leafGroups !! index)) (drop before leaves)
@@ -1052,13 +1065,13 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
   let (typeVariables, afterForAlls) = peelForAlls (tcClassMethodType method)
       (predicates, resultType) = peelConstraints afterForAlls
   withTypeVariables typeVariables $ do
-    dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
+    dictionaries <- mapM freshDictionaryBinder predicates
     classDictionary <-
       case dictionaries of
         dictionary : _ -> pure dictionary
-        [] -> freshBinder "$d" (tcClassMethodDictType method)
-    caseBinder <- freshBinder "$dict" (tcClassMethodDictType method)
-    fields <- zipWithM (freshIndexedBinder "$method") [0 :: Int ..] fieldTypes
+        [] -> freshEvidenceBinder (tcClassMethodDictType method)
+    caseBinder <- freshEvidenceBinder (tcClassMethodDictType method)
+    fields <- freshDictionaryFields classTyCon fieldTypes
     selected <-
       case drop (superClassCount + tcClassMethodIndex method) fields of
         field : _ -> pure field
@@ -1130,7 +1143,7 @@ desugarInstanceDecl declaration =
 desugarInstance :: TcInstanceAnnotation -> Syn.InstanceDecl -> ValueM [Decl]
 desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars annotation) $ do
   let methods = Map.fromListWith appendMatches (instanceMethods instanceDecl)
-  contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] (tcInstanceContextDicts annotation)
+  contextDictionaries <- mapM makeContextDictionary (tcInstanceContextDicts annotation)
   (dictionaryBody, workers) <- withDictionaries contextDictionaries $ do
     case tcInstanceCoerced annotation of
       Just derived
@@ -1246,11 +1259,11 @@ desugarCoercedMethod :: TcInstanceAnnotation -> TcCoercedInstance -> TcCoercedMe
 desugarCoercedMethod annotation derived method = withTypeVariables (tcCoercedMethodTyVars method) $ do
   typeBinders <- convertTypeBinders (tcCoercedMethodTyVars method)
   extraTypes <- mapM (convertCheckedType . TcTyVar) (tcCoercedMethodTyVars method)
-  dictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] (tcCoercedMethodPredicates method)
+  dictionaries <- mapM freshDictionaryBinder (tcCoercedMethodPredicates method)
   evidence <- maybe (failValue "newtype method lacks representation evidence") desugarEvidence (tcCoercedEvidence derived)
   let classTyCon = tcInstanceClassTyCon annotation
-  sourceBinder <- freshBinder "$coerced_source" (TcTyCon classTyCon (tcCoercedHeadTypes derived))
-  fields <- zipWithM (freshIndexedBinder "$coerced_field") [0 :: Int ..] (tcCoercedFieldTypes derived)
+  sourceBinder <- freshEvidenceBinder (TcTyCon classTyCon (tcCoercedHeadTypes derived))
+  fields <- freshDictionaryFields classTyCon (tcCoercedFieldTypes derived)
   selected <- case drop (tcCoercedMethodIndex method) fields of
     field : _ -> pure field
     [] -> failValue "newtype method index is outside the dictionary layout"
@@ -1289,7 +1302,7 @@ desugarMissingMethod annotation methodName = do
       resultType = applySubst substitution methodBody
       instanceHead = T.unwords (tyConName classTyCon : map describeInstanceHeadType (tcInstanceHeadTypes annotation))
   extraTypeBinders <- convertTypeBinders extraTyVars
-  extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
+  extraDictionaries <- mapM freshDictionaryBinder extraPredicates
   (_, moduleName') <- gets vsModuleOrigin
   body <-
     raiseErrorValue
@@ -1326,7 +1339,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
       extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
   extraTypeBinders <- convertTypeBinders extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
-  extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
+  extraDictionaries <- mapM freshDictionaryBinder extraPredicates
   -- A default signature gives the worker its own constraints, which the
   -- type checker solved at the instance head.
   signatureEvidence <-
@@ -1365,10 +1378,10 @@ dropClassPredicate classTyCon predicates =
 -- decides how the binder's type is spelled: a stuck constraint such as
 -- @TypeError msg@ is polymorphic in its result kind, and only the
 -- predicate says that the context fixes that kind to @Constraint@.
-makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
-makeContextDictionary index annotation = do
+makeContextDictionary :: TcDictBinderAnnotation -> ValueM Dictionary
+makeContextDictionary annotation = do
   let predicate = tcDictBinderPred annotation
-  binder <- freshDictionaryBinder "$d" index predicate
+  binder <- freshDictionaryBinder predicate
   pure (Dictionary predicate binder)
 
 instanceMethods :: Syn.InstanceDecl -> [(Text, (TcType, [Syn.Match]))]
@@ -1806,7 +1819,7 @@ desugarMatches ty matches =
       typeBinders <- convertTypeBinders typeVariables
       (dictionaries, arguments, body) <-
         withTypeVariables typeVariables $ do
-          dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
+          dictionaries <- mapM freshDictionaryBinder predicates
           arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
           body <-
             withDictionaryScope (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches))
@@ -2484,8 +2497,10 @@ newtypeFieldType dataType scrutineeType child = do
 
 newtypePatternArguments :: Syn.Pattern -> ValueM [TcType]
 newtypePatternArguments pattern' = do
-  kinds <- gets (ceKinds . vsConvertEnv)
-  case constructorResultType (length (patternChildren pattern')) (fromBinderType kinds pattern') of
+  -- An as-pattern binder can have a type family type. Use the checked
+  -- constructor annotation for the newtype axiom arguments.
+  annotation <- maybe (failValue "missing checked newtype pattern type") pure (patternAnnotation pattern')
+  case constructorResultType (length (patternChildren pattern')) (tcAnnType annotation) of
     TcTyCon _ arguments -> pure arguments
     ty -> failValue ("newtype pattern has an invalid checked type: " <> show ty)
 
@@ -2520,7 +2535,7 @@ desugarPatternGroup resultType fallback remaining restTypes scrutineeType caseBi
         typeBinders <- convertTypeBinders typeVariables
         fieldTypes <- patternFieldTypes pattern' subpatterns
         fields <- zipWithM freshPatternBinder subpatterns fieldTypes
-        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+        dictionaries <- mapM freshDictionaryBinder predicates
         rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
         expanded <- mapMaybeM (specializeMatchWork key (length fields) fields fieldTypes) rooted
         body <-
@@ -2833,9 +2848,6 @@ literalType literal =
 valueKinds :: ValueM TcKinds
 valueKinds = gets (ceKinds . vsConvertEnv)
 
-fromBinderType :: TcKinds -> Syn.Pattern -> TcType
-fromBinderType kinds pattern' = fromMaybe (typeKind kinds) (patternType pattern')
-
 nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =
   tcAnnType <$> listToMaybe (mapMaybe Syn.fromAnnotation (Syn.unqualifiedNameAnns name))
@@ -2994,7 +3006,7 @@ desugarAnnotatedExpr annotation inner = do
   intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
-  evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
+  evidenceBinders <- mapM freshDictionaryBinder evidencePredicates
   body <-
     withAlternativeScope (not (null (tcAnnTypeBinders annotation))) (zipWith Dictionary evidencePredicates evidenceBinders) $
       case inner of
@@ -3473,17 +3485,20 @@ desugarUnpackConstructor name annotation info resultCast = do
   constructor <- resolvedTermName name
   types <- convertOccurrenceTypeArguments name (tcAnnTypeArgs annotation)
   evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-  fields <- mapM bindSourceField (zip fieldTypes reps)
+  let labels = map dcfiLabel (dciFields info)
+      names = leafNames "_unpack_leaf" (zip labels (map (length . repLeaves) reps))
+  fields <- mapM bindSourceField (zip3 labels fieldTypes reps)
   convertedResult <- convertCheckedType resultType
   body <-
-    lowerFields convertedResult (zip3 fields fieldTypes reps) $ \leaves ->
+    lowerFields convertedResult (List.zip4 fields fieldTypes reps names) $ \leaves ->
       pure (buildWorker constructor types evidence leaves resultCast)
   pure (foldr ExLam body fields)
 
--- | A strict or unpacked source field keeps the historical strict-wrapper name.
-bindSourceField :: (TcType, FieldRep) -> ValueM Binder
-bindSourceField (fieldType, rep) =
-  freshBinder (if forcesField rep then "_strict_field" else "_field") fieldType
+-- | A source field takes its record label. A field without a label keeps
+-- the historical strict-wrapper name.
+bindSourceField :: (Maybe Text, TcType, FieldRep) -> ValueM Binder
+bindSourceField (label, fieldType, rep) =
+  freshBinder (fromMaybe (if forcesField rep then "_strict_field" else "_field") (mfilter isIdentifierText label)) fieldType
 
 forcesField :: FieldRep -> Bool
 forcesField rep =
@@ -3499,24 +3514,25 @@ buildWorker constructor types evidence leaves resultCast =
         Nothing -> applied
         Just coercion -> ExCast applied coercion
 
-lowerFields :: Type -> [(Binder, TcType, FieldRep)] -> ([Expr] -> ValueM Expr) -> ValueM Expr
+lowerFields :: Type -> [(Binder, TcType, FieldRep, [Text])] -> ([Expr] -> ValueM Expr) -> ValueM Expr
 lowerFields _ [] continue = continue []
-lowerFields result ((binder, fieldType, rep) : rest) continue =
-  lowerRep result (ExVar (binderName binder)) fieldType rep $ \leaves ->
+lowerFields result ((binder, fieldType, rep, names) : rest) continue =
+  lowerRep result (ExVar (binderName binder)) fieldType rep names $ \leaves ->
     lowerFields result rest $ \more ->
       continue (leaves <> more)
 
-lowerRep :: Type -> Expr -> TcType -> FieldRep -> ([Expr] -> ValueM Expr) -> ValueM Expr
-lowerRep result source sourceType rep continue =
+-- | The names are the names of the representation leaves of the field.
+lowerRep :: Type -> Expr -> TcType -> FieldRep -> [Text] -> ([Expr] -> ValueM Expr) -> ValueM Expr
+lowerRep result source sourceType rep names continue =
   case rep of
     RepStored _ strict ->
       forceLifted result source sourceType strict (continue [source])
     RepUnpack key _ ->
-      caseStoredProduct result source sourceType key rep continue
+      caseStoredProduct result source sourceType key rep names continue
     RepCast tyCon arguments inner -> do
       innerType <- newtypeFieldTypeOf tyCon arguments
       unwrapped <- castNewtype id tyCon arguments source
-      lowerRep result unwrapped innerType inner continue
+      lowerRep result unwrapped innerType inner names continue
 
 forceLifted :: Type -> Expr -> TcType -> Bool -> ValueM Expr -> ValueM Expr
 forceLifted result source sourceType strict inner
@@ -3531,18 +3547,45 @@ forceLifted result source sourceType strict inner
           body <- inner
           pure (caseFromList source (Just evaluated) result [Alt AltDefault [] [] body])
 
-caseStoredProduct :: Type -> Expr -> TcType -> (PackageId, Text, Text) -> FieldRep -> ([Expr] -> ValueM Expr) -> ValueM Expr
-caseStoredProduct result source sourceType (package, moduleName', constructorName) rep continue = do
+caseStoredProduct :: Type -> Expr -> TcType -> (PackageId, Text, Text) -> FieldRep -> [Text] -> ([Expr] -> ValueM Expr) -> ValueM Expr
+caseStoredProduct result source sourceType (package, moduleName', constructorName) rep names continue = do
   let types = map fst (repLeaves rep)
-  binders <- zipWithM (freshIndexedBinder "_unpack_leaf") [0 :: Int ..] types
+  binders <- zipWithM freshBinder names types
   body <- continue (map (ExVar . binderName) binders)
   scrutinee <- freshBinder "_unpack_scrut" sourceType
   let name = Name constructorName SortDataConstructor (OriginTop package moduleName')
   pure (caseFromList source (Just scrutinee) result [Alt (AltData name) [] binders body])
 
-representationBinders :: FieldRep -> ValueM [Binder]
-representationBinders rep =
-  zipWithM (freshIndexedBinder "$field") [0 :: Int ..] (map fst (repLeaves rep))
+-- | The binders of the representation leaves of the fields of a
+-- constructor. Each field has a name or no name. See 'leafNames'.
+freshLeafBinders :: Text -> [(Maybe Text, FieldRep)] -> ValueM [[Binder]]
+freshLeafBinders prefix fields =
+  zipWithM
+    (zipWithM freshBinder)
+    (leafNames prefix [(name, length (repLeaves rep)) | (name, rep) <- fields])
+    [map fst (repLeaves rep) | (_, rep) <- fields]
+
+-- | The names of the representation leaves of the fields of a constructor,
+-- from the name and the leaf count of each field. The leaves of a field
+-- with a name take that name. When such a field has more than one leaf,
+-- each leaf name also has the index of the leaf in the field. The leaves
+-- of a field without a name take the prefix and an index. This index
+-- counts over all such leaves of the constructor, so no two leaves of the
+-- constructor get the same name.
+leafNames :: Text -> [(Maybe Text, Int)] -> [[Text]]
+leafNames prefix = go (0 :: Int)
+  where
+    go next fields =
+      case fields of
+        [] -> []
+        (Just name, count) : rest
+          | isIdentifierText name,
+            count == 1 ->
+              [name] : go next rest
+          | isIdentifierText name ->
+              [name <> T.pack (show index) | index <- [0 .. count - 1]] : go next rest
+        (_, count) : rest ->
+          [prefix <> T.pack (show index) | index <- [next .. next + count - 1]] : go (next + count) rest
 
 -- | Rebuild one source field from its representation leaves.
 -- An unpacked product uses the representation constructor, not the source wrapper.
@@ -3644,7 +3687,7 @@ desugarFlattenedPatternGroup resultType fallback remaining restTypes scrutineeTy
   withTypeVariables typeVariables $ do
     typeBinders <- convertTypeBinders typeVariables
     fields <- zipWithM freshPatternBinder annotated leafTypes
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    dictionaries <- mapM freshDictionaryBinder predicates
     rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
     expanded <- mapMaybeM (specializeFlattened key fieldTypes reps fields leafTypes) rooted
     body <-
@@ -3665,11 +3708,12 @@ desugarRebuiltPatternGroup resultType fallback remaining restTypes scrutineeType
   fieldTypes <- patternFieldTypes pattern' subpatterns
   withTypeVariables typeVariables $ do
     typeBinders <- convertTypeBinders typeVariables
-    prepared <- mapM (\(child, childType, childRep) -> prepareRebuiltField child childType childRep) (zip3 subpatterns fieldTypes reps)
+    labels <- patternFieldLabels pattern'
+    prepared <- prepareRebuiltFields (withFieldLabels subpatterns labels) fieldTypes reps
     let leafBinders = concatMap (\(leaves, _, _) -> leaves) prepared
         sourceBinders = map (\(_, source, _) -> source) prepared
         rebuilds = mapMaybe (\(_, _, binding) -> binding) prepared
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    dictionaries <- mapM freshDictionaryBinder predicates
     rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
     expanded <- mapMaybeM (specializeMatchWork key (length sourceBinders) sourceBinders fieldTypes) rooted
     body <-
@@ -3681,14 +3725,39 @@ desugarRebuiltPatternGroup resultType fallback remaining restTypes scrutineeType
           pure (foldr ExLet inner rebuilds)
     pure (Alt constructor typeBinders (dictionaries <> leafBinders) body)
 
-prepareRebuiltField :: Syn.Pattern -> TcType -> FieldRep -> ValueM ([Binder], Binder, Maybe Bind)
-prepareRebuiltField pattern' fieldType rep
+-- | Whether a name is an identifier, and not an operator. Only an
+-- identifier names a representation leaf.
+isIdentifierText :: Text -> Bool
+isIdentifierText name =
+  case T.uncons name of
+    Just (first, rest) -> (isAlpha first || first == '_') && T.all (\character -> isAlphaNum character || character `elem` ("_'" :: String)) rest
+    Nothing -> False
+
+-- | Each subpattern with the record label of its field, if the field has one.
+withFieldLabels :: [Syn.Pattern] -> [Maybe Text] -> [(Syn.Pattern, Maybe Text)]
+withFieldLabels patterns labels = zip patterns (labels <> repeat Nothing)
+
+-- | The record labels of the fields of the constructor of a pattern.
+patternFieldLabels :: Syn.Pattern -> ValueM [Maybe Text]
+patternFieldLabels pattern' = maybe [] (map dcfiLabel . dciFields) <$> patternDataCon pattern'
+
+-- | Prepare the fields of a constructor pattern. The representation leaves
+-- of a field take the name of the variable that matches the field, else
+-- the record label of the field. See 'leafNames'.
+prepareRebuiltFields :: [(Syn.Pattern, Maybe Text)] -> [TcType] -> [FieldRep] -> ValueM [([Binder], Binder, Maybe Bind)]
+prepareRebuiltFields patterns fieldTypes reps =
+  sequence (List.zipWith4 prepareRebuiltField (map fst patterns) fieldTypes reps names)
+  where
+    names = leafNames "_unpack_leaf" [(barePatternName pattern' <|> label, length (repLeaves rep)) | ((pattern', label), rep) <- zip patterns reps]
+
+prepareRebuiltField :: Syn.Pattern -> TcType -> FieldRep -> [Text] -> ValueM ([Binder], Binder, Maybe Bind)
+prepareRebuiltField pattern' fieldType rep names
   | repIsStored rep = do
       binder <- freshPatternBinder pattern' fieldType
       pure ([binder], binder, Nothing)
   | otherwise = do
       let types = map fst (repLeaves rep)
-      leaves <- zipWithM (freshIndexedBinder "_unpack_leaf") [0 :: Int ..] types
+      leaves <- zipWithM freshBinder names types
       source <- freshPatternBinder pattern' fieldType
       rebuilt <- rebuildField fieldType rep (map (ExVar . binderName) leaves)
       pure (leaves, source, Just (Bind source rebuilt))
@@ -4607,11 +4676,11 @@ desugarDoUnpackedPattern resultType binder pattern' info success failure = do
   fieldTypes <- patternFieldTypes pattern' children
   withTypeVariables typeVariables $ do
     typeBinders <- convertTypeBinders typeVariables
-    prepared <- mapM (\(child, childType, childRep) -> prepareRebuiltField child childType childRep) (zip3 children fieldTypes reps)
+    prepared <- prepareRebuiltFields (withFieldLabels children (map dcfiLabel (dciFields info))) fieldTypes reps
     let leafBinders = concatMap (\(leaves, _, _) -> leaves) prepared
         sourceBinders = map (\(_, source, _) -> source) prepared
         rebuilds = mapMaybe (\(_, _, binding) -> binding) prepared
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    dictionaries <- mapM freshDictionaryBinder predicates
     constructor <- patternConstructor pattern'
     resultType' <- convertCheckedType resultType
     caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
@@ -4634,7 +4703,7 @@ desugarDoStoredPattern resultType binder pattern' success failure = do
     typeBinders <- convertTypeBinders typeVariables
     fieldTypes <- patternFieldTypes pattern' children
     fields <- zipWithM freshPatternBinder children fieldTypes
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+    dictionaries <- mapM freshDictionaryBinder predicates
     constructor <- patternConstructor pattern'
     resultType' <- convertCheckedType resultType
     caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
@@ -5051,7 +5120,7 @@ desugarEvidence evidence =
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
     Ev.EvDictLam predicate _ body -> withoutEvidenceScope $ do
-      binder <- freshDictionaryBinder "$quantified_d" 0 predicate
+      binder <- freshDictionaryBinder predicate
       body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
       pure (ExLam binder body')
     Ev.EvTypeApp function argument ->
@@ -5062,7 +5131,7 @@ desugarEvidence evidence =
     Ev.EvCallStackEmpty origin -> desugarCallStackEmpty origin
     Ev.EvRecursive predicate dictionaryType body -> withoutEvidenceScope $ do
       -- The body names the dictionary as a given of its own predicate.
-      binder <- freshBinder "$recursive_d" dictionaryType
+      binder <- freshEvidenceBinder dictionaryType
       body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
       pure (ExRec [Bind binder body'] (ExVar (binderName binder)))
 
@@ -5081,8 +5150,8 @@ desugarSuperClass evidence =
           IrredPred constraint
             | (TcTyCon constructor _, _) <- Tc.collectTypeApplications constraint -> pure constructor
           IrredPred {} -> failValue "cannot select a superclass from an irreducible constraint before it reduces"
-      sourceBinder <- freshDictionaryBinder "$super_source" 0 sourcePredicate
-      fieldBinders <- zipWithM (freshIndexedBinder "$super_field") [0 :: Int ..] fieldTypes
+      sourceBinder <- freshDictionaryBinder sourcePredicate
+      fieldBinders <- freshDictionaryFields classTyCon fieldTypes
       selected <-
         case drop fieldIndex fieldBinders of
           field : _ -> pure field
@@ -5496,7 +5565,7 @@ convertCoercionWithExpectedKind expectedKind coercion =
   case coercion of
     Ev.EvidenceCo predicate evidence -> do
       expression <- desugarEvidence evidence
-      binder <- freshDictionaryBinder "$co" 0 predicate
+      binder <- freshDictionaryBinder predicate
       pure (CoVar (binderName binder), [Bind binder expression])
     Ev.GivenCo predicate -> do
       dictionaries <- gets vsDictionaries
@@ -5608,15 +5677,62 @@ argumentName index
   | index < 3 = T.singleton (['x', 'y', 'z'] !! index)
   | otherwise = "x" <> T.pack (show (index - 2))
 
-freshIndexedBinder :: Text -> Int -> TcType -> ValueM Binder
-freshIndexedBinder prefix index = freshBinder (prefix <> T.pack (show index))
-
-freshDictionaryBinder :: Text -> Int -> Pred -> ValueM Binder
-freshDictionaryBinder prefix index predicate = do
+-- | A binder of the evidence for a predicate. See 'evidenceBinderText'.
+freshDictionaryBinder :: Pred -> ValueM Binder
+freshDictionaryBinder predicate = do
   unique <- freshUnique
   env <- gets vsConvertEnv
   ty <- liftEither (convertPred env predicate)
-  pure (Binder (Name (prefix <> T.pack (show index)) SortValue (OriginLocal unique)) ty)
+  pure (Binder (Name (evidenceBinderText ty) SortValue (OriginLocal unique)) ty)
+
+-- | A binder of evidence that has the checked type. See 'evidenceBinderText'.
+freshEvidenceBinder :: TcType -> ValueM Binder
+freshEvidenceBinder ty = do
+  unique <- freshUnique
+  converted <- convertCheckedType ty
+  pure (Binder (Name (evidenceBinderText converted) SortValue (OriginLocal unique)) converted)
+
+-- | The name of a binder of evidence, from its System FC type. All
+-- evidence binders use this one scheme. A class dictionary is @$d@ and
+-- the class name, such as @$dOrd@. An equality proof is @$co@. Other
+-- evidence is @$d@. A quantified constraint takes the name of its head.
+evidenceBinderText :: Type -> Text
+evidenceBinderText ty =
+  case ty of
+    TyForAll _ body -> evidenceBinderText body
+    TyFun _ _ _ result -> evidenceBinderText result
+    TyEq {} -> "$co"
+    _
+      | Just name <- TypeOf.typeHead ty,
+        Just className <- T.stripPrefix "$Dict$" (nameText name) ->
+          "$d" <> className
+      | otherwise -> "$d"
+
+-- | The binders of the fields of a class dictionary in a dictionary match.
+-- A superclass field is evidence, see 'evidenceBinderText'. A method
+-- field is @$c@ and the method name, such as @$ccompare@. This is the
+-- method name in the name of an instance method, such as @$fOrdInt$ccompare@.
+freshDictionaryFields :: TyCon -> [TcType] -> ValueM [Binder]
+freshDictionaryFields classTyCon fieldTypes = do
+  methods <- gets (Map.findWithDefault [] (Tc.tyConKey classTyCon) . vsClassMethods)
+  let superClassCount = length fieldTypes - length methods
+      methodNames
+        | superClassCount >= 0 = replicate superClassCount Nothing <> map Just methods
+        | otherwise = map (const Nothing) fieldTypes
+  zipWithM field [0 :: Int ..] (zip fieldTypes methodNames)
+  where
+    field index (fieldType, methodName) = do
+      unique <- freshUnique
+      converted <- convertCheckedType fieldType
+      let text =
+            case methodName of
+              Just name -> "$c" <> name
+              Nothing
+                | isEvidenceType converted -> evidenceBinderText converted
+                | otherwise -> "$c" <> T.pack (show index)
+      pure (Binder (Name text SortValue (OriginLocal unique)) converted)
+    isEvidenceType converted = evidenceBinderText converted /= "$d" || isDictionaryHead converted
+    isDictionaryHead converted = maybe False (T.isPrefixOf "$Dict$" . nameText) (TypeOf.typeHead converted)
 
 freshBinder :: Text -> TcType -> ValueM Binder
 freshBinder name ty = do
@@ -5935,7 +6051,7 @@ shareSuperClass evidence resultType build = do
         Just binder -> pure (ExVar (binderName binder))
         Nothing -> do
           expression <- build
-          binder <- freshBinder "$super" resultType
+          binder <- freshEvidenceBinder resultType
           -- The build step can open and close scopes of its own, so read the
           -- scope again rather than extending the one from before.
           modify' $ \state ->

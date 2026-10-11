@@ -45,9 +45,9 @@ expected: |-
   }
 
   pub val 1.vtypeRep :: ∀(k : sType) (a : k). t$Dict$Typeable k a 2.→ tTypeRep k a
-    = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a).
-      let! c$Dict$Typeable ($method0 : tTypeRep k a) = $d0;
-      $method0
+    = Λ(k : sType) (a : k). λ($dTypeable : t$Dict$Typeable k a).
+      let! c$Dict$Typeable ($ctypeRep : tTypeRep k a) = $dTypeable;
+      $ctypeRep
   scope 1 = "" Test
   scope 2 = "" Type.Reflection.Internal
   scope 3 = "aihc-prim" GHC.Types
@@ -76,16 +76,16 @@ expected: |-
   }
 
   pub val 1.vput :: ∀(a : sType). t$Dict$Binary a 3.→ a 3.→ tUnit
-    = Λ(a : sType). λ($d0 : t$Dict$Binary a).
-      let! c$Dict$Binary ($method0 : a 3.→ tUnit) = $d0;
-      $method0
+    = Λ(a : sType). λ($dBinary : t$Dict$Binary a).
+      let! c$Dict$Binary ($cput : a 3.→ tUnit) = $dBinary;
+      $cput
 
   pub val 1.v$fBinaryTypeRepa :: ∀(k : sType) (a : k). t$Dict$Typeable k a 3.→ t$Dict$Binary (tTypeRep k a)
-    = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a).
-      c$Dict$Binary @(tTypeRep k a) (v$fBinaryTypeRepa$cput @k @a $d0)
+    = Λ(k : sType) (a : k). λ($dTypeable : t$Dict$Typeable k a).
+      c$Dict$Binary @(tTypeRep k a) (v$fBinaryTypeRepa$cput @k @a $dTypeable)
 
   val 1.v$fBinaryTypeRepa$cput :: ∀(k : sType) (a : k). t$Dict$Typeable k a 3.→ tTypeRep k a 3.→ tUnit
-    = Λ(k : sType) (a : k). λ($d0 : t$Dict$Typeable k a) (x : tTypeRep k a).
+    = Λ(k : sType) (a : k). λ($dTypeable : t$Dict$Typeable k a) (x : tTypeRep k a).
       cUnit
 status: pass
 reason: an instance head that gives a parameter an implicit kind variable quantifies the kind variable before the parameter, so the dictionary type is well scoped.

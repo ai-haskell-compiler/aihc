@@ -33,8 +33,8 @@ expected: |-
   }
 
   pub val 1.vsupply :: ∀(a : sType) (p : sType 2.→ sType). t$Dict$Supply a 2.→ p a 2.→ tToken
-    = Λ(a : sType) (p : sType 2.→ sType). λ($d0 : t$Dict$Supply a).
-      let! c$Dict$Supply ($method0 : ∀(p{1} : sType 2.→ sType). p{1} a 2.→ tToken) = $d0;
-      $method0 @p
+    = Λ(a : sType) (p : sType 2.→ sType). λ($dSupply : t$Dict$Supply a).
+      let! c$Dict$Supply ($csupply : ∀(p{1} : sType 2.→ sType). p{1} a 2.→ tToken) = $dSupply;
+      $csupply @p
 status: pass
 reason: ''

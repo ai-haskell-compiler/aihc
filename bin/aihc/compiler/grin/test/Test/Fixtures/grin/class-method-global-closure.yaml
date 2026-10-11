@@ -13,11 +13,11 @@ expected: |-
 
   pub global 1.reads = (P1.$reads/1)
 
-  1.$reads ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+  1.$reads ($dRead :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
-    $method0 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($dRead :: BoxedRep Lifted)
+    $creads :: BoxedRep Lifted <-
       fetch (C1.$Dict$Read) (case_value :: BoxedRep Lifted)
-    eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) ($creads :: BoxedRep Lifted)
 status: pass
 reason: emits a class method selector as a direct global closure
